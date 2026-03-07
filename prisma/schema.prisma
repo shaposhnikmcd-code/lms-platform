@@ -1,0 +1,39 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Course {
+  id          String   @id @default(cuid())
+  title       String
+  description String
+  price       Int
+  published   Boolean  @default(false)
+
+  modules     Module[]
+
+  createdAt   DateTime @default(now())
+}
+
+model Module {
+  id       String @id @default(cuid())
+  title    String
+  order    Int
+
+  courseId String
+  course   Course @relation(fields: [courseId], references: [id])
+
+  lessons  Lesson[]
+}
+
+model Lesson {
+  id       String @id @default(cuid())
+  title    String
+  order    Int
+
+  moduleId String
+  module   Module @relation(fields: [moduleId], references: [id])
+}
