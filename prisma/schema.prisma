@@ -83,14 +83,12 @@ model Module {
 }
 
 model Lesson {
-  id        String   @id
+  id        String   @id @default(cuid())  // ← Додайте @default(cuid())
   title     String
   order     Int
   moduleId  String
-
   videoUrl  String?
   content   String?
-
   module    Module   @relation(fields: [moduleId], references: [id])
 }
 
