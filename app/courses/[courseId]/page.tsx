@@ -1,17 +1,14 @@
-import { prisma } from "@/lib/prisma"
+import { prisma } from "@/lib/prisma";
 
 export default async function CoursePage({ params }: any) {
-
-  const courseId = params.courseId
-
   const course = await prisma.course.findUnique({
     where: {
-      id: courseId
+      id: params.courseId
     }
-  })
+  });
 
   if (!course) {
-    return <div>Course not found</div>
+    return <div>Course not found</div>;
   }
 
   return (
@@ -20,5 +17,5 @@ export default async function CoursePage({ params }: any) {
       <p>{course.description}</p>
       <p>Price: ${course.price}</p>
     </div>
-  )
+  );
 }
