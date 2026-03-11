@@ -5,9 +5,7 @@ const nextConfig = {
   },
   eslint: {
     ignoreDuringBuilds: true,
-    dirs: [] // Пустий масив означає не перевіряти жодні директорії
   },
-  swcMinify: true, // Це має бути ВСЕРЕДИНІ об'єкта nextConfig
 };
 
 module.exports = nextConfig;
