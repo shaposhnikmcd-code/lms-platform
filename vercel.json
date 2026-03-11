@@ -1,5 +1,5 @@
 {
-  "installCommand": "npm ci --no-audit --no-fund",
+  "installCommand": "node --version && npm --version && npm install",
   "buildCommand": "next build",
   "framework": "nextjs"
 }
