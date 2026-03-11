@@ -1,36 +1,10 @@
-import NextAuth, { NextAuthOptions } from "next-auth";
+import NextAuth from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { PrismaAdapter } from "@next-auth/prisma-adapter";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
-import { JWT } from "next-auth/jwt";
-import { Session } from "next-auth";
-import { User } from "next-auth";
 
-// Розширюємо типи для session
-declare module "next-auth" {
-  interface Session {
-    user: {
-      id: string;
-      email: string;
-      name?: string | null;
-    }
-  }
-  
-  interface User {
-    id: string;
-    email: string;
-    name?: string | null;
-  }
-}
-
-declare module "next-auth/jwt" {
-  interface JWT {
-    id: string;
-  }
-}
-
-export const authOptions: NextAuthOptions = {
+const handler = NextAuth({
   adapter: PrismaAdapter(prisma),
   providers: [
     CredentialsProvider({
@@ -84,12 +58,11 @@ export const authOptions: NextAuthOptions = {
     },
     async session({ session, token }) {
       if (session?.user) {
-        session.user.id = token.id;
+        session.user.id = token.id as string;
       }
       return session;
     }
   }
-};
+});
 
-const handler = NextAuth(authOptions);
 export { handler as GET, handler as POST };
