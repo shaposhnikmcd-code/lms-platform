@@ -29,6 +29,8 @@
     "tailwindcss": "^3.4.1",
     "postcss": "^8",
     "autoprefixer": "^10",
-    "@types/bcryptjs": "^2.4.6"
+    "@types/bcryptjs": "^2.4.6",
+    "eslint": "^8.57.0",
+    "eslint-config-next": "15.2.1"
   }
 }
