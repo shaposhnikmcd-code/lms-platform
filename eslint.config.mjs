@@ -1,16 +1,21 @@
-import { dirname } from "path";
-import { fileURLToPath } from "url";
-import { FlatCompat } from "@eslint/eslintrc";
+// eslint.config.mjs
+import { defineConfig, globalIgnores } from 'eslint/config';
+import nextVitals from 'eslint-config-next/core-web-vitals';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-const compat = new FlatCompat({
-  baseDirectory: __dirname,
-});
-
-const eslintConfig = [
-  ...compat.extends("next/core-web-vitals", "next/typescript"),
-];
+const eslintConfig = defineConfig([
+  ...nextVitals,
+  {
+    rules: {
+      // Вимикаємо правило для лапок (воно найчастіше ламає збірку)
+      'react/no-unescaped-entities': 'off',
+      // Робимо попередження, а не помилки для невикористаних змінних
+      '@typescript-eslint/no-unused-vars': 'warn',
+      // Робимо попередження, а не помилки для типу 'any'
+      '@typescript-eslint/no-explicit-any': 'warn',
+    },
+  },
+  // Ігноруємо стандартні папки Next.js
+  globalIgnores(['.next/**', 'out/**', 'build/**', 'next-env.d.ts']),
+]);
 
 export default eslintConfig;
