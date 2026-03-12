@@ -12,7 +12,7 @@ export default function HomePage() {
               <span className="text-blue-600"> та саморозвитку</span>
             </h1>
             <p className="text-xl text-gray-600 mb-10 max-w-3xl mx-auto">
-              Професійна підтримка для вашого психологічного здоров'я. 
+              Професійна підтримка для вашого психологічного здоров&apos;я. 
               Навчайтеся у власному темпі з доступом до психолога.
             </p>
             <Link

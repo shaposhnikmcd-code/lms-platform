@@ -1,5 +1,4 @@
 import { getServerSession } from "next-auth";
-import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import SessionProviderWrapper from "./components/SessionProviderWrapper";
 import Link from "next/link";
 import "./globals.css";
@@ -14,7 +13,7 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const session = await getServerSession(authOptions);
+  const session = await getServerSession();
 
   return (
     <html lang="uk">

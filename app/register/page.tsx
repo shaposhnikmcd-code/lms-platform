@@ -20,8 +20,6 @@ export default function RegisterPage() {
     setError("");
 
     try {
-      console.log("Sending data:", formData); // Для перевірки
-
       const res = await fetch("/api/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -29,14 +27,13 @@ export default function RegisterPage() {
       });
 
       const data = await res.json();
-      console.log("Response:", data); // Для перевірки
 
       if (res.ok) {
         router.push("/login?registered=true");
       } else {
         setError(data.message || "Помилка реєстрації");
       }
-    } catch (err) {
+    } catch (err: unknown) {
       console.error("Fetch error:", err);
       setError("Сталася помилка");
     } finally {
@@ -55,12 +52,11 @@ export default function RegisterPage() {
             Створіть акаунт для доступу до курсів
           </p>
         </div>
-        
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
           <div className="space-y-4">
             <div>
               <label htmlFor="name" className="block text-sm font-medium text-gray-700">
-                Ім'я
+                Ім&apos;я
               </label>
               <input
                 id="name"
@@ -71,7 +67,6 @@ export default function RegisterPage() {
                 className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
-            
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-gray-700">
                 Email
@@ -85,7 +80,6 @@ export default function RegisterPage() {
                 className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
-            
             <div>
               <label htmlFor="password" className="block text-sm font-medium text-gray-700">
                 Пароль
@@ -104,13 +98,11 @@ export default function RegisterPage() {
               </p>
             </div>
           </div>
-
           {error && (
             <div className="text-red-500 text-sm text-center">
               {error}
             </div>
           )}
-
           <div>
             <button
               type="submit"
@@ -121,7 +113,6 @@ export default function RegisterPage() {
             </button>
           </div>
         </form>
-
         <div className="text-center">
           <p className="text-sm text-gray-600">
             Вже є акаунт?{" "}
