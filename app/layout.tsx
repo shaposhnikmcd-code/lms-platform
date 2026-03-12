@@ -4,6 +4,7 @@ import Link from "next/link";
 import "./globals.css";
 import Image from "next/image";
 import AuthButtons from "@/components/AuthButtons";
+import CookieBanner from "@/components/CookieBanner"; // ← ДОДАНО
 
 export default async function RootLayout({
   children,
@@ -20,7 +21,7 @@ export default async function RootLayout({
       </head>
       <body className="antialiased">
         <SessionProviderWrapper session={session}>
-          {/* Навігація з преміум-ефектами */}
+          {/* Навігація */}
           <nav className="bg-white shadow-md sticky top-0 z-50 backdrop-blur-sm bg-white/90">
             <div className="container mx-auto px-4">
               <div className="flex justify-between items-center h-16">
@@ -34,7 +35,6 @@ export default async function RootLayout({
                       className="rounded-full"
                     />
                   </div>
-                  {/* Напис приховано на мобільних */}
                 </Link>
                 
                 <div className="flex gap-4 md:gap-6 items-center">
@@ -62,21 +62,22 @@ export default async function RootLayout({
                     <span className="absolute inset-0 bg-[#D4A843] scale-0 group-hover:scale-100 transition-transform duration-300 rounded-lg opacity-10"></span>
                   </Link>
                   
-                  {/* Додаємо компонент з кнопками авторизації */}
                   <AuthButtons />
                 </div>
               </div>
             </div>
           </nav>
 
-          {/* Основний контент з анімацією */}
+          {/* Основний контент */}
           <main className="animate-fadeIn">{children}</main>
+
+          {/* Cookie банер - ТІЛЬКИ ПРИ ПЕРШОМУ ВІДВІДУВАННІ */}
+          <CookieBanner />
 
           {/* Скрипт для мікро-взаємодій */}
           <script dangerouslySetInnerHTML={{
             __html: `
               document.addEventListener('DOMContentLoaded', function() {
-                // Плавна поява секцій при скролі
                 const observer = new IntersectionObserver((entries) => {
                   entries.forEach(entry => {
                     if (entry.isIntersecting) {
