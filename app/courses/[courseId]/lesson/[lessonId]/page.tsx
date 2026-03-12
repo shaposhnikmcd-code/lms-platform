@@ -1,9 +1,11 @@
 import { prisma } from "@/lib/prisma"
 
-export default async function LessonPage(props: any) {
+type Props = {
+  params: Promise<{ lessonId: string }>;
+};
 
-  const params = await props.params
-  const lessonId = params.lessonId
+export default async function LessonPage({ params }: Props) {
+  const { lessonId } = await params;
 
   const lesson = await prisma.lesson.findUnique({
     where: {
