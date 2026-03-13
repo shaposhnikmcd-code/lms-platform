@@ -3,7 +3,7 @@
 import { useSession, signIn, signOut } from "next-auth/react";
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { FaFacebook, FaApple, FaEnvelope, FaTimes, FaUser } from 'react-icons/fa';
+import { FaFacebook, FaEnvelope, FaTimes, FaUser } from 'react-icons/fa';
 
 export default function AuthButtons() {
   const { data: session, status } = useSession();
@@ -173,15 +173,6 @@ export default function AuthButtons() {
                     >
                       <FaFacebook className="text-xl" />
                       <span>Увійти з Facebook</span>
-                    </button>
-
-                    <button
-                      onClick={() => signIn('apple', { callbackUrl: '/' })}
-                      disabled={loading}
-                      className="w-full flex items-center justify-center gap-3 bg-black text-white font-medium py-3 px-4 rounded-xl hover:bg-gray-900 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <FaApple className="text-xl" />
-                      <span>Увійти з Apple</span>
                     </button>
                   </div>
 

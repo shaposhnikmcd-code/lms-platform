@@ -9,18 +9,17 @@ datasource db {
 }
 
 model User {
-  id            String    @id @default(cuid())
+  id            String       @id @default(cuid())
   name          String?
-  email         String    @unique
+  email         String       @unique
   emailVerified DateTime?
   password      String?
   image         String?
-  role          String    @default("user")
-  createdAt     DateTime  @default(now())
-
+  createdAt     DateTime     @default(now())
+  role          UserRole     @default(STUDENT)
   accounts      Account[]
-  sessions      Session[]
   enrollments   Enrollment[]
+  sessions      Session[]
 }
 
 model Account {
@@ -36,8 +35,7 @@ model Account {
   scope             String?
   id_token          String?
   session_state     String?
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerAccountId])
 }
@@ -47,8 +45,7 @@ model Session {
   sessionToken String   @unique
   userId       String
   expires      DateTime
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model VerificationToken {
@@ -60,37 +57,34 @@ model VerificationToken {
 }
 
 model Course {
-  id          String   @id @default(cuid())
+  id          String       @id @default(cuid())
   title       String
   description String
   price       Int
-  published   Boolean  @default(false)
+  published   Boolean      @default(false)
+  createdAt   DateTime     @default(now())
   imageUrl    String?
-  createdAt   DateTime @default(now())
-
-  modules     Module[]
   enrollments Enrollment[]
+  modules     Module[]
 }
 
 model Module {
-  id       String @id @default(cuid())
+  id       String   @id @default(cuid())
   title    String
   order    Int
-
   courseId String
-  course   Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
-
   lessons  Lesson[]
+  course   Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
 }
 
 model Lesson {
-  id        String   @id @default(cuid())  // ← Додайте @default(cuid())
-  title     String
-  order     Int
-  moduleId  String
-  videoUrl  String?
-  content   String?
-  module    Module   @relation(fields: [moduleId], references: [id])
+  id       String  @id @default(cuid())
+  title    String
+  order    Int
+  moduleId String
+  content  String?
+  videoUrl String?
+  module   Module  @relation(fields: [moduleId], references: [id])
 }
 
 model Enrollment {
@@ -98,9 +92,14 @@ model Enrollment {
   userId    String
   courseId  String
   createdAt DateTime @default(now())
-
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, courseId])
+}
+
+enum UserRole {
+  ADMIN
+  TEACHER
+  STUDENT
 }

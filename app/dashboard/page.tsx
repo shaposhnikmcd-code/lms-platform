@@ -1,15 +1,21 @@
-export default function Dashboard() {
-  return (
-    <main style={{padding:40}}>
-      <h1>Dashboard</h1>
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { redirect } from "next/navigation";
 
-      <p>Ваші курси</p>
+export default async function DashboardPage() {
+  const session = await getServerSession(authOptions);
 
-      <ul>
-        <li>Психологія стосунків</li>
-        <li>Самооцінка</li>
-      </ul>
+  if (!session?.user) {
+    redirect("/");
+  }
 
-    </main>
-  )
+  switch (session.user.role) {
+    case "ADMIN":
+      redirect("/dashboard/admin");
+    case "TEACHER":
+      redirect("/dashboard/teacher");
+    case "STUDENT":
+    default:
+      redirect("/dashboard/student");
+  }
 }
