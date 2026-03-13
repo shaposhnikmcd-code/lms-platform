@@ -1,20 +1,120 @@
-"use client";
+'use client';
 
 import { useSession, signIn, signOut } from "next-auth/react";
-import Link from "next/link";
+import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
+import { FaGoogle, FaFacebook, FaApple, FaEnvelope, FaTimes, FaUser } from 'react-icons/fa';
 
 export default function AuthButtons() {
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [emailMode, setEmailMode] = useState(false);
+  const [registerMode, setRegisterMode] = useState(false);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
+  const [mounted, setMounted] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  if (session) {
+  useEffect(() => { setMounted(true); }, []);
+
+  useEffect(() => {
+    document.body.style.overflow = showLoginModal ? 'hidden' : '';
+    return () => { document.body.style.overflow = ''; };
+  }, [showLoginModal]);
+
+  const closeModal = () => {
+    setShowLoginModal(false);
+    setEmailMode(false);
+    setRegisterMode(false);
+    setEmail('');
+    setPassword('');
+    setName('');
+    setLoading(false);
+  };
+
+  const handleRegister = async () => {
+    if (!email || !password) {
+      alert('Будь ласка, заповніть всі поля');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const response = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, email, password }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        alert(data.error || 'Помилка реєстрації');
+        setLoading(false);
+        return;
+      }
+
+      // Автоматичний вхід після реєстрації
+      await signIn('credentials', { 
+        email, 
+        password, 
+        callbackUrl: '/',
+        redirect: true 
+      });
+      
+      closeModal();
+    } catch (error) {
+      console.error('Помилка:', error);
+      alert('Помилка при реєстрації');
+      setLoading(false);
+    }
+  };
+
+  const handleLogin = async () => {
+    if (!email || !password) {
+      alert('Будь ласка, заповніть всі поля');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await signIn('credentials', { 
+        email, 
+        password, 
+        callbackUrl: '/',
+        redirect: true 
+      });
+    } catch (error) {
+      console.error('Помилка:', error);
+      alert('Помилка при вході');
+      setLoading(false);
+    }
+  };
+
+  if (status === 'loading') {
+    return <div className="w-24 h-9 bg-gray-200 animate-pulse rounded-lg"></div>;
+  }
+
+  // Якщо користувач авторизований - показуємо тільки аватар і кнопку виходу
+  if (session?.user) {
     return (
-      <div className="flex items-center gap-4">
-        <span className="text-sm text-[#1C3A2E]">
-          {session.user?.email}
-        </span>
+      <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 bg-[#D4A017] rounded-full flex items-center justify-center overflow-hidden">
+            {session.user.image ? (
+              <img src={session.user.image} alt="Avatar" className="w-8 h-8 rounded-full object-cover" />
+            ) : (
+              <FaUser className="text-white text-sm" />
+            )}
+          </div>
+          <span className="text-sm text-[#1C3A2E] hidden md:inline">
+            {session.user?.name || session.user?.email || 'Користувач'}
+          </span>
+        </div>
         <button
-          onClick={() => signOut()}
-          className="bg-[#1C3A2E] text-white px-4 py-2 rounded-lg text-sm hover:bg-opacity-90 transition-all"
+          onClick={() => signOut({ callbackUrl: '/' })}
+          className="bg-[#D4A017] text-white px-4 py-2 rounded-lg text-sm hover:bg-[#b88913] transition-all"
         >
           Вийти
         </button>
@@ -22,20 +122,193 @@ export default function AuthButtons() {
     );
   }
 
+  // Якщо користувач не авторизований - показуємо кнопку Увійти
   return (
-    <div className="flex gap-2">
-      <Link
-        href="/login"
-        className="text-[#1C3A2E] hover:text-[#D4A843] px-3 py-2"
+    <>
+      <button
+        onClick={() => setShowLoginModal(true)}
+        className="bg-[#1C3A2E] text-white px-4 py-2 rounded-lg text-sm hover:bg-[#2a4f3f] transition-all"
       >
         Увійти
-      </Link>
-      <Link
-        href="/register"
-        className="bg-[#D4A843] text-[#1C3A2E] px-4 py-2 rounded-lg text-sm hover:bg-opacity-90 transition-all"
-      >
-        Реєстрація
-      </Link>
-    </div>
+      </button>
+
+      {mounted && showLoginModal && createPortal(
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          zIndex: 999999,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <div onClick={closeModal} style={{
+            position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+            backgroundColor: 'rgba(0,0,0,0.5)',
+            backdropFilter: 'blur(4px)',
+          }} />
+          <div onClick={(e) => e.stopPropagation()} style={{
+            position: 'relative', backgroundColor: 'white',
+            borderRadius: 16, boxShadow: '0 25px 50px rgba(0,0,0,0.25)',
+            width: '100%', maxWidth: 448, margin: '0 16px', zIndex: 1,
+          }}>
+            <div style={{ padding: 32 }}>
+              <button onClick={closeModal} style={{
+                position: 'absolute', top: 16, right: 16,
+                background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af',
+              }}>
+                <FaTimes size={20} />
+              </button>
+              <h2 style={{ fontSize: 24, fontWeight: 700, color: '#1C3A2E', marginBottom: 8 }}>
+                {registerMode ? 'Реєстрація' : 'Вхід в акаунт'}
+              </h2>
+              <p style={{ color: '#6b7280', fontSize: 14, marginBottom: 24 }}>
+                {registerMode 
+                  ? 'Зареєструйтесь щоб отримати доступ до курсів' 
+                  : 'Увійдіть щоб отримати доступ до курсів'}
+              </p>
+
+              {!emailMode ? (
+                <>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    <button 
+                      onClick={() => signIn('google', { callbackUrl: '/' })}
+                      disabled={loading}
+                      className="w-full flex items-center justify-center gap-3 bg-white border-2 border-gray-300 hover:bg-gray-50 text-gray-700 font-medium py-3 px-4 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <FaGoogle className="text-[#4285F4] text-xl" />
+                      <span>Увійти з Google</span>
+                    </button>
+                    <button 
+                      onClick={() => signIn('facebook', { callbackUrl: '/' })}
+                      disabled={loading}
+                      className="w-full flex items-center justify-center gap-3 bg-[#1877F2] text-white font-medium py-3 px-4 rounded-xl hover:bg-[#1669d9] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <FaFacebook className="text-xl" />
+                      <span>Увійти з Facebook</span>
+                    </button>
+                    <button 
+                      onClick={() => signIn('apple', { callbackUrl: '/' })}
+                      disabled={loading}
+                      className="w-full flex items-center justify-center gap-3 bg-black text-white font-medium py-3 px-4 rounded-xl hover:bg-gray-900 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <FaApple className="text-xl" />
+                      <span>Увійти з Apple</span>
+                    </button>
+                  </div>
+                  
+                  <div style={{ position: 'relative', margin: '24px 0' }}>
+                    <div style={{ borderTop: '1px solid #e5e7eb' }} />
+                    <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', backgroundColor: 'white', padding: '0 16px' }}>
+                      <span style={{ color: '#9ca3af', fontSize: 14 }}>або</span>
+                    </div>
+                  </div>
+
+                  <button 
+                    onClick={() => {
+                      setEmailMode(true);
+                      setRegisterMode(false);
+                    }} 
+                    disabled={loading}
+                    className="w-full flex items-center justify-center gap-3 bg-[#1C3A2E] text-white font-medium py-3 px-4 rounded-xl hover:bg-[#2a4f3f] transition-all mb-3 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <FaEnvelope className="text-xl" />
+                    <span>Увійти з email</span>
+                  </button>
+
+                  <button 
+                    onClick={() => {
+                      setEmailMode(true);
+                      setRegisterMode(true);
+                    }} 
+                    disabled={loading}
+                    className="w-full text-center text-[#D4A017] hover:text-[#b88913] transition-all text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Немає акаунта? Зареєструватися
+                  </button>
+                </>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  {registerMode && (
+                    <input 
+                      type="text" 
+                      value={name} 
+                      onChange={(e) => setName(e.target.value)}
+                      className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#D4A017] disabled:opacity-50"
+                      placeholder="Ваше ім'я"
+                      disabled={loading}
+                    />
+                  )}
+                  
+                  <input 
+                    type="email" 
+                    value={email} 
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#D4A017] disabled:opacity-50"
+                    placeholder="your@email.com"
+                    disabled={loading}
+                  />
+                  
+                  <input 
+                    type="password" 
+                    value={password} 
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#D4A017] disabled:opacity-50"
+                    placeholder="••••••••"
+                    disabled={loading}
+                  />
+
+                  {registerMode ? (
+                    <button 
+                      onClick={handleRegister}
+                      disabled={loading}
+                      className="w-full bg-[#D4A017] text-white font-medium py-3 px-4 rounded-xl hover:bg-[#b88913] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {loading ? 'Завантаження...' : 'Зареєструватися'}
+                    </button>
+                  ) : (
+                    <button 
+                      onClick={handleLogin}
+                      disabled={loading}
+                      className="w-full bg-[#D4A017] text-white font-medium py-3 px-4 rounded-xl hover:bg-[#b88913] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {loading ? 'Завантаження...' : 'Увійти'}
+                    </button>
+                  )}
+
+                  <div className="flex flex-col gap-2">
+                    <button 
+                      onClick={() => {
+                        setRegisterMode(!registerMode);
+                      }} 
+                      disabled={loading}
+                      className="text-center text-[#D4A017] hover:text-[#b88913] transition-all text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {registerMode 
+                        ? 'Вже є акаунт? Увійти' 
+                        : 'Немає акаунта? Зареєструватися'}
+                    </button>
+                    
+                    <button 
+                      onClick={() => {
+                        setEmailMode(false);
+                        setRegisterMode(false);
+                      }} 
+                      disabled={loading}
+                      style={{ background: 'none', border: 'none', cursor: loading ? 'not-allowed' : 'pointer', color: '#D4A017', fontSize: 14, opacity: loading ? 0.5 : 1 }}
+                    >
+                      ← Назад до соціальних мереж
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <p style={{ fontSize: 12, color: '#9ca3af', textAlign: 'center', marginTop: 24 }}>
+                Продовжуючи, ви погоджуєтесь з{' '}
+                <a href="/terms" style={{ color: '#D4A017' }}>умовами використання</a>{' '}та{' '}
+                <a href="/privacy" style={{ color: '#D4A017' }}>політикою конфіденційності</a>
+              </p>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+    </>
   );
 }

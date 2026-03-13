@@ -13,10 +13,6 @@ const links = [
     href: '/courses'
   },
   {
-    title: 'Гра "Конектор"',
-    href: '/links/connector'
-  },
-  {
     title: 'Консультація Тетяни Шапошник',
     href: '/links/consultation',
     external: true

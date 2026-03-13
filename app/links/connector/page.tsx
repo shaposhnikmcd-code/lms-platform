@@ -1,10 +1,17 @@
+// app/links/connector/page.tsx
+'use client';
+
 import Link from 'next/link';
 import { FaTelegram, FaYoutube, FaInstagram } from 'react-icons/fa';
 import { IoMdShare } from 'react-icons/io';
 import { IoArrowBack } from 'react-icons/io5';
 import Image from 'next/image';
+import { useState } from 'react';
+import OrderForm from '@/components/connector/OrderForm';
 
 export default function ConnectorPage() {
+  const [showOrderForm, setShowOrderForm] = useState(false);
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#0c4a3a] to-[#06382d] p-6">
       <div className="container mx-auto max-w-[500px]">
@@ -28,7 +35,7 @@ export default function ConnectorPage() {
           {/* Центральний контент */}
           <div className="flex flex-col items-center justify-center mt-16">
             
-            {/* Фото гри - опущене нижче */}
+            {/* Фото гри */}
             <div className="w-full mb-8">
               <div className="relative w-full h-auto aspect-square scale-125">
                 <Image
@@ -42,7 +49,7 @@ export default function ConnectorPage() {
               </div>
             </div>
 
-            {/* Назва - великий відступ */}
+            {/* Назва */}
             <h1 className="text-[#E8E3C9] text-3xl font-bold text-center mt-8 mb-1">
               КОНЕКТОР
             </h1>
@@ -119,18 +126,23 @@ export default function ConnectorPage() {
                 </p>
               </div>
 
-              {/* Кнопка замовлення */}
-              <Link
-                href="https://t.me/shaposhnykpsy"
-                target="_blank"
+              {/* Кнопка замовлення - тепер відкриває форму */}
+              <button
+                onClick={() => setShowOrderForm(true)}
                 className="block w-full bg-[#d4a62b] text-[#003d30] py-3 rounded-lg font-bold text-sm text-center hover:bg-[#c49520] transition-all"
               >
                 Замовити
-              </Link>
+              </button>
             </div>
           </div>
         </div>
       </div>
+
+      {/* Форма замовлення */}
+      <OrderForm 
+        isOpen={showOrderForm} 
+        onClose={() => setShowOrderForm(false)} 
+      />
     </div>
   );
 }
