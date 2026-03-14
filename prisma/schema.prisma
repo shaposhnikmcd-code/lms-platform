@@ -9,17 +9,21 @@ datasource db {
 }
 
 model User {
-  id            String       @id @default(cuid())
+  id            String         @id @default(cuid())
   name          String?
-  email         String       @unique
+  email         String         @unique
   emailVerified DateTime?
   password      String?
   image         String?
-  createdAt     DateTime     @default(now())
-  role          UserRole     @default(STUDENT)
+  createdAt     DateTime       @default(now())
+  role          UserRole       @default(STUDENT)
   accounts      Account[]
   enrollments   Enrollment[]
   sessions      Session[]
+  progress      CourseProgress[]
+  payments      Payment[]
+  certificates  Certificate[]
+  subscriptions Subscription[]
 }
 
 model Account {
@@ -57,15 +61,18 @@ model VerificationToken {
 }
 
 model Course {
-  id          String       @id @default(cuid())
-  title       String
-  description String
-  price       Int
-  published   Boolean      @default(false)
-  createdAt   DateTime     @default(now())
-  imageUrl    String?
-  enrollments Enrollment[]
-  modules     Module[]
+  id           String           @id @default(cuid())
+  title        String
+  description  String
+  price        Int
+  published    Boolean          @default(false)
+  createdAt    DateTime         @default(now())
+  imageUrl     String?
+  enrollments  Enrollment[]
+  modules      Module[]
+  progress     CourseProgress[]
+  payments     Payment[]
+  certificates Certificate[]
 }
 
 model Module {
@@ -78,13 +85,14 @@ model Module {
 }
 
 model Lesson {
-  id       String  @id @default(cuid())
-  title    String
-  order    Int
-  moduleId String
-  content  String?
-  videoUrl String?
-  module   Module  @relation(fields: [moduleId], references: [id])
+  id         String           @id @default(cuid())
+  title      String
+  order      Int
+  moduleId   String
+  content    String?
+  videoUrl   String?
+  module     Module           @relation(fields: [moduleId], references: [id])
+  progress   CourseProgress[]
 }
 
 model Enrollment {
@@ -98,27 +106,71 @@ model Enrollment {
   @@unique([userId, courseId])
 }
 
+model CourseProgress {
+  id             String    @id @default(cuid())
+  userId         String
+  courseId       String
+  lastLessonId   String?
+  progressPercent Int      @default(0)
+  completedAt    DateTime?
+  updatedAt      DateTime  @updatedAt
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course         Course    @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  lastLesson     Lesson?   @relation(fields: [lastLessonId], references: [id])
+
+  @@unique([userId, courseId])
+}
+
+model Payment {
+  id             String        @id @default(cuid())
+  userId         String
+  courseId       String?
+  orderReference String        @unique
+  amount         Int
+  currency       String        @default("UAH")
+  status         PaymentStatus @default(PENDING)
+  createdAt      DateTime      @default(now())
+  paidAt         DateTime?
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course         Course?       @relation(fields: [courseId], references: [id])
+}
+
+model Certificate {
+  id          String   @id @default(cuid())
+  userId      String
+  courseId    String
+  issuedAt    DateTime @default(now())
+  certificateUrl String?
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course      Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, courseId])
+}
+
+model Subscription {
+  id        String             @id @default(cuid())
+  userId    String
+  plan      SubscriptionPlan
+  status    SubscriptionStatus @default(ACTIVE)
+  startDate DateTime           @default(now())
+  endDate   DateTime
+  createdAt DateTime           @default(now())
+  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
 model ConnectorOrder {
   id             String        @id @default(cuid())
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
-
-  // Дані покупця
   email          String
   fullName       String
   phone          String
-
-  // Доставка
   city           String
   postOffice     String
-
-  // Оплата
   orderReference String        @unique
   amount         Int
   paymentStatus  PaymentStatus @default(PENDING)
   paidAt         DateTime?
-
-  // Статус обробки менеджером
   orderStatus    OrderStatus   @default(NEW)
   trackingNumber String?
   managerNote    String?
@@ -143,5 +195,17 @@ enum OrderStatus {
   PROCESSING
   SHIPPED
   DELIVERED
+  CANCELLED
+}
+
+enum SubscriptionPlan {
+  MONTHLY
+  SIX_MONTHS
+  YEARLY
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  EXPIRED
   CANCELLED
 }
