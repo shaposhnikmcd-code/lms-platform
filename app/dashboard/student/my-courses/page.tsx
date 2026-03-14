@@ -1,9 +1,4 @@
-export default function MyCourses() {
-  return (
-    <div>
-      <h1 className="text-2xl font-bold text-[#1C3A2E] mb-4">Мої курси</h1>
-      <p className="text-gray-600">Тут буде список ваших курсів</p>
-    </div>import { getServerSession } from 'next-auth';
+import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { redirect } from 'next/navigation';
 import prisma from '@/lib/prisma';
@@ -19,9 +14,7 @@ export default async function MyCoursesPage() {
 
   const enrollments = await prisma.enrollment.findMany({
     where: { userId: (session.user as any).id },
-    include: {
-      course: true,
-    },
+    include: { course: true },
     orderBy: { createdAt: 'desc' },
   });
 
@@ -62,7 +55,6 @@ export default async function MyCoursesPage() {
                     className="w-full h-40 object-cover rounded-lg mb-4"
                   />
                 )}
-
                 <div className="flex items-start justify-between mb-2">
                   <h3 className="font-semibold text-lg text-[#1C3A2E]">{course.title}</h3>
                   {isCompleted ? (
@@ -71,9 +63,7 @@ export default async function MyCoursesPage() {
                     <FaClock className="text-[#D4A017] text-xl flex-shrink-0 ml-2" />
                   )}
                 </div>
-
                 <p className="text-sm text-gray-500 mb-4 line-clamp-2">{course.description}</p>
-
                 <div className="mb-4">
                   <div className="flex justify-between text-sm mb-1">
                     <span className="text-gray-500">Прогрес</span>
@@ -86,7 +76,6 @@ export default async function MyCoursesPage() {
                     />
                   </div>
                 </div>
-
                 <Link
                   href={`/courses/${course.id}`}
                   className="block text-center bg-[#1C3A2E] text-white font-medium py-2 px-4 rounded-lg hover:bg-[#2a5242] transition-colors text-sm"
@@ -99,7 +88,5 @@ export default async function MyCoursesPage() {
         </div>
       )}
     </div>
-  );
-}
   );
 }
