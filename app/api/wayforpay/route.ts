@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
     productPrice: [productPrice],
     productCount: [productCount],
     clientEmail,
-    returnUrl: `${domain}/payment/success`,
+    returnUrl: `${domain}/api/wayforpay/return`,
     serviceUrl: `${domain}/api/wayforpay/callback`,
     merchantSignature,
     language: 'UA',
