@@ -21,6 +21,7 @@ model User {
   enrollments   Enrollment[]
   sessions      Session[]
   progress      CourseProgress[]
+  lessonProgress LessonProgress[]
   payments      Payment[]
   certificates  Certificate[]
   subscriptions Subscription[]
@@ -68,6 +69,7 @@ model Course {
   published    Boolean          @default(false)
   createdAt    DateTime         @default(now())
   imageUrl     String?
+  slug         String?          @unique
   enrollments  Enrollment[]
   modules      Module[]
   progress     CourseProgress[]
@@ -85,14 +87,33 @@ model Module {
 }
 
 model Lesson {
-  id         String           @id @default(cuid())
-  title      String
-  order      Int
-  moduleId   String
-  content    String?
-  videoUrl   String?
-  module     Module           @relation(fields: [moduleId], references: [id])
-  progress   CourseProgress[]
+  id             String           @id @default(cuid())
+  title          String
+  order          Int
+  moduleId       String
+  content        String?
+  videoUrl       String?
+  videoProvider  VideoProvider    @default(YOUTUBE)
+  videoId        String?
+  duration       Int?
+  isFree         Boolean          @default(false)
+  module         Module           @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  courseProgress CourseProgress[]
+  lessonProgress LessonProgress[]
+}
+
+model LessonProgress {
+  id          String    @id @default(cuid())
+  userId      String
+  lessonId    String
+  watchedAt   Int       @default(0)
+  completed   Boolean   @default(false)
+  completedAt DateTime?
+  updatedAt   DateTime  @updatedAt
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lesson      Lesson    @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, lessonId])
 }
 
 model Enrollment {
@@ -107,16 +128,16 @@ model Enrollment {
 }
 
 model CourseProgress {
-  id             String    @id @default(cuid())
-  userId         String
-  courseId       String
-  lastLessonId   String?
-  progressPercent Int      @default(0)
-  completedAt    DateTime?
-  updatedAt      DateTime  @updatedAt
-  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  course         Course    @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  lastLesson     Lesson?   @relation(fields: [lastLessonId], references: [id])
+  id              String    @id @default(cuid())
+  userId          String
+  courseId        String
+  lastLessonId    String?
+  progressPercent Int       @default(0)
+  completedAt     DateTime?
+  updatedAt       DateTime  @updatedAt
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course          Course    @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  lastLesson      Lesson?   @relation(fields: [lastLessonId], references: [id])
 
   @@unique([userId, courseId])
 }
@@ -136,13 +157,13 @@ model Payment {
 }
 
 model Certificate {
-  id          String   @id @default(cuid())
-  userId      String
-  courseId    String
-  issuedAt    DateTime @default(now())
+  id             String   @id @default(cuid())
+  userId         String
+  courseId       String
+  issuedAt       DateTime @default(now())
   certificateUrl String?
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  course      Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course         Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
 
   @@unique([userId, courseId])
 }
@@ -208,4 +229,11 @@ enum SubscriptionStatus {
   ACTIVE
   EXPIRED
   CANCELLED
+}
+
+enum VideoProvider {
+  YOUTUBE
+  VIMEO
+  SENDPULSE
+  LOCAL
 }
