@@ -3,6 +3,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { FaTelegram, FaInstagram, FaYoutube, FaArrowRight, FaHeart, FaVideo, FaTasks, FaBrain, FaStethoscope, FaPills, FaQuoteLeft, FaQuoteRight } from 'react-icons/fa';
 import { Inter } from 'next/font/google';
+import WayForPayButton from '@/components/WayForPayButton';
 
 const inter = Inter({ subsets: ['latin', 'cyrillic'] });
 
@@ -217,12 +218,11 @@ export default function PsychiatryCoursePage() {
           <div className="max-w-sm mx-auto bg-white/10 backdrop-blur-sm rounded-xl p-6">
             <div className="text-3xl font-black text-white mb-3">4100 грн</div>
             <p className="text-white/60 text-xs mb-4">Повний доступ на 6 місяців</p>
-            <Link
-              href="#"
-              className="inline-block w-full bg-[#D4A017] text-white font-bold py-3 px-6 rounded-lg hover:bg-[#b88913] transition-all"
-            >
-              Придбати курс
-            </Link>
+            <WayForPayButton
+              courseName="Основи психіатрії"
+                price={4100}
+              courseId="psychiatry-basics"
+            />
           </div>
         </div>
       </section>

@@ -98,8 +98,50 @@ model Enrollment {
   @@unique([userId, courseId])
 }
 
+model ConnectorOrder {
+  id             String        @id @default(cuid())
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  // Дані покупця
+  email          String
+  fullName       String
+  phone          String
+
+  // Доставка
+  city           String
+  postOffice     String
+
+  // Оплата
+  orderReference String        @unique
+  amount         Int
+  paymentStatus  PaymentStatus @default(PENDING)
+  paidAt         DateTime?
+
+  // Статус обробки менеджером
+  orderStatus    OrderStatus   @default(NEW)
+  trackingNumber String?
+  managerNote    String?
+}
+
 enum UserRole {
   ADMIN
+  MANAGER
   TEACHER
   STUDENT
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+enum OrderStatus {
+  NEW
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
 }

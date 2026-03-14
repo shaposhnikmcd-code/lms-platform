@@ -140,16 +140,12 @@ export default function AuthButtons() {
                 {registerMode ? 'Реєстрація' : 'Вхід в акаунт'}
               </h2>
               <p style={{ color: '#6b7280', fontSize: 14, marginBottom: 24 }}>
-                {registerMode
-                  ? 'Зареєструйтесь щоб отримати доступ до курсів'
-                  : 'Увійдіть щоб отримати доступ до курсів'}
+                {registerMode ? 'Зареєструйтесь щоб отримати доступ до курсів' : 'Увійдіть щоб отримати доступ до курсів'}
               </p>
 
               {!emailMode ? (
                 <>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-
-                    {/* Google — офіційний дизайн */}
                     <button
                       onClick={() => signIn('google', { callbackUrl: '/' })}
                       disabled={loading}
@@ -228,38 +224,24 @@ export default function AuthButtons() {
                     placeholder="••••••••"
                     disabled={loading}
                   />
-
                   {registerMode ? (
-                    <button
-                      onClick={handleRegister}
-                      disabled={loading}
-                      className="w-full bg-[#D4A017] text-white font-medium py-3 px-4 rounded-xl hover:bg-[#b88913] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
+                    <button onClick={handleRegister} disabled={loading}
+                      className="w-full bg-[#D4A017] text-white font-medium py-3 px-4 rounded-xl hover:bg-[#b88913] transition-all disabled:opacity-50 disabled:cursor-not-allowed">
                       {loading ? 'Завантаження...' : 'Зареєструватися'}
                     </button>
                   ) : (
-                    <button
-                      onClick={handleLogin}
-                      disabled={loading}
-                      className="w-full bg-[#D4A017] text-white font-medium py-3 px-4 rounded-xl hover:bg-[#b88913] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
+                    <button onClick={handleLogin} disabled={loading}
+                      className="w-full bg-[#D4A017] text-white font-medium py-3 px-4 rounded-xl hover:bg-[#b88913] transition-all disabled:opacity-50 disabled:cursor-not-allowed">
                       {loading ? 'Завантаження...' : 'Увійти'}
                     </button>
                   )}
-
                   <div className="flex flex-col gap-2">
-                    <button
-                      onClick={() => setRegisterMode(!registerMode)}
-                      disabled={loading}
-                      className="text-center text-[#D4A017] hover:text-[#b88913] transition-all text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
+                    <button onClick={() => setRegisterMode(!registerMode)} disabled={loading}
+                      className="text-center text-[#D4A017] hover:text-[#b88913] transition-all text-sm disabled:opacity-50 disabled:cursor-not-allowed">
                       {registerMode ? 'Вже є акаунт? Увійти' : 'Немає акаунта? Зареєструватися'}
                     </button>
-                    <button
-                      onClick={() => { setEmailMode(false); setRegisterMode(false); }}
-                      disabled={loading}
-                      style={{ background: 'none', border: 'none', cursor: loading ? 'not-allowed' : 'pointer', color: '#D4A017', fontSize: 14, opacity: loading ? 0.5 : 1 }}
-                    >
+                    <button onClick={() => { setEmailMode(false); setRegisterMode(false); }} disabled={loading}
+                      style={{ background: 'none', border: 'none', cursor: loading ? 'not-allowed' : 'pointer', color: '#D4A017', fontSize: 14, opacity: loading ? 0.5 : 1 }}>
                       ← Назад до соціальних мереж
                     </button>
                   </div>

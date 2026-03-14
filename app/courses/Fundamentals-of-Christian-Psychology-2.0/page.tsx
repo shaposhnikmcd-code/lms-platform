@@ -3,6 +3,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { FaTelegram, FaInstagram, FaYoutube, FaArrowRight, FaHeart, FaVideo, FaUsers, FaClock, FaPray, FaBrain, FaCalendarAlt, FaQuoteLeft, FaQuoteRight } from 'react-icons/fa';
 import { Inter } from 'next/font/google';
+import WayForPayButton from '@/components/WayForPayButton';
 
 const inter = Inter({ subsets: ['latin', 'cyrillic'] });
 
@@ -322,12 +323,11 @@ export default function ChristianPsychologyPage() {
                   Лист з доступом на email
                 </li>
               </ul>
-              <Link
-                href="#"
-                className="block w-full bg-[#D4A017] text-white text-center font-bold py-3 px-4 rounded-lg hover:bg-[#b88913] transition-all"
-              >
-                Обрати тариф
-              </Link>
+              <WayForPayButton
+  courseName="Основи християнської психології 2.0 - Новий учасник"
+  price={4200}
+  courseId="christian-psychology-new"
+/>
             </div>
           </div>
 
@@ -353,12 +353,11 @@ export default function ChristianPsychologyPage() {
                   Лист з доступом на email
                 </li>
               </ul>
-              <Link
-                href="#"
-                className="block w-full bg-[#1C3A2E] text-white text-center font-bold py-3 px-4 rounded-lg hover:bg-[#2a4f3f] transition-all"
-              >
-                Обрати тариф
-              </Link>
+              <WayForPayButton
+  courseName="Основи християнської психології 2.0 - Учасник курсів"
+  price={3700}
+  courseId="christian-psychology-alumni"
+/>
             </div>
           </div>
         </div>

@@ -1,4 +1,3 @@
-// components/connector/OrderForm.tsx
 'use client';
 
 import { useState } from 'react';
@@ -15,9 +14,8 @@ export default function OrderForm({ isOpen, onClose }: OrderFormProps) {
     fullName: '',
     phone: '',
     city: '',
-    district: '',
     postOffice: '',
-    callMe: false
+    callMe: false,
   });
 
   const [cities, setCities] = useState<any[]>([]);
@@ -27,64 +25,48 @@ export default function OrderForm({ isOpen, onClose }: OrderFormProps) {
   const [showCities, setShowCities] = useState(false);
   const [showBranches, setShowBranches] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submitStatus, setSubmitStatus] = useState<'success' | 'error' | null>(null);
+  const [submitStatus, setSubmitStatus] = useState<'error' | null>(null);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value, type } = e.target;
     setFormData(prev => ({
       ...prev,
-      [name]: type === 'checkbox' ? (e.target as HTMLInputElement).checked : value
+      [name]: type === 'checkbox' ? (e.target as HTMLInputElement).checked : value,
     }));
   };
 
-  // Пошук міст
   const searchCities = async (query: string) => {
-    console.log('🔍 Пошук міст:', query);
-    
     if (!query || query.length < 2) {
-      console.log('❌ Запит занадто короткий');
       setShowCities(false);
       return;
     }
-    
     setLoadingCities(true);
     setShowCities(true);
-    
     try {
-      console.log('📡 Відправка запиту до API...');
       const response = await fetch('/api/nova-poshta/cities', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cityName: query })
+        body: JSON.stringify({ cityName: query }),
       });
-      
-      console.log('📥 Статус відповіді:', response.status);
       const data = await response.json();
-      console.log('📦 Отримані дані:', data);
-      
       setCities(data.cities || []);
-      console.log('✅ Кількість міст:', data.cities?.length || 0);
     } catch (error) {
-      console.error('❌ Помилка:', error);
+      console.error('❌ Помилка пошуку міст:', error);
     } finally {
       setLoadingCities(false);
     }
   };
 
-  // Пошук відділень
   const searchBranches = async (city: string, query: string) => {
     if (!city) return;
-    
     setLoadingBranches(true);
     setShowBranches(true);
-    
     try {
       const response = await fetch('/api/nova-poshta/warehouses', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cityName: city, searchString: query })
+        body: JSON.stringify({ cityName: city, searchString: query }),
       });
-      
       const data = await response.json();
       setBranches(data.warehouses || []);
     } catch (error) {
@@ -99,41 +81,89 @@ export default function OrderForm({ isOpen, onClose }: OrderFormProps) {
     setIsSubmitting(true);
     setSubmitStatus(null);
 
-    console.log('Форма замовлення:', formData);
+    try {
+      const orderReference = `connector_${Date.now()}`;
+      const amount = 1099;
 
-    setTimeout(() => {
+      // 1. Зберігаємо замовлення в БД
+      const orderRes = await fetch('/api/orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderReference,
+          email: formData.email,
+          fullName: formData.fullName,
+          phone: formData.phone,
+          city: formData.city,
+          postOffice: formData.postOffice,
+          amount,
+        }),
+      });
+
+      if (!orderRes.ok) throw new Error('Помилка збереження замовлення');
+
+      // 2. Отримуємо дані для WayForPay
+      const paymentRes = await fetch('/api/wayforpay', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderReference,
+          amount,
+          productName: 'Гра Конектор',
+          productPrice: amount,
+          productCount: 1,
+          clientEmail: formData.email,
+        }),
+      });
+
+      if (!paymentRes.ok) throw new Error('Помилка сервера оплати');
+
+      const paymentData = await paymentRes.json();
+
+      // 3. Відправляємо на WayForPay
+      const form = document.createElement('form');
+      form.method = 'POST';
+      form.action = 'https://secure.wayforpay.com/pay';
+      form.style.display = 'none';
+
+      Object.entries(paymentData).forEach(([key, value]) => {
+        if (Array.isArray(value)) {
+          (value as string[]).forEach((v) => {
+            const input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = key;
+            input.value = String(v);
+            form.appendChild(input);
+          });
+        } else {
+          const input = document.createElement('input');
+          input.type = 'hidden';
+          input.name = key;
+          input.value = String(value);
+          form.appendChild(input);
+        }
+      });
+
+      document.body.appendChild(form);
+      form.submit();
+    } catch (error) {
+      console.error('Помилка оплати:', error);
+      setSubmitStatus('error');
       setIsSubmitting(false);
-      setSubmitStatus('success');
-      
-      setTimeout(() => {
-        onClose();
-        setSubmitStatus(null);
-        setFormData({
-          email: '',
-          fullName: '',
-          phone: '',
-          city: '',
-          district: '',
-          postOffice: '',
-          callMe: false
-        });
-        setCities([]);
-        setBranches([]);
-      }, 2000);
-    }, 1500);
+    }
   };
 
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-[9999] overflow-y-auto">
-      <div 
+      <div
         className="fixed inset-0 bg-black/50 backdrop-blur-sm"
         onClick={onClose}
       />
 
       <div className="min-h-screen px-4 py-8 flex items-center justify-center">
-        <div 
+        <div
           className="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl"
           onClick={(e) => e.stopPropagation()}
         >
@@ -153,12 +183,6 @@ export default function OrderForm({ isOpen, onClose }: OrderFormProps) {
               </div>
             </div>
 
-            {submitStatus === 'success' && (
-              <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg text-green-700 text-center">
-                ✓ Замовлення успішно оформлено! Ми зв'яжемося з вами найближчим часом.
-              </div>
-            )}
-
             {submitStatus === 'error' && (
               <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-center">
                 ✗ Помилка при оформленні замовлення. Спробуйте ще раз.
@@ -166,6 +190,7 @@ export default function OrderForm({ isOpen, onClose }: OrderFormProps) {
             )}
 
             <form onSubmit={handleSubmit} className="space-y-6">
+
               {/* Email */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -208,7 +233,7 @@ export default function OrderForm({ isOpen, onClose }: OrderFormProps) {
                 </div>
               </div>
 
-              {/* Номер телефону */}
+              {/* Телефон */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Номер телефону <span className="text-red-500">*</span>
@@ -229,77 +254,57 @@ export default function OrderForm({ isOpen, onClose }: OrderFormProps) {
                 </div>
               </div>
 
-              {/* Адреса - Місто та район */}
-              <div className="grid grid-cols-2 gap-4">
+              {/* Населений пункт */}
+              <div className="relative">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Населений пункт <span className="text-red-500">*</span>
+                </label>
                 <div className="relative">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Місто <span className="text-red-500">*</span>
-                  </label>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                      <FaMapMarkerAlt className="text-gray-400" />
-                    </div>
-                    <input
-                      type="text"
-                      name="city"
-                      value={formData.city}
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        setFormData({ ...formData, city: value, postOffice: '' });
-                        searchCities(value);
-                      }}
-                      onFocus={() => {
-                        if (formData.city.length >= 2) {
-                          setShowCities(true);
-                        }
-                      }}
-                      required
-                      className="block w-full pl-10 pr-3 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#D4A017] focus:border-transparent"
-                      placeholder="Місто"
-                    />
-                    
-                    {loadingCities && (
-                      <div className="absolute right-3 top-3">
-                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-[#D4A017]"></div>
-                      </div>
-                    )}
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <FaMapMarkerAlt className="text-gray-400" />
                   </div>
-
-                  {/* Випадаючий список міст */}
-                  {showCities && cities.length > 0 && (
-                    <div className="absolute z-30 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                      {cities.map((city) => (
-                        <button
-                          key={city.Ref}
-                          type="button"
-                          className="w-full text-left px-4 py-3 hover:bg-gray-50 border-b border-gray-100 last:border-0 transition-colors"
-                          onClick={() => {
-                            setFormData({ ...formData, city: city.Description, postOffice: '' });
-                            setShowCities(false);
-                            setCities([]);
-                          }}
-                        >
-                          <p className="font-medium text-gray-800">{city.Description}</p>
-                          <p className="text-sm text-gray-500">{city.AreaDescription}</p>
-                        </button>
-                      ))}
+                  <input
+                    type="text"
+                    name="city"
+                    value={formData.city}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setFormData({ ...formData, city: value, postOffice: '' });
+                      searchCities(value);
+                    }}
+                    onFocus={() => {
+                      if (formData.city.length >= 2) setShowCities(true);
+                    }}
+                    required
+                    className="block w-full pl-10 pr-3 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#D4A017] focus:border-transparent"
+                    placeholder="Введіть назву міста або села"
+                  />
+                  {loadingCities && (
+                    <div className="absolute right-3 top-3">
+                      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-[#D4A017]"></div>
                     </div>
                   )}
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Район/Область
-                  </label>
-                  <input
-                    type="text"
-                    name="district"
-                    value={formData.district}
-                    onChange={handleChange}
-                    className="block w-full px-3 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#D4A017] focus:border-transparent"
-                    placeholder="Район"
-                  />
-                </div>
+                {showCities && cities.length > 0 && (
+                  <div className="absolute z-30 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                    {cities.map((city) => (
+                      <button
+                        key={city.Ref}
+                        type="button"
+                        className="w-full text-left px-4 py-3 hover:bg-gray-50 border-b border-gray-100 last:border-0 transition-colors"
+                        onClick={() => {
+                          setFormData({ ...formData, city: city.Description, postOffice: '' });
+                          setShowCities(false);
+                          setCities([]);
+                        }}
+                      >
+                        <p className="font-medium text-gray-800">{city.Description}</p>
+                        <p className="text-sm text-gray-500">{city.AreaDescription}</p>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Відділення Нової Пошти */}
@@ -318,21 +323,18 @@ export default function OrderForm({ isOpen, onClose }: OrderFormProps) {
                     onChange={(e) => {
                       const value = e.target.value;
                       setFormData({ ...formData, postOffice: value });
-                      if (formData.city) {
-                        searchBranches(formData.city, value);
-                      }
+                      if (formData.city) searchBranches(formData.city, value);
                     }}
-                    
                     onFocus={() => {
                       if (formData.city && formData.city.length >= 2) {
+                        searchBranches(formData.city, formData.postOffice);
                         setShowBranches(true);
                       }
                     }}
                     required
                     className="block w-full pl-10 pr-3 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#D4A017] focus:border-transparent"
-                    placeholder="Почніть вводити адресу"
+                    placeholder="Почніть вводити адресу або номер"
                   />
-
                   {loadingBranches && (
                     <div className="absolute right-3 top-3">
                       <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-[#D4A017]"></div>
@@ -382,7 +384,7 @@ export default function OrderForm({ isOpen, onClose }: OrderFormProps) {
                 </label>
               </div>
 
-              {/* Кнопка замовлення */}
+              {/* Кнопка */}
               <button
                 type="submit"
                 disabled={isSubmitting}
@@ -399,7 +401,7 @@ export default function OrderForm({ isOpen, onClose }: OrderFormProps) {
                 ) : (
                   <>
                     <FaShoppingCart />
-                    <span>Замовити</span>
+                    <span>Замовити та оплатити</span>
                   </>
                 )}
               </button>

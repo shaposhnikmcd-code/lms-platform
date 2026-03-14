@@ -1,0 +1,16 @@
+{
+  "Navigation": {
+    "home": "Strona główna",
+    "courses": "Kursy",
+    "games": "Gry",
+    "links": "Linki",
+    "dashboard": "Panel"
+  },
+  "Auth": {
+    "login": "Zaloguj się",
+    "logout": "Wyloguj się",
+    "google": "Zaloguj się przez Google",
+    "facebook": "Zaloguj się przez Facebook",
+    "email": "Zaloguj się przez email"
+  }
+}

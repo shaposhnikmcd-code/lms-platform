@@ -3,7 +3,7 @@ import { authOptions } from "@/lib/auth";
 import SessionProviderWrapper from "@/components/SessionProviderWrapper";
 import "./globals.css";
 import CookieBanner from "@/components/CookieBanner";
-import Navbar from "@/components/Navbar"; // Імпортуємо Navbar
+import Navbar from "@/components/Navbar";
 
 export default async function RootLayout({
   children,

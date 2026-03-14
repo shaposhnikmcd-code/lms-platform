@@ -1,0 +1,16 @@
+{
+  "Navigation": {
+    "home": "Home",
+    "courses": "Courses",
+    "games": "Games",
+    "links": "Links",
+    "dashboard": "Dashboard"
+  },
+  "Auth": {
+    "login": "Login",
+    "logout": "Logout",
+    "google": "Sign in with Google",
+    "facebook": "Sign in with Facebook",
+    "email": "Sign in with email"
+  }
+}
