@@ -79,13 +79,13 @@ export const authOptions: NextAuthOptions = {
           return null;
         }
 
-        // Тестовий користувач
-        if (credentials.email === "test@test.com" && credentials.password === "123456") {
-          console.log('✅ Test user login');
+        // Тестовий студент
+        if (credentials.email === "student@test.com" && credentials.password === "123456") {
+          console.log('✅ Test student login');
           return {
-            id: "1",
-            email: "test@test.com",
-            name: "Тестовий користувач",
+            id: "test-student-1",
+            email: "student@test.com",
+            name: "Тестовий студент",
             role: "STUDENT"
           };
         }
