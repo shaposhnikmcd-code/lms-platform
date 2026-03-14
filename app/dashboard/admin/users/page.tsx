@@ -1,5 +1,6 @@
 import prisma from '@/lib/prisma';
 import { FaUsers } from 'react-icons/fa';
+import Link from 'next/link';
 
 const ROLE_LABELS: Record<string, string> = {
   ADMIN: 'Адмін',
@@ -26,6 +27,9 @@ export default async function AdminUsers() {
 
   return (
     <div className="max-w-7xl mx-auto">
+      <Link href="/dashboard/admin" className="inline-flex items-center gap-2 text-sm text-gray-500 hover:text-[#1C3A2E] mb-4 transition-colors">
+  ← Назад до адмін-панелі
+</Link>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-[#1C3A2E]">Користувачі</h1>
         <div className="flex items-center gap-2 text-sm text-gray-500">

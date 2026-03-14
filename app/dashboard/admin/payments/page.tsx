@@ -1,5 +1,6 @@
 import prisma from '@/lib/prisma';
 import { FaCreditCard } from 'react-icons/fa';
+import Link from 'next/link';
 
 const STATUS_LABELS: Record<string, string> = {
   PENDING: 'Очікує',
@@ -34,6 +35,9 @@ export default async function AdminPayments() {
 
   return (
     <div className="max-w-7xl mx-auto">
+      <Link href="/dashboard/admin" className="inline-flex items-center gap-2 text-sm text-gray-500 hover:text-[#1C3A2E] mb-4 transition-colors">
+  ← Назад до адмін-панелі
+</Link>
       <h1 className="text-2xl font-bold text-[#1C3A2E] mb-6">Платежі</h1>
 
       {/* Статистика */}

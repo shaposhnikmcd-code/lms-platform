@@ -1,5 +1,6 @@
 import prisma from '@/lib/prisma';
 import { FaChartLine, FaUsers, FaGraduationCap, FaDollarSign } from 'react-icons/fa';
+import Link from 'next/link';
 
 export default async function AdminAnalytics() {
   const now = new Date();
@@ -38,6 +39,9 @@ export default async function AdminAnalytics() {
 
   return (
     <div className="max-w-7xl mx-auto">
+      <Link href="/dashboard/admin" className="inline-flex items-center gap-2 text-sm text-gray-500 hover:text-[#1C3A2E] mb-4 transition-colors">
+  ← Назад до адмін-панелі
+</Link>
       <h1 className="text-2xl font-bold text-[#1C3A2E] mb-6">Аналітика</h1>
 
       {/* Головні метрики */}
