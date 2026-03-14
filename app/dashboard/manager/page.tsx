@@ -54,6 +54,8 @@ const PAYMENT_COLORS: Record<PaymentStatus, string> = {
   REFUNDED: 'bg-orange-100 text-orange-700',
 };
 
+const toDateInput = (date: Date) => date.toISOString().split('T')[0];
+
 export default function ManagerDashboard() {
   const { data: session, status } = useSession();
   const router = useRouter();
@@ -65,15 +67,15 @@ export default function ManagerDashboard() {
   const [saving, setSaving] = useState(false);
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
 
+  const today = new Date();
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState(toDateInput(today));
+
   useEffect(() => {
-    if (status === 'unauthenticated') {
-      router.push('/');
-    }
+    if (status === 'unauthenticated') router.push('/');
     if (status === 'authenticated') {
       const role = (session?.user as any)?.role;
-      if (role !== 'MANAGER' && role !== 'ADMIN') {
-        router.push('/dashboard');
-      }
+      if (role !== 'MANAGER' && role !== 'ADMIN') router.push('/dashboard');
     }
   }, [status, session]);
 
@@ -94,6 +96,13 @@ export default function ManagerDashboard() {
     }
   };
 
+  const setQuickDate = (days: number) => {
+    const from = new Date();
+    from.setDate(from.getDate() - days);
+    setDateFrom(toDateInput(from));
+    setDateTo(toDateInput(today));
+  };
+
   const openOrder = (order: Order) => {
     setSelectedOrder(order);
     setTrackingNumber(order.trackingNumber || '');
@@ -107,11 +116,7 @@ export default function ManagerDashboard() {
       const res = await fetch('/api/orders', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: selectedOrder.id,
-          trackingNumber,
-          managerNote,
-        }),
+        body: JSON.stringify({ id: selectedOrder.id, trackingNumber, managerNote }),
       });
       if (res.ok) {
         await fetchOrders();
@@ -132,24 +137,33 @@ export default function ManagerDashboard() {
         body: JSON.stringify({ id, orderStatus }),
       });
       await fetchOrders();
-      if (selectedOrder?.id === id) {
-        setSelectedOrder({ ...selectedOrder, orderStatus });
-      }
+      if (selectedOrder?.id === id) setSelectedOrder({ ...selectedOrder, orderStatus });
     } catch (error) {
       console.error('Помилка оновлення статусу:', error);
     }
   };
 
-  const filteredOrders = filterStatus === 'ALL'
-    ? orders
-    : orders.filter(o => o.orderStatus === filterStatus);
+  const filteredOrders = orders.filter((o) => {
+    if (filterStatus !== 'ALL' && o.orderStatus !== filterStatus) return false;
+    if (dateFrom) {
+      const from = new Date(dateFrom);
+      from.setHours(0, 0, 0, 0);
+      if (new Date(o.createdAt) < from) return false;
+    }
+    if (dateTo) {
+      const to = new Date(dateTo);
+      to.setHours(23, 59, 59, 999);
+      if (new Date(o.createdAt) > to) return false;
+    }
+    return true;
+  });
 
   const stats = {
-    total: orders.length,
-    new: orders.filter(o => o.orderStatus === 'NEW' && o.paymentStatus === 'PAID').length,
-    processing: orders.filter(o => o.orderStatus === 'PROCESSING').length,
-    shipped: orders.filter(o => o.orderStatus === 'SHIPPED').length,
-    revenue: orders.filter(o => o.paymentStatus === 'PAID').reduce((sum, o) => sum + o.amount, 0),
+    total: filteredOrders.length,
+    new: filteredOrders.filter(o => o.orderStatus === 'NEW' && o.paymentStatus === 'PAID').length,
+    processing: filteredOrders.filter(o => o.orderStatus === 'PROCESSING').length,
+    shipped: filteredOrders.filter(o => o.orderStatus === 'SHIPPED').length,
+    revenue: filteredOrders.filter(o => o.paymentStatus === 'PAID').reduce((sum, o) => sum + o.amount, 0),
   };
 
   if (status === 'loading' || loading) {
@@ -178,6 +192,8 @@ export default function ManagerDashboard() {
       </div>
 
       <div className="max-w-7xl mx-auto px-6 py-6">
+
+        {/* Статистика */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
           {[
             { label: 'Всього замовлень', value: stats.total, color: 'text-gray-700' },
@@ -193,6 +209,54 @@ export default function ManagerDashboard() {
           ))}
         </div>
 
+        {/* Фільтр по даті */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-gray-500">З:</label>
+              <input
+                type="date"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+                className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#D4A017]"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-gray-500">По:</label>
+              <input
+                type="date"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+                className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#D4A017]"
+              />
+            </div>
+            <div className="flex gap-2 flex-wrap">
+              {[
+                { label: '1 тиждень', days: 7 },
+                { label: '1 місяць', days: 30 },
+                { label: '3 місяці', days: 90 },
+                { label: '6 місяців', days: 180 },
+                { label: '1 рік', days: 365 },
+              ].map(({ label, days }) => (
+                <button
+                  key={days}
+                  onClick={() => setQuickDate(days)}
+                  className="px-3 py-2 bg-gray-100 text-gray-600 rounded-lg text-xs font-medium hover:bg-[#1C3A2E] hover:text-white transition-colors"
+                >
+                  {label}
+                </button>
+              ))}
+              <button
+                onClick={() => { setDateFrom(''); setDateTo(toDateInput(today)); }}
+                className="px-3 py-2 bg-gray-100 text-gray-600 rounded-lg text-xs font-medium hover:bg-red-100 hover:text-red-600 transition-colors"
+              >
+                Скинути
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Фільтр по статусу */}
         <div className="flex gap-2 mb-4 flex-wrap">
           {['ALL', 'NEW', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED'].map((s) => (
             <button
@@ -209,6 +273,7 @@ export default function ManagerDashboard() {
           ))}
         </div>
 
+        {/* Таблиця */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
           {filteredOrders.length === 0 ? (
             <div className="p-12 text-center text-gray-400">
@@ -219,7 +284,7 @@ export default function ManagerDashboard() {
               <table className="w-full">
                 <thead className="bg-gray-50 border-b border-gray-100">
                   <tr>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Дата</th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Дата та час</th>
                     <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Клієнт</th>
                     <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Місто</th>
                     <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Оплата</th>
@@ -232,7 +297,10 @@ export default function ManagerDashboard() {
                   {filteredOrders.map((order) => (
                     <tr key={order.id} className="hover:bg-gray-50 transition-colors">
                       <td className="px-4 py-3 text-sm text-gray-600">
-                        {new Date(order.createdAt).toLocaleDateString('uk-UA')}
+                        <p>{new Date(order.createdAt).toLocaleDateString('uk-UA')}</p>
+                        <p className="text-xs text-gray-400">
+                          {new Date(order.createdAt).toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' })}
+                        </p>
                       </td>
                       <td className="px-4 py-3">
                         <p className="text-sm font-medium text-gray-800">{order.fullName}</p>
@@ -275,6 +343,7 @@ export default function ManagerDashboard() {
         </div>
       </div>
 
+      {/* Модалка деталей */}
       {selectedOrder && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="fixed inset-0 bg-black/50" onClick={() => setSelectedOrder(null)} />
@@ -306,6 +375,17 @@ export default function ManagerDashboard() {
                   <p className="text-gray-500">Сума</p>
                   <p className="font-medium text-green-600">{selectedOrder.amount} UAH</p>
                 </div>
+                <div>
+                  <p className="text-gray-500">Дата замовлення</p>
+                  <p className="font-medium">
+                    {new Date(selectedOrder.createdAt).toLocaleDateString('uk-UA')}{' '}
+                    {new Date(selectedOrder.createdAt).toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-gray-500">Номер замовлення</p>
+                  <p className="font-medium text-xs text-gray-600">{selectedOrder.orderReference}</p>
+                </div>
                 <div className="col-span-2">
                   <p className="text-gray-500">Адреса доставки</p>
                   <p className="font-medium">{selectedOrder.city}, {selectedOrder.postOffice}</p>
@@ -315,9 +395,7 @@ export default function ManagerDashboard() {
 
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Номер ТТН (трекінг)
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Номер ТТН (трекінг)</label>
                 <input
                   type="text"
                   value={trackingNumber}
@@ -326,11 +404,8 @@ export default function ManagerDashboard() {
                   placeholder="20450000000000"
                 />
               </div>
-
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Нотатка менеджера
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Нотатка менеджера</label>
                 <textarea
                   value={managerNote}
                   onChange={(e) => setManagerNote(e.target.value)}
@@ -339,7 +414,6 @@ export default function ManagerDashboard() {
                   placeholder="Внутрішня нотатка..."
                 />
               </div>
-
               <button
                 onClick={saveOrder}
                 disabled={saving}
