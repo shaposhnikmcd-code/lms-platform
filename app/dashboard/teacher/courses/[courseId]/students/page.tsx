@@ -8,20 +8,21 @@ import { FaArrowLeft, FaUsers } from "react-icons/fa";
 export default async function TeacherCourseStudents({
   params,
 }: {
-  params: { courseId: string };
+  params: Promise<{ courseId: string }>;
 }) {
+  const { courseId } = await params;
   const session = await getServerSession(authOptions);
   if (!session?.user || session.user.role !== "TEACHER") redirect("/");
 
   const teacherId = session.user.id;
 
   const courseTeacher = await prisma.courseTeacher.findUnique({
-    where: { courseId_userId: { courseId: params.courseId, userId: teacherId } },
+    where: { courseId_userId: { courseId, userId: teacherId } },
   });
   if (!courseTeacher) redirect("/dashboard/teacher");
 
   const course = await prisma.course.findUnique({
-    where: { id: params.courseId },
+    where: { id: courseId },
     include: {
       enrollments: {
         include: {
@@ -46,7 +47,7 @@ export default async function TeacherCourseStudents({
 
   const progressData = await prisma.courseProgress.findMany({
     where: {
-      courseId: params.courseId,
+      courseId,
       userId: { in: studentIds },
     },
   });
