@@ -100,6 +100,9 @@ export default async function AdminDashboard() {
             <Link href="/dashboard/admin/courses" className="block p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
               📚 Курси
             </Link>
+            <Link href="/dashboard/admin/news" className="block p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
+  📰 Новини
+</Link>
             <Link href="/dashboard/admin/analytics" className="block p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
               📊 Аналітика
             </Link>

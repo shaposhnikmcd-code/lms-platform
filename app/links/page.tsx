@@ -13,10 +13,9 @@ const links = [
     href: '/courses'
   },
   {
-    title: 'Консультація Тетяни Шапошник',
-    href: '/links/consultation',
-    external: true
-  },
+  title: "Консультація Тетяни Шапошник",
+  href: "/consultations/tetiana-shaposhnyk",
+},
   {
     title: 'Простір турботи',
     href: '/care-space'

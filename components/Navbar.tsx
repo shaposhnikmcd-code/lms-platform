@@ -2,11 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useSession } from "next-auth/react";
 import Image from "next/image";
 import AuthButtons from "@/components/AuthButtons";
 
 export default function Navbar() {
   const pathname = usePathname();
+  const { data: session, status } = useSession();
 
   const linkClass = (path: string) =>
     `px-2 py-1 transition-all duration-300 rounded-md ${
@@ -28,9 +30,15 @@ export default function Navbar() {
           <div className="flex gap-4 md:gap-6 items-center">
             <Link href="/" className={linkClass("/")}>Головна</Link>
             <Link href="/courses" className={linkClass("/courses")}>Курси</Link>
+            <Link href="/program" className={linkClass("/program")}>Навчання</Link>
+            <Link href="/consultations" className={linkClass("/consultations")}>Консультації</Link>
+            <Link href="/news" className={linkClass("/news")}>Новини</Link>
             <Link href="/games" className={linkClass("/games")}>Ігри</Link>
             <Link href="/links" className={linkClass("/links")}>База посилань</Link>
-            <Link href="/dashboard" className={linkClass("/dashboard")}>Кабінет</Link>
+            <Link href="/contacts" className={linkClass("/contacts")}>Контакти</Link>
+            {status !== "loading" && session?.user && (
+              <Link href="/dashboard" className={linkClass("/dashboard")}>Кабінет</Link>
+            )}
             <AuthButtons />
           </div>
         </div>

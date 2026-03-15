@@ -28,6 +28,7 @@ model User {
   courseTeachers CourseTeacher[]
   sentMessages     Message[]   @relation("SentMessages")
   receivedMessages Message[]   @relation("ReceivedMessages")
+  news          News[]
 }
 
 model Account {
@@ -224,6 +225,21 @@ model ConnectorOrder {
   managerNote    String?
 }
 
+model News {
+  id        String       @id @default(cuid())
+  title     String
+  slug      String       @unique
+  content   String
+  excerpt   String?
+  imageUrl  String?
+  category  NewsCategory @default(NEWS)
+  published Boolean      @default(false)
+  authorId  String?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  author    User?        @relation(fields: [authorId], references: [id])
+}
+
 enum UserRole {
   ADMIN
   MANAGER
@@ -263,4 +279,10 @@ enum VideoProvider {
   VIMEO
   SENDPULSE
   LOCAL
+}
+
+enum NewsCategory {
+  NEWS
+  ANNOUNCEMENT
+  ARTICLE
 }
