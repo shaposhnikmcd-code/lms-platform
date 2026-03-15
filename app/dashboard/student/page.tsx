@@ -1,14 +1,13 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import Link from "next/link";
-import { FaBook, FaCertificate, FaCreditCard, FaCog } from "react-icons/fa";
+import { FaBook, FaCertificate, FaCreditCard, FaCog, FaEnvelope } from "react-icons/fa";
 import prisma from "@/lib/prisma";
 
 export default async function StudentDashboard() {
   const session = await getServerSession(authOptions);
   const userId = (session?.user as any)?.id;
 
-  // Отримуємо реальні курси з прогресом
   let enrollments: any[] = [];
 
   if (userId && userId !== 'test-student-1') {
@@ -94,7 +93,7 @@ export default async function StudentDashboard() {
       </div>
 
       {/* Навігація по розділах */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <Link href="/dashboard/student/my-courses"
           className="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition text-center">
           <FaBook className="text-3xl text-[#1C3A2E] mx-auto mb-2" />
@@ -117,6 +116,12 @@ export default async function StudentDashboard() {
           className="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition text-center">
           <FaCog className="text-3xl text-[#1C3A2E] mx-auto mb-2" />
           <span className="font-medium">Налаштування</span>
+        </Link>
+
+        <Link href="/dashboard/student/messages"
+          className="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition text-center">
+          <FaEnvelope className="text-3xl text-[#1C3A2E] mx-auto mb-2" />
+          <span className="font-medium">Повідомлення</span>
         </Link>
       </div>
     </div>

@@ -22,6 +22,9 @@ export default async function CertificatesPage() {
 
   return (
     <div className="max-w-4xl mx-auto">
+      <Link href="/dashboard/student" className="inline-flex items-center gap-2 text-sm text-gray-500 hover:text-[#1C3A2E] mb-4 transition-colors">
+        ← Назад до кабінету
+      </Link>
       <h1 className="text-2xl font-bold text-[#1C3A2E] mb-6">Сертифікати</h1>
 
       {certificates.length === 0 ? (

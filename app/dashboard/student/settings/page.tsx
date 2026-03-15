@@ -2,6 +2,7 @@
 
 import { useSession } from 'next-auth/react';
 import { useState } from 'react';
+import Link from 'next/link';
 import { FaUser, FaEnvelope, FaLock, FaSave } from 'react-icons/fa';
 
 export default function SettingsPage() {
@@ -78,6 +79,10 @@ export default function SettingsPage() {
 
   return (
     <div className="max-w-2xl mx-auto">
+      <Link href="/dashboard/student" className="inline-flex items-center gap-2 text-sm text-gray-500 hover:text-[#1C3A2E] mb-4 transition-colors">
+        ← Назад до кабінету
+      </Link>
+
       <h1 className="text-2xl font-bold text-[#1C3A2E] mb-6">Налаштування</h1>
 
       <div className="flex gap-2 mb-6">

@@ -2,6 +2,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { redirect } from 'next/navigation';
 import prisma from '@/lib/prisma';
+import Link from 'next/link';
 import { FaCreditCard, FaCheckCircle, FaClock, FaTimesCircle } from 'react-icons/fa';
 
 const STATUS_LABELS: Record<string, string> = {
@@ -44,9 +45,12 @@ export default async function PaymentsPage() {
 
   return (
     <div className="max-w-4xl mx-auto">
+      <Link href="/dashboard/student" className="inline-flex items-center gap-2 text-sm text-gray-500 hover:text-[#1C3A2E] mb-4 transition-colors">
+        ← Назад до кабінету
+      </Link>
+
       <h1 className="text-2xl font-bold text-[#1C3A2E] mb-6">Платежі</h1>
 
-      {/* Загальна сума */}
       <div className="bg-white rounded-xl p-6 shadow-sm mb-6 flex items-center gap-4">
         <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
           <FaCreditCard className="text-green-600 text-xl" />

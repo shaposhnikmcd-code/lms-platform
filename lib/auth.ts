@@ -90,6 +90,22 @@ export const authOptions: NextAuthOptions = {
           };
         }
 
+        // Тестовий викладач — беремо реальний id з БД
+        if (credentials.email === "teacher@test.com" && credentials.password === "123456") {
+          console.log('✅ Test teacher login');
+          const teacherUser = await prisma.user.findUnique({
+            where: { email: "teacher@test.com" }
+          });
+          if (teacherUser) {
+            return {
+              id: teacherUser.id,
+              email: teacherUser.email,
+              name: teacherUser.name || "Тестовий викладач",
+              role: "TEACHER"
+            };
+          }
+        }
+
         try {
           const user = await prisma.user.findUnique({
             where: { email: credentials.email }
@@ -144,7 +160,7 @@ export const authOptions: NextAuthOptions = {
         token.email = user.email;
         token.name = user.name;
         token.picture = user.image;
-        token.role = user.email ? getRole(user.email) : (user.role || "STUDENT");
+        token.role = user.role || (user.email ? getRole(user.email) : "STUDENT");
         console.log('👤 User role set:', token.role);
       }
       
