@@ -3,6 +3,7 @@
 import { useSession } from 'next-auth/react';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import OrderDetailsModal from './_components/OrderDetailsModal';
 
 type OrderStatus = 'NEW' | 'PROCESSING' | 'SHIPPED' | 'DELIVERED' | 'CANCELLED';
 type PaymentStatus = 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED';
@@ -56,9 +57,37 @@ const PAYMENT_COLORS: Record<PaymentStatus, string> = {
 
 const toDateInput = (date: Date) => date.toISOString().split('T')[0];
 
+const quickDates = [
+  { label: '1 тиждень', days: 7 },
+  { label: '1 місяць', days: 30 },
+  { label: '3 місяці', days: 90 },
+  { label: '6 місяців', days: 180 },
+  { label: '1 рік', days: 365 },
+];
+
+const statsConfig = (stats: ReturnType<typeof computeStats>) => [
+  { label: 'Всього замовлень', value: stats.total, color: 'text-gray-700' },
+  { label: 'Нових (оплачено)', value: stats.new, color: 'text-blue-600' },
+  { label: 'В обробці', value: stats.processing, color: 'text-yellow-600' },
+  { label: 'Відправлено', value: stats.shipped, color: 'text-purple-600' },
+  { label: 'Дохід (UAH)', value: stats.revenue.toLocaleString(), color: 'text-green-600' },
+];
+
+function computeStats(orders: Order[]) {
+  return {
+    total: orders.length,
+    new: orders.filter(o => o.orderStatus === 'NEW' && o.paymentStatus === 'PAID').length,
+    processing: orders.filter(o => o.orderStatus === 'PROCESSING').length,
+    shipped: orders.filter(o => o.orderStatus === 'SHIPPED').length,
+    revenue: orders.filter(o => o.paymentStatus === 'PAID').reduce((sum, o) => sum + o.amount, 0),
+  };
+}
+
 export default function ManagerDashboard() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const today = new Date();
+
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
@@ -66,8 +95,6 @@ export default function ManagerDashboard() {
   const [managerNote, setManagerNote] = useState('');
   const [saving, setSaving] = useState(false);
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
-
-  const today = new Date();
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState(toDateInput(today));
 
@@ -158,35 +185,31 @@ export default function ManagerDashboard() {
     return true;
   });
 
-  const stats = {
-    total: filteredOrders.length,
-    new: filteredOrders.filter(o => o.orderStatus === 'NEW' && o.paymentStatus === 'PAID').length,
-    processing: filteredOrders.filter(o => o.orderStatus === 'PROCESSING').length,
-    shipped: filteredOrders.filter(o => o.orderStatus === 'SHIPPED').length,
-    revenue: filteredOrders.filter(o => o.paymentStatus === 'PAID').reduce((sum, o) => sum + o.amount, 0),
-  };
+  const stats = computeStats(filteredOrders);
 
   if (status === 'loading' || loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#D4A017]"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#D4A017]" />
       </div>
     );
   }
 
   return (
     <div className="min-h-screen bg-gray-50">
+
+      {/* Header */}
       <div className="bg-white border-b border-gray-200 px-6 py-4">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-[#1C3A2E]">Кабінет менеджера</h1>
-            <p className="text-sm text-gray-500">Замовлення гри Конектор</p>
+            <h1 className="text-2xl font-bold text-[#1C3A2E]">{"Кабінет менеджера"}</h1>
+            <p className="text-sm text-gray-500">{"Замовлення гри Конектор"}</p>
           </div>
           <button
             onClick={fetchOrders}
             className="px-4 py-2 bg-[#D4A017] text-white rounded-lg hover:bg-[#b88913] transition-colors text-sm font-medium"
           >
-            Оновити
+            {"Оновити"}
           </button>
         </div>
       </div>
@@ -195,13 +218,7 @@ export default function ManagerDashboard() {
 
         {/* Статистика */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
-          {[
-            { label: 'Всього замовлень', value: stats.total, color: 'text-gray-700' },
-            { label: 'Нових (оплачено)', value: stats.new, color: 'text-blue-600' },
-            { label: 'В обробці', value: stats.processing, color: 'text-yellow-600' },
-            { label: 'Відправлено', value: stats.shipped, color: 'text-purple-600' },
-            { label: 'Дохід (UAH)', value: stats.revenue.toLocaleString(), color: 'text-green-600' },
-          ].map((stat) => (
+          {statsConfig(stats).map((stat) => (
             <div key={stat.label} className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
               <p className="text-xs text-gray-500 mb-1">{stat.label}</p>
               <p className={`text-2xl font-bold ${stat.color}`}>{stat.value}</p>
@@ -213,7 +230,7 @@ export default function ManagerDashboard() {
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-4">
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-2">
-              <label className="text-sm text-gray-500">З:</label>
+              <label className="text-sm text-gray-500">{"З:"}</label>
               <input
                 type="date"
                 value={dateFrom}
@@ -222,7 +239,7 @@ export default function ManagerDashboard() {
               />
             </div>
             <div className="flex items-center gap-2">
-              <label className="text-sm text-gray-500">По:</label>
+              <label className="text-sm text-gray-500">{"По:"}</label>
               <input
                 type="date"
                 value={dateTo}
@@ -231,13 +248,7 @@ export default function ManagerDashboard() {
               />
             </div>
             <div className="flex gap-2 flex-wrap">
-              {[
-                { label: '1 тиждень', days: 7 },
-                { label: '1 місяць', days: 30 },
-                { label: '3 місяці', days: 90 },
-                { label: '6 місяців', days: 180 },
-                { label: '1 рік', days: 365 },
-              ].map(({ label, days }) => (
+              {quickDates.map(({ label, days }) => (
                 <button
                   key={days}
                   onClick={() => setQuickDate(days)}
@@ -250,7 +261,7 @@ export default function ManagerDashboard() {
                 onClick={() => { setDateFrom(''); setDateTo(toDateInput(today)); }}
                 className="px-3 py-2 bg-gray-100 text-gray-600 rounded-lg text-xs font-medium hover:bg-red-100 hover:text-red-600 transition-colors"
               >
-                Скинути
+                {"Скинути"}
               </button>
             </div>
           </div>
@@ -258,7 +269,7 @@ export default function ManagerDashboard() {
 
         {/* Фільтр по статусу */}
         <div className="flex gap-2 mb-4 flex-wrap">
-          {['ALL', 'NEW', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED'].map((s) => (
+          {(['ALL', ...Object.keys(STATUS_LABELS)] as string[]).map((s) => (
             <button
               key={s}
               onClick={() => setFilterStatus(s)}
@@ -277,20 +288,16 @@ export default function ManagerDashboard() {
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
           {filteredOrders.length === 0 ? (
             <div className="p-12 text-center text-gray-400">
-              <p className="text-lg">Замовлень немає</p>
+              <p className="text-lg">{"Замовлень немає"}</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead className="bg-gray-50 border-b border-gray-100">
                   <tr>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Дата та час</th>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Клієнт</th>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Місто</th>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Оплата</th>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Статус</th>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">ТТН</th>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Дії</th>
+                    {['Дата та час', 'Клієнт', 'Місто', 'Оплата', 'Статус', 'ТТН', 'Дії'].map((h) => (
+                      <th key={h} className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">{h}</th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
@@ -324,14 +331,14 @@ export default function ManagerDashboard() {
                         </select>
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-600">
-                        {order.trackingNumber || <span className="text-gray-300">—</span>}
+                        {order.trackingNumber || <span className="text-gray-300">{"—"}</span>}
                       </td>
                       <td className="px-4 py-3">
                         <button
                           onClick={() => openOrder(order)}
                           className="px-3 py-1 bg-[#1C3A2E] text-white text-xs rounded-lg hover:bg-[#2a5242] transition-colors"
                         >
-                          Деталі
+                          {"Деталі"}
                         </button>
                       </td>
                     </tr>
@@ -343,87 +350,18 @@ export default function ManagerDashboard() {
         </div>
       </div>
 
-      {/* Модалка деталей */}
+      {/* Модалка — ізольована */}
       {selectedOrder && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="fixed inset-0 bg-black/50" onClick={() => setSelectedOrder(null)} />
-          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 p-6">
-            <button
-              onClick={() => setSelectedOrder(null)}
-              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
-            >
-              X
-            </button>
-
-            <h3 className="text-lg font-bold text-[#1C3A2E] mb-4">Деталі замовлення</h3>
-
-            <div className="space-y-3 mb-6">
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <div>
-                  <p className="text-gray-500">Клієнт</p>
-                  <p className="font-medium">{selectedOrder.fullName}</p>
-                </div>
-                <div>
-                  <p className="text-gray-500">Телефон</p>
-                  <p className="font-medium">{selectedOrder.phone}</p>
-                </div>
-                <div>
-                  <p className="text-gray-500">Email</p>
-                  <p className="font-medium">{selectedOrder.email}</p>
-                </div>
-                <div>
-                  <p className="text-gray-500">Сума</p>
-                  <p className="font-medium text-green-600">{selectedOrder.amount} UAH</p>
-                </div>
-                <div>
-                  <p className="text-gray-500">Дата замовлення</p>
-                  <p className="font-medium">
-                    {new Date(selectedOrder.createdAt).toLocaleDateString('uk-UA')}{' '}
-                    {new Date(selectedOrder.createdAt).toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' })}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-gray-500">Номер замовлення</p>
-                  <p className="font-medium text-xs text-gray-600">{selectedOrder.orderReference}</p>
-                </div>
-                <div className="col-span-2">
-                  <p className="text-gray-500">Адреса доставки</p>
-                  <p className="font-medium">{selectedOrder.city}, {selectedOrder.postOffice}</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Номер ТТН (трекінг)</label>
-                <input
-                  type="text"
-                  value={trackingNumber}
-                  onChange={(e) => setTrackingNumber(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#D4A017]"
-                  placeholder="20450000000000"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Нотатка менеджера</label>
-                <textarea
-                  value={managerNote}
-                  onChange={(e) => setManagerNote(e.target.value)}
-                  rows={3}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#D4A017] resize-none"
-                  placeholder="Внутрішня нотатка..."
-                />
-              </div>
-              <button
-                onClick={saveOrder}
-                disabled={saving}
-                className="w-full bg-[#D4A017] text-white font-bold py-3 rounded-xl hover:bg-[#b88913] transition-colors disabled:opacity-50"
-              >
-                {saving ? 'Збереження...' : 'Зберегти'}
-              </button>
-            </div>
-          </div>
-        </div>
+        <OrderDetailsModal
+          order={selectedOrder}
+          trackingNumber={trackingNumber}
+          managerNote={managerNote}
+          saving={saving}
+          onClose={() => setSelectedOrder(null)}
+          onTrackingChange={setTrackingNumber}
+          onNoteChange={setManagerNote}
+          onSave={saveOrder}
+        />
       )}
     </div>
   );

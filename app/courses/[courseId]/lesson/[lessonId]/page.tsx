@@ -1,34 +1,16 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
+import dynamic from 'next/dynamic';
 import { useSession } from 'next-auth/react';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
-import { FaCheck, FaLock } from 'react-icons/fa';
+import { FaCheck } from 'react-icons/fa';
+import { useLesson } from './_hooks/useLesson';
+import AccessDenied from './_components/AccessDenied';
 
-interface Lesson {
-  id: string;
-  title: string;
-  order: number;
-  videoUrl: string | null;
-  videoProvider: string;
-  videoId: string | null;
-  duration: number | null;
-  isFree: boolean;
-  module: {
-    id: string;
-    title: string;
-    course: {
-      id: string;
-      title: string;
-    };
-  };
-}
-
-interface LessonProgress {
-  watchedAt: number;
-  completed: boolean;
-}
+// Відео — lazy, не вантажиться поки не потрібне
+const VideoPlayer = dynamic(() => import('./_components/VideoPlayer'), { ssr: false });
 
 export default function LessonPage() {
   const { data: session, status } = useSession();
@@ -37,119 +19,16 @@ export default function LessonPage() {
   const courseId = params.courseId as string;
   const lessonId = params.lessonId as string;
 
-  const [lesson, setLesson] = useState<Lesson | null>(null);
-  const [progress, setProgress] = useState<LessonProgress | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [hasAccess, setHasAccess] = useState(false);
-  const [completed, setCompleted] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const { lesson, loading, hasAccess, completed, saving, markCompleted } = useLesson(courseId, lessonId);
 
   useEffect(() => {
     if (status === 'unauthenticated') router.push('/');
   }, [status]);
 
-  useEffect(() => {
-    if (status === 'authenticated') {
-      fetchLesson();
-      fetchProgress();
-      checkAccess();
-    }
-  }, [status, lessonId]);
-
-  const fetchLesson = async () => {
-    try {
-      const res = await fetch(`/api/lessons/${lessonId}`);
-      const data = await res.json();
-      setLesson(data.lesson);
-    } catch (error) {
-      console.error('Помилка завантаження уроку:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchProgress = async () => {
-    try {
-      const res = await fetch(`/api/lesson-progress?lessonId=${lessonId}`);
-      const data = await res.json();
-      if (data.progress) {
-        setProgress(data.progress);
-        setCompleted(data.progress.completed);
-      }
-    } catch (error) {
-      console.error('Помилка завантаження прогресу:', error);
-    }
-  };
-
-  const checkAccess = async () => {
-    try {
-      const res = await fetch(`/api/courses/${courseId}/access`);
-      const data = await res.json();
-      setHasAccess(data.hasAccess);
-    } catch (error) {
-      console.error('Помилка перевірки доступу:', error);
-    }
-  };
-
-  const markCompleted = async () => {
-    setSaving(true);
-    try {
-      await fetch('/api/lesson-progress', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lessonId, completed: true, watchedAt: 0 }),
-      });
-      setCompleted(true);
-    } catch (error) {
-      console.error('Помилка збереження прогресу:', error);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const getVideoEmbed = (lesson: Lesson) => {
-    if (!lesson.videoUrl && !lesson.videoId) return null;
-
-    if (lesson.videoProvider === 'YOUTUBE' && lesson.videoId) {
-      return (
-        <iframe
-          className="w-full aspect-video rounded-xl"
-          src={`https://www.youtube.com/embed/${lesson.videoId}?rel=0&modestbranding=1`}
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-          allowFullScreen
-        />
-      );
-    }
-
-    if (lesson.videoProvider === 'SENDPULSE' && lesson.videoUrl) {
-      return (
-        <iframe
-          className="w-full aspect-video rounded-xl"
-          src={lesson.videoUrl}
-          allow="autoplay; fullscreen"
-          allowFullScreen
-        />
-      );
-    }
-
-    if (lesson.videoUrl) {
-      return (
-        <video
-          className="w-full aspect-video rounded-xl bg-black"
-          controls
-          controlsList="nodownload"
-          src={lesson.videoUrl}
-        />
-      );
-    }
-
-    return null;
-  };
-
   if (loading || status === 'loading') {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#D4A017]"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#D4A017]" />
       </div>
     );
   }
@@ -157,27 +36,13 @@ export default function LessonPage() {
   if (!lesson) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <p className="text-gray-500">Урок не знайдено</p>
+        <p className="text-gray-500">{"Урок не знайдено"}</p>
       </div>
     );
   }
 
   if (!hasAccess && !lesson.isFree) {
-    return (
-      <div className="min-h-screen flex items-center justify-center px-4">
-        <div className="bg-white rounded-2xl shadow-lg p-10 max-w-md w-full text-center">
-          <FaLock className="text-5xl text-gray-300 mx-auto mb-4" />
-          <h2 className="text-2xl font-bold text-[#1C3A2E] mb-3">Доступ закрито</h2>
-          <p className="text-gray-500 mb-6">Щоб переглянути цей урок, потрібно придбати курс</p>
-          <Link
-            href={`/courses/${courseId}`}
-            className="inline-block bg-[#D4A017] text-white font-bold py-3 px-8 rounded-xl hover:bg-[#b88913] transition-colors"
-          >
-            Купити курс
-          </Link>
-        </div>
-      </div>
-    );
+    return <AccessDenied courseId={courseId} />;
   }
 
   return (
@@ -187,7 +52,7 @@ export default function LessonPage() {
         {/* Хлібні крихти */}
         <div className="flex items-center gap-2 text-sm text-gray-500 mb-6">
           <Link href="/dashboard/student/my-courses" className="hover:text-[#1C3A2E] transition-colors">
-            Мої курси
+            {"Мої курси"}
           </Link>
           <span>/</span>
           <Link href={`/courses/${courseId}`} className="hover:text-[#1C3A2E] transition-colors">
@@ -199,11 +64,11 @@ export default function LessonPage() {
 
         {/* Відео */}
         <div className="bg-black rounded-xl overflow-hidden mb-6 shadow-lg">
-          {getVideoEmbed(lesson) || (
-            <div className="w-full aspect-video flex items-center justify-center bg-gray-900">
-              <p className="text-gray-400">Відео недоступне</p>
-            </div>
-          )}
+          <VideoPlayer
+            videoUrl={lesson.videoUrl}
+            videoProvider={lesson.videoProvider}
+            videoId={lesson.videoId}
+          />
         </div>
 
         {/* Інфо про урок */}

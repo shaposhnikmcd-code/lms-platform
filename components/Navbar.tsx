@@ -32,10 +32,10 @@ export default function Navbar() {
             <Link href="/courses" className={linkClass("/courses")}>Курси</Link>
             <Link href="/program" className={linkClass("/program")}>Навчання</Link>
             <Link href="/consultations" className={linkClass("/consultations")}>Консультації</Link>
-            <Link href="/news" className={linkClass("/news")}>Новини</Link>
             <Link href="/games" className={linkClass("/games")}>Ігри</Link>
-            <Link href="/links" className={linkClass("/links")}>База посилань</Link>
+            <Link href="/news" className={linkClass("/news")}>Новини</Link>
             <Link href="/contacts" className={linkClass("/contacts")}>Контакти</Link>
+            <Link href="/links" className={linkClass("/links")}>База посилань</Link>
             {status !== "loading" && session?.user && (
               <Link href="/dashboard" className={linkClass("/dashboard")}>Кабінет</Link>
             )}
