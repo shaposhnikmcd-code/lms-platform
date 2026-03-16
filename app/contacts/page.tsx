@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { FaTelegram, FaInstagram, FaYoutube, FaEnvelope, FaPhone, FaMapMarkerAlt, FaChevronDown } from "react-icons/fa";
+import { FaTelegram, FaInstagram, FaYoutube, FaEnvelope, FaChevronDown } from "react-icons/fa";
 
 const faqs = [
   { q: "Як отримати доступ до курсу після оплати?", a: "Після успішної оплати курс автоматично з'являється у вашому кабінеті студента. Увійдіть в акаунт і перейдіть до розділу Мої курси." },
@@ -19,77 +19,75 @@ const socials = [
 export default function ContactsPage() {
   return (
     <main className="min-h-screen bg-gray-50">
-      <section className="bg-gradient-to-br from-[#1C3A2E] to-[#2a4f3f] text-white py-20">
+
+      {/* Hero */}
+      <section className="bg-gradient-to-br from-[#1C3A2E] to-[#2a4f3f] text-white py-10">
         <div className="max-w-4xl mx-auto px-4 text-center">
-          <h1 className="text-4xl md:text-5xl font-bold mb-4">Контакти</h1>
-          <p className="text-white/70 text-lg">Маєте питання? Ми завжди раді допомогти</p>
+          <h1 className="text-4xl md:text-5xl font-bold mb-4">{"Контакти"}</h1>
+          <p className="text-white/70 text-lg">{"Маєте питання? Ми завжди раді допомогти"}</p>
         </div>
       </section>
 
       <section className="max-w-6xl mx-auto px-4 py-16">
-        <div className="grid md:grid-cols-3 gap-6 mb-16">
+
+        {/* Контактні блоки */}
+        <div className="grid md:grid-cols-2 gap-6 mb-16 max-w-2xl mx-auto">
           <div className="bg-white rounded-2xl shadow-sm p-8 text-center hover:shadow-md transition-all">
             <div className="w-14 h-14 bg-[#E8F5E0] rounded-full flex items-center justify-center mx-auto mb-4">
               <FaEnvelope className="text-[#1C3A2E] text-2xl" />
             </div>
-            <h3 className="font-bold text-[#1C3A2E] text-lg mb-2">Email</h3>
+            <h3 className="font-bold text-[#1C3A2E] text-lg mb-2">{"Email"}</h3>
             <a href="mailto:uimp.edu@gmail.com" className="text-[#D4A843] hover:text-[#b88913] transition-colors">
-              uimp.edu@gmail.com
+              {"uimp.edu@gmail.com"}
             </a>
-            <p className="text-gray-400 text-sm mt-2">Відповідаємо протягом 24 годин</p>
+            <p className="text-gray-400 text-sm mt-2">{"Відповідаємо протягом 24 годин"}</p>
           </div>
 
           <div className="bg-white rounded-2xl shadow-sm p-8 text-center hover:shadow-md transition-all">
             <div className="w-14 h-14 bg-[#E8F5E0] rounded-full flex items-center justify-center mx-auto mb-4">
-              <FaPhone className="text-[#1C3A2E] text-2xl" />
+              <FaEnvelope className="text-[#1C3A2E] text-2xl" />
             </div>
-            <h3 className="font-bold text-[#1C3A2E] text-lg mb-2">Телефон</h3>
-            <p className="text-[#D4A843] font-medium">Буде додано незабаром</p>
-            <p className="text-gray-400 text-sm mt-2">Пн-Пт, 9:00 - 18:00</p>
-          </div>
-
-          <div className="bg-white rounded-2xl shadow-sm p-8 text-center hover:shadow-md transition-all">
-            <div className="w-14 h-14 bg-[#E8F5E0] rounded-full flex items-center justify-center mx-auto mb-4">
-              <FaMapMarkerAlt className="text-[#1C3A2E] text-2xl" />
-            </div>
-            <h3 className="font-bold text-[#1C3A2E] text-lg mb-2">Адреса</h3>
-            <p className="text-gray-500">Буде додано незабаром</p>
-            <p className="text-gray-400 text-sm mt-2">Україна</p>
+            <h3 className="font-bold text-[#1C3A2E] text-lg mb-2">{"Технічна підтримка UIMP"}</h3>
+            <a href="mailto:support@uimp.ua" className="text-[#D4A843] hover:text-[#b88913] transition-colors">
+              {"support@uimp.ua"}
+            </a>
+            <p className="text-gray-400 text-sm mt-2">{"Відповідаємо протягом 24 годин"}</p>
           </div>
         </div>
 
+        {/* Форма + соцмережі */}
         <div className="grid md:grid-cols-2 gap-8">
           <div className="bg-white rounded-2xl shadow-sm p-8">
-            <h2 className="text-2xl font-bold text-[#1C3A2E] mb-6">Написати нам</h2>
+            <h2 className="text-2xl font-bold text-[#1C3A2E] mb-6">{"Написати нам"}</h2>
             <form action="https://formsubmit.co/uimp.edu@gmail.com" method="POST" className="space-y-4">
               <input type="hidden" name="_subject" value="Новий запит з сайту UIMP" />
               <input type="hidden" name="_captcha" value="false" />
               <input type="hidden" name="_next" value="https://dr-shaposhnik-platform.vercel.app/contacts?sent=true" />
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Ваше імʼя</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{"Ваше імʼя"}</label>
                 <input type="text" name="name" required placeholder="Іван Петренко"
                   className="w-full border border-gray-200 rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#1C3A2E]/20" />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{"Email"}</label>
                 <input type="email" name="email" required placeholder="your@email.com"
                   className="w-full border border-gray-200 rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#1C3A2E]/20" />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Повідомлення</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{"Повідомлення"}</label>
                 <textarea name="message" required rows={5} placeholder="Ваше питання або повідомлення..."
                   className="w-full border border-gray-200 rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#1C3A2E]/20 resize-none" />
               </div>
               <button type="submit"
                 className="w-full bg-[#1C3A2E] text-white font-medium py-3 rounded-xl hover:bg-[#2a5242] transition-colors">
-                Надіслати повідомлення
+                {"Надіслати повідомлення"}
               </button>
             </form>
           </div>
 
           <div className="flex flex-col gap-6">
             <div className="bg-white rounded-2xl shadow-sm p-8">
-              <h2 className="text-2xl font-bold text-[#1C3A2E] mb-6">Ми в соцмережах</h2>
+              <h2 className="text-2xl font-bold text-[#1C3A2E] mb-6">{"Ми в соцмережах"}</h2>
               <div className="space-y-4">
                 {socials.map((s) => (
                   <Link key={s.label} href={s.href} target="_blank"
@@ -99,7 +97,7 @@ export default function ContactsPage() {
                     </div>
                     <div>
                       <p className="font-medium text-[#1C3A2E] group-hover:text-[#D4A843] transition-colors">{s.label}</p>
-                      <p className="text-xs text-gray-400">Підписуйтесь на нас</p>
+                      <p className="text-xs text-gray-400">{"Підписуйтесь на нас"}</p>
                     </div>
                   </Link>
                 ))}
@@ -107,22 +105,23 @@ export default function ContactsPage() {
             </div>
 
             <div className="bg-[#1C3A2E] rounded-2xl p-8 text-white">
-              <h3 className="text-xl font-bold mb-2">Потрібна консультація?</h3>
-              <p className="text-white/70 text-sm mb-4">Напишіть нам в Telegram — відповімо якнайшвидше</p>
+              <h3 className="text-xl font-bold mb-2">{"Потрібна консультація?"}</h3>
+              <p className="text-white/70 text-sm mb-4">{"Напишіть нам в Telegram — відповімо якнайшвидше"}</p>
               <Link href="https://t.me/shaposhnykpsy" target="_blank"
                 className="inline-flex items-center gap-2 bg-[#0088cc] text-white px-6 py-3 rounded-xl hover:bg-[#0077bb] transition-colors font-medium">
-                <FaTelegram /> Написати в Telegram
+                <FaTelegram /> {"Написати в Telegram"}
               </Link>
             </div>
           </div>
         </div>
       </section>
 
+      {/* FAQ */}
       <section className="bg-white py-16">
         <div className="max-w-3xl mx-auto px-4">
           <div className="text-center mb-12">
-            <span className="text-[#D4A843] font-semibold text-sm uppercase tracking-wider">Підтримка</span>
-            <h2 className="text-3xl font-bold text-[#1C3A2E] mt-2">Часті запитання</h2>
+            <span className="text-[#D4A843] font-semibold text-sm uppercase tracking-wider">{"Підтримка"}</span>
+            <h2 className="text-3xl font-bold text-[#1C3A2E] mt-2">{"Часті запитання"}</h2>
           </div>
           <div className="space-y-4">
             {faqs.map((faq, i) => (
@@ -137,6 +136,7 @@ export default function ContactsPage() {
           </div>
         </div>
       </section>
+
     </main>
   );
 }

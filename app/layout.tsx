@@ -4,6 +4,7 @@ import SessionProviderWrapper from "@/components/SessionProviderWrapper";
 import "./globals.css";
 import CookieBanner from "@/components/CookieBanner";
 import Navbar from "@/components/Navbar";
+import Footer from "@/components/Footer";
 
 export default async function RootLayout({
   children,
@@ -18,10 +19,11 @@ export default async function RootLayout({
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <link rel="icon" href="/favicon.ico" />
       </head>
-      <body className="antialiased">
+      <body className="antialiased flex flex-col min-h-screen">
         <SessionProviderWrapper session={session}>
           <Navbar />
-          <main>{children}</main>
+          <main className="flex-1">{children}</main>
+          <Footer />
           <CookieBanner />
         </SessionProviderWrapper>
       </body>

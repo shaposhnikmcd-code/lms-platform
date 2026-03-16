@@ -9,14 +9,6 @@ import { FaTelegram, FaYoutube, FaInstagram, FaEnvelope, FaStar, FaShareAlt } fr
 // Дані для посилань - нова послідовність
 const links = [
   {
-    title: 'Навчальні курси',
-    href: '/courses'
-  },
-  {
-  title: "Консультація Тетяни Шапошник",
-  href: "/consultations/tetiana-shaposhnyk",
-},
-  {
     title: 'Простір турботи',
     href: '/care-space'
   },
