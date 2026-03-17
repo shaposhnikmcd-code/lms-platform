@@ -113,7 +113,7 @@ export default function ManagerDashboard() {
   const fetchOrders = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/orders');
+      const res = await fetch('/api/connector');
       const data = await res.json();
       setOrders(data.orders || []);
     } catch (error) {
@@ -140,7 +140,7 @@ export default function ManagerDashboard() {
     if (!selectedOrder) return;
     setSaving(true);
     try {
-      const res = await fetch('/api/orders', {
+      const res = await fetch('/api/connector', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: selectedOrder.id, trackingNumber, managerNote }),
@@ -158,7 +158,7 @@ export default function ManagerDashboard() {
 
   const updateStatus = async (id: string, orderStatus: OrderStatus) => {
     try {
-      await fetch('/api/orders', {
+      await fetch('/api/connector', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, orderStatus }),
@@ -198,7 +198,6 @@ export default function ManagerDashboard() {
   return (
     <div className="min-h-screen bg-gray-50">
 
-      {/* Header */}
       <div className="bg-white border-b border-gray-200 px-6 py-4">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div>
@@ -216,7 +215,6 @@ export default function ManagerDashboard() {
 
       <div className="max-w-7xl mx-auto px-6 py-6">
 
-        {/* Статистика */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
           {statsConfig(stats).map((stat) => (
             <div key={stat.label} className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
@@ -226,7 +224,6 @@ export default function ManagerDashboard() {
           ))}
         </div>
 
-        {/* Фільтр по даті */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-4">
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-2">
@@ -267,7 +264,6 @@ export default function ManagerDashboard() {
           </div>
         </div>
 
-        {/* Фільтр по статусу */}
         <div className="flex gap-2 mb-4 flex-wrap">
           {(['ALL', ...Object.keys(STATUS_LABELS)] as string[]).map((s) => (
             <button
@@ -284,7 +280,6 @@ export default function ManagerDashboard() {
           ))}
         </div>
 
-        {/* Таблиця */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
           {filteredOrders.length === 0 ? (
             <div className="p-12 text-center text-gray-400">
@@ -350,7 +345,6 @@ export default function ManagerDashboard() {
         </div>
       </div>
 
-      {/* Модалка — ізольована */}
       {selectedOrder && (
         <OrderDetailsModal
           order={selectedOrder}

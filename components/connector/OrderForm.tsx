@@ -86,7 +86,7 @@ export default function OrderForm({ isOpen, onClose }: OrderFormProps) {
       const amount = 1099;
 
       // 1. Зберігаємо замовлення в БД
-      const orderRes = await fetch('/api/orders', {
+      const orderRes = await fetch('/api/connector', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -176,25 +176,24 @@ export default function OrderForm({ isOpen, onClose }: OrderFormProps) {
 
           <div className="p-8">
             <div className="text-center mb-8">
-              <h2 className="text-3xl font-bold text-[#1C3A2E] mb-2">Форма замовлення</h2>
-              <p className="text-gray-500">Психологічна гра для пар</p>
+              <h2 className="text-3xl font-bold text-[#1C3A2E] mb-2">{"Форма замовлення"}</h2>
+              <p className="text-gray-500">{"Психологічна гра для пар"}</p>
               <div className="flex items-center justify-center gap-2 mt-2">
-                <span className="text-2xl font-bold text-[#D4A017]">1099 UAH</span>
+                <span className="text-2xl font-bold text-[#D4A017]">{"1099 UAH"}</span>
               </div>
             </div>
 
             {submitStatus === 'error' && (
               <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-center">
-                ✗ Помилка при оформленні замовлення. Спробуйте ще раз.
+                {"✗ Помилка при оформленні замовлення. Спробуйте ще раз."}
               </div>
             )}
 
             <form onSubmit={handleSubmit} className="space-y-6">
 
-              {/* Email */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Email <span className="text-red-500">*</span>
+                  {"Email"} <span className="text-red-500">*</span>
                 </label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -212,10 +211,9 @@ export default function OrderForm({ isOpen, onClose }: OrderFormProps) {
                 </div>
               </div>
 
-              {/* ПІБ */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  ПІБ <span className="text-red-500">*</span>
+                  {"ПІБ"} <span className="text-red-500">*</span>
                 </label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -233,10 +231,9 @@ export default function OrderForm({ isOpen, onClose }: OrderFormProps) {
                 </div>
               </div>
 
-              {/* Телефон */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Номер телефону <span className="text-red-500">*</span>
+                  {"Номер телефону"} <span className="text-red-500">*</span>
                 </label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -254,10 +251,9 @@ export default function OrderForm({ isOpen, onClose }: OrderFormProps) {
                 </div>
               </div>
 
-              {/* Населений пункт */}
               <div className="relative">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Населений пункт <span className="text-red-500">*</span>
+                  {"Населений пункт"} <span className="text-red-500">*</span>
                 </label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -307,10 +303,9 @@ export default function OrderForm({ isOpen, onClose }: OrderFormProps) {
                 )}
               </div>
 
-              {/* Відділення Нової Пошти */}
               <div className="relative">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Відділення Нової Пошти <span className="text-red-500">*</span>
+                  {"Відділення Нової Пошти"} <span className="text-red-500">*</span>
                 </label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -364,12 +359,11 @@ export default function OrderForm({ isOpen, onClose }: OrderFormProps) {
 
                 {showBranches && branches.length === 0 && !loadingBranches && formData.city && (
                   <div className="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg p-4 text-center text-gray-500">
-                    Відділень не знайдено
+                    {"Відділень не знайдено"}
                   </div>
                 )}
               </div>
 
-              {/* Чекбокс */}
               <div className="flex items-center">
                 <input
                   type="checkbox"
@@ -380,11 +374,10 @@ export default function OrderForm({ isOpen, onClose }: OrderFormProps) {
                   className="w-4 h-4 text-[#D4A017] border-gray-300 rounded focus:ring-[#D4A017]"
                 />
                 <label htmlFor="callMe" className="ml-2 text-sm text-gray-600">
-                  Я хочу, щоб мені перетелефонували
+                  {"Я хочу, щоб мені перетелефонували"}
                 </label>
               </div>
 
-              {/* Кнопка */}
               <button
                 type="submit"
                 disabled={isSubmitting}
@@ -396,18 +389,18 @@ export default function OrderForm({ isOpen, onClose }: OrderFormProps) {
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                     </svg>
-                    <span>Обробка...</span>
+                    <span>{"Обробка..."}</span>
                   </>
                 ) : (
                   <>
                     <FaShoppingCart />
-                    <span>Замовити та оплатити</span>
+                    <span>{"Замовити та оплатити"}</span>
                   </>
                 )}
               </button>
 
               <p className="text-xs text-gray-400 text-center">
-                Натискаючи "Замовити", ви погоджуєтесь з умовами обробки персональних даних
+                {"Натискаючи \"Замовити\", ви погоджуєтесь з умовами обробки персональних даних"}
               </p>
             </form>
           </div>

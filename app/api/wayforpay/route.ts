@@ -6,41 +6,44 @@ import prisma from '@/lib/prisma';
 
 export async function POST(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-
-    if (!session?.user?.email) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
     const { orderReference, amount, productName, productPrice, productCount, clientEmail, courseId } = await req.json();
 
     const merchantLogin = process.env.WAYFORPAY_MERCHANT_LOGIN!;
     const secretKey = process.env.WAYFORPAY_SECRET_KEY!;
     const domain = process.env.NEXTAUTH_URL || 'https://dr-shaposhnik-platform.vercel.app';
 
-    const orderDate = Math.floor(Date.now() / 1000);
+    const isConnector = orderReference.startsWith('connector_');
 
-    // Знаходимо юзера
-    const user = await prisma.user.findUnique({
-      where: { email: clientEmail },
-    });
+    // Для курсів — перевіряємо сесію і створюємо Payment
+    if (!isConnector) {
+      const session = await getServerSession(authOptions);
 
-    if (!user) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+      if (!session?.user?.email) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      }
+
+      const user = await prisma.user.findUnique({
+        where: { email: clientEmail },
+      });
+
+      if (!user) {
+        return NextResponse.json({ error: 'User not found' }, { status: 404 });
+      }
+
+      await prisma.payment.upsert({
+        where: { orderReference },
+        create: {
+          userId: user.id,
+          courseId,
+          orderReference,
+          amount,
+          status: 'PENDING',
+        },
+        update: {},
+      });
     }
 
-    // Зберігаємо Payment зі статусом PENDING — ще до редиректу на WayForPay
-    await prisma.payment.upsert({
-      where: { orderReference },
-      create: {
-        userId: user.id,
-        courseId,
-        orderReference,
-        amount,
-        status: 'PENDING',
-      },
-      update: {},
-    });
+    const orderDate = Math.floor(Date.now() / 1000);
 
     const signatureString = [
       merchantLogin,
