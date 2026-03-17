@@ -1,62 +1,60 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-// Кешуємо JWT токен (дійсний 1 годину)
-let cachedToken: string | null = null;
-let tokenExpiry: number = 0;
-
 async function getJwtToken(): Promise<string> {
-  const now = Date.now();
-  if (cachedToken && now < tokenExpiry) {
-    return cachedToken;
-  }
-
   const apiKey = process.env.NOVAPOST_EUROPE_API_KEY!;
+  console.log('🔑 Nova Post EU API key:', apiKey ? 'є' : 'ВІДСУТНІЙ');
+
   const res = await fetch(
     `https://api.novapost.com/v.1.0/clients/authorization?apiKey=${apiKey}`,
     { headers: { 'Accept': 'application/json' } }
   );
 
-  if (!res.ok) {
-    throw new Error('Не вдалось отримати JWT токен Nova Post EU');
-  }
+  const text = await res.text();
+  console.log('🔑 JWT response status:', res.status);
+  console.log('🔑 JWT response body:', text);
 
-  const data = await res.json();
-  cachedToken = data.jwt;
-  tokenExpiry = now + 55 * 60 * 1000; // 55 хвилин
-  return cachedToken!;
+  if (!res.ok) throw new Error('Не вдалось отримати JWT токен');
+
+  const data = JSON.parse(text);
+  return data.jwt;
 }
 
 export async function POST(req: NextRequest) {
   try {
     const { countryCode, search } = await req.json();
+    console.log('🌍 Nova Post EU запит:', { countryCode, search });
 
     if (!countryCode || !search || search.length < 2) {
       return NextResponse.json({ divisions: [] });
     }
 
     const jwt = await getJwtToken();
+    console.log('🔑 JWT отримано:', jwt ? 'так' : 'ні');
 
     const params = new URLSearchParams();
     params.append('countryCodes[]', countryCode);
     params.append('name', `*${search}*`);
     params.append('limit', '20');
 
-    const res = await fetch(
-      `https://api.novapost.com/v.1.0/divisions?${params.toString()}`,
-      {
-        headers: {
-          'Authorization': `Bearer ${jwt}`,
-          'Accept': 'application/json',
-        },
-      }
-    );
+    const url = `https://api.novapost.com/v.1.0/divisions?${params.toString()}`;
+    console.log('🌍 Запит до Nova Post EU:', url);
+
+    const res = await fetch(url, {
+      headers: {
+        'Authorization': `Bearer ${jwt}`,
+        'Accept': 'application/json',
+      },
+    });
+
+    const text = await res.text();
+    console.log('🌍 Nova Post EU відповідь status:', res.status);
+    console.log('🌍 Nova Post EU відповідь body:', text.substring(0, 500));
 
     if (!res.ok) {
-      console.error('Nova Post EU API error:', res.status, await res.text());
       return NextResponse.json({ divisions: [] });
     }
 
-    const data = await res.json();
+    const data = JSON.parse(text);
     return NextResponse.json({ divisions: data || [] });
 
   } catch (error) {
