@@ -15,6 +15,11 @@ export default function WayForPayButton({ courseName, price, courseId }: WayForP
   const [loading, setLoading] = useState(false);
 
   const handlePay = async () => {
+    if (!session?.user?.email) {
+      alert('Будь ласка, увійдіть в акаунт перед оплатою');
+      return;
+    }
+
     setLoading(true);
     try {
       const orderReference = `${courseId}_${Date.now()}`;
@@ -28,13 +33,17 @@ export default function WayForPayButton({ courseName, price, courseId }: WayForP
           productName: courseName,
           productPrice: price,
           productCount: 1,
-          clientEmail: session?.user?.email || '',
+          clientEmail: session.user.email,
+          courseId,
         }),
       });
 
+      if (!response.ok) {
+        throw new Error('Помилка створення платежу');
+      }
+
       const paymentData = await response.json();
 
-      // Створюємо форму і відправляємо на WayForPay
       const form = document.createElement('form');
       form.method = 'POST';
       form.action = 'https://secure.wayforpay.com/pay';
@@ -62,7 +71,7 @@ export default function WayForPayButton({ courseName, price, courseId }: WayForP
       form.submit();
     } catch (error) {
       console.error('Помилка оплати:', error);
-      alert('Помилка при створенні платежу');
+      alert('Помилка при створенні платежу. Спробуйте ще раз.');
       setLoading(false);
     }
   };

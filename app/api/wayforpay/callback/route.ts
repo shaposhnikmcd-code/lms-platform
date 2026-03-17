@@ -9,7 +9,6 @@ export async function POST(req: NextRequest) {
 
     const { orderReference, transactionStatus, merchantSignature } = body;
 
-    // Перевірка підпису від WayForPay
     const secretKey = process.env.WAYFORPAY_SECRET_KEY!;
     const signatureString = [
       body.merchantAccount,
@@ -33,12 +32,10 @@ export async function POST(req: NextRequest) {
     }
 
     const isConnector = orderReference.startsWith('connector_');
-    const isCourse = !isConnector;
 
     if (transactionStatus === 'Approved') {
 
       if (isConnector) {
-        // Оновлюємо замовлення Конектора
         await prisma.connectorOrder.update({
           where: { orderReference },
           data: {
@@ -48,56 +45,40 @@ export async function POST(req: NextRequest) {
           },
         });
         console.log('✅ Конектор оплачено:', orderReference);
-      }
 
-      if (isCourse) {
-        // orderReference має формат: courseId_timestamp
-        const courseId = orderReference.split('_')[0];
-        const email = body.email || body.clientEmail || '';
-
-        console.log('📚 Курс оплачено:', courseId, 'email:', email);
-
-        // Знаходимо юзера по email
-        const user = await prisma.user.findUnique({
-          where: { email },
+      } else {
+        const payment = await prisma.payment.findUnique({
+          where: { orderReference },
         });
 
-        if (user) {
-          // Створюємо Enrollment якщо ще немає
+        if (!payment) {
+          console.error('❌ Payment не знайдено для:', orderReference);
+        } else if (!payment.courseId) {
+          console.error('❌ courseId відсутній у Payment:', orderReference);
+        } else {
+          await prisma.payment.update({
+            where: { orderReference },
+            data: {
+              status: 'PAID',
+              paidAt: new Date(),
+            },
+          });
+
           await prisma.enrollment.upsert({
             where: {
               userId_courseId: {
-                userId: user.id,
-                courseId,
+                userId: payment.userId,
+                courseId: payment.courseId,
               },
             },
             create: {
-              userId: user.id,
-              courseId,
+              userId: payment.userId,
+              courseId: payment.courseId,
             },
             update: {},
           });
 
-          // Зберігаємо Payment
-          await prisma.payment.upsert({
-            where: { orderReference },
-            create: {
-              userId: user.id,
-              courseId,
-              orderReference,
-              amount: body.amount,
-              status: 'PAID',
-              paidAt: new Date(),
-            },
-            update: {
-              status: 'PAID',
-              paidAt: new Date(),
-            },
-          });
-
-          console.log('✅ Enrollment та Payment створено для:', user.email, courseId);
-        } else {
-          console.error('❌ Юзера не знайдено по email:', email);
+          console.log('✅ Payment оновлено та Enrollment створено для userId:', payment.userId, 'courseId:', payment.courseId);
         }
       }
 
@@ -108,26 +89,11 @@ export async function POST(req: NextRequest) {
           where: { orderReference },
           data: { paymentStatus: 'FAILED' },
         });
-      }
-
-      if (isCourse) {
-        const courseId = orderReference.split('_')[0];
-        const email = body.email || body.clientEmail || '';
-        const user = await prisma.user.findUnique({ where: { email } });
-
-        if (user) {
-          await prisma.payment.upsert({
-            where: { orderReference },
-            create: {
-              userId: user.id,
-              courseId,
-              orderReference,
-              amount: body.amount,
-              status: 'FAILED',
-            },
-            update: { status: 'FAILED' },
-          });
-        }
+      } else {
+        await prisma.payment.updateMany({
+          where: { orderReference },
+          data: { status: 'FAILED' },
+        });
       }
 
       console.log('❌ Оплата відхилена для:', orderReference);
@@ -144,6 +110,7 @@ export async function POST(req: NextRequest) {
       time: Math.floor(Date.now() / 1000),
       signature: responseSignature,
     });
+
   } catch (error) {
     console.error('❌ Помилка callback:', error);
     return NextResponse.json({ status: 'error' }, { status: 500 });
