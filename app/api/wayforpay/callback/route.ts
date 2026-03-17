@@ -5,9 +5,7 @@ import prisma from '@/lib/prisma';
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-
-    // Детальне логування всього що приходить від WayForPay
-    console.log('📩 WayForPay callback FULL BODY:', JSON.stringify(body, null, 2));
+    console.log('📩 WayForPay callback:', body.orderReference, body.transactionStatus);
 
     const { orderReference, transactionStatus, merchantSignature } = body;
 
@@ -28,22 +26,12 @@ export async function POST(req: NextRequest) {
       .update(signatureString)
       .digest('hex');
 
-    // Логуємо підписи для порівняння
-    console.log('🔐 merchantSignature (від WFP):', merchantSignature);
-    console.log('🔐 expectedSignature (наш):', expectedSignature);
-    console.log('🔐 signatureString:', signatureString);
-    console.log('🔐 Підписи співпадають:', merchantSignature === expectedSignature);
-
-    // ТИМЧАСОВО: не блокуємо якщо підпис не співпадає — тільки логуємо
     if (merchantSignature !== expectedSignature) {
-      console.error('⚠️ Невірний підпис — але продовжуємо для діагностики');
+      console.error('❌ Невірний підпис WayForPay');
+      return NextResponse.json({ status: 'error', message: 'Invalid signature' }, { status: 400 });
     }
 
     const isConnector = orderReference.startsWith('connector_');
-
-    console.log('📦 orderReference:', orderReference);
-    console.log('📦 transactionStatus:', transactionStatus);
-    console.log('📦 isConnector:', isConnector);
 
     if (transactionStatus === 'Approved') {
 
@@ -90,7 +78,7 @@ export async function POST(req: NextRequest) {
             update: {},
           });
 
-          console.log('✅ Payment оновлено та Enrollment створено для userId:', payment.userId, 'courseId:', payment.courseId);
+          console.log('✅ Enrollment створено для userId:', payment.userId, 'courseId:', payment.courseId);
         }
       }
 
