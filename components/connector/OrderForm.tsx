@@ -83,7 +83,7 @@ export default function OrderForm({ isOpen, onClose }: OrderFormProps) {
 
     try {
       const orderReference = `connector_${Date.now()}`;
-      const amount = 1099;
+      const amount = 1;
 
       // 1. Зберігаємо замовлення в БД
       const orderRes = await fetch('/api/connector', {
@@ -179,7 +179,7 @@ export default function OrderForm({ isOpen, onClose }: OrderFormProps) {
               <h2 className="text-3xl font-bold text-[#1C3A2E] mb-2">{"Форма замовлення"}</h2>
               <p className="text-gray-500">{"Психологічна гра для пар"}</p>
               <div className="flex items-center justify-center gap-2 mt-2">
-                <span className="text-2xl font-bold text-[#D4A017]">{"1099 UAH"}</span>
+                <span className="text-2xl font-bold text-[#D4A017]">{"1 UAH (ТЕСТ)"}</span>
               </div>
             </div>
 
