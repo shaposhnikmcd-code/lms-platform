@@ -30,7 +30,7 @@ export default function Navbar() {
   const navLinks = [
     { href: "/", label: "Головна" },
     { href: "/courses", label: "Курси" },
-    { href: "/program", label: "Навчання" },
+    { href: "/learning", label: "Навчання" },
     { href: "/consultations", label: "Консультації" },
     { href: "/games", label: "Ігри" },
     { href: "/news", label: "Новини" },

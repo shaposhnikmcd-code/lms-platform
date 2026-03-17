@@ -1,6 +1,7 @@
 'use client';
 
-import WayForPayButton from '@/components/WayForPayButton';
+import SendPulseButton from '@/components/SendPulseButton';
+import { PSYCHIATRY_COURSE } from '../config';
 
 export default function PsychiatryPricing() {
   return (
@@ -10,16 +11,12 @@ export default function PsychiatryPricing() {
           {"Розпочніть навчання прямо зараз!"}
         </h2>
         <p className="text-white/80 text-sm mb-6 max-w-xl mx-auto">
-          {"31 година відео, бонусні уроки та додаткові матеріали"}
+          {"Повний доступ до всіх матеріалів курсу на 6 місяців"}
         </p>
         <div className="max-w-sm mx-auto bg-white/10 backdrop-blur-sm rounded-xl p-6">
-          <div className="text-3xl font-black text-white mb-3">{"4100 грн"}</div>
+          <div className="text-3xl font-black text-white mb-3">{PSYCHIATRY_COURSE.price}</div>
           <p className="text-white/60 text-xs mb-4">{"Повний доступ на 6 місяців"}</p>
-          <WayForPayButton
-            courseName="Основи психіатрії"
-            price={4100}
-            courseId="psychiatry-basics"
-          />
+          <SendPulseButton url={PSYCHIATRY_COURSE.sendpulseUrl} />
         </div>
       </div>
     </section>

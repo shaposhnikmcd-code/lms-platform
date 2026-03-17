@@ -3,7 +3,7 @@ import prisma from '@/lib/prisma';
 
 export async function POST(req: NextRequest) {
   try {
-    const { orderReference, email, fullName, phone, city, postOffice, amount } = await req.json();
+    const { orderReference, email, fullName, phone, city, postOffice, amount, callMe } = await req.json();
 
     const order = await prisma.connectorOrder.create({
       data: {
@@ -14,6 +14,7 @@ export async function POST(req: NextRequest) {
         city,
         postOffice,
         amount,
+        callMe: callMe || false,
         paymentStatus: 'PENDING',
         orderStatus: 'NEW',
       },

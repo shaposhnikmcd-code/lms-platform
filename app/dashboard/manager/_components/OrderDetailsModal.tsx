@@ -18,6 +18,7 @@ interface Order {
   trackingNumber: string | null;
   managerNote: string | null;
   paidAt: string | null;
+  callMe: boolean;
 }
 
 interface OrderDetailsModalProps {
@@ -86,6 +87,16 @@ export default function OrderDetailsModal({
             <div className="col-span-2">
               <p className="text-gray-500">{"Адреса доставки"}</p>
               <p className="font-medium">{order.city}, {order.postOffice}</p>
+            </div>
+            <div className="col-span-2">
+              <p className="text-gray-500">{"Передзвонити"}</p>
+              <p className="font-medium">
+                {order.callMe ? (
+                  <span className="text-green-600 font-semibold">{"✅ Так — клієнт просить передзвонити"}</span>
+                ) : (
+                  <span className="text-gray-400">{"Ні"}</span>
+                )}
+              </p>
             </div>
           </div>
         </div>

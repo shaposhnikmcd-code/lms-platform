@@ -1,6 +1,7 @@
 'use client';
 
-import WayForPayButton from '@/components/WayForPayButton';
+import SendPulseButton from '@/components/SendPulseButton';
+import { MENTORSHIP_COURSE } from '../config';
 
 export default function MentorshipPricing() {
   return (
@@ -13,13 +14,9 @@ export default function MentorshipPricing() {
           {"20 годин відео, додаткові матеріали та домашні завдання"}
         </p>
         <div className="max-w-sm mx-auto bg-white/10 backdrop-blur-sm rounded-xl p-6">
-          <div className="text-3xl font-black text-white mb-3">{"3500 грн"}</div>
+          <div className="text-3xl font-black text-white mb-3">{MENTORSHIP_COURSE.price}</div>
           <p className="text-white/60 text-xs mb-4">{"Повний доступ на 6 місяців"}</p>
-          <WayForPayButton
-            courseName="Основи душеопікунства"
-            price={3500}
-            courseId="mentorship"
-          />
+          <SendPulseButton url={MENTORSHIP_COURSE.sendpulseUrl} />
         </div>
       </div>
     </section>

@@ -1,22 +1,18 @@
 'use client';
 
-import WayForPayButton from '@/components/WayForPayButton';
+import SendPulseButton from '@/components/SendPulseButton';
 
 const tiers = [
   {
     title: 'Для нових учасників',
     price: 4200,
     description: 'Доступ до лекцій для тих, хто приєднується вперше',
-    courseId: 'christian-psychology-new',
-    courseName: 'Основи християнської психології 2.0 - Новий учасник',
     highlight: true,
   },
   {
     title: 'Для учасників інших курсів',
     price: 3700,
     description: 'Для тих, хто проходив будь-який наш курс раніше',
-    courseId: 'christian-psychology-alumni',
-    courseName: 'Основи християнської психології 2.0 - Учасник курсів',
     highlight: false,
   },
 ];
@@ -26,6 +22,8 @@ const features = [
   'Практичні заняття',
   'Лист з доступом на email',
 ];
+
+const SENDPULSE_URL = 'https://uimp-edu.sendpulse.online/bible-therapy_3_0';
 
 export default function CoursePricingTiers() {
   return (
@@ -42,7 +40,7 @@ export default function CoursePricingTiers() {
       <div className="grid md:grid-cols-2 gap-6 max-w-3xl mx-auto">
         {tiers.map((tier) => (
           <div
-            key={tier.courseId}
+            key={tier.title}
             className={`bg-white rounded-2xl shadow-xl overflow-hidden border-2 ${
               tier.highlight ? 'border-[#D4A017]' : 'border-gray-200'
             }`}
@@ -67,11 +65,7 @@ export default function CoursePricingTiers() {
                   </li>
                 ))}
               </ul>
-              <WayForPayButton
-                courseName={tier.courseName}
-                price={tier.price}
-                courseId={tier.courseId}
-              />
+              <SendPulseButton url={SENDPULSE_URL} />
             </div>
           </div>
         ))}

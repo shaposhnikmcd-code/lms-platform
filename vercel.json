@@ -1,5 +1,8 @@
 {
-  "installCommand": "node --version && npm --version && npm install",
-  "buildCommand": "next build",
-  "framework": "nextjs"
+  "crons": [
+    {
+      "path": "/api/cron/sync-divisions",
+      "schedule": "0 3 * * *"
+    }
+  ]
 }

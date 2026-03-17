@@ -1,7 +1,8 @@
 'use client';
 
 import { FaCheck } from 'react-icons/fa';
-import WayForPayButton from '@/components/WayForPayButton';
+import SendPulseButton from '@/components/SendPulseButton';
+import { PSYCHOLOGY_COURSE } from '../config';
 
 export default function PsychologyPricing() {
   return (
@@ -23,7 +24,6 @@ export default function PsychologyPricing() {
             <div className="bg-white/10 backdrop-blur-sm rounded-3xl p-8 text-center border-2 border-[#D4A017]/30 hover:border-[#D4A017] transition-all">
               <div className="text-sm text-[#D4A017] font-semibold mb-4">{"Повний доступ"}</div>
               <div className="flex items-center justify-center gap-2 mb-6">
-                <span className="text-3xl text-white/60 line-through">{"4900 грн"}</span>
                 <span className="text-6xl font-black text-white">{"3500"}</span>
                 <span className="text-white/60">{"грн"}</span>
               </div>
@@ -38,12 +38,7 @@ export default function PsychologyPricing() {
                   <FaCheck className="text-[#D4A017]" />{"Додаткові матеріали"}
                 </p>
               </div>
-              <WayForPayButton
-                courseName="Основи психології"
-                price={3500}
-                courseId="psychology-basics"
-              />
-              <p className="text-white/50 text-sm mt-4">{"100% гарантія повернення коштів"}</p>
+              <SendPulseButton url={PSYCHOLOGY_COURSE.sendpulseUrl} />
             </div>
           </div>
         </div>

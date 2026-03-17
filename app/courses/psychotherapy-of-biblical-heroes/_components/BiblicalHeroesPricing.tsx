@@ -1,6 +1,7 @@
 'use client';
 
-import WayForPayButton from '@/components/WayForPayButton';
+import SendPulseButton from '@/components/SendPulseButton';
+import { BIBLICAL_HEROES_COURSE } from '../config';
 
 export default function BiblicalHeroesPricing() {
   return (
@@ -13,13 +14,9 @@ export default function BiblicalHeroesPricing() {
           {"5 уроків в записі, доступ до всіх матеріалів"}
         </p>
         <div className="max-w-sm mx-auto bg-white/10 backdrop-blur-sm rounded-xl p-6">
-          <div className="text-3xl font-black text-white mb-3">{"1400 грн"}</div>
+          <div className="text-3xl font-black text-white mb-3">{BIBLICAL_HEROES_COURSE.price}</div>
           <p className="text-white/60 text-xs mb-4">{"Повний доступ на 6 місяців"}</p>
-          <WayForPayButton
-            courseName="Психотерапія біблійних героїв"
-            price={1400}
-            courseId="psychotherapy-of-biblical-heroes"
-          />
+          <SendPulseButton url={BIBLICAL_HEROES_COURSE.sendpulseUrl} />
         </div>
       </div>
     </section>

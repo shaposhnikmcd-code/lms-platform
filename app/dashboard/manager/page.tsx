@@ -23,6 +23,7 @@ interface Order {
   trackingNumber: string | null;
   managerNote: string | null;
   paidAt: string | null;
+  callMe: boolean;
 }
 
 const STATUS_LABELS: Record<OrderStatus, string> = {
@@ -290,7 +291,7 @@ export default function ManagerDashboard() {
               <table className="w-full">
                 <thead className="bg-gray-50 border-b border-gray-100">
                   <tr>
-                    {['Дата та час', 'Клієнт', 'Місто', 'Оплата', 'Статус', 'ТТН', 'Дії'].map((h) => (
+                    {['Дата та час', 'Клієнт', 'Місто', 'Передзвонити', 'Оплата', 'Статус', 'ТТН', 'Дії'].map((h) => (
                       <th key={h} className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">{h}</th>
                     ))}
                   </tr>
@@ -309,6 +310,15 @@ export default function ManagerDashboard() {
                         <p className="text-xs text-gray-500">{order.phone}</p>
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-600">{order.city}</td>
+                      <td className="px-4 py-3">
+                        {order.callMe ? (
+                          <span className="px-2 py-1 bg-green-100 text-green-700 text-xs font-medium rounded-full">
+                            {"Передзвонити"}
+                          </span>
+                        ) : (
+                          <span className="text-gray-300">{"—"}</span>
+                        )}
+                      </td>
                       <td className="px-4 py-3">
                         <span className={`px-2 py-1 rounded-full text-xs font-medium ${PAYMENT_COLORS[order.paymentStatus]}`}>
                           {PAYMENT_LABELS[order.paymentStatus]}

@@ -1,6 +1,7 @@
 import { FaUsers, FaGraduationCap, FaDollarSign, FaChartLine } from "react-icons/fa";
 import Link from "next/link";
 import prisma from "@/lib/prisma";
+import SyncDivisionsButton from "./_components/SyncDivisionsButton";
 
 export default async function AdminDashboard() {
   const [
@@ -53,9 +54,8 @@ export default async function AdminDashboard() {
 
   return (
     <div className="max-w-7xl mx-auto">
-      <h1 className="text-3xl font-bold text-[#1C3A2E] mb-8">Адмін-панель</h1>
+      <h1 className="text-3xl font-bold text-[#1C3A2E] mb-8">{"Адмін-панель"}</h1>
 
-      {/* Статистика */}
       <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         {stats.map((stat, i) => (
           <div key={i} className="bg-white rounded-xl shadow-sm p-6">
@@ -69,11 +69,10 @@ export default async function AdminDashboard() {
       </div>
 
       <div className="grid md:grid-cols-3 gap-6">
-        {/* Популярні курси */}
         <div className="md:col-span-2 bg-white rounded-xl shadow-sm p-6">
-          <h2 className="text-xl font-semibold text-[#1C3A2E] mb-4">Популярні курси</h2>
+          <h2 className="text-xl font-semibold text-[#1C3A2E] mb-4">{"Популярні курси"}</h2>
           {popularCourses.length === 0 ? (
-            <p className="text-gray-400">Даних ще немає</p>
+            <p className="text-gray-400">{"Даних ще немає"}</p>
           ) : (
             <div className="space-y-4">
               {popularCourses.map((p) => {
@@ -82,7 +81,7 @@ export default async function AdminDashboard() {
                 return (
                   <div key={p.courseId} className="flex items-center justify-between">
                     <span className="text-gray-700">{course.title}</span>
-                    <span className="text-[#D4A017] font-medium">{p._count.courseId} студентів</span>
+                    <span className="text-[#D4A017] font-medium">{p._count.courseId} {"студентів"}</span>
                   </div>
                 );
               })}
@@ -90,25 +89,25 @@ export default async function AdminDashboard() {
           )}
         </div>
 
-        {/* Швидкі дії */}
         <div className="bg-white rounded-xl shadow-sm p-6">
-          <h2 className="text-xl font-semibold text-[#1C3A2E] mb-4">Швидкі дії</h2>
+          <h2 className="text-xl font-semibold text-[#1C3A2E] mb-4">{"Швидкі дії"}</h2>
           <div className="space-y-3">
             <Link href="/dashboard/admin/users" className="block p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
-              👥 Користувачі
+              {"👥 Користувачі"}
             </Link>
             <Link href="/dashboard/admin/courses" className="block p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
-              📚 Курси
+              {"📚 Курси"}
             </Link>
             <Link href="/dashboard/admin/news" className="block p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
-  📰 Новини
-</Link>
+              {"📰 Новини"}
+            </Link>
             <Link href="/dashboard/admin/analytics" className="block p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
-              📊 Аналітика
+              {"📊 Аналітика"}
             </Link>
             <Link href="/dashboard/admin/payments" className="block p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
-              💰 Платежі
+              {"💰 Платежі"}
             </Link>
+            <SyncDivisionsButton />
           </div>
         </div>
       </div>

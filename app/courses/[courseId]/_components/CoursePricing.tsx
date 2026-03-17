@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { FaCheck } from "react-icons/fa";
-import WayForPayButton from "@/components/WayForPayButton";
+import SendPulseButton from "@/components/SendPulseButton";
 
 interface CoursePricingProps {
   course: {
     id: string;
     title: string;
     price: number;
+    sendPulseUrl?: string;
   };
   totalLessons: number;
   isLoggedIn: boolean;
@@ -47,12 +48,10 @@ export default function CoursePricing({ course, totalLessons, isLoggedIn }: Cour
                   <FaCheck className="text-[#D4A017]" /> {"Сертифікат після завершення"}
                 </p>
               </div>
-              {isLoggedIn ? (
-                <WayForPayButton
-                  courseName={course.title}
-                  price={course.price}
-                  courseId={course.id}
-                />
+              {course.sendPulseUrl ? (
+                <SendPulseButton url={course.sendPulseUrl} />
+              ) : isLoggedIn ? (
+                <SendPulseButton url="https://uimp-edu.sendpulse.online" />
               ) : (
                 <Link
                   href="/"

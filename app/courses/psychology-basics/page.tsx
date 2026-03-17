@@ -1,8 +1,9 @@
 import Link from 'next/link';
 import Image from 'next/image';
-import { FaCheck, FaStar, FaWallet } from 'react-icons/fa';
+import { FaCheck, FaStar, FaArrowRight } from 'react-icons/fa';
 import { Inter } from 'next/font/google';
 import PsychologyPricing from './_components/PsychologyPricing';
+import { PSYCHOLOGY_COURSE } from './config';
 
 const inter = Inter({ subsets: ['latin', 'cyrillic'] });
 
@@ -34,10 +35,46 @@ const teachers = [
 ];
 
 const program = [
-  { title: 'ВСТУП', items: ['Історія інтеграції психології і теології', 'Особистість у біблійній терапії'], color: 'from-[#1C3A2E] to-[#2a4f3f]' },
-  { title: 'РОЗДІЛ 1: ДУХ', items: ['Вплив праведності на дух', 'Вплив проблеми сорому', 'Вплив почуття провини', 'Вплив тривоги'], color: 'from-[#D4A017] to-[#b88913]' },
-  { title: 'РОЗДІЛ 2: ДУША', items: ['Важливість душі', 'Воля як душевний процес', 'Опори та самооцінка', 'Душевні фільтри', 'Емоції Ісуса', 'Психічні процеси'], color: 'from-[#1C3A2E] to-[#2a4f3f]' },
-  { title: 'РОЗДІЛ 3: ТІЛО', items: ['Важливість тіла. Потреби', 'Складна психосоматика', 'Фізіологічні особливості'], color: 'from-[#D4A017] to-[#b88913]' },
+  {
+    title: 'Вступ',
+    color: 'from-[#1C3A2E] to-[#2a4f3f]',
+    items: [
+      'Історія інтеграції',
+    ],
+  },
+  {
+    title: 'Дух',
+    color: 'from-[#D4A017] to-[#b88913]',
+    items: [
+      'Особистість у Біблійній терапії',
+      'Вплив праведності на дух людини',
+      'Вплив проблеми сорому на дух людини',
+      'Вплив почуття провини на дух людини',
+      'Практичне заняття. Завершуємо тему Духу',
+    ],
+  },
+  {
+    title: 'Душа',
+    color: 'from-[#1C3A2E] to-[#2a4f3f]',
+    items: [
+      'Важливість душі',
+      'Воля як душевний процес',
+      'Внутрішні опори та самооцінка як механізми душі людини',
+      'Душевні фільтри сприйняття',
+      'Емоції Ісуса',
+      'Психічні процеси. Душа та емоції',
+    ],
+  },
+  {
+    title: 'Тіло',
+    color: 'from-[#D4A017] to-[#b88913]',
+    items: [
+      'Важливість тіла. Потреби людини',
+      'Складна психосоматика',
+      'Фізіологічні особивості тіла',
+      'Заключення програми',
+    ],
+  },
 ];
 
 const reviews = [
@@ -57,25 +94,33 @@ export default function PsychologyBasicsPage() {
           <div className="absolute top-0 -left-4 w-72 h-72 bg-white rounded-full mix-blend-multiply filter blur-xl" style={{ animation: 'blob 7s infinite' }} />
           <div className="absolute top-0 -right-4 w-72 h-72 bg-[#D4A017] rounded-full mix-blend-multiply filter blur-xl" style={{ animation: 'blob 7s infinite', animationDelay: '2s' }} />
         </div>
-        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 md:py-28">
+        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 md:py-14">
           <div className="grid lg:grid-cols-2 gap-16 items-center">
             <div className="space-y-8">
               <div className="inline-block px-4 py-2 bg-white/10 backdrop-blur-sm rounded-full text-sm">
                 {"🔥 Базовий курс UIMP"}
               </div>
               <h1 className="text-5xl md:text-7xl font-bold leading-[1.1]">
-                {"основи"}
+                {"Основи"}
                 <br />{"психології"}
               </h1>
               <p className="text-white/80 text-lg leading-relaxed max-w-xl">
                 {"Це базовий курс, який знайомить вас з методом біблійної терапії, що передбачає зцілення на трьох рівнях: дух, душа та тіло."}
               </p>
-              <div className="flex flex-wrap gap-4">
-                <Link href="#price" className="group inline-flex items-center gap-2 bg-[#D4A017] text-white font-medium px-8 py-4 rounded-lg hover:bg-[#b88913] transition-all duration-300">
-                  {"Купити курс"}
-                  <FaWallet className="group-hover:scale-110 transition-transform" />
-                </Link>
-                <Link href="#program" className="inline-flex items-center px-8 py-4 border border-white/30 rounded-lg hover:bg-white/10 transition-all">
+              <div className="flex flex-col sm:flex-row gap-4">
+                <a
+                  href={PSYCHOLOGY_COURSE.sendpulseUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="group inline-flex items-center justify-center gap-2 bg-[#D4A017] text-white font-bold px-10 py-4 rounded-lg hover:bg-[#b88913] transition-all duration-300 text-lg"
+                >
+                  <span>{"Купити курс"}</span>
+                  <FaArrowRight className="group-hover:translate-x-1 transition-transform" />
+                </a>
+                <Link
+                  href="#program"
+                  className="inline-flex items-center justify-center px-8 py-4 border border-white/30 rounded-lg hover:bg-white/10 transition-all font-medium"
+                >
                   {"Програма"}
                 </Link>
               </div>
@@ -267,7 +312,6 @@ export default function PsychologyBasicsPage() {
         </div>
       </section>
 
-      {/* Ціна — client boundary ізольовано */}
       <PsychologyPricing />
 
       <style>{`
