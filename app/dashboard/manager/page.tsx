@@ -1,6 +1,6 @@
-export const dynamic = 'force-dynamic';
-
 'use client';
+
+export const dynamic = 'force-dynamic';
 
 import { useSession } from 'next-auth/react';
 import { useEffect, useState } from 'react';
@@ -206,10 +206,8 @@ export default function ManagerDashboard() {
             <h1 className="text-2xl font-bold text-[#1C3A2E]">{"Кабінет менеджера"}</h1>
             <p className="text-sm text-gray-500">{"Замовлення гри Конектор"}</p>
           </div>
-          <button
-            onClick={fetchOrders}
-            className="px-4 py-2 bg-[#D4A017] text-white rounded-lg hover:bg-[#b88913] transition-colors text-sm font-medium"
-          >
+          <button onClick={fetchOrders}
+            className="px-4 py-2 bg-[#D4A017] text-white rounded-lg hover:bg-[#b88913] transition-colors text-sm font-medium">
             {"Оновити"}
           </button>
         </div>
@@ -229,17 +227,13 @@ export default function ManagerDashboard() {
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-2">
               <label className="text-sm text-gray-500">{"З:"}</label>
-              <input
-                type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)}
-                className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#D4A017]"
-              />
+              <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)}
+                className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#D4A017]" />
             </div>
             <div className="flex items-center gap-2">
               <label className="text-sm text-gray-500">{"По:"}</label>
-              <input
-                type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)}
-                className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#D4A017]"
-              />
+              <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)}
+                className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#D4A017]" />
             </div>
             <div className="flex gap-2 flex-wrap">
               {quickDates.map(({ label, days }) => (
