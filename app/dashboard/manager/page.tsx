@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 'use client';
 
 import { useSession } from 'next-auth/react';
@@ -198,7 +200,6 @@ export default function ManagerDashboard() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-
       <div className="bg-white border-b border-gray-200 px-6 py-4">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div>
@@ -215,7 +216,6 @@ export default function ManagerDashboard() {
       </div>
 
       <div className="max-w-7xl mx-auto px-6 py-6">
-
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
           {statsConfig(stats).map((stat) => (
             <div key={stat.label} className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
@@ -230,35 +230,26 @@ export default function ManagerDashboard() {
             <div className="flex items-center gap-2">
               <label className="text-sm text-gray-500">{"З:"}</label>
               <input
-                type="date"
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
+                type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)}
                 className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#D4A017]"
               />
             </div>
             <div className="flex items-center gap-2">
               <label className="text-sm text-gray-500">{"По:"}</label>
               <input
-                type="date"
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
+                type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)}
                 className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#D4A017]"
               />
             </div>
             <div className="flex gap-2 flex-wrap">
               {quickDates.map(({ label, days }) => (
-                <button
-                  key={days}
-                  onClick={() => setQuickDate(days)}
-                  className="px-3 py-2 bg-gray-100 text-gray-600 rounded-lg text-xs font-medium hover:bg-[#1C3A2E] hover:text-white transition-colors"
-                >
+                <button key={days} onClick={() => setQuickDate(days)}
+                  className="px-3 py-2 bg-gray-100 text-gray-600 rounded-lg text-xs font-medium hover:bg-[#1C3A2E] hover:text-white transition-colors">
                   {label}
                 </button>
               ))}
-              <button
-                onClick={() => { setDateFrom(''); setDateTo(toDateInput(today)); }}
-                className="px-3 py-2 bg-gray-100 text-gray-600 rounded-lg text-xs font-medium hover:bg-red-100 hover:text-red-600 transition-colors"
-              >
+              <button onClick={() => { setDateFrom(''); setDateTo(toDateInput(today)); }}
+                className="px-3 py-2 bg-gray-100 text-gray-600 rounded-lg text-xs font-medium hover:bg-red-100 hover:text-red-600 transition-colors">
                 {"Скинути"}
               </button>
             </div>
@@ -267,15 +258,10 @@ export default function ManagerDashboard() {
 
         <div className="flex gap-2 mb-4 flex-wrap">
           {(['ALL', ...Object.keys(STATUS_LABELS)] as string[]).map((s) => (
-            <button
-              key={s}
-              onClick={() => setFilterStatus(s)}
+            <button key={s} onClick={() => setFilterStatus(s)}
               className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                filterStatus === s
-                  ? 'bg-[#1C3A2E] text-white'
-                  : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
-              }`}
-            >
+                filterStatus === s ? 'bg-[#1C3A2E] text-white' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+              }`}>
               {s === 'ALL' ? 'Всі' : STATUS_LABELS[s as OrderStatus]}
             </button>
           ))}
@@ -312,9 +298,7 @@ export default function ManagerDashboard() {
                       <td className="px-4 py-3 text-sm text-gray-600">{order.city}</td>
                       <td className="px-4 py-3">
                         {order.callMe ? (
-                          <span className="px-2 py-1 bg-green-100 text-green-700 text-xs font-medium rounded-full">
-                            {"Передзвонити"}
-                          </span>
+                          <span className="px-2 py-1 bg-green-100 text-green-700 text-xs font-medium rounded-full">{"Передзвонити"}</span>
                         ) : (
                           <span className="text-gray-300">{"—"}</span>
                         )}
@@ -325,11 +309,8 @@ export default function ManagerDashboard() {
                         </span>
                       </td>
                       <td className="px-4 py-3">
-                        <select
-                          value={order.orderStatus}
-                          onChange={(e) => updateStatus(order.id, e.target.value as OrderStatus)}
-                          className={`px-2 py-1 rounded-full text-xs font-medium border-0 cursor-pointer ${STATUS_COLORS[order.orderStatus]}`}
-                        >
+                        <select value={order.orderStatus} onChange={(e) => updateStatus(order.id, e.target.value as OrderStatus)}
+                          className={`px-2 py-1 rounded-full text-xs font-medium border-0 cursor-pointer ${STATUS_COLORS[order.orderStatus]}`}>
                           {Object.entries(STATUS_LABELS).map(([value, label]) => (
                             <option key={value} value={value}>{label}</option>
                           ))}
@@ -339,10 +320,8 @@ export default function ManagerDashboard() {
                         {order.trackingNumber || <span className="text-gray-300">{"—"}</span>}
                       </td>
                       <td className="px-4 py-3">
-                        <button
-                          onClick={() => openOrder(order)}
-                          className="px-3 py-1 bg-[#1C3A2E] text-white text-xs rounded-lg hover:bg-[#2a5242] transition-colors"
-                        >
+                        <button onClick={() => openOrder(order)}
+                          className="px-3 py-1 bg-[#1C3A2E] text-white text-xs rounded-lg hover:bg-[#2a5242] transition-colors">
                           {"Деталі"}
                         </button>
                       </td>
