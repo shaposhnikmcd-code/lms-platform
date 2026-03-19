@@ -1,6 +1,7 @@
-import Link from 'next/link';
+import { Link } from '@/i18n/navigation';
 import Image from 'next/image';
-import { FaArrowRight, FaHeart, FaVideo, FaUsers, FaClock, FaPray, FaBrain, FaCalendarAlt } from 'react-icons/fa';
+import { FaArrowRight, FaHeart, FaUsers, FaBookOpen, FaPray, FaCrown, FaCalendarAlt } from 'react-icons/fa';
+import { FaBrain } from 'react-icons/fa';
 import { Inter } from 'next/font/google';
 import CoursePricingTiers from './_components/CoursePricingTiers';
 import { getTranslatedContent } from '@/lib/translate';

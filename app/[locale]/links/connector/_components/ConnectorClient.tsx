@@ -1,6 +1,6 @@
 'use client';
 
-import Link from 'next/link';
+import { Link } from '@/i18n/navigation';
 import { FaTelegram, FaYoutube, FaInstagram } from 'react-icons/fa';
 import { IoMdShare } from 'react-icons/io';
 import { IoArrowBack } from 'react-icons/io5';
@@ -83,15 +83,15 @@ export default function ConnectorClient({ content, currency }: Props) {
             <p className="text-[#CFC8A9] text-center text-sm mb-4">{content.subtitle}</p>
 
             <div className="flex justify-center gap-4 mb-5">
-              <Link href="https://t.me/shaposhnykpsy" target="_blank" className="text-[#E8E3C9] hover:text-white transition-colors">
+              <a href="https://t.me/shaposhnykpsy" target="_blank" rel="noopener noreferrer" className="text-[#E8E3C9] hover:text-white transition-colors">
                 <FaTelegram size={22} />
-              </Link>
-              <Link href="https://www.youtube.com/@bible_psychotherapy" target="_blank" className="text-[#E8E3C9] hover:text-white transition-colors">
+              </a>
+              <a href="https://www.youtube.com/@bible_psychotherapy" target="_blank" rel="noopener noreferrer" className="text-[#E8E3C9] hover:text-white transition-colors">
                 <FaYoutube size={22} />
-              </Link>
-              <Link href="https://www.instagram.com/uimp_psychotherapy" target="_blank" className="text-[#E8E3C9] hover:text-white transition-colors">
+              </a>
+              <a href="https://www.instagram.com/uimp_psychotherapy" target="_blank" rel="noopener noreferrer" className="text-[#E8E3C9] hover:text-white transition-colors">
                 <FaInstagram size={22} />
-              </Link>
+              </a>
             </div>
 
             <div className="w-full mb-4">

@@ -122,12 +122,15 @@ async function translateObject<T>(obj: T, targetLang: string): Promise<T> {
 }
 
 export function getTranslatedContent<T>(content: T, cacheKey: string) {
-  return unstable_cache(
-    async (locale: string): Promise<T> => {
-      if (locale === 'uk') return content;
-      return translateObject(content, locale);
-    },
-    [cacheKey],
-    { revalidate: 2592000 }
-  );
+  return async (locale: string): Promise<T> => {
+    if (locale === 'uk') return content;
+
+    const translate = unstable_cache(
+      async (): Promise<T> => translateObject(content, locale),
+      [`${cacheKey}-${locale}`],
+      { revalidate: 2592000 }
+    );
+
+    return translate();
+  };
 }
