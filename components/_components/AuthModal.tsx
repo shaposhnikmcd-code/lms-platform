@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { signIn } from "next-auth/react";
 import { FaFacebook, FaEnvelope, FaTimes } from 'react-icons/fa';
+import { useTranslations } from 'next-intl';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -18,6 +19,7 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const t = useTranslations('Auth');
 
   useEffect(() => { setMounted(true); }, []);
 
@@ -37,7 +39,7 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
   };
 
   const handleRegister = async () => {
-    if (!email || !password) { alert('Будь ласка, заповніть всі поля'); return; }
+    if (!email || !password) { alert(t('fillFields')); return; }
     setLoading(true);
     try {
       const response = await fetch('/api/auth/register', {
@@ -46,18 +48,18 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
         body: JSON.stringify({ name, email, password }),
       });
       const data = await response.json();
-      if (!response.ok) { alert(data.error || 'Помилка реєстрації'); setLoading(false); return; }
+      if (!response.ok) { alert(data.error || t('registerError')); setLoading(false); return; }
       await signIn('credentials', { email, password, callbackUrl: '/', redirect: true });
       closeModal();
-    } catch { alert('Помилка при реєстрації'); setLoading(false); }
+    } catch { alert(t('registerFail')); setLoading(false); }
   };
 
   const handleLogin = async () => {
-    if (!email || !password) { alert('Будь ласка, заповніть всі поля'); return; }
+    if (!email || !password) { alert(t('fillFields')); return; }
     setLoading(true);
     try {
       await signIn('credentials', { email, password, callbackUrl: '/', redirect: true });
-    } catch { alert('Помилка при вході'); setLoading(false); }
+    } catch { alert(t('loginFail')); setLoading(false); }
   };
 
   if (!mounted || !isOpen) return null;
@@ -86,12 +88,10 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
           </button>
 
           <h2 style={{ fontSize: 24, fontWeight: 700, color: '#1C3A2E', marginBottom: 8 }}>
-            {registerMode ? 'Реєстрація' : 'Вхід в акаунт'}
+            {registerMode ? t('registerTitle') : t('loginTitle')}
           </h2>
           <p style={{ color: '#6b7280', fontSize: 14, marginBottom: 24 }}>
-            {registerMode
-              ? 'Зареєструйтесь щоб отримати доступ до курсів'
-              : 'Увійдіть щоб отримати доступ до курсів'}
+            {registerMode ? t('registerSubtitle') : t('loginSubtitle')}
           </p>
 
           {!emailMode ? (
@@ -109,7 +109,7 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
                     <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
                     <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
                   </svg>
-                  <span>{"Увійти з Google"}</span>
+                  <span>{t('google')}</span>
                 </button>
 
                 <button
@@ -118,14 +118,14 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
                   className="w-full flex items-center justify-center gap-3 bg-[#1877F2] text-white font-medium py-3 px-4 rounded-xl hover:bg-[#1669d9] transition-all disabled:opacity-50"
                 >
                   <FaFacebook className="text-xl" />
-                  <span>{"Увійти з Facebook"}</span>
+                  <span>{t('facebook')}</span>
                 </button>
               </div>
 
               <div style={{ position: 'relative', margin: '24px 0' }}>
                 <div style={{ borderTop: '1px solid #e5e7eb' }} />
                 <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', backgroundColor: 'white', padding: '0 16px' }}>
-                  <span style={{ color: '#9ca3af', fontSize: 14 }}>{"або"}</span>
+                  <span style={{ color: '#9ca3af', fontSize: 14 }}>{t('or')}</span>
                 </div>
               </div>
 
@@ -135,7 +135,7 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
                 className="w-full flex items-center justify-center gap-3 bg-[#1C3A2E] text-white font-medium py-3 px-4 rounded-xl hover:bg-[#2a4f3f] transition-all mb-3 disabled:opacity-50"
               >
                 <FaEnvelope className="text-xl" />
-                <span>{"Увійти з email"}</span>
+                <span>{t('email')}</span>
               </button>
 
               <button
@@ -143,7 +143,7 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
                 disabled={loading}
                 className="w-full text-center text-[#D4A017] hover:text-[#b88913] transition-all text-sm disabled:opacity-50"
               >
-                {"Немає акаунта? Зареєструватися"}
+                {t('noAccount')}
               </button>
             </>
           ) : (
@@ -154,7 +154,7 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#D4A017] disabled:opacity-50"
-                  placeholder="Ваше ім'я"
+                  placeholder={t('namePlaceholder')}
                   disabled={loading}
                 />
               )}
@@ -178,33 +178,33 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
               {registerMode ? (
                 <button onClick={handleRegister} disabled={loading}
                   className="w-full bg-[#D4A017] text-white font-medium py-3 px-4 rounded-xl hover:bg-[#b88913] transition-all disabled:opacity-50">
-                  {loading ? 'Завантаження...' : 'Зареєструватися'}
+                  {loading ? t('loading') : t('register')}
                 </button>
               ) : (
                 <button onClick={handleLogin} disabled={loading}
                   className="w-full bg-[#D4A017] text-white font-medium py-3 px-4 rounded-xl hover:bg-[#b88913] transition-all disabled:opacity-50">
-                  {loading ? 'Завантаження...' : 'Увійти'}
+                  {loading ? t('loading') : t('login')}
                 </button>
               )}
 
               <div className="flex flex-col gap-2">
                 <button onClick={() => setRegisterMode(!registerMode)} disabled={loading}
                   className="text-center text-[#D4A017] hover:text-[#b88913] transition-all text-sm disabled:opacity-50">
-                  {registerMode ? 'Вже є акаунт? Увійти' : 'Немає акаунта? Зареєструватися'}
+                  {registerMode ? t('hasAccount') : t('noAccount')}
                 </button>
                 <button onClick={() => { setEmailMode(false); setRegisterMode(false); }} disabled={loading}
                   style={{ background: 'none', border: 'none', cursor: loading ? 'not-allowed' : 'pointer', color: '#D4A017', fontSize: 14, opacity: loading ? 0.5 : 1 }}>
-                  {"← Назад до соціальних мереж"}
+                  {t('backToSocial')}
                 </button>
               </div>
             </div>
           )}
 
           <p style={{ fontSize: 12, color: '#9ca3af', textAlign: 'center', marginTop: 24 }}>
-            {"Продовжуючи, ви погоджуєтесь з "}
-            <a href="/terms" style={{ color: '#D4A017' }}>{"умовами використання"}</a>
-            {" та "}
-            <a href="/privacy" style={{ color: '#D4A017' }}>{"політикою конфіденційності"}</a>
+            {t('termsText')}{" "}
+            <a href="/terms" style={{ color: '#D4A017' }}>{t('terms')}</a>
+            {" "}{t('termsAnd')}{" "}
+            <a href="/privacy" style={{ color: '#D4A017' }}>{t('privacy')}</a>
           </p>
         </div>
       </div>

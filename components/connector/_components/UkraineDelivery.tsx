@@ -2,6 +2,14 @@
 
 import { FaMapMarkerAlt, FaTruck } from 'react-icons/fa';
 
+interface Labels {
+  cityLabel: string;
+  cityPlaceholder: string;
+  branchLabel: string;
+  branchPlaceholder: string;
+  notFound: string;
+}
+
 interface Props {
   city: string;
   postOffice: string;
@@ -11,6 +19,7 @@ interface Props {
   loadingBranches: boolean;
   showCities: boolean;
   showBranches: boolean;
+  labels: Labels;
   onCityChange: (value: string) => void;
   onCitySelect: (city: any) => void;
   onPostOfficeChange: (value: string) => void;
@@ -21,7 +30,7 @@ interface Props {
 export default function UkraineDelivery({
   city, postOffice, cities, branches,
   loadingCities, loadingBranches,
-  showCities, showBranches,
+  showCities, showBranches, labels,
   onCityChange, onCitySelect,
   onPostOfficeChange, onPostOfficeSelect, onPostOfficeFocus,
 }: Props) {
@@ -29,7 +38,7 @@ export default function UkraineDelivery({
     <>
       <div className="relative">
         <label className="block text-sm font-medium text-gray-700 mb-2">
-          {"Населений пункт"} <span className="text-red-500">*</span>
+          {labels.cityLabel} <span className="text-red-500">{"*"}</span>
         </label>
         <div className="relative">
           <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -41,7 +50,7 @@ export default function UkraineDelivery({
             onChange={(e) => onCityChange(e.target.value)}
             required
             className="block w-full pl-10 pr-3 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#D4A017] focus:border-transparent"
-            placeholder="Введіть назву міста або села"
+            placeholder={labels.cityPlaceholder}
           />
           {loadingCities && (
             <div className="absolute right-3 top-3">
@@ -52,12 +61,9 @@ export default function UkraineDelivery({
         {showCities && cities.length > 0 && (
           <div className="absolute z-30 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
             {cities.map((c) => (
-              <button
-                key={c.Ref}
-                type="button"
+              <button key={c.Ref} type="button"
                 className="w-full text-left px-4 py-3 hover:bg-gray-50 border-b border-gray-100 last:border-0 transition-colors"
-                onClick={() => onCitySelect(c)}
-              >
+                onClick={() => onCitySelect(c)}>
                 <p className="font-medium text-gray-800">{c.Description}</p>
                 <p className="text-sm text-gray-500">{c.AreaDescription}</p>
               </button>
@@ -68,7 +74,7 @@ export default function UkraineDelivery({
 
       <div className="relative">
         <label className="block text-sm font-medium text-gray-700 mb-2">
-          {"Відділення Нової Пошти"} <span className="text-red-500">*</span>
+          {labels.branchLabel} <span className="text-red-500">{"*"}</span>
         </label>
         <div className="relative">
           <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -81,7 +87,7 @@ export default function UkraineDelivery({
             onFocus={onPostOfficeFocus}
             required
             className="block w-full pl-10 pr-3 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#D4A017] focus:border-transparent"
-            placeholder="Почніть вводити адресу або номер"
+            placeholder={labels.branchPlaceholder}
           />
           {loadingBranches && (
             <div className="absolute right-3 top-3">
@@ -92,12 +98,9 @@ export default function UkraineDelivery({
         {showBranches && branches.length > 0 && (
           <div className="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
             {branches.map((b) => (
-              <button
-                key={b.Ref}
-                type="button"
+              <button key={b.Ref} type="button"
                 className="w-full text-left px-4 py-3 hover:bg-gray-50 border-b border-gray-100 last:border-0 transition-colors"
-                onClick={() => onPostOfficeSelect(b)}
-              >
+                onClick={() => onPostOfficeSelect(b)}>
                 <p className="font-medium text-gray-800">{b.Description}</p>
                 <p className="text-sm text-gray-500">{b.ShortAddress || b.Address}</p>
               </button>
@@ -106,7 +109,7 @@ export default function UkraineDelivery({
         )}
         {showBranches && branches.length === 0 && !loadingBranches && city && (
           <div className="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg p-4 text-center text-gray-500">
-            {"Відділень не знайдено"}
+            {labels.notFound}
           </div>
         )}
       </div>

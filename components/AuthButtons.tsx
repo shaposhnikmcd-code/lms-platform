@@ -3,11 +3,13 @@
 import { useSession, signOut } from "next-auth/react";
 import { useState } from "react";
 import { FaUser } from 'react-icons/fa';
+import { useTranslations } from 'next-intl';
 import AuthModal from './_components/AuthModal';
 
 export default function AuthButtons() {
   const { data: session, status } = useSession();
   const [showModal, setShowModal] = useState(false);
+  const t = useTranslations('Auth');
 
   if (status === 'loading') {
     return <div className="w-24 h-9 bg-gray-200 animate-pulse rounded-lg" />;
@@ -32,7 +34,7 @@ export default function AuthButtons() {
           onClick={() => signOut({ callbackUrl: '/' })}
           className="bg-[#D4A017] text-white px-4 py-2 rounded-lg text-sm hover:bg-[#b88913] transition-all"
         >
-          {"Вийти"}
+          {t('logout')}
         </button>
       </div>
     );
@@ -44,7 +46,7 @@ export default function AuthButtons() {
         onClick={() => setShowModal(true)}
         className="bg-[#1C3A2E] text-white px-4 py-2 rounded-lg text-sm hover:bg-[#2a4f3f] transition-all"
       >
-        {"Увійти"}
+        {t('login')}
       </button>
       <AuthModal isOpen={showModal} onClose={() => setShowModal(false)} />
     </>

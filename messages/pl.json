@@ -2,15 +2,66 @@
   "Navigation": {
     "home": "Strona główna",
     "courses": "Kursy",
+    "learning": "Nauka",
+    "consultations": "Konsultacje",
     "games": "Gry",
-    "links": "Linki",
+    "news": "Aktualności",
+    "contacts": "Kontakt",
+    "links": "Baza linków",
     "dashboard": "Panel"
   },
   "Auth": {
     "login": "Zaloguj się",
     "logout": "Wyloguj się",
-    "google": "Zaloguj się przez Google",
-    "facebook": "Zaloguj się przez Facebook",
-    "email": "Zaloguj się przez email"
+    "loginTitle": "Logowanie",
+    "registerTitle": "Rejestracja",
+    "loginSubtitle": "Zaloguj się, aby uzyskać dostęp do kursów",
+    "registerSubtitle": "Zarejestruj się, aby uzyskać dostęp do kursów",
+    "google": "Zaloguj przez Google",
+    "facebook": "Zaloguj przez Facebook",
+    "email": "Zaloguj przez email",
+    "or": "lub",
+    "noAccount": "Nie masz konta? Zarejestruj się",
+    "hasAccount": "Masz już konto? Zaloguj się",
+    "backToSocial": "← Wróć do sieci społecznościowych",
+    "namePlaceholder": "Twoje imię",
+    "register": "Zarejestruj się",
+    "loading": "Ładowanie...",
+    "terms": "warunkami użytkowania",
+    "privacy": "polityką prywatności",
+    "termsText": "Kontynuując, zgadzasz się z",
+    "termsAnd": "i",
+    "fillFields": "Proszę wypełnić wszystkie pola",
+    "registerError": "Błąd rejestracji",
+    "registerFail": "Błąd podczas rejestracji",
+    "loginFail": "Błąd podczas logowania"
+  },
+  "Footer": {
+    "description": "Ukraiński Instytut Psychoterapii i Duszpasterstwa",
+    "info": "Informacje",
+    "privacy": "Polityka prywatności",
+    "terms": "Warunki użytkowania",
+    "contacts": "Kontakt",
+    "social": "Znajdź nas w mediach społecznościowych",
+    "copyright": "© 2025 Ukrainian Institute of Psychotherapy. Wszelkie prawa zastrzeżone.",
+    "privacyShort": "Prywatność",
+    "termsShort": "Warunki"
+  },
+  "CoursesPage": {
+    "title": "Kursy edukacyjne",
+    "subtitle": "Wybierz kurs dla swojego rozwoju zawodowego i osobistego",
+    "charityBadge": "🎁 Bezpłatnie",
+    "charityTitle": "Kursy charytatywne",
+    "charitySubtitle": "Kursy, które oferujemy bezpłatnie dla wszystkich chętnych",
+    "courses": {
+      "psychology": { "title": "Podstawy psychologii", "description": "Wprowadzenie do psychologii: podstawowe koncepcje, teorie i metody", "duration": "2 miesiące" },
+      "psychiatry": { "title": "Podstawy psychiatrii", "description": "Wprowadzenie do psychiatrii dla psychologów i duszpasterzy", "duration": "4 miesiące" },
+      "mentorship": { "title": "Podstawy duszpasterstwa", "description": "Nauka podstaw duszpasterstwa i poradnictwa pastoralnego", "duration": "3 miesiące" },
+      "christianPsy": { "title": "Podstawy psychologii chrześcijańskiej 2.0", "description": "Zaawansowany kurs psychologii chrześcijańskiej dla praktykujących psychologów", "duration": "4 miesiące" },
+      "biblicalHeroes": { "title": "Psychoterapia bohaterów biblijnych", "description": "Analiza postaci biblijnych z perspektywy psychoterapii", "duration": "3 miesiące" },
+      "sexEd": { "title": "Wychowanie seksualne", "description": "Kurs wychowania seksualnego dla psychologów i pedagogów", "duration": "2 miesiące" },
+      "support": { "title": "Kurs wsparcia psychologicznego", "description": "Podstawowy kurs dla psychologów i wszystkich, którzy chcą nauczyć się udzielać wsparcia psychologicznego", "price": "Bezpłatnie", "duration": "3 miesiące" },
+      "porn": { "title": "Kurs walki z uzależnieniem od pornografii", "description": "Specjalistyczny kurs przezwyciężania uzależnienia od pornografii", "price": "Bezpłatnie", "duration": "3 miesiące" }
+    }
   }
 }

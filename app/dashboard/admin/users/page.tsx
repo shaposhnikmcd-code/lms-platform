@@ -1,8 +1,15 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
-import { FaUsers } from 'react-icons/fa';
+import { FaUsers, FaSearch } from 'react-icons/fa';
+
+const ROLE_ORDER: Record<string, number> = {
+  ADMIN: 1,
+  MANAGER: 2,
+  TEACHER: 3,
+  STUDENT: 4,
+};
 
 const ROLE_LABELS: Record<string, string> = {
   ADMIN: 'Адмін',
@@ -25,6 +32,7 @@ interface User {
   role: string;
   image: string | null;
   createdAt: string;
+  lastLoginAt: string | null;
   _count: { enrollments: number };
 }
 
@@ -32,6 +40,7 @@ export default function AdminUsers() {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
 
   useEffect(() => {
     fetchUsers();
@@ -68,6 +77,27 @@ export default function AdminUsers() {
     }
   };
 
+  const filteredAndSorted = useMemo(() => {
+    const q = search.toLowerCase();
+    return users
+      .filter(u =>
+        (u.name?.toLowerCase().includes(q) || false) ||
+        u.email.toLowerCase().includes(q)
+      )
+      .sort((a, b) => {
+        const roleA = ROLE_ORDER[a.role] ?? 99;
+        const roleB = ROLE_ORDER[b.role] ?? 99;
+        if (roleA !== roleB) return roleA - roleB;
+        return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      });
+  }, [users, search]);
+
+  const formatDateTime = (dateStr: string | null) => {
+    if (!dateStr) return '—';
+    const d = new Date(dateStr);
+    return d.toLocaleDateString('uk-UA') + ' ' + d.toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' });
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -79,15 +109,26 @@ export default function AdminUsers() {
   return (
     <div className="max-w-7xl mx-auto">
       <Link href="/dashboard/admin" className="inline-flex items-center gap-2 text-sm text-gray-500 hover:text-[#1C3A2E] mb-4 transition-colors">
-        ← Назад до адмін-панелі
+        {"← Назад до адмін-панелі"}
       </Link>
 
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-[#1C3A2E]">Користувачі</h1>
+        <h1 className="text-2xl font-bold text-[#1C3A2E]">{"Користувачі"}</h1>
         <div className="flex items-center gap-2 text-sm text-gray-500">
           <FaUsers />
-          <span>Всього: {users.length}</span>
+          <span>{"Всього: "}{users.length}</span>
         </div>
+      </div>
+
+      <div className="mb-4 relative">
+        <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm" />
+        <input
+          type="text"
+          placeholder={"Пошук за ім'ям або email..."}
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#D4A017]"
+        />
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
@@ -95,20 +136,21 @@ export default function AdminUsers() {
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-100">
               <tr>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Користувач</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Email</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Роль</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Курсів</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Дата реєстрації</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Змінити роль</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">{"Користувач"}</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">{"Email"}</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">{"Роль"}</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">{"Курсів"}</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">{"Реєстрація"}</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">{"Останній логін"}</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">{"Змінити роль"}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {users.map((user) => (
+              {filteredAndSorted.map((user) => (
                 <tr key={user.id} className="hover:bg-gray-50 transition-colors">
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 bg-[#1C3A2E] rounded-full flex items-center justify-center text-white text-sm font-medium overflow-hidden">
+                      <div className="w-8 h-8 bg-[#1C3A2E] rounded-full flex items-center justify-center text-white text-sm font-medium overflow-hidden flex-shrink-0">
                         {user.image ? (
                           <img src={user.image} alt="" className="w-8 h-8 rounded-full object-cover" />
                         ) : (
@@ -128,6 +170,9 @@ export default function AdminUsers() {
                   <td className="px-4 py-3 text-sm text-gray-600">
                     {new Date(user.createdAt).toLocaleDateString('uk-UA')}
                   </td>
+                  <td className="px-4 py-3 text-sm text-gray-600">
+                    {formatDateTime(user.lastLoginAt)}
+                  </td>
                   <td className="px-4 py-3">
                     <select
                       value={user.role}
@@ -142,6 +187,13 @@ export default function AdminUsers() {
                   </td>
                 </tr>
               ))}
+              {filteredAndSorted.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="px-4 py-8 text-center text-gray-400 text-sm">
+                    {"Користувачів не знайдено"}
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>

@@ -1,32 +1,7 @@
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
-import SessionProviderWrapper from "@/components/SessionProviderWrapper";
-import "./globals.css";
-import CookieBanner from "@/components/CookieBanner";
-import Navbar from "@/components/Navbar";
-import Footer from "@/components/Footer";
-
-export default async function RootLayout({
+export default function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const session = await getServerSession(authOptions);
-
-  return (
-    <html lang="uk">
-      <head>
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <link rel="icon" href="/favicon.ico" />
-      </head>
-      <body className="antialiased flex flex-col min-h-screen">
-        <SessionProviderWrapper session={session}>
-          <Navbar />
-          <main className="flex-1">{children}</main>
-          <Footer />
-          <CookieBanner />
-        </SessionProviderWrapper>
-      </body>
-    </html>
-  );
+  return children;
 }

@@ -2,15 +2,66 @@
   "Navigation": {
     "home": "Home",
     "courses": "Courses",
+    "learning": "Learning",
+    "consultations": "Consultations",
     "games": "Games",
+    "news": "News",
+    "contacts": "Contacts",
     "links": "Links",
     "dashboard": "Dashboard"
   },
   "Auth": {
-    "login": "Login",
-    "logout": "Logout",
-    "google": "Sign in with Google",
-    "facebook": "Sign in with Facebook",
-    "email": "Sign in with email"
+    "login": "Sign in",
+    "logout": "Sign out",
+    "loginTitle": "Sign in to your account",
+    "registerTitle": "Create an account",
+    "loginSubtitle": "Sign in to access the courses",
+    "registerSubtitle": "Register to get access to the courses",
+    "google": "Continue with Google",
+    "facebook": "Continue with Facebook",
+    "email": "Continue with email",
+    "or": "or",
+    "noAccount": "No account? Register",
+    "hasAccount": "Already have an account? Sign in",
+    "backToSocial": "← Back to social networks",
+    "namePlaceholder": "Your name",
+    "register": "Register",
+    "loading": "Loading...",
+    "terms": "terms of use",
+    "privacy": "privacy policy",
+    "termsText": "By continuing, you agree to our",
+    "termsAnd": "and",
+    "fillFields": "Please fill in all fields",
+    "registerError": "Registration error",
+    "registerFail": "Error during registration",
+    "loginFail": "Error during sign in"
+  },
+  "Footer": {
+    "description": "Ukrainian Institute of Psychotherapy and Pastoral Care",
+    "info": "Information",
+    "privacy": "Privacy Policy",
+    "terms": "Terms of Use",
+    "contacts": "Contacts",
+    "social": "Follow us on social media",
+    "copyright": "© 2025 Ukrainian Institute of Psychotherapy. All rights reserved.",
+    "privacyShort": "Privacy",
+    "termsShort": "Terms"
+  },
+  "CoursesPage": {
+    "title": "Educational Courses",
+    "subtitle": "Choose a course for your professional and personal growth",
+    "charityBadge": "🎁 Free",
+    "charityTitle": "Charity Courses",
+    "charitySubtitle": "Courses we provide free of charge for everyone",
+    "courses": {
+      "psychology": { "title": "Foundations of Psychology", "description": "Introduction to psychology: basic concepts, theories and methods", "duration": "2 months" },
+      "psychiatry": { "title": "Foundations of Psychiatry", "description": "Introduction to psychiatry for psychologists and pastoral counselors", "duration": "4 months" },
+      "mentorship": { "title": "Foundations of Pastoral Care", "description": "Learning the basics of pastoral care and counseling", "duration": "3 months" },
+      "christianPsy": { "title": "Foundations of Christian Psychology 2.0", "description": "Advanced course in Christian psychology for practicing psychologists", "duration": "4 months" },
+      "biblicalHeroes": { "title": "Psychotherapy of Biblical Heroes", "description": "Analysis of biblical characters from a psychotherapy perspective", "duration": "3 months" },
+      "sexEd": { "title": "Sex Education", "description": "Course on sex education for psychologists and educators", "duration": "2 months" },
+      "support": { "title": "Psychological Support Course", "description": "Basic course for psychologists and anyone who wants to learn how to provide psychological support", "price": "Free", "duration": "3 months" },
+      "porn": { "title": "Overcoming Pornography Addiction", "description": "Specialized course on overcoming pornography addiction", "price": "Free", "duration": "3 months" }
+    }
   }
 }

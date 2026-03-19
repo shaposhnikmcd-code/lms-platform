@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
+import { useTranslations } from 'next-intl';
 import { FaChevronDown } from 'react-icons/fa';
 
 const TelegramIcon = () => (
@@ -38,6 +39,7 @@ const YouTubeIcon = () => (
 export default function SocialDropdown() {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const t = useTranslations('SocialDropdown');
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -61,7 +63,7 @@ export default function SocialDropdown() {
         onClick={() => setIsOpen(!isOpen)}
         className="inline-flex items-center gap-2 bg-[#D4A017] text-white px-6 py-3 rounded-lg font-semibold hover:bg-[#b88913] transition-all"
       >
-        <span>Наші соцмережі</span>
+        <span>{t('btn')}</span>
         <FaChevronDown className={`transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
