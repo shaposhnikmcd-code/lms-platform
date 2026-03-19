@@ -1,9 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useTranslations } from "next-intl";
+import { Link } from "@/i18n/navigation";
 import Image from "next/image";
 import { useState } from "react";
 import { FaBars, FaTimes } from "react-icons/fa";
@@ -18,14 +18,14 @@ export default function Navbar() {
 
   const linkClass = (path: string) =>
     `px-2 py-1 transition-all duration-300 rounded-md ${
-      pathname === path
+      pathname === path || pathname.replace(/^\/(uk|pl|en)/, '') === path
         ? "bg-[#1C3A2E] text-white"
         : "text-[#1C3A2E] hover:text-[#D4A843]"
     }`;
 
   const mobileLinkClass = (path: string) =>
     `block px-4 py-3 rounded-lg transition-all duration-200 ${
-      pathname === path
+      pathname === path || pathname.replace(/^\/(uk|pl|en)/, '') === path
         ? "bg-[#1C3A2E] text-white"
         : "text-[#1C3A2E] hover:bg-[#E8F5E0]"
     }`;
