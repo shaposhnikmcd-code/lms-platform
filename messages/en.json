@@ -1,13 +1,13 @@
 {
   "Navigation": {
     "home": "Home",
-    "courses": "Courses",
-    "learning": "Learning",
-    "consultations": "Consultations",
-    "games": "Games",
+    "courses": "Educational Projects",
+    "learning": "Annual Program",
+    "consultations": "Specialists Directory",
+    "games": "Therapeutic Games",
     "news": "News",
-    "contacts": "Contacts",
-    "links": "Links",
+    "contacts": "About Us",
+    "links": "Charity Projects",
     "dashboard": "Dashboard"
   },
   "Auth": {
@@ -45,23 +45,103 @@
     "social": "Follow us on social media",
     "copyright": "© 2025 Ukrainian Institute of Psychotherapy. All rights reserved.",
     "privacyShort": "Privacy",
-    "termsShort": "Terms"
+    "termsShort": "Terms",
+    "institute": "Ukrainian Institute of Soul Care and Psychotherapy",
+    "email": "Post Office",
+    "techSupport": "Technical support"
   },
   "CoursesPage": {
     "title": "Educational Courses",
     "subtitle": "Choose a course for your professional and personal growth",
-    "charityBadge": "🎁 Free",
-    "charityTitle": "Charity Courses",
+    "sectionLabel": "Educational Programs",
+    "sectionTitle": "Choose Your Course",
+    "priceLabel": "price",
+    "free": "Free",
+    "charityBadge": "Free",
+    "charityTitle": "Charity Projects",
     "charitySubtitle": "Courses we provide free of charge for everyone",
+    "benefits": {
+      "record": {
+        "title": "Recorded Lessons",
+        "desc": "Watch at your convenience"
+      },
+      "support": {
+        "title": "Curator Support",
+        "desc": "You are not alone in the process"
+      },
+      "cert": {
+        "title": "UIMP Certificate",
+        "desc": "Official confirmation"
+      }
+    },
+    "tags": {
+      "biblicalTherapy": "Biblical therapy",
+      "forPsychologists": "For psychologists",
+      "forBeginners": "For beginners",
+      "newPerspective": "A new look",
+      "forParents": "For parents"
+    },
     "courses": {
-      "psychology": { "title": "Foundations of Psychology", "description": "Introduction to psychology: basic concepts, theories and methods", "duration": "2 months" },
-      "psychiatry": { "title": "Foundations of Psychiatry", "description": "Introduction to psychiatry for psychologists and pastoral counselors", "duration": "4 months" },
-      "mentorship": { "title": "Foundations of Pastoral Care", "description": "Learning the basics of pastoral care and counseling", "duration": "3 months" },
-      "christianPsy": { "title": "Foundations of Christian Psychology 2.0", "description": "Advanced course in Christian psychology for practicing psychologists", "duration": "4 months" },
-      "biblicalHeroes": { "title": "Psychotherapy of Biblical Heroes", "description": "Analysis of biblical characters from a psychotherapy perspective", "duration": "3 months" },
-      "sexEd": { "title": "Sex Education", "description": "Course on sex education for psychologists and educators", "duration": "2 months" },
-      "support": { "title": "Psychological Support Course", "description": "Basic course for psychologists and anyone who wants to learn how to provide psychological support", "price": "Free", "duration": "3 months" },
-      "porn": { "title": "Overcoming Pornography Addiction", "description": "Specialized course on overcoming pornography addiction", "price": "Free", "duration": "3 months" }
+      "psychology": {
+        "title": "Foundations of Psychology",
+        "description": "An introduction to biblical therapy: healing on three levels — spirit, soul, and body. Tools for helping yourself and others in crisis situations.",
+        "duration": "recorded"
+      },
+      "psychiatry": {
+        "title": "Foundations of Psychiatry",
+        "description": "Introduction to psychiatry for psychologists and pastoral counselors",
+        "duration": "recorded"
+      },
+      "mentorship": {
+        "title": "Foundations of Pastoral Care",
+        "description": "Learning the basics of pastoral care and counseling for those who want to help others in need.",
+        "duration": "recorded"
+      },
+      "biblicalHeroes": {
+        "title": "Psychotherapy of Biblical Heroes",
+        "description": "A fresh look at familiar biblical stories. The heroes of the Bible — not perfect, but real.",
+        "duration": "recorded"
+      },
+      "sexEd": {
+        "title": "Sex Education",
+        "description": "A course on the fundamentals of sex education for parents and educators. How to talk to children and what the Bible says.",
+        "duration": "recorded"
+      },
+      "support": {
+        "title": "Care Space",
+        "description": "Free psychological support and an opportunity to meet psychologists and pastoral counselors of the UIMP consultation center.",
+        "price": "Free",
+        "duration": "recorded"
+      },
+      "porn": {
+        "title": "Living Pure",
+        "description": "A specialized course on overcoming pornography addiction",
+        "price": "Free",
+        "duration": "recorded"
+      }
     }
+  },
+  "HomePage": {
+    "supportLabel": "UIMP Support",
+    "supportTitle": "If you still have questions",
+    "supportDesc": "The UIMP team responds quickly",
+    "supportBtn": "Technical support"
+  },
+  "MissionSection": {
+    "eyebrow": "Our mission",
+    "title": "Mission.",
+    "subtitle": "Three vectors that determine the direction of the Ukrainian Institute of Psychotherapy and Psychology",
+    "m1title": "To bring a person to healing through the revelation of his or her true identity in God",
+    "m1i1": "to undergo healing on three levels: body, soul and spirit",
+    "m1i2": "to show the incompleteness of healing the soul without healing the spirit and the importance of the body",
+    "m1i3": "show a person a healthy need for community",
+    "m2title": "To show psychology in its original form",
+    "m2i1": "to reveal pastoral care as an integral part of psychology, to convey the scientific importance of pastoral care",
+    "m2i2": "to show the scientific relationship between healing the soul and the spirit",
+    "m3title": "Tear the veil between the church and the world",
+    "m3i1": "to give the world true knowledge about the church and Christianity",
+    "m3i2": "teach churches to accept different people, to return the focus from a person's actions to the value of their true identity",
+    "m3i3": "bring real knowledge of psychology to churches and show its importance on the path to human salvation",
+    "m3i4": "by spreading psychological education, use psychology to save people"
   }
 }

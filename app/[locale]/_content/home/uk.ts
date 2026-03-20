@@ -1,8 +1,11 @@
 export const homeContent = {
   hero: {
-    title1: "Український інститут",
-    title2: "психотерапії",
-    description: "Професійна освіта у сфері психології, психіатрії та душеопікунства",
+    title1: "Український інститут Душеопіки та",
+    title2: "Психотерапії (UIMP)",
+    links: [
+      "Інтеграція науки та віри",
+      "Консультування в методі біблійної терапії",
+    ],
     btnCourses: "Переглянути курси",
     btnRegister: "Зареєструватися",
   },
@@ -17,14 +20,14 @@ export const homeContent = {
     ],
   },
   directions: {
-    title: "Наші напрямки",
-    subtitle: "Оберіть напрямок, який відповідає вашим потребам та цілям",
-    btnAll: "Всі курси",
+    title: "Напрямки UIMP",
+    subtitle: "Обирайте те, що підходить саме вам - від професійного навчання до особистої турботи",
+    btnAll: "Всі програми та курси",
     items: [
-      { title: "Навчальні курси", description: "Професійні курси з психології, психіатрії та душеопікунства", icon: "📚", price: "від 500 грн", duration: "2-4 місяці", link: "/courses" },
-      { title: "Простір турботи", description: "Підтримка та супровід у важкі моменти життя", icon: "❤️", price: "Безкоштовно", duration: "Постійно", link: "/care-space" },
-      { title: "Душеопікуни", description: "Команда досвідчених фахівців готова допомогти", icon: "👥", price: "Індивідуально", duration: "За запитом", link: "/counselors" },
-      { title: "Ігри", description: "Інтерактивні інструменти для навчання та розвитку", icon: "🎮", price: "Безкоштовно", duration: "Онлайн", link: "/links/connector" },
+      { title: "Освітні програми", description: "", icon: "📚", price: "950 грн", duration: "3 місяці", link: "/courses" },
+      { title: "Благодійні проєкти", description: "", icon: "❤️", price: "Безкоштовно", duration: "", link: "/links" },
+      { title: "База спеціалістів", description: "", icon: "👥", price: "від 800 грн", duration: "консультація 50 хв", link: "/consultations" },
+      { title: "Психологічні ігри", description: "", icon: "🧩", price: "1099 грн", duration: "назавжди", link: "/games" },
     ],
   },
   whyUs: {

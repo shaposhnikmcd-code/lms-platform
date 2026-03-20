@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import { Link } from '@/i18n/navigation';
 import Image from 'next/image';
 import { FaGraduationCap, FaCheckCircle, FaArrowRight, FaStar, FaQuoteLeft, FaChevronRight } from 'react-icons/fa';
 import { Inter } from 'next/font/google';
@@ -7,7 +7,6 @@ import { learningContent } from './_content/uk';
 
 const inter = Inter({ subsets: ['latin', 'cyrillic'] });
 const SENDPULSE_URL = 'https://uimp-edu.sendpulse.online/bible-therapy';
-
 const getContent = getTranslatedContent(learningContent, 'learning-page');
 
 export default async function LearningPage({ params }: { params: Promise<{ locale: string }> }) {
@@ -16,8 +15,6 @@ export default async function LearningPage({ params }: { params: Promise<{ local
 
   return (
     <main className={`min-h-screen bg-white ${inter.className}`}>
-
-      {/* Hero */}
       <section className="relative overflow-hidden bg-gradient-to-br from-[#1C3A2E] to-[#2a4f3f] text-white">
         <div className="absolute inset-0 opacity-10">
           <div className="absolute top-0 -left-4 w-96 h-96 bg-white rounded-full blur-3xl" />
@@ -26,12 +23,9 @@ export default async function LearningPage({ params }: { params: Promise<{ local
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 md:py-8">
           <div className="grid lg:grid-cols-2 gap-16 items-center">
             <div className="space-y-8">
-              <div className="inline-block px-4 py-2 bg-white/10 backdrop-blur-sm rounded-full text-sm">
-                {c.badge}
-              </div>
+              <div className="inline-block px-4 py-2 bg-white/10 backdrop-blur-sm rounded-full text-sm">{c.badge}</div>
               <h1 className="text-5xl md:text-7xl font-bold leading-[1.05]">
-                {c.title1}<br />
-                <span className="text-[#D4A017]">{c.title2}</span>
+                {c.title1}<br /><span className="text-[#D4A017]">{c.title2}</span>
               </h1>
               <p className="text-white/80 text-lg leading-relaxed max-w-xl">{c.description}</p>
               <div className="flex flex-col sm:flex-row gap-4">
@@ -71,8 +65,7 @@ export default async function LearningPage({ params }: { params: Promise<{ local
                   </div>
                   <a href={SENDPULSE_URL} target="_blank" rel="noopener noreferrer"
                     className="w-full inline-flex items-center justify-center gap-2 bg-[#D4A017] text-white font-bold px-6 py-3 rounded-lg hover:bg-[#b88913] transition-all">
-                    {c.enrollNow}
-                    <FaArrowRight />
+                    {c.enrollNow}<FaArrowRight />
                   </a>
                 </div>
               </div>
@@ -81,7 +74,6 @@ export default async function LearningPage({ params }: { params: Promise<{ local
         </div>
       </section>
 
-      {/* Quote */}
       <section className="bg-[#FDF2EB] py-16">
         <div className="max-w-4xl mx-auto px-4 text-center">
           <FaQuoteLeft className="text-[#D4A017] text-4xl mx-auto mb-6 opacity-40" />
@@ -95,7 +87,6 @@ export default async function LearningPage({ params }: { params: Promise<{ local
         </div>
       </section>
 
-      {/* Format */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24">
         <div className="text-center mb-16">
           <span className="text-[#D4A017] font-semibold text-sm uppercase tracking-wider">{c.format.label}</span>
@@ -103,7 +94,7 @@ export default async function LearningPage({ params }: { params: Promise<{ local
         </div>
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
           {c.format.items.map((item, i) => (
-            <div key={i} className="bg-white p-8 rounded-2xl shadow-md hover:shadow-xl transition-all border border-gray-100 hover:border-[#D4A017]/30">
+            <div key={i} className="bg-white p-8 rounded-2xl shadow-md hover:shadow-xl transition-all border border-gray-100">
               <div className="text-4xl mb-4">{item.icon}</div>
               <h3 className="text-lg font-bold text-[#1C3A2E] mb-3">{item.title}</h3>
               <p className="text-gray-600 text-sm leading-relaxed">{item.desc}</p>
@@ -112,7 +103,6 @@ export default async function LearningPage({ params }: { params: Promise<{ local
         </div>
       </section>
 
-      {/* Teacher */}
       <section className="bg-[#1C3A2E] py-24">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
@@ -144,7 +134,6 @@ export default async function LearningPage({ params }: { params: Promise<{ local
         </div>
       </section>
 
-      {/* Modules */}
       <section id="modules" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24">
         <div className="text-center mb-16">
           <span className="text-[#D4A017] font-semibold text-sm uppercase tracking-wider">{c.modules.label}</span>
@@ -174,7 +163,6 @@ export default async function LearningPage({ params }: { params: Promise<{ local
         </div>
       </section>
 
-      {/* Outcomes */}
       <section className="bg-[#FDF2EB] py-24">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
@@ -192,7 +180,6 @@ export default async function LearningPage({ params }: { params: Promise<{ local
         </div>
       </section>
 
-      {/* Steps */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24">
         <div className="text-center mb-16">
           <span className="text-[#D4A017] font-semibold text-sm uppercase tracking-wider">{c.steps.label}</span>
@@ -203,9 +190,7 @@ export default async function LearningPage({ params }: { params: Promise<{ local
           <div className="grid md:grid-cols-5 gap-6 relative">
             {c.steps.items.map((s, i) => (
               <div key={i} className="text-center relative">
-                <div className="w-12 h-12 bg-[#1C3A2E] text-white rounded-full flex items-center justify-center font-bold mx-auto mb-4 relative z-10">
-                  {s.step}
-                </div>
+                <div className="w-12 h-12 bg-[#1C3A2E] text-white rounded-full flex items-center justify-center font-bold mx-auto mb-4 relative z-10">{s.step}</div>
                 <h3 className="font-bold text-[#1C3A2E] mb-2 text-sm">{s.title}</h3>
                 <p className="text-gray-500 text-xs leading-relaxed">{s.desc}</p>
               </div>
@@ -214,7 +199,6 @@ export default async function LearningPage({ params }: { params: Promise<{ local
         </div>
       </section>
 
-      {/* CTA */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-24">
         <div className="relative bg-gradient-to-br from-[#1C3A2E] to-[#2a4f3f] rounded-3xl overflow-hidden p-12 md:p-16">
           <div className="absolute inset-0 opacity-10">
@@ -229,8 +213,7 @@ export default async function LearningPage({ params }: { params: Promise<{ local
             <div className="flex flex-wrap justify-center gap-4">
               <a href={SENDPULSE_URL} target="_blank" rel="noopener noreferrer"
                 className="group inline-flex items-center gap-2 bg-[#D4A017] text-white font-bold px-10 py-4 rounded-lg hover:bg-[#b88913] transition-all text-lg">
-                {c.cta.btnEnroll}
-                <FaArrowRight className="group-hover:translate-x-1 transition-transform" />
+                {c.cta.btnEnroll}<FaArrowRight className="group-hover:translate-x-1 transition-transform" />
               </a>
               <a href="https://t.me/shaposhnykpsy" target="_blank" rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 border border-white/30 text-white px-8 py-4 rounded-lg hover:bg-white/10 transition-all">
@@ -240,7 +223,6 @@ export default async function LearningPage({ params }: { params: Promise<{ local
           </div>
         </div>
       </section>
-
     </main>
   );
 }

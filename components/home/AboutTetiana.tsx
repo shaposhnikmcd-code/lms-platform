@@ -1,7 +1,6 @@
 'use client';
 
 import Image from 'next/image';
-import Link from 'next/link';
 import { FaQuoteLeft, FaQuoteRight, FaHeart, FaBrain, FaUsers, FaPray } from 'react-icons/fa';
 import DiplomasSection from './DiplomasSection';
 
@@ -33,10 +32,7 @@ interface Props {
     socialTitle: string;
     socialSubtitle: string;
     videos: { videoId: string; title: string }[];
-    diplomasSection: {
-      sectionLabel: string;
-      docs: DiplomaDoc[];
-    };
+    diplomasSection: { sectionLabel: string; docs: DiplomaDoc[] };
   };
 }
 
@@ -54,13 +50,11 @@ export default function AboutTetiana({ content }: Props) {
         <div className="absolute top-40 left-20 w-72 h-72 bg-[#D4A017] rounded-full blur-3xl"></div>
         <div className="absolute bottom-40 right-20 w-72 h-72 bg-[#1C3A2E] rounded-full blur-3xl"></div>
       </div>
-
       <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center mb-16">
           <h2 className="text-4xl md:text-5xl font-bold text-[#1C3A2E] mt-2">{content.name}</h2>
           <p className="text-gray-500 text-lg mt-3 max-w-2xl mx-auto">{content.role}</p>
         </div>
-
         <div className="grid lg:grid-cols-2 gap-16 items-start">
           <div className="space-y-8">
             <div className="relative group">
@@ -80,21 +74,16 @@ export default function AboutTetiana({ content }: Props) {
               </div>
             </div>
           </div>
-
           <div className="space-y-8">
             <div className="relative bg-white rounded-2xl shadow-xl p-8">
               <FaQuoteLeft className="absolute top-4 left-4 text-4xl text-[#D4A017] opacity-20" />
               <FaQuoteRight className="absolute bottom-4 right-4 text-4xl text-[#D4A017] opacity-20" />
-              <p className="text-gray-600 italic text-lg leading-relaxed relative z-10">
-                {`"${content.quote}"`}
-              </p>
+              <p className="text-gray-600 italic text-lg leading-relaxed relative z-10">{`"${content.quote}"`}</p>
             </div>
-
             <div className="bg-white rounded-2xl shadow-xl p-8">
               <h3 className="text-2xl font-bold text-[#1C3A2E] mb-4">{content.aboutTitle}</h3>
               <p className="text-gray-600 leading-relaxed">{content.aboutText}</p>
             </div>
-
             <div className="bg-white rounded-2xl shadow-xl p-8">
               <h3 className="text-2xl font-bold text-[#1C3A2E] mb-6">{content.worksWithTitle}</h3>
               <div className="grid grid-cols-2 gap-4">
@@ -108,11 +97,9 @@ export default function AboutTetiana({ content }: Props) {
             </div>
           </div>
         </div>
-
         <div className="mt-16">
           <DiplomasSection content={content.diplomasSection} />
         </div>
-
         <div className="mt-16">
           <div className="bg-white rounded-2xl shadow-xl p-8">
             <h3 className="text-2xl font-bold text-[#1C3A2E] mb-6">{content.videosTitle}</h3>
@@ -128,16 +115,15 @@ export default function AboutTetiana({ content }: Props) {
             </div>
           </div>
         </div>
-
         <div className="mt-16 flex justify-center">
-          <Link href="https://calendly.com/saposniktana878/50" target="_blank" rel="noopener noreferrer"
+          <a href="https://calendly.com/saposniktana878/50" target="_blank" rel="noopener noreferrer"
             className="group block bg-gradient-to-r from-[#1C3A2E] to-[#2a4f3f] rounded-2xl p-8 text-center hover:shadow-2xl transition-all max-w-2xl w-full">
             <div className="inline-block p-4 bg-[#D4A017] rounded-full mb-4 group-hover:scale-110 transition-transform">
               <FaHeart className="text-white text-2xl" />
             </div>
             <h4 className="text-2xl font-bold text-white mb-2">{content.consultationTitle}</h4>
             <p className="text-white/80 text-sm">{content.consultationSubtitle}</p>
-          </Link>
+          </a>
         </div>
       </div>
     </section>

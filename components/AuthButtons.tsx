@@ -1,18 +1,15 @@
 'use client';
 
 import { useSession, signOut } from "next-auth/react";
-import { useState } from "react";
 import { FaUser } from 'react-icons/fa';
 import { useTranslations } from 'next-intl';
-import AuthModal from './_components/AuthModal';
 
 export default function AuthButtons() {
   const { data: session, status } = useSession();
-  const [showModal, setShowModal] = useState(false);
   const t = useTranslations('Auth');
 
   if (status === 'loading') {
-    return <div className="w-24 h-9 bg-gray-200 animate-pulse rounded-lg" />;
+    return <div className="w-8 h-8 bg-gray-200 animate-pulse rounded-full" />;
   }
 
   if (session?.user) {
@@ -40,15 +37,5 @@ export default function AuthButtons() {
     );
   }
 
-  return (
-    <>
-      <button
-        onClick={() => setShowModal(true)}
-        className="bg-[#1C3A2E] text-white px-4 py-2 rounded-lg text-sm hover:bg-[#2a4f3f] transition-all"
-      >
-        {t('login')}
-      </button>
-      <AuthModal isOpen={showModal} onClose={() => setShowModal(false)} />
-    </>
-  );
+  return null;
 }

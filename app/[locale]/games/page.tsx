@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import { Link } from '@/i18n/navigation';
 import Image from 'next/image';
 import { FaArrowRight } from 'react-icons/fa';
 import { Inter } from 'next/font/google';

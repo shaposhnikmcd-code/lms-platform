@@ -1,13 +1,13 @@
 {
   "Navigation": {
     "home": "Strona główna",
-    "courses": "Kursy",
-    "learning": "Nauka",
-    "consultations": "Konsultacje",
-    "games": "Gry",
+    "courses": "Projekty edukacyjne",
+    "learning": "Program roczny",
+    "consultations": "Baza specjalistów",
+    "games": "Gry terapeutyczne",
     "news": "Aktualności",
-    "contacts": "Kontakt",
-    "links": "Baza linków",
+    "contacts": "O nas",
+    "links": "Projekty charytatywne",
     "dashboard": "Panel"
   },
   "Auth": {
@@ -45,23 +45,103 @@
     "social": "Znajdź nas w mediach społecznościowych",
     "copyright": "© 2025 Ukrainian Institute of Psychotherapy. Wszelkie prawa zastrzeżone.",
     "privacyShort": "Prywatność",
-    "termsShort": "Warunki"
+    "termsShort": "Warunki",
+    "institute": "Ukraiński Instytut Opieki nad Duszą i Psychoterapii",
+    "email": "Poczta",
+    "techSupport": "Wsparcie techniczne"
   },
   "CoursesPage": {
     "title": "Kursy edukacyjne",
     "subtitle": "Wybierz kurs dla swojego rozwoju zawodowego i osobistego",
-    "charityBadge": "🎁 Bezpłatnie",
+    "sectionLabel": "Programy nauczania",
+    "sectionTitle": "Wybierz swój kurs",
+    "priceLabel": "cena",
+    "free": "Bezpłatnie",
+    "charityBadge": "Bezpłatnie",
     "charityTitle": "Kursy charytatywne",
     "charitySubtitle": "Kursy, które oferujemy bezpłatnie dla wszystkich chętnych",
+    "benefits": {
+      "record": {
+        "title": "Nauka z nagrań",
+        "desc": "Oglądaj kiedy chcesz"
+      },
+      "support": {
+        "title": "Wsparcie kuratorów",
+        "desc": "Nie jesteś sam w procesie"
+      },
+      "cert": {
+        "title": "Certyfikat UIMP",
+        "desc": "Oficjalne potwierdzenie"
+      }
+    },
+    "tags": {
+      "biblicalTherapy": "Terapia biblijna",
+      "forPsychologists": "Dla psychologów",
+      "forBeginners": "Dla początkujących",
+      "newPerspective": "Nowa perspektywa",
+      "forParents": "Dla rodziców"
+    },
     "courses": {
-      "psychology": { "title": "Podstawy psychologii", "description": "Wprowadzenie do psychologii: podstawowe koncepcje, teorie i metody", "duration": "2 miesiące" },
-      "psychiatry": { "title": "Podstawy psychiatrii", "description": "Wprowadzenie do psychiatrii dla psychologów i duszpasterzy", "duration": "4 miesiące" },
-      "mentorship": { "title": "Podstawy duszpasterstwa", "description": "Nauka podstaw duszpasterstwa i poradnictwa pastoralnego", "duration": "3 miesiące" },
-      "christianPsy": { "title": "Podstawy psychologii chrześcijańskiej 2.0", "description": "Zaawansowany kurs psychologii chrześcijańskiej dla praktykujących psychologów", "duration": "4 miesiące" },
-      "biblicalHeroes": { "title": "Psychoterapia bohaterów biblijnych", "description": "Analiza postaci biblijnych z perspektywy psychoterapii", "duration": "3 miesiące" },
-      "sexEd": { "title": "Wychowanie seksualne", "description": "Kurs wychowania seksualnego dla psychologów i pedagogów", "duration": "2 miesiące" },
-      "support": { "title": "Kurs wsparcia psychologicznego", "description": "Podstawowy kurs dla psychologów i wszystkich, którzy chcą nauczyć się udzielać wsparcia psychologicznego", "price": "Bezpłatnie", "duration": "3 miesiące" },
-      "porn": { "title": "Kurs walki z uzależnieniem od pornografii", "description": "Specjalistyczny kurs przezwyciężania uzależnienia od pornografii", "price": "Bezpłatnie", "duration": "3 miesiące" }
+      "psychology": {
+        "title": "Podstawy psychologii",
+        "description": "Wprowadzenie do psychologii biblijnej: podstawowe koncepcje, teorie i metody uzdrowienia na trzech poziomach: duch, dusza i ciało.",
+        "duration": "w zapisie"
+      },
+      "psychiatry": {
+        "title": "Podstawy psychiatrii",
+        "description": "Wprowadzenie do psychiatrii dla psychologów i duszpasterzy",
+        "duration": "w zapisie"
+      },
+      "mentorship": {
+        "title": "Podstawy duszpasterstwa",
+        "description": "Nauka podstaw duszpasterstwa i poradnictwa pastoralnego dla wszystkich, którzy chcą pomagać innym.",
+        "duration": "w zapisie"
+      },
+      "biblicalHeroes": {
+        "title": "Psychoterapia bohaterów biblijnych",
+        "description": "Analiza postaci biblijnych z perspektywy psychoterapii. Bohaterowie Biblii — nie idealni, lecz prawdziwi.",
+        "duration": "w zapisie"
+      },
+      "sexEd": {
+        "title": "Wychowanie seksualne",
+        "description": "Kurs wychowania seksualnego dla rodziców i pedagogów. Odpowiedzi na pytania: jak rozmawiać z dziećmi i co mówi Biblia.",
+        "duration": "w zapisie"
+      },
+      "support": {
+        "title": "Przestrzeń troski",
+        "description": "Bezpłatne wsparcie psychologiczne i możliwość poznania psychologów/duszpasterzy centrum konsultacyjnego UIMP.",
+        "price": "Bezpłatnie",
+        "duration": "w zapisie"
+      },
+      "porn": {
+        "title": "Żyć czysto",
+        "description": "Specjalistyczny kurs przezwyciężania uzależnienia od pornografii",
+        "price": "Bezpłatnie",
+        "duration": "w zapisie"
+      }
     }
+  },
+  "HomePage": {
+    "supportLabel": "Obsługa UIMP",
+    "supportTitle": "Jeśli nadal masz pytania",
+    "supportDesc": "Zespół UIMP reaguje szybko",
+    "supportBtn": "Wsparcie techniczne"
+  },
+  "MissionSection": {
+    "eyebrow": "Nasza misja",
+    "title": "Misja.",
+    "subtitle": "Trzy wektory, które określają kierunek Ukraińskiego Instytutu Psychoterapii i Psychologii",
+    "m1title": "Doprowadzenie osoby do uzdrowienia poprzez odkrycie jej prawdziwej tożsamości w Bogu.",
+    "m1i1": "przechodzą uzdrowienie na trzech poziomach: ciała, duszy i ducha",
+    "m1i2": "pokazanie niekompletności uzdrawiania duszy bez uzdrawiania ducha i znaczenia ciała",
+    "m1i3": "pokazać osobie zdrową potrzebę społeczności",
+    "m2title": "Aby pokazać psychologię w jej oryginalnej formie",
+    "m2i1": "ukazanie opieki duszpasterskiej jako integralnej części psychologii, przekazanie naukowego znaczenia opieki duszpasterskiej",
+    "m2i2": "pokazanie naukowego związku między uzdrawianiem duszy i ducha",
+    "m3title": "Rozerwać zasłonę między kościołem a światem",
+    "m3i1": "przekazanie światu prawdziwej wiedzy o kościele i chrześcijaństwie",
+    "m3i2": "nauczanie kościołów akceptacji różnych ludzi, przeniesienie punktu ciężkości z działań danej osoby na wartość jej prawdziwej tożsamości.",
+    "m3i3": "wniesienie prawdziwej wiedzy psychologicznej do kościołów i pokazanie jej znaczenia na drodze do ludzkiego zbawienia",
+    "m3i4": "poprzez szerzenie edukacji psychologicznej, wykorzystywać psychologię do ratowania ludzi"
   }
 }
