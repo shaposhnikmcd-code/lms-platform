@@ -1,56 +1,108 @@
 "use client";
 
-import { FaTelegram, FaInstagram, FaYoutube } from 'react-icons/fa';
-import { useTranslations } from 'next-intl';
+import { useEffect, useRef, useState } from "react";
+import { useTranslations } from "next-intl";
 
-const tgUrl = "https://t.me/shaposhnykpsy";
-const igUrl = "https://www.instagram.com/uimp_psychotherapy";
-const ytUrl = "https://www.youtube.com/@bible_psychotherapy";
+export default function MissionSection() {
+  const sectionRef = useRef<HTMLDivElement>(null);
+  const [visible, setVisible] = useState(false);
+  const t = useTranslations("MissionSection");
 
-export default function SocialSection() {
-  const t = useTranslations('Footer');
+  const missionData = [
+    { num: "01", title: t("m1title"), items: [t("m1i1"), t("m1i2"), t("m1i3")] },
+    { num: "02", title: t("m2title"), items: [t("m2i1"), t("m2i2")] },
+    { num: "03", title: t("m3title"), items: [t("m3i1"), t("m3i2"), t("m3i3"), t("m3i4")] },
+  ];
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) { setVisible(true); observer.disconnect(); }
+      },
+      { threshold: 0.1 }
+    );
+    if (sectionRef.current) observer.observe(sectionRef.current);
+    return () => observer.disconnect();
+  }, []);
 
   return (
-    <section style={{ background: '#E8D5B7', position: 'relative', overflow: 'hidden', boxShadow: '0 6px 24px rgba(0,0,0,0.1)', zIndex: 1 }}>
+    <section
+      ref={sectionRef}
+      style={{ background: '#FAF6F0', padding: '96px 24px 104px', overflow: 'hidden', position: 'relative' }}
+    >
       {/* Top divider */}
-      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '1px', background: 'linear-gradient(90deg, transparent 0%, #D4A843 20%, #D4A843 80%, transparent 100%)', opacity: 0.55, zIndex: 3 }} />
+      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 1, background: 'linear-gradient(90deg, transparent 0%, #D4A843 20%, #D4A843 80%, transparent 100%)', opacity: 0.5 }} />
       {/* Bottom divider */}
-      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '1px', background: 'linear-gradient(90deg, transparent 0%, #D4A843 20%, #D4A843 80%, transparent 100%)', opacity: 0.55, zIndex: 3 }} />
+      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 1, background: 'linear-gradient(90deg, transparent 0%, #D4A843 20%, #D4A843 80%, transparent 100%)', opacity: 0.5 }} />
 
-      <div className="absolute inset-0 pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle, rgba(28,58,46,0.04) 1px, transparent 1px)', backgroundSize: '28px 28px' }} />
+      <div style={{ maxWidth: 1200, margin: '0 auto' }}>
 
-      <div className="relative z-10 max-w-xl mx-auto px-6 py-12 flex flex-col items-center gap-5">
-        <div className="text-center">
-          <h3 style={{ fontFamily: 'Georgia, serif', fontSize: 'clamp(20px, 3vw, 28px)', fontWeight: 400, color: '#1C3A2E', margin: '0 0 4px' }}>{t('social')}</h3>
-          <p style={{ fontSize: 12, color: 'rgba(28,58,46,0.45)', fontWeight: 300 }}>{"@uimp_psychotherapy"}</p>
+        {/* Header */}
+        <div style={{ textAlign: 'center', marginBottom: 72, transform: visible ? 'translateY(0)' : 'translateY(40px)', opacity: visible ? 1 : 0, transition: 'transform 0.8s cubic-bezier(0.16,1,0.3,1), opacity 0.8s ease' }}>
+          <span style={{ fontSize: 11, fontWeight: 500, letterSpacing: '4px', textTransform: 'uppercase' as const, color: '#D4A843', marginBottom: 20, display: 'block' }}>
+            {t("eyebrow")}
+          </span>
+          <h2 style={{ fontFamily: 'Georgia, "Times New Roman", serif', fontSize: 'clamp(52px, 8vw, 96px)', fontWeight: 300, letterSpacing: '0.15em', color: '#1C3A2E', lineHeight: 1, margin: '0 0 28px', textTransform: 'uppercase' as const }}>
+            <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 20 }}>
+              <span style={{ display: 'inline-block', height: 1, width: 60, background: '#D4A843', opacity: 0.7 }} />
+              {t("title")}
+              <span style={{ display: 'inline-block', height: 1, width: 60, background: '#D4A843', opacity: 0.7 }} />
+            </span>
+          </h2>
+          <p style={{ fontSize: 15, color: '#6B7A6F', maxWidth: 480, margin: '0 auto', lineHeight: 1.7, fontWeight: 300 }}>
+            {t("subtitle")}
+          </p>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, width: 160 }}>
-          <div style={{ flex: 1, height: 1, background: 'rgba(212,168,67,0.4)' }} />
-          <div style={{ width: 4, height: 4, borderRadius: '50%', background: '#D4A843', opacity: 0.6 }} />
-          <div style={{ flex: 1, height: 1, background: 'rgba(212,168,67,0.4)' }} />
+        {/* Grid */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)' }}>
+          {missionData.map((m, idx) => (
+            <div
+              key={m.num}
+              style={{
+                padding: '0 40px',
+                position: 'relative',
+                paddingLeft: idx === 0 ? 0 : undefined,
+                paddingRight: idx === 2 ? 0 : undefined,
+                transform: visible ? 'translateY(0)' : 'translateY(50px)',
+                opacity: visible ? 1 : 0,
+                transition: `transform 0.9s cubic-bezier(0.16,1,0.3,1) ${idx * 0.15}s, opacity 0.9s ease ${idx * 0.15}s`,
+              }}
+            >
+              {/* Vertical separator */}
+              {idx > 0 && (
+                <div style={{ position: 'absolute', left: 0, top: '10%', height: '80%', width: 1, background: 'linear-gradient(180deg, transparent, rgba(28,58,46,0.15) 20%, rgba(28,58,46,0.15) 80%, transparent)' }} />
+              )}
+
+              <span style={{ fontFamily: 'Georgia, serif', fontSize: 72, fontWeight: 300, color: '#D4A843', opacity: 0.35, lineHeight: 1, marginBottom: 4, display: 'block', letterSpacing: '-2px' }}>
+                {m.num}
+              </span>
+              <h3 style={{ fontSize: 15, fontWeight: 600, color: '#1C3A2E', lineHeight: 1.5, marginBottom: 28, paddingBottom: 20, borderBottom: '1.5px solid rgba(212,168,67,0.35)' }}>
+                {m.title}
+              </h3>
+              <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column' as const, gap: 14 }}>
+                {m.items.map((item, i) => (
+                  <li key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 12, fontSize: 13.5, color: '#4A5E50', lineHeight: 1.65 }}>
+                    <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#D4A843', flexShrink: 0, marginTop: 8, display: 'inline-block' }} />
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
         </div>
 
-        <div className="flex gap-5">
-          <a href={tgUrl} target="_blank" rel="noopener noreferrer" className="group flex flex-col items-center gap-2">
-            <div className="w-12 h-12 rounded-xl flex items-center justify-center transition-all duration-300 group-hover:-translate-y-1 group-hover:shadow-md" style={{ background: 'white', border: '1px solid rgba(28,58,46,0.1)', boxShadow: '0 2px 8px rgba(28,58,46,0.08)' }}>
-              <FaTelegram style={{ color: '#26A5E4', fontSize: '1.4rem' }} />
-            </div>
-            <span style={{ fontSize: 10, color: 'rgba(28,58,46,0.5)', letterSpacing: '0.05em' }}>{"Telegram"}</span>
-          </a>
-          <a href={igUrl} target="_blank" rel="noopener noreferrer" className="group flex flex-col items-center gap-2">
-            <div className="w-12 h-12 rounded-xl flex items-center justify-center transition-all duration-300 group-hover:-translate-y-1 group-hover:shadow-md" style={{ background: 'white', border: '1px solid rgba(28,58,46,0.1)', boxShadow: '0 2px 8px rgba(28,58,46,0.08)' }}>
-              <FaInstagram style={{ color: '#d6249f', fontSize: '1.4rem' }} />
-            </div>
-            <span style={{ fontSize: 10, color: 'rgba(28,58,46,0.5)', letterSpacing: '0.05em' }}>{"Instagram"}</span>
-          </a>
-          <a href={ytUrl} target="_blank" rel="noopener noreferrer" className="group flex flex-col items-center gap-2">
-            <div className="w-12 h-12 rounded-xl flex items-center justify-center transition-all duration-300 group-hover:-translate-y-1 group-hover:shadow-md" style={{ background: 'white', border: '1px solid rgba(28,58,46,0.1)', boxShadow: '0 2px 8px rgba(28,58,46,0.08)' }}>
-              <FaYoutube style={{ color: '#FF0000', fontSize: '1.4rem' }} />
-            </div>
-            <span style={{ fontSize: 10, color: 'rgba(28,58,46,0.5)', letterSpacing: '0.05em' }}>{"YouTube"}</span>
-          </a>
+        {/* Ornament */}
+        <div style={{ textAlign: 'center', marginTop: 72, opacity: visible ? 1 : 0, transform: visible ? 'translateY(0)' : 'translateY(20px)', transition: 'opacity 0.8s ease 0.6s, transform 0.8s ease 0.6s' }}>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 16 }}>
+            <div style={{ width: 48, height: 1, background: '#D4A843', opacity: 0.4 }} />
+            <div style={{ width: 4, height: 4, borderRadius: '50%', background: '#D4A843', opacity: 0.4 }} />
+            <div style={{ width: 4, height: 4, borderRadius: '50%', background: '#D4A843', opacity: 0.4 }} />
+            <div style={{ width: 4, height: 4, borderRadius: '50%', background: '#D4A843', opacity: 0.4 }} />
+            <div style={{ width: 48, height: 1, background: '#D4A843', opacity: 0.4 }} />
+          </div>
         </div>
+
       </div>
     </section>
   );
