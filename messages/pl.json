@@ -143,5 +143,20 @@
     "m3i2": "nauczanie kościołów akceptacji różnych ludzi, przeniesienie punktu ciężkości z działań danej osoby na wartość jej prawdziwej tożsamości.",
     "m3i3": "wniesienie prawdziwej wiedzy psychologicznej do kościołów i pokazanie jej znaczenia na drodze do ludzkiego zbawienia",
     "m3i4": "poprzez szerzenie edukacji psychologicznej, wykorzystywać psychologię do ratowania ludzi"
+  },
+  "CookieBanner": {
+    "title": "Szanujemy Twoją prywatność",
+    "description": "Używamy plików cookie, aby zapewnić działanie witryny i poprawić komfort korzystania z niej. Użytkownik może wybrać kategorie plików cookie, na które chce zezwolić. Więcej informacji można znaleźć na stronie",
+    "privacyLink": "Polityka prywatności",
+    "acceptAll": "Zaakceptuj wszystko",
+    "customize": "Dostosuj",
+    "rejectAll": "Odrzuć wszystko",
+    "savePreferences": "Zapisz ustawienia",
+    "cancel": "Anuluj",
+    "alwaysOn": "Zawsze włączony",
+    "necessary": "Wymagane pliki cookie",
+    "performance": "Analityczne pliki cookie",
+    "functional": "Funkcjonalne pliki cookie",
+    "advertising": "Reklamowe pliki cookie"
   }
 }

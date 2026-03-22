@@ -50,6 +50,21 @@
     "email": "Пошта",
     "techSupport": "Технічна підтримка"
   },
+  "CookieBanner": {
+    "title": "Ми поважаємо вашу приватність",
+    "description": "Ми використовуємо cookies для забезпечення роботи сайту та покращення вашого досвіду. Ви можете обрати які категорії cookies дозволити. Детальніше — в нашій",
+    "privacyLink": "Політиці конфіденційності",
+    "acceptAll": "Прийняти всі",
+    "customize": "Налаштувати",
+    "rejectAll": "Відхилити всі",
+    "savePreferences": "Зберегти налаштування",
+    "cancel": "Скасувати",
+    "alwaysOn": "Завжди увімкнено",
+    "necessary": "Обов'язкові cookies",
+    "performance": "Аналітичні cookies",
+    "functional": "Функціональні cookies",
+    "advertising": "Рекламні cookies"
+  },
   "HomePage": {
     "supportLabel": "UIMP Support",
     "supportTitle": "Якщо залишилися питання",

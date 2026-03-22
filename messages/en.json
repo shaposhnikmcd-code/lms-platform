@@ -143,5 +143,20 @@
     "m3i2": "teach churches to accept different people, to return the focus from a person's actions to the value of their true identity",
     "m3i3": "bring real knowledge of psychology to churches and show its importance on the path to human salvation",
     "m3i4": "by spreading psychological education, use psychology to save people"
+  },
+  "CookieBanner": {
+    "title": "We respect your privacy",
+    "description": "We use cookies to ensure that the site works and to improve your experience. You can choose which categories of cookies to allow. For more information, please see our",
+    "privacyLink": "Privacy policy",
+    "acceptAll": "Accept all",
+    "customize": "Customize",
+    "rejectAll": "Reject all",
+    "savePreferences": "Save settings",
+    "cancel": "Cancel",
+    "alwaysOn": "Always on",
+    "necessary": "Required cookies",
+    "performance": "Analytical cookies",
+    "functional": "Functional cookies",
+    "advertising": "Advertising cookies"
   }
 }

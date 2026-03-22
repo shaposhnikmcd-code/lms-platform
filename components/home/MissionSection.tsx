@@ -55,15 +55,15 @@ export default function MissionSection() {
         </div>
 
         {/* Grid */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', alignItems: 'start' }}>
           {missionData.map((m, idx) => (
             <div
               key={m.num}
               style={{
-                padding: '0 40px',
+                paddingLeft: idx === 0 ? 0 : 48,
+                paddingRight: idx === 2 ? 0 : 40,
+                paddingTop: 0,
                 position: 'relative',
-                paddingLeft: idx === 0 ? 0 : undefined,
-                paddingRight: idx === 2 ? 0 : undefined,
                 transform: visible ? 'translateY(0)' : 'translateY(50px)',
                 opacity: visible ? 1 : 0,
                 transition: `transform 0.9s cubic-bezier(0.16,1,0.3,1) ${idx * 0.15}s, opacity 0.9s ease ${idx * 0.15}s`,
@@ -71,13 +71,13 @@ export default function MissionSection() {
             >
               {/* Vertical separator */}
               {idx > 0 && (
-                <div style={{ position: 'absolute', left: 0, top: '10%', height: '80%', width: 1, background: 'linear-gradient(180deg, transparent, rgba(28,58,46,0.15) 20%, rgba(28,58,46,0.15) 80%, transparent)' }} />
+                <div style={{ position: 'absolute', left: 0, top: '5%', height: '90%', width: 1, background: 'linear-gradient(180deg, transparent, rgba(28,58,46,0.15) 20%, rgba(28,58,46,0.15) 80%, transparent)' }} />
               )}
 
               <span style={{ fontFamily: 'Georgia, serif', fontSize: 72, fontWeight: 300, color: '#D4A843', opacity: 0.35, lineHeight: 1, marginBottom: 4, display: 'block', letterSpacing: '-2px' }}>
                 {m.num}
               </span>
-              <h3 style={{ fontSize: 15, fontWeight: 600, color: '#1C3A2E', lineHeight: 1.5, marginBottom: 28, paddingBottom: 20, borderBottom: '1.5px solid rgba(212,168,67,0.35)' }}>
+              <h3 style={{ fontSize: 15, fontWeight: 600, color: '#1C3A2E', lineHeight: 1.5, marginBottom: 28, paddingBottom: 20, borderBottom: '1.5px solid rgba(212,168,67,0.35)', minHeight: 72 }}>
                 {m.title}
               </h3>
               <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column' as const, gap: 14 }}>
