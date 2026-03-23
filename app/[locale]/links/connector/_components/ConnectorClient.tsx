@@ -1,9 +1,9 @@
 'use client';
 
 import { Link } from '@/i18n/navigation';
-import { FaTelegram, FaYoutube, FaInstagram } from 'react-icons/fa';
-import { IoMdShare } from 'react-icons/io';
-import { IoArrowBack } from 'react-icons/io5';
+import { FaTelegram, FaYoutube, FaInstagram, FaWhatsapp, FaEnvelope } from 'react-icons/fa';
+import { IoMdShare, IoMdClose, IoMdCheckmark } from 'react-icons/io';
+import { IoArrowBack, IoCopyOutline } from 'react-icons/io5';
 import Image from 'next/image';
 import { useState } from 'react';
 import OrderForm from '@/components/connector/OrderForm';
@@ -55,20 +55,41 @@ interface Props {
   currency: string;
 }
 
+const shareUrl = "https://www.uimp.com.ua/links/connector";
+const shareTitle = "Гра «Конектор» — психологічна гра для пар від UIMP";
+
 export default function ConnectorClient({ content, currency }: Props) {
   const [showOrderForm, setShowOrderForm] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const handleShare = () => {
+    setShowShareModal(true);
+  };
+
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(shareUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const tgShareUrl = `https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(shareTitle)}`;
+  const waShareUrl = `https://wa.me/?text=${encodeURIComponent(shareTitle + ' ' + shareUrl)}`;
+  const emailShareUrl = `mailto:?subject=${encodeURIComponent(shareTitle)}&body=${encodeURIComponent(shareUrl)}`;
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#0c4a3a] to-[#06382d] p-6">
       <div className="container mx-auto max-w-[500px]">
         <div className="bg-[#003d30] rounded-[32px] p-5 md:p-6 shadow-2xl relative">
 
-          <Link href="/links"
+          <Link href="/games"
             className="absolute top-4 left-4 w-[38px] h-[38px] bg-[#E0E0E0] rounded-full flex items-center justify-center hover:opacity-80 transition-all z-10">
             <IoArrowBack className="text-[#003d30] text-lg" />
           </Link>
 
-          <button className="absolute top-4 right-4 w-[38px] h-[38px] bg-[#E0E0E0] rounded-full flex items-center justify-center hover:opacity-80 transition-all z-10">
+          <button
+            onClick={handleShare}
+            className="absolute top-4 right-4 w-[38px] h-[38px] bg-[#E0E0E0] rounded-full flex items-center justify-center hover:opacity-80 transition-all z-10">
             <IoMdShare className="text-[#003d30] text-lg" />
           </button>
 
@@ -135,6 +156,71 @@ export default function ConnectorClient({ content, currency }: Props) {
           </div>
         </div>
       </div>
+
+      {/* Share Modal */}
+      {showShareModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center pb-8 px-4"
+          style={{ background: 'rgba(0,0,0,0.5)' }}
+          onClick={() => setShowShareModal(false)}
+        >
+          <div
+            className="w-full max-w-[500px] bg-white rounded-3xl p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="text-[#003d30] font-bold text-lg">{"Поділитись"}</h3>
+              <button onClick={() => setShowShareModal(false)} className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 transition-colors">
+                <IoMdClose className="text-gray-500" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-4 gap-3 mb-5">
+              <a href={tgShareUrl} target="_blank" rel="noopener noreferrer"
+                className="flex flex-col items-center gap-2">
+                <div className="w-14 h-14 rounded-2xl flex items-center justify-center" style={{ background: 'rgba(38,165,228,0.1)' }}>
+                  <FaTelegram style={{ color: '#26A5E4', fontSize: '1.6rem' }} />
+                </div>
+                <span className="text-xs text-gray-500">{"Telegram"}</span>
+              </a>
+
+              <a href={waShareUrl} target="_blank" rel="noopener noreferrer"
+                className="flex flex-col items-center gap-2">
+                <div className="w-14 h-14 rounded-2xl flex items-center justify-center" style={{ background: 'rgba(37,211,102,0.1)' }}>
+                  <FaWhatsapp style={{ color: '#25D366', fontSize: '1.6rem' }} />
+                </div>
+                <span className="text-xs text-gray-500">{"WhatsApp"}</span>
+              </a>
+
+              <a href={emailShareUrl}
+                className="flex flex-col items-center gap-2">
+                <div className="w-14 h-14 rounded-2xl flex items-center justify-center" style={{ background: 'rgba(28,58,46,0.08)' }}>
+                  <FaEnvelope style={{ color: '#1C3A2E', fontSize: '1.4rem' }} />
+                </div>
+                <span className="text-xs text-gray-500">{"Email"}</span>
+              </a>
+
+              <button onClick={handleCopy}
+                className="flex flex-col items-center gap-2">
+                <div className="w-14 h-14 rounded-2xl flex items-center justify-center transition-colors" style={{ background: copied ? 'rgba(28,58,46,0.15)' : 'rgba(28,58,46,0.08)' }}>
+                  {copied
+                    ? <IoMdCheckmark style={{ color: '#1C3A2E', fontSize: '1.4rem' }} />
+                    : <IoCopyOutline style={{ color: '#1C3A2E', fontSize: '1.4rem' }} />
+                  }
+                </div>
+                <span className="text-xs text-gray-500">{copied ? "Скопійовано" : "Копіювати"}</span>
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2 bg-gray-100 rounded-xl px-4 py-3">
+              <span className="text-xs text-gray-400 truncate flex-1">{shareUrl}</span>
+              <button onClick={handleCopy} className="text-xs font-medium text-[#003d30] flex-shrink-0">
+                {copied ? "✓" : "Копіювати"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <OrderForm isOpen={showOrderForm} onClose={() => setShowOrderForm(false)} labels={content.form} />
     </div>
