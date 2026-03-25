@@ -1,0 +1,68 @@
+'use client';
+
+import { useSession } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
+import { useState } from 'react';
+
+const ROLE_LABELS: Record<string, string> = {
+  ADMIN: 'Адмін',
+  MANAGER: 'Менеджер',
+  TEACHER: 'Викладач',
+  STUDENT: 'Студент',
+};
+
+const ROLE_REDIRECTS: Record<string, string> = {
+  ADMIN: '/dashboard/admin',
+  MANAGER: '/dashboard/manager',
+  TEACHER: '/dashboard/teacher',
+  STUDENT: '/dashboard/student',
+};
+
+const ROLE_HIERARCHY: Record<string, string[]> = {
+  ADMIN: ['ADMIN', 'MANAGER', 'TEACHER', 'STUDENT'],
+  MANAGER: ['MANAGER', 'STUDENT'],
+  TEACHER: ['TEACHER', 'STUDENT'],
+  STUDENT: ['STUDENT'],
+};
+
+export default function RoleSwitcher() {
+  const { data: session, update } = useSession();
+  const router = useRouter();
+  const [loading, setLoading] = useState(false);
+
+  if (!session?.user) return null;
+
+  const realRole = session.user.role;
+  const activeRole = session.user.activeRole;
+  const allowedRoles = ROLE_HIERARCHY[realRole] ?? ['STUDENT'];
+
+  if (allowedRoles.length <= 1) return null;
+
+  const handleSwitch = async (newRole: string) => {
+    if (newRole === activeRole) return;
+    setLoading(true);
+    await update({ activeRole: newRole });
+    router.push(ROLE_REDIRECTS[newRole]);
+    router.refresh();
+    setLoading(false);
+  };
+
+  return (
+    <div className="flex items-center gap-1 bg-black/20 rounded-lg p-1">
+      {allowedRoles.map((role) => (
+        <button
+          key={role}
+          onClick={() => handleSwitch(role)}
+          disabled={loading}
+          className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${
+            activeRole === role
+              ? 'bg-[#D4A843] text-[#1C3A2E]'
+              : 'text-white/70 hover:text-white hover:bg-white/10'
+          }`}
+        >
+          {ROLE_LABELS[role]}
+        </button>
+      ))}
+    </div>
+  );
+}

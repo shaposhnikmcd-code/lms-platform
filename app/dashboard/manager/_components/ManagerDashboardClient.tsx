@@ -290,9 +290,9 @@ export default function ManagerDashboardClient() {
                       <td className="px-4 py-3 text-sm text-gray-600">{order.city}</td>
                       <td className="px-4 py-3">
                         {order.callMe ? (
-                          <span className="px-2 py-1 bg-green-100 text-green-700 text-xs font-medium rounded-full">{"Передзвонити"}</span>
+                          <span className="px-2 py-1 bg-green-100 text-green-700 text-xs font-medium rounded-full">{"Так"}</span>
                         ) : (
-                          <span className="text-gray-300">{"—"}</span>
+                          <span className="px-2 py-1 bg-red-100 text-red-700 text-xs font-medium rounded-full">{"Ні"}</span>
                         )}
                       </td>
                       <td className="px-4 py-3">

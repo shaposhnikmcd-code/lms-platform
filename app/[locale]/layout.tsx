@@ -27,21 +27,13 @@ export default async function LocaleLayout({
   const messages = await getMessages();
 
   return (
-    <html lang={locale}>
-      <head>
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <link rel="icon" href="/favicon.ico" />
-      </head>
-      <body className="antialiased flex flex-col min-h-screen">
-        <NextIntlClientProvider messages={messages}>
-          <SessionProviderWrapper session={session}>
-            <Navbar />
-            <main className="flex-1">{children}</main>
-            <Footer />
-            <CookieBanner />
-          </SessionProviderWrapper>
-        </NextIntlClientProvider>
-      </body>
-    </html>
+    <NextIntlClientProvider messages={messages}>
+      <SessionProviderWrapper session={session}>
+        <Navbar />
+        <main className="flex-1">{children}</main>
+        <Footer />
+        <CookieBanner />
+      </SessionProviderWrapper>
+    </NextIntlClientProvider>
   );
 }

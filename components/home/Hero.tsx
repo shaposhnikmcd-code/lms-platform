@@ -13,67 +13,44 @@ interface Props {
   };
 }
 
-const DIVIDER = (
-  <div
-    style={{
-      position: 'absolute',
-      left: 0,
-      right: 0,
-      height: '1px',
-      background: 'linear-gradient(90deg, transparent 0%, #D4A843 20%, #D4A843 80%, transparent 100%)',
-      opacity: 0.45,
-      zIndex: 3,
-    }}
-  />
-);
-
 export default function Hero({ content }: Props) {
   return (
     <section
-      className="relative text-white py-24 overflow-hidden"
-      style={{
-        background: 'linear-gradient(135deg, #1C3A2E 0%, #1a3828 50%, #0f2219 100%)',
-        boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
-        position: 'relative',
-        zIndex: 2,
-      }}
+      className="relative text-white py-12 overflow-hidden"
+      style={{ background: 'linear-gradient(135deg, #1C3A2E 0%, #1a3828 50%, #0f2219 100%)', position: 'relative', zIndex: 2 }}
     >
-      {/* Top divider */}
-      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '1px', background: 'linear-gradient(90deg, transparent 0%, #D4A843 20%, #D4A843 80%, transparent 100%)', opacity: 0.45, zIndex: 3 }} />
-      {/* Bottom divider */}
-      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '1px', background: 'linear-gradient(90deg, transparent 0%, #D4A843 20%, #D4A843 80%, transparent 100%)', opacity: 0.45, zIndex: 3 }} />
-
       <div className="absolute inset-0 pointer-events-none">
         <div className="absolute top-10 left-10 w-96 h-96 bg-[#D4A843]/5 rounded-full blur-3xl" />
-        <div className="absolute inset-0 opacity-[0.02]" style={{ backgroundImage: 'radial-gradient(circle, rgba(212,168,67,0.8) 1px, transparent 1px)', backgroundSize: '32px 32px' }} />
       </div>
 
-      <div className="container mx-auto px-6 relative z-10">
-        <div className="flex flex-col md:flex-row items-center gap-16">
-          <div className="flex-1">
-            <div className="inline-flex items-center gap-2 border text-xs font-bold px-4 py-2 rounded-full tracking-widest uppercase mb-8" style={{ background: 'rgba(212,168,67,0.12)', borderColor: 'rgba(212,168,67,0.25)', color: '#D4A843' }}>
-              {"◆ UIMP"}
+      <div className="container mx-auto px-12 md:px-16 relative z-10">
+        <div className="flex flex-col md:flex-row items-center gap-8">
+
+          <div className="flex-1 flex justify-center order-1 md:order-2">
+            <div className="relative">
+              <div className="absolute -inset-6 rounded-full blur-3xl opacity-20" style={{ background: 'radial-gradient(circle, #D4A843, #1C3A2E)' }} />
+              <div className="relative w-52 h-52 md:w-64 md:h-64">
+                <Image src="/logo.jpg" alt="UIMP Logo" fill sizes="(max-width: 768px) 208px, 256px" className="object-contain drop-shadow-2xl" priority />
+              </div>
             </div>
-            <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold mb-6 leading-tight tracking-tight">
+          </div>
+
+          <div className="flex-1 order-2 md:order-1">
+            <div className="inline-flex items-center gap-2 border text-xs font-bold px-4 py-1.5 rounded-full tracking-widest uppercase mb-14" style={{ background: 'rgba(212,168,67,0.12)', borderColor: 'rgba(212,168,67,0.25)', color: '#D4A843' }}>
+              {"UIMP"}
+            </div>
+            <h1 className="text-3xl md:text-4xl lg:text-5xl font-bold mb-4 leading-tight tracking-tight">
               {content.title1}{" "}
               <span style={{ color: '#D4A843' }}>{content.title2}</span>
             </h1>
-            <div className="flex items-center gap-3 mb-5">
-              <div className="w-10 h-px" style={{ background: 'rgba(212,168,67,0.4)' }} />
-              <div className="w-1.5 h-1.5 rounded-full" style={{ background: '#D4A843' }} />
-              <div className="w-10 h-px" style={{ background: 'rgba(212,168,67,0.4)' }} />
-            </div>
-            <div className="flex flex-col gap-2.5 mb-10">
-              {content.links.map((item, i) => (
-                <div key={i} className="flex items-center gap-3" style={{ color: 'rgba(255,255,255,0.65)' }}>
-                  <span style={{ color: '#D4A843', fontSize: '14px' }}>{"●"}</span>
-                  <span className="text-base">{item}</span>
-                </div>
-              ))}
-            </div>
+            <p className="text-base mb-7" style={{ color: 'rgba(255,255,255,0.7)', maxWidth: '480px', lineHeight: 1.75 }}>
+              {"Простір, де терапія охоплює людину цілісно (дух, душа, тіло)."}<br />
+              {"Ми переконані, що психологія в її первинному вигляді"}
+              <br />{"містить духовність."}
+            </p>
             <Link
               href="/courses"
-              className="inline-flex items-center gap-3 font-bold text-base px-8 py-4 rounded-xl shadow-lg transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl"
+              className="inline-flex items-center gap-3 font-bold text-base px-7 py-3 rounded-xl shadow-lg transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl"
               style={{ background: '#D4A843', color: '#1C3A2E' }}
             >
               {content.btnCourses}
@@ -83,14 +60,6 @@ export default function Hero({ content }: Props) {
             </Link>
           </div>
 
-          <div className="flex-1 flex justify-center">
-            <div className="relative">
-              <div className="absolute -inset-6 rounded-full blur-3xl opacity-20" style={{ background: 'radial-gradient(circle, #D4A843, #1C3A2E)' }} />
-              <div className="relative w-64 h-64 md:w-72 md:h-72">
-                <Image src="/logo.jpg" alt="UIMP Logo" fill sizes="(max-width: 768px) 256px, 288px" className="object-contain drop-shadow-2xl" priority />
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     </section>

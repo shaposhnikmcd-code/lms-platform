@@ -22,6 +22,17 @@ const getRole = (email: string) => {
   return "STUDENT";
 };
 
+const ROLE_HIERARCHY: Record<string, string[]> = {
+  ADMIN: ["ADMIN", "MANAGER", "TEACHER", "STUDENT"],
+  MANAGER: ["MANAGER", "STUDENT"],
+  TEACHER: ["TEACHER", "STUDENT"],
+  STUDENT: ["STUDENT"],
+};
+
+export const getAllowedRoles = (role: string): string[] => {
+  return ROLE_HIERARCHY[role] ?? ["STUDENT"];
+};
+
 export const authOptions: NextAuthOptions = {
   providers: [
     GoogleProvider({
@@ -104,13 +115,20 @@ export const authOptions: NextAuthOptions = {
     maxAge: 30 * 24 * 60 * 60,
   },
   callbacks: {
-    async jwt({ token, user, account }) {
+    async jwt({ token, user, trigger, session }) {
       if (user) {
         token.id = user.id;
         token.email = user.email;
         token.name = user.name;
         token.picture = user.image;
         token.role = user.role || (user.email ? getRole(user.email) : "STUDENT");
+        token.activeRole = token.role;
+      }
+      if (trigger === "update" && session?.activeRole) {
+        const allowedRoles = getAllowedRoles(token.role as string);
+        if (allowedRoles.includes(session.activeRole)) {
+          token.activeRole = session.activeRole;
+        }
       }
       return token;
     },
@@ -121,10 +139,11 @@ export const authOptions: NextAuthOptions = {
         session.user.name = token.name as string;
         session.user.image = token.picture as string | null;
         session.user.role = token.role as string;
+        session.user.activeRole = (token.activeRole as string) ?? (token.role as string);
       }
       return session;
     },
-    async signIn({ user, account, profile }) {
+    async signIn({ user, account }) {
       if (account?.provider !== "credentials") {
         try {
           const existingUser = await prisma.user.findUnique({ where: { email: user.email! } });

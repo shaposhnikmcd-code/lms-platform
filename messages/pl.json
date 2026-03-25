@@ -2,12 +2,14 @@
   "Navigation": {
     "home": "Strona główna",
     "courses": "Projekty edukacyjne",
-    "learning": "Program roczny",
+    "yearly-program": "Program roczny",
     "consultations": "Baza specjalistów",
     "games": "Gry terapeutyczne",
     "news": "Aktualności",
     "contacts": "O nas",
     "links": "Projekty charytatywne",
+    "partners": "Partnerzy",
+    "additionalMaterials": "Матеріали",
     "dashboard": "Panel"
   },
   "Auth": {
@@ -43,12 +45,14 @@
     "terms": "Warunki użytkowania",
     "contacts": "Kontakt",
     "social": "Znajdź nas w mediach społecznościowych",
-    "copyright": "© 2025 Ukrainian Institute of Psychotherapy. Wszelkie prawa zastrzeżone.",
+    "copyright": "© 2025 Ukrainian Institute of Ministry and Psychotherapy. Wszelkie prawa zastrzeżone.",
     "privacyShort": "Prywatność",
     "termsShort": "Warunki",
-    "institute": "Ukraiński Instytut Opieki nad Duszą i Psychoterapii",
+    "institute": "Ukraiński Instytut Służby i Psychoterapii",
     "email": "Poczta",
-    "techSupport": "Wsparcie techniczne"
+    "techSupport": "Wsparcie techniczne",
+    "accessibility": "Dostępność",
+    "allRightsReserved": "Wszelkie prawa zastrzeżone."
   },
   "CoursesPage": {
     "title": "Kursy edukacyjne",
@@ -61,64 +65,25 @@
     "charityTitle": "Kursy charytatywne",
     "charitySubtitle": "Kursy, które oferujemy bezpłatnie dla wszystkich chętnych",
     "benefits": {
-      "record": {
-        "title": "Nauka z nagrań",
-        "desc": "Oglądaj kiedy chcesz"
-      },
-      "support": {
-        "title": "Wsparcie kuratorów",
-        "desc": "Nie jesteś sam w procesie"
-      },
-      "cert": {
-        "title": "Certyfikat UIMP",
-        "desc": "Oficjalne potwierdzenie"
-      }
+      "record":  { "title": "Nauka z nagrań",      "desc": "Oglądaj kiedy chcesz" },
+      "support": { "title": "Wsparcie kuratorów",  "desc": "Nie jesteś sam w procesie" },
+      "cert":    { "title": "Certyfikat UIMP",     "desc": "Oficjalne potwierdzenie" }
     },
     "tags": {
-      "biblicalTherapy": "Terapia biblijna",
+      "biblicalTherapy":  "Terapia biblijna",
       "forPsychologists": "Dla psychologów",
-      "forBeginners": "Dla początkujących",
-      "newPerspective": "Nowa perspektywa",
-      "forParents": "Dla rodziców"
+      "forBeginners":     "Dla początkujących",
+      "newPerspective":   "Nowa perspektywa",
+      "forParents":       "Dla rodziców"
     },
     "courses": {
-      "psychology": {
-        "title": "Podstawy psychologii",
-        "description": "Wprowadzenie do psychologii biblijnej: podstawowe koncepcje, teorie i metody uzdrowienia na trzech poziomach: duch, dusza i ciało.",
-        "duration": "w zapisie"
-      },
-      "psychiatry": {
-        "title": "Podstawy psychiatrii",
-        "description": "Wprowadzenie do psychiatrii dla psychologów i duszpasterzy",
-        "duration": "w zapisie"
-      },
-      "mentorship": {
-        "title": "Podstawy duszpasterstwa",
-        "description": "Nauka podstaw duszpasterstwa i poradnictwa pastoralnego dla wszystkich, którzy chcą pomagać innym.",
-        "duration": "w zapisie"
-      },
-      "biblicalHeroes": {
-        "title": "Psychoterapia bohaterów biblijnych",
-        "description": "Analiza postaci biblijnych z perspektywy psychoterapii. Bohaterowie Biblii — nie idealni, lecz prawdziwi.",
-        "duration": "w zapisie"
-      },
-      "sexEd": {
-        "title": "Wychowanie seksualne",
-        "description": "Kurs wychowania seksualnego dla rodziców i pedagogów. Odpowiedzi na pytania: jak rozmawiać z dziećmi i co mówi Biblia.",
-        "duration": "w zapisie"
-      },
-      "support": {
-        "title": "Przestrzeń troski",
-        "description": "Bezpłatne wsparcie psychologiczne i możliwość poznania psychologów/duszpasterzy centrum konsultacyjnego UIMP.",
-        "price": "Bezpłatnie",
-        "duration": "w zapisie"
-      },
-      "porn": {
-        "title": "Żyć czysto",
-        "description": "Specjalistyczny kurs przezwyciężania uzależnienia od pornografii",
-        "price": "Bezpłatnie",
-        "duration": "w zapisie"
-      }
+      "psychology":     { "title": "Podstawy psychologii",                  "description": "Wprowadzenie do psychologii biblijnej: podstawowe koncepcje, teorie i metody uzdrowienia na trzech poziomach: duch, dusza i ciało.", "duration": "w zapisie" },
+      "psychiatry":     { "title": "Podstawy psychiatrii",                  "description": "Wprowadzenie do psychiatrii dla psychologów i duszpasterzy", "duration": "w zapisie" },
+      "mentorship":     { "title": "Podstawy duszpasterstwa",               "description": "Nauka podstaw duszpasterstwa i poradnictwa pastoralnego dla wszystkich, którzy chcą pomagać innym.", "duration": "w zapisie" },
+      "biblicalHeroes": { "title": "Psychoterapia bohaterów biblijnych",    "description": "Analiza postaci biblijnych z perspektywy psychoterapii. Bohaterowie Biblii — nie idealni, lecz prawdziwi.", "duration": "w zapisie" },
+      "sexEd":          { "title": "Wychowanie seksualne",                  "description": "Kurs wychowania seksualnego dla rodziców i pedagogów. Odpowiedzi na pytania: jak rozmawiać z dziećmi i co mówi Biblia.", "duration": "w zapisie" },
+      "support":        { "title": "Przestrzeń troski",                     "description": "Bezpłatne wsparcie psychologiczne i możliwość poznania psychologów/duszpasterzy centrum konsultacyjnego UIMP.", "price": "Bezpłatnie", "duration": "w zapisie" },
+      "porn":           { "title": "Żyć czysto",                            "description": "Specjalistyczny kurs przezwyciężania uzależnienia od pornografii", "price": "Bezpłatnie", "duration": "w zapisie" }
     }
   },
   "HomePage": {
@@ -130,7 +95,7 @@
   "MissionSection": {
     "eyebrow": "Nasza misja",
     "title": "Misja.",
-    "subtitle": "Trzy wektory, które określają kierunek Ukraińskiego Instytutu Psychoterapii i Psychologii",
+    "subtitle": "Trzy wektory, które określają kierunek Ukraińskiego Instytutu Służby i Psychoterapii",
     "m1title": "Doprowadzenie osoby do uzdrowienia poprzez odkrycie jej prawdziwej tożsamości w Bogu.",
     "m1i1": "przechodzą uzdrowienie na trzech poziomach: ciała, duszy i ducha",
     "m1i2": "pokazanie niekompletności uzdrawiania duszy bez uzdrawiania ducha i znaczenia ciała",

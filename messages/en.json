@@ -2,12 +2,14 @@
   "Navigation": {
     "home": "Home",
     "courses": "Educational Projects",
-    "learning": "Annual Program",
+    "yearly-program": "Annual Program",
     "consultations": "Specialists Directory",
     "games": "Therapeutic Games",
     "news": "News",
     "contacts": "About Us",
     "links": "Charity Projects",
+    "partners": "Partners",
+    "additionalMaterials": "Матеріали",
     "dashboard": "Dashboard"
   },
   "Auth": {
@@ -37,18 +39,20 @@
     "loginFail": "Error during sign in"
   },
   "Footer": {
-    "description": "Ukrainian Institute of Psychotherapy and Pastoral Care",
+    "description": "Ukrainian Institute of Ministry and Psychotherapy",
+    "institute": "Ukrainian Institute of Ministry and Psychotherapy",
     "info": "Information",
     "privacy": "Privacy Policy",
     "terms": "Terms of Use",
     "contacts": "Contacts",
     "social": "Follow us on social media",
-    "copyright": "© 2025 Ukrainian Institute of Psychotherapy. All rights reserved.",
+    "copyright": "© 2025 Ukrainian Institute of Ministry and Psychotherapy. All rights reserved.",
     "privacyShort": "Privacy",
     "termsShort": "Terms",
-    "institute": "Ukrainian Institute of Soul Care and Psychotherapy",
     "email": "Post Office",
-    "techSupport": "Technical support"
+    "techSupport": "Technical support",
+    "accessibility": "Accessibility",
+    "allRightsReserved": "All rights reserved."
   },
   "CoursesPage": {
     "title": "Educational Courses",
@@ -61,64 +65,25 @@
     "charityTitle": "Charity Projects",
     "charitySubtitle": "Courses we provide free of charge for everyone",
     "benefits": {
-      "record": {
-        "title": "Recorded Lessons",
-        "desc": "Watch at your convenience"
-      },
-      "support": {
-        "title": "Curator Support",
-        "desc": "You are not alone in the process"
-      },
-      "cert": {
-        "title": "UIMP Certificate",
-        "desc": "Official confirmation"
-      }
+      "record":  { "title": "Recorded Lessons",   "desc": "Watch at your convenience" },
+      "support": { "title": "Curator Support",     "desc": "You are not alone in the process" },
+      "cert":    { "title": "UIMP Certificate",    "desc": "Official confirmation" }
     },
     "tags": {
-      "biblicalTherapy": "Biblical therapy",
+      "biblicalTherapy":  "Biblical therapy",
       "forPsychologists": "For psychologists",
-      "forBeginners": "For beginners",
-      "newPerspective": "A new look",
-      "forParents": "For parents"
+      "forBeginners":     "For beginners",
+      "newPerspective":   "A new look",
+      "forParents":       "For parents"
     },
     "courses": {
-      "psychology": {
-        "title": "Foundations of Psychology",
-        "description": "An introduction to biblical therapy: healing on three levels — spirit, soul, and body. Tools for helping yourself and others in crisis situations.",
-        "duration": "recorded"
-      },
-      "psychiatry": {
-        "title": "Foundations of Psychiatry",
-        "description": "Introduction to psychiatry for psychologists and pastoral counselors",
-        "duration": "recorded"
-      },
-      "mentorship": {
-        "title": "Foundations of Pastoral Care",
-        "description": "Learning the basics of pastoral care and counseling for those who want to help others in need.",
-        "duration": "recorded"
-      },
-      "biblicalHeroes": {
-        "title": "Psychotherapy of Biblical Heroes",
-        "description": "A fresh look at familiar biblical stories. The heroes of the Bible — not perfect, but real.",
-        "duration": "recorded"
-      },
-      "sexEd": {
-        "title": "Sex Education",
-        "description": "A course on the fundamentals of sex education for parents and educators. How to talk to children and what the Bible says.",
-        "duration": "recorded"
-      },
-      "support": {
-        "title": "Care Space",
-        "description": "Free psychological support and an opportunity to meet psychologists and pastoral counselors of the UIMP consultation center.",
-        "price": "Free",
-        "duration": "recorded"
-      },
-      "porn": {
-        "title": "Living Pure",
-        "description": "A specialized course on overcoming pornography addiction",
-        "price": "Free",
-        "duration": "recorded"
-      }
+      "psychology":     { "title": "Foundations of Psychology",             "description": "An introduction to biblical therapy: healing on three levels — spirit, soul, and body. Tools for helping yourself and others in crisis situations.", "duration": "recorded" },
+      "psychiatry":     { "title": "Foundations of Psychiatry",             "description": "Introduction to psychiatry for psychologists and pastoral counselors", "duration": "recorded" },
+      "mentorship":     { "title": "Foundations of Pastoral Care",          "description": "Learn the basics of pastoral care and counseling for those who want to help others in need.", "duration": "recorded" },
+      "biblicalHeroes": { "title": "Psychotherapy of Biblical Heroes",       "description": "A fresh look at familiar biblical stories. The heroes of the Bible — not perfect, but real.", "duration": "recorded" },
+      "sexEd":          { "title": "Sex Education",                          "description": "A course on the fundamentals of sex education for parents and educators. How to talk to children and what the Bible says.", "duration": "recorded" },
+      "support":        { "title": "Care Space",                             "description": "Free psychological support and an opportunity to meet psychologists and pastoral counselors of the UIMP consultation center.", "price": "Free", "duration": "recorded" },
+      "porn":           { "title": "Living Pure",                            "description": "A specialized course on overcoming pornography addiction", "price": "Free", "duration": "recorded" }
     }
   },
   "HomePage": {
@@ -130,7 +95,7 @@
   "MissionSection": {
     "eyebrow": "Our mission",
     "title": "Mission.",
-    "subtitle": "Three vectors that determine the direction of the Ukrainian Institute of Psychotherapy and Psychology",
+    "subtitle": "Three vectors that determine the direction of the Ukrainian Institute of Ministry and Psychotherapy",
     "m1title": "To bring a person to healing through the revelation of his or her true identity in God",
     "m1i1": "to undergo healing on three levels: body, soul and spirit",
     "m1i2": "to show the incompleteness of healing the soul without healing the spirit and the importance of the body",

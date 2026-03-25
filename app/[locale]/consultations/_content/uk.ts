@@ -9,7 +9,6 @@ export const consultationsContent = {
   btnBook: "Записатися на консультацію",
   worksWithTitle: "Працює з:",
   aboutTitle: "Про фахівця",
-  videosTitle: "Відео",
   diplomasLabel: "Освіта та кваліфікація",
   soon: "Незабаром",
   soonSubtitle: "Новий консультант приєднається до команди",
@@ -21,18 +20,12 @@ export const consultationsContent = {
       image: "/Tetiana-Shaposhnyk/Tetiana-Shaposhnyk.webp",
       price: "2500 грн",
       duration: "50 хвилин",
-      quote: "Кожна людина має потенціал до зростання та зцілення — моя місія допомогти розкрити його",
-      about: "Тетяна Шапошник — психолог, психотерапевт та президент Українського інституту психотерапії. Понад 15 років вона допомагає людям знаходити внутрішній ресурс та долати життєві труднощі.",
+      about: "Тетяна Шапошник — психолог, психотерапевт та президентка Українського інституту Душеопіки та Психотерапії (UIMP). Понад 15 років вона допомагає людям знаходити внутрішній ресурс та долати життєві труднощі.",
       specializations: [
         { text: "Депресія та тривожні розлади", icon: "🧠" },
         { text: "Самооцінка та особистісний ріст", icon: "❤️" },
         { text: "Сімейні стосунки", icon: "👥" },
         { text: "Духовна криза", icon: "🙏" },
-      ],
-      videos: [
-        { videoId: "0sv8-OpW5R8", title: "Психологія та віра" },
-        { videoId: "Tp__54yrjOA", title: "Як подолати тривогу" },
-        { videoId: "1DIPXtlZ508", title: "Основи душеопікунства" },
       ],
       diplomas: [
         {
@@ -43,6 +36,15 @@ export const consultationsContent = {
           year: "2004",
           file: "/Tetiana-Shaposhnyk/Diploma_Card_University.pdf",
           tag: "Вища освіта",
+        },
+        {
+          type: "diploma",
+          title: "Vision International University",
+          org: "Vision International University",
+          detail: "Міжнародний диплом",
+          year: "2024",
+          file: "/Tetiana-Shaposhnyk/Vision_International_University_Diploma.pdf",
+          tag: "Міжнародний диплом",
         },
         {
           type: "cert",
@@ -69,6 +71,15 @@ export const consultationsContent = {
           detail: "Group CBT · 20 дидактичних годин · Когнітивно-поведінкова психотерапія",
           year: "2024",
           file: "/Tetiana-Shaposhnyk/GROUP CBT.pdf",
+          tag: "Сертифікат",
+        },
+        {
+          type: "cert",
+          title: "Практична сексологія",
+          org: "Сертифікат з практичної сексології",
+          detail: "Підготовка фахівців з питань сексуального здоров'я",
+          year: "2024",
+          file: "/Tetiana-Shaposhnyk/Practical_Sexology_Certificate.pdf",
           tag: "Сертифікат",
         },
         {

@@ -46,7 +46,7 @@ interface OrderFormProps {
   labels?: FormLabels;
 }
 
-const GAME_PRICE = 1;
+const GAME_PRICE = 1099;
 
 const defaultLabels: FormLabels = {
   title: "Форма замовлення",

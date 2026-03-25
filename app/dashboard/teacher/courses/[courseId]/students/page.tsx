@@ -12,7 +12,8 @@ export default async function TeacherCourseStudents({
 }) {
   const { courseId } = await params;
   const session = await getServerSession(authOptions);
-  if (!session?.user || session.user.role !== "TEACHER") redirect("/");
+  const activeRole = session?.user?.activeRole ?? session?.user?.role;
+  if (!session?.user || activeRole !== "TEACHER") redirect("/");
 
   const teacherId = session.user.id;
 
@@ -60,29 +61,29 @@ export default async function TeacherCourseStudents({
         href="/dashboard/teacher"
         className="inline-flex items-center gap-2 text-sm text-gray-500 hover:text-[#1C3A2E] mb-4 transition-colors"
       >
-        <FaArrowLeft /> Назад до кабінету
+        <FaArrowLeft /> {"Назад до кабінету"}
       </Link>
 
       <h1 className="text-2xl font-bold text-[#1C3A2E] mb-1">{course.title}</h1>
       <p className="text-sm text-gray-500 mb-8">
-        Студенти курсу — всього {course.enrollments.length}
+        {"Студенти курсу — всього "}{course.enrollments.length}
       </p>
 
       {course.enrollments.length === 0 ? (
         <div className="bg-white rounded-xl p-12 text-center shadow-sm">
           <FaUsers className="text-5xl text-gray-300 mx-auto mb-4" />
-          <p className="text-gray-500">Студентів ще немає</p>
+          <p className="text-gray-500">{"Студентів ще немає"}</p>
         </div>
       ) : (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-100">
               <tr>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Студент</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Прогрес</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Уроків переглянуто</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Статус</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Написати</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">{"Студент"}</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">{"Прогрес"}</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">{"Уроків переглянуто"}</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">{"Статус"}</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">{"Написати"}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
@@ -129,15 +130,15 @@ export default async function TeacherCourseStudents({
                     <td className="px-4 py-3">
                       {completed ? (
                         <span className="px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs font-medium">
-                          ✅ Завершив
+                          {"✅ Завершив"}
                         </span>
                       ) : percent > 0 ? (
                         <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-medium">
-                          🔄 В процесі
+                          {"🔄 В процесі"}
                         </span>
                       ) : (
                         <span className="px-2 py-1 bg-gray-100 text-gray-500 rounded-full text-xs font-medium">
-                          ⏳ Не почав
+                          {"⏳ Не почав"}
                         </span>
                       )}
                     </td>
@@ -146,7 +147,7 @@ export default async function TeacherCourseStudents({
                         href={`/dashboard/teacher/messages?studentId=${enrollment.user.id}`}
                         className="inline-flex items-center gap-1 px-3 py-1.5 bg-[#D4A843] text-white text-xs rounded-lg hover:bg-[#D4A843]/80 transition-colors"
                       >
-                        ✉️ Написати
+                        {"✉️ Написати"}
                       </Link>
                     </td>
                   </tr>

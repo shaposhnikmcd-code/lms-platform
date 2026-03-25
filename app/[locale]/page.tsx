@@ -2,7 +2,6 @@ import Hero from '@/components/home/Hero';
 import Directions from '@/components/home/Directions';
 import CTA from '@/components/home/CTA';
 import MissionSection from '@/components/home/MissionSection';
-import SocialSection from '@/components/home/SocialSection';
 import { getTranslatedContent } from '@/lib/translate';
 import { homeContent } from './_content/home/uk';
 
@@ -16,9 +15,10 @@ export default async function Home({ params }: { params: Promise<{ locale: strin
     <main>
       <Hero content={c.hero} />
       <Directions content={c.directions} />
+      <div style={{ height: 40, background: 'linear-gradient(180deg, #F7F3EE 0%, #FAF6F0 100%)', position: 'relative', zIndex: 2, pointerEvents: 'none' }} />
       <MissionSection />
+      <div style={{ height: 40, background: 'linear-gradient(180deg, #FAF6F0 0%, #FFFFFF 100%)', position: 'relative', zIndex: 2, pointerEvents: 'none' }} />
       <CTA content={c.cta} />
-      <SocialSection />
     </main>
   );
 }

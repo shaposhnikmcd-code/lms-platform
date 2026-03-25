@@ -2,6 +2,37 @@ import { unstable_cache } from 'next/cache';
 
 const DEEPL_API_URL = 'https://api-free.deepl.com/v2/translate';
 
+const TRANSLATION_FIXES: Record<string, Record<string, string>> = {
+  en: {
+    'Soul Care and Psychotherapy': 'Ministry and Psychotherapy',
+    'soul care and psychotherapy': 'ministry and psychotherapy',
+    'Soul Care': 'Ministry',
+    'soul care': 'ministry',
+    'Soulcare': 'Ministry',
+    'soulcare': 'ministry',
+    'Institute of Soul': 'Institute of Ministry',
+    'institute of soul': 'institute of ministry',
+  },
+  pl: {
+    'Opieki nad Duszą i Psychoterapii': 'Służby i Psychoterapii',
+    'opieki nad duszą i psychoterapii': 'służby i psychoterapii',
+    'Opieka nad Duszą': 'Służba',
+    'opieka nad duszą': 'służba',
+    'Duszpasterstwo': 'Służba',
+    'duszpasterstwo': 'służba',
+  },
+};
+
+function applyFixes(text: string, targetLang: string): string {
+  const fixes = TRANSLATION_FIXES[targetLang];
+  if (!fixes) return text;
+  let result = text;
+  for (const [wrong, correct] of Object.entries(fixes)) {
+    result = result.replaceAll(wrong, correct);
+  }
+  return result;
+}
+
 async function translateBatch(texts: string[], targetLang: string): Promise<string[]> {
   if (!texts.length) return texts;
 
@@ -32,10 +63,11 @@ async function translateBatch(texts: string[], targetLang: string): Promise<stri
 
     return translated.map((result: string, i: number) => {
       const original = texts[i];
-      if (!original.endsWith('.') && result.endsWith('.')) {
-        return result.slice(0, -1);
+      let fixed = result;
+      if (!original.endsWith('.') && fixed.endsWith('.')) {
+        fixed = fixed.slice(0, -1);
       }
-      return result;
+      return applyFixes(fixed, targetLang);
     });
   } catch (e) {
     console.error('DeepL batch error:', e);

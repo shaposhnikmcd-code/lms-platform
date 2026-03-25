@@ -1,5 +1,8 @@
+'use client';
+
 import { Link } from "@/i18n/navigation";
 import Image from "next/image";
+import { useState } from "react";
 
 type Props = {
   href: string;
@@ -13,42 +16,151 @@ type Props = {
   freeLabel: string;
   icon?: string;
   imageSrc?: string;
+  index: number;
 };
 
-export default function CharityCard({ href, isExternal, accent, accentRgb, title, description, price, duration, freeLabel, icon, imageSrc }: Props) {
+export default function CharityCard({ href, isExternal, accent, accentRgb, title, description, duration, freeLabel, icon, imageSrc }: Props) {
+  const [hovered, setHovered] = useState(false);
+
   const inner = (
-    <div className="flex flex-col flex-1" style={{ padding: '28px 24px 24px 28px' }}>
-      <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.25em', textTransform: 'uppercase' as const, color: accent, marginBottom: 18, display: 'inline-block' }}>
-        {freeLabel}
-      </span>
-      <div className="flex items-start gap-3" style={{ marginBottom: 14 }}>
-        {icon && <span style={{ fontSize: 26, flexShrink: 0, lineHeight: 1.2 }}>{icon}</span>}
-        {imageSrc && (
-          <div className="rounded-lg overflow-hidden relative flex-shrink-0" style={{ width: 28, height: 28 }}>
-            <Image src={imageSrc} alt={title} fill className="object-cover" />
-          </div>
-        )}
-        <h2 style={{ fontSize: 16, fontWeight: 700, color: '#1C3A2E', lineHeight: 1.4, margin: 0 }}>{title}</h2>
+    <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        position: 'relative',
+        borderRadius: 18,
+        overflow: 'hidden',
+        background: hovered ? '#244838' : '#1e3d2e',
+        border: hovered ? `1px solid rgba(${accentRgb},0.4)` : '1px solid rgba(255,255,255,0.06)',
+        transform: hovered ? 'translateY(-4px)' : 'translateY(0)',
+        boxShadow: hovered ? '0 24px 48px rgba(0,0,0,0.2)' : '0 4px 16px rgba(0,0,0,0.1)',
+        transition: 'all 0.35s cubic-bezier(0.16,1,0.3,1)',
+        cursor: 'pointer',
+        display: 'flex',
+        flexDirection: 'column' as const,
+      }}
+    >
+      {/* Watermark */}
+      <div style={{
+        position: 'absolute',
+        top: -8,
+        right: -12,
+        fontFamily: 'Georgia, serif',
+        fontSize: 80,
+        fontWeight: 400,
+        color: `rgba(${accentRgb},0.07)`,
+        lineHeight: 1,
+        letterSpacing: '-0.04em',
+        userSelect: 'none' as const,
+        pointerEvents: 'none',
+      }}>
+        {"FREE"}
       </div>
-      <p style={{ fontSize: 13, color: 'rgba(28,58,46,0.5)', lineHeight: 1.75, flex: 1, margin: '0 0 24px', paddingLeft: 38 }}>{description}</p>
-      <div className="flex items-center justify-between" style={{ paddingTop: 18, borderTop: '1px solid rgba(28,58,46,0.08)' }}>
-        <p style={{ fontSize: 18, fontWeight: 800, color: accent, margin: 0 }}>{price}</p>
-        <div className="flex items-center gap-1.5" style={{ fontSize: 11, fontWeight: 600, padding: '9px 16px', borderRadius: 10, background: `rgba(${accentRgb},0.09)`, color: accent }}>
+
+      {/* Top glow line on hover */}
+      {hovered && (
+        <div style={{
+          position: 'absolute',
+          top: 0, left: 0, right: 0,
+          height: 1,
+          background: `linear-gradient(90deg, transparent, rgba(${accentRgb},0.7), transparent)`,
+          pointerEvents: 'none',
+        }} />
+      )}
+
+      {/* Content */}
+      <div style={{ padding: '28px 28px 20px', flex: 1 }}>
+        {/* Badge */}
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: `rgba(${accentRgb},0.15)`, border: `1px solid rgba(${accentRgb},0.3)`, borderRadius: 100, padding: '4px 12px', marginBottom: 24 }}>
+          <div style={{ width: 5, height: 5, borderRadius: '50%', background: accent }} />
+          <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.28em', textTransform: 'uppercase' as const, color: accent, fontFamily: '-apple-system, sans-serif' }}>
+            {freeLabel}
+          </span>
+        </div>
+
+        {/* Icon / Image */}
+        <div style={{ marginBottom: 18 }}>
+          {icon && (
+            <div style={{
+              width: 48, height: 48, borderRadius: 13,
+              background: `rgba(${accentRgb},0.12)`,
+              border: `1px solid rgba(${accentRgb},0.18)`,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 22,
+              transform: hovered ? 'scale(1.08) rotate(-4deg)' : 'scale(1)',
+              transition: 'transform 0.4s cubic-bezier(0.16,1,0.3,1)',
+            }}>
+              {icon}
+            </div>
+          )}
+          {imageSrc && !icon && (
+            <div style={{ width: 48, height: 48, borderRadius: 13, overflow: 'hidden', position: 'relative', border: `1px solid rgba(${accentRgb},0.18)` }}>
+              <Image src={imageSrc} alt={title} fill style={{ objectFit: 'cover' }} />
+            </div>
+          )}
+        </div>
+
+        {/* Title */}
+        <h2 style={{
+          fontFamily: 'Georgia, serif',
+          fontSize: 18,
+          fontWeight: 400,
+          color: '#F5EDD6',
+          lineHeight: 1.3,
+          margin: '0 0 10px',
+          letterSpacing: '-0.01em',
+        }}>
+          {title}
+        </h2>
+
+        {/* Description */}
+        <p style={{
+          fontSize: 13,
+          color: 'rgba(245,237,214,0.5)',
+          lineHeight: 1.75,
+          margin: 0,
+          fontFamily: '-apple-system, sans-serif',
+        }}>
+          {description}
+        </p>
+      </div>
+
+      {/* Bottom bar */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: '14px 28px',
+        borderTop: '1px solid rgba(255,255,255,0.06)',
+        background: 'rgba(0,0,0,0.12)',
+      }}>
+        <span style={{ fontSize: 12, color: `rgba(${accentRgb},0.55)`, fontFamily: '-apple-system, sans-serif' }}>
           {duration}
-          <svg viewBox="0 0 16 16" fill="none" width="12" height="12">
-            <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+        </span>
+        <div style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 7,
+          background: hovered ? accent : 'rgba(255,255,255,0.08)',
+          color: hovered ? '#1C3A2E' : 'rgba(245,237,214,0.7)',
+          padding: '8px 16px',
+          borderRadius: 8,
+          fontSize: 11,
+          fontWeight: 700,
+          letterSpacing: '0.04em',
+          fontFamily: '-apple-system, sans-serif',
+          transition: 'all 0.3s ease',
+          whiteSpace: 'nowrap' as const,
+        }}>
+          {"Перейти до курсу"}
+          <svg viewBox="0 0 16 16" fill="none" width="10" height="10">
+            <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
         </div>
       </div>
     </div>
   );
 
-  const cardStyle = { background: 'white', border: `1px solid rgba(28,58,46,0.1)`, textDecoration: 'none', position: 'relative' as const, borderRadius: 16, overflow: 'hidden' as const, display: 'flex' as const, flexDirection: 'column' as const };
-  const bar = <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: accent, borderRadius: '12px 0 0 12px' }} />;
-  const cls = "group flex flex-col rounded-2xl overflow-hidden transition-all duration-300 hover:-translate-y-2 hover:shadow-xl";
-
-  if (isExternal) {
-    return <a href={href} target="_blank" rel="noopener noreferrer" className={cls} style={cardStyle}>{bar}{inner}</a>;
-  }
-  return <Link href={href} className={cls} style={cardStyle}>{bar}{inner}</Link>;
+  if (isExternal) return <a href={href} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none', display: 'block' }}>{inner}</a>;
+  return <Link href={href} style={{ textDecoration: 'none', display: 'block' }}>{inner}</Link>;
 }

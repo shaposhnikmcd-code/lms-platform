@@ -12,116 +12,180 @@ interface Props {
   };
 }
 
-const cardStyles = [
-  { bg: 'from-[#1C3A2E] to-[#0f2219]', accent: '#D4A843', textColor: 'text-white', subtextColor: 'text-[#a8c4b0]', borderColor: 'border-[#2d5040]', priceColor: 'text-[#D4A843]', iconBg: 'bg-[#D4A843]/10' },
-  { bg: 'from-[#D4A843] to-[#b88a2a]', accent: '#1C3A2E', textColor: 'text-[#1C3A2E]', subtextColor: 'text-[#3a5a48]', borderColor: 'border-[#c49a38]', priceColor: 'text-[#1C3A2E]', iconBg: 'bg-[#1C3A2E]/10' },
-  { bg: 'from-[#f8fffe] to-[#e8f5e0]', accent: '#1C3A2E', textColor: 'text-[#1C3A2E]', subtextColor: 'text-[#4a6a58]', borderColor: 'border-[#c8e8c0]', priceColor: 'text-[#1C3A2E]', iconBg: 'bg-[#1C3A2E]/8' },
-  { bg: 'from-[#1a1a2e] to-[#16213e]', accent: '#D4A843', textColor: 'text-white', subtextColor: 'text-[#9090b0]', borderColor: 'border-[#2a2a4e]', priceColor: 'text-[#D4A843]', iconBg: 'bg-[#D4A843]/10' },
+const ICONS = [
+  <svg key="edu" viewBox="0 0 40 40" fill="none" width="36" height="36">
+    <path d="M6 8h20v26H6z" fill="currentColor" opacity="0.12"/>
+    <path d="M9 5h20v26H9z" fill="currentColor" opacity="0.22"/>
+    <path d="M13 11h12M13 16h8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+    <path d="M20 23l1.5 4.5 4.5.5-3.3 2.7 1.2 4.8L20 33l-3.9 2.5 1.2-4.8L14 28.5l4.5-.5z" fill="currentColor" opacity="0.7"/>
+  </svg>,
+  <svg key="heart" viewBox="0 0 40 40" fill="none" width="36" height="36">
+    <path d="M20 33S6 24 6 14.5A8 8 0 0 1 20 10a8 8 0 0 1 14 4.5C34 24 20 33 20 33z" fill="currentColor" opacity="0.18"/>
+    <path d="M20 29S8 21 8 13.5A6 6 0 0 1 20 9a6 6 0 0 1 12 4.5C32 21 20 29 20 29z" fill="currentColor"/>
+  </svg>,
+  <svg key="people" viewBox="0 0 40 40" fill="none" width="36" height="36">
+    <circle cx="15" cy="13" r="5" fill="currentColor" opacity="0.22"/>
+    <circle cx="15" cy="13" r="4" fill="currentColor"/>
+    <path d="M5 33c0-6 4.5-10 10-10s10 4 10 10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" fill="none" opacity="0.5"/>
+    <circle cx="29" cy="15" r="3.5" fill="currentColor" opacity="0.35"/>
+    <path d="M26 33c0-4 2.3-7.5 6-8.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" fill="none" opacity="0.3"/>
+  </svg>,
+  <svg key="game" viewBox="0 0 40 40" fill="none" width="36" height="36">
+    <rect x="5" y="15" width="11" height="11" rx="2.5" fill="currentColor" opacity="0.18"/>
+    <rect x="24" y="6" width="11" height="11" rx="2.5" fill="currentColor" opacity="0.18"/>
+    <rect x="24" y="23" width="11" height="11" rx="2.5" fill="currentColor" opacity="0.18"/>
+    <rect x="5" y="6" width="11" height="11" rx="2.5" fill="currentColor"/>
+  </svg>,
 ];
 
-const icons = [
-  <svg key="edu" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-9 h-9">
-    <rect x="6" y="8" width="28" height="36" rx="3" fill="currentColor" opacity="0.15"/>
-    <rect x="10" y="4" width="28" height="36" rx="3" fill="currentColor" opacity="0.3"/>
-    <rect x="14" y="8" width="20" height="2" rx="1" fill="currentColor"/>
-    <rect x="14" y="13" width="14" height="2" rx="1" fill="currentColor"/>
-    <polygon points="24,20 25.8,25.5 31.6,25.5 26.9,28.8 28.7,34.3 24,31 19.3,34.3 21.1,28.8 16.4,25.5 22.2,25.5" fill="currentColor"/>
-  </svg>,
-  <svg key="charity" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-9 h-9">
-    <path d="M24 38 C24 38 8 28 8 18 C8 13 12 9 17 9 C20 9 22.5 10.5 24 13 C25.5 10.5 28 9 31 9 C36 9 40 13 40 18 C40 28 24 38 24 38Z" fill="currentColor" opacity="0.3"/>
-    <path d="M24 34 C24 34 10 25 10 17 C10 13 13.5 10 18 10 C20.5 10 22.5 11.5 24 14 C25.5 11.5 27.5 10 30 10 C34.5 10 38 13 38 17 C38 25 24 34 24 34Z" fill="currentColor"/>
-  </svg>,
-  <svg key="spec" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-9 h-9">
-    <circle cx="18" cy="14" r="7" fill="currentColor" opacity="0.3"/>
-    <circle cx="18" cy="14" r="5" fill="currentColor"/>
-    <path d="M6 38 C6 30 11 25 18 25 C22 25 25.5 26.8 28 29.5" stroke="currentColor" strokeWidth="3" strokeLinecap="round" fill="none" opacity="0.6"/>
-    <circle cx="36" cy="34" r="8" fill="currentColor" opacity="0.2"/>
-    <path d="M31 34 L34.5 37.5 L41 31" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
-  </svg>,
-  <svg key="games" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-9 h-9">
-    <rect x="8" y="18" width="12" height="12" rx="2" fill="currentColor" opacity="0.3"/>
-    <rect x="28" y="8" width="12" height="12" rx="2" fill="currentColor" opacity="0.3"/>
-    <rect x="28" y="28" width="12" height="12" rx="2" fill="currentColor" opacity="0.3"/>
-    <rect x="8" y="8" width="12" height="12" rx="2" fill="currentColor"/>
-  </svg>,
+const DESCRIPTIONS = [
+  "Навчальні програми з психотерапії та душеопікунства для фахівців і всіх охочих",
+  "Безкоштовні курси та ресурси для тих, хто потребує підтримки",
+  "Індивідуальні консультації з досвідченими психологами та психотерапевтами",
+  "Психологічна гра для пар, створена командою UIMP",
 ];
 
 export default function Directions({ content }: Props) {
   const [visible, setVisible] = useState(false);
+  const [hovered, setHovered] = useState<number | null>(null);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const observer = new IntersectionObserver(
       ([entry]) => { if (entry.isIntersecting) setVisible(true); },
-      { threshold: 0.1 }
+      { threshold: 0.06 }
     );
     if (ref.current) observer.observe(ref.current);
     return () => observer.disconnect();
   }, []);
 
+  const items = content.items;
+
   return (
-    <section
-      ref={ref}
-      className="py-16 relative overflow-hidden"
-      style={{ background: '#f4f9f4', boxShadow: '0 6px 24px rgba(0,0,0,0.07)', position: 'relative', zIndex: 1 }}
-    >
-      {/* Top divider */}
-      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '1px', background: 'linear-gradient(90deg, transparent 0%, #D4A843 20%, #D4A843 80%, transparent 100%)', opacity: 0.45, zIndex: 3 }} />
-      {/* Bottom divider */}
-      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '1px', background: 'linear-gradient(90deg, transparent 0%, #D4A843 20%, #D4A843 80%, transparent 100%)', opacity: 0.45, zIndex: 3 }} />
+    <section ref={ref} style={{ background: '#F7F3EE', padding: '64px 0 72px', position: 'relative', zIndex: 1, overflow: 'hidden' }}>
+      <div style={{ position: 'absolute', inset: 0, backgroundImage: 'radial-gradient(circle, rgba(28,58,46,0.025) 1px, transparent 1px)', backgroundSize: '28px 28px', pointerEvents: 'none' }} />
 
-      <div className="absolute inset-0 pointer-events-none">
-        <div className="absolute top-0 left-1/4 w-96 h-96 bg-[#D4A843]/5 rounded-full blur-3xl" />
-        <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-[#1C3A2E]/5 rounded-full blur-3xl" />
-        <div className="absolute inset-0 opacity-[0.015]" style={{ backgroundImage: 'radial-gradient(circle, #1C3A2E 1px, transparent 1px)', backgroundSize: '32px 32px' }} />
-      </div>
+      <div style={{ maxWidth: 1200, margin: '0 auto', padding: '0 24px' }}>
 
-      <div className="container mx-auto px-20 relative z-10">
-        <div className="text-center mb-12 transition-all duration-700" style={{ opacity: visible ? 1 : 0, transform: visible ? 'translateY(0)' : 'translateY(24px)' }}>
-          <div className="inline-flex items-center gap-2 text-[#1C3A2E] text-xs font-semibold px-4 py-2 rounded-full mb-5 tracking-wide uppercase" style={{ background: 'rgba(28,58,46,0.08)' }}>
-            <span style={{ color: '#D4A843' }}>{"◆"}</span> {"UIMP"}
-          </div>
-          <h2 className="text-3xl md:text-4xl font-bold text-[#1C3A2E] mb-3 tracking-tight">{content.title}</h2>
-          <p className="text-gray-500 max-w-xl mx-auto text-base leading-relaxed">{content.subtitle}</p>
+        {/* Header */}
+        <div style={{ marginBottom: 48, opacity: visible ? 1 : 0, transform: visible ? 'translateY(0)' : 'translateY(24px)', transition: 'opacity 0.7s ease, transform 0.7s ease' }}>
+          <h2 style={{ fontFamily: 'Georgia, "Times New Roman", serif', fontSize: 'clamp(28px, 4vw, 44px)', fontWeight: 400, color: '#1C3A2E', lineHeight: 1.1, margin: '0 0 16px', letterSpacing: '-0.01em' }}>
+            {content.title}
+          </h2>
+          <div style={{ height: 1, background: 'linear-gradient(90deg, #D4A843 0%, rgba(212,168,67,0.15) 60%, transparent 100%)', marginBottom: 14 }} />
+          <p style={{ fontSize: 14, color: 'rgba(28,58,46,0.5)', lineHeight: 1.65, fontFamily: '-apple-system, sans-serif', margin: 0, maxWidth: 480 }}>
+            {content.subtitle}
+          </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
-          {content.items.map((item, i) => {
-            const style = cardStyles[i];
-            return (
+        {/* Layout */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, alignItems: 'stretch' }}>
+
+          {/* Featured card */}
+          <Link
+            href={items[0].link}
+            onMouseEnter={() => setHovered(0)}
+            onMouseLeave={() => setHovered(null)}
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              background: hovered === 0 ? '#234d3c' : '#1C3A2E',
+              borderRadius: 20,
+              padding: '44px 40px',
+              border: '1px solid rgba(212,168,67,0.2)',
+              textDecoration: 'none',
+              position: 'relative',
+              overflow: 'hidden',
+              opacity: visible ? 1 : 0,
+              transform: visible ? hovered === 0 ? 'translateY(-6px) scale(1.012)' : 'translateY(0)' : 'translateY(32px)',
+              transition: visible ? 'transform 0.35s cubic-bezier(0.16,1,0.3,1), box-shadow 0.35s ease, background 0.25s ease' : 'opacity 0.6s ease, transform 0.6s ease',
+              boxShadow: hovered === 0 ? '0 32px 64px rgba(28,58,46,0.5)' : '0 4px 20px rgba(0,0,0,0.1)',
+              cursor: 'pointer',
+            }}
+          >
+            <div style={{ position: 'absolute', bottom: -60, right: -60, width: 260, height: 260, borderRadius: '50%', background: 'radial-gradient(circle, rgba(212,168,67,0.12) 0%, transparent 70%)', transition: 'opacity 0.4s ease', opacity: hovered === 0 ? 1 : 0.5, pointerEvents: 'none' }} />
+
+            <div style={{ width: 60, height: 60, borderRadius: 16, background: 'rgba(212,168,67,0.15)', border: '1px solid rgba(212,168,67,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#D4A843', marginBottom: 32, transition: 'transform 0.35s cubic-bezier(0.16,1,0.3,1)', transform: hovered === 0 ? 'scale(1.12) rotate(-5deg)' : 'scale(1)' }}>
+              {ICONS[0]}
+            </div>
+
+            <h3 style={{ fontFamily: 'Georgia, "Times New Roman", serif', fontSize: 28, fontWeight: 400, color: '#F5EDD6', lineHeight: 1.2, margin: '0 0 16px', letterSpacing: '-0.01em' }}>
+              {items[0].title}
+            </h3>
+
+            <p style={{ fontFamily: '-apple-system, sans-serif', fontSize: 14, color: 'rgba(245,237,214,0.55)', lineHeight: 1.7, margin: '0 0 auto', maxWidth: 280 }}>
+              {DESCRIPTIONS[0]}
+            </p>
+
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 40, paddingTop: 20, borderTop: '1px solid rgba(212,168,67,0.2)' }}>
+              <span style={{ fontFamily: '-apple-system, sans-serif', fontSize: 16, fontWeight: 700, color: '#D4A843', letterSpacing: '0.01em' }}>
+                {items[0].price}
+              </span>
+              <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(212,168,67,0.15)', border: '1px solid rgba(212,168,67,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'transform 0.3s ease', transform: hovered === 0 ? 'translateX(4px)' : 'translateX(0)' }}>
+                <svg viewBox="0 0 16 16" fill="none" width="14" height="14">
+                  <path d="M3 8h10M9 4l4 4-4 4" stroke="#D4A843" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </div>
+            </div>
+          </Link>
+
+          {/* Right column */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {[
+              { meta: { bg: '#D4A843', hoverBg: '#e0b54e', accent: '#1C3A2E', text: '#1C3A2E', price: '#1C3A2E', border: 'rgba(28,58,46,0.15)', shadow: '0 24px 48px rgba(212,168,67,0.4)' }, idx: 1 },
+              { meta: { bg: '#FAF6F0', hoverBg: '#f0ebe2', accent: '#1C3A2E', text: '#1C3A2E', price: '#1C3A2E', border: 'rgba(28,58,46,0.1)', shadow: '0 24px 48px rgba(28,58,46,0.15)' }, idx: 2 },
+              { meta: { bg: '#0d1f16', hoverBg: '#132b1e', accent: '#D4A843', text: '#F5EDD6', price: '#D4A843', border: 'rgba(212,168,67,0.15)', shadow: '0 24px 48px rgba(0,0,0,0.45)' }, idx: 3 },
+            ].map(({ meta, idx }) => (
               <Link
-                key={i}
-                href={item.link}
-                className={`group relative bg-gradient-to-br ${style.bg} rounded-2xl pt-6 px-7 pb-4 min-h-[280px] border ${style.borderColor} overflow-hidden transition-all duration-500 hover:-translate-y-2 hover:shadow-2xl flex flex-col`}
-                style={{ opacity: visible ? 1 : 0, transform: visible ? 'translateY(0)' : 'translateY(32px)', transition: `opacity 0.6s ease ${i * 0.1}s, transform 0.6s ease ${i * 0.1}s, box-shadow 0.3s ease, translate 0.3s ease` }}
+                key={idx}
+                href={items[idx].link}
+                onMouseEnter={() => setHovered(idx)}
+                onMouseLeave={() => setHovered(null)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 20,
+                  background: hovered === idx ? meta.hoverBg : meta.bg,
+                  borderRadius: 18,
+                  padding: '22px 28px',
+                  border: `1px solid ${meta.border}`,
+                  textDecoration: 'none',
+                  position: 'relative',
+                  overflow: 'hidden',
+                  flex: 1,
+                  opacity: visible ? 1 : 0,
+                  transform: visible ? hovered === idx ? 'translateY(-5px) scale(1.012)' : 'translateY(0)' : 'translateY(32px)',
+                  transition: visible ? 'transform 0.35s cubic-bezier(0.16,1,0.3,1), box-shadow 0.35s ease, background 0.25s ease' : `opacity 0.6s ease ${idx * 0.1}s, transform 0.6s ease ${idx * 0.1}s`,
+                  boxShadow: hovered === idx ? meta.shadow : '0 2px 12px rgba(0,0,0,0.06)',
+                  cursor: 'pointer',
+                }}
               >
-                <div className="absolute -top-8 -right-8 w-32 h-32 rounded-full opacity-10 transition-all duration-500 group-hover:opacity-20 group-hover:scale-125" style={{ backgroundColor: style.accent }} />
-                <div className={`${style.iconBg} w-14 h-14 rounded-xl flex items-center justify-center mb-5 transition-transform duration-300 group-hover:scale-110`} style={{ color: style.accent }}>
-                  {icons[i]}
+                <div style={{ position: 'absolute', top: -30, right: -30, width: 120, height: 120, borderRadius: '50%', background: `radial-gradient(circle, ${meta.accent}18 0%, transparent 70%)`, opacity: hovered === idx ? 1 : 0, transition: 'opacity 0.4s ease', pointerEvents: 'none' }} />
+
+                <div style={{ width: 48, height: 48, borderRadius: 13, background: `${meta.accent}18`, border: `1px solid ${meta.accent}25`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: meta.accent, flexShrink: 0, transition: 'transform 0.35s cubic-bezier(0.16,1,0.3,1)', transform: hovered === idx ? 'scale(1.12) rotate(-5deg)' : 'scale(1)' }}>
+                  {ICONS[idx]}
                 </div>
-                <h3 className={`text-xl font-bold ${style.textColor} mb-2 leading-tight`}>{item.title}</h3>
-                <div className="flex-1" />
-                <div className="flex justify-between items-center border-t pt-3 mt-3" style={{ borderColor: style.accent + '30' }}>
-                  <span className={`font-bold text-lg ${style.priceColor}`}>{item.price}</span>
-                  {item.duration && <span className={`text-xs ${style.subtextColor} whitespace-nowrap`}>{item.duration}</span>}
+
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <h3 style={{ fontFamily: 'Georgia, "Times New Roman", serif', fontSize: 18, fontWeight: 400, color: meta.text, lineHeight: 1.25, margin: '0 0 4px', letterSpacing: '-0.01em' }}>
+                    {items[idx].title}
+                  </h3>
+                  {items[idx].price && (
+                    <span style={{ fontFamily: '-apple-system, sans-serif', fontSize: 12, fontWeight: 700, color: meta.price, opacity: 0.75, letterSpacing: '0.02em' }}>
+                      {items[idx].price}
+                    </span>
+                  )}
                 </div>
-                <div className="absolute bottom-4 right-4 w-7 h-7 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300 translate-x-2 group-hover:translate-x-0" style={{ backgroundColor: style.accent }}>
-                  <svg viewBox="0 0 16 16" fill="none" className="w-3.5 h-3.5" style={{ color: i === 1 ? '#fff' : '#1C3A2E' }}>
-                    <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+
+                <div style={{ width: 30, height: 30, borderRadius: '50%', background: `${meta.accent}15`, border: `1px solid ${meta.accent}22`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'transform 0.3s ease', transform: hovered === idx ? 'translateX(4px)' : 'translateX(0)' }}>
+                  <svg viewBox="0 0 16 16" fill="none" width="12" height="12">
+                    <path d="M3 8h10M9 4l4 4-4 4" stroke={meta.accent} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                   </svg>
                 </div>
               </Link>
-            );
-          })}
-        </div>
+            ))}
+          </div>
 
-        <div className="text-center mt-10 transition-all duration-700" style={{ opacity: visible ? 1 : 0, transform: visible ? 'translateY(0)' : 'translateY(16px)', transitionDelay: '0.5s' }}>
-          <Link href="/courses" className="group inline-flex items-center gap-3 bg-[#1C3A2E] text-white px-8 py-3 rounded-xl font-semibold text-base hover:bg-[#D4A843] hover:text-[#1C3A2E] transition-all duration-300 shadow-lg hover:shadow-xl">
-            {content.btnAll}
-            <svg viewBox="0 0 16 16" fill="none" className="w-4 h-4 transition-transform duration-300 group-hover:translate-x-1">
-              <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          </Link>
         </div>
       </div>
     </section>

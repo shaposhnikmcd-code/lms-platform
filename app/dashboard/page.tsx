@@ -9,7 +9,9 @@ export default async function DashboardPage() {
     redirect("/");
   }
 
-  switch (session.user.role) {
+  const activeRole = session.user.activeRole ?? session.user.role;
+
+  switch (activeRole) {
     case "ADMIN":
       redirect("/dashboard/admin");
     case "MANAGER":
