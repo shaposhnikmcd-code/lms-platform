@@ -6,7 +6,7 @@ import { FaTimes, FaCertificate } from 'react-icons/fa';
 
 const certs = [
   {
-    src: '/yearly-program/Vision International University + Certificate in Biblical Counseling and Therapy.pdf',
+    src: '/yearly-program/Vision_International_Certificate.pdf',
     title: 'Vision International University',
     subtitle: 'Certificate in Biblical Counseling and Therapy',
   },

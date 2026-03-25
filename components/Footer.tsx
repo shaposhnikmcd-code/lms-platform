@@ -37,7 +37,7 @@ export default function Footer() {
     <footer className="mt-auto" style={{ background: '#111f18', position: 'relative', zIndex: 0 }}>
 
       {/* Соцмережі */}
-      <div style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', padding: '16px 24px' }}>
+      <div style={{ background: '#1C3A2E', padding: '16px 24px' }}>
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-center gap-6">
           <span className="text-xs tracking-widest uppercase" style={{ color: '#D4A843' }}>{t('social')}</span>
           <div className="flex items-center gap-5">
