@@ -15,7 +15,10 @@ interface DiplomaDoc {
 }
 
 interface Props {
-  docs: DiplomaDoc[];
+  content: {
+    sectionLabel: string;
+    docs: DiplomaDoc[];
+  };
 }
 
 const modalOverlayStyle: React.CSSProperties = {
@@ -41,7 +44,8 @@ const modalCloseBtnStyle: React.CSSProperties = {
   background: 'rgba(255,255,255,0.1)', border: 'none', cursor: 'pointer', color: 'white',
 };
 
-export default function DiplomasList({ docs }: Props) {
+export default function DiplomasSection({ content }: Props) {
+  const { docs } = content;
   const [activeFile, setActiveFile] = useState<string | null>(null);
   const [activeTitle, setActiveTitle] = useState<string>('');
   const [mounted, setMounted] = useState(false);
