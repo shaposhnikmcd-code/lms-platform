@@ -41,10 +41,17 @@ const modalCloseBtnStyle: React.CSSProperties = {
   background: 'rgba(255,255,255,0.1)', border: 'none', cursor: 'pointer', color: 'white',
 };
 
+const gridStyle: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: '1fr 1fr',
+  gap: '0.4rem',
+};
+
 export default function DiplomasList({ docs }: Props) {
   const [activeFile, setActiveFile] = useState<string | null>(null);
   const [activeTitle, setActiveTitle] = useState<string>('');
   const [mounted, setMounted] = useState(false);
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
 
   useEffect(() => { setMounted(true); }, []);
 
@@ -61,32 +68,41 @@ export default function DiplomasList({ docs }: Props) {
 
   return (
     <>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+      <div style={gridStyle}>
         {docs.map((doc, i) => {
           const isDiploma = doc.type === 'diploma';
+          const isHovered = hoveredIndex === i;
+          const accentColor = isDiploma ? '#1C3A2E' : '#D4A843';
 
           const cardStyle: React.CSSProperties = {
             display: 'flex',
             alignItems: 'center',
             gap: '0.5rem',
-            padding: '0.45rem 0.6rem',
+            padding: '0.5rem 0.65rem',
             borderRadius: '8px',
-            background: 'white',
-            border: '1px solid rgba(28,58,46,0.07)',
+            background: isHovered
+              ? (isDiploma ? 'rgba(28,58,46,0.05)' : 'rgba(212,168,67,0.06)')
+              : 'white',
             cursor: 'pointer',
             textAlign: 'left',
             width: '100%',
-            borderLeft: `3px solid ${isDiploma ? '#1C3A2E' : '#D4A843'}`,
+            borderTop: `1px solid ${isHovered ? (isDiploma ? 'rgba(28,58,46,0.15)' : 'rgba(212,168,67,0.3)') : 'rgba(28,58,46,0.07)'}`,
+            borderRight: `1px solid ${isHovered ? (isDiploma ? 'rgba(28,58,46,0.15)' : 'rgba(212,168,67,0.3)') : 'rgba(28,58,46,0.07)'}`,
+            borderBottom: `1px solid ${isHovered ? (isDiploma ? 'rgba(28,58,46,0.15)' : 'rgba(212,168,67,0.3)') : 'rgba(28,58,46,0.07)'}`,
+            borderLeft: `3px solid ${accentColor}`,
+            boxShadow: isHovered ? '0 2px 8px rgba(28,58,46,0.08)' : 'none',
+            transform: isHovered ? 'translateY(-1px)' : 'none',
+            transition: 'all 0.15s ease',
           };
 
           const iconStyle: React.CSSProperties = {
-            color: isDiploma ? '#1C3A2E' : '#D4A843',
+            color: accentColor,
             fontSize: '0.65rem',
             flexShrink: 0,
           };
 
           const titleStyle: React.CSSProperties = {
-            fontSize: '0.72rem',
+            fontSize: '0.7rem',
             fontWeight: 600,
             color: '#1C3A2E',
             fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif',
@@ -97,21 +113,19 @@ export default function DiplomasList({ docs }: Props) {
             whiteSpace: 'nowrap',
           };
 
-          const yearStyle: React.CSSProperties = {
-            fontSize: '0.58rem',
-            color: '#bbb',
-            fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif',
-            flexShrink: 0,
-          };
-
           return (
-            <button key={i} onClick={() => openModal(doc.file, doc.title)} style={cardStyle} className="group hover:bg-[#f9fbf9] hover:shadow-sm transition-all">
+            <button
+              key={i}
+              onClick={() => openModal(doc.file, doc.title)}
+              style={cardStyle}
+              onMouseEnter={() => setHoveredIndex(i)}
+              onMouseLeave={() => setHoveredIndex(null)}
+            >
               {isDiploma
                 ? <FaGraduationCap style={iconStyle} />
                 : <FaCertificate style={iconStyle} />
               }
               <span style={titleStyle}>{doc.title}</span>
-              <span style={yearStyle}>{doc.year}</span>
             </button>
           );
         })}
