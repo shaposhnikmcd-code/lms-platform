@@ -23,9 +23,9 @@ const people = [
     photo: '/yearly-program/Oleksandra-Janush.jpg',
     objectPosition: 'center 20%',
     education: [
-      '2024 — тримодульна програма "Зцілення душі через хрест"',
-      '2025 — річна програма "Біблійна терапія" від UIMP',
-      '2025 — університет "Бачення" (в процесі)',
+      '2024 — 3-х модульна душеопікунська програма "Зцілення душі через хрест"',
+      '2025 — річна програма "Шлях до зцілення" від UIMP',
+      '2025 — в процесі навчання в університеті "Бачення"',
     ],
   },
   {
@@ -34,9 +34,11 @@ const people = [
     photo: '/yearly-program/Anna-Gudzenko.png',
     objectPosition: 'center 65%',
     education: [
-      '2023 — курс "Зцілення душі через хрест"',
-      '2024 — Транзактний аналіз (УАТА)',
-      '2024 — річна програма "Біблійна терапія" в UIMP',
+      '2023–2026 — Черкаський національний університет ім. Богдана Хмельницького, "Практичний психолог" (в процесі)',
+      '2023–2026 — Транзактний аналіз (УАТА, в процесі)',
+      '2025 — річна програма "Шлях до зцілення" UIMP (сертифікат слухача)',
+      '2025–2026 — курс сексології від Юлії Серденюк (в процесі)',
+      '2025–2026 — школа психології PSY BRAIN на базі інституту Г. Сковороди (в процесі)',
     ],
   },
   {
@@ -45,9 +47,11 @@ const people = [
     photo: '/yearly-program/Marta-Kholyava.jpg',
     objectPosition: 'center 15%',
     education: [
-      '2008–2014 — СНУ ім. Лесі Українки, психолог',
-      '2025 — річна програма "Біблійна терапія" в UIMP',
-      '2026 — Транзактний аналіз (УАТА), член УАТА',
+      '2008–2014 — СНУ ім. Лесі Українки, психолог, викладач психології',
+      '2023 — 3-х модульна програма "Зцілення душі через хрест"',
+      '2024 — школа практичного християнства "Маранафа" від European Christian Academy',
+      '2025 — річна програма "Шлях до зцілення" в UIMP (практичний)',
+      '2024–2027 — Транзактний аналіз (УАТА, в процесі), член УАТА/ЄАТА',
     ],
   },
 ];
@@ -93,7 +97,7 @@ function PersonCard({ person, index }: { person: typeof people[0]; index: number
               alt={person.name}
               fill
               style={{ objectFit: 'cover', objectPosition: person.objectPosition }}
-              sizes="480px"
+              sizes="540px"
               quality={100}
               unoptimized
             />
@@ -139,7 +143,7 @@ export default function TeacherSection() {
       <div style={{ position: 'absolute', top: -120, right: -80, width: 500, height: 500, borderRadius: '50%', background: 'radial-gradient(circle, rgba(212,168,67,0.05) 0%, transparent 70%)', pointerEvents: 'none' }} />
       <div style={{ position: 'absolute', bottom: -80, left: -60, width: 400, height: 400, borderRadius: '50%', background: 'radial-gradient(circle, rgba(212,168,67,0.04) 0%, transparent 70%)', pointerEvents: 'none' }} />
 
-      <div style={{ maxWidth: '960px', margin: '0 auto', position: 'relative' }}>
+      <div style={{ maxWidth: '1080px', margin: '0 auto', position: 'relative' }}>
         <div style={{ marginBottom: '48px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '16px' }}>
             <div style={{ height: '1px', width: '32px', background: '#D4A843', opacity: 0.6 }} />
