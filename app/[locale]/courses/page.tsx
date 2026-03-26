@@ -6,10 +6,8 @@ import { BIBLICAL_HEROES_COURSE } from "./psychotherapy-of-biblical-heroes/confi
 import { SEX_EDUCATION_COURSE } from "./sex-education/config";
 import { getCurrency } from "@/lib/currency";
 import CourseCard from "./_components/CourseCard";
-import CharityCard from "./_components/CharityCard";
 
 const sysFont = '-apple-system, BlinkMacSystemFont, sans-serif';
-const zhytyUrl = "https://t.me/zhyty_chysto_2_bot";
 
 const coursesMeta = [
   { key: "psychology",     price: null, href: "/courses/psychology-basics",                icon: "🧠", tagKey: "tags.biblicalTherapy",   accent: '#D4A843', accentRgb: '212,168,67' },
@@ -74,7 +72,7 @@ export default async function CoursesPage({ params }: { params: Promise<{ locale
         </div>
       </section>
 
-      {/* КУРСИ + БЛАГОДІЙНІ */}
+      {/* КУРСИ */}
       <section style={{ padding: '56px 48px 80px' }}>
         <div style={{ maxWidth: 860, margin: '0 auto' }}>
 
@@ -84,7 +82,7 @@ export default async function CoursesPage({ params }: { params: Promise<{ locale
             </h2>
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 12, marginBottom: 56 }}>
+          <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 12 }}>
             {coursesMeta.map((c, i) => {
               const layout = cardLayouts[i];
               return (
@@ -109,57 +107,8 @@ export default async function CoursesPage({ params }: { params: Promise<{ locale
             })}
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 32 }}>
-            <div style={{ flex: 1, height: 1, background: 'rgba(28,58,46,0.1)' }} />
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, background: 'rgba(212,168,67,0.12)', border: '1px solid rgba(212,168,67,0.25)', borderRadius: 100, padding: '5px 14px' }}>
-              <div style={{ width: 5, height: 5, borderRadius: '50%', background: '#D4A843' }} />
-              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.28em', textTransform: 'uppercase' as const, color: '#D4A843', fontFamily: sysFont }}>
-                {"Безкоштовно"}
-              </span>
-            </div>
-            <div style={{ flex: 1, height: 1, background: 'rgba(28,58,46,0.1)' }} />
-          </div>
-
-          <div style={{ marginBottom: 24 }}>
-            <h2 style={{ fontFamily: sysFont, fontSize: 'clamp(20px, 2.5vw, 28px)', fontWeight: 700, color: '#1C3A2E', margin: '0 0 8px', letterSpacing: '-0.02em' }}>
-              {t("charityTitle")}
-            </h2>
-            <p style={{ fontSize: 13, color: 'rgba(28,58,46,0.45)', margin: 0, lineHeight: 1.7, fontFamily: sysFont }}>
-              {t("charitySubtitle")}
-            </p>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-            <CharityCard
-              href="/courses/psychological-support"
-              accent="#D4A843"
-              accentRgb="212,168,67"
-              icon="🤝"
-              title={t("courses.support.title")}
-              description={t("courses.support.description")}
-              price={t("courses.support.price")}
-              duration={t("courses.support.duration")}
-              freeLabel={t("free")}
-              index={0}
-            />
-            <CharityCard
-              href={zhytyUrl}
-              isExternal
-              accent="#D4A843"
-              accentRgb="212,168,67"
-              imageSrc="/courses/zhyty-chysto.jpg"
-              title={t("courses.porn.title")}
-              description={t("courses.porn.description")}
-              price={t("courses.porn.price")}
-              duration={t("courses.porn.duration")}
-              freeLabel={t("free")}
-              index={1}
-            />
-          </div>
-
         </div>
       </section>
-
     </div>
   );
 }

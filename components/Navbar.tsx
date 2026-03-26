@@ -31,7 +31,7 @@ export default function Navbar() {
     { href: "/games", label: t("games") },
     { href: "/news", label: t("news") },
     { href: "/contacts", label: t("contacts") },
-    { href: "/links", label: t("links") },
+    { href: "/charity", label: t("charity") },
     { href: "/partners", label: t("partners") },
     { href: "/additional-materials", label: t("additionalMaterials") },
   ];

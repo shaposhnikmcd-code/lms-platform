@@ -10,6 +10,7 @@ const people = [
     name: 'Тетяна Шапошник',
     role: 'Авторка програми',
     photo: '/yearly-program/Tetiana-Shaposhnyk.webp',
+    objectPosition: 'center top',
     education: [
       '15 років досвіду в психотерапії та душеопікунстві',
       'Авторка методу біблійної терапії',
@@ -19,7 +20,8 @@ const people = [
   {
     name: 'Олександра Януш',
     role: 'Старша кураторка',
-    photo: null,
+    photo: '/yearly-program/Oleksandra-Janush.jpg',
+    objectPosition: 'center 20%',
     education: [
       '2024 — тримодульна програма "Зцілення душі через хрест"',
       '2025 — річна програма "Біблійна терапія" від UIMP',
@@ -29,7 +31,8 @@ const people = [
   {
     name: 'Анна Гудзенко',
     role: 'Кураторка',
-    photo: null,
+    photo: '/yearly-program/Anna-Gudzenko.png',
+    objectPosition: 'center 65%',
     education: [
       '2023 — курс "Зцілення душі через хрест"',
       '2024 — Транзактний аналіз (УАТА)',
@@ -40,6 +43,7 @@ const people = [
     name: 'Марта Холява',
     role: 'Кураторка',
     photo: '/yearly-program/Marta-Kholyava.jpg',
+    objectPosition: 'center 15%',
     education: [
       '2008–2014 — СНУ ім. Лесі Українки, психолог',
       '2025 — річна програма "Біблійна терапія" в UIMP',
@@ -77,14 +81,22 @@ function PersonCard({ person, index }: { person: typeof people[0]; index: number
         cursor: 'pointer',
       }}
     >
-      <div style={{ position: 'relative', height: '320px', background: 'rgba(28,46,35,0.9)', overflow: 'hidden' }}>
+      <div style={{ position: 'relative', height: '400px', background: 'rgba(28,46,35,0.9)', overflow: 'hidden' }}>
         <div style={{
           position: 'absolute', inset: 0,
           transform: hovered ? 'scale(1.05)' : 'scale(1)',
           transition: 'transform 0.6s cubic-bezier(0.16,1,0.3,1)',
         }}>
           {person.photo ? (
-            <Image src={person.photo} alt={person.name} fill style={{ objectFit: 'cover', objectPosition: 'center top' }} sizes="480px" />
+            <Image
+              src={person.photo}
+              alt={person.name}
+              fill
+              style={{ objectFit: 'cover', objectPosition: person.objectPosition }}
+              sizes="480px"
+              quality={100}
+              unoptimized
+            />
           ) : (
             <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <span style={{ fontFamily: sysFont, fontSize: '60px', fontWeight: 700, color: 'rgba(212,168,67,0.25)' }}>
