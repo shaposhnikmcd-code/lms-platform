@@ -43,15 +43,15 @@ export default function Navbar() {
     <nav className="bg-white shadow-md sticky top-0 z-50 backdrop-blur-sm bg-white/90">
       <div className="container mx-auto px-4">
 
-        {/* Desktop */}
-        <div className="hidden 2xl:flex items-center h-16 gap-3">
+        {/* Desktop — від xl (1280px) */}
+        <div className="hidden xl:flex items-center h-16 gap-3">
           <Link href="/" className="flex items-center group flex-shrink-0">
             <div className="relative overflow-hidden rounded-full transition-transform duration-300 group-hover:scale-110">
               <Image src="/logo.jpg" alt="UIMP" width={40} height={40} className="rounded-full" />
             </div>
           </Link>
           <div className="flex-1" />
-          <div className="flex items-center gap-1 flex-shrink-0" style={{ fontSize: 'clamp(11px, 1.1vw, 14px)' }}>
+          <div className="flex items-center gap-1 flex-shrink-0" style={{ fontSize: 'clamp(10px, 1vw, 14px)' }}>
             {navLinks.map((link) => (
               <Link key={link.href} href={link.href} className={linkClass(link.href)}>
                 {link.label}
@@ -64,8 +64,8 @@ export default function Navbar() {
           </div>
         </div>
 
-        {/* Mobile/Tablet header */}
-        <div className="flex 2xl:hidden items-center h-16 gap-3">
+        {/* Mobile/Tablet header — до xl */}
+        <div className="flex xl:hidden items-center h-16 gap-3">
           <Link href="/" className="flex items-center group flex-shrink-0">
             <div className="relative overflow-hidden rounded-full transition-transform duration-300 group-hover:scale-110">
               <Image src="/logo.jpg" alt="UIMP" width={40} height={40} className="rounded-full" />
@@ -85,34 +85,48 @@ export default function Navbar() {
         </div>
       </div>
 
-      {/* Mobile menu */}
+      {/* Overlay */}
       {menuOpen && (
-        <div className="2xl:hidden border-t border-gray-100 bg-white shadow-xl">
-          <div className="px-4 py-3" style={{ maxWidth: '320px' }}>
-            {navLinks.map((link) => (
-              <Link
-                key={link.href}
-                href={link.href}
-                onClick={() => setMenuOpen(false)}
-                style={{
-                  display: 'block',
-                  padding: '10px 14px',
-                  borderRadius: '10px',
-                  fontSize: '14px',
-                  fontWeight: isActive(link.href) ? 600 : 400,
-                  color: isActive(link.href) ? 'white' : '#1C3A2E',
-                  background: isActive(link.href) ? '#1C3A2E' : 'transparent',
-                  textDecoration: 'none',
-                  transition: 'all 0.2s ease',
-                  marginBottom: '2px',
-                }}
-              >
-                {link.label}
-              </Link>
-            ))}
-          </div>
-        </div>
+        <div
+          className="xl:hidden fixed inset-0 bg-black/40 z-40"
+          style={{ top: '64px' }}
+          onClick={() => setMenuOpen(false)}
+        />
       )}
+
+      {/* Right side panel */}
+      <div
+        className="xl:hidden fixed top-16 right-0 h-[calc(100vh-64px)] bg-white shadow-2xl z-50 overflow-y-auto transition-transform duration-300 ease-in-out"
+        style={{
+          width: '280px',
+          transform: menuOpen ? 'translateX(0)' : 'translateX(100%)',
+          borderLeft: '1px solid rgba(28,58,46,0.1)',
+        }}
+      >
+        <div className="px-4 py-4">
+          {navLinks.map((link) => (
+            <Link
+              key={link.href}
+              href={link.href}
+              onClick={() => setMenuOpen(false)}
+              style={{
+                display: 'block',
+                padding: '10px 14px',
+                borderRadius: '10px',
+                fontSize: '14px',
+                fontWeight: isActive(link.href) ? 600 : 400,
+                color: isActive(link.href) ? 'white' : '#1C3A2E',
+                background: isActive(link.href) ? '#1C3A2E' : 'transparent',
+                textDecoration: 'none',
+                transition: 'all 0.2s ease',
+                marginBottom: '2px',
+              }}
+            >
+              {link.label}
+            </Link>
+          ))}
+        </div>
+      </div>
     </nav>
   );
 }

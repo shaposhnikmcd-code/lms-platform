@@ -2,6 +2,12 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ===== ШРИФТИ ПРОЕКТУ =====
+   Єдиний шрифт для всього сайту: ui-sans-serif (системний)
+   Tailwind використовує його за замовчуванням через font-sans
+   НЕ використовувати Georgia, НЕ підключати Google Fonts
+========================== */
+
 @keyframes fadeIn {
   from {
     opacity: 0;

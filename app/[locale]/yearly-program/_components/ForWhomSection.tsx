@@ -1,3 +1,5 @@
+const sysFont = '-apple-system, BlinkMacSystemFont, sans-serif';
+
 type Props = {
   title: string;
   items: string[];
@@ -11,11 +13,11 @@ export default function ForWhomSection({ title, items }: Props) {
         <div style={{ marginBottom: '40px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
             <div style={{ height: '1px', width: '28px', background: '#D4A843' }} />
-            <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.32em', textTransform: 'uppercase' as const, color: '#D4A843', fontFamily: '-apple-system, sans-serif' }}>
+            <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.32em', textTransform: 'uppercase' as const, color: '#D4A843', fontFamily: sysFont }}>
               {"Аудиторія"}
             </span>
           </div>
-          <h2 style={{ fontFamily: 'Georgia, serif', fontSize: 'clamp(28px, 3.5vw, 42px)', fontWeight: 400, color: '#1C3A2E', margin: 0, letterSpacing: '-0.02em', lineHeight: 1.15 }}>
+          <h2 style={{ fontFamily: sysFont, fontSize: 'clamp(28px, 3.5vw, 42px)', fontWeight: 700, color: '#1C3A2E', margin: 0, letterSpacing: '-0.02em', lineHeight: 1.15 }}>
             {title}
           </h2>
         </div>
@@ -41,9 +43,9 @@ export default function ForWhomSection({ title, items }: Props) {
                 right: '16px',
                 top: '50%',
                 transform: 'translateY(-50%)',
-                fontFamily: 'Georgia, serif',
+                fontFamily: sysFont,
                 fontSize: '48px',
-                fontWeight: 400,
+                fontWeight: 700,
                 color: 'rgba(212,168,67,0.1)',
                 lineHeight: 1,
                 letterSpacing: '-0.04em',
@@ -62,7 +64,7 @@ export default function ForWhomSection({ title, items }: Props) {
               }} />
 
               <p style={{
-                fontFamily: 'Georgia, serif',
+                fontFamily: sysFont,
                 fontSize: '17px',
                 color: '#1C3A2E',
                 lineHeight: 1.5,

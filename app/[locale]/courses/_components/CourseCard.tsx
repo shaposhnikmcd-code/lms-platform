@@ -3,6 +3,8 @@
 import { Link } from "@/i18n/navigation";
 import { useState } from "react";
 
+const sysFont = '-apple-system, BlinkMacSystemFont, sans-serif';
+
 type Props = {
   href: string;
   accent: string;
@@ -58,18 +60,18 @@ export default function CourseCard({ href, accentRgb, tag, icon, title, descript
               }}>
                 {icon}
               </div>
-              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.28em', textTransform: 'uppercase' as const, color: tagColor, fontFamily: '-apple-system, sans-serif' }}>
+              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.28em', textTransform: 'uppercase' as const, color: tagColor, fontFamily: sysFont }}>
                 {tag}
               </span>
             </div>
 
-            <h2 style={{ fontFamily: 'Georgia, "Times New Roman", serif', fontSize: 'clamp(19px, 2vw, 24px)', fontWeight: 400, color: '#F5EDD6', lineHeight: 1.25, margin: '0 0 12px', letterSpacing: '-0.01em' }}>
+            <h2 style={{ fontFamily: sysFont, fontSize: 'clamp(19px, 2vw, 24px)', fontWeight: 700, color: '#F5EDD6', lineHeight: 1.25, margin: '0 0 12px', letterSpacing: '-0.01em' }}>
               {title}
             </h2>
 
             <div style={{ width: 32, height: 2, background: tagColor, borderRadius: 2, marginBottom: 12, opacity: 0.5 }} />
 
-            <p style={{ fontSize: 13.5, color: 'rgba(245,237,214,0.6)', lineHeight: 1.8, margin: 0, fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif' }}>
+            <p style={{ fontSize: 13.5, color: 'rgba(245,237,214,0.6)', lineHeight: 1.8, margin: 0, fontFamily: sysFont }}>
               {description}
             </p>
           </div>
@@ -78,7 +80,7 @@ export default function CourseCard({ href, accentRgb, tag, icon, title, descript
             {benefits.map((b, i) => (
               <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '11px 20px', borderRight: i < benefits.length - 1 ? `1px solid ${STRIP_BORDER}` : 'none' }}>
                 <span style={{ fontSize: 12 }}>{b.icon}</span>
-                <span style={{ fontSize: 11, color: 'rgba(245,237,214,0.35)', fontFamily: '-apple-system, sans-serif', fontWeight: 500, whiteSpace: 'nowrap' as const }}>
+                <span style={{ fontSize: 11, color: 'rgba(245,237,214,0.35)', fontFamily: sysFont, fontWeight: 500, whiteSpace: 'nowrap' as const }}>
                   {b.title}
                 </span>
               </div>
@@ -89,17 +91,17 @@ export default function CourseCard({ href, accentRgb, tag, icon, title, descript
         {/* RIGHT — price */}
         <div style={{ background: '#D4A843', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '28px 32px', gap: 16, minWidth: 160, position: 'relative', overflow: 'hidden' }}>
           <div style={{ textAlign: 'center' }}>
-            <p style={{ fontSize: 9, textTransform: 'uppercase' as const, letterSpacing: '0.22em', color: 'rgba(28,58,46,0.5)', margin: '0 0 6px', fontFamily: '-apple-system, sans-serif' }}>
+            <p style={{ fontSize: 9, textTransform: 'uppercase' as const, letterSpacing: '0.22em', color: 'rgba(28,58,46,0.5)', margin: '0 0 6px', fontFamily: sysFont }}>
               {priceLabel}
             </p>
-            <p style={{ fontFamily: 'Georgia, serif', fontSize: 36, fontWeight: 400, color: '#1C3A2E', margin: 0, lineHeight: 1, letterSpacing: '-0.02em' }}>
+            <p style={{ fontFamily: sysFont, fontSize: 36, fontWeight: 700, color: '#1C3A2E', margin: 0, lineHeight: 1, letterSpacing: '-0.02em' }}>
               {price}
             </p>
-            <p style={{ fontSize: 11, color: 'rgba(28,58,46,0.5)', margin: '4px 0 0', fontFamily: '-apple-system, sans-serif' }}>
+            <p style={{ fontSize: 11, color: 'rgba(28,58,46,0.5)', margin: '4px 0 0', fontFamily: sysFont }}>
               {currency}
             </p>
           </div>
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#1C3A2E', color: '#D4A843', padding: '10px 20px', borderRadius: 9, fontSize: 12, fontWeight: 700, letterSpacing: '0.04em', fontFamily: '-apple-system, sans-serif', whiteSpace: 'nowrap' as const, transition: 'transform 0.3s ease', transform: hovered ? 'translateX(3px)' : 'translateX(0)' }}>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#1C3A2E', color: '#D4A843', padding: '10px 20px', borderRadius: 9, fontSize: 12, fontWeight: 700, letterSpacing: '0.04em', fontFamily: sysFont, whiteSpace: 'nowrap' as const, transition: 'transform 0.3s ease', transform: hovered ? 'translateX(3px)' : 'translateX(0)' }}>
             {duration}
             <svg viewBox="0 0 16 16" fill="none" width="11" height="11">
               <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>

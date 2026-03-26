@@ -4,6 +4,8 @@ import { Link } from "@/i18n/navigation";
 import Image from "next/image";
 import { useState } from "react";
 
+const sysFont = '-apple-system, BlinkMacSystemFont, sans-serif';
+
 type Props = {
   href: string;
   isExternal?: boolean;
@@ -40,14 +42,12 @@ export default function CharityCard({ href, isExternal, accent, accentRgb, title
         flexDirection: 'column' as const,
       }}
     >
-      {/* Watermark */}
       <div style={{
         position: 'absolute',
-        top: -8,
-        right: -12,
-        fontFamily: 'Georgia, serif',
+        top: -8, right: -12,
+        fontFamily: sysFont,
         fontSize: 80,
-        fontWeight: 400,
+        fontWeight: 700,
         color: `rgba(${accentRgb},0.07)`,
         lineHeight: 1,
         letterSpacing: '-0.04em',
@@ -57,7 +57,6 @@ export default function CharityCard({ href, isExternal, accent, accentRgb, title
         {"FREE"}
       </div>
 
-      {/* Top glow line on hover */}
       {hovered && (
         <div style={{
           position: 'absolute',
@@ -68,17 +67,14 @@ export default function CharityCard({ href, isExternal, accent, accentRgb, title
         }} />
       )}
 
-      {/* Content */}
       <div style={{ padding: '28px 28px 20px', flex: 1 }}>
-        {/* Badge */}
         <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: `rgba(${accentRgb},0.15)`, border: `1px solid rgba(${accentRgb},0.3)`, borderRadius: 100, padding: '4px 12px', marginBottom: 24 }}>
           <div style={{ width: 5, height: 5, borderRadius: '50%', background: accent }} />
-          <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.28em', textTransform: 'uppercase' as const, color: accent, fontFamily: '-apple-system, sans-serif' }}>
+          <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.28em', textTransform: 'uppercase' as const, color: accent, fontFamily: sysFont }}>
             {freeLabel}
           </span>
         </div>
 
-        {/* Icon / Image */}
         <div style={{ marginBottom: 18 }}>
           {icon && (
             <div style={{
@@ -100,11 +96,10 @@ export default function CharityCard({ href, isExternal, accent, accentRgb, title
           )}
         </div>
 
-        {/* Title */}
         <h2 style={{
-          fontFamily: 'Georgia, serif',
+          fontFamily: sysFont,
           fontSize: 18,
-          fontWeight: 400,
+          fontWeight: 700,
           color: '#F5EDD6',
           lineHeight: 1.3,
           margin: '0 0 10px',
@@ -113,19 +108,17 @@ export default function CharityCard({ href, isExternal, accent, accentRgb, title
           {title}
         </h2>
 
-        {/* Description */}
         <p style={{
           fontSize: 13,
           color: 'rgba(245,237,214,0.5)',
           lineHeight: 1.75,
           margin: 0,
-          fontFamily: '-apple-system, sans-serif',
+          fontFamily: sysFont,
         }}>
           {description}
         </p>
       </div>
 
-      {/* Bottom bar */}
       <div style={{
         display: 'flex',
         alignItems: 'center',
@@ -134,7 +127,7 @@ export default function CharityCard({ href, isExternal, accent, accentRgb, title
         borderTop: '1px solid rgba(255,255,255,0.06)',
         background: 'rgba(0,0,0,0.12)',
       }}>
-        <span style={{ fontSize: 12, color: `rgba(${accentRgb},0.55)`, fontFamily: '-apple-system, sans-serif' }}>
+        <span style={{ fontSize: 12, color: `rgba(${accentRgb},0.55)`, fontFamily: sysFont }}>
           {duration}
         </span>
         <div style={{
@@ -148,7 +141,7 @@ export default function CharityCard({ href, isExternal, accent, accentRgb, title
           fontSize: 11,
           fontWeight: 700,
           letterSpacing: '0.04em',
-          fontFamily: '-apple-system, sans-serif',
+          fontFamily: sysFont,
           transition: 'all 0.3s ease',
           whiteSpace: 'nowrap' as const,
         }}>

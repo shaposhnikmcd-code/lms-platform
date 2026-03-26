@@ -2,18 +2,22 @@
 
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { FaTimes, FaCertificate } from 'react-icons/fa';
+import { FaTimes, FaCertificate, FaExternalLinkAlt } from 'react-icons/fa';
+
+const visionUrl = "https://www.vision.edu/web/";
 
 const certs = [
   {
     src: '/yearly-program/Vision_International_Certificate.pdf',
     title: 'Vision International University',
     subtitle: 'Certificate in Biblical Counseling and Therapy',
+    link: visionUrl,
   },
   {
     src: '/yearly-program/UIMP_Practical_Certificate.pdf',
     title: 'UIMP',
     subtitle: 'Практичний сертифікат',
+    link: null,
   },
 ];
 
@@ -33,12 +37,26 @@ export default function CertificatesSection() {
     document.body.style.overflow = '';
   };
 
+  const linkBtnStyle: React.CSSProperties = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '4px',
+    marginTop: '4px',
+    fontSize: '12px',
+    fontWeight: 500,
+    color: '#D4A843',
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+    padding: 0,
+    textDecoration: 'underline',
+  };
+
   return (
     <>
       <section className="py-12 bg-[#FDF2EB]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
 
-          {/* Заголовок */}
           <div className="flex items-center gap-4 mb-3">
             <div className="h-px flex-1" style={{ background: 'linear-gradient(to right, transparent, rgba(212,168,67,0.4))' }} />
             <div className="flex items-center gap-2 px-6 py-2 rounded-full"
@@ -55,17 +73,17 @@ export default function CertificatesSection() {
 
           <div className="grid md:grid-cols-2 gap-6 max-w-3xl mx-auto">
             {certs.map((cert, i) => (
-              <button
-                key={i}
-                onClick={() => open(cert.src, cert.title)}
-                className="group rounded-2xl overflow-hidden bg-white shadow-md hover:shadow-xl transition-all duration-300 hover:-translate-y-1 text-left w-full"
-                style={{ border: '1px solid rgba(28,58,46,0.08)' }}
-              >
+              <div key={i} className="flex flex-col rounded-2xl overflow-hidden bg-white shadow-md hover:shadow-xl transition-all duration-300 hover:-translate-y-1"
+                style={{ border: '1px solid rgba(28,58,46,0.08)' }}>
                 <div className="h-1 w-full" style={{ background: 'linear-gradient(to right, #D4A017, #e8b82a)' }} />
-                <div className="relative w-full overflow-hidden" style={{ height: '240px', pointerEvents: 'none' }}>
+                <button
+                  onClick={() => open(cert.src, cert.title)}
+                  className="group relative w-full overflow-hidden text-left"
+                  style={{ height: '240px' }}
+                >
                   <iframe
                     src={`${cert.src}#toolbar=0&view=Fit&zoom=page-fit`}
-                    style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
+                    style={{ width: '100%', height: '100%', border: 'none', display: 'block', pointerEvents: 'none' }}
                     title={cert.title}
                   />
                   <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-all duration-300 flex items-center justify-center">
@@ -73,26 +91,29 @@ export default function CertificatesSection() {
                       {"Переглянути"}
                     </div>
                   </div>
-                </div>
-                <div className="p-4">
-                  <p className="font-bold text-[#1C3A2E] text-sm mb-1">{cert.title}</p>
+                </button>
+                <div className="p-4 flex flex-col gap-1">
+                  <p className="font-bold text-[#1C3A2E] text-sm">{cert.title}</p>
                   <p className="text-gray-400 text-xs">{cert.subtitle}</p>
+                  {cert.link && (
+                    <button
+                      style={linkBtnStyle}
+                      onClick={() => window.open(cert.link!, '_blank')}
+                    >
+                      <FaExternalLinkAlt style={{ fontSize: '10px' }} />
+                      {"vision.edu"}
+                    </button>
+                  )}
                 </div>
-              </button>
+              </div>
             ))}
           </div>
         </div>
       </section>
 
       {mounted && active && createPortal(
-        <div
-          onClick={close}
-          style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 999999, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(4px)' }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{ width: '85vw', height: '88vh', maxWidth: '900px', borderRadius: '1rem', overflow: 'hidden', boxShadow: '0 25px 60px rgba(0,0,0,0.5)', background: '#1C3A2E', display: 'flex', flexDirection: 'column' }}
-          >
+        <div onClick={close} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 999999, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(4px)' }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: '85vw', height: '88vh', maxWidth: '900px', borderRadius: '1rem', overflow: 'hidden', boxShadow: '0 25px 60px rgba(0,0,0,0.5)', background: '#1C3A2E', display: 'flex', flexDirection: 'column' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.875rem 1.5rem', borderBottom: '1px solid rgba(212,168,67,0.2)', flexShrink: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                 <FaCertificate style={{ color: '#D4A017' }} />

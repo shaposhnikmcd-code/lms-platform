@@ -8,6 +8,7 @@ import { getCurrency } from "@/lib/currency";
 import CourseCard from "./_components/CourseCard";
 import CharityCard from "./_components/CharityCard";
 
+const sysFont = '-apple-system, BlinkMacSystemFont, sans-serif';
 const zhytyUrl = "https://t.me/zhyty_chysto_2_bot";
 
 const coursesMeta = [
@@ -50,19 +51,19 @@ export default async function CoursesPage({ params }: { params: Promise<{ locale
   return (
     <div style={{ background: '#F5F2ED', minHeight: '100vh' }}>
 
-      {/* ── HERO ── */}
+      {/* HERO */}
       <section style={{ background: '#1C3A2E', padding: '52px 48px 48px' }}>
         <div style={{ maxWidth: 1200, marginLeft: 0, marginRight: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 32 }}>
           <div style={{ paddingLeft: 32 }}>
             <div style={{ display: 'inline-flex', alignItems: 'center', border: '1px solid rgba(212,168,67,0.25)', background: 'rgba(212,168,67,0.12)', borderRadius: 100, padding: '5px 16px', marginBottom: 20 }}>
-              <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.28em', textTransform: 'uppercase' as const, color: '#D4A843', fontFamily: '-apple-system, sans-serif' }}>
+              <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.28em', textTransform: 'uppercase' as const, color: '#D4A843', fontFamily: sysFont }}>
                 {"UIMP"}
               </span>
             </div>
-            <h1 style={{ fontFamily: 'Georgia, "Times New Roman", serif', fontSize: 'clamp(32px, 5vw, 52px)', fontWeight: 400, color: 'white', lineHeight: 1.1, letterSpacing: '-0.02em', margin: '0 0 14px' }}>
+            <h1 style={{ fontFamily: sysFont, fontSize: 'clamp(32px, 5vw, 52px)', fontWeight: 700, color: 'white', lineHeight: 1.1, letterSpacing: '-0.02em', margin: '0 0 14px' }}>
               {t("title")}
             </h1>
-            <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.4)', maxWidth: 380, lineHeight: 1.75, margin: 0, fontFamily: '-apple-system, sans-serif' }}>
+            <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.4)', maxWidth: 380, lineHeight: 1.75, margin: 0, fontFamily: sysFont }}>
               {t("subtitle")}
             </p>
           </div>
@@ -73,18 +74,16 @@ export default async function CoursesPage({ params }: { params: Promise<{ locale
         </div>
       </section>
 
-      {/* ── КУРСИ + БЛАГОДІЙНІ (єдина секція) ── */}
+      {/* КУРСИ + БЛАГОДІЙНІ */}
       <section style={{ padding: '56px 48px 80px' }}>
         <div style={{ maxWidth: 860, margin: '0 auto' }}>
 
-          {/* Заголовок платних */}
           <div style={{ marginBottom: 36 }}>
-            <h2 style={{ fontFamily: 'Georgia, serif', fontSize: 'clamp(24px, 3vw, 36px)', fontWeight: 400, color: '#1C3A2E', margin: 0, letterSpacing: '-0.02em' }}>
+            <h2 style={{ fontFamily: sysFont, fontSize: 'clamp(24px, 3vw, 36px)', fontWeight: 700, color: '#1C3A2E', margin: 0, letterSpacing: '-0.02em' }}>
               {t("sectionTitle")}
             </h2>
           </div>
 
-          {/* Платні курси */}
           <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 12, marginBottom: 56 }}>
             {coursesMeta.map((c, i) => {
               const layout = cardLayouts[i];
@@ -110,29 +109,26 @@ export default async function CoursesPage({ params }: { params: Promise<{ locale
             })}
           </div>
 
-          {/* ── Роздільник ── */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 32 }}>
             <div style={{ flex: 1, height: 1, background: 'rgba(28,58,46,0.1)' }} />
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, background: 'rgba(212,168,67,0.12)', border: '1px solid rgba(212,168,67,0.25)', borderRadius: 100, padding: '5px 14px' }}>
               <div style={{ width: 5, height: 5, borderRadius: '50%', background: '#D4A843' }} />
-              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.28em', textTransform: 'uppercase' as const, color: '#D4A843', fontFamily: '-apple-system, sans-serif' }}>
+              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.28em', textTransform: 'uppercase' as const, color: '#D4A843', fontFamily: sysFont }}>
                 {"Безкоштовно"}
               </span>
             </div>
             <div style={{ flex: 1, height: 1, background: 'rgba(28,58,46,0.1)' }} />
           </div>
 
-          {/* Заголовок благодійних */}
           <div style={{ marginBottom: 24 }}>
-            <h2 style={{ fontFamily: 'Georgia, serif', fontSize: 'clamp(20px, 2.5vw, 28px)', fontWeight: 400, color: '#1C3A2E', margin: '0 0 8px', letterSpacing: '-0.02em' }}>
+            <h2 style={{ fontFamily: sysFont, fontSize: 'clamp(20px, 2.5vw, 28px)', fontWeight: 700, color: '#1C3A2E', margin: '0 0 8px', letterSpacing: '-0.02em' }}>
               {t("charityTitle")}
             </h2>
-            <p style={{ fontSize: 13, color: 'rgba(28,58,46,0.45)', margin: 0, lineHeight: 1.7, fontFamily: '-apple-system, sans-serif' }}>
+            <p style={{ fontSize: 13, color: 'rgba(28,58,46,0.45)', margin: 0, lineHeight: 1.7, fontFamily: sysFont }}>
               {t("charitySubtitle")}
             </p>
           </div>
 
-          {/* Благодійні картки */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
             <CharityCard
               href="/courses/psychological-support"

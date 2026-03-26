@@ -8,6 +8,8 @@ const tgUrl = "https://t.me/shaposhnykpsy";
 const igUrl = "https://www.instagram.com/uimp_psychotherapy";
 const ytUrl = "https://www.youtube.com/@bible_psychotherapy";
 
+const sysFont = '-apple-system, BlinkMacSystemFont, sans-serif';
+
 const sectionStyle: React.CSSProperties = { background: '#E8D5B7', position: 'relative', overflow: 'hidden', zIndex: 1 };
 const divTop: React.CSSProperties = { position: 'absolute', top: 0, left: 0, right: 0, height: 1, background: 'linear-gradient(90deg, transparent 0%, #D4A843 20%, #D4A843 80%, transparent 100%)', opacity: 0.5 };
 const divBottom: React.CSSProperties = { position: 'absolute', bottom: 0, left: 0, right: 0, height: 1, background: 'linear-gradient(90deg, transparent 0%, #D4A843 20%, #D4A843 80%, transparent 100%)', opacity: 0.5 };
@@ -43,7 +45,7 @@ const shimmer: React.CSSProperties = {
 const labelStyle: React.CSSProperties = {
   fontSize: 14,
   fontWeight: 500,
-  fontFamily: 'Georgia, serif',
+  fontFamily: sysFont,
   color: '#1C3A2E',
   letterSpacing: '0.1em',
   textTransform: 'uppercase' as const,
@@ -88,17 +90,15 @@ export default function SocialSection() {
 
       <div className="relative z-10 max-w-3xl mx-auto px-8 py-16">
 
-        {/* Header */}
         <div className="text-center mb-12" style={headerAnim}>
           <span style={{ fontSize: 10, fontWeight: 500, letterSpacing: '4px', textTransform: 'uppercase' as const, color: '#D4A843', marginBottom: 10, display: 'block' }}>
             {"◆ UIMP"}
           </span>
-          <h3 style={{ fontFamily: 'Georgia, serif', fontSize: 'clamp(14px, 2vw, 18px)', fontWeight: 300, color: 'rgba(28,58,46,0.5)', margin: 0, letterSpacing: '0.15em', textTransform: 'uppercase' as const }}>
+          <h3 style={{ fontFamily: sysFont, fontSize: 'clamp(14px, 2vw, 18px)', fontWeight: 600, color: 'rgba(28,58,46,0.5)', margin: 0, letterSpacing: '0.15em', textTransform: 'uppercase' as const }}>
             {t('social')}
           </h3>
         </div>
 
-        {/* Cards */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
 
           <a href={tgUrl} target="_blank" rel="noopener noreferrer"

@@ -6,6 +6,8 @@ import GamesHero from './GamesHero';
 import GamesAbout from './GamesAbout';
 import GamesQuote from './GamesQuote';
 
+const sysFont = '-apple-system, BlinkMacSystemFont, sans-serif';
+
 interface FormLabels {
   title: string;
   subtitle: string;
@@ -60,7 +62,7 @@ export default function GamesPageClient({ content, currency }: Props) {
   const [showOrderForm, setShowOrderForm] = useState(false);
 
   return (
-    <div style={{ fontFamily: 'Georgia, "Times New Roman", serif', background: '#FAF6F0' }}>
+    <div style={{ fontFamily: sysFont, background: '#FAF6F0' }}>
       <GamesHero
         pageTitle={content.pageTitle}
         gameTitle={content.gameTitle}
@@ -71,20 +73,9 @@ export default function GamesPageClient({ content, currency }: Props) {
         btnOrder={content.btnOrder}
         onOrder={() => setShowOrderForm(true)}
       />
-      <GamesAbout
-        desc1={content.desc1}
-        desc2={content.desc2}
-        desc3={content.desc3}
-      />
-      <GamesQuote
-        quote={content.quote}
-        comingSoon={content.comingSoon}
-      />
-      <OrderForm
-        isOpen={showOrderForm}
-        onClose={() => setShowOrderForm(false)}
-        labels={content.form}
-      />
+      <GamesAbout desc1={content.desc1} desc2={content.desc2} desc3={content.desc3} />
+      <GamesQuote quote={content.quote} comingSoon={content.comingSoon} />
+      <OrderForm isOpen={showOrderForm} onClose={() => setShowOrderForm(false)} labels={content.form} />
       <style>{`
         @media (max-width: 768px) {
           .games-hero-grid { grid-template-columns: 1fr !important; gap: 2rem !important; padding: 3rem 1.5rem 2.5rem !important; }

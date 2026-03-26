@@ -45,6 +45,8 @@ const DESCRIPTIONS = [
   "Психологічна гра для пар, створена командою UIMP",
 ];
 
+const sysFont = '-apple-system, BlinkMacSystemFont, sans-serif';
+
 export default function Directions({ content }: Props) {
   const [visible, setVisible] = useState(false);
   const [hovered, setHovered] = useState<number | null>(null);
@@ -69,11 +71,11 @@ export default function Directions({ content }: Props) {
 
         {/* Header */}
         <div style={{ marginBottom: 48, opacity: visible ? 1 : 0, transform: visible ? 'translateY(0)' : 'translateY(24px)', transition: 'opacity 0.7s ease, transform 0.7s ease' }}>
-          <h2 style={{ fontFamily: 'Georgia, "Times New Roman", serif', fontSize: 'clamp(28px, 4vw, 44px)', fontWeight: 400, color: '#1C3A2E', lineHeight: 1.1, margin: '0 0 16px', letterSpacing: '-0.01em' }}>
+          <h2 style={{ fontFamily: sysFont, fontSize: 'clamp(28px, 4vw, 44px)', fontWeight: 700, color: '#1C3A2E', lineHeight: 1.1, margin: '0 0 16px', letterSpacing: '-0.01em' }}>
             {content.title}
           </h2>
           <div style={{ height: 1, background: 'linear-gradient(90deg, #D4A843 0%, rgba(212,168,67,0.15) 60%, transparent 100%)', marginBottom: 14 }} />
-          <p style={{ fontSize: 14, color: 'rgba(28,58,46,0.5)', lineHeight: 1.65, fontFamily: '-apple-system, sans-serif', margin: 0, maxWidth: 480 }}>
+          <p style={{ fontSize: 14, color: 'rgba(28,58,46,0.5)', lineHeight: 1.65, fontFamily: sysFont, margin: 0, maxWidth: 480 }}>
             {content.subtitle}
           </p>
         </div>
@@ -109,16 +111,16 @@ export default function Directions({ content }: Props) {
               {ICONS[0]}
             </div>
 
-            <h3 style={{ fontFamily: 'Georgia, "Times New Roman", serif', fontSize: 28, fontWeight: 400, color: '#F5EDD6', lineHeight: 1.2, margin: '0 0 16px', letterSpacing: '-0.01em' }}>
+            <h3 style={{ fontFamily: sysFont, fontSize: 28, fontWeight: 700, color: '#F5EDD6', lineHeight: 1.2, margin: '0 0 16px', letterSpacing: '-0.01em' }}>
               {items[0].title}
             </h3>
 
-            <p style={{ fontFamily: '-apple-system, sans-serif', fontSize: 14, color: 'rgba(245,237,214,0.55)', lineHeight: 1.7, margin: '0 0 auto', maxWidth: 280 }}>
+            <p style={{ fontFamily: sysFont, fontSize: 14, color: 'rgba(245,237,214,0.55)', lineHeight: 1.7, margin: '0 0 auto', maxWidth: 280 }}>
               {DESCRIPTIONS[0]}
             </p>
 
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 40, paddingTop: 20, borderTop: '1px solid rgba(212,168,67,0.2)' }}>
-              <span style={{ fontFamily: '-apple-system, sans-serif', fontSize: 16, fontWeight: 700, color: '#D4A843', letterSpacing: '0.01em' }}>
+              <span style={{ fontFamily: sysFont, fontSize: 16, fontWeight: 700, color: '#D4A843', letterSpacing: '0.01em' }}>
                 {items[0].price}
               </span>
               <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(212,168,67,0.15)', border: '1px solid rgba(212,168,67,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'transform 0.3s ease', transform: hovered === 0 ? 'translateX(4px)' : 'translateX(0)' }}>
@@ -167,11 +169,11 @@ export default function Directions({ content }: Props) {
                 </div>
 
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <h3 style={{ fontFamily: 'Georgia, "Times New Roman", serif', fontSize: 18, fontWeight: 400, color: meta.text, lineHeight: 1.25, margin: '0 0 4px', letterSpacing: '-0.01em' }}>
+                  <h3 style={{ fontFamily: sysFont, fontSize: 18, fontWeight: 700, color: meta.text, lineHeight: 1.25, margin: '0 0 4px', letterSpacing: '-0.01em' }}>
                     {items[idx].title}
                   </h3>
                   {items[idx].price && (
-                    <span style={{ fontFamily: '-apple-system, sans-serif', fontSize: 12, fontWeight: 700, color: meta.price, opacity: 0.75, letterSpacing: '0.02em' }}>
+                    <span style={{ fontFamily: sysFont, fontSize: 12, fontWeight: 700, color: meta.price, opacity: 0.75, letterSpacing: '0.02em' }}>
                       {items[idx].price}
                     </span>
                   )}

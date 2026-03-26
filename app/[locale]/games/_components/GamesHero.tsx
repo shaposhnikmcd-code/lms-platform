@@ -3,6 +3,8 @@
 import React from 'react';
 import Image from 'next/image';
 
+const sysFont = '-apple-system, BlinkMacSystemFont, sans-serif';
+
 interface Card {
   count: string;
   label: string;
@@ -46,13 +48,13 @@ const badgeStyle: React.CSSProperties = {
   textTransform: 'uppercase' as const,
   padding: '0.4rem 1rem',
   borderRadius: '100px',
-  fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif',
+  fontFamily: sysFont,
   marginBottom: '1.25rem',
 };
 
 const heroTitleStyle: React.CSSProperties = {
   color: '#F5EDD6',
-  fontFamily: 'Georgia, serif',
+  fontFamily: sysFont,
   fontSize: 'clamp(3.2rem, 7vw, 5.5rem)',
   fontWeight: 700,
   lineHeight: 0.9,
@@ -63,7 +65,7 @@ const heroTitleStyle: React.CSSProperties = {
 const heroSubStyle: React.CSSProperties = {
   color: '#7aaa91',
   fontSize: '0.85rem',
-  fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif',
+  fontFamily: sysFont,
   letterSpacing: '0.08em',
   marginBottom: '2rem',
 };
@@ -90,7 +92,7 @@ const statItemStyle: React.CSSProperties = {
 
 const statNumStyle: React.CSSProperties = {
   color: '#D4A843',
-  fontFamily: 'Georgia, serif',
+  fontFamily: sysFont,
   fontSize: '1.8rem',
   fontWeight: 700,
   lineHeight: 1,
@@ -99,7 +101,7 @@ const statNumStyle: React.CSSProperties = {
 const statLblStyle: React.CSSProperties = {
   color: '#7aaa91',
   fontSize: '0.72rem',
-  fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif',
+  fontFamily: sysFont,
   lineHeight: 1.3,
   maxWidth: '80px',
 };
@@ -121,14 +123,14 @@ const priceLblStyle: React.CSSProperties = {
   fontSize: '0.62rem',
   letterSpacing: '0.25em',
   textTransform: 'uppercase' as const,
-  fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif',
+  fontFamily: sysFont,
   display: 'block',
   marginBottom: '0.3rem',
 };
 
 const priceValStyle: React.CSSProperties = {
   color: '#F5EDD6',
-  fontFamily: 'Georgia, serif',
+  fontFamily: sysFont,
   fontSize: '2.4rem',
   fontWeight: 700,
   lineHeight: 1,
@@ -136,7 +138,7 @@ const priceValStyle: React.CSSProperties = {
 
 const priceCurrStyle: React.CSSProperties = {
   color: '#D4A843',
-  fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif',
+  fontFamily: sysFont,
   fontSize: '1rem',
   fontWeight: 500,
   marginLeft: '0.35rem',
@@ -149,7 +151,7 @@ const deliveryBadgeStyle: React.CSSProperties = {
   padding: '0.5rem 0.75rem',
   color: '#7aaa91',
   fontSize: '0.62rem',
-  fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif',
+  fontFamily: sysFont,
   lineHeight: 1.6,
   maxWidth: '200px',
   display: 'flex',
@@ -169,7 +171,7 @@ const btnOrderStyle: React.CSSProperties = {
   cursor: 'pointer',
   letterSpacing: '0.14em',
   textTransform: 'uppercase' as const,
-  fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif',
+  fontFamily: sysFont,
   width: '100%',
 };
 
@@ -190,13 +192,11 @@ export default function GamesHero({ pageTitle, gameTitle, gameSubtitle, cards, p
   return (
     <section style={heroBgStyle}>
       <div style={heroInnerStyle} className="games-hero-grid">
-
         <div className="order-2 md:order-1" style={{ paddingBottom: '2.5rem' }}>
           <span style={badgeStyle}>{"◆"} {pageTitle}</span>
           <h1 style={heroTitleStyle}>{gameTitle}</h1>
           <p style={heroSubStyle}>{gameSubtitle}</p>
           <div style={dividerStyle} />
-
           <div style={statsRowStyle}>
             {cards.map((card, i) => (
               <div key={i} style={statItemStyle}>
@@ -205,7 +205,6 @@ export default function GamesHero({ pageTitle, gameTitle, gameSubtitle, cards, p
               </div>
             ))}
           </div>
-
           <div style={pricePanelStyle}>
             <div>
               <span style={priceLblStyle}>{gameTitle}</span>
@@ -219,26 +218,15 @@ export default function GamesHero({ pageTitle, gameTitle, gameSubtitle, cards, p
               <span>{"(оплачується додатково)"}</span>
             </div>
           </div>
-
           <button style={btnOrderStyle} onClick={onOrder}>
             {btnOrder}
           </button>
         </div>
-
         <div className="order-1 md:order-2 flex justify-center" style={{ paddingBottom: '2.5rem' }}>
           <div style={imageWrapStyle}>
-            <Image
-              src={"/Connector game.jpg"}
-              alt={gameTitle}
-              width={420}
-              height={420}
-              style={imageStyle}
-              priority
-              quality={100}
-            />
+            <Image src={"/Connector game.jpg"} alt={gameTitle} width={420} height={420} style={imageStyle} priority quality={100} />
           </div>
         </div>
-
       </div>
     </section>
   );
