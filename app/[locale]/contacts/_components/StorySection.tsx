@@ -24,7 +24,7 @@ const problems = [
 ];
 
 const sectionStyle: React.CSSProperties = {
-  padding: '8px 48px 80px',
+  padding: '60px 48px 80px',
   backgroundColor: '#FAF6F0',
   position: 'relative',
   overflow: 'hidden',

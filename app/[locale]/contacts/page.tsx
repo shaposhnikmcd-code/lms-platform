@@ -7,7 +7,6 @@ import SolutionSection from "./_components/SolutionSection";
 import MissionBlock from "./_components/MissionBlock";
 import RequestsSection from "./_components/RequestsSection";
 import VisionSection from "./_components/VisionSection";
-import EmailSection from "./_components/EmailSection";
 import SocialSection from "./_components/SocialSection";
 import FormSection from "./_components/FormSection";
 import FaqSection from "./_components/FaqSection";
@@ -28,7 +27,6 @@ export default async function ContactsPage({ params }: { params: Promise<{ local
       <MissionBlock />
       <RequestsSection />
       <VisionSection />
-      <EmailSection contacts={c.contacts} emailResponseTime={c.emailResponseTime} />
       <SocialSection />
       <FormSection form={c.form} social={c.social} telegram={c.telegram} />
       <FaqSection faq={c.faq} />

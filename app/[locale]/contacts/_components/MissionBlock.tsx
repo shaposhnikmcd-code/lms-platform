@@ -36,7 +36,7 @@ const missionData = [
 
 const sectionStyle: React.CSSProperties = {
   backgroundColor: '#FAF6F0',
-  padding: '24px 48px 120px',
+  padding: '60px 48px 80px',
   overflow: 'hidden',
   position: 'relative',
 };
@@ -194,7 +194,6 @@ export default function MissionBlock() {
     <section ref={sectionRef} style={sectionStyle}>
       <div style={dotPatternStyle} />
       <div style={containerStyle}>
-
         <div style={{
           ...headerStyle,
           transform: visible ? 'translateY(0)' : 'translateY(40px)',
@@ -209,7 +208,6 @@ export default function MissionBlock() {
           <h2 style={titleStyle}>{"Так виникла наша місія"}</h2>
           <p style={subtitleStyle}>{"Об'єднати психологію та духовність заради цілісного зцілення людини"}</p>
         </div>
-
         <div style={gridStyle}>
           {missionData.map((m, idx) => (
             <div
@@ -237,7 +235,6 @@ export default function MissionBlock() {
             </div>
           ))}
         </div>
-
       </div>
     </section>
   );

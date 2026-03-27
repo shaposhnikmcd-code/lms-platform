@@ -14,7 +14,7 @@ const sectionStyle: React.CSSProperties = {
   backgroundColor: '#FAF6F0',
   position: 'relative',
   overflow: 'hidden',
-  padding: '0 48px 48px',
+  padding: '60px 48px 80px',
 };
 
 const dotPatternStyle: React.CSSProperties = {

@@ -4,7 +4,7 @@ const sysFont = '-apple-system, BlinkMacSystemFont, sans-serif';
 
 const sectionStyle: React.CSSProperties = {
   backgroundColor: '#FAF6F0',
-  padding: '100px 48px',
+  padding: '60px 48px 80px',
   position: 'relative',
   overflow: 'hidden',
 };

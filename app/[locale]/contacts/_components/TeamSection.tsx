@@ -37,7 +37,7 @@ const team = [
 ];
 
 const sectionStyle: React.CSSProperties = {
-  padding: '100px 0 120px',
+  padding: '100px 0 80px',
   backgroundColor: '#FAF6F0',
   position: 'relative',
   overflow: 'hidden',

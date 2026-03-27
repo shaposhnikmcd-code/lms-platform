@@ -16,7 +16,7 @@ const requests = [
 
 const sectionStyle: React.CSSProperties = {
   backgroundColor: '#FAF6F0',
-  padding: '72px 48px 80px',
+  padding: '60px 48px 80px',
   position: 'relative',
   overflow: 'hidden',
 };
@@ -220,7 +220,6 @@ export default function RequestsSection() {
     <section ref={sectionRef} style={sectionStyle}>
       <div style={dotPatternStyle} />
       <div style={containerStyle}>
-
         <div style={{
           ...headerStyle,
           transform: visible ? 'translateY(0)' : 'translateY(40px)',
@@ -234,18 +233,14 @@ export default function RequestsSection() {
           <h2 style={titleStyle}>{"Запити, які ми закриваємо"}</h2>
           <div style={titleUnderlineStyle} />
         </div>
-
         <div style={{
           ...gridStyle,
           transform: visible ? 'translateY(0)' : 'translateY(30px)',
           opacity: visible ? 1 : 0,
           transition: 'transform 0.8s cubic-bezier(0.16,1,0.3,1) 0.1s, opacity 0.8s ease 0.1s',
         }}>
-          {requests.map((item, i) => (
-            <RequestCard key={i} item={item} />
-          ))}
+          {requests.map((item, i) => <RequestCard key={i} item={item} />)}
         </div>
-
         <div style={{
           ...ctaWrapStyle,
           transform: visible ? 'translateY(0)' : 'translateY(20px)',
@@ -256,7 +251,6 @@ export default function RequestsSection() {
           <p style={ctaHintStyle}>{"Знайди свій напрямок"}</p>
           <CtaButton />
         </div>
-
       </div>
     </section>
   );
