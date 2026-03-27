@@ -36,7 +36,7 @@ const missionData = [
 
 const sectionStyle: React.CSSProperties = {
   backgroundColor: '#FAF6F0',
-  padding: '100px 48px 120px',
+  padding: '24px 48px 120px',
   overflow: 'hidden',
   position: 'relative',
 };
@@ -58,7 +58,7 @@ const containerStyle: React.CSSProperties = {
 
 const headerStyle: React.CSSProperties = {
   textAlign: 'center',
-  marginBottom: 72,
+  marginBottom: 32,
 };
 
 const eyebrowRowStyle: React.CSSProperties = {

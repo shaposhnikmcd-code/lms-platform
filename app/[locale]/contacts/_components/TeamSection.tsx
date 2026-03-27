@@ -15,7 +15,6 @@ const team = [
   {
     name: "Тетяна Шапошник",
     role: "Президентка UIMP, психотерапевтка",
-    info: "15 років практичного досвіду",
     quote: "Живу так, ніби життя — це коробка шоколадних цукерок, в якому важливо обережно розгорнути кожен досвід, розрізнивши відтінки смаку і допомогти іншим не боятися куштувати своє.",
     photo: "/about-us/Tetiana-Shaposhnyk.jpg",
     objectFit: 'cover' as const,
@@ -27,7 +26,6 @@ const team = [
   {
     name: "Liliia Zakharevych",
     role: "Координаторка UIMP, маркетологиня",
-    info: null as string | null,
     quote: "Я готова страждати, аби моя місія і покликання було звершено Богом. Але перед цим багато буду обурюватися.",
     photo: "/about-us/Liliia-Zakharevych.jpg",
     objectFit: 'cover' as const,
@@ -92,7 +90,7 @@ const eyebrowStyle: React.CSSProperties = {
   fontWeight: 700,
   letterSpacing: '0.22em',
   color: '#D4A843',
-  textTransform: 'uppercase',
+  textTransform: 'uppercase' as const,
 };
 
 const titleStyle: React.CSSProperties = {
@@ -168,26 +166,6 @@ const gradientOverlayStyle: React.CSSProperties = {
   backgroundImage: 'linear-gradient(to top, rgba(8,20,14,0.93) 0%, rgba(8,20,14,0.35) 40%, transparent 65%)',
 };
 
-const cornerTRStyle: React.CSSProperties = {
-  position: 'absolute',
-  top: 20,
-  right: 20,
-  width: 32,
-  height: 32,
-  borderTop: '2px solid rgba(212,168,67,0.5)',
-  borderRight: '2px solid rgba(212,168,67,0.5)',
-};
-
-const cornerTLStyle: React.CSSProperties = {
-  position: 'absolute',
-  top: 20,
-  left: 20,
-  width: 32,
-  height: 32,
-  borderTop: '2px solid rgba(212,168,67,0.5)',
-  borderLeft: '2px solid rgba(212,168,67,0.5)',
-};
-
 const nameOverlayStyle: React.CSSProperties = {
   position: 'absolute',
   bottom: 0,
@@ -212,7 +190,7 @@ const roleTextStyle: React.CSSProperties = {
   color: 'rgba(212,168,67,0.88)',
   margin: 0,
   letterSpacing: '0.12em',
-  textTransform: 'uppercase',
+  textTransform: 'uppercase' as const,
 };
 
 const textBlockStyle: React.CSSProperties = {
@@ -227,7 +205,7 @@ const quoteMarkStyle: React.CSSProperties = {
   opacity: 0.3,
   display: 'block',
   marginBottom: 4,
-  userSelect: 'none',
+  userSelect: 'none' as const,
 };
 
 const quoteTextStyle: React.CSSProperties = {
@@ -235,22 +213,8 @@ const quoteTextStyle: React.CSSProperties = {
   fontSize: 14,
   lineHeight: 1.9,
   color: '#2a3a2e',
-  fontStyle: 'italic',
+  fontStyle: 'italic' as const,
   margin: '0 0 20px',
-};
-
-const infoTagStyle: React.CSSProperties = {
-  display: 'inline-block',
-  fontFamily: sysFont,
-  fontSize: 11,
-  fontWeight: 600,
-  letterSpacing: '0.1em',
-  color: 'rgba(28,58,46,0.55)',
-  textTransform: 'uppercase',
-  backgroundColor: 'rgba(28,58,46,0.06)',
-  padding: '5px 12px',
-  borderRadius: 100,
-  marginBottom: 24,
 };
 
 const goldDividerStyle: React.CSSProperties = {
@@ -335,8 +299,6 @@ function PersonCard({ person }: { person: TeamMember }) {
           />
         </div>
         <div style={gradientOverlayStyle} />
-        <div style={cornerTRStyle} />
-        <div style={cornerTLStyle} />
         <div style={nameOverlayStyle}>
           <p style={nameTextStyle}>{person.name}</p>
           <p style={roleTextStyle}>{person.role}</p>
@@ -346,9 +308,6 @@ function PersonCard({ person }: { person: TeamMember }) {
       <div style={textBlockStyle}>
         <span style={quoteMarkStyle}>{"\u201C"}</span>
         <p style={quoteTextStyle}>{person.quote}</p>
-        {person.info && (
-          <span style={infoTagStyle}>{person.info}</span>
-        )}
         <div style={goldDividerStyle} />
         <div style={socialRowStyle}>
           <a href={person.insta} target="_blank" rel="noopener noreferrer" style={socialInstaStyle}>

@@ -49,39 +49,35 @@ export default async function CoursesPage({ params }: { params: Promise<{ locale
   return (
     <div style={{ background: '#F5F2ED', minHeight: '100vh' }}>
 
-      {/* HERO */}
-      <section style={{ background: '#1C3A2E', padding: '52px 48px 48px' }}>
-        <div style={{ maxWidth: 1200, marginLeft: 0, marginRight: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 32 }}>
-          <div style={{ paddingLeft: 32 }}>
-            <div style={{ display: 'inline-flex', alignItems: 'center', border: '1px solid rgba(212,168,67,0.25)', background: 'rgba(212,168,67,0.12)', borderRadius: 100, padding: '5px 16px', marginBottom: 20 }}>
-              <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.28em', textTransform: 'uppercase' as const, color: '#D4A843', fontFamily: sysFont }}>
-                {"UIMP"}
-              </span>
+      <section style={{ background: 'linear-gradient(135deg, #1C3A2E 0%, #1a3828 50%, #0f2219 100%)', paddingTop: 52, paddingBottom: 48, position: 'relative', overflow: 'hidden' }}>
+        <div className="container mx-auto px-12 md:px-16 relative z-10">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 32 }}>
+            <div>
+              <div style={{ display: 'inline-flex', alignItems: 'center', border: '1px solid rgba(212,168,67,0.25)', background: 'rgba(212,168,67,0.12)', borderRadius: 100, padding: '5px 16px', marginBottom: 20 }}>
+                <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.28em', textTransform: 'uppercase' as const, color: '#D4A843', fontFamily: sysFont }}>{"UIMP"}</span>
+              </div>
+              <h1 style={{ fontFamily: sysFont, fontSize: 'clamp(32px, 5vw, 52px)', fontWeight: 700, color: 'white', lineHeight: 1.1, letterSpacing: '-0.02em', margin: '0 0 14px' }}>
+                {t("title")}
+              </h1>
+              <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.4)', maxWidth: 380, lineHeight: 1.75, margin: 0, fontFamily: sysFont }}>
+                {t("subtitle")}
+              </p>
             </div>
-            <h1 style={{ fontFamily: sysFont, fontSize: 'clamp(32px, 5vw, 52px)', fontWeight: 700, color: 'white', lineHeight: 1.1, letterSpacing: '-0.02em', margin: '0 0 14px' }}>
-              {t("title")}
-            </h1>
-            <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.4)', maxWidth: 380, lineHeight: 1.75, margin: 0, fontFamily: sysFont }}>
-              {t("subtitle")}
-            </p>
-          </div>
-          <div style={{ flexShrink: 0, marginRight: 48 }}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/logo-white.png" alt="UIMP" width={164} height={164} style={{ display: 'block', borderRadius: 12 }} />
+            <div style={{ flexShrink: 0 }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/logo-white.png" alt="UIMP" width={164} height={164} style={{ display: 'block', borderRadius: 12 }} />
+            </div>
           </div>
         </div>
       </section>
 
-      {/* КУРСИ */}
       <section style={{ padding: '56px 48px 80px' }}>
         <div style={{ maxWidth: 860, margin: '0 auto' }}>
-
           <div style={{ marginBottom: 36 }}>
             <h2 style={{ fontFamily: sysFont, fontSize: 'clamp(24px, 3vw, 36px)', fontWeight: 700, color: '#1C3A2E', margin: 0, letterSpacing: '-0.02em' }}>
               {t("sectionTitle")}
             </h2>
           </div>
-
           <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 12 }}>
             {coursesMeta.map((c, i) => {
               const layout = cardLayouts[i];
@@ -106,7 +102,6 @@ export default async function CoursesPage({ params }: { params: Promise<{ locale
               );
             })}
           </div>
-
         </div>
       </section>
     </div>

@@ -8,7 +8,7 @@ const sectionStyle: React.CSSProperties = {
   background: 'linear-gradient(135deg, #1C3A2E 0%, #1a3828 50%, #0f2219 100%)',
   position: 'relative',
   overflow: 'hidden',
-  padding: '72px 48px 80px',
+  padding: '72px 0 80px',
 };
 
 const blobStyle: React.CSSProperties = {
@@ -23,25 +23,9 @@ const blobStyle: React.CSSProperties = {
   pointerEvents: 'none',
 };
 
-const innerStyle: React.CSSProperties = {
-  maxWidth: 1100,
-  margin: '0 auto',
-  position: 'relative',
-  zIndex: 1,
-  display: 'flex',
-  flexDirection: 'row',
-  alignItems: 'center',
-  gap: 64,
-};
-
-const leftStyle: React.CSSProperties = {
-  flex: 1,
-};
-
 const badgeStyle: React.CSSProperties = {
   display: 'inline-flex',
   alignItems: 'center',
-  gap: 8,
   border: '1px solid rgba(212,168,67,0.25)',
   backgroundColor: 'rgba(212,168,67,0.12)',
   borderRadius: 100,
@@ -65,84 +49,53 @@ const titleStyle: React.CSSProperties = {
   color: 'white',
   lineHeight: 1.08,
   letterSpacing: '-0.025em',
-  margin: '0 0 20px',
+  margin: 0,
 };
 
 const titleAccentStyle: React.CSSProperties = {
   color: '#D4A843',
 };
 
-const descStyle: React.CSSProperties = {
-  fontFamily: sysFont,
-  fontSize: 15,
-  color: 'rgba(255,255,255,0.65)',
-  lineHeight: 1.8,
-  margin: '0 0 0',
-  maxWidth: 460,
-};
-
-const rightStyle: React.CSSProperties = {
+const logoImgWrapStyle: React.CSSProperties = {
   flexShrink: 0,
-};
-
-const logoCardStyle: React.CSSProperties = {
-  width: 220,
-  height: 220,
-  borderRadius: 20,
-  backgroundColor: 'rgba(255,255,255,0.05)',
-  border: '1px solid rgba(212,168,67,0.15)',
   position: 'relative',
-  overflow: 'hidden',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-};
-
-const logoGlowStyle: React.CSSProperties = {
-  position: 'absolute',
-  inset: -20,
-  borderRadius: '50%',
-  background: 'radial-gradient(circle, rgba(212,168,67,0.15), transparent 70%)',
-  pointerEvents: 'none',
+  width: 256,
+  height: 256,
 };
 
 export default function HeroSection() {
   return (
     <section style={sectionStyle}>
       <div style={blobStyle} />
+      <div className="container mx-auto px-12 md:px-16 relative z-10">
+        <div className="flex flex-col md:flex-row items-center gap-8">
 
-      <div style={innerStyle}>
-        {/* LEFT — текст */}
-        <div style={leftStyle}>
-          <div style={badgeStyle}>
-            <span style={badgeTextStyle}>{"UIMP"}</span>
+          <div className="flex-1 flex justify-center order-1 md:order-2">
+            <div style={logoImgWrapStyle}>
+              <Image
+                src="/about-us/logo-yellow.webp"
+                alt="UIMP Logo"
+                fill
+                style={{ objectFit: 'contain' }}
+                sizes="256px"
+                quality={100}
+                unoptimized
+                priority
+              />
+            </div>
           </div>
-          <h1 style={titleStyle}>
-            {"Український інститут"}<br />
-            {"Душеопіки та "}
-            <span style={titleAccentStyle}>{"Психотерапії (UIMP)"}</span>
-          </h1>
-          <p style={descStyle}>
-            {"Простір, де терапія охоплює людину цілісно (дух, душа, тіло)."}<br />
-            {"Ми переконані, що психологія в її первинному вигляді містить духовність."}
-          </p>
-        </div>
 
-        {/* RIGHT — логотип */}
-        <div style={rightStyle}>
-          <div style={logoCardStyle}>
-            <div style={logoGlowStyle} />
-            <Image
-              src="/about-us/logo.jpg"
-              alt="UIMP Logo"
-              fill
-              style={{ objectFit: 'contain', padding: '20px' }}
-              sizes="220px"
-              quality={100}
-              unoptimized
-              priority
-            />
+          <div className="flex-1 order-2 md:order-1">
+            <div style={badgeStyle}>
+              <span style={badgeTextStyle}>{"UIMP"}</span>
+            </div>
+            <h1 style={titleStyle}>
+              {"Український інститут"}<br />
+              {"Душеопіки та "}
+              <span style={titleAccentStyle}>{"Психотерапії (UIMP)"}</span>
+            </h1>
           </div>
+
         </div>
       </div>
     </section>

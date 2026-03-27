@@ -11,9 +11,8 @@ export default async function ConsultationsPage({ params }: { params: Promise<{ 
 
   return (
     <main className="min-h-screen bg-[#f4f9f4]">
-
-      <section className="bg-gradient-to-br from-[#1C3A2E] to-[#0f2219] text-white py-20">
-        <div className="max-w-5xl mx-auto px-6 text-center">
+      <section style={{ background: 'linear-gradient(135deg, #1C3A2E 0%, #1a3828 50%, #0f2219 100%)' }} className="text-white py-20">
+        <div className="container mx-auto px-12 md:px-16 text-center">
           <div className="inline-flex items-center gap-2 bg-[#D4A843]/20 border border-[#D4A843]/30 text-[#D4A843] text-sm font-semibold px-5 py-2 rounded-full mb-6 tracking-wide uppercase">
             {"◆"} {c.hero.badge}
           </div>
@@ -23,24 +22,10 @@ export default async function ConsultationsPage({ params }: { params: Promise<{ 
       </section>
 
       <div className="max-w-6xl mx-auto px-6 py-16 space-y-8">
-
         {c.specialists.map((s, i) => (
-          <SpecialistCard
-            key={i}
-            s={s}
-            labels={{
-              aboutTitle: c.aboutTitle,
-              worksWithTitle: c.worksWithTitle,
-              diplomasLabel: c.diplomasLabel,
-              costLabel: c.costLabel,
-              durationLabel: c.durationLabel,
-              btnBook: c.btnBook,
-            }}
-          />
+          <SpecialistCard key={i} s={s} labels={{ aboutTitle: c.aboutTitle, worksWithTitle: c.worksWithTitle, diplomasLabel: c.diplomasLabel, costLabel: c.costLabel, durationLabel: c.durationLabel, btnBook: c.btnBook }} />
         ))}
-
         <NotionButton />
-
       </div>
     </main>
   );
