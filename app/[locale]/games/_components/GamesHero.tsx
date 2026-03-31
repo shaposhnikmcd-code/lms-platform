@@ -33,6 +33,7 @@ const heroInnerStyle: React.CSSProperties = {
   gridTemplateColumns: '1fr 1fr',
   gap: '4rem',
   alignItems: 'center',
+  /* Mobile handled via .games-hero-grid in globals.css */
 };
 
 const badgeStyle: React.CSSProperties = {

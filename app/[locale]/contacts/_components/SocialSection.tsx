@@ -11,7 +11,7 @@ const youtubeUrl = "https://www.youtube.com/@bible_psychotherapy";
 const tgChannelUrl = "https://t.me/shaposhnykpsy";
 const tgSupportUrl = "https://t.me/uimp_support";
 
-const sectionStyle: React.CSSProperties = { backgroundColor: '#FAF6F0', padding: '60px 48px 80px', position: 'relative', overflow: 'hidden' };
+const sectionStyle: React.CSSProperties = { backgroundColor: '#FAF6F0', padding: '40px 16px 60px', position: 'relative', overflow: 'hidden' };
 const dotPatternStyle: React.CSSProperties = { position: 'absolute', inset: 0, backgroundImage: 'radial-gradient(circle, rgba(28,58,46,0.06) 1px, transparent 1px)', backgroundSize: '28px 28px', pointerEvents: 'none' };
 const containerStyle: React.CSSProperties = { maxWidth: 900, margin: '0 auto', position: 'relative', zIndex: 1 };
 const eyebrowRowStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 20, marginBottom: 12 };
@@ -19,7 +19,7 @@ const lineLeftStyle: React.CSSProperties = { height: 1, width: 60, backgroundIma
 const lineRightStyle: React.CSSProperties = { height: 1, width: 60, backgroundImage: 'linear-gradient(to left, transparent, #D4A843)' };
 const eyebrowStyle: React.CSSProperties = { fontFamily: sysFont, fontSize: 11, fontWeight: 700, letterSpacing: '0.22em', color: '#D4A843', textTransform: 'uppercase' };
 const titleStyle: React.CSSProperties = { fontFamily: sysFont, fontSize: 28, fontWeight: 700, color: '#1C3A2E', margin: 0, letterSpacing: '-0.02em' };
-const gridStyle: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 };
+const gridStyle: React.CSSProperties = { display: 'grid', gap: 16 };
 const cardTextStyle: React.CSSProperties = { textAlign: 'center' };
 const labelStyle: React.CSSProperties = { fontFamily: sysFont, fontSize: 15, fontWeight: 700, color: '#1C3A2E', margin: '0 0 4px' };
 const hintStyle: React.CSSProperties = { fontFamily: sysFont, fontSize: 11, color: 'rgba(28,58,46,0.45)', margin: 0, lineHeight: 1.5 };
@@ -116,7 +116,7 @@ export default function SocialSection() {
           </div>
           <h2 style={titleStyle}>{"Залишайтесь на зв'язку"}</h2>
         </div>
-        <div style={gridStyle}>
+        <div style={gridStyle} className="grid-cols-2 md:grid-cols-4">
           <InstaCard visible={visible} index={0} />
           <SupportCard visible={visible} index={1} />
           <YouTubeCard visible={visible} index={2} />

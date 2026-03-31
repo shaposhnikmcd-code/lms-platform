@@ -55,7 +55,14 @@ export default function PhoneInput({ label, phoneCountry, phone, onPhoneCountryC
           type="tel"
           name="phone"
           value={phone}
-          onChange={(e) => onPhoneChange(e.target.value)}
+          onChange={(e) => {
+            const digits = e.target.value.replace(/\D/g, '');
+            const max = phoneInfo.maxDigits ?? 12;
+            if (digits.length <= max) {
+              onPhoneChange(digits);
+            }
+          }}
+          maxLength={phoneInfo.maxDigits ?? 12}
           required
           className="block w-full px-3 py-3 border border-gray-200 rounded-r-lg focus:outline-none focus:ring-2 focus:ring-[#D4A017] focus:border-transparent"
           placeholder={phoneInfo.placeholder}

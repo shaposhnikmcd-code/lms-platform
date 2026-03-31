@@ -139,7 +139,7 @@ function PersonCard({ person, index }: { person: typeof people[0]; index: number
 
 export default function TeacherSection() {
   return (
-    <section style={{ background: '#1C3A2E', padding: '72px 48px', position: 'relative', overflow: 'hidden' }}>
+    <section style={{ background: '#1C3A2E', position: 'relative', overflow: 'hidden' }} className="py-12 sm:py-[72px] px-4 sm:px-12">
       <div style={{ position: 'absolute', top: -120, right: -80, width: 500, height: 500, borderRadius: '50%', background: 'radial-gradient(circle, rgba(212,168,67,0.05) 0%, transparent 70%)', pointerEvents: 'none' }} />
       <div style={{ position: 'absolute', bottom: -80, left: -60, width: 400, height: 400, borderRadius: '50%', background: 'radial-gradient(circle, rgba(212,168,67,0.04) 0%, transparent 70%)', pointerEvents: 'none' }} />
 
@@ -156,7 +156,7 @@ export default function TeacherSection() {
           </h2>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }} className="yearly-teachers-grid">
           {people.map((person, i) => (
             <PersonCard key={i} person={person} index={i} />
           ))}

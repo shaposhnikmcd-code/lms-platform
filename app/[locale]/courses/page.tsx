@@ -50,8 +50,8 @@ export default async function CoursesPage({ params }: { params: Promise<{ locale
     <div style={{ background: '#F5F2ED', minHeight: '100vh' }}>
 
       <section style={{ background: 'linear-gradient(135deg, #1C3A2E 0%, #1a3828 50%, #0f2219 100%)', paddingTop: 52, paddingBottom: 48, position: 'relative', overflow: 'hidden' }}>
-        <div className="container mx-auto px-12 md:px-16 relative z-10">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 32 }}>
+        <div className="container mx-auto px-4 sm:px-8 md:px-16 relative z-10">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
             <div>
               <div style={{ display: 'inline-flex', alignItems: 'center', border: '1px solid rgba(212,168,67,0.25)', background: 'rgba(212,168,67,0.12)', borderRadius: 100, padding: '5px 16px', marginBottom: 20 }}>
                 <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.28em', textTransform: 'uppercase' as const, color: '#D4A843', fontFamily: sysFont }}>{"UIMP"}</span>
@@ -63,7 +63,7 @@ export default async function CoursesPage({ params }: { params: Promise<{ locale
                 {t("subtitle")}
               </p>
             </div>
-            <div style={{ flexShrink: 0 }}>
+            <div className="hidden md:block" style={{ flexShrink: 0 }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="/logo-white.png" alt="UIMP" width={164} height={164} style={{ display: 'block', borderRadius: 12 }} />
             </div>
@@ -71,7 +71,7 @@ export default async function CoursesPage({ params }: { params: Promise<{ locale
         </div>
       </section>
 
-      <section style={{ padding: '56px 48px 80px' }}>
+      <section className="py-10 sm:py-14 px-4 sm:px-8 md:px-12">
         <div style={{ maxWidth: 860, margin: '0 auto' }}>
           <div style={{ marginBottom: 36 }}>
             <h2 style={{ fontFamily: sysFont, fontSize: 'clamp(24px, 3vw, 36px)', fontWeight: 700, color: '#1C3A2E', margin: 0, letterSpacing: '-0.02em' }}>

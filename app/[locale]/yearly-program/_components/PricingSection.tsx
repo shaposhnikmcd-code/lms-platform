@@ -3,7 +3,7 @@ const sysFont = '-apple-system, BlinkMacSystemFont, sans-serif';
 export default function PricingSection() {
   const sendpulseUrl = "https://uimp-edu.sendpulse.online/bible-therapy";
 
-  const sectionStyle: React.CSSProperties = { padding: '40px 48px', background: '#F5F2ED' };
+  const sectionStyle: React.CSSProperties = { padding: '40px 16px', background: '#F5F2ED' };
   const wrapStyle: React.CSSProperties = { maxWidth: '1280px', margin: '0 auto' };
   const headStyle: React.CSSProperties = { textAlign: 'center', marginBottom: '28px' };
   const h2Style: React.CSSProperties = { fontFamily: sysFont, fontSize: 'clamp(24px, 3vw, 36px)', fontWeight: 700, color: '#1C3A2E', margin: 0, letterSpacing: '-0.02em' };

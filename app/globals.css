@@ -50,3 +50,24 @@
 .fixed {
   position: fixed !important;
 }
+
+/* Mobile responsive grids for games page */
+@media (max-width: 767px) {
+  .games-hero-grid {
+    grid-template-columns: 1fr !important;
+    gap: 1.5rem !important;
+    padding: 3rem 1.25rem 0 !important;
+  }
+  .games-about-grid {
+    grid-template-columns: 1fr !important;
+    gap: 1rem !important;
+  }
+  .yearly-teachers-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* Prevent horizontal overflow globally */
+html, body {
+  overflow-x: hidden;
+}

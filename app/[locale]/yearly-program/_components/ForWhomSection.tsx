@@ -7,7 +7,7 @@ type Props = {
 
 export default function ForWhomSection({ title, items }: Props) {
   return (
-    <section style={{ background: '#FAF6F0', padding: '72px 48px' }}>
+    <section style={{ background: '#FAF6F0' }} className="py-12 sm:py-[72px] px-4 sm:px-12">
       <div style={{ maxWidth: '860px', margin: '0 auto' }}>
 
         <div style={{ marginBottom: '40px' }}>
@@ -71,7 +71,7 @@ export default function ForWhomSection({ title, items }: Props) {
                 margin: 0,
                 letterSpacing: '-0.01em',
                 fontWeight: 400,
-                paddingRight: '80px',
+                paddingRight: '40px',
               }}>
                 {item.replace(/[;.]$/, '')}
               </p>

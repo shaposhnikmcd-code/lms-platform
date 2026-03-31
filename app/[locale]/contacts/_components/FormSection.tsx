@@ -18,7 +18,7 @@ type Props = {
   telegram: { title: string; subtitle: string; btn: string };
 };
 
-const sectionStyle: React.CSSProperties = { padding: '60px 48px 80px' };
+const sectionStyle: React.CSSProperties = { padding: '40px 16px 60px' };
 const cardStyle: React.CSSProperties = { maxWidth: 600, margin: '0 auto', background: 'white', borderRadius: 20, padding: '36px', boxShadow: '0 2px 12px rgba(28,58,46,0.06)' };
 const titleStyle: React.CSSProperties = { fontFamily: sysFont, fontSize: 22, fontWeight: 700, color: '#1C3A2E', margin: '0 0 24px' };
 const formStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column' as const, gap: 16 };

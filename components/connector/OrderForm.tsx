@@ -111,6 +111,7 @@ export default function OrderForm({ isOpen, onClose, labels }: OrderFormProps) {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitStatus, setSubmitStatus] = useState<'error' | null>(null);
+  const [nameError, setNameError] = useState<string | null>(null);
 
   const euCityDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -153,8 +154,25 @@ export default function OrderForm({ isOpen, onClose, labels }: OrderFormProps) {
     }
   };
 
+  const validateFullName = (value: string, country: string): string | null => {
+    if (country === 'UA') {
+      const cyrillicOnly = /^[а-яА-ЯіІїЇєЄґҐʼ''\-\s]+$/;
+      if (value && !cyrillicOnly.test(value)) {
+        return 'Введіть ПІБ українськими літерами';
+      }
+      const words = value.trim().split(/\s+/).filter(Boolean);
+      if (value.trim() && words.length < 3) {
+        return 'Введіть повне ПІБ: Прізвище Ім\'я По батькові';
+      }
+    }
+    return null;
+  };
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value, type } = e.target;
+    if (name === 'fullName') {
+      setNameError(validateFullName(value, formData.country));
+    }
     setFormData(prev => ({
       ...prev,
       [name]: type === 'checkbox' ? (e.target as HTMLInputElement).checked : value,
@@ -163,6 +181,7 @@ export default function OrderForm({ isOpen, onClose, labels }: OrderFormProps) {
 
   const handleCountrySelect = (code: string) => {
     setFormData(prev => ({ ...prev, country: code, city: '', postOffice: '' }));
+    setNameError(validateFullName(formData.fullName, code));
     setCities([]); setBranches([]); setEuCities([]); setEuDivisions([]);
     setShowCities(false); setShowBranches(false); setShowEuCities(false); setShowEuDivisions(false);
     setSelectedCityRef(''); setDeliveryCost(null);
@@ -231,6 +250,11 @@ export default function OrderForm({ isOpen, onClose, labels }: OrderFormProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const nameErr = validateFullName(formData.fullName, formData.country);
+    if (nameErr) {
+      setNameError(nameErr);
+      return;
+    }
     setIsSubmitting(true);
     setSubmitStatus(null);
     try {
@@ -322,9 +346,12 @@ export default function OrderForm({ isOpen, onClose, labels }: OrderFormProps) {
                     <FaUser className="text-gray-400" />
                   </div>
                   <input type="text" name="fullName" value={formData.fullName} onChange={handleChange} required
-                    className="block w-full pl-10 pr-3 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#D4A017] focus:border-transparent"
+                    className={`block w-full pl-10 pr-3 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#D4A017] focus:border-transparent ${nameError ? 'border-red-400' : 'border-gray-200'}`}
                     placeholder={l.namePlaceholder} />
                 </div>
+                {nameError && (
+                  <p className="mt-1 text-xs text-red-500">{nameError}</p>
+                )}
               </div>
 
               <PhoneInput
