@@ -11,7 +11,7 @@ export default function ConsultationPage() {
         <div className="bg-white/10 backdrop-blur-sm rounded-3xl p-8 md:p-12 shadow-2xl">
           <div className="flex flex-col md:flex-row items-center gap-8 mb-8">
             <div className="relative w-32 h-32 md:w-40 md:h-40 rounded-full overflow-hidden border-4 border-[#D4A017] shadow-xl">
-              <Image src="/courses/psychology-basics/tetiana-shaposhnik.webp.webp" alt="Тетяна Шапошник" fill className="object-cover" priority />
+              <Image src="/courses/psychology-basics/tetiana-shaposhnik.webp" alt="Тетяна Шапошник" fill className="object-cover" priority />
             </div>
             <div className="text-center md:text-left">
               <div className="inline-flex items-center gap-2 bg-[#D4A017] text-white px-4 py-2 rounded-full text-sm mb-4">

@@ -64,7 +64,7 @@ export default function HeroSection({ badge, title1, title2, description, btnEnr
               <div className="relative bg-white/10 backdrop-blur-sm p-8 rounded-2xl border border-white/20 space-y-4">
                 <div className="relative h-44" style={{ overflow: 'hidden', borderRadius: '8px' }}>
                   <Image
-                    src="/courses/psychology-basics/uimp_wide-logo.webp.webp"
+                    src="/courses/psychology-basics/uimp_wide-logo.webp"
                     alt="UIMP Logo"
                     fill
                     unoptimized

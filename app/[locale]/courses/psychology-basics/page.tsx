@@ -58,7 +58,7 @@ export default async function PsychologyBasicsPage({ params }: { params: Promise
               <div className="absolute inset-0 bg-gradient-to-r from-[#D4A017] to-[#b88913] rounded-2xl rotate-3 opacity-20" />
               <div className="relative bg-white/10 backdrop-blur-sm p-8 rounded-2xl border border-white/20">
                 <div className="relative h-48">
-                  <Image src="/courses/psychology-basics/uimp_wide-logo.webp.webp" alt="UIMP Logo" fill className="object-contain" priority />
+                  <Image src="/courses/psychology-basics/uimp_wide-logo.webp" alt="UIMP Logo" fill className="object-contain" priority />
                 </div>
               </div>
             </div>
@@ -137,7 +137,7 @@ export default async function PsychologyBasicsPage({ params }: { params: Promise
             {c.teachers.items.map((teacher, i) => (
               <div key={i} className="group relative bg-white rounded-2xl overflow-hidden shadow-2xl transition-all duration-500">
                 <div className="relative h-[500px] w-full overflow-hidden">
-                  <Image src={`/courses/psychology-basics/${teacher.image}.webp.webp`} alt={teacher.name} fill
+                  <Image src={`/courses/psychology-basics/${teacher.image}.webp`} alt={teacher.name} fill
                     className="object-contain object-top group-hover:scale-110 transition-transform duration-700"
                     sizes="(max-width: 768px) 100vw, 50vw" />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
@@ -192,7 +192,7 @@ export default async function PsychologyBasicsPage({ params }: { params: Promise
               <div key={i} className="bg-white p-6 rounded-2xl shadow-md hover:shadow-xl transition-all">
                 <div className="flex items-center gap-3 mb-4">
                   <div className="relative w-12 h-12 flex-shrink-0">
-                    <Image src={`/courses/psychology-basics/${review.image}.webp.webp`} alt={review.name} fill className="object-cover rounded-full" />
+                    <Image src={`/courses/psychology-basics/${review.image}.webp`} alt={review.name} fill className="object-cover rounded-full" />
                   </div>
                   <div>
                     <p className="font-semibold text-[#1C3A2E]">{review.name}</p>

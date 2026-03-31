@@ -30,6 +30,8 @@ model User {
   sentMessages     Message[]   @relation("SentMessages")
   receivedMessages Message[]   @relation("ReceivedMessages")
   news          News[]
+
+  @@index([role])
 }
 
 model Account {
@@ -92,6 +94,7 @@ model CourseTeacher {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([courseId, userId])
+  @@index([userId])
 }
 
 model Message {
@@ -104,6 +107,10 @@ model Message {
   createdAt  DateTime @default(now())
   sender     User     @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
   receiver   User     @relation("ReceivedMessages", fields: [receiverId], references: [id], onDelete: Cascade)
+
+  @@index([senderId])
+  @@index([receiverId])
+  @@index([receiverId, read])
 }
 
 model Module {
@@ -113,6 +120,8 @@ model Module {
   courseId String
   lessons  Lesson[]
   course   Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@index([courseId])
 }
 
 model Lesson {
@@ -129,6 +138,8 @@ model Lesson {
   module         Module           @relation(fields: [moduleId], references: [id], onDelete: Cascade)
   courseProgress CourseProgress[]
   lessonProgress LessonProgress[]
+
+  @@index([moduleId])
 }
 
 model LessonProgress {
@@ -143,6 +154,7 @@ model LessonProgress {
   lesson      Lesson    @relation(fields: [lessonId], references: [id], onDelete: Cascade)
 
   @@unique([userId, lessonId])
+  @@index([userId])
 }
 
 model Enrollment {
@@ -183,6 +195,9 @@ model Payment {
   paidAt         DateTime?
   user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   course         Course?       @relation(fields: [courseId], references: [id])
+
+  @@index([userId])
+  @@index([status])
 }
 
 model Certificate {
@@ -195,6 +210,7 @@ model Certificate {
   course         Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
 
   @@unique([userId, courseId])
+  @@index([userId])
 }
 
 model Subscription {
@@ -225,6 +241,9 @@ model ConnectorOrder {
   trackingNumber String?
   managerNote    String?
   callMe         Boolean       @default(false)
+
+  @@index([paymentStatus])
+  @@index([orderStatus])
 }
 
 model News {
@@ -240,6 +259,8 @@ model News {
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
   author    User?        @relation(fields: [authorId], references: [id])
+
+  @@index([published, createdAt])
 }
 
 model NovaPostDivision {

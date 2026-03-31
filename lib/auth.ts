@@ -5,16 +5,10 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import type { NextAuthOptions } from "next-auth";
 import bcrypt from "bcryptjs";
 import prisma from "@/lib/prisma";
-console.log('🔧 NEXTAUTH_URL:', process.env.NEXTAUTH_URL);
 
-const ADMIN_EMAILS = [
-  "shaposhnik.mcd@gmail.com",
-  "saposniktana878@gmail.com"
-];
+const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || "").split(",").map(e => e.trim()).filter(Boolean);
 
-const MANAGER_EMAILS = [
-  "Polandemigrants@gmail.com"
-];
+const MANAGER_EMAILS = (process.env.MANAGER_EMAILS || "").split(",").map(e => e.trim()).filter(Boolean);
 
 const getRole = (email: string) => {
   if (ADMIN_EMAILS.includes(email)) return "ADMIN";
@@ -78,17 +72,6 @@ export const authOptions: NextAuthOptions = {
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null;
-
-        if (credentials.email === "student@test.com" && credentials.password === "123456") {
-          return { id: "test-student-1", email: "student@test.com", name: "Тестовий студент", role: "STUDENT" };
-        }
-
-        if (credentials.email === "teacher@test.com" && credentials.password === "123456") {
-          const teacherUser = await prisma.user.findUnique({ where: { email: "teacher@test.com" } });
-          if (teacherUser) {
-            return { id: teacherUser.id, email: teacherUser.email, name: teacherUser.name || "Тестовий викладач", role: "TEACHER" };
-          }
-        }
 
         try {
           const user = await prisma.user.findUnique({ where: { email: credentials.email } });
@@ -182,6 +165,6 @@ export const authOptions: NextAuthOptions = {
     signIn: '/',
     error: '/auth/error',
   },
-  debug: true,
+  debug: process.env.NODE_ENV === "development",
   secret: process.env.NEXTAUTH_SECRET,
 };
