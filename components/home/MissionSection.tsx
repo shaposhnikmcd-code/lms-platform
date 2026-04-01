@@ -28,15 +28,12 @@ export default function MissionSection() {
       <div style={{ maxWidth: 1100, margin: '0 auto' }}>
 
         <div style={{ textAlign: 'center', marginBottom: 40, transform: visible ? 'translateY(0)' : 'translateY(40px)', opacity: visible ? 1 : 0, transition: 'transform 0.8s cubic-bezier(0.16,1,0.3,1), opacity 0.8s ease' }}>
-          <h2 style={{ fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif', fontSize: 'clamp(28px, 4vw, 42px)', fontWeight: 700, color: '#1C3A2E', lineHeight: 1.1, margin: '0 0 12px' }}>
+          <h2 style={{ fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif', fontSize: 'clamp(28px, 4vw, 42px)', fontWeight: 700, color: '#1C3A2E', lineHeight: 1.1, margin: 0 }}>
             {t("title")}
           </h2>
-          <p style={{ fontSize: 14, color: '#6B7A6F', maxWidth: 440, margin: '0 auto', lineHeight: 1.6, fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif' }}>
-            {t("subtitle")}
-          </p>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', alignItems: 'start', gap: '0 8px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', alignItems: 'start', gap: '0 8px' }} className="mission-grid">
           {missionData.map((m, idx) => (
             <div
               key={m.num}

@@ -101,6 +101,7 @@ export default function Navbar() {
           width: '280px',
           transform: menuOpen ? 'translateX(0)' : 'translateX(100%)',
           borderLeft: '1px solid rgba(28,58,46,0.1)',
+          visibility: menuOpen ? 'visible' : 'hidden',
         }}
       >
         <div className="px-4 py-4">

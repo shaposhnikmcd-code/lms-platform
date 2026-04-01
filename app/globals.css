@@ -65,9 +65,23 @@
   .yearly-teachers-grid {
     grid-template-columns: 1fr !important;
   }
+  .mission-grid {
+    grid-template-columns: 1fr !important;
+    gap: 2rem 0 !important;
+  }
+  /* Приховуємо роздільники між колонками на мобільному */
+  .mission-grid > div > div[style*="position: absolute"] {
+    display: none !important;
+  }
 }
 
-/* Prevent horizontal overflow globally */
-html, body {
-  overflow-x: hidden;
+/* Prevent horizontal overflow — only on body to preserve sticky nav */
+body {
+  overflow-x: clip;
+}
+
+/* Фікс: мобільне меню не виїжджає при горизонтальному скролі */
+nav {
+  max-width: 100vw;
+  overflow-x: clip;
 }

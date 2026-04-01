@@ -336,7 +336,6 @@ export default function TeamSection() {
             <div style={goldLineRightStyle} />
           </div>
           <h2 style={titleStyle}>{"Люди, які стоять за UIMP"}</h2>
-          <p style={subtitleStyle}>{"Психотерапія як покликання, а не лише як робота"}</p>
         </div>
         <div style={gridStyle}>
           <PersonCard person={team[0]} />

@@ -10,10 +10,10 @@ export default async function CharityPage() {
   return (
     <div style={{ background: '#FAF6F0', minHeight: '100vh', fontFamily: sysFont }}>
 
-      <section style={{ background: 'linear-gradient(135deg, #1C3A2E 0%, #1a3828 50%, #0f2219 100%)', paddingTop: 80, paddingBottom: 88, position: 'relative', overflow: 'hidden' }}>
+      <section style={{ background: 'linear-gradient(135deg, #1C3A2E 0%, #1a3828 50%, #0f2219 100%)', paddingTop: 48, paddingBottom: 52, position: 'relative', overflow: 'hidden' }}>
         <div style={{ position: 'absolute', top: -120, right: -80, width: 560, height: 560, borderRadius: '50%', background: 'radial-gradient(circle, rgba(212,168,67,0.07) 0%, transparent 70%)', pointerEvents: 'none' }} />
         <div style={{ position: 'absolute', bottom: -80, left: -60, width: 400, height: 400, borderRadius: '50%', background: 'radial-gradient(circle, rgba(212,168,67,0.04) 0%, transparent 70%)', pointerEvents: 'none' }} />
-        <div className="container mx-auto px-12 md:px-16 relative z-10">
+        <div className="container mx-auto px-4 sm:px-8 md:px-16 relative z-10">
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, border: '1px solid rgba(212,168,67,0.3)', background: 'rgba(212,168,67,0.1)', borderRadius: 100, padding: '6px 18px', marginBottom: 32 }}>
             <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#D4A843' }} />
             <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.3em', textTransform: 'uppercase' as const, color: '#D4A843', fontFamily: sysFont }}>{"Безкоштовно"}</span>
@@ -21,13 +21,10 @@ export default async function CharityPage() {
           <h1 style={{ fontFamily: sysFont, fontSize: 'clamp(36px, 5vw, 60px)', fontWeight: 700, color: '#F5EDD6', lineHeight: 1.08, letterSpacing: '-0.025em', margin: '0 0 24px', maxWidth: 680 }}>
             {"Благодійні проєкти"}
           </h1>
-          <p style={{ fontSize: 17, color: 'rgba(245,237,214,0.5)', maxWidth: 500, lineHeight: 1.8, margin: 0, fontFamily: sysFont }}>
-            {"Курси, які ми надаємо безкоштовно для всіх охочих — бо деякі знання мають бути доступні кожному."}
-          </p>
         </div>
       </section>
 
-      <section style={{ padding: '72px 48px 96px' }}>
+      <section className="py-14 px-4 sm:px-8 md:px-12">
         <div style={{ maxWidth: 860, margin: '0 auto' }}>
           <div style={{ marginBottom: 48 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 16 }}>
@@ -38,7 +35,7 @@ export default async function CharityPage() {
               {"Оберіть курс"}
             </h2>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             <CharityCard
               href="/courses/psychological-support"
               accent="#D4A843" accentRgb="212,168,67" icon="🤝"
