@@ -119,7 +119,7 @@ export default async function MilitaryPsychologyPage({ params }: { params: Promi
                 <Image src={teacher.image.startsWith('/') ? teacher.image : `/courses/military-psychology/${teacher.image}`} alt={teacher.name} fill
                   className="transition-transform duration-500"
                   style={{
-                    objectFit: (teacher.objectFit as 'cover' | 'contain') ?? 'cover',
+                    objectFit: ((teacher as any).objectFit ?? 'cover') as 'cover' | 'contain',
                     objectPosition: teacher.objectPosition ?? 'center top',
                     transform: `scale(${teacher.zoom ?? 1})`,
                     transformOrigin: teacher.transformOrigin ?? 'top center',
