@@ -32,8 +32,8 @@ export const content = {
     label: "Команда",
     title: "Викладачі курсу",
     items: [
-      { name: "Тетяна Шапошник", role: "Президентка UIMP, психотерапевтка", image: "Tetiana-Shaposhnyk.jpg", objectPosition: 'center 85%', zoom: 2.2, transformOrigin: 'bottom center' },
-      { name: "Стен Е. ДеКовен", role: "Президент Vision University", image: "Stan-DeCowen.webp", objectPosition: 'center 20%', zoom: 1, objectFit: 'contain', containerBg: '#b8a898' },
+      { name: "Тетяна Шапошник", role: "Президентка UIMP, психотерапевтка", image: "Tetiana-Shaposhnyk.jpg", objectPosition: 'center 75%', zoom: 1.5, transformOrigin: 'bottom center' },
+      { name: "Стен Е. ДеКовен", role: "Президент Vision University", image: "Stan-DeCowen.jpg", objectPosition: 'center top', zoom: 1 },
       { name: "Анатолій Кушнірчук", role: "Капелан, інтерв'ю", image: "Anatoliy-Kushnirchuk.webp", objectPosition: 'center top', zoom: 1 },
     ],
   },
