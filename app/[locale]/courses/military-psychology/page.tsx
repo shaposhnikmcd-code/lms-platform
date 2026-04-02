@@ -115,13 +115,14 @@ export default async function MilitaryPsychologyPage({ params }: { params: Promi
         <div className="grid md:grid-cols-3 gap-8 max-w-4xl mx-auto">
           {c.teachers.items.map((teacher, i) => (
             <div key={i} className="bg-white rounded-xl shadow-lg hover:shadow-xl transition-all overflow-hidden group">
-              <div className="relative h-80 w-full overflow-hidden">
+              <div className="relative h-80 w-full overflow-hidden" style={{ background: teacher.containerBg ?? 'transparent' }}>
                 <Image src={`/courses/military-psychology/${teacher.image}`} alt={teacher.name} fill
-                  className="object-cover transition-transform duration-500"
+                  className="transition-transform duration-500"
                   style={{
+                    objectFit: (teacher.objectFit as 'cover' | 'contain') ?? 'cover',
                     objectPosition: teacher.objectPosition ?? 'center top',
                     transform: `scale(${teacher.zoom ?? 1})`,
-                    transformOrigin: 'top center',
+                    transformOrigin: teacher.transformOrigin ?? 'top center',
                   }} />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
                 <div className="absolute bottom-0 left-0 right-0 p-6 text-white">
