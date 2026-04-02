@@ -112,10 +112,10 @@ export default async function MilitaryPsychologyPage({ params }: { params: Promi
           <span className="text-[#D4A017] font-semibold text-sm uppercase tracking-wider">{c.teachers.label}</span>
           <h2 className="text-2xl md:text-3xl font-bold text-[#1C3A2E] mt-2">{c.teachers.title}</h2>
         </div>
-        <div className="grid md:grid-cols-3 gap-8 max-w-4xl mx-auto">
+        <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
           {c.teachers.items.map((teacher, i) => (
             <div key={i} className="bg-white rounded-xl shadow-lg hover:shadow-xl transition-all overflow-hidden group">
-              <div className="relative h-80 w-full overflow-hidden" style={{ background: teacher.containerBg ?? 'transparent' }}>
+              <div className="relative h-96 w-full overflow-hidden" style={{ background: teacher.containerBg ?? 'transparent' }}>
                 <Image src={`/courses/military-psychology/${teacher.image}`} alt={teacher.name} fill
                   className="transition-transform duration-500"
                   style={{
