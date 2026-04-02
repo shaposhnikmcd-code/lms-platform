@@ -45,7 +45,7 @@ export default async function ConsultationsPage({ params }: { params: Promise<{ 
 
       <div className="max-w-6xl mx-auto px-6 py-16 space-y-8">
         {c.specialists.map((s, i) => (
-          <SpecialistCard key={i} s={s} labels={{ aboutTitle: c.aboutTitle, worksWithTitle: c.worksWithTitle, diplomasLabel: c.diplomasLabel, costLabel: c.costLabel, durationLabel: c.durationLabel, btnBook: c.btnBook }} />
+          <SpecialistCard key={i} s={s} labels={{ aboutTitle: c.aboutTitle, worksWithTitle: c.worksWithTitle, diplomasLabel: c.diplomasLabel, educationTitle: c.educationTitle, certificatesTitle: c.certificatesTitle, costLabel: c.costLabel, durationLabel: c.durationLabel, btnBook: c.btnBook }} />
         ))}
         <NotionButton />
       </div>

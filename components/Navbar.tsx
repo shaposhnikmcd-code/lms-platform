@@ -16,9 +16,15 @@ export default function Navbar() {
   const [menuOpen, setMenuOpen] = useState(false);
   const t = useTranslations("Navigation");
 
+  const isActivePath = (path: string) => {
+    const clean = pathname.replace(/^\/(uk|pl|en)/, '') || '/';
+    if (path === '/') return clean === '/';
+    return clean === path || clean.startsWith(path + '/');
+  };
+
   const linkClass = (path: string) =>
     `px-2 py-1 transition-all duration-300 rounded-md whitespace-nowrap ${
-      pathname === path || pathname.replace(/^\/(uk|pl|en)/, '') === path
+      isActivePath(path)
         ? "bg-[#1C3A2E] text-white"
         : "text-[#1C3A2E] hover:text-[#D4A843]"
     }`;
@@ -36,8 +42,7 @@ export default function Navbar() {
     { href: "/additional-materials", label: t("additionalMaterials") },
   ];
 
-  const isActive = (path: string) =>
-    pathname === path || pathname.replace(/^\/(uk|pl|en)/, '') === path;
+  const isActive = (path: string) => isActivePath(path);
 
   return (
     <>
