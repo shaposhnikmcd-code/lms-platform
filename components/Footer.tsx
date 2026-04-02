@@ -22,7 +22,7 @@ export default function Footer() {
   if (isDashboard) {
     return (
       <footer className="bg-[#1C3A2E] text-white">
-        <div className="max-w-7xl mx-auto px-4 py-3 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-white/60">
+        <div className="max-w-5xl mx-auto px-4 py-3 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-white/60">
           <p>{`© ${currentYear} Ukrainian Institute of Ministry and Psychotherapy`}</p>
           <div className="flex gap-4">
             <Link href="/privacy" className="hover:text-white transition-colors">{t('privacyShort')}</Link>
@@ -37,61 +37,45 @@ export default function Footer() {
     <footer className="mt-auto" style={{ background: '#111f18', position: 'relative', zIndex: 0 }}>
 
       {/* Соцмережі */}
-      <div style={{ background: 'linear-gradient(to right, #162e22, #1C3A2E, #162e22)', borderBottom: '1px solid rgba(212,168,67,0.15)', padding: '16px 24px' }}>
-        <div className="max-w-7xl mx-auto flex flex-col items-center gap-4">
+      <div style={{ background: 'linear-gradient(to right, #162e22, #1C3A2E, #162e22)', borderBottom: '1px solid rgba(212,168,67,0.15)', padding: '6px 24px 2px' }}>
+        <div className="max-w-5xl mx-auto" style={{ position: 'relative', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', minHeight: 76 }}>
 
-          {/* Заголовок з декором */}
-          <div className="flex items-center gap-4 w-full justify-center">
-            <div style={{ flex: 1, maxWidth: 120, height: '1px', background: 'linear-gradient(to right, transparent, rgba(212,168,67,0.5))' }} />
-            <div className="flex items-center gap-2">
-              <span style={{ color: '#D4A843', fontSize: 9 }}>✦</span>
-              <span className="text-xs tracking-[0.25em] uppercase font-bold" style={{ color: '#D4A843' }}>{t('social')}</span>
-              <span style={{ color: '#D4A843', fontSize: 9 }}>✦</span>
-            </div>
-            <div style={{ flex: 1, maxWidth: 120, height: '1px', background: 'linear-gradient(to left, transparent, rgba(212,168,67,0.5))' }} />
+          {/* Заголовок зліва — абсолютно */}
+          <div className="hidden sm:flex" style={{ position: 'absolute', left: -80, bottom: 14, flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}>
+            <span style={{ fontSize: 9, letterSpacing: '0.3em', textTransform: 'uppercase', color: 'rgba(212,168,67,0.5)', fontWeight: 700 }}>{"UIMP"}</span>
+            <span className="text-sm font-bold tracking-[0.2em] uppercase" style={{ color: '#D4A843' }}>{t('social')}</span>
+            <div style={{ height: 1, width: '100%', background: 'linear-gradient(to right, #D4A843, transparent)' }} />
           </div>
 
-          {/* Кнопки */}
+          {/* Кнопки — по центру сторінки */}
           <div className="flex items-center justify-center gap-10 flex-wrap">
-            <a href={tgUrl} target="_blank" rel="noopener noreferrer"
-              className="flex flex-col items-center gap-2 group"
-              style={{ textDecoration: 'none' }}
-            >
-              <div className="w-14 h-14 rounded-full flex items-center justify-center transition-all duration-300"
-                style={{ background: 'rgba(38,165,228,0.12)' }}
-                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(38,165,228,0.25)'; (e.currentTarget as HTMLElement).style.boxShadow = '0 0 28px rgba(38,165,228,0.55), 0 0 8px rgba(38,165,228,0.3)'; (e.currentTarget as HTMLElement).style.transform = 'translateY(-3px) scale(1.08)'; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(38,165,228,0.12)'; (e.currentTarget as HTMLElement).style.boxShadow = 'none'; (e.currentTarget as HTMLElement).style.transform = 'translateY(0) scale(1)'; }}
+            {[
+              { href: tgUrl, icon: <FaTelegram size={32} />, label: 'Telegram', color: '#26A5E4', glow: 'rgba(38,165,228,0.9)' },
+              { href: igUrl, icon: <FaInstagram size={32} />, label: 'Instagram', color: '#d6249f', glow: 'rgba(214,36,159,0.9)' },
+              { href: ytUrl, icon: <FaYoutube size={32} />, label: 'YouTube', color: '#FF0000', glow: 'rgba(255,0,0,0.9)' },
+            ].map(({ href, icon, label, color, glow }) => (
+              <a key={label} href={href} target="_blank" rel="noopener noreferrer"
+                className="flex flex-col items-center gap-2"
+                style={{ textDecoration: 'none' }}
+                onMouseEnter={e => {
+                  const span = e.currentTarget.querySelector('span.icon') as HTMLElement;
+                  const text = e.currentTarget.querySelector('span.label') as HTMLElement;
+                  if (span) { span.style.transform = 'translateY(-6px) scale(1.25)'; span.style.filter = `drop-shadow(0 0 8px ${glow}) drop-shadow(0 0 20px ${glow.replace('0.9', '0.5')})`; }
+                  if (text) text.style.color = 'rgba(255,255,255,0.8)';
+                }}
+                onMouseLeave={e => {
+                  const span = e.currentTarget.querySelector('span.icon') as HTMLElement;
+                  const text = e.currentTarget.querySelector('span.label') as HTMLElement;
+                  if (span) { span.style.transform = 'translateY(0) scale(1)'; span.style.filter = 'none'; }
+                  if (text) text.style.color = 'rgba(255,255,255,0.4)';
+                }}
               >
-                <FaTelegram size={24} style={{ color: '#26A5E4' }} />
-              </div>
-              <span className="text-[14px] tracking-wide text-white/40 group-hover:text-white/80 transition-colors duration-300">{"Telegram"}</span>
-            </a>
-            <a href={igUrl} target="_blank" rel="noopener noreferrer"
-              className="flex flex-col items-center gap-2 group"
-              style={{ textDecoration: 'none' }}
-            >
-              <div className="w-14 h-14 rounded-full flex items-center justify-center transition-all duration-300"
-                style={{ background: 'rgba(214,36,159,0.12)' }}
-                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(214,36,159,0.25)'; (e.currentTarget as HTMLElement).style.boxShadow = '0 0 28px rgba(214,36,159,0.55), 0 0 8px rgba(214,36,159,0.3)'; (e.currentTarget as HTMLElement).style.transform = 'translateY(-3px) scale(1.08)'; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(214,36,159,0.12)'; (e.currentTarget as HTMLElement).style.boxShadow = 'none'; (e.currentTarget as HTMLElement).style.transform = 'translateY(0) scale(1)'; }}
-              >
-                <FaInstagram size={24} style={{ color: '#d6249f' }} />
-              </div>
-              <span className="text-[14px] tracking-wide text-white/40 group-hover:text-white/80 transition-colors duration-300">{"Instagram"}</span>
-            </a>
-            <a href={ytUrl} target="_blank" rel="noopener noreferrer"
-              className="flex flex-col items-center gap-2 group"
-              style={{ textDecoration: 'none' }}
-            >
-              <div className="w-14 h-14 rounded-full flex items-center justify-center transition-all duration-300"
-                style={{ background: 'rgba(255,0,0,0.12)' }}
-                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,0,0,0.25)'; (e.currentTarget as HTMLElement).style.boxShadow = '0 0 28px rgba(255,0,0,0.55), 0 0 8px rgba(255,0,0,0.3)'; (e.currentTarget as HTMLElement).style.transform = 'translateY(-3px) scale(1.08)'; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,0,0,0.12)'; (e.currentTarget as HTMLElement).style.boxShadow = 'none'; (e.currentTarget as HTMLElement).style.transform = 'translateY(0) scale(1)'; }}
-              >
-                <FaYoutube size={24} style={{ color: '#FF0000' }} />
-              </div>
-              <span className="text-[14px] tracking-wide text-white/40 group-hover:text-white/80 transition-colors duration-300">{"YouTube"}</span>
-            </a>
+                <span className="icon" style={{ color, display: 'flex', transition: 'transform 0.35s cubic-bezier(0.16,1,0.3,1), filter 0.35s ease' }}>
+                  {icon}
+                </span>
+                <span className="label" style={{ fontSize: 14, letterSpacing: '0.05em', color: 'rgba(255,255,255,0.4)', transition: 'color 0.3s ease' }}>{label}</span>
+              </a>
+            ))}
           </div>
 
         </div>

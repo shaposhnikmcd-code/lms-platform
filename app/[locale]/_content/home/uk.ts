@@ -22,7 +22,7 @@ export const homeContent = {
     btnAll: "Всі програми та курси",
     items: [
       { title: "Освітні програми", description: "", icon: "📚", price: "від 950 грн", duration: "", link: "/courses" },
-      { title: "Благодійні проєкти", description: "", icon: "❤️", price: "Безкоштовно", duration: "", link: "/links" },
+      { title: "Благодійні проєкти", description: "", icon: "❤️", price: "Безкоштовно", duration: "", link: "/charity" },
       { title: "База спеціалістів", description: "", icon: "👥", price: "", duration: "", link: "/consultations" },
       { title: "Психологічні ігри", description: "", icon: "🧩", price: "1099 грн", duration: "", link: "/games" },
     ],

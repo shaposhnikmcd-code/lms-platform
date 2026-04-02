@@ -49,6 +49,7 @@ const colStyle: React.CSSProperties = {
   flexDirection: 'column',
   gap: '0.4rem',
   flex: 1,
+  minWidth: 0,
 };
 
 export default function DiplomasList({ docs }: Props) {
@@ -101,7 +102,7 @@ export default function DiplomasList({ docs }: Props) {
 
   return (
     <>
-      <div style={{ display: 'flex', gap: '0.4rem' }}>
+      <div style={{ display: 'flex', gap: '0.4rem', overflow: 'hidden' }}>
         {[docs.filter((_, i) => i % 2 === 0), docs.filter((_, i) => i % 2 !== 0)].map((col, colIdx) => (
           <div key={colIdx} style={colStyle}>
             {col.map((doc, j) => {

@@ -3,6 +3,7 @@ import { getTranslatedContent } from "@/lib/translate";
 import SpecialistCard from "./_components/SpecialistCard";
 import NotionButton from "./_components/NotionButton";
 
+const sysFont = '-apple-system, BlinkMacSystemFont, sans-serif';
 const getContent = getTranslatedContent(consultationsContent, 'consultations-page');
 
 export default async function ConsultationsPage({ params }: { params: Promise<{ locale: string }> }) {
@@ -11,13 +12,34 @@ export default async function ConsultationsPage({ params }: { params: Promise<{ 
 
   return (
     <main className="min-h-screen bg-[#f4f9f4]">
-      <section style={{ background: 'linear-gradient(135deg, #1C3A2E 0%, #1a3828 50%, #0f2219 100%)' }} className="text-white py-20">
-        <div className="container mx-auto px-12 md:px-16 text-center">
-          <div className="inline-flex items-center gap-2 bg-[#D4A843]/20 border border-[#D4A843]/30 text-[#D4A843] text-sm font-semibold px-5 py-2 rounded-full mb-6 tracking-wide uppercase">
-            {"◆"} {c.hero.badge}
+      <section style={{ background: 'linear-gradient(135deg, #1C3A2E 0%, #1a3828 50%, #0f2219 100%)', paddingTop: 52, paddingBottom: 48, position: 'relative', overflow: 'hidden' }}>
+        <div style={{ position: 'absolute', top: 40, left: 40, width: 384, height: 384, borderRadius: '50%', backgroundColor: 'rgba(212,168,67,0.05)', filter: 'blur(60px)', pointerEvents: 'none' }} />
+        <div className="container mx-auto px-4 sm:px-8 md:px-16 relative z-10">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 32 }}>
+
+            <div style={{ flex: 1 }}>
+              <div style={{ display: 'inline-flex', alignItems: 'center', border: '1px solid rgba(212,168,67,0.25)', background: 'rgba(212,168,67,0.12)', borderRadius: 100, padding: '5px 16px', marginBottom: 20 }}>
+                <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.28em', textTransform: 'uppercase' as const, color: '#D4A843', fontFamily: sysFont }}>{"UIMP"}</span>
+              </div>
+              <h1 style={{ fontFamily: sysFont, fontSize: 'clamp(32px, 5vw, 52px)', fontWeight: 700, color: 'white', lineHeight: 1.1, letterSpacing: '-0.02em', margin: '0 0 14px' }}>
+                {c.hero.title}
+              </h1>
+              <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.4)', maxWidth: 380, lineHeight: 1.75, margin: 0, fontFamily: sysFont }}>
+                {c.hero.subtitle}
+              </p>
+            </div>
+
+            <div className="hidden md:flex" style={{ flex: 1, justifyContent: 'center' }}>
+              <div style={{ position: 'relative' }}>
+                <div style={{ position: 'absolute', inset: -24, borderRadius: '50%', filter: 'blur(40px)', opacity: 0.2, background: 'radial-gradient(circle, #D4A843, #1C3A2E)', pointerEvents: 'none' }} />
+                <div style={{ position: 'relative', width: 208, height: 208 }}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src="/about-us/logo-yellow.webp" alt="UIMP" width={208} height={208} style={{ display: 'block', objectFit: 'contain', filter: 'drop-shadow(0 20px 40px rgba(0,0,0,0.4))' }} />
+                </div>
+              </div>
+            </div>
+
           </div>
-          <h1 className="text-4xl md:text-6xl font-bold mb-4 leading-tight">{c.hero.title}</h1>
-          <p className="text-white/60 text-lg max-w-xl mx-auto">{c.hero.subtitle}</p>
         </div>
       </section>
 

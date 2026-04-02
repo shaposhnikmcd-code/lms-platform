@@ -24,12 +24,13 @@ export default function MissionSection() {
   }, []);
 
   return (
-    <section ref={sectionRef} style={{ background: '#FAF6F0', padding: '56px 24px 64px', overflow: 'hidden', position: 'relative' }}>
+    <section ref={sectionRef} style={{ background: '#FAF6F0', padding: '36px 24px 64px', overflow: 'hidden', position: 'relative' }}>
       <div style={{ maxWidth: 1100, margin: '0 auto' }}>
 
         <div style={{ textAlign: 'center', marginBottom: 40, transform: visible ? 'translateY(0)' : 'translateY(40px)', opacity: visible ? 1 : 0, transition: 'transform 0.8s cubic-bezier(0.16,1,0.3,1), opacity 0.8s ease' }}>
-          <h2 style={{ fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif', fontSize: 'clamp(28px, 4vw, 42px)', fontWeight: 700, color: '#1C3A2E', lineHeight: 1.1, margin: 0 }}>
+          <h2 style={{ display: 'inline-block', position: 'relative', fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif', fontSize: 'clamp(28px, 4vw, 44px)', fontWeight: 700, color: '#1C3A2E', lineHeight: 1.1, margin: '0 0 30px', transform: 'translateX(-40px)' }}>
             {t("title")}
+            <div style={{ position: 'absolute', bottom: -14, left: 0, height: 1, width: 480, background: 'linear-gradient(90deg, #D4A843 0%, rgba(212,168,67,0.15) 60%, transparent 100%)' }} />
           </h2>
         </div>
 

@@ -5,7 +5,7 @@ import { useSession } from "next-auth/react";
 import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import Image from "next/image";
-import { useState, useRef } from "react";
+import { useState } from "react";
 import { FaBars, FaTimes } from "react-icons/fa";
 import AuthButtons from "@/components/AuthButtons";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
@@ -14,7 +14,6 @@ export default function Navbar() {
   const pathname = usePathname();
   const { data: session, status } = useSession();
   const [menuOpen, setMenuOpen] = useState(false);
-  const menuOpenTimeRef = useRef<number>(0);
   const t = useTranslations("Navigation");
 
   const linkClass = (path: string) =>
@@ -76,7 +75,8 @@ export default function Navbar() {
             <LanguageSwitcher />
             <AuthButtons />
             <button
-              onClick={() => { if (!menuOpen) menuOpenTimeRef.current = Date.now(); setMenuOpen(!menuOpen); }}
+              onTouchEnd={(e) => { e.preventDefault(); setMenuOpen(prev => !prev); }}
+              onClick={() => setMenuOpen(prev => !prev)}
               className="p-2 rounded-lg text-[#1C3A2E] hover:bg-[#E8F5E0] transition-colors"
               aria-label="Меню"
             >
@@ -91,7 +91,7 @@ export default function Navbar() {
         <div
           className="xl:hidden fixed inset-0 bg-black/40 z-40"
           style={{ top: '64px' }}
-          onClick={() => { if (Date.now() - menuOpenTimeRef.current > 350) setMenuOpen(false); }}
+          onClick={() => setMenuOpen(false)}
         />
       )}
 

@@ -51,8 +51,8 @@ export default async function CoursesPage({ params }: { params: Promise<{ locale
 
       <section style={{ background: 'linear-gradient(135deg, #1C3A2E 0%, #1a3828 50%, #0f2219 100%)', paddingTop: 52, paddingBottom: 48, position: 'relative', overflow: 'hidden' }}>
         <div className="container mx-auto px-4 sm:px-8 md:px-16 relative z-10">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
-            <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 32 }}>
+            <div style={{ flex: 1 }}>
               <div style={{ display: 'inline-flex', alignItems: 'center', border: '1px solid rgba(212,168,67,0.25)', background: 'rgba(212,168,67,0.12)', borderRadius: 100, padding: '5px 16px', marginBottom: 20 }}>
                 <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.28em', textTransform: 'uppercase' as const, color: '#D4A843', fontFamily: sysFont }}>{"UIMP"}</span>
               </div>
@@ -63,9 +63,14 @@ export default async function CoursesPage({ params }: { params: Promise<{ locale
                 {t("subtitle")}
               </p>
             </div>
-            <div className="hidden md:block" style={{ flexShrink: 0 }}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/logo-white.png" alt="UIMP" width={164} height={164} style={{ display: 'block', borderRadius: 12 }} />
+            <div className="hidden md:flex" style={{ flex: 1, justifyContent: 'center' }}>
+              <div style={{ position: 'relative' }}>
+                <div style={{ position: 'absolute', inset: -24, borderRadius: '50%', filter: 'blur(40px)', opacity: 0.2, background: 'radial-gradient(circle, #D4A843, #1C3A2E)', pointerEvents: 'none' }} />
+                <div style={{ position: 'relative', width: 208, height: 208 }}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src="/logo-white.png" alt="UIMP" width={208} height={208} style={{ display: 'block', objectFit: 'contain', filter: 'drop-shadow(0 20px 40px rgba(0,0,0,0.4))' }} />
+                </div>
+              </div>
             </div>
           </div>
         </div>
