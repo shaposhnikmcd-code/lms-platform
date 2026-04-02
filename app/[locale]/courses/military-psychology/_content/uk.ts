@@ -32,9 +32,9 @@ export const content = {
     label: "Команда",
     title: "Викладачі курсу",
     items: [
-      { name: "Тетяна Шапошник", role: "Президентка UIMP, психотерапевтка", image: "Tetiana-Shaposhnik.jpg", objectPosition: 'center 25%', zoom: 1.2, transformOrigin: 'center 25%' },
-      { name: "Стен Е. ДеКовен", role: "Президент Vision University", image: "Stan-DeCowen.jpg", objectPosition: 'center top', zoom: 1 },
-      { name: "Анатолій Кушнірчук", role: "Капелан, інтерв'ю", image: "Anatoliy-Kushnirchuk.webp", objectPosition: 'center top', zoom: 1 },
+      { name: "Тетяна Шапошник", role: "Президентка UIMP, психотерапевтка", description: "Психотерапевтка, спеціалістка в методі травмофокусованої терапії, президентка UIMP, волонтерка гарячої лінії для військовослужбовців і їхніх родин \"Варто жити\" (2022-2025 рр)", image: "Tetiana-Shaposhnik.jpg", objectPosition: 'center 25%', zoom: 1.2, transformOrigin: 'center 25%' },
+      { name: "Стен Е. ДеКовен", role: "Президент Vision University", description: "Військовий психолог (служба 1976–1978), офіцерська підготовка (Fort Benning, Fort Sam Houston), досвід Basic Training (Fort Jackson), консультант-практик із 1979 року (травма, насильство, форенсика), президент Міжнародного університету \"Vision\"", image: "Stan-DeCowen.jpg", objectPosition: 'center top', zoom: 1 },
+      { name: "Анатолій Кушнірчук", role: "Капелан ЗСУ", description: "Штатний військовий капелан 143-ї окремої механізованої бригади ЗСУ, пастор Ірпінської Біблійної Церкви (ВСЦ ЄХБ)", image: "Anatoliy-Kushnirchuk.webp", objectPosition: 'center top', zoom: 1 },
     ],
   },
 
@@ -67,6 +67,7 @@ export const content = {
           "Робота військового психолога в госпіталі. Реабілітаційна психологія",
           "Кризове капеланство і служіння в екстремальних умовах",
           "Інклюзія військових: соціальна адаптація, стигма та повернення до цивільного життя",
+          "Терапевтичні вправи для будування діалогу з військовим",
         ],
       },
     ],

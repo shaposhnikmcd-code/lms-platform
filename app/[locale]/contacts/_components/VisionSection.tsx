@@ -80,7 +80,7 @@ export default function VisionSection() {
   const isMobile = useIsMobile();
   const sectionStyle: React.CSSProperties = {
     backgroundColor: '#FAF6F0',
-    padding: isMobile ? '40px 16px 60px' : '60px 48px 80px',
+    padding: isMobile ? '32px 16px 32px' : '48px 48px 48px',
     position: 'relative',
     overflow: 'hidden',
   };

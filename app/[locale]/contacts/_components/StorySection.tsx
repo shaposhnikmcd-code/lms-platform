@@ -196,7 +196,7 @@ export default function StorySection() {
 
   const sectionStyleR: React.CSSProperties = {
     ...sectionStyle,
-    padding: isMobile ? '40px 16px 60px' : '60px 48px 80px',
+    padding: isMobile ? '32px 16px 32px' : '48px 48px 48px',
   };
   const titleStyleR: React.CSSProperties = {
     ...titleStyle,

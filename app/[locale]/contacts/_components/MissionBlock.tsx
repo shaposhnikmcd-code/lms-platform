@@ -183,7 +183,7 @@ export default function MissionBlock() {
   const sectionRef = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
 
-  const sectionStyleR: React.CSSProperties = { ...sectionStyle, padding: isMobile ? '40px 16px 60px' : '60px 48px 80px' };
+  const sectionStyleR: React.CSSProperties = { ...sectionStyle, padding: isMobile ? '32px 16px 32px' : '48px 48px 48px' };
   const titleStyleR: React.CSSProperties = { ...titleStyle, fontSize: isMobile ? 26 : 40 };
   const gridStyleR: React.CSSProperties = { ...gridStyle, gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)' };
 

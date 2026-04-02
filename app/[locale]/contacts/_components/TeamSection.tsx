@@ -19,7 +19,7 @@ const team = [
     quote: "Живу так, ніби життя — це коробка шоколадних цукерок, в якому важливо обережно розгорнути кожен досвід, розрізнивши відтінки смаку і допомогти іншим не боятися куштувати своє.",
     photo: "/about-us/Tetiana-Shaposhnyk.jpg",
     objectFit: 'cover' as const,
-    objectPosition: 'center 10%',
+    objectPosition: 'center 55%',
     wrapperStyle: {} as React.CSSProperties,
     insta: instaTetianaUrl,
     tg: tgTetianaUrl,
@@ -38,7 +38,7 @@ const team = [
 ];
 
 const sectionStyle: React.CSSProperties = {
-  padding: '100px 0 80px',
+  padding: '48px 0 48px',
   backgroundColor: '#FAF6F0',
   position: 'relative',
   overflow: 'hidden',

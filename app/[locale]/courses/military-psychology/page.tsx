@@ -28,7 +28,7 @@ export default async function MilitaryPsychologyPage({ params }: { params: Promi
           <div className="absolute top-0 left-20 w-72 h-72 bg-white rounded-full blur-3xl" />
           <div className="absolute bottom-0 right-20 w-72 h-72 bg-[#D4A017] rounded-full blur-3xl" />
         </div>
-        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 md:py-14">
+        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
           <div className="grid lg:grid-cols-2 gap-16 items-center">
             <div className="space-y-8">
               <div className="inline-block px-4 py-2 bg-white/10 backdrop-blur-sm rounded-full text-sm">
@@ -72,8 +72,8 @@ export default async function MilitaryPsychologyPage({ params }: { params: Promi
         </div>
       </section>
 
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
-        <div className="text-center mb-12">
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+        <div className="text-center mb-8">
           <span className="text-[#D4A017] font-semibold text-sm uppercase tracking-wider">{c.audience.label}</span>
           <h2 className="text-2xl md:text-3xl font-bold text-[#1C3A2E] mt-2">{c.audience.title}</h2>
         </div>
@@ -87,8 +87,8 @@ export default async function MilitaryPsychologyPage({ params }: { params: Promi
         </div>
       </section>
 
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
-        <div className="text-center mb-12">
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+        <div className="text-center mb-8">
           <span className="text-[#D4A017] font-semibold text-sm uppercase tracking-wider">{c.results.label}</span>
           <h2 className="text-2xl md:text-3xl font-bold text-[#1C3A2E] mt-2">{c.results.title}</h2>
         </div>
@@ -107,8 +107,8 @@ export default async function MilitaryPsychologyPage({ params }: { params: Promi
         </div>
       </section>
 
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
-        <div className="text-center mb-12">
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+        <div className="text-center mb-8">
           <span className="text-[#D4A017] font-semibold text-sm uppercase tracking-wider">{c.teachers.label}</span>
           <h2 className="text-2xl md:text-3xl font-bold text-[#1C3A2E] mt-2">{c.teachers.title}</h2>
         </div>
@@ -116,7 +116,7 @@ export default async function MilitaryPsychologyPage({ params }: { params: Promi
           {c.teachers.items.map((teacher, i) => (
             <div key={i} className="bg-white rounded-xl shadow-lg hover:shadow-xl transition-all overflow-hidden group">
               <div className="relative h-96 w-full overflow-hidden" style={{ background: teacher.containerBg ?? 'transparent' }}>
-                <Image src={`/courses/military-psychology/${teacher.image}`} alt={teacher.name} fill
+                <Image src={teacher.image.startsWith('/') ? teacher.image : `/courses/military-psychology/${teacher.image}`} alt={teacher.name} fill
                   className="transition-transform duration-500"
                   style={{
                     objectFit: (teacher.objectFit as 'cover' | 'contain') ?? 'cover',
@@ -130,13 +130,18 @@ export default async function MilitaryPsychologyPage({ params }: { params: Promi
                   <p className="text-white/90 text-sm">{teacher.role}</p>
                 </div>
               </div>
+              {teacher.description && (
+                <div className="p-5">
+                  <p className="text-[#1C3A2E]/80 text-sm leading-relaxed">{teacher.description}</p>
+                </div>
+              )}
             </div>
           ))}
         </div>
       </section>
 
-      <section id="program" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
-        <div className="text-center mb-12">
+      <section id="program" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+        <div className="text-center mb-8">
           <span className="text-[#D4A017] font-semibold text-sm uppercase tracking-wider">{c.program.label}</span>
           <h2 className="text-2xl md:text-3xl font-bold text-[#1C3A2E] mt-2">{c.program.title}</h2>
         </div>
