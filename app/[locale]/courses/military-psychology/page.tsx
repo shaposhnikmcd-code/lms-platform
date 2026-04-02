@@ -117,7 +117,12 @@ export default async function MilitaryPsychologyPage({ params }: { params: Promi
             <div key={i} className="bg-white rounded-xl shadow-lg hover:shadow-xl transition-all overflow-hidden group">
               <div className="relative h-80 w-full overflow-hidden">
                 <Image src={`/courses/military-psychology/${teacher.image}`} alt={teacher.name} fill
-                  className="object-cover object-top group-hover:scale-105 transition-transform duration-500" />
+                  className="object-cover transition-transform duration-500"
+                  style={{
+                    objectPosition: teacher.objectPosition ?? 'center top',
+                    transform: `scale(${teacher.zoom ?? 1})`,
+                    transformOrigin: 'top center',
+                  }} />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
                 <div className="absolute bottom-0 left-0 right-0 p-6 text-white">
                   <h3 className="text-xl font-bold mb-1">{teacher.name}</h3>
