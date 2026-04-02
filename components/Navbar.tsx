@@ -75,7 +75,6 @@ export default function Navbar() {
             <LanguageSwitcher />
             <AuthButtons />
             <button
-              onTouchEnd={(e) => { e.preventDefault(); setMenuOpen(prev => !prev); }}
               onClick={() => setMenuOpen(prev => !prev)}
               className="p-2 rounded-lg text-[#1C3A2E] hover:bg-[#E8F5E0] transition-colors"
               aria-label="Меню"

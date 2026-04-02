@@ -1,6 +1,7 @@
 'use client';
 
 import React from "react";
+import { useIsMobile } from "@/lib/useIsMobile";
 
 const sysFont = '-apple-system, BlinkMacSystemFont, sans-serif';
 
@@ -122,11 +123,14 @@ const pointTextStyle: React.CSSProperties = {
 };
 
 export default function SolutionSection() {
+  const isMobile = useIsMobile();
+  const sectionStyleR: React.CSSProperties = { ...sectionStyle, padding: isMobile ? '40px 16px 60px' : '60px 48px 80px' };
+  const innerCardStyleR: React.CSSProperties = { ...innerCardStyle, padding: isMobile ? '24px 20px' : '36px 48px' };
   return (
-    <section style={sectionStyle}>
+    <section style={sectionStyleR}>
       <div style={dotPatternStyle} />
       <div style={containerStyle}>
-        <div style={innerCardStyle}>
+        <div style={innerCardStyleR}>
           <h2 style={titleStyle}>
             {"Наше рішення — "}
             <span style={titleAccentStyle}>{"метод Біблійної терапії"}</span>

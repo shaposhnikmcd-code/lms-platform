@@ -1,13 +1,8 @@
 'use client';
 
-const sysFont = '-apple-system, BlinkMacSystemFont, sans-serif';
+import { useIsMobile } from "@/lib/useIsMobile";
 
-const sectionStyle: React.CSSProperties = {
-  backgroundColor: '#FAF6F0',
-  padding: '60px 48px 80px',
-  position: 'relative',
-  overflow: 'hidden',
-};
+const sysFont = '-apple-system, BlinkMacSystemFont, sans-serif';
 
 const dotPatternStyle: React.CSSProperties = {
   position: 'absolute',
@@ -82,6 +77,13 @@ const subtitleStyle: React.CSSProperties = {
 };
 
 export default function VisionSection() {
+  const isMobile = useIsMobile();
+  const sectionStyle: React.CSSProperties = {
+    backgroundColor: '#FAF6F0',
+    padding: isMobile ? '40px 16px 60px' : '60px 48px 80px',
+    position: 'relative',
+    overflow: 'hidden',
+  };
   return (
     <section style={sectionStyle}>
       <div style={dotPatternStyle} />

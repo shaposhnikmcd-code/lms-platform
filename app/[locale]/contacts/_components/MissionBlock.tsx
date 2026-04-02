@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from "react";
+import { useIsMobile } from "@/lib/useIsMobile";
 
 const sysFont = '-apple-system, BlinkMacSystemFont, sans-serif';
 
@@ -178,8 +179,13 @@ const dividerStyle: React.CSSProperties = {
 };
 
 export default function MissionBlock() {
+  const isMobile = useIsMobile();
   const sectionRef = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
+
+  const sectionStyleR: React.CSSProperties = { ...sectionStyle, padding: isMobile ? '40px 16px 60px' : '60px 48px 80px' };
+  const titleStyleR: React.CSSProperties = { ...titleStyle, fontSize: isMobile ? 26 : 40 };
+  const gridStyleR: React.CSSProperties = { ...gridStyle, gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)' };
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -191,7 +197,7 @@ export default function MissionBlock() {
   }, []);
 
   return (
-    <section ref={sectionRef} style={sectionStyle}>
+    <section ref={sectionRef} style={sectionStyleR}>
       <div style={dotPatternStyle} />
       <div style={containerStyle}>
         <div style={{
@@ -205,23 +211,23 @@ export default function MissionBlock() {
             <span style={eyebrowStyle}>{"Наша місія"}</span>
             <div style={lineRightStyle} />
           </div>
-          <h2 style={titleStyle}>{"Так виникла наша місія"}</h2>
+          <h2 style={titleStyleR}>{"Так виникла наша місія"}</h2>
           <p style={subtitleStyle}>{"Об'єднати психологію та духовність заради цілісного зцілення людини"}</p>
         </div>
-        <div style={gridStyle}>
+        <div style={gridStyleR}>
           {missionData.map((m, idx) => (
             <div
               key={m.num}
               style={{
-                paddingLeft: idx === 0 ? 0 : 36,
-                paddingRight: idx === 2 ? 0 : 28,
+                paddingLeft: isMobile ? 0 : (idx === 0 ? 0 : 36),
+                paddingRight: isMobile ? 0 : (idx === 2 ? 0 : 28),
                 position: 'relative',
                 transform: visible ? 'translateY(0)' : 'translateY(50px)',
                 opacity: visible ? 1 : 0,
                 transition: `transform 0.9s cubic-bezier(0.16,1,0.3,1) ${idx * 0.15}s, opacity 0.9s ease ${idx * 0.15}s`,
               }}
             >
-              {idx > 0 && <div style={dividerStyle} />}
+              {idx > 0 && !isMobile && <div style={dividerStyle} />}
               <span style={numStyle}>{m.num}</span>
               <h3 style={cardTitleStyle}>{m.title}</h3>
               <ul style={listStyle}>

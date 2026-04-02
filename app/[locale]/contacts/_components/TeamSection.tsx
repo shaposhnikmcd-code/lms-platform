@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { FaTelegram, FaInstagram } from "react-icons/fa";
 import { useState } from "react";
+import { useIsMobile } from "@/lib/useIsMobile";
 
 const sysFont = '-apple-system, BlinkMacSystemFont, sans-serif';
 
@@ -103,13 +104,6 @@ const titleStyle: React.CSSProperties = {
   lineHeight: 1.1,
 };
 
-const subtitleStyle: React.CSSProperties = {
-  fontFamily: sysFont,
-  fontSize: 15,
-  color: 'rgba(28,58,46,0.45)',
-  margin: 0,
-  lineHeight: 1.7,
-};
 
 const gridStyle: React.CSSProperties = {
   display: 'grid',
@@ -325,6 +319,13 @@ function PersonCard({ person }: { person: TeamMember }) {
 }
 
 export default function TeamSection() {
+  const isMobile = useIsMobile();
+  const gridStyleR: React.CSSProperties = {
+    ...gridStyle,
+    gridTemplateColumns: isMobile ? '1fr' : '1fr 1px 1fr',
+    gap: isMobile ? '40px 0' : '0 56px',
+  };
+  const titleStyleR: React.CSSProperties = { ...titleStyle, fontSize: isMobile ? 26 : 40 };
   return (
     <section style={sectionStyle}>
       <div style={dotPatternStyle} />
@@ -335,15 +336,17 @@ export default function TeamSection() {
             <span style={eyebrowStyle}>{"Наша команда"}</span>
             <div style={goldLineRightStyle} />
           </div>
-          <h2 style={titleStyle}>{"Люди, які стоять за UIMP"}</h2>
+          <h2 style={titleStyleR}>{"Люди, які стоять за UIMP"}</h2>
         </div>
-        <div style={gridStyle}>
+        <div style={gridStyleR}>
           <PersonCard person={team[0]} />
-          <div style={vertDividerStyle}>
-            <div style={diamondWrapStyle}>
-              <div style={diamondStyle} />
+          {!isMobile && (
+            <div style={vertDividerStyle}>
+              <div style={diamondWrapStyle}>
+                <div style={diamondStyle} />
+              </div>
             </div>
-          </div>
+          )}
           <PersonCard person={team[1]} />
         </div>
       </div>

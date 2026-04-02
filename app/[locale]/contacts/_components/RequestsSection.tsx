@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from "react";
+import { useIsMobile } from "@/lib/useIsMobile";
 import { Link } from "@/i18n/navigation";
 
 const sysFont = '-apple-system, BlinkMacSystemFont, sans-serif';
@@ -204,8 +205,13 @@ function CtaButton() {
 }
 
 export default function RequestsSection() {
+  const isMobile = useIsMobile();
   const sectionRef = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
+
+  const sectionStyleR: React.CSSProperties = { ...sectionStyle, padding: isMobile ? '40px 16px 60px' : '60px 48px 80px' };
+  const titleStyleR: React.CSSProperties = { ...titleStyle, fontSize: isMobile ? 26 : 40 };
+  const gridStyleR: React.CSSProperties = { ...gridStyle, gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr' };
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -217,7 +223,7 @@ export default function RequestsSection() {
   }, []);
 
   return (
-    <section ref={sectionRef} style={sectionStyle}>
+    <section ref={sectionRef} style={sectionStyleR}>
       <div style={dotPatternStyle} />
       <div style={containerStyle}>
         <div style={{
@@ -230,11 +236,11 @@ export default function RequestsSection() {
             <div style={eyebrowLineStyle} />
             <span style={eyebrowStyle}>{"Для кого"}</span>
           </div>
-          <h2 style={titleStyle}>{"Запити, які ми закриваємо"}</h2>
+          <h2 style={titleStyleR}>{"Запити, які ми закриваємо"}</h2>
           <div style={titleUnderlineStyle} />
         </div>
         <div style={{
-          ...gridStyle,
+          ...gridStyleR,
           transform: visible ? 'translateY(0)' : 'translateY(30px)',
           opacity: visible ? 1 : 0,
           transition: 'transform 0.8s cubic-bezier(0.16,1,0.3,1) 0.1s, opacity 0.8s ease 0.1s',
