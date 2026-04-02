@@ -13,10 +13,10 @@ export default async function MilitaryPsychologyPricing({ locale }: { locale: st
   return (
     <section id="price" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
       <div className="flex justify-center">
-        <div className="w-full max-w-2xl bg-[#112b1d] rounded-2xl px-10 py-8">
+        <div className="w-full max-w-2xl bg-[#112b1d] rounded-2xl px-6 py-6 sm:px-10 sm:py-8">
 
           {/* top row: label + deadline */}
-          <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center justify-between mb-5">
             <span className="text-[11px] font-semibold uppercase tracking-widest text-[#D4A017]">
               {c.pricing.title}
             </span>
@@ -25,16 +25,16 @@ export default async function MilitaryPsychologyPricing({ locale }: { locale: st
             </span>
           </div>
 
-          {/* main row: price | divider | features + button */}
-          <div className="flex gap-8 items-stretch">
+          {/* mobile: vertical / desktop: horizontal */}
+          <div className="flex flex-col sm:flex-row sm:gap-8 sm:items-stretch gap-5">
 
             {/* price */}
-            <div className="flex flex-col justify-center gap-2 min-w-fit">
+            <div className="flex flex-col gap-1.5">
               <span className="text-white/30 line-through text-sm">
                 {MILITARY_PSYCHOLOGY_COURSE.priceOld} {currency}
               </span>
               <div className="flex items-baseline gap-1.5">
-                <span className="text-[56px] font-black text-white leading-none tracking-tight">
+                <span className="text-[48px] sm:text-[56px] font-black text-white leading-none tracking-tight">
                   {MILITARY_PSYCHOLOGY_COURSE.price}
                 </span>
                 <span className="text-white/40 text-sm pb-1">{currency}</span>
@@ -43,10 +43,11 @@ export default async function MilitaryPsychologyPricing({ locale }: { locale: st
             </div>
 
             {/* divider */}
-            <div className="w-px bg-white/10 self-stretch" />
+            <div className="hidden sm:block w-px bg-white/10 self-stretch" />
+            <div className="block sm:hidden h-px bg-white/10" />
 
-            {/* right: features + button */}
-            <div className="flex flex-col justify-between flex-1 gap-5">
+            {/* features + button */}
+            <div className="flex flex-col gap-4 flex-1">
               <ul className="space-y-2">
                 {(c.pricing.features as string[]).map((feature, i) => (
                   <li key={i} className="flex items-center gap-2.5 text-white/55 text-sm">
