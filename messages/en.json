@@ -84,7 +84,8 @@
       "forPsychologists": "For psychologists",
       "forBeginners": "For beginners",
       "newPerspective": "A new look",
-      "forParents": "For parents"
+      "forParents": "For parents",
+      "forMilitary": "For psychologists & chaplains"
     },
     "courses": {
       "psychology": {
@@ -110,6 +111,11 @@
       "sexEd": {
         "title": "Sex Education",
         "description": "A course on the fundamentals of sex education for parents and educators. How to talk to children and what the Bible says.",
+        "duration": "recorded"
+      },
+      "militaryPsy": {
+        "title": "Military Psychology",
+        "description": "A course for professionals working with military personnel and their families. Combines biblical therapy, CBT and ACT.",
         "duration": "recorded"
       },
       "support": {

@@ -84,7 +84,8 @@
       "forPsychologists": "Dla psychologów",
       "forBeginners": "Dla początkujących",
       "newPerspective": "Nowa perspektywa",
-      "forParents": "Dla rodziców"
+      "forParents": "Dla rodziców",
+      "forMilitary": "Dla psychologów i kapelanów"
     },
     "courses": {
       "psychology": {
@@ -110,6 +111,11 @@
       "sexEd": {
         "title": "Wychowanie seksualne",
         "description": "Kurs wychowania seksualnego dla rodziców i pedagogów. Odpowiedzi na pytania: jak rozmawiać z dziećmi i co mówi Biblia.",
+        "duration": "w zapisie"
+      },
+      "militaryPsy": {
+        "title": "Psychologia wojskowa",
+        "description": "Kurs dla specjalistów pracujących z żołnierzami i ich rodzinami. Łączy terapię biblijną, CBT i metodę ACT.",
         "duration": "w zapisie"
       },
       "support": {

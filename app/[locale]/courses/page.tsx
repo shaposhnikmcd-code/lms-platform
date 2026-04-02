@@ -4,6 +4,7 @@ import { PSYCHOLOGY_COURSE } from "./psychology-basics/config";
 import { MENTORSHIP_COURSE } from "./mentorship/config";
 import { BIBLICAL_HEROES_COURSE } from "./psychotherapy-of-biblical-heroes/config";
 import { SEX_EDUCATION_COURSE } from "./sex-education/config";
+import { MILITARY_PSYCHOLOGY_COURSE } from "./military-psychology/config";
 import { getCurrency } from "@/lib/currency";
 import CourseCard from "./_components/CourseCard";
 
@@ -15,6 +16,7 @@ const coursesMeta = [
   { key: "mentorship",     price: null, href: "/courses/mentorship",                       icon: "🫂", tagKey: "tags.forBeginners",       accent: '#1C3A2E', accentRgb: '28,58,46' },
   { key: "biblicalHeroes", price: null, href: "/courses/psychotherapy-of-biblical-heroes", icon: "📖", tagKey: "tags.newPerspective",     accent: '#C4919A', accentRgb: '196,145,154' },
   { key: "sexEd",          price: null, href: "/courses/sex-education",                    icon: "👨‍👩‍👧", tagKey: "tags.forParents",         accent: '#D4A843', accentRgb: '212,168,67' },
+  { key: "militaryPsy",   price: null, href: "/courses/military-psychology",               icon: "🪖",   tagKey: "tags.forMilitary",        accent: '#1C3A2E', accentRgb: '28,58,46' },
 ];
 
 const cardLayouts: { width: string; marginLeft: string; className: string }[] = [
@@ -23,6 +25,7 @@ const cardLayouts: { width: string; marginLeft: string; className: string }[] = 
   { width: '94%',  marginLeft: '0',    className: 'sm:w-[94%]' },
   { width: '90%',  marginLeft: 'auto', className: 'sm:w-[90%] sm:ml-auto' },
   { width: '96%',  marginLeft: '0',    className: 'sm:w-[96%]' },
+  { width: '92%',  marginLeft: 'auto', className: 'sm:w-[92%] sm:ml-auto' },
 ];
 
 export default async function CoursesPage({ params }: { params: Promise<{ locale: string }> }) {
@@ -43,7 +46,8 @@ export default async function CoursesPage({ params }: { params: Promise<{ locale
     : key === "psychiatry"     ? PSYCHIATRY_COURSE.price
     : key === "mentorship"     ? MENTORSHIP_COURSE.price
     : key === "biblicalHeroes" ? BIBLICAL_HEROES_COURSE.price
-    : SEX_EDUCATION_COURSE.price
+    : key === "sexEd"         ? SEX_EDUCATION_COURSE.price
+    : MILITARY_PSYCHOLOGY_COURSE.price
   );
 
   return (
