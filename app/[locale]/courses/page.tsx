@@ -17,12 +17,12 @@ const coursesMeta = [
   { key: "sexEd",          price: null, href: "/courses/sex-education",                    icon: "👨‍👩‍👧", tagKey: "tags.forParents",         accent: '#D4A843', accentRgb: '212,168,67' },
 ];
 
-const cardLayouts: { width: string; marginLeft: string }[] = [
-  { width: '100%', marginLeft: '0' },
-  { width: '88%',  marginLeft: 'auto' },
-  { width: '94%',  marginLeft: '0' },
-  { width: '90%',  marginLeft: 'auto' },
-  { width: '96%',  marginLeft: '0' },
+const cardLayouts: { width: string; marginLeft: string; className: string }[] = [
+  { width: '100%', marginLeft: '0',    className: '' },
+  { width: '88%',  marginLeft: 'auto', className: 'sm:w-[88%] sm:ml-auto' },
+  { width: '94%',  marginLeft: '0',    className: 'sm:w-[94%]' },
+  { width: '90%',  marginLeft: 'auto', className: 'sm:w-[90%] sm:ml-auto' },
+  { width: '96%',  marginLeft: '0',    className: 'sm:w-[96%]' },
 ];
 
 export default async function CoursesPage({ params }: { params: Promise<{ locale: string }> }) {
@@ -82,7 +82,7 @@ export default async function CoursesPage({ params }: { params: Promise<{ locale
             {coursesMeta.map((c, i) => {
               const layout = cardLayouts[i];
               return (
-                <div key={c.key} style={{ width: layout.width, marginLeft: layout.marginLeft, marginRight: layout.marginLeft === 'auto' ? '0' : undefined }}>
+                <div key={c.key} className={`w-full ${layout.className}`}>
                   <CourseCard
                     href={c.href}
                     accent={c.accent}

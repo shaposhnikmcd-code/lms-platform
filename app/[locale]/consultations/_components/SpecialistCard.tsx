@@ -47,10 +47,10 @@ interface Props {
 export default function SpecialistCard({ s, labels }: Props) {
   return (
     <div className="bg-white rounded-3xl shadow-xl overflow-hidden">
-      <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 2fr 0.9fr' }}>
+      <div className="grid grid-cols-1 lg:grid-cols-[1.5fr_2fr_0.9fr]">
 
         {/* Колонка 1: Фото */}
-        <div className="relative" style={{ borderRight: '1px solid #f3f4f6' }}>
+        <div className="relative border-b lg:border-b-0 lg:border-r border-gray-100">
           <div className="relative h-72 lg:h-full min-h-[400px] w-full overflow-hidden">
             <Image
               src={s.image}
@@ -79,10 +79,10 @@ export default function SpecialistCard({ s, labels }: Props) {
 
         {/* Колонка 2: Середина */}
         <div className="flex flex-col">
-          <div className="grid grid-cols-2 gap-0" style={{ borderBottom: '1px solid #f3f4f6' }}>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-0" style={{ borderBottom: '1px solid #f3f4f6' }}>
 
             {/* Про фахівця */}
-            <div className="px-6 py-5" style={{ borderRight: '1px solid #f3f4f6' }}>
+            <div className="px-6 py-5 border-b sm:border-b-0 sm:border-r border-gray-100">
               <div className="flex items-center gap-2 mb-3">
                 <div className="w-3 h-0.5 bg-[#D4A843]" />
                 <h3 className="text-xs font-bold text-[#1C3A2E] uppercase tracking-widest">{labels.aboutTitle}</h3>
@@ -127,7 +127,7 @@ export default function SpecialistCard({ s, labels }: Props) {
         </div>
 
         {/* Колонка 3: Ціна */}
-        <div className="flex flex-col" style={{ borderLeft: '1px solid #f3f4f6' }}>
+        <div className="flex flex-col border-t lg:border-t-0 lg:border-l border-gray-100">
           <div className="h-1 bg-gradient-to-r from-[#D4A843] via-[#f0c040] to-[#D4A843]" />
           <div className="px-6 py-8 flex flex-col flex-1 justify-center gap-6">
             <div className="text-center">

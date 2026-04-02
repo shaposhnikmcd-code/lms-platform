@@ -35,6 +35,7 @@ export default function CourseCard({ href, accentRgb, tag, icon, title, descript
       <div
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
+        className="grid grid-cols-1 sm:grid-cols-[1fr_auto]"
         style={{
           background: hovered ? CARD_BG_HOVER : CARD_BG,
           borderRadius: 18,
@@ -42,8 +43,6 @@ export default function CourseCard({ href, accentRgb, tag, icon, title, descript
           boxShadow: hovered ? '0 28px 56px rgba(0,0,0,0.3)' : '0 4px 16px rgba(0,0,0,0.1)',
           transform: hovered ? 'translateY(-4px) scale(1.008)' : 'translateY(0) scale(1)',
           transition: 'all 0.35s cubic-bezier(0.16,1,0.3,1)',
-          display: 'grid',
-          gridTemplateColumns: '1fr auto',
         }}
       >
         {/* LEFT */}
@@ -76,7 +75,7 @@ export default function CourseCard({ href, accentRgb, tag, icon, title, descript
             </p>
           </div>
 
-          <div style={{ display: 'flex', borderTop: `1px solid ${STRIP_BORDER}`, background: 'rgba(255,255,255,0.03)' }}>
+          <div className="hidden sm:flex" style={{ borderTop: `1px solid ${STRIP_BORDER}`, background: 'rgba(255,255,255,0.03)' }}>
             {benefits.map((b, i) => (
               <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '11px 20px', borderRight: i < benefits.length - 1 ? `1px solid ${STRIP_BORDER}` : 'none' }}>
                 <span style={{ fontSize: 12 }}>{b.icon}</span>

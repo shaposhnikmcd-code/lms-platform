@@ -81,7 +81,7 @@ export default function Directions({ content }: Props) {
         </div>
 
         {/* Layout */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, alignItems: 'stretch' }}>
+        <div className="grid grid-cols-1 sm:grid-cols-2" style={{ gap: 14, alignItems: 'stretch' }}>
 
           {/* Featured card */}
           <Link
