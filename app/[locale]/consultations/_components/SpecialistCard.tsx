@@ -1,6 +1,6 @@
 import Image from "next/image";
 import { Link } from "@/i18n/navigation";
-import DiplomasList from "./DiplomasList";
+import DiplomasList, { DiplomaDoc } from "./DiplomasList";
 import EducationTimeline, { EducationCategory } from "./EducationTimeline";
 import CertificatesGrid, { CertificateDoc } from "./CertificatesGrid";
 
@@ -11,15 +11,6 @@ interface Specialization {
   text: string;
 }
 
-interface DiplomaDoc {
-  type: string;
-  title: string;
-  org: string;
-  detail: string;
-  year: string;
-  file?: string;
-  tag: string;
-}
 
 interface Specialist {
   name: string;

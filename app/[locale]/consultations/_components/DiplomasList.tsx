@@ -4,13 +4,13 @@ import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { FaGraduationCap, FaCertificate, FaTimes, FaExternalLinkAlt } from 'react-icons/fa';
 
-interface DiplomaDoc {
+export interface DiplomaDoc {
   type: string;
   title: string;
   org: string;
   detail: string;
   year: string;
-  file: string;
+  file?: string;
   tag: string;
   url?: string;
 }
@@ -112,8 +112,9 @@ export default function DiplomasList({ docs }: Props) {
               const accentColor = isDiploma ? '#1C3A2E' : '#D4A843';
               return (
             <div key={i} style={{ display: 'flex', flexDirection: 'column', borderRadius: '8px', overflow: 'hidden', ...(doc.url ? { marginTop: 'auto', marginBottom: 'auto' } : {}) }}>
+              {doc.file ? (
               <button
-                onClick={() => openModal(doc.file, doc.title, doc.url)}
+                onClick={() => openModal(doc.file!, doc.title, doc.url)}
                 onMouseEnter={() => setHoveredIndex(i)}
                 onMouseLeave={() => setHoveredIndex(null)}
                 style={{
@@ -155,6 +156,50 @@ export default function DiplomasList({ docs }: Props) {
                   {doc.title}
                 </span>
               </button>
+              ) : (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  padding: '0.5rem 0.65rem',
+                  background: 'white',
+                  borderTop: '1px solid rgba(28,58,46,0.07)',
+                  borderRight: '1px solid rgba(28,58,46,0.07)',
+                  borderBottom: '1px solid rgba(28,58,46,0.07)',
+                  borderLeft: `3px solid ${accentColor}`,
+                }}
+              >
+                {isDiploma
+                  ? <FaGraduationCap style={{ color: accentColor, fontSize: '0.65rem', flexShrink: 0 }} />
+                  : <FaCertificate style={{ color: accentColor, fontSize: '0.65rem', flexShrink: 0 }} />
+                }
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <span style={{
+                    display: 'block',
+                    fontSize: '0.7rem',
+                    fontWeight: 600,
+                    color: '#1C3A2E',
+                    fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif',
+                    lineHeight: 1.3,
+                  }}>
+                    {doc.title}
+                  </span>
+                  {doc.detail && (
+                    <span style={{
+                      display: 'block',
+                      fontSize: '0.62rem',
+                      color: '#6b7280',
+                      fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif',
+                      lineHeight: 1.3,
+                      marginTop: '0.15rem',
+                    }}>
+                      {doc.detail}
+                    </span>
+                  )}
+                </div>
+              </div>
+              )}
 
               {doc.url && (
                 <a
