@@ -33,8 +33,8 @@ export const content = {
     title: "Викладачі курсу",
     items: [
       { name: "Тетяна Шапошник", role: "Президентка UIMP, психотерапевтка", image: "Tetiana-Shaposhnyk.jpg" },
-      { name: "Стен Е. ДеКовен", role: "Президент Vision University", image: "Stan-DeKoven.webp" },
-      { name: "Анатолій Кушнірук", role: "Капелан, інтерв'ю", image: "Anatoliy-Kushniruk.webp" },
+      { name: "Стен Е. ДеКовен", role: "Президент Vision University", image: "Stan-DeCowen.webp" },
+      { name: "Анатолій Кушнірчук", role: "Капелан, інтерв'ю", image: "Anatoliy-Kushnirchuk.webp" },
     ],
   },
 
