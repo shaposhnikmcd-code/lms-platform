@@ -115,7 +115,7 @@ export default async function MilitaryPsychologyPage({ params }: { params: Promi
         <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
           {c.teachers.items.map((teacher, i) => (
             <div key={i} className="bg-white rounded-xl shadow-lg hover:shadow-xl transition-all overflow-hidden group">
-              <div className="relative h-96 w-full overflow-hidden" style={{ background: teacher.containerBg ?? 'transparent' }}>
+              <div className="relative h-96 w-full overflow-hidden">
                 <Image src={teacher.image.startsWith('/') ? teacher.image : `/courses/military-psychology/${teacher.image}`} alt={teacher.name} fill
                   className="transition-transform duration-500"
                   style={{
