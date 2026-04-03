@@ -3,6 +3,7 @@ import Image from 'next/image';
 import { FaArrowRight, FaHeart, FaUsers, FaChild } from 'react-icons/fa';
 import { Inter } from 'next/font/google';
 import SexEducationPricing from './_components/SexEducationPricing';
+import CoursePurchaseModal from '@/components/CoursePurchaseModal';
 import { SEX_EDUCATION_COURSE } from './config';
 import { getTranslatedContent } from '@/lib/translate';
 import { content } from './_content/uk';
@@ -39,11 +40,12 @@ export default async function SexEducationPage({ params }: { params: Promise<{ l
               </h1>
               <p className="text-white/80 text-lg leading-relaxed max-w-xl">{c.description}</p>
               <div className="flex flex-col sm:flex-row gap-4">
-                <a href={SEX_EDUCATION_COURSE.sendpulseUrl} target="_blank" rel="noopener noreferrer"
-                  className="group inline-flex items-center justify-center gap-2 bg-[#D4A017] text-white font-bold px-10 py-4 rounded-lg hover:bg-[#b88913] transition-all duration-300 text-lg">
-                  <span>{c.btnBuy}</span>
-                  <FaArrowRight className="group-hover:translate-x-1 transition-transform" />
-                </a>
+                <CoursePurchaseModal
+                  courseName="Статеве виховання"
+                  price={Number(SEX_EDUCATION_COURSE.price)}
+                  courseId={SEX_EDUCATION_COURSE.courseId}
+                  buttonLabel={c.btnBuy}
+                />
                 <Link href="#program"
                   className="inline-flex items-center justify-center px-8 py-4 border border-white/30 rounded-lg hover:bg-white/10 transition-all font-medium">
                   {c.btnProgram}

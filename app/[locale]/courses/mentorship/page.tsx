@@ -3,6 +3,7 @@ import Image from 'next/image';
 import { FaArrowRight, FaHeart, FaUsers, FaBookOpen, FaQuoteRight, FaQuoteLeft } from 'react-icons/fa';
 import { Inter } from 'next/font/google';
 import MentorshipPricing from './_components/MentorshipPricing';
+import CoursePurchaseModal from '@/components/CoursePurchaseModal';
 import { MENTORSHIP_COURSE } from './config';
 import { getTranslatedContent } from '@/lib/translate';
 import { content } from './_content/uk';
@@ -39,11 +40,12 @@ export default async function MentorshipCoursePage({ params }: { params: Promise
               </h1>
               <p className="text-white/80 text-lg leading-relaxed max-w-xl">{c.description}</p>
               <div className="flex flex-col sm:flex-row gap-4">
-                <a href={MENTORSHIP_COURSE.sendpulseUrl} target="_blank" rel="noopener noreferrer"
-                  className="group inline-flex items-center justify-center gap-2 bg-[#D4A017] text-white font-bold px-10 py-4 rounded-lg hover:bg-[#b88913] transition-all duration-300 text-lg">
-                  <span>{c.btnBuy}</span>
-                  <FaArrowRight className="group-hover:translate-x-1 transition-transform" />
-                </a>
+                <CoursePurchaseModal
+                  courseName="Основи душеопікунства"
+                  price={Number(MENTORSHIP_COURSE.price)}
+                  courseId={MENTORSHIP_COURSE.courseId}
+                  buttonLabel={c.btnBuy}
+                />
                 <Link href="#program"
                   className="inline-flex items-center justify-center px-8 py-4 border border-white/30 rounded-lg hover:bg-white/10 transition-all font-medium">
                   {c.btnProgram}
