@@ -83,6 +83,7 @@ model Course {
   payments     Payment[]
   certificates Certificate[]
   courseTeachers CourseTeacher[]
+  promoCodes    PromoCode[]
 }
 
 model CourseTeacher {
@@ -328,6 +329,27 @@ enum VideoProvider {
   VIMEO
   SENDPULSE
   LOCAL
+}
+
+model PromoCode {
+  id            String    @id @default(cuid())
+  code          String    @unique
+  discountType  DiscountType @default(PERCENTAGE)
+  discountValue Int
+  courseId       String?
+  maxUses       Int?
+  usedCount     Int       @default(0)
+  active        Boolean   @default(true)
+  expiresAt     DateTime?
+  createdAt     DateTime  @default(now())
+  course        Course?   @relation(fields: [courseId], references: [id])
+
+  @@index([code])
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED
 }
 
 enum NewsCategory {

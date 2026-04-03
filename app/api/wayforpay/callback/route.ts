@@ -79,6 +79,32 @@ export async function POST(req: NextRequest) {
           });
 
           console.log('✅ Enrollment створено для userId:', payment.userId, 'courseId:', payment.courseId);
+
+          // Відправляємо подію в SendPulse для зарахування на курс
+          const user = await prisma.user.findUnique({ where: { id: payment.userId } });
+          if (user?.email) {
+            const sendpulseEventUrl = process.env.SENDPULSE_EVENT_URL;
+            if (sendpulseEventUrl) {
+              try {
+                const course = await prisma.course.findUnique({ where: { id: payment.courseId } });
+                await fetch(sendpulseEventUrl, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    email: user.email,
+                    phone: '',
+                    product_name: course?.title || '',
+                    product_id: 0,
+                    product_price: String(payment.amount),
+                    order_date: new Date().toISOString().split('T')[0],
+                  }),
+                });
+                console.log('✅ SendPulse event відправлено для:', user.email);
+              } catch (spError) {
+                console.error('❌ Помилка SendPulse event:', spError);
+              }
+            }
+          }
         }
       }
 

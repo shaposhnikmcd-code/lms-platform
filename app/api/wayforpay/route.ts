@@ -1,12 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
 
 export async function POST(req: NextRequest) {
   try {
-    const { orderReference, amount, productName, productPrice, productCount, clientEmail, courseId } = await req.json();
+    const { orderReference, amount, productName, productPrice, productCount, clientEmail, clientName, clientPhone, courseId, promoCode } = await req.json();
 
     const merchantLogin = process.env.WAYFORPAY_MERCHANT_LOGIN!;
     const secretKey = process.env.WAYFORPAY_SECRET_KEY!;
@@ -14,20 +12,39 @@ export async function POST(req: NextRequest) {
 
     const isConnector = orderReference.startsWith('connector_');
 
-    // Для курсів — перевіряємо сесію і створюємо Payment
+    // Для курсів — створюємо/знаходимо користувача і Payment
     if (!isConnector) {
-      const session = await getServerSession(authOptions);
-
-      if (!session?.user?.email) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      if (!clientEmail) {
+        return NextResponse.json({ error: 'Email is required' }, { status: 400 });
       }
 
-      const user = await prisma.user.findUnique({
+      // Знайти або створити користувача за email
+      const user = await prisma.user.upsert({
         where: { email: clientEmail },
+        create: {
+          email: clientEmail,
+          name: clientName || '',
+        },
+        update: {},
       });
 
-      if (!user) {
-        return NextResponse.json({ error: 'User not found' }, { status: 404 });
+      // Перевірка та використання промокоду
+      let finalAmount = amount;
+      if (promoCode) {
+        const promo = await prisma.promoCode.findUnique({
+          where: { code: promoCode.toUpperCase() },
+        });
+        if (promo && promo.active) {
+          if (promo.discountType === 'PERCENTAGE') {
+            finalAmount = Math.round(amount * (1 - promo.discountValue / 100));
+          } else {
+            finalAmount = Math.max(0, amount - promo.discountValue);
+          }
+          await prisma.promoCode.update({
+            where: { id: promo.id },
+            data: { usedCount: { increment: 1 } },
+          });
+        }
       }
 
       await prisma.payment.upsert({
@@ -36,7 +53,7 @@ export async function POST(req: NextRequest) {
           userId: user.id,
           courseId,
           orderReference,
-          amount,
+          amount: finalAmount,
           status: 'PENDING',
         },
         update: {},
@@ -74,6 +91,9 @@ export async function POST(req: NextRequest) {
       productPrice: [productPrice],
       productCount: [productCount],
       clientEmail,
+      clientFirstName: clientName?.split(' ')[0] || '',
+      clientLastName: clientName?.split(' ').slice(1).join(' ') || '',
+      clientPhone: clientPhone || '',
       returnUrl: `${domain}/api/wayforpay/return`,
       serviceUrl: `${domain}/api/wayforpay/callback`,
       merchantSignature,

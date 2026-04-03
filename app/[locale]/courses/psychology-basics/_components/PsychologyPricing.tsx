@@ -1,5 +1,5 @@
 import { FaCheck } from 'react-icons/fa';
-import SendPulseButton from '@/components/SendPulseButton';
+import CoursePurchaseModal from '@/components/CoursePurchaseModal';
 import { PSYCHOLOGY_COURSE } from '../config';
 import { getTranslatedContent } from '@/lib/translate';
 import { getCurrency } from '@/lib/currency';
@@ -38,7 +38,13 @@ export default async function PsychologyPricing({ locale }: { locale: string }) 
                   </p>
                 ))}
               </div>
-              <SendPulseButton url={PSYCHOLOGY_COURSE.sendpulseUrl} label={c.pricing.btnBuy} />
+              <CoursePurchaseModal
+                courseName="Основи психології"
+                price={Number(PSYCHOLOGY_COURSE.price)}
+                courseId={PSYCHOLOGY_COURSE.courseId}
+                currency={currency}
+                buttonLabel={c.pricing.btnBuy}
+              />
             </div>
           </div>
         </div>

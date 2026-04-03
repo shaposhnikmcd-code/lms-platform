@@ -2,7 +2,14 @@ export const dynamic = 'force-dynamic';
 
 import { Link } from '@/i18n/navigation';
 
-export default function PaymentSuccessPage() {
+interface Props {
+  searchParams: Promise<{ type?: string }>;
+}
+
+export default async function PaymentSuccessPage({ searchParams }: Props) {
+  const { type } = await searchParams;
+  const isCourse = type === 'course';
+
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
       <div className="bg-white rounded-2xl shadow-lg p-10 max-w-md w-full text-center">
@@ -11,11 +18,20 @@ export default function PaymentSuccessPage() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
           </svg>
         </div>
-        <h1 className="text-2xl font-bold text-[#1C3A2E] mb-3">{"Оплата успішна!"}</h1>
-        <p className="text-gray-500 mb-2">{"Дякуємо за замовлення гри Конектор."}</p>
-        <p className="text-gray-500 mb-8">{"Ми зв'яжемося з вами найближчим часом для підтвердження доставки."}</p>
+        <h1 className="text-2xl font-bold text-[#1C3A2E] mb-3">Оплата успішна!</h1>
+        {isCourse ? (
+          <>
+            <p className="text-gray-500 mb-2">Дякуємо за придбання курсу!</p>
+            <p className="text-gray-500 mb-8">Найближчим часом ви отримаєте лист з доступом до курсу на вашу електронну пошту.</p>
+          </>
+        ) : (
+          <>
+            <p className="text-gray-500 mb-2">Дякуємо за замовлення гри Конектор.</p>
+            <p className="text-gray-500 mb-8">{"Ми зв'яжемося з вами найближчим часом для підтвердження доставки."}</p>
+          </>
+        )}
         <Link href="/" className="inline-block bg-[#D4A017] text-white font-bold py-3 px-8 rounded-xl hover:bg-[#b88913] transition-colors">
-          {"На головну"}
+          На головну
         </Link>
       </div>
     </div>
