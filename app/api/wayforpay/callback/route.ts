@@ -86,14 +86,13 @@ export async function POST(req: NextRequest) {
             const sendpulseEventUrl = process.env.SENDPULSE_EVENT_URL;
             if (sendpulseEventUrl) {
               try {
-                const course = await prisma.course.findUnique({ where: { id: payment.courseId } });
                 await fetch(sendpulseEventUrl, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({
                     email: user.email,
                     phone: '',
-                    product_name: course?.title || '',
+                    product_name: payment.courseId || '',
                     product_id: 0,
                     product_price: String(payment.amount),
                     order_date: new Date().toISOString().split('T')[0],
