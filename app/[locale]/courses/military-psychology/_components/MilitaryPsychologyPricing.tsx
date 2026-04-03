@@ -1,4 +1,4 @@
-import SendPulseButton from '@/components/SendPulseButton';
+import CoursePurchaseModal from '@/components/CoursePurchaseModal';
 import { MILITARY_PSYCHOLOGY_COURSE } from '../config';
 import { getTranslatedContent } from '@/lib/translate';
 import { getCurrency } from '@/lib/currency';
@@ -56,7 +56,13 @@ export default async function MilitaryPsychologyPricing({ locale }: { locale: st
                   </li>
                 ))}
               </ul>
-              <SendPulseButton url={MILITARY_PSYCHOLOGY_COURSE.sendpulseUrl} label={c.pricing.btnBuy} />
+              <CoursePurchaseModal
+                courseName="Військова психологія"
+                price={Number(MILITARY_PSYCHOLOGY_COURSE.price)}
+                courseId={MILITARY_PSYCHOLOGY_COURSE.courseId}
+                currency={currency}
+                buttonLabel={c.pricing.btnBuy}
+              />
             </div>
 
           </div>

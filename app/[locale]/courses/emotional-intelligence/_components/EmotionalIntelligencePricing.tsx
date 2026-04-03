@@ -1,4 +1,4 @@
-import SendPulseButton from '@/components/SendPulseButton';
+import CoursePurchaseModal from '@/components/CoursePurchaseModal';
 import { EMOTIONAL_INTELLIGENCE_COURSE } from '../config';
 import { getTranslatedContent } from '@/lib/translate';
 import { getCurrency } from '@/lib/currency';
@@ -45,7 +45,13 @@ export default async function EmotionalIntelligencePricing({ locale }: { locale:
                   </li>
                 ))}
               </ul>
-              <SendPulseButton url={EMOTIONAL_INTELLIGENCE_COURSE.sendpulseUrl} label={c.pricing.btnBuy} />
+              <CoursePurchaseModal
+                courseName="Емоційний інтелект"
+                price={Number(EMOTIONAL_INTELLIGENCE_COURSE.price)}
+                courseId={EMOTIONAL_INTELLIGENCE_COURSE.courseId}
+                currency={currency}
+                buttonLabel={c.pricing.btnBuy}
+              />
             </div>
 
           </div>

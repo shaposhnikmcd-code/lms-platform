@@ -1,5 +1,5 @@
 import { FaCheck } from 'react-icons/fa';
-import SendPulseButton from '@/components/SendPulseButton';
+import CoursePurchaseModal from '@/components/CoursePurchaseModal';
 import { SEX_EDUCATION_COURSE } from '../config';
 import { getTranslatedContent } from '@/lib/translate';
 import { getCurrency } from '@/lib/currency';
@@ -38,7 +38,13 @@ export default async function SexEducationPricing({ locale }: { locale: string }
                   </p>
                 ))}
               </div>
-              <SendPulseButton url={SEX_EDUCATION_COURSE.sendpulseUrl} label={c.pricing.btnBuy} />
+              <CoursePurchaseModal
+                courseName="Статеве виховання"
+                price={Number(SEX_EDUCATION_COURSE.price)}
+                courseId={SEX_EDUCATION_COURSE.courseId}
+                currency={currency}
+                buttonLabel={c.pricing.btnBuy}
+              />
             </div>
           </div>
         </div>

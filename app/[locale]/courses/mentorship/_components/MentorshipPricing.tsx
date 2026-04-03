@@ -1,4 +1,4 @@
-import SendPulseButton from '@/components/SendPulseButton';
+import CoursePurchaseModal from '@/components/CoursePurchaseModal';
 import { MENTORSHIP_COURSE } from '../config';
 import { getTranslatedContent } from '@/lib/translate';
 import { getCurrency } from '@/lib/currency';
@@ -18,7 +18,13 @@ export default async function MentorshipPricing({ locale }: { locale: string }) 
         <div className="max-w-sm mx-auto bg-white/10 backdrop-blur-sm rounded-xl p-6">
           <div className="text-3xl font-black text-white mb-3">{MENTORSHIP_COURSE.price} {currency}</div>
           <p className="text-white/60 text-xs mb-4">{c.pricing.access}</p>
-          <SendPulseButton url={MENTORSHIP_COURSE.sendpulseUrl} label={c.pricing.btnBuy} />
+          <CoursePurchaseModal
+            courseName="Менторство"
+            price={Number(MENTORSHIP_COURSE.price)}
+            courseId={MENTORSHIP_COURSE.courseId}
+            currency={currency}
+            buttonLabel={c.pricing.btnBuy}
+          />
         </div>
       </div>
     </section>
