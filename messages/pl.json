@@ -85,7 +85,8 @@
       "forBeginners": "Dla początkujących",
       "newPerspective": "Nowa perspektywa",
       "forParents": "Dla rodziców",
-      "forMilitary": "Dla psychologów i kapelanów"
+      "forMilitary": "Dla psychologów i kapelanów",
+      "forEveryone": "Dla wszystkich"
     },
     "courses": {
       "psychology": {
@@ -116,6 +117,11 @@
       "militaryPsy": {
         "title": "Psychologia wojskowa",
         "description": "Kurs dla specjalistów pracujących z żołnierzami i ich rodzinami. Łączy terapię biblijną, CBT i metodę ACT.",
+        "duration": "w zapisie"
+      },
+      "emotionalIQ": {
+        "title": "Inteligencja emocjonalna",
+        "description": "Kurs, który uczy rozumieć i regulować emocje, aby stały się wsparciem w wewnętrznych zmianach i relacjach.",
         "duration": "w zapisie"
       },
       "support": {

@@ -85,7 +85,8 @@
       "forBeginners": "For beginners",
       "newPerspective": "A new look",
       "forParents": "For parents",
-      "forMilitary": "For psychologists & chaplains"
+      "forMilitary": "For psychologists & chaplains",
+      "forEveryone": "For everyone"
     },
     "courses": {
       "psychology": {
@@ -116,6 +117,11 @@
       "militaryPsy": {
         "title": "Military Psychology",
         "description": "A course for professionals working with military personnel and their families. Combines biblical therapy, CBT and ACT.",
+        "duration": "recorded"
+      },
+      "emotionalIQ": {
+        "title": "Emotional Intelligence",
+        "description": "A course to help you understand and regulate emotions so they become a supportive resource for inner growth and relationships.",
         "duration": "recorded"
       },
       "support": {
