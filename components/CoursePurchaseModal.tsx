@@ -166,9 +166,9 @@ export default function CoursePurchaseModal({
       <div className="fixed inset-0 bg-black/60" onClick={closeModal} />
 
       {/* Centering wrapper */}
-      <div className="relative min-h-full flex items-center justify-center p-4 sm:p-6">
+      <div className="relative min-h-full flex items-center justify-center p-4 sm:p-6" onClick={closeModal}>
         {/* Modal card */}
-        <div className="relative bg-white rounded-2xl w-full max-w-lg shadow-2xl">
+        <div className="relative bg-white rounded-2xl w-full max-w-lg shadow-2xl" onClick={(e) => e.stopPropagation()}>
           {/* Close button */}
           <button
             onClick={closeModal}
