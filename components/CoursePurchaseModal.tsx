@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useSession } from 'next-auth/react';
 import { FaWallet, FaTimes, FaCheck, FaSpinner } from 'react-icons/fa';
+import CoursePhoneInput, { PHONE_CONFIG } from './CoursePhoneInput';
 
 interface CoursePurchaseModalProps {
   courseName: string;
@@ -30,6 +31,7 @@ export default function CoursePurchaseModal({
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [phone, setPhone] = useState('');
+  const [phoneCountry, setPhoneCountry] = useState('UA');
   const [promoCode, setPromoCode] = useState('');
   const [promoApplied, setPromoApplied] = useState(false);
   const [promoError, setPromoError] = useState('');
@@ -103,6 +105,7 @@ export default function CoursePurchaseModal({
     if (!firstName.trim()) return alert("Вкажіть ім'я");
     if (!lastName.trim()) return alert('Вкажіть прізвище');
     if (!phone.trim()) return alert('Вкажіть телефон');
+    const fullPhone = `${(PHONE_CONFIG[phoneCountry] ?? PHONE_CONFIG['UA']).prefix}${phone}`;
 
     setLoading(true);
     try {
@@ -118,7 +121,7 @@ export default function CoursePurchaseModal({
           productCount: 1,
           clientEmail: email.trim(),
           clientName: `${firstName.trim()} ${lastName.trim()}`,
-          clientPhone: phone.trim(),
+          clientPhone: fullPhone,
           courseId,
           promoCode: promoApplied ? promoCode.trim() : undefined,
         }),
@@ -230,20 +233,12 @@ export default function CoursePurchaseModal({
               />
             </div>
 
-            <div>
-              <label htmlFor="purchase-phone" className="block text-sm font-medium text-gray-700 mb-1">
-                Телефон <span className="text-red-500">*</span>
-              </label>
-              <input
-                id="purchase-phone"
-                type="tel"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="+380XXXXXXXXX"
-                autoComplete="tel"
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#D4A017] focus:border-transparent outline-none text-gray-900"
-              />
-            </div>
+            <CoursePhoneInput
+              phoneCountry={phoneCountry}
+              phone={phone}
+              onPhoneCountryChange={setPhoneCountry}
+              onPhoneChange={setPhone}
+            />
 
             <div>
               <label htmlFor="purchase-promo" className="block text-sm font-medium text-gray-700 mb-1">

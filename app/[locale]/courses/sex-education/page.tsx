@@ -29,20 +29,20 @@ export default async function SexEducationPage({ params }: { params: Promise<{ l
           <div className="absolute top-0 left-20 w-72 h-72 bg-white rounded-full blur-3xl" />
           <div className="absolute bottom-0 right-20 w-72 h-72 bg-[#D4A017] rounded-full blur-3xl" />
         </div>
-        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 md:py-14">
-          <Link href="/courses" className="inline-flex items-center gap-2 text-white/60 hover:text-white transition-colors text-sm mb-6">
+        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 md:py-8">
+          <Link href="/courses" className="inline-flex items-center gap-2 text-white/60 hover:text-white transition-colors text-sm mb-3">
             ← Освітні проєкти
           </Link>
-          <div className="grid lg:grid-cols-2 gap-16 items-center">
-            <div className="space-y-8">
+          <div className="grid lg:grid-cols-2 gap-8 items-center">
+            <div className="space-y-3">
               <div className="inline-block px-4 py-2 bg-white/10 backdrop-blur-sm rounded-full text-sm">
                 {c.badge}
               </div>
               <h1 className="text-5xl md:text-7xl font-bold leading-[1.1]">
                 {c.title1}<br />{c.title2}
               </h1>
-              <p className="text-white/80 text-lg leading-relaxed max-w-xl">{c.description}</p>
-              <div className="flex flex-col sm:flex-row gap-4">
+              <p className="text-white/80 text-base leading-relaxed max-w-xl">{c.description}</p>
+              <div className="flex flex-col sm:flex-row gap-3 !mt-4">
                 <CoursePurchaseModal
                   courseName="Статеве виховання"
                   price={Number(SEX_EDUCATION_COURSE.price)}
@@ -50,14 +50,14 @@ export default async function SexEducationPage({ params }: { params: Promise<{ l
                   buttonLabel={c.btnBuy}
                 />
                 <Link href="#program"
-                  className="inline-flex items-center justify-center px-8 py-4 border border-white/30 rounded-lg hover:bg-white/10 transition-all font-medium">
+                  className="inline-flex items-center justify-center px-6 py-3 border border-white/30 rounded-lg hover:bg-white/10 transition-all font-medium">
                   {c.btnProgram}
                 </Link>
               </div>
-              <div className="flex items-center gap-6 pt-4">
+              <div className="flex items-center gap-6">
                 <div className="flex -space-x-2">
                   {[1, 2, 3, 4].map((i) => (
-                    <div key={i} className="w-8 h-8 rounded-full bg-[#D4A017] border-2 border-white" />
+                    <div key={i} className="w-7 h-7 rounded-full bg-[#D4A017] border-2 border-white" />
                   ))}
                 </div>
                 <p className="text-sm text-white/60">
@@ -65,7 +65,7 @@ export default async function SexEducationPage({ params }: { params: Promise<{ l
                 </p>
               </div>
             </div>
-            <div className="relative">
+            <div className="relative scale-90 origin-center">
               <div className="absolute inset-0 bg-gradient-to-r from-[#D4A017] to-[#b88913] rounded-2xl rotate-3 opacity-20" />
               <div className="relative bg-white/10 backdrop-blur-sm p-8 rounded-2xl border border-white/20">
                 <div className="relative h-48">

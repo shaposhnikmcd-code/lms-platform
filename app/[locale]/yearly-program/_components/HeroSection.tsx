@@ -19,10 +19,9 @@ type Props = {
   duration: string;
   enrollNow: string;
   stats: Stat[];
-  sendpulseUrl: string;
 };
 
-export default function HeroSection({ badge, title1, title2, description, btnEnroll, btnProgram, monthlyPayment, priceNote, durationLabel, duration, enrollNow, stats, sendpulseUrl }: Props) {
+export default function HeroSection({ badge, title1, title2, description, btnEnroll, btnProgram, monthlyPayment, priceNote, durationLabel, duration, enrollNow, stats }: Props) {
   return (
     <section style={{ background: 'linear-gradient(135deg, #1C3A2E 0%, #1a3828 50%, #0f2219 100%)' }} className="relative overflow-hidden text-white">
       <div className="absolute inset-0 opacity-10">
@@ -38,7 +37,7 @@ export default function HeroSection({ badge, title1, title2, description, btnEnr
             </h1>
             <p className="text-white/80 text-lg leading-relaxed max-w-xl">{description}</p>
             <div className="flex flex-col sm:flex-row gap-4 flex-wrap items-center">
-              <a href={sendpulseUrl} target="_blank" rel="noopener noreferrer"
+              <a href="#price"
                 className="group inline-flex items-center justify-center gap-2 bg-[#D4A017] text-white font-bold px-10 py-4 rounded-lg hover:bg-[#b88913] transition-all text-lg">
                 <span>{btnEnroll}</span>
                 <FaArrowRight className="group-hover:translate-x-1 transition-transform" />
@@ -81,7 +80,7 @@ export default function HeroSection({ badge, title1, title2, description, btnEnr
                     <span className="text-white/70 text-sm">{durationLabel}</span>
                     <span className="text-white font-semibold">{duration}</span>
                   </div>
-                  <a href={sendpulseUrl} target="_blank" rel="noopener noreferrer"
+                  <a href="#price"
                     className="w-full inline-flex items-center justify-center gap-2 bg-[#D4A017] text-white font-bold px-6 py-3 rounded-lg hover:bg-[#b88913] transition-all text-sm text-center">
                     {enrollNow}<FaArrowRight />
                   </a>

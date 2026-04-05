@@ -1,3 +1,4 @@
+import { FaCheck } from 'react-icons/fa';
 import CoursePurchaseModal from '@/components/CoursePurchaseModal';
 import { EMOTIONAL_INTELLIGENCE_COURSE } from '../config';
 import { getTranslatedContent } from '@/lib/translate';
@@ -11,40 +12,32 @@ export default async function EmotionalIntelligencePricing({ locale }: { locale:
   const currency = getCurrency(locale);
 
   return (
-    <section id="price" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
-      <div className="flex justify-center">
-        <div className="w-full max-w-2xl bg-[#112b1d] rounded-2xl px-6 py-6 sm:px-10 sm:py-8">
+    <section id="price" className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-14">
+      <div className="relative rounded-2xl p-px bg-gradient-to-b from-[#D4A017]/40 via-[#D4A017]/10 to-transparent">
+        <div className="relative bg-gradient-to-br from-[#1C3A2E] to-[#2a4f3f] rounded-2xl overflow-hidden">
+          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-80 h-40 bg-[#D4A017]/[0.07] rounded-full blur-3xl" />
 
-          <div className="flex items-center justify-between mb-5">
-            <span className="text-[11px] font-semibold uppercase tracking-widest text-[#D4A017]">
-              {c.pricing.title}
-            </span>
-          </div>
+          <div className="relative px-6 py-8 md:px-10">
+            <div className="text-center">
+              <p className="text-[#D4A017] text-xs font-semibold uppercase tracking-widest mb-2">{c.pricing.badge}</p>
+              <h2 className="text-2xl md:text-3xl font-bold text-white mb-1">{c.pricing.title}</h2>
+              <p className="text-white/50 text-sm mb-5">{c.pricing.subtitle}</p>
 
-          <div className="flex flex-col sm:flex-row sm:gap-8 sm:items-stretch gap-5">
-
-            <div className="flex flex-col gap-1.5">
-              <div className="flex items-baseline gap-1.5">
-                <span className="text-[48px] sm:text-[56px] font-black text-white leading-none tracking-tight">
-                  {EMOTIONAL_INTELLIGENCE_COURSE.price}
-                </span>
-                <span className="text-white/40 text-sm pb-1">{currency}</span>
+              <div className="flex items-baseline justify-center gap-1.5 mb-4">
+                <span className="text-5xl font-black text-white tracking-tight">{EMOTIONAL_INTELLIGENCE_COURSE.price}</span>
+                <span className="text-white/50 text-sm font-medium">{currency}</span>
               </div>
-              <span className="text-white/30 text-xs">{c.pricing.access}</span>
-            </div>
 
-            <div className="hidden sm:block w-px bg-white/10 self-stretch" />
-            <div className="block sm:hidden h-px bg-white/10" />
+              <div className="w-16 h-px bg-gradient-to-r from-transparent via-[#D4A017]/40 to-transparent mx-auto mb-4" />
 
-            <div className="flex flex-col gap-4 flex-1">
-              <ul className="space-y-2">
+              <div className="space-y-2 mb-6">
                 {(c.pricing.features as string[]).map((feature, i) => (
-                  <li key={i} className="flex items-center gap-2.5 text-white/55 text-sm">
-                    <span className="w-1 h-1 rounded-full bg-[#D4A017] shrink-0" />
-                    {feature}
-                  </li>
+                  <p key={i} className="flex items-center justify-center gap-2.5 text-white/60 text-sm">
+                    <FaCheck className="text-[#D4A017] text-[10px] flex-shrink-0" />{feature}
+                  </p>
                 ))}
-              </ul>
+              </div>
+
               <CoursePurchaseModal
                 courseName="Емоційний інтелект"
                 price={Number(EMOTIONAL_INTELLIGENCE_COURSE.price)}
@@ -53,7 +46,6 @@ export default async function EmotionalIntelligencePricing({ locale }: { locale:
                 buttonLabel={c.pricing.btnBuy}
               />
             </div>
-
           </div>
         </div>
       </div>

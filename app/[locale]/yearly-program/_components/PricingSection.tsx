@@ -1,35 +1,71 @@
-const sysFont = '-apple-system, BlinkMacSystemFont, sans-serif';
+import CoursePurchaseModal from '@/components/CoursePurchaseModal';
+import { YEARLY_PROGRAM } from '../config';
 
 export default function PricingSection() {
-  const sendpulseUrl = "https://uimp-edu.sendpulse.online/bible-therapy";
-
-  const sectionStyle: React.CSSProperties = { padding: '40px 16px', background: '#F5F2ED' };
-  const wrapStyle: React.CSSProperties = { maxWidth: '1280px', margin: '0 auto' };
-  const headStyle: React.CSSProperties = { textAlign: 'center', marginBottom: '28px' };
-  const h2Style: React.CSSProperties = { fontFamily: sysFont, fontSize: 'clamp(24px, 3vw, 36px)', fontWeight: 700, color: '#1C3A2E', margin: 0, letterSpacing: '-0.02em' };
-  const cardStyle: React.CSSProperties = { maxWidth: '440px', margin: '0 auto', background: 'white', borderRadius: '24px', overflow: 'hidden', boxShadow: '0 4px 24px rgba(0,0,0,0.08)', border: '1px solid rgba(28,58,46,0.08)' };
-  const topBarStyle: React.CSSProperties = { height: '6px', background: 'linear-gradient(to right, #1C3A2E, #2a4f3f)' };
-  const bodyStyle: React.CSSProperties = { padding: '28px 32px', textAlign: 'center' };
-  const h3Style: React.CSSProperties = { fontFamily: sysFont, fontSize: '18px', fontWeight: 700, color: '#1C3A2E', margin: '0 0 10px' };
-  const pStyle: React.CSSProperties = { fontSize: '13px', color: 'rgba(0,0,0,0.4)', lineHeight: 1.75, margin: '0 0 20px', fontFamily: sysFont };
-  const dividerStyle: React.CSSProperties = { height: '1px', background: '#f0f0f0', marginBottom: '20px' };
-  const btnStyle: React.CSSProperties = { display: 'block', background: '#1C3A2E', color: 'white', fontWeight: 700, padding: '12px 24px', borderRadius: '12px', textAlign: 'center', fontSize: '12px', letterSpacing: '0.06em', textTransform: 'uppercase', textDecoration: 'none', fontFamily: sysFont };
-
   return (
-    <section style={sectionStyle}>
-      <div style={wrapStyle}>
-        <div style={headStyle}>
-          <h2 style={h2Style}>{"Вартість"}</h2>
+    <section id="price" className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-14">
+      <div className="text-center mb-8">
+        <h2 className="text-2xl md:text-3xl font-bold text-[#1C3A2E]">Вартість програми</h2>
+      </div>
+
+      <div className="grid md:grid-cols-2 gap-5">
+        {/* Full year */}
+        <div className="relative rounded-2xl p-px bg-gradient-to-b from-[#D4A017]/40 via-[#D4A017]/10 to-transparent">
+          <div className="relative bg-gradient-to-br from-[#1C3A2E] to-[#2a4f3f] rounded-2xl overflow-hidden h-full">
+            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-60 h-32 bg-[#D4A017]/[0.07] rounded-full blur-3xl" />
+            <div className="relative px-6 py-8 text-center flex flex-col h-full">
+              <div className="inline-block mx-auto px-3 py-1 bg-[#D4A017] text-white rounded-full text-xs font-semibold mb-4">Вигідно</div>
+              <h3 className="text-lg font-bold text-white mb-1">Оплата за рік</h3>
+              <p className="text-white/40 text-sm mb-5">Повний доступ до всіх 9 модулів</p>
+
+              <div className="flex items-baseline justify-center gap-1.5 mb-4">
+                <span className="text-5xl font-black text-white tracking-tight">{YEARLY_PROGRAM.price}</span>
+                <span className="text-white/50 text-sm font-medium">грн</span>
+              </div>
+
+              <div className="w-16 h-px bg-gradient-to-r from-transparent via-[#D4A017]/40 to-transparent mx-auto mb-6" />
+
+              <div className="mt-auto">
+                <CoursePurchaseModal
+                  courseName="Біблійна терапія — річна програма"
+                  price={Number(YEARLY_PROGRAM.price)}
+                  courseId={YEARLY_PROGRAM.courseId}
+                  buttonLabel="Оплатити за рік"
+                />
+              </div>
+            </div>
+          </div>
         </div>
-        <div style={cardStyle}>
-          <div style={topBarStyle} />
-          <div style={bodyStyle}>
-            <h3 style={h3Style}>{"Ціна незабаром"}</h3>
-            <p style={pStyle}>{"Ми готуємо детальну інформацію про вартість програми. Залиште заявку — і ми надішлемо вам актуальні умови першими."}</p>
-            <div style={dividerStyle} />
-            <a href={sendpulseUrl} target="_blank" rel="noopener noreferrer" style={btnStyle}>
-              {"Заповнити анкету передреєстрації"}
-            </a>
+
+        {/* Monthly */}
+        <div className="relative rounded-2xl border border-[#1C3A2E]/10 bg-white overflow-hidden h-full">
+          <div className="px-6 py-8 text-center flex flex-col h-full">
+            <h3 className="text-lg font-bold text-[#1C3A2E] mb-1">Щомісячна оплата</h3>
+            <p className="text-gray-400 text-sm mb-5">Платіть помісячно протягом навчання</p>
+
+            <div className="flex items-baseline justify-center gap-1.5 mb-1">
+              <span className="text-5xl font-black text-[#1C3A2E] tracking-tight">{YEARLY_PROGRAM.monthlyPrice}</span>
+              <span className="text-gray-400 text-sm font-medium">грн / міс</span>
+            </div>
+            <p className="text-gray-300 text-xs mb-5">× 9 місяців = 9 000 грн</p>
+
+            <div className="w-16 h-px bg-gray-200 mx-auto mb-4" />
+
+            <div className="bg-[#FDF2EB] rounded-lg px-4 py-3 mb-6">
+              <p className="text-[#1C3A2E] text-sm">
+                Для оплати одного місяця скористайтеся промокодом:
+              </p>
+              <p className="font-mono font-bold text-[#D4A017] text-lg tracking-wider">{YEARLY_PROGRAM.monthlyPromoCode}</p>
+            </div>
+
+            <div className="mt-auto">
+              <CoursePurchaseModal
+                courseName="Біблійна терапія — 1 місяць"
+                price={Number(YEARLY_PROGRAM.monthlyPrice)}
+                courseId={YEARLY_PROGRAM.monthlyCourseId}
+                buttonLabel="Оплатити місяць"
+              />
+            </div>
           </div>
         </div>
       </div>

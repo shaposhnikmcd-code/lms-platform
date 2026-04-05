@@ -34,7 +34,6 @@ export default async function YearlyProgramPage({ params }: { params: Promise<{ 
         duration={c.duration}
         enrollNow={c.enrollNow}
         stats={c.stats}
-        sendpulseUrl="https://uimp-edu.sendpulse.online/bible-therapy"
       />
       <ForWhomSection title={c.forWhom.title} items={c.forWhom.items} />
       <FormatSection label={c.format.label} title={c.format.title} items={c.format.items} />

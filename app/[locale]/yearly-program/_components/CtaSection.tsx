@@ -1,3 +1,5 @@
+import { FaArrowRight } from 'react-icons/fa';
+
 export default function CtaSection() {
   return (
     <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-24">
@@ -6,10 +8,15 @@ export default function CtaSection() {
           <div className="absolute top-0 left-0 w-96 h-96 bg-[#D4A017] rounded-full blur-3xl" />
           <div className="absolute bottom-0 right-0 w-96 h-96 bg-white rounded-full blur-3xl" />
         </div>
-        <div className="relative text-center">
+        <div className="relative text-center space-y-4">
           <h2 className="text-xl md:text-2xl font-bold text-white">
-            {"Реєстрація буде відкрита незабаром"}
+            Готові вступити?
           </h2>
+          <a href="#price"
+            className="group inline-flex items-center justify-center gap-2 bg-[#D4A017] text-white font-bold px-8 py-3 rounded-lg hover:bg-[#b88913] transition-all">
+            <span>Обрати варіант оплати</span>
+            <FaArrowRight className="group-hover:translate-x-1 transition-transform" />
+          </a>
         </div>
       </div>
     </section>

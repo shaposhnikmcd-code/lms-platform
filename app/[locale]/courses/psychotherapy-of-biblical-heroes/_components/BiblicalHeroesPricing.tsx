@@ -11,20 +11,32 @@ export default async function BiblicalHeroesPricing({ locale }: { locale: string
   const currency = getCurrency(locale);
 
   return (
-    <section id="price" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
-      <div className="bg-gradient-to-r from-[#1C3A2E] to-[#2a4f3f] rounded-2xl p-8 md:p-12 text-center">
-        <h2 className="text-2xl md:text-3xl font-bold text-white mb-3">{c.pricing.title}</h2>
-        <p className="text-white/80 text-sm mb-6 max-w-xl mx-auto">{c.pricing.subtitle}</p>
-        <div className="max-w-sm mx-auto bg-white/10 backdrop-blur-sm rounded-xl p-6">
-          <div className="text-3xl font-black text-white mb-3">{BIBLICAL_HEROES_COURSE.price} {currency}</div>
-          <p className="text-white/60 text-xs mb-4">{c.pricing.access}</p>
-          <CoursePurchaseModal
-            courseName="Психотерапія біблійних героїв"
-            price={Number(BIBLICAL_HEROES_COURSE.price)}
-            courseId={BIBLICAL_HEROES_COURSE.courseId}
-            currency={currency}
-            buttonLabel={c.pricing.btnBuy}
-          />
+    <section id="price" className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-14">
+      <div className="relative rounded-2xl p-px bg-gradient-to-b from-[#D4A017]/40 via-[#D4A017]/10 to-transparent">
+        <div className="relative bg-gradient-to-br from-[#1C3A2E] to-[#2a4f3f] rounded-2xl overflow-hidden">
+          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-80 h-40 bg-[#D4A017]/[0.07] rounded-full blur-3xl" />
+
+          <div className="relative px-6 py-8 md:px-10">
+            <div className="text-center">
+              <h2 className="text-2xl md:text-3xl font-bold text-white mb-1">{c.pricing.title}</h2>
+              <p className="text-white/50 text-sm mb-5">{c.pricing.subtitle}</p>
+
+              <div className="flex items-baseline justify-center gap-1.5 mb-4">
+                <span className="text-5xl font-black text-white tracking-tight">{BIBLICAL_HEROES_COURSE.price}</span>
+                <span className="text-white/50 text-sm font-medium">{currency}</span>
+              </div>
+
+              <div className="w-16 h-px bg-gradient-to-r from-transparent via-[#D4A017]/40 to-transparent mx-auto mb-6" />
+
+              <CoursePurchaseModal
+                courseName="Психотерапія біблійних героїв"
+                price={Number(BIBLICAL_HEROES_COURSE.price)}
+                courseId={BIBLICAL_HEROES_COURSE.courseId}
+                currency={currency}
+                buttonLabel={c.pricing.btnBuy}
+              />
+            </div>
+          </div>
         </div>
       </div>
     </section>
