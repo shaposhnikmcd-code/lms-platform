@@ -9,6 +9,7 @@ export async function POST(req: NextRequest) {
     const merchantLogin = process.env.WAYFORPAY_MERCHANT_LOGIN!;
     const secretKey = process.env.WAYFORPAY_SECRET_KEY!;
     const domain = process.env.NEXTAUTH_URL || 'https://dr-shaposhnik-platform.vercel.app';
+    const merchantDomain = 'www.uimp.com.ua';
 
     const isConnector = orderReference.startsWith('connector_');
 
@@ -64,7 +65,7 @@ export async function POST(req: NextRequest) {
 
     const signatureString = [
       merchantLogin,
-      domain,
+      merchantDomain,
       orderReference,
       orderDate,
       amount,
@@ -81,7 +82,7 @@ export async function POST(req: NextRequest) {
 
     const paymentData = {
       merchantAccount: merchantLogin,
-      merchantDomainName: domain,
+      merchantDomainName: merchantDomain,
       orderReference,
       orderDate,
       amount,
