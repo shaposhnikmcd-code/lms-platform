@@ -35,6 +35,34 @@ interface FormLabels {
   deliveryText: string;
   deliveryContact: string;
   countries: { code: string; name: string }[];
+  deliveryType: string;
+  deliveryWarehouse: string;
+  deliveryCourier: string;
+  gameLabel: string;
+  total: string;
+  calculating: string;
+  selectCity: string;
+  selectBranch: string;
+  novaPoshtaDelivery: string;
+  plusDelivery: string;
+  euPickupNote: string;
+  courierAddressTitle: string;
+  streetLabel: string;
+  houseLabel: string;
+  corpusLabel: string;
+  apartmentLabel: string;
+  apartmentOrOfficeLabel: string;
+  optional: string;
+  enterStreet: string;
+  firstSelectCity: string;
+  firstSelectStreet: string;
+  streetsNotFound: string;
+  buildingsNotFound: string;
+  exampleHouse: string;
+  exampleCorpus: string;
+  exampleApt: string;
+  nameUkrainianError: string;
+  nameFullError: string;
 }
 
 interface Props {
@@ -51,6 +79,7 @@ interface Props {
     delivery: string;
     btnOrder: string;
     form: FormLabels;
+    share: { title: string; copy: string; copied: string };
   };
   currency: string;
 }
@@ -169,7 +198,7 @@ export default function ConnectorClient({ content, currency }: Props) {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-5">
-              <h3 className="text-[#003d30] font-bold text-lg">{"Поділитись"}</h3>
+              <h3 className="text-[#003d30] font-bold text-lg">{content.share.title}</h3>
               <button onClick={() => setShowShareModal(false)} className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 transition-colors">
                 <IoMdClose className="text-gray-500" />
               </button>
@@ -208,14 +237,14 @@ export default function ConnectorClient({ content, currency }: Props) {
                     : <IoCopyOutline style={{ color: '#1C3A2E', fontSize: '1.4rem' }} />
                   }
                 </div>
-                <span className="text-xs text-gray-500">{copied ? "Скопійовано" : "Копіювати"}</span>
+                <span className="text-xs text-gray-500">{copied ? content.share.copied : content.share.copy}</span>
               </button>
             </div>
 
             <div className="flex items-center gap-2 bg-gray-100 rounded-xl px-4 py-3">
               <span className="text-xs text-gray-400 truncate flex-1">{shareUrl}</span>
               <button onClick={handleCopy} className="text-xs font-medium text-[#003d30] flex-shrink-0">
-                {copied ? "✓" : "Копіювати"}
+                {copied ? "✓" : content.share.copy}
               </button>
             </div>
           </div>

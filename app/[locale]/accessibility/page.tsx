@@ -1,7 +1,10 @@
 import { getTranslatedContent } from '@/lib/translate';
 import { accessibilityContent } from './_content/uk';
 
-const getContent = getTranslatedContent(accessibilityContent, 'accessibility-page');
+const getContent = getTranslatedContent(accessibilityContent, 'accessibility-page', {
+  en: () => import('./_content/en').then(m => m.default),
+  pl: () => import('./_content/pl').then(m => m.default),
+});
 
 export default async function AccessibilityPage({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;

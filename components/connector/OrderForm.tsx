@@ -38,6 +38,34 @@ interface FormLabels {
   deliveryText: string;
   deliveryContact: string;
   countries: { code: string; name: string }[];
+  deliveryType: string;
+  deliveryWarehouse: string;
+  deliveryCourier: string;
+  gameLabel: string;
+  total: string;
+  calculating: string;
+  selectCity: string;
+  selectBranch: string;
+  novaPoshtaDelivery: string;
+  plusDelivery: string;
+  euPickupNote: string;
+  courierAddressTitle: string;
+  streetLabel: string;
+  houseLabel: string;
+  corpusLabel: string;
+  apartmentLabel: string;
+  apartmentOrOfficeLabel: string;
+  optional: string;
+  enterStreet: string;
+  firstSelectCity: string;
+  firstSelectStreet: string;
+  streetsNotFound: string;
+  buildingsNotFound: string;
+  exampleHouse: string;
+  exampleCorpus: string;
+  exampleApt: string;
+  nameUkrainianError: string;
+  nameFullError: string;
 }
 
 interface OrderFormProps {
@@ -75,6 +103,34 @@ const defaultLabels: FormLabels = {
   deliveryText: "Доставляємо до відділень Nova Post в: Україні, Польщі, Німеччині, Чехії, Литві, Латвії, Естонії, Італії, Іспанії, Словаччині, Угорщині, Румунії, Молдові, Франції, Великій Британії, Австрії, Нідерландах.",
   deliveryContact: "Якщо вашої країни немає у списку — напишіть нам:",
   countries: ALL_COUNTRIES,
+  deliveryType: "Тип доставки",
+  deliveryWarehouse: "📦 До відділення НП",
+  deliveryCourier: "🚗 Кур'єром за адресою",
+  gameLabel: "Гра «Конектор»",
+  total: "Разом",
+  calculating: "Розраховуємо...",
+  selectCity: "Оберіть місто",
+  selectBranch: "Оберіть відділення",
+  novaPoshtaDelivery: "Доставка Нова Пошта",
+  plusDelivery: "+ доставка",
+  euPickupNote: "Вартість доставки оплачується окремо при отриманні у відділенні Nova Post.",
+  courierAddressTitle: "Адреса доставки кур'єром",
+  streetLabel: "Вулиця",
+  houseLabel: "Будинок",
+  corpusLabel: "Корпус",
+  apartmentLabel: "Квартира",
+  apartmentOrOfficeLabel: "Квартира / офіс",
+  optional: "(необов'язково)",
+  enterStreet: "Введіть назву вулиці",
+  firstSelectCity: "Спочатку оберіть місто",
+  firstSelectStreet: "Спочатку вулицю",
+  streetsNotFound: "Вулиць не знайдено",
+  buildingsNotFound: "Будинків не знайдено",
+  exampleHouse: "напр. 12",
+  exampleCorpus: "напр. А",
+  exampleApt: "напр. 45",
+  nameUkrainianError: "Введіть ПІБ українськими літерами",
+  nameFullError: "Введіть повне ПІБ: Прізвище Ім'я По батькові",
 };
 
 export default function OrderForm({ isOpen, onClose, labels }: OrderFormProps) {
@@ -158,11 +214,11 @@ export default function OrderForm({ isOpen, onClose, labels }: OrderFormProps) {
     if (country === 'UA') {
       const cyrillicOnly = /^[а-яА-ЯіІїЇєЄґҐʼ''\-\s]+$/;
       if (value && !cyrillicOnly.test(value)) {
-        return 'Введіть ПІБ українськими літерами';
+        return l.nameUkrainianError;
       }
       const words = value.trim().split(/\s+/).filter(Boolean);
       if (value.trim() && words.length < 3) {
-        return 'Введіть повне ПІБ: Прізвище Ім\'я По батькові';
+        return l.nameFullError;
       }
     }
     return null;
@@ -388,6 +444,7 @@ export default function OrderForm({ isOpen, onClose, labels }: OrderFormProps) {
               <DeliveryTypeSelector
                 deliveryType={deliveryType}
                 onChange={handleDeliveryTypeChange}
+                labels={l}
               />
 
               {isUkraine ? (
@@ -479,6 +536,7 @@ export default function OrderForm({ isOpen, onClose, labels }: OrderFormProps) {
                 deliveryCost={deliveryCost}
                 loadingDeliveryCost={loadingDeliveryCost}
                 citySelected={!!selectedCityRef}
+                labels={l}
               />
 
               <div className="flex items-center">

@@ -35,6 +35,34 @@ interface FormLabels {
   deliveryText: string;
   deliveryContact: string;
   countries: { code: string; name: string }[];
+  deliveryType: string;
+  deliveryWarehouse: string;
+  deliveryCourier: string;
+  gameLabel: string;
+  total: string;
+  calculating: string;
+  selectCity: string;
+  selectBranch: string;
+  novaPoshtaDelivery: string;
+  plusDelivery: string;
+  euPickupNote: string;
+  courierAddressTitle: string;
+  streetLabel: string;
+  houseLabel: string;
+  corpusLabel: string;
+  apartmentLabel: string;
+  apartmentOrOfficeLabel: string;
+  optional: string;
+  enterStreet: string;
+  firstSelectCity: string;
+  firstSelectStreet: string;
+  streetsNotFound: string;
+  buildingsNotFound: string;
+  exampleHouse: string;
+  exampleCorpus: string;
+  exampleApt: string;
+  nameUkrainianError: string;
+  nameFullError: string;
 }
 
 interface Content {

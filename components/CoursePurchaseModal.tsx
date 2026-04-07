@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useSession } from 'next-auth/react';
 import { FaWallet, FaTimes, FaCheck, FaSpinner } from 'react-icons/fa';
+import { useTranslations } from 'next-intl';
 import CoursePhoneInput, { PHONE_CONFIG } from './CoursePhoneInput';
 
 interface CoursePurchaseModalProps {
@@ -19,8 +20,9 @@ export default function CoursePurchaseModal({
   price,
   courseId,
   currency = 'грн',
-  buttonLabel = 'Купити курс',
+  buttonLabel,
 }: CoursePurchaseModalProps) {
+  const t = useTranslations('PurchaseModal');
   const { data: session } = useSession();
   const [isOpen, setIsOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -94,17 +96,17 @@ export default function CoursePurchaseModal({
         setFinalPrice(price);
       }
     } catch {
-      setPromoError('Помилка перевірки промокоду');
+      setPromoError(t('promoError'));
     } finally {
       setPromoLoading(false);
     }
   };
 
   const handlePay = async () => {
-    if (!email.trim()) return alert('Вкажіть Email');
-    if (!firstName.trim()) return alert("Вкажіть ім'я");
-    if (!lastName.trim()) return alert('Вкажіть прізвище');
-    if (!phone.trim()) return alert('Вкажіть телефон');
+    if (!email.trim()) return alert(t('alertEmail'));
+    if (!firstName.trim()) return alert(t('alertFirstName'));
+    if (!lastName.trim()) return alert(t('alertLastName'));
+    if (!phone.trim()) return alert(t('alertPhone'));
     const fullPhone = `${(PHONE_CONFIG[phoneCountry] ?? PHONE_CONFIG['UA']).prefix}${phone}`;
 
     setLoading(true);
@@ -126,7 +128,7 @@ export default function CoursePurchaseModal({
           promoCode: promoApplied ? promoCode.trim() : undefined,
         }),
       });
-      if (!response.ok) throw new Error('Помилка створення платежу');
+      if (!response.ok) throw new Error(t('errorPayment'));
       const paymentData = await response.json();
       const form = document.createElement('form');
       form.method = 'POST';
@@ -152,8 +154,8 @@ export default function CoursePurchaseModal({
       document.body.appendChild(form);
       form.submit();
     } catch (error) {
-      console.error('Помилка оплати:', error);
-      alert('Помилка при створенні платежу. Спробуйте ще раз.');
+      console.error('Payment error:', error);
+      alert(t('errorPaymentRetry'));
       setLoading(false);
     }
   };
@@ -163,7 +165,7 @@ export default function CoursePurchaseModal({
       className="fixed inset-0 z-[9999] overflow-y-auto"
       role="dialog"
       aria-modal="true"
-      aria-label={`Купити ${courseName}`}
+      aria-label={`${t('buyAria')} ${courseName}`}
     >
       {/* Backdrop */}
       <div className="fixed inset-0 bg-black/60" onClick={closeModal} />
@@ -176,7 +178,7 @@ export default function CoursePurchaseModal({
           <button
             onClick={closeModal}
             className="absolute top-4 right-4 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 text-gray-500 hover:text-gray-700 transition-colors"
-            aria-label="Закрити"
+            aria-label={t('closeAria')}
           >
             <FaTimes />
           </button>
@@ -190,7 +192,7 @@ export default function CoursePurchaseModal({
           <div className="px-6 sm:px-8 py-4 space-y-4">
             <div>
               <label htmlFor="purchase-email" className="block text-sm font-medium text-gray-700 mb-1">
-                Email <span className="text-red-500">*</span>
+                {t('email')} <span className="text-red-500">*</span>
               </label>
               <input
                 id="purchase-email"
@@ -205,14 +207,14 @@ export default function CoursePurchaseModal({
 
             <div>
               <label htmlFor="purchase-firstname" className="block text-sm font-medium text-gray-700 mb-1">
-                Ім&apos;я <span className="text-red-500">*</span>
+                {t('firstName')} <span className="text-red-500">*</span>
               </label>
               <input
                 id="purchase-firstname"
                 type="text"
                 value={firstName}
                 onChange={(e) => setFirstName(e.target.value)}
-                placeholder="Ваше ім'я"
+                placeholder={t('firstNamePlaceholder')}
                 autoComplete="given-name"
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#D4A017] focus:border-transparent outline-none text-gray-900"
               />
@@ -220,14 +222,14 @@ export default function CoursePurchaseModal({
 
             <div>
               <label htmlFor="purchase-lastname" className="block text-sm font-medium text-gray-700 mb-1">
-                Прізвище <span className="text-red-500">*</span>
+                {t('lastName')} <span className="text-red-500">*</span>
               </label>
               <input
                 id="purchase-lastname"
                 type="text"
                 value={lastName}
                 onChange={(e) => setLastName(e.target.value)}
-                placeholder="Ваше прізвище"
+                placeholder={t('lastNamePlaceholder')}
                 autoComplete="family-name"
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#D4A017] focus:border-transparent outline-none text-gray-900"
               />
@@ -242,7 +244,7 @@ export default function CoursePurchaseModal({
 
             <div>
               <label htmlFor="purchase-promo" className="block text-sm font-medium text-gray-700 mb-1">
-                Промокод
+                {t('promoLabel')}
               </label>
               <div className="flex gap-2">
                 <input
@@ -261,7 +263,7 @@ export default function CoursePurchaseModal({
                       handlePromoCheck();
                     }
                   }}
-                  placeholder="Введіть промокод"
+                  placeholder={t('promoPlaceholder')}
                   className="flex-1 min-w-0 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#D4A017] focus:border-transparent outline-none text-gray-900"
                 />
                 <button
@@ -274,12 +276,12 @@ export default function CoursePurchaseModal({
                   ) : promoApplied ? (
                     <FaCheck className="text-green-500" />
                   ) : (
-                    'Застосувати'
+                    t('promoApply')
                   )}
                 </button>
               </div>
               {promoError && <p className="text-red-500 text-sm mt-1">{promoError}</p>}
-              {promoApplied && <p className="text-green-600 text-sm mt-1">Промокод застосовано!</p>}
+              {promoApplied && <p className="text-green-600 text-sm mt-1">{t('promoSuccess')}</p>}
             </div>
           </div>
 
@@ -306,7 +308,7 @@ export default function CoursePurchaseModal({
               disabled={loading}
               className="w-full py-4 bg-[#1C3A2E] text-white font-bold rounded-xl hover:bg-[#2a4f3f] transition-all text-lg disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {loading ? 'Завантаження...' : 'Придбати курс'}
+              {loading ? t('loading') : t('btnPay')}
             </button>
           </div>
         </div>
@@ -321,7 +323,7 @@ export default function CoursePurchaseModal({
         className="group inline-flex items-center gap-3 bg-[#D4A017] text-white font-bold py-5 px-12 rounded-xl hover:bg-[#b88913] transition-all text-lg w-full justify-center"
       >
         <FaWallet className="text-xl" />
-        {buttonLabel}
+        {buttonLabel ?? t('btnBuy')}
       </button>
 
       {isOpen && mounted && createPortal(modal, document.body)}

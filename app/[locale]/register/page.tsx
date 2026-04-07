@@ -3,8 +3,10 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { useTranslations } from "next-intl";
 
 export default function RegisterPage() {
+  const t = useTranslations("Register");
   const router = useRouter();
   const [formData, setFormData] = useState({
     name: "",
@@ -31,11 +33,11 @@ export default function RegisterPage() {
       if (res.ok) {
         router.push("/login?registered=true");
       } else {
-        setError(data.message || "Помилка реєстрації");
+        setError(data.message || t("errorRegister"));
       }
     } catch (err: unknown) {
       console.error("Fetch error:", err);
-      setError("Сталася помилка");
+      setError(t("errorGeneric"));
     } finally {
       setLoading(false);
     }
@@ -46,17 +48,17 @@ export default function RegisterPage() {
       <div className="max-w-md w-full space-y-8 p-8 bg-white rounded-lg shadow">
         <div>
           <h2 className="text-3xl font-bold text-center text-gray-900">
-            Реєстрація
+            {t("title")}
           </h2>
           <p className="mt-2 text-center text-gray-600">
-            Створіть акаунт для доступу до курсів
+            {t("subtitle")}
           </p>
         </div>
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
           <div className="space-y-4">
             <div>
               <label htmlFor="name" className="block text-sm font-medium text-gray-700">
-                Ім&apos;я
+                {t("name")}
               </label>
               <input
                 id="name"
@@ -69,7 +71,7 @@ export default function RegisterPage() {
             </div>
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-gray-700">
-                Email
+                {t("email")}
               </label>
               <input
                 id="email"
@@ -82,7 +84,7 @@ export default function RegisterPage() {
             </div>
             <div>
               <label htmlFor="password" className="block text-sm font-medium text-gray-700">
-                Пароль
+                {t("password")}
               </label>
               <input
                 id="password"
@@ -94,7 +96,7 @@ export default function RegisterPage() {
                 className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
               />
               <p className="mt-1 text-xs text-gray-500">
-                Мінімум 6 символів
+                {t("passwordHint")}
               </p>
             </div>
           </div>
@@ -109,15 +111,15 @@ export default function RegisterPage() {
               disabled={loading}
               className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-gray-400"
             >
-              {loading ? "Зачекайте..." : "Зареєструватися"}
+              {loading ? t("submitting") : t("submit")}
             </button>
           </div>
         </form>
         <div className="text-center">
           <p className="text-sm text-gray-600">
-            Вже є акаунт?{" "}
+            {t("haveAccount")}{" "}
             <Link href="/login" className="font-medium text-blue-600 hover:text-blue-500">
-              Увійти
+              {t("signIn")}
             </Link>
           </p>
         </div>

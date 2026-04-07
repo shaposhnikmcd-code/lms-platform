@@ -253,6 +253,12 @@ model News {
   slug      String       @unique
   content   String
   excerpt   String?
+  titleEn   String?
+  titlePl   String?
+  excerptEn String?
+  excerptPl String?
+  contentEn String?
+  contentPl String?
   imageUrl  String?
   category  NewsCategory @default(NEWS)
   published Boolean      @default(false)

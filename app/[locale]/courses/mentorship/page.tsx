@@ -9,7 +9,10 @@ import { getTranslatedContent } from '@/lib/translate';
 import { content } from './_content/uk';
 
 const inter = Inter({ subsets: ['latin', 'cyrillic'] });
-const getContent = getTranslatedContent(content, 'mentorship-page');
+const getContent = getTranslatedContent(content, 'mentorship-page', {
+  en: () => import('./_content/en').then(m => m.default),
+  pl: () => import('./_content/pl').then(m => m.default),
+});
 
 const resultIcons = [
   <FaUsers key={0} className="text-3xl text-[#D4A017]" />,
@@ -44,7 +47,7 @@ export default async function MentorshipCoursePage({ params }: { params: Promise
               <p className="text-white/80 text-base leading-relaxed max-w-xl">{c.description}</p>
               <div className="flex flex-col sm:flex-row gap-3 !mt-4">
                 <CoursePurchaseModal
-                  courseName="Основи душеопікунства"
+                  courseName={`${c.title1} ${c.title2}`}
                   price={Number(MENTORSHIP_COURSE.price)}
                   courseId={MENTORSHIP_COURSE.courseId}
                   buttonLabel={c.btnBuy}

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { FaPlay, FaWallet, FaUsers } from "react-icons/fa";
+import { getTranslations } from "next-intl/server";
 
 interface CourseHeroProps {
   course: {
@@ -13,13 +14,14 @@ interface CourseHeroProps {
   enrollmentCount: number;
 }
 
-export default function CourseHero({
+export default async function CourseHero({
   course,
   courseId,
   isEnrolled,
   totalLessons,
   enrollmentCount,
 }: CourseHeroProps) {
+  const t = await getTranslations("DynamicCourse");
   return (
     <section className="relative overflow-hidden bg-gradient-to-br from-[#1C3A2E] to-[#2a4f3f] text-white">
       <div className="absolute inset-0 opacity-10">
@@ -31,7 +33,7 @@ export default function CourseHero({
         <div className="grid lg:grid-cols-2 gap-16 items-center">
           <div className="space-y-8">
             <div className="inline-block px-4 py-2 bg-white/10 backdrop-blur-sm rounded-full text-sm">
-              {"🎓 Курс UIMP"}
+              {t("badge")}
             </div>
             <h1 className="text-4xl md:text-6xl font-bold leading-tight">
               {course.title}
@@ -46,32 +48,32 @@ export default function CourseHero({
                   href={`/courses/${courseId}/learn`}
                   className="inline-flex items-center gap-2 bg-[#D4A017] text-white font-medium px-8 py-4 rounded-lg hover:bg-[#b88913] transition-all"
                 >
-                  <FaPlay /> {"Продовжити навчання"}
+                  <FaPlay /> {t("btnContinue")}
                 </Link>
               ) : (
                 <Link
                   href="#price"
                   className="inline-flex items-center gap-2 bg-[#D4A017] text-white font-medium px-8 py-4 rounded-lg hover:bg-[#b88913] transition-all"
                 >
-                  <FaWallet /> {"Купити курс"}
+                  <FaWallet /> {t("btnBuy")}
                 </Link>
               )}
               <Link
                 href="#program"
                 className="inline-flex items-center px-8 py-4 border border-white/30 rounded-lg hover:bg-white/10 transition-all"
               >
-                {"Програма"}
+                {t("btnProgram")}
               </Link>
             </div>
 
             <div className="flex items-center gap-6 pt-4">
               <div className="flex items-center gap-2 text-white/70">
                 <FaUsers />
-                <span className="text-white font-bold">{enrollmentCount}</span>{" студентів"}
+                <span className="text-white font-bold">{enrollmentCount}</span> {t("students")}
               </div>
               <div className="flex items-center gap-2 text-white/70">
                 <FaPlay />
-                <span className="text-white font-bold">{totalLessons}</span>{" уроків"}
+                <span className="text-white font-bold">{totalLessons}</span> {t("lessons")}
               </div>
             </div>
           </div>
@@ -83,7 +85,7 @@ export default function CourseHero({
                 <div className="text-8xl mb-4">{"📚"}</div>
                 <p className="text-white/80 text-lg font-medium">{course.title}</p>
                 <p className="text-[#D4A017] font-bold text-2xl mt-2">
-                  {course.price.toLocaleString()} {"грн"}
+                  {course.price.toLocaleString()} {t("currency")}
                 </p>
               </div>
             </div>

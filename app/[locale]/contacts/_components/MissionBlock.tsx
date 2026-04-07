@@ -5,35 +5,14 @@ import { useIsMobile } from "@/lib/useIsMobile";
 
 const sysFont = '-apple-system, BlinkMacSystemFont, sans-serif';
 
-const missionData = [
-  {
-    num: "01",
-    title: "Біблійна основа душеопіки",
-    items: [
-      "Христос говорив про цілісне зцілення людини — духу, душі та тіла",
-      "Церква покликана супроводжувати людей у їхніх глибинних потребах",
-      "Душеопіка є невід'ємною частиною служіння громади",
-    ],
-  },
-  {
-    num: "02",
-    title: "Психологія як інструмент служіння",
-    items: [
-      "Наукові методи психології сумісні з біблійним світоглядом",
-      "Психологічна освіта допомагає пасторам і лідерам",
-      "Інтеграція знань робить допомогу ефективнішою",
-      "Терапія не замінює духовність — вона її підсилює",
-    ],
-  },
-  {
-    num: "03",
-    title: "Зцілення ідентичності в Бозі",
-    items: [
-      "Первинна психологія веде людину до пізнання себе через стосунок з Богом",
-      "UIMP формує фахівців, які поєднують обидва виміри",
-    ],
-  },
-];
+type Props = {
+  t: {
+    label: string;
+    title: string;
+    subtitle: string;
+    blocks: readonly { title: string; items: readonly string[] }[];
+  };
+};
 
 const sectionStyle: React.CSSProperties = {
   backgroundColor: '#FAF6F0',
@@ -178,7 +157,8 @@ const dividerStyle: React.CSSProperties = {
   backgroundImage: 'linear-gradient(180deg, transparent, rgba(28,58,46,0.12) 20%, rgba(28,58,46,0.12) 80%, transparent)',
 };
 
-export default function MissionBlock() {
+export default function MissionBlock({ t }: Props) {
+  const missionData = t.blocks.map((b, i) => ({ num: String(i + 1).padStart(2, '0'), ...b }));
   const isMobile = useIsMobile();
   const sectionRef = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
@@ -208,11 +188,11 @@ export default function MissionBlock() {
         }}>
           <div style={eyebrowRowStyle}>
             <div style={lineLeftStyle} />
-            <span style={eyebrowStyle}>{"Наша місія"}</span>
+            <span style={eyebrowStyle}>{t.label}</span>
             <div style={lineRightStyle} />
           </div>
-          <h2 style={titleStyleR}>{"Так виникла наша місія"}</h2>
-          <p style={subtitleStyle}>{"Об'єднати психологію та духовність заради цілісного зцілення людини"}</p>
+          <h2 style={titleStyleR}>{t.title}</h2>
+          <p style={subtitleStyle}>{t.subtitle}</p>
         </div>
         <div style={gridStyleR}>
           {missionData.map((m, idx) => (

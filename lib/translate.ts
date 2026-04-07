@@ -1,5 +1,3 @@
-import { unstable_cache } from 'next/cache';
-
 const DEEPL_API_URL = 'https://api-free.deepl.com/v2/translate';
 
 const TRANSLATION_FIXES: Record<string, Record<string, string>> = {
@@ -33,7 +31,7 @@ function applyFixes(text: string, targetLang: string): string {
   return result;
 }
 
-async function translateBatch(texts: string[], targetLang: string): Promise<string[]> {
+async function translateBatch(texts: string[], targetLang: string, html = false): Promise<string[]> {
   if (!texts.length) return texts;
 
   try {
@@ -47,6 +45,7 @@ async function translateBatch(texts: string[], targetLang: string): Promise<stri
         text: texts,
         source_lang: 'UK',
         target_lang: targetLang === 'pl' ? 'PL' : 'EN-US',
+        ...(html ? { tag_handling: 'html' } : {}),
       }),
     });
 
@@ -129,7 +128,7 @@ function applyTranslations(obj: unknown, key: string, translations: Map<string, 
   return obj;
 }
 
-async function translateObject<T>(obj: T, targetLang: string): Promise<T> {
+async function translateObject<T>(obj: T, targetLang: string, html = false): Promise<T> {
   if (targetLang === 'uk') return obj;
 
   const strings: string[] = [];
@@ -143,7 +142,7 @@ async function translateObject<T>(obj: T, targetLang: string): Promise<T> {
 
   for (let i = 0; i < strings.length; i += BATCH_SIZE) {
     const batch = strings.slice(i, i + BATCH_SIZE);
-    const translated = await translateBatch(batch, targetLang);
+    const translated = await translateBatch(batch, targetLang, html);
     allTranslated.push(...translated);
   }
 
@@ -153,18 +152,73 @@ async function translateObject<T>(obj: T, targetLang: string): Promise<T> {
   return applyTranslations(obj, '', translationMap, 'root') as T;
 }
 
-export function getTranslatedContent<T>(content: T, cacheKey: string) {
+/**
+ * Translate a single string via DeepL. Used by the news pipeline for
+ * title/excerpt fields.
+ */
+export async function translateStringWithDeepL(text: string, targetLang: string): Promise<string> {
+  if (targetLang === 'uk' || !text) return text;
+  const [out] = await translateBatch([text], targetLang, false);
+  return out;
+}
+
+/**
+ * Translate a news content blob (JSON-encoded array of editor blocks) into
+ * the target locale. Walks the parsed structure, sends string fields to DeepL
+ * with HTML tag handling, then re-stringifies. Returns the original content if
+ * parsing fails or DeepL is unavailable.
+ */
+export async function translateNewsContent(content: string, targetLang: string): Promise<string> {
+  if (targetLang === 'uk' || !content) return content;
+  try {
+    const blocks = JSON.parse(content);
+    if (!Array.isArray(blocks)) return content;
+    const translated = await translateObject(blocks, targetLang, true);
+    return JSON.stringify(translated);
+  } catch {
+    return content;
+  }
+}
+
+/**
+ * Returns a localized version of `content`.
+ *
+ * Resolution order:
+ *   1. uk → returns the original `content`
+ *   2. en/pl → calls `loaders[locale]?.()` (a dynamic import of the matching
+ *      `_content/{locale}.ts` file). If the loader returns something — use it.
+ *   3. Fallback → original `content` (no DeepL call).
+ *
+ * DeepL is no longer used for landing pages — translations are stored in
+ * static `_content/{locale}.ts` files committed to the repo.
+ */
+export function getTranslatedContent<T>(
+  content: T,
+  _cacheKey: string,
+  loaders?: Partial<Record<string, () => Promise<{ default: T } | T>>>
+) {
   return async (locale: string): Promise<T> => {
     if (locale === 'uk') return content;
-
-    const translate = unstable_cache(
-      async (): Promise<T> => translateObject(content, locale),
-      [`${cacheKey}-${locale}`],
-      { revalidate: 2592000 }
-    );
-
-    return translate();
+    const loader = loaders?.[locale];
+    if (!loader) return content;
+    try {
+      const mod = await loader();
+      if (mod && typeof mod === 'object' && 'default' in (mod as object)) {
+        return (mod as { default: T }).default;
+      }
+      return mod as T;
+    } catch {
+      return content;
+    }
   };
+}
+
+/**
+ * DeepL-based translator. Kept exported for the news pipeline only.
+ * Do not use for landing pages — use static `_content/{locale}.ts` files.
+ */
+export async function translateContentWithDeepL<T>(content: T, targetLang: string): Promise<T> {
+  return translateObject(content, targetLang);
 }
 
 const UA_TO_LATIN: Record<string, string> = {

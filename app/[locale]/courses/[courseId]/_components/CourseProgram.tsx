@@ -1,4 +1,5 @@
 import { FaPlay, FaLock, FaClock } from "react-icons/fa";
+import { getTranslations } from "next-intl/server";
 
 interface Lesson {
   id: string;
@@ -19,24 +20,25 @@ interface CourseProgramProps {
   isEnrolled: boolean;
 }
 
-export default function CourseProgram({ modules, totalLessons, isEnrolled }: CourseProgramProps) {
+export default async function CourseProgram({ modules, totalLessons, isEnrolled }: CourseProgramProps) {
+  const t = await getTranslations("DynamicCourse");
   return (
     <section id="program" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24">
       <div className="text-center mb-16">
         <span className="text-[#D4A017] font-semibold text-sm uppercase tracking-wider">
-          {"Навчальний план"}
+          {t("planLabel")}
         </span>
         <h2 className="text-3xl md:text-4xl font-bold text-[#1C3A2E] mt-2">
-          {"Програма курсу"}
+          {t("programTitle")}
         </h2>
         <p className="text-gray-500 mt-2">
-          {modules.length} {"модулів · "} {totalLessons} {"уроків"}
+          {modules.length} {t("modulesLabel")} · {totalLessons} {t("lessons")}
         </p>
       </div>
 
       {modules.length === 0 ? (
         <div className="text-center text-gray-400 py-12">
-          {"Програма курсу незабаром буде додана"}
+          {t("programEmpty")}
         </div>
       ) : (
         <div className="space-y-4">
@@ -50,7 +52,7 @@ export default function CourseProgram({ modules, totalLessons, isEnrolled }: Cou
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-xl font-bold text-[#1C3A2E]">{module.title}</h3>
                   <span className="text-sm text-gray-400">
-                    {module.lessons.length} {"уроків"}
+                    {module.lessons.length} {t("lessons")}
                   </span>
                 </div>
                 <ul className="space-y-2">
@@ -64,7 +66,7 @@ export default function CourseProgram({ modules, totalLessons, isEnrolled }: Cou
                       </span>
                       {lesson.isFree && !isEnrolled && (
                         <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
-                          {"Безкоштовно"}
+                          {t("free")}
                         </span>
                       )}
                       {lesson.duration && (

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+import { translateNewsAllLocales } from "@/lib/translateNews";
 
 export async function GET(
   _req: NextRequest,
@@ -36,9 +37,29 @@ export async function PATCH(
   const { id } = await params;
   const data = await req.json();
 
+  // Re-run DeepL translation when title/excerpt/content actually changed.
+  // PATCH may also be called for tiny edits (publish toggle, image swap) — in
+  // that case we leave the existing translations alone to save DeepL quota.
+  const needsRetranslate =
+    typeof data.title === "string" ||
+    typeof data.excerpt === "string" ||
+    typeof data.content === "string";
+
+  let translations = {};
+  if (needsRetranslate) {
+    const current = await prisma.news.findUnique({ where: { id } });
+    if (current) {
+      translations = await translateNewsAllLocales({
+        title: data.title ?? current.title,
+        excerpt: data.excerpt ?? current.excerpt,
+        content: data.content ?? current.content,
+      });
+    }
+  }
+
   const item = await prisma.news.update({
     where: { id },
-    data,
+    data: { ...data, ...translations },
   });
 
   return NextResponse.json(item);

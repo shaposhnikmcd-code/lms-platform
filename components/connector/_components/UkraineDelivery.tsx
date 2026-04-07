@@ -9,6 +9,20 @@ interface Labels {
   branchLabel: string;
   branchPlaceholder: string;
   notFound: string;
+  courierAddressTitle: string;
+  streetLabel: string;
+  houseLabel: string;
+  corpusLabel: string;
+  apartmentLabel: string;
+  optional: string;
+  enterStreet: string;
+  firstSelectCity: string;
+  firstSelectStreet: string;
+  streetsNotFound: string;
+  buildingsNotFound: string;
+  exampleHouse: string;
+  exampleCorpus: string;
+  exampleApt: string;
 }
 
 interface CourierAddress {
@@ -191,13 +205,13 @@ export default function UkraineDelivery({
         <div className="space-y-4">
           <div className="flex items-center gap-2">
             <FaHome className="text-gray-400" />
-            <span className="text-sm font-medium text-gray-700">{"Адреса доставки кур'єром"}</span>
+            <span className="text-sm font-medium text-gray-700">{labels.courierAddressTitle}</span>
           </div>
 
           {/* Вулиця з пошуком */}
           <div className="relative">
             <label className="block text-xs font-medium text-gray-600 mb-1">
-              {"Вулиця"} <span className="text-red-500">{"*"}</span>
+              {labels.streetLabel} <span className="text-red-500">{"*"}</span>
             </label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -217,7 +231,7 @@ export default function UkraineDelivery({
                 autoComplete="new-password"
                 disabled={!selectedCityRef}
                 className="block w-full pl-8 pr-3 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#D4A017] focus:border-transparent text-sm disabled:bg-gray-50 disabled:text-gray-400"
-                placeholder={selectedCityRef ? "Введіть назву вулиці" : "Спочатку оберіть місто"}
+                placeholder={selectedCityRef ? labels.enterStreet : labels.firstSelectCity}
               />
               {loadingStreets && (
                 <div className="absolute right-3 top-3">
@@ -249,7 +263,7 @@ export default function UkraineDelivery({
             )}
             {showStreets && streets.length === 0 && !loadingStreets && (
               <div className="absolute z-30 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg p-3 text-center text-gray-500 text-sm">
-                {"Вулиць не знайдено"}
+                {labels.streetsNotFound}
               </div>
             )}
           </div>
@@ -258,7 +272,7 @@ export default function UkraineDelivery({
           <div className="grid grid-cols-2 gap-3">
             <div className="relative">
               <label className="block text-xs font-medium text-gray-600 mb-1">
-                {"Будинок"} <span className="text-red-500">{"*"}</span>
+                {labels.houseLabel} <span className="text-red-500">{"*"}</span>
               </label>
               <input
                 type="text"
@@ -277,7 +291,7 @@ export default function UkraineDelivery({
                 autoComplete="new-password"
                 disabled={!selectedStreetRef}
                 className="block w-full px-3 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#D4A017] focus:border-transparent text-sm disabled:bg-gray-50 disabled:text-gray-400"
-                placeholder={selectedStreetRef ? "напр. 12" : "Спочатку вулицю"}
+                placeholder={selectedStreetRef ? labels.exampleHouse : labels.firstSelectStreet}
               />
               {loadingBuildings && (
                 <div className="absolute right-3 top-9">
@@ -302,14 +316,14 @@ export default function UkraineDelivery({
               )}
               {showBuildings && filteredBuildings.length === 0 && !loadingBuildings && (
                 <div className="absolute z-30 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg p-3 text-center text-gray-500 text-sm">
-                  {"Будинків не знайдено"}
+                  {labels.buildingsNotFound}
                 </div>
               )}
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">
-                {"Корпус"}
-                <span className="text-gray-400 font-normal ml-1">{"(необов'язково)"}</span>
+                {labels.corpusLabel}
+                <span className="text-gray-400 font-normal ml-1">{labels.optional}</span>
               </label>
               <input
                 type="text"
@@ -317,7 +331,7 @@ export default function UkraineDelivery({
                 onChange={(e) => onCourierAddressChange('corpus', e.target.value)}
                 autoComplete="new-password"
                 className="block w-full px-3 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#D4A017] focus:border-transparent text-sm"
-                placeholder={"напр. А"}
+                placeholder={labels.exampleCorpus}
               />
             </div>
           </div>
@@ -325,7 +339,7 @@ export default function UkraineDelivery({
           {/* Квартира */}
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">
-              {"Квартира"} <span className="text-red-500">{"*"}</span>
+              {labels.apartmentLabel} <span className="text-red-500">{"*"}</span>
             </label>
             <input
               type="text"
@@ -334,7 +348,7 @@ export default function UkraineDelivery({
               required
               autoComplete="new-password"
               className="block w-full px-3 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#D4A017] focus:border-transparent text-sm"
-              placeholder={"напр. 45"}
+              placeholder={labels.exampleApt}
             />
           </div>
         </div>

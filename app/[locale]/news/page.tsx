@@ -4,7 +4,10 @@ import { FaCalendar, FaUser } from "react-icons/fa";
 import { getTranslatedContent } from "@/lib/translate";
 import { newsContent } from "./_content/uk";
 
-const getContent = getTranslatedContent(newsContent, "news-page");
+const getContent = getTranslatedContent(newsContent, "news-page", {
+  en: () => import("./_content/en").then(m => m.default),
+  pl: () => import("./_content/pl").then(m => m.default),
+});
 
 const CATEGORY_COLORS: Record<string, string> = {
   NEWS: "bg-blue-100 text-blue-700",
@@ -39,11 +42,18 @@ export default async function NewsPage({ params }: { params: Promise<{ locale: s
           </div>
         ) : (
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {news.map((item) => (
+            {news.map((item) => {
+              const title = locale === "en" ? (item.titleEn ?? item.title)
+                : locale === "pl" ? (item.titlePl ?? item.title)
+                : item.title;
+              const excerpt = locale === "en" ? (item.excerptEn ?? item.excerpt)
+                : locale === "pl" ? (item.excerptPl ?? item.excerpt)
+                : item.excerpt;
+              return (
               <Link key={item.id} href={`/news/${item.slug}`}
                 className="bg-white rounded-2xl shadow-sm hover:shadow-md transition-all overflow-hidden group">
                 {item.imageUrl ? (
-                  <img src={item.imageUrl} alt={item.title}
+                  <img src={item.imageUrl} alt={title}
                     className="w-full h-48 object-cover group-hover:scale-105 transition-transform duration-300" />
                 ) : (
                   <div className="w-full h-48 bg-gradient-to-br from-[#1C3A2E] to-[#2a4f3f] flex items-center justify-center">
@@ -57,10 +67,10 @@ export default async function NewsPage({ params }: { params: Promise<{ locale: s
                     </span>
                   </div>
                   <h2 className="font-bold text-[#1C3A2E] text-lg mb-2 group-hover:text-[#D4A843] transition-colors line-clamp-2">
-                    {item.title}
+                    {title}
                   </h2>
-                  {item.excerpt && (
-                    <p className="text-gray-500 text-sm mb-4 line-clamp-3">{item.excerpt}</p>
+                  {excerpt && (
+                    <p className="text-gray-500 text-sm mb-4 line-clamp-3">{excerpt}</p>
                   )}
                   <div className="flex items-center gap-4 text-xs text-gray-400">
                     <span className="flex items-center gap-1">
@@ -76,7 +86,7 @@ export default async function NewsPage({ params }: { params: Promise<{ locale: s
                   </div>
                 </div>
               </Link>
-            ))}
+            );})}
           </div>
         )}
       </section>

@@ -4,7 +4,10 @@ import { getCurrency } from '@/lib/currency';
 import { content } from '../_content/uk';
 
 const SENDPULSE_URL = 'https://uimp-edu.sendpulse.online/bible-therapy_3_0';
-const getContent = getTranslatedContent(content, 'christian-psychology-page');
+const getContent = getTranslatedContent(content, 'christian-psychology-page', {
+  en: () => import('../_content/en').then(m => m.default),
+  pl: () => import('../_content/pl').then(m => m.default),
+});
 
 export default async function CoursePricingTiers({ locale }: { locale: string }) {
   const c = await getContent(locale);

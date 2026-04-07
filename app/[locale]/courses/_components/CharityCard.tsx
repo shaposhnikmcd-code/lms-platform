@@ -16,12 +16,13 @@ type Props = {
   price: string;
   duration: string;
   freeLabel: string;
+  ctaLabel: string;
   icon?: string;
   imageSrc?: string;
   index: number;
 };
 
-export default function CharityCard({ href, isExternal, accent, accentRgb, title, description, duration, freeLabel, icon, imageSrc }: Props) {
+export default function CharityCard({ href, isExternal, accent, accentRgb, title, description, duration, freeLabel, ctaLabel, icon, imageSrc }: Props) {
   const [hovered, setHovered] = useState(false);
 
   const inner = (
@@ -145,7 +146,7 @@ export default function CharityCard({ href, isExternal, accent, accentRgb, title
           transition: 'all 0.3s ease',
           whiteSpace: 'nowrap' as const,
         }}>
-          {"Перейти до курсу"}
+          {ctaLabel}
           <svg viewBox="0 0 16 16" fill="none" width="10" height="10">
             <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>

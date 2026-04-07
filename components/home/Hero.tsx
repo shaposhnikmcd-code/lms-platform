@@ -7,6 +7,9 @@ interface Props {
   content: {
     title1: string;
     title2: string;
+    subtitle1: string;
+    subtitle2: string;
+    subtitle3: string;
     links: string[];
     btnCourses: string;
     btnRegister: string;
@@ -44,9 +47,9 @@ export default function Hero({ content }: Props) {
               <span style={{ color: '#D4A843' }}>{content.title2}</span>
             </h1>
             <p className="text-base mb-7" style={{ color: 'rgba(255,255,255,0.7)', maxWidth: '480px', lineHeight: 1.75 }}>
-              {"Простір, де терапія охоплює людину цілісно (дух, душа, тіло)."}<br />
-              {"Ми переконані, що психологія в її первинному вигляді"}
-              <br />{"містить духовність."}
+              {content.subtitle1}<br />
+              {content.subtitle2}
+              <br />{content.subtitle3}
             </p>
             <Link
               href="/courses"

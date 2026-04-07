@@ -1,5 +1,7 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
+
 interface VideoPlayerProps {
   videoUrl: string | null;
   videoProvider: string;
@@ -7,6 +9,7 @@ interface VideoPlayerProps {
 }
 
 export default function VideoPlayer({ videoUrl, videoProvider, videoId }: VideoPlayerProps) {
+  const t = useTranslations("DynamicCourse");
   if (videoProvider === 'YOUTUBE' && videoId) {
     return (
       <iframe
@@ -42,7 +45,7 @@ export default function VideoPlayer({ videoUrl, videoProvider, videoId }: VideoP
 
   return (
     <div className="w-full aspect-video flex items-center justify-center bg-gray-900 rounded-xl">
-      <p className="text-gray-400">{"Відео недоступне"}</p>
+      <p className="text-gray-400">{t("videoUnavailable")}</p>
     </div>
   );
 }

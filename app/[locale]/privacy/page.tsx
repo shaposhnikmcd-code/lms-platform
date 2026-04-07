@@ -1,7 +1,10 @@
 import { getTranslatedContent } from '@/lib/translate';
 import { privacyContent } from './_content/uk';
 
-const getContent = getTranslatedContent(privacyContent, 'privacy-page');
+const getContent = getTranslatedContent(privacyContent, 'privacy-page', {
+  en: () => import('./_content/en').then(m => m.default),
+  pl: () => import('./_content/pl').then(m => m.default),
+});
 
 export default async function PrivacyPage({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;

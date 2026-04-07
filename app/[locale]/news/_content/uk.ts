@@ -7,4 +7,7 @@ export const newsContent = {
     ANNOUNCEMENT: "Оголошення",
     ARTICLE: "Стаття",
   },
+  back: "Назад до новин",
+  related: "Схожі матеріали",
+  emptyContent: "Вміст відсутній",
 };

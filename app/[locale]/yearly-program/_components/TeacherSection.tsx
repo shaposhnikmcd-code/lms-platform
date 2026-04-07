@@ -5,60 +5,26 @@ import { useState } from 'react';
 
 const sysFont = '-apple-system, BlinkMacSystemFont, sans-serif';
 
-const people = [
-  {
-    name: 'Тетяна Шапошник',
-    role: 'Авторка програми',
-    photo: '/yearly-program/Tetiana-Shaposhnyk.webp',
-    objectPosition: 'center top',
-    education: [
-      '15 років досвіду в психотерапії та душеопікунстві',
-      'Авторка методу біблійної терапії',
-      '300+ студентів з різних країн',
-    ],
-  },
-  {
-    name: 'Олександра Януш',
-    role: 'Старша кураторка',
-    photo: '/yearly-program/Oleksandra-Janush.jpg',
-    objectPosition: 'center 20%',
-    education: [
-      '2024 — 3-х модульна душеопікунська програма "Зцілення душі через хрест"',
-      '2025 — річна програма "Шлях до зцілення" від UIMP',
-      '2025 — в процесі навчання в університеті "Бачення"',
-    ],
-  },
-  {
-    name: 'Анна Гудзенко',
-    role: 'Кураторка',
-    photo: '/yearly-program/Anna-Gudzenko.png',
-    objectPosition: 'center 65%',
-    education: [
-      '2023–2026 — Черкаський національний університет ім. Богдана Хмельницького, "Практичний психолог" (в процесі)',
-      '2023–2026 — Транзактний аналіз (УАТА, в процесі)',
-      '2025 — річна програма "Шлях до зцілення" UIMP (сертифікат слухача)',
-      '2025–2026 — курс сексології від Юлії Серденюк (в процесі)',
-      '2025–2026 — школа психології PSY BRAIN на базі інституту Г. Сковороди (в процесі)',
-    ],
-  },
-  {
-    name: 'Марта Холява',
-    role: 'Кураторка',
-    photo: '/yearly-program/Marta-Kholyava.jpg',
-    objectPosition: 'center 15%',
-    education: [
-      '2008–2014 — СНУ ім. Лесі Українки, психолог, викладач психології',
-      '2023 — 3-х модульна програма "Зцілення душі через хрест"',
-      '2024 — школа практичного християнства "Маранафа" від European Christian Academy',
-      '2025 — річна програма "Шлях до зцілення" в UIMP (практичний)',
-      '2024–2027 — Транзактний аналіз (УАТА, в процесі), член УАТА/ЄАТА',
-    ],
-  },
+const peopleMeta = [
+  { photo: '/yearly-program/Tetiana-Shaposhnyk.webp', objectPosition: 'center top' },
+  { photo: '/yearly-program/Oleksandra-Janush.jpg',   objectPosition: 'center 20%' },
+  { photo: '/yearly-program/Anna-Gudzenko.png',       objectPosition: 'center 65%' },
+  { photo: '/yearly-program/Marta-Kholyava.jpg',      objectPosition: 'center 15%' },
 ];
+
+type PersonContent = { name: string; role: string; education: readonly string[] };
+type Props = {
+  t: {
+    label: string;
+    title: string;
+    people: readonly PersonContent[];
+  };
+};
+type Person = PersonContent & typeof peopleMeta[number];
 
 const initials = (name: string) => name.split(' ').map(n => n[0]).join('').slice(0, 2);
 
-function PersonCard({ person, index }: { person: typeof people[0]; index: number }) {
+function PersonCard({ person, index }: { person: Person; index: number }) {
   const [hovered, setHovered] = useState(false);
   const isFounder = index === 0;
 
@@ -137,7 +103,8 @@ function PersonCard({ person, index }: { person: typeof people[0]; index: number
   );
 }
 
-export default function TeacherSection() {
+export default function TeacherSection({ t }: Props) {
+  const people: Person[] = t.people.map((p, i) => ({ ...p, ...peopleMeta[i] }));
   return (
     <section style={{ background: '#1C3A2E', position: 'relative', overflow: 'hidden' }} className="py-12 sm:py-[72px] px-4 sm:px-12">
       <div style={{ position: 'absolute', top: -120, right: -80, width: 500, height: 500, borderRadius: '50%', background: 'radial-gradient(circle, rgba(212,168,67,0.05) 0%, transparent 70%)', pointerEvents: 'none' }} />
@@ -148,11 +115,11 @@ export default function TeacherSection() {
           <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '16px' }}>
             <div style={{ height: '1px', width: '32px', background: '#D4A843', opacity: 0.6 }} />
             <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.32em', textTransform: 'uppercase' as const, color: '#D4A843', fontFamily: sysFont }}>
-              {"Команда"}
+              {t.label}
             </span>
           </div>
           <h2 style={{ fontFamily: sysFont, fontSize: 'clamp(28px, 3.5vw, 42px)', fontWeight: 700, color: '#F5EDD6', margin: 0, letterSpacing: '-0.02em', lineHeight: 1.15 }}>
-            {"З вами на курсі:"}
+            {t.title}
           </h2>
         </div>
 

@@ -13,6 +13,9 @@ type Props = {
     messageLabel: string;
     messagePlaceholder: string;
     btnSubmit: string;
+    sending: string;
+    success: string;
+    errorMsg: string;
   };
   social: { title: string; followLabel: string };
   telegram: { title: string; subtitle: string; btn: string };
@@ -63,10 +66,10 @@ export default function FormSection({ form }: Props) {
       <div style={cardStyle}>
         <h2 style={titleStyle}>{form.title}</h2>
         {status === 'success' && (
-          <p style={successStyle}>{"✓ Повідомлення надіслано! Ми відповімо найближчим часом."}</p>
+          <p style={successStyle}>{form.success}</p>
         )}
         {status === 'error' && (
-          <p style={errorStyle}>{"Помилка. Спробуйте ще раз або напишіть нам напряму."}</p>
+          <p style={errorStyle}>{form.errorMsg}</p>
         )}
         {status !== 'success' && (
           <form onSubmit={handleSubmit} style={formStyle}>
@@ -83,7 +86,7 @@ export default function FormSection({ form }: Props) {
               <textarea required rows={5} placeholder={form.messagePlaceholder} value={message} onChange={e => setMessage(e.target.value)} style={textareaStyle} />
             </div>
             <button type="submit" style={btnStyle} disabled={status === 'loading'}>
-              {status === 'loading' ? "Надсилання..." : form.btnSubmit}
+              {status === 'loading' ? form.sending : form.btnSubmit}
             </button>
           </form>
         )}

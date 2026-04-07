@@ -6,14 +6,17 @@ import { Link } from "@/i18n/navigation";
 
 const sysFont = '-apple-system, BlinkMacSystemFont, sans-serif';
 
-const requests = [
-  { icon: "🎓", text: "Хочу отримати якісні знання в душеопіці та надавати допомогу" },
-  { icon: "🧠", text: "Хочу бути психологом" },
-  { icon: "📖", text: "Хочу вивчити нові психотерапевтичні напрямки" },
-  { icon: "🪞", text: "Хочу краще зрозуміти свій стан" },
-  { icon: "⛪", text: "Хочу впровадити душеопіку в церкві" },
-  { icon: "✝️", text: "Хочу бути християнським психологом" },
-];
+const REQUEST_ICONS = ["🎓", "🧠", "📖", "🪞", "⛪", "✝️"] as const;
+
+type Props = {
+  t: {
+    label: string;
+    title: string;
+    hint: string;
+    cta: string;
+    items: readonly string[];
+  };
+};
 
 const sectionStyle: React.CSSProperties = {
   backgroundColor: '#FAF6F0',
@@ -175,7 +178,7 @@ const ctaLinkHoveredStyle: React.CSSProperties = {
   boxShadow: '0 12px 32px rgba(212,168,67,0.35)',
 };
 
-function RequestCard({ item }: { item: typeof requests[number] }) {
+function RequestCard({ item }: { item: { icon: string; text: string } }) {
   const [hovered, setHovered] = useState(false);
   return (
     <div
@@ -189,7 +192,7 @@ function RequestCard({ item }: { item: typeof requests[number] }) {
   );
 }
 
-function CtaButton() {
+function CtaButton({ label }: { label: string }) {
   const [hovered, setHovered] = useState(false);
   return (
     <Link
@@ -198,13 +201,14 @@ function CtaButton() {
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      {"Навчальні програми"}
+      {label}
       <span style={{ transform: hovered ? 'translateX(4px)' : 'translateX(0)', transition: 'transform 0.25s ease', display: 'inline-block' }}>{"→"}</span>
     </Link>
   );
 }
 
-export default function RequestsSection() {
+export default function RequestsSection({ t }: Props) {
+  const requests = t.items.map((text, i) => ({ icon: REQUEST_ICONS[i] ?? "•", text }));
   const isMobile = useIsMobile();
   const sectionRef = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
@@ -234,9 +238,9 @@ export default function RequestsSection() {
         }}>
           <div style={eyebrowRowStyle}>
             <div style={eyebrowLineStyle} />
-            <span style={eyebrowStyle}>{"Для кого"}</span>
+            <span style={eyebrowStyle}>{t.label}</span>
           </div>
-          <h2 style={titleStyleR}>{"Запити, які ми закриваємо"}</h2>
+          <h2 style={titleStyleR}>{t.title}</h2>
           <div style={titleUnderlineStyle} />
         </div>
         <div style={{
@@ -254,8 +258,8 @@ export default function RequestsSection() {
           transition: 'transform 0.8s cubic-bezier(0.16,1,0.3,1) 0.2s, opacity 0.8s ease 0.2s',
         }}>
           <div style={ctaDividerStyle} />
-          <p style={ctaHintStyle}>{"Знайди свій напрямок"}</p>
-          <CtaButton />
+          <p style={ctaHintStyle}>{t.hint}</p>
+          <CtaButton label={t.cta} />
         </div>
       </div>
     </section>

@@ -2,7 +2,9 @@ import Image from 'next/image';
 
 const sysFont = '-apple-system, BlinkMacSystemFont, sans-serif';
 
-export default function HeroSection() {
+type Props = { t: { title: string; subtitle: string } };
+
+export default function HeroSection({ t }: Props) {
   return (
     <section style={{ background: 'linear-gradient(135deg, #1C3A2E 0%, #1a3828 50%, #0f2219 100%)', paddingTop: 52, paddingBottom: 48, position: 'relative', overflow: 'hidden' }}>
       <div style={{ position: 'absolute', top: 40, left: 40, width: 384, height: 384, borderRadius: '50%', backgroundColor: 'rgba(212,168,67,0.05)', filter: 'blur(60px)', pointerEvents: 'none' }} />
@@ -14,10 +16,10 @@ export default function HeroSection() {
               <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.28em', textTransform: 'uppercase' as const, color: '#D4A843', fontFamily: sysFont }}>{"UIMP"}</span>
             </div>
             <h1 style={{ fontFamily: sysFont, fontSize: 'clamp(32px, 5vw, 52px)', fontWeight: 700, color: 'white', lineHeight: 1.1, letterSpacing: '-0.02em', margin: '0 0 14px' }}>
-              {"Про нас"}
+              {t.title}
             </h1>
             <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.4)', maxWidth: 380, lineHeight: 1.75, margin: 0, fontFamily: sysFont }}>
-              {"Дізнайтеся більше про місію та команду Українського інституту Душеопіки та Психотерапії"}
+              {t.subtitle}
             </p>
           </div>
 

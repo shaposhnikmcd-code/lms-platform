@@ -48,19 +48,19 @@ export default function Footer() {
           </div>
 
           {/* Кнопки — по центру сторінки */}
-          <div className="flex items-center justify-center gap-10 flex-wrap">
+          <div className="flex items-center justify-center gap-8 flex-wrap" style={{ transform: 'translateY(-6px)' }}>
             {[
-              { href: tgUrl, icon: <FaTelegram size={32} />, label: 'Telegram', color: '#26A5E4', glow: 'rgba(38,165,228,0.9)' },
-              { href: igUrl, icon: <FaInstagram size={32} />, label: 'Instagram', color: '#d6249f', glow: 'rgba(214,36,159,0.9)' },
-              { href: ytUrl, icon: <FaYoutube size={32} />, label: 'YouTube', color: '#FF0000', glow: 'rgba(255,0,0,0.9)' },
+              { href: tgUrl, icon: <FaTelegram size={29} />, label: 'Telegram', color: '#26A5E4', glow: 'rgba(38,165,228,0.9)' },
+              { href: igUrl, icon: <FaInstagram size={29} />, label: 'Instagram', color: '#d6249f', glow: 'rgba(214,36,159,0.9)' },
+              { href: ytUrl, icon: <FaYoutube size={29} />, label: 'YouTube', color: '#FF0000', glow: 'rgba(255,0,0,0.9)' },
             ].map(({ href, icon, label, color, glow }) => (
               <a key={label} href={href} target="_blank" rel="noopener noreferrer"
-                className="flex flex-col items-center gap-2"
+                className="flex flex-col items-center gap-1"
                 style={{ textDecoration: 'none' }}
                 onMouseEnter={e => {
                   const span = e.currentTarget.querySelector('span.icon') as HTMLElement;
                   const text = e.currentTarget.querySelector('span.label') as HTMLElement;
-                  if (span) { span.style.transform = 'translateY(-6px) scale(1.25)'; span.style.filter = `drop-shadow(0 0 8px ${glow}) drop-shadow(0 0 20px ${glow.replace('0.9', '0.5')})`; }
+                  if (span) { span.style.transform = 'translateY(-4px) scale(1.15)'; span.style.filter = `drop-shadow(0 0 6px ${glow}) drop-shadow(0 0 14px ${glow.replace('0.9', '0.4')})`; }
                   if (text) text.style.color = 'rgba(255,255,255,0.8)';
                 }}
                 onMouseLeave={e => {
