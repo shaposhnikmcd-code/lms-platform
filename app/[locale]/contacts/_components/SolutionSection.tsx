@@ -5,13 +5,16 @@ import { useIsMobile } from "@/lib/useIsMobile";
 
 const sysFont = '-apple-system, BlinkMacSystemFont, sans-serif';
 
-const pillars = [
-  { level: "Дух",  text: "Науковий підхід + духовний аспект" },
-  { level: "Душа", text: "Душеопіка стає частиною психології і навпаки" },
-  { level: "Тіло", text: "Психологія в її первинному вигляді стає допоміжним інструментом у церквах" },
-];
+type Props = {
+  t: {
+    label: string;
+    caption: string;
+    pillars: readonly { level: string; text: string }[];
+  };
+};
 
-export default function SolutionSection() {
+export default function SolutionSection({ t }: Props) {
+  const pillars = t.pillars;
   const isMobile = useIsMobile();
 
   return (
@@ -49,7 +52,7 @@ export default function SolutionSection() {
             letterSpacing: '-0.01em',
             color: '#1C3A2E',
             flexShrink: 0,
-          }}>{"Наше рішення"}</span>
+          }}>{t.label}</span>
           <div style={{
             height: 1, flex: 1,
             backgroundImage: 'linear-gradient(to right, rgba(212,168,67,0.5), transparent)',
@@ -72,7 +75,7 @@ export default function SolutionSection() {
             lineHeight: 1.6,
             letterSpacing: '0.01em',
           }}>
-            {"зцілення ідентичності на трьох рівнях"}
+            {t.caption}
           </p>
 
           <div style={{

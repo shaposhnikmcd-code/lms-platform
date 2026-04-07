@@ -9,7 +9,10 @@ import { getTranslatedContent } from '@/lib/translate';
 import { content } from './_content/uk';
 
 const inter = Inter({ subsets: ['latin', 'cyrillic'] });
-const getContent = getTranslatedContent(content, 'biblical-heroes-page');
+const getContent = getTranslatedContent(content, 'biblical-heroes-page', {
+  en: () => import('./_content/en').then(m => m.default),
+  pl: () => import('./_content/pl').then(m => m.default),
+});
 
 const aboutIcons = [
   <FaBookOpen key={0} className="text-3xl text-[#D4A017]" />,
@@ -44,7 +47,7 @@ export default async function BiblicalHeroesPage({ params }: { params: Promise<{
               <p className="text-white/80 text-base leading-relaxed max-w-xl">{c.description}</p>
               <div className="flex flex-col sm:flex-row gap-3 !mt-4">
                 <CoursePurchaseModal
-                  courseName="Психотерапія біблійних героїв"
+                  courseName={`${c.title1} ${c.title2}`}
                   price={Number(BIBLICAL_HEROES_COURSE.price)}
                   courseId={BIBLICAL_HEROES_COURSE.courseId}
                   buttonLabel={c.btnBuy}
@@ -69,7 +72,7 @@ export default async function BiblicalHeroesPage({ params }: { params: Promise<{
               <div className="absolute inset-0 bg-gradient-to-r from-[#D4A017] to-[#b88913] rounded-2xl rotate-3 opacity-20" />
               <div className="relative bg-white/10 backdrop-blur-sm p-8 rounded-2xl border border-white/20">
                 <div className="relative h-48">
-                  <Image src="/courses/psychotherapy-of-biblical-heroes/uimp_wide-logo-bible.webp" alt="Психотерапія біблійних героїв" fill className="object-contain" priority />
+                  <Image src="/courses/psychotherapy-of-biblical-heroes/uimp_wide-logo-bible.webp" alt={`${c.title1} ${c.title2}`} fill className="object-contain" priority />
                 </div>
               </div>
             </div>

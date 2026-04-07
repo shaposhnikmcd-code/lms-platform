@@ -4,7 +4,10 @@ import { getTranslatedContent } from '@/lib/translate';
 import { getCurrency } from '@/lib/currency';
 import { content } from '../_content/uk';
 
-const getContent = getTranslatedContent(content, 'mentorship-page');
+const getContent = getTranslatedContent(content, 'mentorship-page', {
+  en: () => import('../_content/en').then(m => m.default),
+  pl: () => import('../_content/pl').then(m => m.default),
+});
 
 export default async function MentorshipPricing({ locale }: { locale: string }) {
   const c = await getContent(locale);
@@ -29,7 +32,7 @@ export default async function MentorshipPricing({ locale }: { locale: string }) 
               <div className="w-16 h-px bg-gradient-to-r from-transparent via-[#D4A017]/40 to-transparent mx-auto mb-6" />
 
               <CoursePurchaseModal
-                courseName="Менторство"
+                courseName={`${c.title1} ${c.title2}`}
                 price={Number(MENTORSHIP_COURSE.price)}
                 courseId={MENTORSHIP_COURSE.courseId}
                 currency={currency}

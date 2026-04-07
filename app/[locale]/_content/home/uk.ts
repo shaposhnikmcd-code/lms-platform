@@ -2,6 +2,9 @@ export const homeContent = {
   hero: {
     title1: "Український інститут Душеопіки та",
     title2: "Психотерапії (UIMP)",
+    subtitle1: "Простір, де терапія охоплює людину цілісно (дух, душа, тіло).",
+    subtitle2: "Ми переконані, що психологія в її первинному вигляді",
+    subtitle3: "містить духовність.",
     links: [],
     btnCourses: "Актуальні програми",
     btnRegister: "Зареєструватися",
@@ -21,10 +24,10 @@ export const homeContent = {
     subtitle: "Обирайте те, що підходить саме вам - від професійного навчання до особистої турботи",
     btnAll: "Всі програми та курси",
     items: [
-      { title: "Освітні програми", description: "", icon: "📚", price: "від 950 грн", duration: "", link: "/courses" },
-      { title: "Благодійні проєкти", description: "", icon: "❤️", price: "Безкоштовно", duration: "", link: "/charity" },
-      { title: "База спеціалістів", description: "", icon: "👥", price: "", duration: "", link: "/consultations" },
-      { title: "Психологічні ігри", description: "", icon: "🧩", price: "1099 грн", duration: "", link: "/games" },
+      { title: "Освітні програми", description: "Навчальні програми з психотерапії та душеопікунства для фахівців і всіх охочих", icon: "📚", price: "від 950 грн", duration: "", link: "/courses" },
+      { title: "Благодійні проєкти", description: "Безкоштовні курси та ресурси для тих, хто потребує підтримки", icon: "❤️", price: "Безкоштовно", duration: "", link: "/charity" },
+      { title: "База спеціалістів", description: "Індивідуальні консультації з досвідченими психологами та психотерапевтами", icon: "👥", price: "", duration: "", link: "/consultations" },
+      { title: "Психологічні ігри", description: "Психологічна гра для пар, створена командою UIMP", icon: "🧩", price: "1099 грн", duration: "", link: "/games" },
     ],
   },
   whyUs: {

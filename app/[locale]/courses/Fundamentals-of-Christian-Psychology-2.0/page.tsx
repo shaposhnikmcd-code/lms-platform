@@ -8,7 +8,10 @@ import { getTranslatedContent } from '@/lib/translate';
 import { content } from './_content/uk';
 
 const inter = Inter({ subsets: ['latin', 'cyrillic'] });
-const getContent = getTranslatedContent(content, 'christian-psychology-page');
+const getContent = getTranslatedContent(content, 'christian-psychology-page', {
+  en: () => import('./_content/en').then(m => m.default),
+  pl: () => import('./_content/pl').then(m => m.default),
+});
 
 const topicIcons = [
   <FaPray key={0} className="text-2xl text-[#D4A017]" />,

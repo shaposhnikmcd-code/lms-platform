@@ -35,6 +35,7 @@ interface Labels {
   diplomasLabel: string;
   educationTitle?: string;
   certificatesTitle?: string;
+  associationsLabel?: string;
   costLabel: string;
   durationLabel: string;
   btnBook: string;
@@ -200,7 +201,7 @@ export default function SpecialistCard({ s, labels }: Props) {
                   {/* Спліт: Освіта | Сертифікати */}
                   <div className="flex flex-col sm:flex-row gap-3 sm:gap-[1.1rem]">
                     <div className="sm:basis-[52%] min-w-0">
-                      <SectionHeader title={labels.educationTitle ?? 'Освіта та підготовка'} />
+                      <SectionHeader title={labels.educationTitle ?? 'Education and training'} />
                       <EducationTimeline categories={inlineCategories} />
                     </div>
 
@@ -209,13 +210,13 @@ export default function SpecialistCard({ s, labels }: Props) {
                     {s.certificates && s.certificates.length > 0 && (
                       <div className="flex-1 min-w-0 flex flex-col gap-[0.65rem]">
                         <div>
-                          <SectionHeader title={labels.certificatesTitle ?? 'Сертифікати'} />
+                          <SectionHeader title={labels.certificatesTitle ?? 'Certificates'} />
                           <CertificatesGrid certs={s.certificates} />
                         </div>
                         {s.associations && s.associations.length > 0 && (
                           <div style={{ borderTop: '1px dashed rgba(28,58,46,0.1)', paddingTop: '0.45rem' }}>
                             <p style={{ fontSize: '0.56rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: '#9ca3af', fontFamily: sysFont, margin: '0 0 0.3rem' }}>
-                              Членство в асоціаціях
+                              {labels.associationsLabel ?? "Membership in associations"}
                             </p>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                               {s.associations.map((a, ai) => (

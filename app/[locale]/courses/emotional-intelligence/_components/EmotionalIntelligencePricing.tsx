@@ -5,7 +5,10 @@ import { getTranslatedContent } from '@/lib/translate';
 import { getCurrency } from '@/lib/currency';
 import { content } from '../_content/uk';
 
-const getContent = getTranslatedContent(content, 'emotional-intelligence-page');
+const getContent = getTranslatedContent(content, 'emotional-intelligence-page', {
+  en: () => import('../_content/en').then(m => m.default),
+  pl: () => import('../_content/pl').then(m => m.default),
+});
 
 export default async function EmotionalIntelligencePricing({ locale }: { locale: string }) {
   const c = await getContent(locale);
@@ -39,7 +42,7 @@ export default async function EmotionalIntelligencePricing({ locale }: { locale:
               </div>
 
               <CoursePurchaseModal
-                courseName="Емоційний інтелект"
+                courseName={`${c.title1} ${c.title2}`}
                 price={Number(EMOTIONAL_INTELLIGENCE_COURSE.price)}
                 courseId={EMOTIONAL_INTELLIGENCE_COURSE.courseId}
                 currency={currency}

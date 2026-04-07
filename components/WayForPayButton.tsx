@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { FaWallet } from 'react-icons/fa';
 import { useSession } from 'next-auth/react';
+import { useTranslations } from 'next-intl';
 
 interface WayForPayButtonProps {
   courseName: string;
@@ -11,12 +12,13 @@ interface WayForPayButtonProps {
 }
 
 export default function WayForPayButton({ courseName, price, courseId }: WayForPayButtonProps) {
+  const t = useTranslations('PurchaseModal');
   const { data: session } = useSession();
   const [loading, setLoading] = useState(false);
 
   const handlePay = async () => {
     if (!session?.user?.email) {
-      alert('Будь ласка, увійдіть в акаунт перед оплатою');
+      alert(t('alertLogin'));
       return;
     }
 
@@ -39,7 +41,7 @@ export default function WayForPayButton({ courseName, price, courseId }: WayForP
       });
 
       if (!response.ok) {
-        throw new Error('Помилка створення платежу');
+        throw new Error(t('errorPayment'));
       }
 
       const paymentData = await response.json();
@@ -70,8 +72,8 @@ export default function WayForPayButton({ courseName, price, courseId }: WayForP
       document.body.appendChild(form);
       form.submit();
     } catch (error) {
-      console.error('Помилка оплати:', error);
-      alert('Помилка при створенні платежу. Спробуйте ще раз.');
+      console.error('Payment error:', error);
+      alert(t('errorPaymentRetry'));
       setLoading(false);
     }
   };
@@ -83,7 +85,7 @@ export default function WayForPayButton({ courseName, price, courseId }: WayForP
       className="group inline-flex items-center gap-3 bg-[#D4A017] text-white font-bold py-5 px-12 rounded-xl hover:bg-[#b88913] transition-all text-lg w-full justify-center disabled:opacity-50 disabled:cursor-not-allowed"
     >
       <FaWallet className="text-xl" />
-      {loading ? 'Завантаження...' : 'Купити курс'}
+      {loading ? t('loading') : t('btnBuy')}
     </button>
   );
 }

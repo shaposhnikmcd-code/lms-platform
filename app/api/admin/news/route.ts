@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+import { translateNewsAllLocales } from "@/lib/translateNews";
 
 export async function GET() {
   const session = await getServerSession(authOptions);
@@ -33,6 +34,8 @@ export async function POST(req: NextRequest) {
     where: { email: session.user.email! },
   });
 
+  const translations = await translateNewsAllLocales({ title, excerpt, content });
+
   const item = await prisma.news.create({
     data: {
       title,
@@ -43,6 +46,7 @@ export async function POST(req: NextRequest) {
       category: category || "NEWS",
       published: published || false,
       authorId: user?.id || null,
+      ...translations,
     },
   });
 

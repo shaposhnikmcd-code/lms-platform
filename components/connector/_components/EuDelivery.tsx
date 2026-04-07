@@ -9,6 +9,17 @@ interface Labels {
   branchPlaceholderEu: string;
   branchSelectCity: string;
   notFound: string;
+  courierAddressTitle: string;
+  streetLabel: string;
+  houseLabel: string;
+  corpusLabel: string;
+  apartmentOrOfficeLabel: string;
+  optional: string;
+  enterStreet: string;
+  firstSelectCity: string;
+  exampleHouse: string;
+  exampleCorpus: string;
+  exampleApt: string;
 }
 
 interface CourierAddress {
@@ -130,12 +141,12 @@ export default function EuDelivery({
         <div className="space-y-4">
           <div className="flex items-center gap-2">
             <FaHome className="text-gray-400" />
-            <span className="text-sm font-medium text-gray-700">{"Адреса доставки кур'єром"}</span>
+            <span className="text-sm font-medium text-gray-700">{labels.courierAddressTitle}</span>
           </div>
 
           <div className="relative">
             <label className="block text-xs font-medium text-gray-600 mb-1">
-              {"Вулиця"} <span className="text-red-500">{"*"}</span>
+              {labels.streetLabel} <span className="text-red-500">{"*"}</span>
             </label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -148,7 +159,7 @@ export default function EuDelivery({
                 required
                 disabled={!city}
                 className="block w-full pl-8 pr-3 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#D4A017] focus:border-transparent text-sm disabled:bg-gray-50 disabled:text-gray-400"
-                placeholder={city ? "Введіть назву вулиці" : "Спочатку оберіть місто"}
+                placeholder={city ? labels.enterStreet : labels.firstSelectCity}
               />
             </div>
           </div>
@@ -156,7 +167,7 @@ export default function EuDelivery({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">
-                {"Будинок"} <span className="text-red-500">{"*"}</span>
+                {labels.houseLabel} <span className="text-red-500">{"*"}</span>
               </label>
               <input
                 type="text"
@@ -164,35 +175,35 @@ export default function EuDelivery({
                 onChange={(e) => onCourierAddressChange('building', e.target.value)}
                 required
                 className="block w-full px-3 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#D4A017] focus:border-transparent text-sm"
-                placeholder={"напр. 12"}
+                placeholder={labels.exampleHouse}
               />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">
-                {"Корпус"}
-                <span className="text-gray-400 font-normal ml-1">{"(необов'язково)"}</span>
+                {labels.corpusLabel}
+                <span className="text-gray-400 font-normal ml-1">{labels.optional}</span>
               </label>
               <input
                 type="text"
                 value={courierAddress.corpus}
                 onChange={(e) => onCourierAddressChange('corpus', e.target.value)}
                 className="block w-full px-3 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#D4A017] focus:border-transparent text-sm"
-                placeholder={"напр. А"}
+                placeholder={labels.exampleCorpus}
               />
             </div>
           </div>
 
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">
-              {"Квартира / офіс"}
-              <span className="text-gray-400 font-normal ml-1">{"(необов'язково)"}</span>
+              {labels.apartmentOrOfficeLabel}
+              <span className="text-gray-400 font-normal ml-1">{labels.optional}</span>
             </label>
             <input
               type="text"
               value={courierAddress.apartment}
               onChange={(e) => onCourierAddressChange('apartment', e.target.value)}
               className="block w-full px-3 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#D4A017] focus:border-transparent text-sm"
-              placeholder={"напр. 45"}
+              placeholder={labels.exampleApt}
             />
           </div>
         </div>

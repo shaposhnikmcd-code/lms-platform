@@ -48,6 +48,6 @@ export const accessibilityContent = {
       ],
     },
   ],
-} as const;
+};
 
 export type AccessibilityContent = typeof accessibilityContent;

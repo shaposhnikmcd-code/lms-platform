@@ -5,7 +5,10 @@ import { getTranslatedContent } from '@/lib/translate';
 import { getCurrency } from '@/lib/currency';
 import { content } from '../_content/uk';
 
-const getContent = getTranslatedContent(content, 'psychology-basics-page');
+const getContent = getTranslatedContent(content, 'psychology-basics-page', {
+  en: () => import('../_content/en').then(m => m.default),
+  pl: () => import('../_content/pl').then(m => m.default),
+});
 
 export default async function PsychologyPricing({ locale }: { locale: string }) {
   const c = await getContent(locale);
@@ -39,7 +42,7 @@ export default async function PsychologyPricing({ locale }: { locale: string }) 
               </div>
 
               <CoursePurchaseModal
-                courseName="Основи психології"
+                courseName={`${c.title1} ${c.title2}`}
                 price={Number(PSYCHOLOGY_COURSE.price)}
                 courseId={PSYCHOLOGY_COURSE.courseId}
                 currency={currency}

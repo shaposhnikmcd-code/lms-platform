@@ -1,40 +1,14 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { FaChevronDown } from 'react-icons/fa';
+import { useLocale } from 'next-intl';
 import FlagImg from './connector/_components/FlagImg';
 
-const COUNTRIES = [
-  { code: 'UA', name: 'Україна' },
-  { code: 'PL', name: 'Польща' },
-  { code: 'AT', name: 'Австрія' },
-  { code: 'BE', name: 'Бельгія' },
-  { code: 'GB', name: 'Велика Британія' },
-  { code: 'GR', name: 'Греція' },
-  { code: 'DK', name: 'Данія' },
-  { code: 'EE', name: 'Естонія' },
-  { code: 'IL', name: 'Ізраїль' },
-  { code: 'IE', name: 'Ірландія' },
-  { code: 'ES', name: 'Іспанія' },
-  { code: 'IT', name: 'Італія' },
-  { code: 'CA', name: 'Канада' },
-  { code: 'LV', name: 'Латвія' },
-  { code: 'LT', name: 'Литва' },
-  { code: 'MD', name: 'Молдова' },
-  { code: 'NL', name: 'Нідерланди' },
-  { code: 'DE', name: 'Німеччина' },
-  { code: 'NO', name: 'Норвегія' },
-  { code: 'PT', name: 'Португалія' },
-  { code: 'RO', name: 'Румунія' },
-  { code: 'SK', name: 'Словаччина' },
-  { code: 'US', name: 'США' },
-  { code: 'HU', name: 'Угорщина' },
-  { code: 'FI', name: 'Фінляндія' },
-  { code: 'FR', name: 'Франція' },
-  { code: 'CZ', name: 'Чехія' },
-  { code: 'CH', name: 'Швейцарія' },
-  { code: 'SE', name: 'Швеція' },
-];
+const COUNTRY_CODES = [
+  'UA','PL','AT','BE','GB','GR','DK','EE','IL','IE','ES','IT','CA','LV','LT',
+  'MD','NL','DE','NO','PT','RO','SK','US','HU','FI','FR','CZ','CH','SE',
+] as const;
 
 export const PHONE_CONFIG: Record<string, { prefix: string; placeholder: string; maxDigits: number }> = {
   UA: { prefix: '+380', placeholder: '(__) ___-__-__', maxDigits: 9 },
@@ -76,13 +50,21 @@ interface Props {
 }
 
 export default function CoursePhoneInput({ phoneCountry, phone, onPhoneCountryChange, onPhoneChange }: Props) {
+  const locale = useLocale();
   const [showDropdown, setShowDropdown] = useState(false);
   const phoneInfo = PHONE_CONFIG[phoneCountry] ?? PHONE_CONFIG['UA'];
+
+  const countries = useMemo(() => {
+    const dn = new Intl.DisplayNames([locale === 'uk' ? 'uk' : locale === 'pl' ? 'pl' : 'en'], { type: 'region' });
+    return COUNTRY_CODES.map(code => ({ code, name: dn.of(code) ?? code }));
+  }, [locale]);
+
+  const phoneLabel = locale === 'uk' ? 'Телефон' : locale === 'pl' ? 'Telefon' : 'Phone';
 
   return (
     <div>
       <label className="block text-sm font-medium text-gray-700 mb-1">
-        Телефон <span className="text-red-500">*</span>
+        {phoneLabel} <span className="text-red-500">*</span>
       </label>
       <div className="flex">
         <div className="relative">
@@ -98,7 +80,7 @@ export default function CoursePhoneInput({ phoneCountry, phone, onPhoneCountryCh
           </button>
           {showDropdown && (
             <div className="absolute z-50 top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto min-w-max">
-              {COUNTRIES.map(c => (
+              {countries.map(c => (
                 <button
                   key={c.code}
                   type="button"

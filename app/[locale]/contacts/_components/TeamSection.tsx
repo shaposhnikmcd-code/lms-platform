@@ -12,11 +12,13 @@ const tgTetianaUrl = "https://t.me/t_shaposhnik";
 const instaLiliiaUrl = "https://www.instagram.com/lilinda_._/";
 const tgLiliiaUrl = "https://t.me/lilinda4";
 
-const team = [
+type TeamMemberContent = { name: string; role: string; quote: string };
+type Props = {
+  t: { label: string; title: string; members: readonly TeamMemberContent[] };
+};
+
+const teamMeta = [
   {
-    name: "Тетяна Шапошник",
-    role: "Президентка UIMP, психотерапевтка",
-    quote: "Живу так, ніби життя — це коробка шоколадних цукерок, в якому важливо обережно розгорнути кожен досвід, розрізнивши відтінки смаку і допомогти іншим не боятися куштувати своє.",
     photo: "/about-us/Tetiana-Shaposhnyk.jpg",
     objectFit: 'cover' as const,
     objectPosition: 'center 55%',
@@ -25,9 +27,6 @@ const team = [
     tg: tgTetianaUrl,
   },
   {
-    name: "Liliia Zakharevych",
-    role: "Координаторка UIMP, маркетологиня",
-    quote: "Я готова страждати, аби моя місія і покликання було звершено Богом. Але перед цим багато буду обурюватися.",
     photo: "/about-us/Liliia-Zakharevych.jpg",
     objectFit: 'cover' as const,
     objectPosition: 'center center',
@@ -264,7 +263,7 @@ const cardHoveredOuterStyle: React.CSSProperties = {
   cursor: 'default',
 };
 
-type TeamMember = typeof team[number];
+type TeamMember = TeamMemberContent & typeof teamMeta[number];
 
 function PersonCard({ person }: { person: TeamMember }) {
   const [hovered, setHovered] = useState(false);
@@ -318,8 +317,9 @@ function PersonCard({ person }: { person: TeamMember }) {
   );
 }
 
-export default function TeamSection() {
+export default function TeamSection({ t }: Props) {
   const isMobile = useIsMobile();
+  const team: TeamMember[] = t.members.map((m, i) => ({ ...m, ...teamMeta[i] }));
   const gridStyleR: React.CSSProperties = {
     ...gridStyle,
     gridTemplateColumns: isMobile ? '1fr' : '1fr 1px 1fr',
@@ -333,10 +333,10 @@ export default function TeamSection() {
         <div style={headerWrapStyle}>
           <div style={eyebrowRowStyle}>
             <div style={goldLineLeftStyle} />
-            <span style={eyebrowStyle}>{"Наша команда"}</span>
+            <span style={eyebrowStyle}>{t.label}</span>
             <div style={goldLineRightStyle} />
           </div>
-          <h2 style={titleStyleR}>{"Люди, які стоять за UIMP"}</h2>
+          <h2 style={titleStyleR}>{t.title}</h2>
         </div>
         <div style={gridStyleR}>
           <PersonCard person={team[0]} />

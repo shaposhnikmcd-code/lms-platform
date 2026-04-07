@@ -38,13 +38,6 @@ const ICONS = [
   </svg>,
 ];
 
-const DESCRIPTIONS = [
-  "Навчальні програми з психотерапії та душеопікунства для фахівців і всіх охочих",
-  "Безкоштовні курси та ресурси для тих, хто потребує підтримки",
-  "Індивідуальні консультації з досвідченими психологами та психотерапевтами",
-  "Психологічна гра для пар, створена командою UIMP",
-];
-
 const sysFont = '-apple-system, BlinkMacSystemFont, sans-serif';
 
 export default function Directions({ content }: Props) {
@@ -116,7 +109,7 @@ export default function Directions({ content }: Props) {
             </h3>
 
             <p style={{ fontFamily: sysFont, fontSize: 14, color: 'rgba(245,237,214,0.55)', lineHeight: 1.7, margin: '0 0 auto', maxWidth: 280 }}>
-              {DESCRIPTIONS[0]}
+              {items[0].description}
             </p>
 
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 40, paddingTop: 20, borderTop: '1px solid rgba(212,168,67,0.2)' }}>

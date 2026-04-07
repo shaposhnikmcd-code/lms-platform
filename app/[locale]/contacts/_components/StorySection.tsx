@@ -5,24 +5,7 @@ import { useIsMobile } from "@/lib/useIsMobile";
 
 const sysFont = '-apple-system, BlinkMacSystemFont, sans-serif';
 
-const problems = [
-  {
-    num: "01",
-    text: "У церкві багато травмованих, залежних і зламаних людей. Вони, як говорив Христос, «потребують лікаря». Церква не завжди має достатньо інструментів для допомоги таким людям, особливо що стосується психічних розладів.",
-  },
-  {
-    num: "02",
-    text: "Культурально церква працює тільки з духовним складником людини, яка не усуває проблеми повністю, бо деякі проблеми знаходяться на іншому рівні, з яким церква не працює.",
-  },
-  {
-    num: "03",
-    text: "Сучасна психологія не використовується в церкві через відсутність духовної складової. Хоча насправді вона має дієві науково обґрунтовані інструменти.",
-  },
-  {
-    num: "04",
-    text: "Первинна психологія передбачає зцілення ідентичності через віднаходження її в Бозі. Сучасна психологія у чистому її вигляді — позбавлена повноти зцілення.",
-  },
-];
+type Props = { t: { title: string; label: string; problems: readonly string[] } };
 
 const sectionStyle: React.CSSProperties = {
   padding: '60px 48px 80px',
@@ -189,7 +172,8 @@ const cardLineFadeStyle: React.CSSProperties = {
   backgroundImage: 'linear-gradient(to right, rgba(212,168,67,0.3), transparent)',
 };
 
-export default function StorySection() {
+export default function StorySection({ t }: Props) {
+  const problems = t.problems.map((text, i) => ({ num: String(i + 1).padStart(2, '0'), text }));
   const isMobile = useIsMobile();
   const sectionRef = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
@@ -227,7 +211,7 @@ export default function StorySection() {
           opacity: visible ? 1 : 0,
           transition: 'transform 0.8s cubic-bezier(0.16,1,0.3,1), opacity 0.8s ease',
         }}>
-          <h2 style={titleStyleR}>{"Історія створення UIMP"}</h2>
+          <h2 style={titleStyleR}>{t.title}</h2>
           <div style={titleOrnamentStyle}>
             <div style={titleLineStyle} />
             <div style={titleDiamondStyle} />
@@ -242,7 +226,7 @@ export default function StorySection() {
         }}>
           <div style={problemLabelWrapStyle}>
             <div style={labelDotStyle} />
-            <span style={labelTextStyle}>{"Ми побачили проблему"}</span>
+            <span style={labelTextStyle}>{t.label}</span>
             <div style={labelLineStyle} />
           </div>
 

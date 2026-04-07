@@ -9,7 +9,10 @@ import { getTranslatedContent } from '@/lib/translate';
 import { content } from './_content/uk';
 
 const inter = Inter({ subsets: ['latin', 'cyrillic'] });
-const getContent = getTranslatedContent(content, 'psychology-basics-page');
+const getContent = getTranslatedContent(content, 'psychology-basics-page', {
+  en: () => import('./_content/en').then(m => m.default),
+  pl: () => import('./_content/pl').then(m => m.default),
+});
 
 export default async function PsychologyBasicsPage({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -38,7 +41,7 @@ export default async function PsychologyBasicsPage({ params }: { params: Promise
               <p className="text-white/80 text-base leading-relaxed max-w-xl">{c.description}</p>
               <div className="flex flex-col sm:flex-row gap-3 !mt-4">
                 <CoursePurchaseModal
-                  courseName="Основи психології"
+                  courseName={`${c.title1} ${c.title2}`}
                   price={Number(PSYCHOLOGY_COURSE.price)}
                   courseId={PSYCHOLOGY_COURSE.courseId}
                   buttonLabel={c.btnBuy}

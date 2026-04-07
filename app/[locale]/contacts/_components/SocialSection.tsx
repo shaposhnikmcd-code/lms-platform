@@ -39,59 +39,69 @@ const ytIconHovered: React.CSSProperties = { width: 64, height: 64, borderRadius
 const arrowDefaultStyle: React.CSSProperties = { fontFamily: sysFont, fontSize: 11, fontWeight: 700, letterSpacing: '0.05em', opacity: 0, transform: 'translateY(6px)', transition: 'all 0.3s ease' };
 const arrowHoveredStyle: React.CSSProperties = { fontFamily: sysFont, fontSize: 11, fontWeight: 700, letterSpacing: '0.05em', opacity: 1, transform: 'translateY(0)', transition: 'all 0.3s ease' };
 
-function InstaCard({ visible, index }: { visible: boolean; index: number }) {
+type CardLabel = { label: string; hint: string };
+type Props = {
+  t: {
+    label: string;
+    title: string;
+    arrow: string;
+    cards: { instagram: CardLabel; support: CardLabel; youtube: CardLabel; telegram: CardLabel };
+  };
+};
+
+function InstaCard({ visible, index, t, arrow }: { visible: boolean; index: number; t: CardLabel; arrow: string }) {
   const [hovered, setHovered] = useState(false);
   return (
     <div style={{ transform: visible ? 'translateY(0)' : 'translateY(40px)', opacity: visible ? 1 : 0, transition: `transform 0.7s cubic-bezier(0.16,1,0.3,1) ${index * 0.1}s, opacity 0.7s ease ${index * 0.1}s` }}>
       <a href={instagramUrl} target="_blank" rel="noopener noreferrer" style={hovered ? cardHoveredStyle : cardDefaultStyle} onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>
         <div style={hovered ? instaIconHovered : instaIconDefault}><FaInstagram size={28} color={hovered ? 'white' : '#E1306C'} /></div>
-        <div style={cardTextStyle}><p style={labelStyle}>{"Instagram"}</p><p style={hintStyle}>{"Надихаючий контент"}</p></div>
-        <span style={{ ...(hovered ? arrowHoveredStyle : arrowDefaultStyle), color: '#E1306C' }}>{"Перейти →"}</span>
+        <div style={cardTextStyle}><p style={labelStyle}>{t.label}</p><p style={hintStyle}>{t.hint}</p></div>
+        <span style={{ ...(hovered ? arrowHoveredStyle : arrowDefaultStyle), color: '#E1306C' }}>{arrow}</span>
       </a>
     </div>
   );
 }
 
-function SupportCard({ visible, index }: { visible: boolean; index: number }) {
+function SupportCard({ visible, index, t, arrow }: { visible: boolean; index: number; t: CardLabel; arrow: string }) {
   const [hovered, setHovered] = useState(false);
   return (
     <div style={{ transform: visible ? 'translateY(0)' : 'translateY(40px)', opacity: visible ? 1 : 0, transition: `transform 0.7s cubic-bezier(0.16,1,0.3,1) ${index * 0.1}s, opacity 0.7s ease ${index * 0.1}s` }}>
       <a href={tgSupportUrl} target="_blank" rel="noopener noreferrer" style={hovered ? cardHoveredStyle : cardDefaultStyle} onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>
         <div style={hovered ? tgIconHovered : tgIconDefault}><MdSupportAgent size={28} color={hovered ? 'white' : '#0088cc'} /></div>
-        <div style={cardTextStyle}><p style={labelStyle}>{"Техпідтримка"}</p><p style={hintStyle}>{"Відповімо швидко"}</p></div>
-        <span style={{ ...(hovered ? arrowHoveredStyle : arrowDefaultStyle), color: '#0088cc' }}>{"Перейти →"}</span>
+        <div style={cardTextStyle}><p style={labelStyle}>{t.label}</p><p style={hintStyle}>{t.hint}</p></div>
+        <span style={{ ...(hovered ? arrowHoveredStyle : arrowDefaultStyle), color: '#0088cc' }}>{arrow}</span>
       </a>
     </div>
   );
 }
 
-function YouTubeCard({ visible, index }: { visible: boolean; index: number }) {
+function YouTubeCard({ visible, index, t, arrow }: { visible: boolean; index: number; t: CardLabel; arrow: string }) {
   const [hovered, setHovered] = useState(false);
   return (
     <div style={{ transform: visible ? 'translateY(0)' : 'translateY(40px)', opacity: visible ? 1 : 0, transition: `transform 0.7s cubic-bezier(0.16,1,0.3,1) ${index * 0.1}s, opacity 0.7s ease ${index * 0.1}s` }}>
       <a href={youtubeUrl} target="_blank" rel="noopener noreferrer" style={hovered ? cardHoveredStyle : cardDefaultStyle} onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>
         <div style={hovered ? ytIconHovered : ytIconDefault}><FaYoutube size={28} color={hovered ? 'white' : '#FF0000'} /></div>
-        <div style={cardTextStyle}><p style={labelStyle}>{"YouTube"}</p><p style={hintStyle}>{"Відео та вебінари"}</p></div>
-        <span style={{ ...(hovered ? arrowHoveredStyle : arrowDefaultStyle), color: '#FF0000' }}>{"Перейти →"}</span>
+        <div style={cardTextStyle}><p style={labelStyle}>{t.label}</p><p style={hintStyle}>{t.hint}</p></div>
+        <span style={{ ...(hovered ? arrowHoveredStyle : arrowDefaultStyle), color: '#FF0000' }}>{arrow}</span>
       </a>
     </div>
   );
 }
 
-function TelegramCard({ visible, index }: { visible: boolean; index: number }) {
+function TelegramCard({ visible, index, t, arrow }: { visible: boolean; index: number; t: CardLabel; arrow: string }) {
   const [hovered, setHovered] = useState(false);
   return (
     <div style={{ transform: visible ? 'translateY(0)' : 'translateY(40px)', opacity: visible ? 1 : 0, transition: `transform 0.7s cubic-bezier(0.16,1,0.3,1) ${index * 0.1}s, opacity 0.7s ease ${index * 0.1}s` }}>
       <a href={tgChannelUrl} target="_blank" rel="noopener noreferrer" style={hovered ? cardHoveredStyle : cardDefaultStyle} onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>
         <div style={hovered ? tgIconHovered : tgIconDefault}><FaTelegram size={28} color={hovered ? 'white' : '#0088cc'} /></div>
-        <div style={cardTextStyle}><p style={labelStyle}>{"ТГ канал"}</p><p style={hintStyle}>{"Новини та анонси"}</p></div>
-        <span style={{ ...(hovered ? arrowHoveredStyle : arrowDefaultStyle), color: '#0088cc' }}>{"Перейти →"}</span>
+        <div style={cardTextStyle}><p style={labelStyle}>{t.label}</p><p style={hintStyle}>{t.hint}</p></div>
+        <span style={{ ...(hovered ? arrowHoveredStyle : arrowDefaultStyle), color: '#0088cc' }}>{arrow}</span>
       </a>
     </div>
   );
 }
 
-export default function SocialSection() {
+export default function SocialSection({ t }: Props) {
   const sectionRef = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
 
@@ -111,16 +121,16 @@ export default function SocialSection() {
         <div style={{ textAlign: 'center', marginBottom: 48, transform: visible ? 'translateY(0)' : 'translateY(30px)', opacity: visible ? 1 : 0, transition: 'transform 0.8s cubic-bezier(0.16,1,0.3,1), opacity 0.8s ease' }}>
           <div style={eyebrowRowStyle}>
             <div style={lineLeftStyle} />
-            <span style={eyebrowStyle}>{"Ми в мережі"}</span>
+            <span style={eyebrowStyle}>{t.label}</span>
             <div style={lineRightStyle} />
           </div>
-          <h2 style={titleStyle}>{"Залишайтесь на зв'язку"}</h2>
+          <h2 style={titleStyle}>{t.title}</h2>
         </div>
         <div style={gridStyle} className="grid-cols-2 md:grid-cols-4">
-          <InstaCard visible={visible} index={0} />
-          <SupportCard visible={visible} index={1} />
-          <YouTubeCard visible={visible} index={2} />
-          <TelegramCard visible={visible} index={3} />
+          <InstaCard visible={visible} index={0} t={t.cards.instagram} arrow={t.arrow} />
+          <SupportCard visible={visible} index={1} t={t.cards.support} arrow={t.arrow} />
+          <YouTubeCard visible={visible} index={2} t={t.cards.youtube} arrow={t.arrow} />
+          <TelegramCard visible={visible} index={3} t={t.cards.telegram} arrow={t.arrow} />
         </div>
       </div>
     </section>

@@ -6,6 +6,7 @@ import { useSession } from 'next-auth/react';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
 import { FaCheck } from 'react-icons/fa';
+import { useTranslations } from 'next-intl';
 import { useLesson } from './_hooks/useLesson';
 import AccessDenied from './_components/AccessDenied';
 
@@ -13,6 +14,7 @@ import AccessDenied from './_components/AccessDenied';
 const VideoPlayer = dynamic(() => import('./_components/VideoPlayer'), { ssr: false });
 
 export default function LessonPage() {
+  const t = useTranslations("DynamicCourse");
   const { data: session, status } = useSession();
   const router = useRouter();
   const params = useParams();
@@ -36,7 +38,7 @@ export default function LessonPage() {
   if (!lesson) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <p className="text-gray-500">{"Урок не знайдено"}</p>
+        <p className="text-gray-500">{t("lessonNotFound")}</p>
       </div>
     );
   }
@@ -52,7 +54,7 @@ export default function LessonPage() {
         {/* Хлібні крихти */}
         <div className="flex items-center gap-2 text-sm text-gray-500 mb-6">
           <Link href="/dashboard/student/my-courses" className="hover:text-[#1C3A2E] transition-colors">
-            {"Мої курси"}
+            {t("breadcrumbMyCourses")}
           </Link>
           <span>/</span>
           <Link href={`/courses/${courseId}`} className="hover:text-[#1C3A2E] transition-colors">
@@ -88,7 +90,7 @@ export default function LessonPage() {
               } disabled:opacity-50`}
             >
               <FaCheck />
-              {completed ? 'Завершено' : saving ? 'Збереження...' : 'Позначити як завершений'}
+              {completed ? t("btnCompleted") : saving ? t("btnSaving") : t("btnMarkCompleted")}
             </button>
           </div>
         </div>

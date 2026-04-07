@@ -2,10 +2,11 @@ const sysFont = '-apple-system, BlinkMacSystemFont, sans-serif';
 
 type Props = {
   title: string;
-  items: string[];
+  items: readonly string[];
+  label?: string;
 };
 
-export default function ForWhomSection({ title, items }: Props) {
+export default function ForWhomSection({ title, items, label }: Props) {
   return (
     <section style={{ background: '#FAF6F0' }} className="py-12 sm:py-[72px] px-4 sm:px-12">
       <div style={{ maxWidth: '860px', margin: '0 auto' }}>
@@ -14,7 +15,7 @@ export default function ForWhomSection({ title, items }: Props) {
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
             <div style={{ height: '1px', width: '28px', background: '#D4A843' }} />
             <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.32em', textTransform: 'uppercase' as const, color: '#D4A843', fontFamily: sysFont }}>
-              {"Аудиторія"}
+              {label ?? "Audience"}
             </span>
           </div>
           <h2 style={{ fontFamily: sysFont, fontSize: 'clamp(28px, 3.5vw, 42px)', fontWeight: 700, color: '#1C3A2E', margin: 0, letterSpacing: '-0.02em', lineHeight: 1.15 }}>

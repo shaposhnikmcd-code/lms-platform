@@ -76,7 +76,9 @@ const subtitleStyle: React.CSSProperties = {
   fontStyle: 'italic' as const,
 };
 
-export default function VisionSection() {
+type Props = { t: { title1: string; title2: string; sub1: string; sub2: string } };
+
+export default function VisionSection({ t }: Props) {
   const isMobile = useIsMobile();
   const sectionStyle: React.CSSProperties = {
     backgroundColor: '#FAF6F0',
@@ -96,15 +98,15 @@ export default function VisionSection() {
         </div>
 
         <h2 style={titleStyle}>
-          {"Команда інституту має великі плани"}<br />
-          {"та амбіційну стратегію розвитку"}
+          {t.title1}<br />
+          {t.title2}
         </h2>
 
         <div style={dividerStyle} />
 
         <p style={subtitleStyle}>
-          {"Віримо, що Бог надихає нас, тому рухаємося за Його вказівками!"}<br />
-          {"Запрошуємо в спільну подорож"}
+          {t.sub1}<br />
+          {t.sub2}
         </p>
 
       </div>

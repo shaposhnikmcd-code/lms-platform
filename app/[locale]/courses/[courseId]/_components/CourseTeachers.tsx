@@ -1,3 +1,5 @@
+import { getTranslations } from "next-intl/server";
+
 interface Teacher {
   user: {
     id: string;
@@ -10,15 +12,16 @@ interface CourseTeachersProps {
   teachers: Teacher[];
 }
 
-export default function CourseTeachers({ teachers }: CourseTeachersProps) {
+export default async function CourseTeachers({ teachers }: CourseTeachersProps) {
+  const t = await getTranslations("DynamicCourse");
   return (
     <section className="bg-[#1C3A2E] py-16">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center mb-12">
           <span className="text-[#D4A017] font-semibold text-sm uppercase tracking-wider">
-            {"Експерти"}
+            {t("expertsLabel")}
           </span>
-          <h2 className="text-3xl font-bold text-white mt-2">{"Викладачі курсу"}</h2>
+          <h2 className="text-3xl font-bold text-white mt-2">{t("teachersTitle")}</h2>
         </div>
         <div className="flex flex-wrap justify-center gap-8">
           {teachers.map((ct) => (
@@ -35,7 +38,7 @@ export default function CourseTeachers({ teachers }: CourseTeachersProps) {
                 )}
               </div>
               <p className="text-white font-semibold">{ct.user.name}</p>
-              <p className="text-white/60 text-sm">{"Викладач"}</p>
+              <p className="text-white/60 text-sm">{t("teacher")}</p>
             </div>
           ))}
         </div>

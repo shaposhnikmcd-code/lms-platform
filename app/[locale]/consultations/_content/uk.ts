@@ -12,6 +12,7 @@ export const consultationsContent = {
   diplomasLabel: "Освіта та кваліфікація",
   educationTitle: "Освіта та підготовка",
   certificatesTitle: "Сертифікати",
+  associationsLabel: "Членство в асоціаціях",
   soon: "Незабаром",
   soonSubtitle: "Новий консультант приєднається до команди",
   specialists: [

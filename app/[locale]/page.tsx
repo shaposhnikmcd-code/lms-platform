@@ -5,7 +5,10 @@ import MissionSection from '@/components/home/MissionSection';
 import { getTranslatedContent } from '@/lib/translate';
 import { homeContent } from './_content/home/uk';
 
-const getContent = getTranslatedContent(homeContent, 'home-page');
+const getContent = getTranslatedContent(homeContent, 'home-page', {
+  en: () => import('./_content/home/en').then(m => m.default),
+  pl: () => import('./_content/home/pl').then(m => m.default),
+});
 
 export default async function Home({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;

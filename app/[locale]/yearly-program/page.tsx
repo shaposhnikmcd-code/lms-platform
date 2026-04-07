@@ -13,7 +13,10 @@ import StepsSection from './_components/StepsSection';
 import CtaSection from './_components/CtaSection';
 
 const inter = Inter({ subsets: ['latin', 'cyrillic'] });
-const getContent = getTranslatedContent(learningContent, 'yearly-program-page');
+const getContent = getTranslatedContent(learningContent, 'yearly-program-page', {
+  en: () => import('./_content/en').then(m => m.default),
+  pl: () => import('./_content/pl').then(m => m.default),
+});
 
 export default async function YearlyProgramPage({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -35,17 +38,17 @@ export default async function YearlyProgramPage({ params }: { params: Promise<{ 
         enrollNow={c.enrollNow}
         stats={c.stats}
       />
-      <ForWhomSection title={c.forWhom.title} items={c.forWhom.items} />
+      <ForWhomSection title={c.forWhom.title} items={c.forWhom.items} label={c.forWhom.label} />
       <FormatSection label={c.format.label} title={c.format.title} items={c.format.items} />
-      <CertificatesSection />
+      <CertificatesSection t={c.certificatesSection} />
       <ModulesSection
         label={c.modules.label}
         title={c.modules.title}
         subtitle={c.modules.subtitle}
         items={c.modules.items}
       />
-      <PricingSection />
-      <TeacherSection />
+      <PricingSection t={c.pricingSection} />
+      <TeacherSection t={c.teacherSection} />
       <OutcomesSection label={c.outcomes.label} title={c.outcomes.title} items={c.outcomes.items} />
       <StepsSection label={c.steps.label} title={c.steps.title} items={c.steps.items} />
       <CtaSection />

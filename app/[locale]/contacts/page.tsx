@@ -12,7 +12,10 @@ import FormSection from "./_components/FormSection";
 import FaqSection from "./_components/FaqSection";
 
 const sysFont = '-apple-system, BlinkMacSystemFont, sans-serif';
-const getContent = getTranslatedContent(contactsContent, "contacts-page");
+const getContent = getTranslatedContent(contactsContent, "contacts-page", {
+  en: () => import("./_content/en").then(m => m.default),
+  pl: () => import("./_content/pl").then(m => m.default),
+});
 
 export default async function ContactsPage({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -20,14 +23,14 @@ export default async function ContactsPage({ params }: { params: Promise<{ local
 
   return (
     <main style={{ minHeight: '100vh', background: '#FAF6F0', fontFamily: sysFont }}>
-      <HeroSection />
-      <TeamSection />
-      <StorySection />
-      <SolutionSection />
-      <MissionBlock />
-      <RequestsSection />
-      <VisionSection />
-      <SocialSection />
+      <HeroSection t={c.sections.hero} />
+      <TeamSection t={c.sections.team} />
+      <StorySection t={c.sections.story} />
+      <SolutionSection t={c.sections.solution} />
+      <MissionBlock t={c.sections.mission} />
+      <RequestsSection t={c.sections.requests} />
+      <VisionSection t={c.sections.vision} />
+      <SocialSection t={c.sections.socialBlock} />
       <FormSection form={c.form} social={c.social} telegram={c.telegram} />
       <FaqSection faq={c.faq} />
     </main>

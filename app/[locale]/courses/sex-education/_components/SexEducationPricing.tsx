@@ -5,7 +5,10 @@ import { getTranslatedContent } from '@/lib/translate';
 import { getCurrency } from '@/lib/currency';
 import { content } from '../_content/uk';
 
-const getContent = getTranslatedContent(content, 'sex-education-page');
+const getContent = getTranslatedContent(content, 'sex-education-page', {
+  en: () => import('../_content/en').then(m => m.default),
+  pl: () => import('../_content/pl').then(m => m.default),
+});
 
 export default async function SexEducationPricing({ locale }: { locale: string }) {
   const c = await getContent(locale);
@@ -39,7 +42,7 @@ export default async function SexEducationPricing({ locale }: { locale: string }
               </div>
 
               <CoursePurchaseModal
-                courseName="Статеве виховання"
+                courseName={`${c.title1} ${c.title2}`}
                 price={Number(SEX_EDUCATION_COURSE.price)}
                 courseId={SEX_EDUCATION_COURSE.courseId}
                 currency={currency}
