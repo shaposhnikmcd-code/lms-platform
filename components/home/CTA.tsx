@@ -11,18 +11,11 @@ const stats = [
 
 export default function CTA({ content }: Props) {
   return (
-    <section className="py-14 relative overflow-hidden" style={{ background: '#FFFFFF', position: 'relative', zIndex: 1 }}>
-      <div className="absolute inset-0 pointer-events-none">
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] h-[400px] rounded-full blur-3xl" style={{ background: 'rgba(232,245,224,0.6)' }} />
-      </div>
-
+    <section className="relative overflow-hidden" style={{ background: '#F7F3EE', position: 'relative', zIndex: 1, padding: '40px 0 80px' }}>
       <div className="relative z-10 container mx-auto px-6">
         <div className="max-w-xl mx-auto text-center">
-          <div className="inline-flex items-center gap-2 text-xs font-bold px-4 py-1.5 rounded-full tracking-widest uppercase mb-5" style={{ background: 'rgba(28,58,46,0.06)', color: '#1C3A2E' }}>
-            {"UIMP"}
-          </div>
-          <h2 className="text-3xl md:text-4xl font-bold mb-3 leading-tight tracking-tight" style={{ color: '#1C3A2E', fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif' }}>{content.title}</h2>
-          <p className="text-base mb-7 leading-relaxed" style={{ color: 'rgba(28,58,46,0.55)', fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif' }}>{content.subtitle}</p>
+          <h2 style={{ fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif', fontSize: 'clamp(28px, 4vw, 44px)', fontWeight: 700, color: '#1C3A2E', lineHeight: 1.1, letterSpacing: '-0.01em', margin: '0 0 12px', whiteSpace: 'nowrap' }}>{content.title}</h2>
+          <p className="text-base md:text-lg mb-7 leading-relaxed font-medium" style={{ color: '#1C3A2E', fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif' }}>{content.subtitle}</p>
 
           <div className="flex items-center justify-center mb-7">
             {stats.map((s, i) => (
@@ -40,7 +33,7 @@ export default function CTA({ content }: Props) {
             <div className="absolute -inset-1 rounded-2xl blur opacity-20 group-hover:opacity-35 transition duration-300 bg-gradient-to-r from-[#D4A843] to-[#f0c040]" />
             <Link
               href="/courses"
-              className="relative inline-flex items-center gap-3 font-bold text-base px-9 py-3.5 rounded-xl shadow-lg transition-all duration-300 hover:-translate-y-0.5"
+              className="relative inline-flex items-center gap-3 font-bold text-lg px-12 py-5 rounded-xl shadow-lg transition-all duration-300 hover:-translate-y-0.5"
               style={{ background: '#1C3A2E', color: 'white' }}
             >
               {content.btn}

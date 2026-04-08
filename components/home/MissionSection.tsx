@@ -24,7 +24,7 @@ export default function MissionSection() {
   }, []);
 
   return (
-    <section ref={sectionRef} style={{ background: '#FAF6F0', padding: '36px 24px 64px', overflow: 'hidden', position: 'relative' }}>
+    <section ref={sectionRef} style={{ background: '#F7F3EE', padding: '64px 24px 40px', overflow: 'hidden', position: 'relative' }}>
       <div style={{ maxWidth: 1100, margin: '0 auto' }}>
 
         <div style={{ textAlign: 'center', marginBottom: 40, transform: visible ? 'translateY(0)' : 'translateY(40px)', opacity: visible ? 1 : 0, transition: 'transform 0.8s cubic-bezier(0.16,1,0.3,1), opacity 0.8s ease' }}>

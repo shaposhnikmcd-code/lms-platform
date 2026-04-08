@@ -147,6 +147,22 @@
     "supportDesc": "The UIMP team responds quickly",
     "supportBtn": "Technical support"
   },
+  "WhyChooseUimp": {
+    "whyTitle": "Why choose UIMP",
+    "whySubtitle": "We combine academic quality with practical experience",
+    "why1": "Practical approach",
+    "why1Desc": "Learning through real cases and practical assignments",
+    "why2": "Experienced instructors",
+    "why2Desc": "Leading professionals with many years of experience in their fields",
+    "why3": "Flexible schedule",
+    "why3Desc": "Study at your own pace, anywhere you want",
+    "why4": "Community",
+    "why4Desc": "Join a community of like-minded people and colleagues",
+    "why5": "Certificate",
+    "why5Desc": "Receive an official certificate upon course completion",
+    "why6": "Support",
+    "why6Desc": "Ongoing support from instructors and curators"
+  },
   "MissionSection": {
     "eyebrow": "Our mission",
     "title": "Mission.",
