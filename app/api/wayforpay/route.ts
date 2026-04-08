@@ -19,6 +19,12 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Email is required' }, { status: 400 });
       }
 
+      // Валідація суми (фронт уже застосував промо)
+      const finalAmount = Number(amount);
+      if (!Number.isFinite(finalAmount) || finalAmount <= 0) {
+        return NextResponse.json({ error: 'Invalid amount' }, { status: 400 });
+      }
+
       // Знайти або створити користувача за email
       const user = await prisma.user.upsert({
         where: { email: clientEmail },
@@ -29,18 +35,12 @@ export async function POST(req: NextRequest) {
         update: {},
       });
 
-      // Перевірка та використання промокоду
-      let finalAmount = amount;
+      // Інкрементуємо usedCount промокоду (саму знижку вже застосував фронт)
       if (promoCode) {
         const promo = await prisma.promoCode.findUnique({
           where: { code: promoCode.toUpperCase() },
         });
         if (promo && promo.active) {
-          if (promo.discountType === 'PERCENTAGE') {
-            finalAmount = Math.round(amount * (1 - promo.discountValue / 100));
-          } else {
-            finalAmount = Math.max(0, amount - promo.discountValue);
-          }
           await prisma.promoCode.update({
             where: { id: promo.id },
             data: { usedCount: { increment: 1 } },
