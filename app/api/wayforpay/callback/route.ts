@@ -94,7 +94,7 @@ export async function POST(req: NextRequest) {
                     phone: '',
                     product_name: payment.courseId || '',
                     product_id: 0,
-                    product_price: String(payment.amount),
+                    product_price: Number(payment.amount),
                     order_date: new Date().toISOString().split('T')[0],
                   }),
                 });
