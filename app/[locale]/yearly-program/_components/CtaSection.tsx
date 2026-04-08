@@ -1,6 +1,8 @@
 import { FaArrowRight } from 'react-icons/fa';
 
-export default function CtaSection() {
+type Props = { title: string; btnLabel: string };
+
+export default function CtaSection({ title, btnLabel }: Props) {
   return (
     <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-24">
       <div className="relative bg-gradient-to-br from-[#1C3A2E] to-[#2a4f3f] rounded-2xl overflow-hidden p-6 md:p-8 max-w-lg mx-auto">
@@ -10,11 +12,11 @@ export default function CtaSection() {
         </div>
         <div className="relative text-center space-y-4">
           <h2 className="text-xl md:text-2xl font-bold text-white">
-            Готові вступити?
+            {title}
           </h2>
           <a href="#price"
             className="group inline-flex items-center justify-center gap-2 bg-[#D4A017] text-white font-bold px-8 py-3 rounded-lg hover:bg-[#b88913] transition-all">
-            <span>Обрати варіант оплати</span>
+            <span>{btnLabel}</span>
             <FaArrowRight className="group-hover:translate-x-1 transition-transform" />
           </a>
         </div>

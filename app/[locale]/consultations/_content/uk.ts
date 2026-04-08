@@ -15,6 +15,7 @@ export const consultationsContent = {
   associationsLabel: "Членство в асоціаціях",
   soon: "Незабаром",
   soonSubtitle: "Новий консультант приєднається до команди",
+  notionBtn: "Більше спеціалістів у базі UIMP",
   specialists: [
     {
       name: "Тетяна Шапошник",

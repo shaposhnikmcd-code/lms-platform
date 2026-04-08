@@ -15,6 +15,7 @@ export const consultationsContent = {
   associationsLabel: "Membership in associations",
   soon: "Coming soon",
   soonSubtitle: "A new consultant will join the team",
+  notionBtn: "More specialists in the UIMP directory",
   specialists: [
     {
       name: "Tetiana Shaposhnyk",

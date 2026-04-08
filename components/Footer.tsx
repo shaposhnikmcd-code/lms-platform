@@ -85,7 +85,6 @@ export default function Footer() {
       <div className="max-w-7xl mx-auto px-6 py-5 flex flex-col md:flex-row items-center justify-between gap-5">
         <div className="flex items-center gap-3 flex-shrink-0">
           <span className="text-[#D4A843] font-bold text-sm tracking-widest uppercase">{"UIMP"}</span>
-          <span className="text-white/40 hidden md:block">{"·"}</span>
           <span className="text-white/60 text-xs hidden md:block">{t('institute')}</span>
         </div>
         <div className="flex items-start gap-10">

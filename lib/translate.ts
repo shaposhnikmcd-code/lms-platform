@@ -81,7 +81,7 @@ function shouldSkip(key: string, value: string): boolean {
   return false;
 }
 
-const SKIP_KEYS = ['color', 'image', 'href', 'icon', 'number', 'rating', 'step', 'value', 'currency'];
+const SKIP_KEYS = ['color', 'image', 'href', 'icon', 'number', 'rating', 'step', 'value', 'currency', 'url', 'src', 'embedUrl', 'videoUrl', 'imageUrl'];
 
 function collectStrings(obj: unknown, key: string, strings: string[], paths: string[], currentPath: string): void {
   if (typeof obj === 'string') {

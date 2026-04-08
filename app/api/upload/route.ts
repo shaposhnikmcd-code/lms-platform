@@ -15,6 +15,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Немає доступу" }, { status: 403 });
   }
 
+  if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
+    console.error("❌ Cloudinary env vars missing");
+    return NextResponse.json({ error: "Cloudinary не налаштовано на сервері" }, { status: 500 });
+  }
+
   const formData = await req.formData();
   const file = formData.get("file") as File;
 
@@ -22,18 +27,24 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Файл не знайдено" }, { status: 400 });
   }
 
-  const arrayBuffer = await file.arrayBuffer();
-  const buffer = Buffer.from(arrayBuffer);
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
 
-  const result = await new Promise<{ secure_url: string }>((resolve, reject) => {
-    cloudinary.uploader.upload_stream(
-      { folder: "uimp-news" },
-      (error, result) => {
-        if (error || !result) reject(error);
-        else resolve(result as { secure_url: string });
-      }
-    ).end(buffer);
-  });
+    const result = await new Promise<{ secure_url: string }>((resolve, reject) => {
+      cloudinary.uploader.upload_stream(
+        { folder: "uimp-news" },
+        (error, result) => {
+          if (error || !result) reject(error || new Error("Empty Cloudinary response"));
+          else resolve(result as { secure_url: string });
+        }
+      ).end(buffer);
+    });
 
-  return NextResponse.json({ url: result.secure_url });
+    return NextResponse.json({ url: result.secure_url });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("❌ Cloudinary upload failed:", msg);
+    return NextResponse.json({ error: `Помилка завантаження: ${msg}` }, { status: 500 });
+  }
 }

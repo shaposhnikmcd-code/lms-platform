@@ -51,7 +51,7 @@ export default async function YearlyProgramPage({ params }: { params: Promise<{ 
       <TeacherSection t={c.teacherSection} />
       <OutcomesSection label={c.outcomes.label} title={c.outcomes.title} items={c.outcomes.items} />
       <StepsSection label={c.steps.label} title={c.steps.title} items={c.steps.items} />
-      <CtaSection />
+      <CtaSection title={c.cta.title} btnLabel={c.cta.btnChoosePayment} />
     </main>
   );
 }

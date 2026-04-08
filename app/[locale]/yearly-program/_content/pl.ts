@@ -139,6 +139,7 @@ export const learningContent = {
     monthlyPayment: "Miesięczna opłata",
     btnEnroll: "Wypełnij formularz zapisu wstępnego",
     btnTelegram: "Zapytaj na Telegramie",
+    btnChoosePayment: "Wybierz opcję płatności",
   },
   certificatesSection: {
     label: "Certyfikacja",

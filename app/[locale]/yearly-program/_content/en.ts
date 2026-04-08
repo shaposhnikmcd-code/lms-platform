@@ -139,6 +139,7 @@ export const learningContent = {
     monthlyPayment: "Monthly payment",
     btnEnroll: "Fill out the pre-registration form",
     btnTelegram: "Ask on Telegram",
+    btnChoosePayment: "Choose a payment option",
   },
   certificatesSection: {
     label: "Certification",

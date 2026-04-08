@@ -28,6 +28,20 @@ function renderBlocks(content: string): { isJson: boolean; blocks: Block[] } {
   return { isJson: false, blocks: [] };
 }
 
+// Repair localized blocks against the UK original by index. DeepL может
+// зіпсувати або викинути URL у image/youtube блоках, тож тягнемо їх з UK.
+function repairBlocks(localized: Block[], original: Block[]): Block[] {
+  if (!original.length) return localized;
+  return localized.map((b, i) => {
+    const orig = original[i];
+    if (!orig || orig.type !== b.type) return b;
+    if (b.type === 'image' || b.type === 'youtube') {
+      return { ...b, data: { ...b.data, url: orig.data.url || b.data.url } };
+    }
+    return b;
+  });
+}
+
 function getEmbedUrl(url: string): string {
   const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/))([a-zA-Z0-9_-]{11})/);
   return match ? `https://www.youtube.com/embed/${match[1]}` : "";
@@ -62,7 +76,21 @@ export default async function NewsItemPage({ params }: Props) {
     : locale === "pl" ? (item.contentPl ?? item.content)
     : item.content;
 
-  const { isJson, blocks } = renderBlocks(localizedContent);
+  let { isJson, blocks } = renderBlocks(localizedContent);
+  // Якщо локалізована версія взагалі зламана — падаємо на UK-оригінал
+  if (locale !== 'uk' && !isJson) {
+    const ukParsed = renderBlocks(item.content);
+    if (ukParsed.isJson) {
+      isJson = true;
+      blocks = ukParsed.blocks;
+    }
+  } else if (locale !== 'uk' && isJson) {
+    // Виправляємо image/youtube URLs з UK-оригіналу
+    const ukParsed = renderBlocks(item.content);
+    if (ukParsed.isJson) {
+      blocks = repairBlocks(blocks, ukParsed.blocks);
+    }
+  }
   const isOldHtml = !isJson && localizedContent?.trim().startsWith("<");
 
   return (
