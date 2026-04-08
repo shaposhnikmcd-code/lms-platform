@@ -15,6 +15,7 @@ export const consultationsContent = {
   associationsLabel: "Członkostwo w stowarzyszeniach",
   soon: "Wkrótce",
   soonSubtitle: "Nowy konsultant dołączy do zespołu",
+  notionBtn: "Więcej specjalistów w bazie UIMP",
   specialists: [
     {
       name: "Tetiana Shaposhnyk",

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { useRouter, usePathname } from "@/i18n/navigation";
 import { useLocale } from "next-intl";
 import { FaChevronDown } from "react-icons/fa";
@@ -46,17 +47,41 @@ export default function LanguageSwitcher() {
   const router = useRouter();
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => { setMounted(true); }, []);
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
+      const target = e.target as Node;
+      if (ref.current && !ref.current.contains(target)) {
+        // also ignore clicks inside the portal dropdown (data attribute)
+        if (!(target instanceof Element && target.closest('[data-lang-dropdown]'))) {
+          setOpen(false);
+        }
       }
     };
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
+
+  useEffect(() => {
+    if (!open || !btnRef.current) return;
+    const updatePos = () => {
+      const r = btnRef.current!.getBoundingClientRect();
+      setPos({ top: r.bottom + 4, right: window.innerWidth - r.right });
+    };
+    updatePos();
+    window.addEventListener('resize', updatePos);
+    window.addEventListener('scroll', updatePos, true);
+    return () => {
+      window.removeEventListener('resize', updatePos);
+      window.removeEventListener('scroll', updatePos, true);
+    };
+  }, [open]);
 
   const switchLanguage = (code: string) => {
     if (code === locale) { setOpen(false); return; }
@@ -69,6 +94,7 @@ export default function LanguageSwitcher() {
   return (
     <div ref={ref} className="relative" style={{ flexShrink: 0 }}>
       <button
+        ref={btnRef}
         onClick={() => setOpen(!open)}
         className="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-lg text-sm font-medium text-[#1C3A2E] hover:bg-[#E8F5E0] transition-all"
         style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}
@@ -78,10 +104,18 @@ export default function LanguageSwitcher() {
         <FaChevronDown style={{ fontSize: "9px" }} className={`transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
 
-      {open && (
+      {mounted && open && pos && createPortal(
         <div
-          className="absolute right-0 top-full mt-1 bg-white border border-gray-100 rounded-xl z-50 overflow-hidden"
-          style={{ minWidth: "160px", boxShadow: "0 8px 24px rgba(0,0,0,0.12)" }}
+          data-lang-dropdown
+          className="bg-white border border-gray-100 rounded-xl overflow-hidden"
+          style={{
+            position: 'fixed',
+            top: pos.top,
+            right: pos.right,
+            minWidth: "160px",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
+            zIndex: 9999,
+          }}
         >
           {LANGUAGES.map((lang) => (
             <button
@@ -95,7 +129,8 @@ export default function LanguageSwitcher() {
               <span>{lang.label}</span>
             </button>
           ))}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

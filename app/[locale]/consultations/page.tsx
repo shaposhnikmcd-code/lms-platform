@@ -50,7 +50,7 @@ export default async function ConsultationsPage({ params }: { params: Promise<{ 
         {c.specialists.map((s, i) => (
           <SpecialistCard key={i} s={s} labels={{ aboutTitle: c.aboutTitle, worksWithTitle: c.worksWithTitle, diplomasLabel: c.diplomasLabel, educationTitle: c.educationTitle, certificatesTitle: c.certificatesTitle, associationsLabel: c.associationsLabel, costLabel: c.costLabel, durationLabel: c.durationLabel, btnBook: c.btnBook }} />
         ))}
-        <NotionButton />
+        <NotionButton label={c.notionBtn} />
       </div>
     </main>
   );

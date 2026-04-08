@@ -139,6 +139,7 @@ export const learningContent = {
     monthlyPayment: "Щомісячний платіж",
     btnEnroll: "Заповнити анкету передреєстрації",
     btnTelegram: "Запитати в Telegram",
+    btnChoosePayment: "Обрати варіант оплати",
   },
   certificatesSection: {
     label: "Сертифікація",

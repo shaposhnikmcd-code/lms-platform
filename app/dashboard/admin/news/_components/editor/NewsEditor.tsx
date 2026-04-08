@@ -52,13 +52,22 @@ export default function NewsEditor({
 
   const uploadFile = async (file: File): Promise<string> => {
     setUploading(true);
-    const fd = new FormData();
-    fd.append("file", file);
-    const res = await fetch("/api/upload", { method: "POST", body: fd });
-    setUploading(false);
-    if (res.ok) { const { url } = await res.json(); return url; }
-    setMessage("Помилка завантаження");
-    return "";
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/upload", { method: "POST", body: fd });
+      if (res.ok) { const { url } = await res.json(); return url; }
+      let detail = `${res.status}`;
+      try { const j = await res.json(); if (j?.error) detail = j.error; } catch {}
+      setMessage(`Помилка завантаження: ${detail}`);
+      return "";
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setMessage(`Помилка завантаження: ${msg}`);
+      return "";
+    } finally {
+      setUploading(false);
+    }
   };
 
   const handleSave = async (published: boolean) => {
