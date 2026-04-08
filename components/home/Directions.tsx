@@ -57,18 +57,18 @@ export default function Directions({ content }: Props) {
   const items = content.items;
 
   return (
-    <section ref={ref} style={{ background: '#F7F3EE', padding: '64px 0 72px', position: 'relative', zIndex: 1, overflow: 'hidden' }}>
+    <section ref={ref} style={{ background: '#F7F3EE', padding: '80px 0 40px', position: 'relative', zIndex: 1, overflow: 'hidden' }}>
       <div style={{ position: 'absolute', inset: 0, backgroundImage: 'radial-gradient(circle, rgba(28,58,46,0.025) 1px, transparent 1px)', backgroundSize: '28px 28px', pointerEvents: 'none' }} />
 
       <div style={{ maxWidth: 1200, margin: '0 auto', padding: '0 24px' }}>
 
         {/* Header */}
-        <div style={{ marginBottom: 48, opacity: visible ? 1 : 0, transform: visible ? 'translateY(0)' : 'translateY(24px)', transition: 'opacity 0.7s ease, transform 0.7s ease' }}>
+        <div style={{ marginBottom: 48, textAlign: 'center', opacity: visible ? 1 : 0, transform: visible ? 'translateY(0)' : 'translateY(24px)', transition: 'opacity 0.7s ease, transform 0.7s ease' }}>
           <h2 style={{ fontFamily: sysFont, fontSize: 'clamp(28px, 4vw, 44px)', fontWeight: 700, color: '#1C3A2E', lineHeight: 1.1, margin: '0 0 16px', letterSpacing: '-0.01em' }}>
             {content.title}
           </h2>
-          <div style={{ height: 1, background: 'linear-gradient(90deg, #D4A843 0%, rgba(212,168,67,0.15) 60%, transparent 100%)', marginBottom: 14 }} />
-          <p style={{ fontSize: 14, color: 'rgba(28,58,46,0.5)', lineHeight: 1.65, fontFamily: sysFont, margin: 0, maxWidth: 480 }}>
+          <div style={{ height: 1, width: 320, margin: '0 auto 14px', background: 'linear-gradient(90deg, transparent 0%, rgba(212,168,67,0.15) 20%, #D4A843 50%, rgba(212,168,67,0.15) 80%, transparent 100%)' }} />
+          <p style={{ fontSize: 14, color: 'rgba(28,58,46,0.5)', lineHeight: 1.65, fontFamily: sysFont, margin: '0 auto', maxWidth: 480 }}>
             {content.subtitle}
           </p>
         </div>

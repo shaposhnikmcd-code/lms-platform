@@ -147,6 +147,22 @@
     "supportDesc": "Zespół UIMP reaguje szybko",
     "supportBtn": "Wsparcie techniczne"
   },
+  "WhyChooseUimp": {
+    "whyTitle": "Dlaczego wybierają UIMP",
+    "whySubtitle": "Łączymy jakość akademicką z praktycznym doświadczeniem",
+    "why1": "Praktyczne podejście",
+    "why1Desc": "Nauka przez realne przypadki i zadania praktyczne",
+    "why2": "Doświadczeni wykładowcy",
+    "why2Desc": "Wiodący specjaliści z wieloletnim doświadczeniem w swoich dziedzinach",
+    "why3": "Elastyczny harmonogram",
+    "why3Desc": "Ucz się w swoim tempie, gdziekolwiek chcesz",
+    "why4": "Społeczność",
+    "why4Desc": "Dołącz do społeczności osób o podobnych poglądach i kolegów",
+    "why5": "Certyfikat",
+    "why5Desc": "Otrzymaj oficjalny certyfikat po ukończeniu kursu",
+    "why6": "Wsparcie",
+    "why6Desc": "Stałe wsparcie ze strony wykładowców i kuratorów"
+  },
   "MissionSection": {
     "eyebrow": "Nasza misja",
     "title": "Misja.",
