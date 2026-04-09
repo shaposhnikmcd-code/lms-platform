@@ -42,3 +42,10 @@ next-env.d.ts
 # OS
 .DS_Store
 Thumbs.db
+
+# local agent/skill caches and scratch
+.agents/
+.claude/
+build_kursova.py
+skills-lock.json
+public/courses/psychology-basics/uimp_temp.bmp
