@@ -1,6 +1,7 @@
 import { Link } from '@/i18n/navigation';
 import Image from 'next/image';
 import { FaCheck, FaStar } from 'react-icons/fa';
+import BackButton from '@/components/BackButton';
 import { Inter } from 'next/font/google';
 import PsychologyPricing from './_components/PsychologyPricing';
 import CoursePurchaseModal from '@/components/CoursePurchaseModal';
@@ -21,15 +22,14 @@ export default async function PsychologyBasicsPage({ params }: { params: Promise
   return (
     <main className={`min-h-screen bg-white ${inter.className}`}>
 
+      <BackButton href="/courses" label="Повернутись до освітніх проєктів" />
+
       <section className="relative overflow-hidden bg-gradient-to-br from-[#1C3A2E] to-[#2a4f3f] text-white">
         <div className="absolute inset-0 opacity-10">
           <div className="absolute top-0 -left-4 w-72 h-72 bg-white rounded-full mix-blend-multiply filter blur-xl" style={{ animation: 'blob 7s infinite' }} />
           <div className="absolute top-0 -right-4 w-72 h-72 bg-[#D4A017] rounded-full mix-blend-multiply filter blur-xl" style={{ animation: 'blob 7s infinite', animationDelay: '2s' }} />
         </div>
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 md:py-8">
-          <Link href="/courses" className="inline-flex items-center gap-2 text-white/60 hover:text-white transition-colors text-sm mb-3">
-            ← Освітні проєкти
-          </Link>
           <div className="grid lg:grid-cols-2 gap-8 items-center">
             <div className="space-y-3">
               <div className="inline-block px-4 py-2 bg-white/10 backdrop-blur-sm rounded-full text-sm">

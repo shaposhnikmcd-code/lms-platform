@@ -7,6 +7,7 @@ import CoursePurchaseModal from '@/components/CoursePurchaseModal';
 import { PSYCHIATRY_COURSE } from './config';
 import { getTranslatedContent } from '@/lib/translate';
 import { content } from './_content/uk';
+import BackButton from '@/components/BackButton';
 
 const inter = Inter({ subsets: ['latin', 'cyrillic'] });
 const getContent = getTranslatedContent(content, 'psychiatry-basics-page', {
@@ -33,9 +34,6 @@ export default async function PsychiatryCoursePage({ params }: { params: Promise
           <div className="absolute bottom-0 right-20 w-72 h-72 bg-[#D4A017] rounded-full blur-3xl" />
         </div>
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 md:py-8">
-          <Link href="/courses" className="inline-flex items-center gap-2 text-white/60 hover:text-white transition-colors text-sm mb-3">
-            ← Освітні проєкти
-          </Link>
           <div className="grid lg:grid-cols-2 gap-8 items-center">
             <div className="space-y-3">
               <div className="inline-block px-4 py-2 bg-white/10 backdrop-blur-sm rounded-full text-sm">
@@ -160,6 +158,7 @@ export default async function PsychiatryCoursePage({ params }: { params: Promise
 
       <PsychiatryPricing locale={locale} />
 
+          <BackButton href="/courses" label="Повернутись до освітніх проєктів" />
     </main>
   );
 }

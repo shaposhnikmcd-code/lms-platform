@@ -85,3 +85,13 @@ nav {
   max-width: 100vw;
   overflow-x: clip;
 }
+
+/* Floating back button — flowing gradient (only on hover) */
+@keyframes backBtnFlow {
+  0%   { background-position:   0%  50%; }
+  50%  { background-position: 100%  50%; }
+  100% { background-position:   0%  50%; }
+}
+.back-btn:hover {
+  animation-play-state: running !important;
+}

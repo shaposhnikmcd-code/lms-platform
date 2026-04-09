@@ -6,6 +6,7 @@ import { Inter } from 'next/font/google';
 import CoursePricingTiers from './_components/CoursePricingTiers';
 import { getTranslatedContent } from '@/lib/translate';
 import { content } from './_content/uk';
+import BackButton from '@/components/BackButton';
 
 const inter = Inter({ subsets: ['latin', 'cyrillic'] });
 const getContent = getTranslatedContent(content, 'christian-psychology-page', {
@@ -181,6 +182,7 @@ export default async function ChristianPsychologyPage({ params }: { params: Prom
         </div>
       </section>
 
+          <BackButton href="/courses" label="Повернутись до освітніх проєктів" />
     </main>
   );
 }
