@@ -1,6 +1,7 @@
 import Image from 'next/image';
 import { FaCheck } from 'react-icons/fa';
 import CoursePurchaseModal from '@/components/CoursePurchaseModal';
+import { getQrLabel } from '@/lib/qrLabel';
 import { MILITARY_PSYCHOLOGY_COURSE } from '../config';
 import { getTranslatedContent } from '@/lib/translate';
 import { getCurrency } from '@/lib/currency';
@@ -14,6 +15,7 @@ const getContent = getTranslatedContent(content, 'military-psychology-page', {
 export default async function MilitaryPsychologyPricing({ locale }: { locale: string }) {
   const c = await getContent(locale);
   const currency = getCurrency(locale);
+  const qrLabel = getQrLabel(locale);
 
   return (
     <section id="price" className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-14">
@@ -56,7 +58,7 @@ export default async function MilitaryPsychologyPricing({ locale }: { locale: st
                 <Image src="/courses/military-psychology/qr.png" alt="QR" width={150} height={150} className="block" />
               </div>
               <p className="text-[11px] uppercase tracking-wider text-white/50 text-center max-w-[150px] leading-relaxed">
-                Скануйте,<br />щоб відкрити курс
+                {qrLabel.line1}<br />{qrLabel.line2}
               </p>
             </div>
           </div>
