@@ -85,9 +85,23 @@ export default function LanguageSwitcher() {
 
   const switchLanguage = (code: string) => {
     if (code === locale) { setOpen(false); return; }
+    const scrollY = window.scrollY;
+    sessionStorage.setItem("__locale_scroll", String(scrollY));
     router.replace(pathname, { locale: code });
     setOpen(false);
   };
+
+  useEffect(() => {
+    const saved = sessionStorage.getItem("__locale_scroll");
+    if (saved !== null) {
+      sessionStorage.removeItem("__locale_scroll");
+      const y = Number(saved);
+      // restore after layout is painted
+      requestAnimationFrame(() => {
+        window.scrollTo({ top: y, left: 0, behavior: "auto" });
+      });
+    }
+  }, [pathname, locale]);
 
   const currentLang = LANGUAGES.find((l) => l.code === locale) || LANGUAGES[0];
 
