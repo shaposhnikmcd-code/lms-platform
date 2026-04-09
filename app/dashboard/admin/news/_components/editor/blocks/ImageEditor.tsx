@@ -28,7 +28,19 @@ export default function ImageEditor({ block, onChange, onUpload }: Props) {
     setUploading(true);
     const url = await onUpload(file);
     setUploading(false);
-    if (url) onChange({ ...block.data, url });
+    if (url) {
+      // Дізнаємося природні пропорції фото, щоб resize міг їх дотримуватися
+      const img = new window.Image();
+      img.onload = () => {
+        onChange({
+          ...block.data,
+          url,
+          aspectRatio: String(img.naturalWidth / img.naturalHeight),
+        });
+      };
+      img.onerror = () => onChange({ ...block.data, url });
+      img.src = url;
+    }
     e.target.value = "";
   };
 
@@ -36,7 +48,17 @@ export default function ImageEditor({ block, onChange, onUpload }: Props) {
     <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
       {block.data.url ? (
         <div style={{ position: "relative" }}>
-          <img src={block.data.url} alt={block.data.alt || ""} style={{ width: "100%", borderRadius: "8px", maxHeight: "280px", objectFit: "cover" }} />
+          <img
+            src={block.data.url}
+            alt={block.data.alt || ""}
+            style={{
+              width: "100%",
+              height: block.data.minHeight ? `${block.data.minHeight}px` : "auto",
+              objectFit: block.data.minHeight ? "fill" : "contain",
+              borderRadius: "8px",
+              display: "block",
+            }}
+          />
           <button
             onClick={() => onChange({ ...block.data, url: "" })}
             style={{ position: "absolute", top: "8px", right: "8px", background: "#EF4444", color: "#fff", border: "none", borderRadius: "6px", padding: "4px 10px", cursor: "pointer", fontSize: "12px", fontWeight: 600 }}
