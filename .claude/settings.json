@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git push:*)",
+      "Bash(curl -L \"https://docs.google.com/document/d/1fegtKLihyWzwscIVqLPbmuFdGOSf8V9O_If7O9CGTTc/export?format=txt\")",
+      "Bash(ls -d \"c:\\\\Users\\\\Shapo\\\\lms-platform\\\\app\\\\[locale]\\\\courses\"/*/)",
+      "Bash(xargs -I {} basename {})",
+      "Bash(mkdir -p \"c:/Users/Shapo/lms-platform/app/[locale]/courses/military-psychology/_content\")",
+      "Bash(mkdir -p \"c:/Users/Shapo/lms-platform/app/[locale]/courses/military-psychology/_components\")",
+      "WebFetch(domain:uimp-edu.sendpulse.online)",
+      "WebFetch(domain:doc-0s-6o-docstext.googleusercontent.com)",
+      "Bash(find /c/Users/Shapo/lms-platform/app -type f -name \"*.tsx\" ! -path \"*/node_modules/*\" -exec grep -l \"Військова психологія\\\\|Military\\\\|Tetiana\\\\|Shaposhnik\" {} \\\\;)",
+      "Bash(ls -d /c/Users/Shapo/lms-platform/app/\\\\[locale\\\\]/courses/*/)",
+      "Bash(curl -s \"https://sendpulse.com/integrations/api/bulk-email\")"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\Shapo\\lms-platform\\app\\[locale]\\courses\\emotional-intelligence"
+    ]
+  }
+}
