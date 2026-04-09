@@ -29,9 +29,12 @@ export function useBlockResize({
   const blockRef = useRef<HTMLDivElement | null>(null);
   const [resizingW, setResizingW] = useState(false);
   const [resizingH, setResizingH] = useState(false);
+  const [resizingD, setResizingD] = useState(false);
   const [livePct, setLivePct] = useState(Number(blockWidth));
   const [minHeight, setMinHeight] = useState(Number(blockData.minHeight) || 0);
   const [snapGuideH, setSnapGuideH] = useState<number | null>(null);
+
+  const aspectRatio = Number(blockData.aspectRatio) || 0;
 
   useEffect(() => {
     setMinHeight(Number(blockData.minHeight) || 0);
@@ -117,12 +120,58 @@ export function useBlockResize({
     window.addEventListener("mouseup", onUp);
   }, [blockId, blockData, onChange, getSameRowHeights, snapThreshold]);
 
-  const displayPct = resizingW ? livePct : Number(blockWidth);
+  const startResizeDiagonal = useCallback((e: React.MouseEvent) => {
+    if (!aspectRatio) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startPxW = blockRef.current?.offsetWidth ?? Math.round(containerWidthPx * Number(blockWidth) / 100);
+    setResizingD(true);
+
+    const onMove = (ev: MouseEvent) => {
+      const newPxW = Math.max(80, startPxW + ev.clientX - startX);
+      const pct = (newPxW / containerWidthPx) * 100;
+      const snapped = Number(snapWidth(pct));
+      setLivePct(snapped);
+      onPreviewWidth(blockId, snapped);
+      const snappedPxW = (snapped / 100) * containerWidthPx;
+      const newH = Math.round(snappedPxW / aspectRatio);
+      setMinHeight(newH);
+    };
+
+    const onUp = () => {
+      const finalPct = livePct;
+      const snapped = snapWidth(finalPct);
+      const snappedPxW = (Number(snapped) / 100) * containerWidthPx;
+      const finalH = Math.round(snappedPxW / aspectRatio);
+      onSetWidth(blockId, snapped);
+      onChange(blockId, { ...blockData, minHeight: String(finalH) });
+      onClearPreview(blockId);
+      setResizingD(false);
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }, [aspectRatio, blockId, blockData, blockWidth, containerWidthPx, onSetWidth, onPreviewWidth, onClearPreview, onChange, livePct]);
+
+  const displayPct = resizingW || resizingD ? livePct : Number(blockWidth);
+
+  // Check if current width/height ratio matches the natural image aspect ratio
+  let aspectMatched: boolean | null = null;
+  if (aspectRatio > 0 && minHeight > 0) {
+    const currentPxW = (displayPct / 100) * containerWidthPx;
+    const currentRatio = currentPxW / minHeight;
+    const diff = Math.abs(currentRatio - aspectRatio) / aspectRatio;
+    aspectMatched = diff < 0.03; // 3% tolerance
+  }
 
   return {
     blockRef,
-    resizingW, resizingH,
+    resizingW, resizingH, resizingD,
     displayPct, minHeight, snapGuideH,
-    startResizeWidth, startResizeHeight,
+    aspectMatched, hasAspect: aspectRatio > 0,
+    startResizeWidth, startResizeHeight, startResizeDiagonal,
   };
 }

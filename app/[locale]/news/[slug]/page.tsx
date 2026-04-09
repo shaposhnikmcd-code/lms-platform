@@ -122,12 +122,6 @@ export default async function NewsItemPage({ params }: Props) {
 
       <div className="max-w-4xl mx-auto px-4 py-10">
         <div className="bg-white rounded-2xl shadow-sm p-8 md:p-12">
-          {item.imageUrl && (
-            <div className="rounded-xl overflow-hidden mb-8">
-              <img src={item.imageUrl} alt={title} className="w-full h-64 object-cover" />
-            </div>
-          )}
-
           {isJson && blocks.length > 0 && (
             <div className="news-content">
               {blocks.map((block) => {

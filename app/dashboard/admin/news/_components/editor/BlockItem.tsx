@@ -39,9 +39,10 @@ export default function BlockItem({
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: block.id });
 
   const {
-    blockRef, resizingW, resizingH,
+    blockRef, resizingW, resizingH, resizingD,
     displayPct, minHeight, snapGuideH,
-    startResizeWidth, startResizeHeight,
+    aspectMatched, hasAspect,
+    startResizeWidth, startResizeHeight, startResizeDiagonal,
   } = useBlockResize({
     blockId: block.id,
     blockData: block.data,
@@ -58,6 +59,20 @@ export default function BlockItem({
 
   const isSnapping = snapGuideH !== null;
   const textColor = (block.bgColor === "#1C3A2E" || block.bgColor === "#1a1a1a") ? "#FAF6F0" : "#1C3A2E";
+  const isImage = block.type === "image";
+  // Червоний контур коли пропорції фото зламані (тільки для image-блоків з відомим aspect)
+  const aspectBroken = isImage && hasAspect && aspectMatched === false;
+  const aspectOk = isImage && hasAspect && aspectMatched === true && minHeight > 0;
+  const borderColor = aspectBroken
+    ? "#EF4444"
+    : (isSnapping || resizingW || resizingH || resizingD || aspectOk)
+      ? "#D4A843"
+      : hov ? "#D4A843" : "#E8D5B7";
+  const shadow = aspectBroken
+    ? "0 0 0 3px rgba(239,68,68,0.2)"
+    : isSnapping
+      ? "0 0 0 3px rgba(212,168,67,0.2)"
+      : hov ? "0 4px 20px rgba(28,58,46,0.1)" : "0 1px 4px rgba(0,0,0,0.04)";
 
   return (
     <div
@@ -76,12 +91,10 @@ export default function BlockItem({
         style={{
           borderRadius: "12px",
           borderWidth: "1.5px", borderStyle: "solid",
-          borderColor: isSnapping || resizingW || resizingH ? "#D4A843" : hov ? "#D4A843" : "#E8D5B7",
+          borderColor,
           background: block.bgColor || "#fff",
-          boxShadow: isSnapping
-            ? "0 0 0 3px rgba(212,168,67,0.2)"
-            : hov ? "0 4px 20px rgba(28,58,46,0.1)" : "0 1px 4px rgba(0,0,0,0.04)",
-          transition: resizingW || resizingH ? "none" : "all 0.15s",
+          boxShadow: shadow,
+          transition: resizingW || resizingH || resizingD ? "none" : "all 0.15s",
           minHeight: minHeight > 0 ? `${minHeight}px` : undefined,
           overflow: "visible",
           position: "relative",
@@ -131,6 +144,40 @@ export default function BlockItem({
       >
         <div style={{ height: "4px", width: "40px", borderRadius: "4px", background: resizingH || isSnapping ? "#D4A843" : "#1C3A2E", transition: "background 0.15s" }} />
       </div>
+
+      {/* Diagonal resize handle (image only, when aspect ratio is known) */}
+      {isImage && hasAspect && (
+        <div
+          onMouseDown={startResizeDiagonal}
+          title="Тягни для пропорційного масштабу"
+          style={{
+            position: "absolute",
+            right: "-10px",
+            bottom: "-10px",
+            width: "22px",
+            height: "22px",
+            cursor: "nwse-resize",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 11,
+            opacity: hov || resizingD ? 1 : 0,
+            transition: "opacity 0.15s",
+          }}
+        >
+          <div
+            style={{
+              width: "16px",
+              height: "16px",
+              borderRadius: "4px",
+              background: resizingD ? "#D4A843" : "#1C3A2E",
+              border: "2px solid #fff",
+              boxShadow: "0 1px 4px rgba(0,0,0,0.25)",
+              transition: "background 0.15s",
+            }}
+          />
+        </div>
+      )}
     </div>
   );
 }

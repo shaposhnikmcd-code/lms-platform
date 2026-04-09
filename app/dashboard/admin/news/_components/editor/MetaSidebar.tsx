@@ -136,7 +136,7 @@ export default function MetaSidebar({ meta, onChange, onUpload }: Props) {
               <img
                 src={meta.imageUrl}
                 alt="cover"
-                style={{ width: "100%", borderRadius: "8px", maxHeight: "180px", objectFit: "contain", background: "#FAF6F0", padding: "8px", boxSizing: "border-box" }}
+                style={{ width: "100%", borderRadius: "8px", display: "block" }}
               />
               <button
                 onClick={() => onChange({ ...meta, imageUrl: "" })}
