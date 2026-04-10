@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef } from 'react';
+import { useSession } from 'next-auth/react';
 import { FaTimes, FaShoppingCart, FaEnvelope, FaUser } from 'react-icons/fa';
 import UkraineDelivery from './_components/UkraineDelivery';
 import EuDelivery from './_components/EuDelivery';
@@ -75,12 +76,13 @@ interface OrderFormProps {
 }
 
 const GAME_PRICE = 1099;
+const ADMIN_TEST_PRICE = 1;
 
 const defaultLabels: FormLabels = {
   title: "Форма замовлення",
   subtitle: "Психологічна гра для пар",
   emailLabel: "Email",
-  nameLabel: "ПІБ",
+  nameLabel: "Прізвище, Ім'я та по Батькові",
   namePlaceholder: "Прізвище Ім'я По батькові",
   phoneLabel: "Номер телефону",
   phonePlaceholder: "+380 (__) ___-__-__",
@@ -135,6 +137,8 @@ const defaultLabels: FormLabels = {
 
 export default function OrderForm({ isOpen, onClose, labels }: OrderFormProps) {
   const l = labels ?? defaultLabels;
+  const { data: session } = useSession();
+  const isAdmin = (session?.user as any)?.role === 'ADMIN';
 
   const [formData, setFormData] = useState({
     email: '', fullName: '', phone: '',
@@ -172,7 +176,9 @@ export default function OrderForm({ isOpen, onClose, labels }: OrderFormProps) {
   const euCityDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isUkraine = formData.country === 'UA';
-  const totalAmount = deliveryCost ? GAME_PRICE + deliveryCost : GAME_PRICE;
+  const effectiveGamePrice = isAdmin ? ADMIN_TEST_PRICE : GAME_PRICE;
+  const effectiveDeliveryCost = isAdmin ? 0 : deliveryCost;
+  const totalAmount = effectiveDeliveryCost ? effectiveGamePrice + effectiveDeliveryCost : effectiveGamePrice;
 
   const buildCourierAddress = () => {
     return [
@@ -329,8 +335,8 @@ export default function OrderForm({ isOpen, onClose, labels }: OrderFormProps) {
           city: isUkraine ? formData.city : `${selectedCountry?.name}, ${formData.city}`,
           postOffice: deliveryAddress,
           amount: totalAmount,
-          gamePrice: GAME_PRICE,
-          shippingCost: deliveryCost ?? 0,
+          gamePrice: effectiveGamePrice,
+          shippingCost: effectiveDeliveryCost ?? 0,
           callMe: formData.callMe,
         }),
       });
@@ -537,9 +543,10 @@ export default function OrderForm({ isOpen, onClose, labels }: OrderFormProps) {
 
               <DeliveryCostSummary
                 isUkraine={isUkraine}
-                deliveryCost={deliveryCost}
-                loadingDeliveryCost={loadingDeliveryCost}
+                deliveryCost={effectiveDeliveryCost}
+                loadingDeliveryCost={isAdmin ? false : loadingDeliveryCost}
                 citySelected={!!selectedCityRef}
+                gamePrice={effectiveGamePrice}
                 labels={l}
               />
 
