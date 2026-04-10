@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
-import { FaUsers, FaSearch, FaTrash, FaTrashRestore } from 'react-icons/fa';
+import { FaUsers, FaSearch, FaTrash, FaTrashRestore, FaUserPlus, FaTimes } from 'react-icons/fa';
 
 const ROLE_ORDER: Record<string, number> = {
   ADMIN: 1,
@@ -41,6 +41,10 @@ export default function AdminUsers() {
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState('');
+  const [newUser, setNewUser] = useState({ name: '', email: '', role: 'STUDENT' });
 
   useEffect(() => {
     fetchUsers();
@@ -78,6 +82,31 @@ export default function AdminUsers() {
       alert('Помилка запиту');
     } finally {
       setUpdatingId(null);
+    }
+  };
+
+  const createUser = async () => {
+    if (!newUser.email.trim()) { setCreateError('Email обовʼязковий'); return; }
+    setCreating(true);
+    setCreateError('');
+    try {
+      const res = await fetch('/api/admin/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newUser),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setCreateError(data.error || 'Помилка створення');
+        return;
+      }
+      setUsers(prev => [data.user, ...prev]);
+      setShowCreateModal(false);
+      setNewUser({ name: '', email: '', role: 'STUDENT' });
+    } catch {
+      setCreateError('Помилка запиту');
+    } finally {
+      setCreating(false);
     }
   };
 
@@ -137,6 +166,13 @@ export default function AdminUsers() {
             <FaUsers className="text-slate-400" />
             <span>Всього: <span className="font-semibold text-slate-700 tabular-nums">{users.length}</span></span>
           </div>
+          <button
+            onClick={() => { setShowCreateModal(true); setCreateError(''); }}
+            className="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors"
+          >
+            <FaUserPlus />
+            Додати користувача
+          </button>
           <Link
             href="/dashboard/admin/users/deleted"
             className="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-slate-700 bg-white border border-slate-200/70 rounded-lg hover:bg-slate-50 transition-colors"
@@ -236,6 +272,75 @@ export default function AdminUsers() {
           </table>
         </div>
       </div>
+
+      {showCreateModal && (
+        <div className="fixed inset-0 z-50 overflow-y-auto">
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowCreateModal(false)} />
+          <div className="min-h-screen flex items-center justify-center p-4">
+            <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
+              <button onClick={() => setShowCreateModal(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600">
+                <FaTimes size={18} />
+              </button>
+              <h2 className="text-xl font-bold text-slate-800 mb-6">Новий користувач</h2>
+
+              {createError && (
+                <div className="mb-4 p-3 bg-rose-50 border border-rose-200 rounded-lg text-rose-700 text-sm">{createError}</div>
+              )}
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Імʼя</label>
+                  <input
+                    type="text"
+                    value={newUser.name}
+                    onChange={(e) => setNewUser(prev => ({ ...prev, name: e.target.value }))}
+                    placeholder="Прізвище Імʼя"
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-300"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Email <span className="text-rose-500">*</span></label>
+                  <input
+                    type="email"
+                    value={newUser.email}
+                    onChange={(e) => setNewUser(prev => ({ ...prev, email: e.target.value }))}
+                    placeholder="user@email.com"
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-300"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Роль</label>
+                  <select
+                    value={newUser.role}
+                    onChange={(e) => setNewUser(prev => ({ ...prev, role: e.target.value }))}
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-300"
+                  >
+                    {Object.entries(ROLE_LABELS).map(([value, label]) => (
+                      <option key={value} value={value}>{label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="mt-6 flex gap-3">
+                <button
+                  onClick={() => setShowCreateModal(false)}
+                  className="flex-1 px-4 py-2.5 text-sm font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
+                >
+                  Скасувати
+                </button>
+                <button
+                  onClick={createUser}
+                  disabled={creating}
+                  className="flex-1 px-4 py-2.5 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+                >
+                  {creating ? 'Створення...' : 'Створити'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

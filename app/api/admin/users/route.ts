@@ -68,6 +68,53 @@ export async function PATCH(req: NextRequest) {
   }
 }
 
+export async function POST(req: NextRequest) {
+  try {
+    const guard = await requireAdmin();
+    if ('error' in guard) return guard.error;
+
+    const { name, email, role } = await req.json();
+    if (!email) return NextResponse.json({ error: 'Email обовʼязковий' }, { status: 400 });
+
+    const validRoles = ['ADMIN', 'MANAGER', 'TEACHER', 'STUDENT'];
+    const userRole = validRoles.includes(role) ? role : 'STUDENT';
+
+    const existing = await prisma.user.findUnique({ where: { email } });
+    if (existing) {
+      if (existing.deletedAt) {
+        const restored = await prisma.user.update({
+          where: { id: existing.id },
+          data: {
+            name: name || existing.name,
+            role: userRole,
+            deletedAt: null,
+            deletedById: null,
+            deletedByName: null,
+            deletedByEmail: null,
+          },
+          include: { _count: { select: { enrollments: true } } },
+        });
+        return NextResponse.json({ success: true, user: restored, restored: true });
+      }
+      return NextResponse.json({ error: 'Користувач з таким email вже існує' }, { status: 409 });
+    }
+
+    const user = await prisma.user.create({
+      data: {
+        name: name || null,
+        email,
+        role: userRole,
+      },
+      include: { _count: { select: { enrollments: true } } },
+    });
+
+    return NextResponse.json({ success: true, user });
+  } catch (error) {
+    console.error('Помилка POST /api/admin/users:', error);
+    return NextResponse.json({ error: 'Помилка сервера' }, { status: 500 });
+  }
+}
+
 export async function DELETE(req: NextRequest) {
   try {
     const guard = await requireAdmin();
