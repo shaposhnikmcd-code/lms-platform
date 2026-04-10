@@ -41,10 +41,11 @@ export default function RoleSwitcher() {
   const handleSwitch = async (newRole: string) => {
     if (newRole === activeRole) return;
     setLoading(true);
+    // Hide page content immediately via DOM to prevent flash of old dashboard
+    document.body.style.opacity = '0';
+    document.body.style.transition = 'none';
     await update({ activeRole: newRole });
-    router.push(ROLE_REDIRECTS[newRole]);
-    router.refresh();
-    setLoading(false);
+    window.location.href = ROLE_REDIRECTS[newRole];
   };
 
   return (
