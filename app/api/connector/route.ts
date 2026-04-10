@@ -7,6 +7,12 @@ export async function POST(req: NextRequest) {
   try {
     const { orderReference, email, fullName, phone, city, postOffice, amount, gamePrice, shippingCost, callMe } = await req.json();
 
+    const session = await getServerSession(authOptions);
+    const isAdmin = (session?.user as any)?.role === 'ADMIN';
+    const finalGamePrice = isAdmin ? 1 : (typeof gamePrice === 'number' ? gamePrice : 1099);
+    const finalShippingCost = isAdmin ? 0 : (typeof shippingCost === 'number' ? shippingCost : 0);
+    const finalAmount = finalGamePrice + finalShippingCost;
+
     const order = await prisma.connectorOrder.create({
       data: {
         orderReference,
@@ -15,9 +21,9 @@ export async function POST(req: NextRequest) {
         phone,
         city,
         postOffice,
-        amount,
-        gamePrice: typeof gamePrice === 'number' ? gamePrice : null,
-        shippingCost: typeof shippingCost === 'number' ? shippingCost : null,
+        amount: finalAmount,
+        gamePrice: finalGamePrice,
+        shippingCost: finalShippingCost,
         callMe: callMe || false,
         paymentStatus: 'PENDING',
         orderStatus: 'NEW',

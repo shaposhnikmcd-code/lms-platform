@@ -23,7 +23,7 @@ export const connectorContent = {
     title: "Форма замовлення",
     subtitle: "Психологічна гра для пар",
     emailLabel: "Email",
-    nameLabel: "ПІБ",
+    nameLabel: "Прізвище, Ім'я та по Батькові",
     namePlaceholder: "Прізвище Ім'я По батькові",
     phoneLabel: "Номер телефону",
     phonePlaceholder: "+380 (__) ___-__-__",
