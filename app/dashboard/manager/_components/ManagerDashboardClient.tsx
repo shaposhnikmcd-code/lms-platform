@@ -467,7 +467,7 @@ export default function ManagerDashboardClient() {
                   <col style={{ width: '42px' }} />
                   <col style={{ width: '82px' }} />
                   <col style={{ width: '82px' }} />
-                  <col style={{ width: '105px' }} />
+                  <col style={{ width: '115px' }} />
                   <col style={{ width: '140px' }} />
                   <col style={{ width: '200px' }} />
                   <col style={{ width: '80px' }} />
@@ -478,11 +478,11 @@ export default function ManagerDashboardClient() {
                     <th>
                       <button onClick={() => toggleSort('date')} className="inline-flex items-center gap-1 uppercase tracking-wider font-bold hover:text-indigo-600 mx-auto">Час<SortArrow k="date" /></button>
                     </th>
-                    <th>
-                      <button onClick={() => toggleSort('name')} className="inline-flex items-center gap-1 uppercase tracking-wider font-bold hover:text-indigo-600 mx-auto">Клієнт<SortArrow k="name" /></button>
+                    <th className="!text-left">
+                      <button onClick={() => toggleSort('name')} className="inline-flex items-center gap-1 uppercase tracking-wider font-bold hover:text-indigo-600">Клієнт<SortArrow k="name" /></button>
                     </th>
-                    <th>
-                      <button onClick={() => toggleSort('city')} className="inline-flex items-center gap-1 uppercase tracking-wider font-bold hover:text-indigo-600 mx-auto">Місто<SortArrow k="city" /></button>
+                    <th className="!text-left">
+                      <button onClick={() => toggleSort('city')} className="inline-flex items-center gap-1 uppercase tracking-wider font-bold hover:text-indigo-600">Місто<SortArrow k="city" /></button>
                     </th>
                     <th title="Передзвонити клієнту">
                       <span className="inline-flex items-center justify-center text-slate-500">
@@ -503,7 +503,7 @@ export default function ManagerDashboardClient() {
                             <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
                           </svg>
                           <span className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 z-[100] ml-2 w-72 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <span className="block rounded-lg bg-slate-900 text-white text-xs font-normal normal-case tracking-normal px-3 py-2.5 shadow-xl ring-1 ring-slate-700">
+                            <span className="block rounded-lg bg-slate-900 text-white text-xs font-normal normal-case tracking-normal text-left px-3 py-2.5 shadow-xl ring-1 ring-slate-700">
                               <span className="block font-semibold mb-1.5 text-slate-200">Статуси оплати</span>
                               <span className="block space-y-1">
                                 <span className="block"><b className="text-white">Очікує</b> — рахунок виставлений, оплати ще немає</span>
@@ -610,7 +610,7 @@ export default function ManagerDashboardClient() {
                         </td>
 
                         {/* Гра */}
-                        <td className="px-4 py-2 text-right text-sm text-slate-700 tabular-nums whitespace-nowrap">
+                        <td className="px-4 py-2 text-center text-sm text-slate-700 tabular-nums whitespace-nowrap">
                           {getGamePrice(order).toLocaleString()}
                         </td>
                         {/* Доставка */}
