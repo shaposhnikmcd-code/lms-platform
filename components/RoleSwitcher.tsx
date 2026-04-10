@@ -48,16 +48,16 @@ export default function RoleSwitcher() {
   };
 
   return (
-    <div className="flex items-center gap-1 bg-black/20 rounded-lg p-1">
+    <div className="flex items-center gap-0.5 bg-slate-800/80 ring-1 ring-slate-700/50 rounded-lg p-1">
       {allowedRoles.map((role) => (
         <button
           key={role}
           onClick={() => handleSwitch(role)}
           disabled={loading}
-          className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${
+          className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
             activeRole === role
-              ? 'bg-[#D4A843] text-[#1C3A2E]'
-              : 'text-white/70 hover:text-white hover:bg-white/10'
+              ? 'bg-indigo-500 text-white shadow-sm shadow-indigo-500/30'
+              : 'text-slate-400 hover:text-white hover:bg-slate-700/60'
           }`}
         >
           {ROLE_LABELS[role]}

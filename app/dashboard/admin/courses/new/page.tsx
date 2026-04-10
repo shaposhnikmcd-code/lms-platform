@@ -53,13 +53,6 @@ export default function NewCoursePage() {
 
   return (
     <div className="max-w-2xl mx-auto">
-      <Link
-        href="/dashboard/admin/courses"
-        className="inline-flex items-center gap-2 text-sm text-gray-500 hover:text-[#1C3A2E] mb-4 transition-colors"
-      >
-        ← Назад до курсів
-      </Link>
-
       <h1 className="text-2xl font-bold text-[#1C3A2E] mb-8">Новий курс</h1>
 
       {message && (

@@ -46,97 +46,92 @@ export default function AdminNewsPage() {
   };
 
   if (loading) return (
-    <div className="flex items-center justify-center h-64">
-      <div className="w-8 h-8 border-4 border-[#1C3A2E] border-t-transparent rounded-full animate-spin" />
+    <div className="flex items-center justify-center min-h-[60vh]">
+      <div className="w-10 h-10 border-2 border-slate-200 border-t-indigo-500 rounded-full animate-spin" />
     </div>
   );
 
   return (
-    <div className="max-w-5xl mx-auto">
-      <Link href="/dashboard/admin"
-        className="inline-flex items-center gap-2 text-sm text-gray-500 hover:text-[#1C3A2E] mb-4 transition-colors">
-        {"← Назад до адмін-панелі"}
-      </Link>
-
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-[#1C3A2E]">{"Новини"}</h1>
+    <div className="max-w-6xl mx-auto px-6 py-10">
+      <div className="flex items-center justify-between mb-8">
+        <h1 className="text-3xl font-bold text-slate-800">Новини</h1>
         <Link href="/dashboard/admin/news/new"
-          className="inline-flex items-center gap-2 px-4 py-2 bg-[#1C3A2E] text-white text-sm rounded-lg hover:bg-[#1C3A2E]/80 transition-colors">
-          <FaPlus /> {"Створити новину"}
+          className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-500 text-white text-sm font-medium rounded-lg hover:bg-indigo-600 shadow-sm shadow-indigo-500/20 transition-colors">
+          <FaPlus /> Створити новину
         </Link>
       </div>
 
       {news.length === 0 ? (
-        <div className="bg-white rounded-xl p-12 text-center shadow-sm">
-          <p className="text-gray-500 mb-4">{"Новин ще немає"}</p>
+        <div className="bg-white rounded-2xl border border-slate-200/70 p-16 text-center shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+          <p className="text-slate-500 mb-5">Новин ще немає</p>
           <Link href="/dashboard/admin/news/new"
-            className="inline-flex items-center gap-2 px-4 py-2 bg-[#1C3A2E] text-white text-sm rounded-lg">
-            <FaPlus /> {"Створити першу новину"}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-500 text-white text-sm font-medium rounded-lg hover:bg-indigo-600 transition-colors">
+            <FaPlus /> Створити першу новину
           </Link>
         </div>
       ) : (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <div className="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_2px_rgba(15,23,42,0.04)] overflow-hidden">
           <table className="w-full">
-            <thead className="bg-gray-50 border-b border-gray-100">
+            <thead className="bg-slate-50/70 border-b border-slate-200/70">
               <tr>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">{"Заголовок"}</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">{"Категорія"}</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">{"Автор"}</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">{"Статус"}</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">{"Дата і час"}</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">{"Дії"}</th>
+                <th className="text-left px-5 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Заголовок</th>
+                <th className="text-left px-5 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Категорія</th>
+                <th className="text-left px-5 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Автор</th>
+                <th className="text-left px-5 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Статус</th>
+                <th className="text-left px-5 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Дата і час</th>
+                <th className="text-left px-5 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Дії</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-50">
+            <tbody className="divide-y divide-slate-100">
               {news.map((item) => {
                 const date = new Date(item.createdAt);
                 const dateStr = date.toLocaleDateString("uk-UA");
                 const timeStr = date.toLocaleTimeString("uk-UA", { hour: "2-digit", minute: "2-digit" });
                 return (
-                  <tr key={item.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-4 py-3">
-                      <p className="text-sm font-medium text-gray-800 line-clamp-1">{item.title}</p>
-                      <p className="text-xs text-gray-400">{"/news/" + item.slug}</p>
+                  <tr key={item.id} className="hover:bg-slate-50/60 transition-colors">
+                    <td className="px-5 py-3">
+                      <p className="text-sm font-medium text-slate-800 line-clamp-1">{item.title}</p>
+                      <p className="text-xs text-slate-400">/news/{item.slug}</p>
                     </td>
-                    <td className="px-4 py-3">
-                      <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full">
+                    <td className="px-5 py-3">
+                      <span className="text-xs bg-slate-100 text-slate-600 px-2.5 py-1 rounded-full">
                         {CATEGORY_LABELS[item.category]}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-600">
+                    <td className="px-5 py-3 text-sm text-slate-600">
                       {item.author?.name || "—"}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-5 py-3">
                       {item.published ? (
-                        <span className="flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs w-fit">
-                          <FaEye className="text-xs" /> {"Опубліковано"}
+                        <span className="flex items-center gap-1 px-2 py-1 bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100 rounded-full text-xs font-medium w-fit">
+                          <FaEye className="text-xs" /> Опубліковано
                         </span>
                       ) : (
-                        <span className="flex items-center gap-1 px-2 py-1 bg-gray-100 text-gray-600 rounded-full text-xs w-fit">
-                          <FaEyeSlash className="text-xs" /> {"Чернетка"}
+                        <span className="flex items-center gap-1 px-2 py-1 bg-slate-100 text-slate-600 rounded-full text-xs font-medium w-fit">
+                          <FaEyeSlash className="text-xs" /> Чернетка
                         </span>
                       )}
                     </td>
-                    <td className="px-4 py-3">
-                      <p className="text-sm text-gray-600">{dateStr}</p>
-                      <p className="text-xs text-gray-400">{timeStr}</p>
+                    <td className="px-5 py-3">
+                      <p className="text-sm text-slate-600">{dateStr}</p>
+                      <p className="text-xs text-slate-400">{timeStr}</p>
                     </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
+                    <td className="px-5 py-3">
+                      <div className="flex items-center gap-1">
                         <button
                           onClick={() => togglePublish(item.id, item.published)}
-                          className="p-1.5 text-gray-400 hover:text-[#1C3A2E] transition-colors"
+                          className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition-colors"
                           title={item.published ? "Зняти з публікації" : "Опублікувати"}
                         >
                           {item.published ? <FaEyeSlash /> : <FaEye />}
                         </button>
                         <Link href={`/dashboard/admin/news/${item.id}/edit`}
-                          className="p-1.5 text-gray-400 hover:text-[#D4A843] transition-colors">
+                          className="p-2 text-slate-400 hover:text-amber-600 hover:bg-slate-100 rounded-lg transition-colors">
                           <FaEdit />
                         </Link>
                         <button
                           onClick={() => deleteNews(item.id)}
-                          className="p-1.5 text-gray-400 hover:text-red-500 transition-colors"
+                          className="p-2 text-slate-400 hover:text-rose-600 hover:bg-slate-100 rounded-lg transition-colors"
                         >
                           <FaTrash />
                         </button>
