@@ -98,13 +98,6 @@ export default function AdminCourseManage() {
 
   return (
     <div className="max-w-2xl mx-auto">
-      <button
-        onClick={() => router.push("/dashboard/admin/courses")}
-        className="inline-flex items-center gap-2 text-sm text-gray-500 hover:text-[#1C3A2E] mb-4 transition-colors"
-      >
-        ← Назад до курсів
-      </button>
-
       <h1 className="text-2xl font-bold text-[#1C3A2E] mb-2">{course.title}</h1>
       <p className="text-sm text-gray-500 mb-8">Управління викладачами курсу</p>
 

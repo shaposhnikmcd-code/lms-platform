@@ -327,7 +327,11 @@ export default function OrderForm({ isOpen, onClose, labels }: OrderFormProps) {
           orderReference, email: formData.email, fullName: formData.fullName,
           phone: fullPhone,
           city: isUkraine ? formData.city : `${selectedCountry?.name}, ${formData.city}`,
-          postOffice: deliveryAddress, amount: totalAmount, callMe: formData.callMe,
+          postOffice: deliveryAddress,
+          amount: totalAmount,
+          gamePrice: GAME_PRICE,
+          shippingCost: deliveryCost ?? 0,
+          callMe: formData.callMe,
         }),
       });
       if (!orderRes.ok) throw new Error('Order save error');

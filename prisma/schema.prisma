@@ -30,8 +30,13 @@ model User {
   sentMessages     Message[]   @relation("SentMessages")
   receivedMessages Message[]   @relation("ReceivedMessages")
   news          News[]
+  deletedAt      DateTime?
+  deletedById    String?
+  deletedByName  String?
+  deletedByEmail String?
 
   @@index([role])
+  @@index([deletedAt])
 }
 
 model Account {
@@ -236,15 +241,38 @@ model ConnectorOrder {
   postOffice     String
   orderReference String        @unique
   amount         Int
+  gamePrice      Int?
+  shippingCost   Int?
+  actualShippingCost Int?
   paymentStatus  PaymentStatus @default(PENDING)
   paidAt         DateTime?
   orderStatus    OrderStatus   @default(NEW)
   trackingNumber String?
+  trackingSetAt  DateTime?
+  trackingSetById    String?
+  trackingSetByName  String?
+  trackingSetByEmail String?
+  trackingSetByRole  String?
   managerNote    String?
   callMe         Boolean       @default(false)
+  trackingHistory ConnectorOrderTrackingLog[]
 
   @@index([paymentStatus])
   @@index([orderStatus])
+}
+
+model ConnectorOrderTrackingLog {
+  id            String         @id @default(cuid())
+  orderId       String
+  order         ConnectorOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  value         String
+  changedAt     DateTime       @default(now())
+  changedById   String?
+  changedByName String?
+  changedByEmail String?
+  changedByRole String?
+
+  @@index([orderId])
 }
 
 model News {
