@@ -15,7 +15,7 @@ const VideoPlayer = dynamic(() => import('./_components/VideoPlayer'), { ssr: fa
 
 export default function LessonPage() {
   const t = useTranslations("DynamicCourse");
-  const { data: session, status } = useSession();
+  const { status } = useSession();
   const router = useRouter();
   const params = useParams();
   const courseId = params.courseId as string;

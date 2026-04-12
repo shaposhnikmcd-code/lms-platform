@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import { useSession } from 'next-auth/react';
 import { useState } from 'react';
 import { FaUser, FaEnvelope, FaSave } from 'react-icons/fa';
@@ -32,7 +33,7 @@ export default function ProfileTab() {
       <div className="flex items-center gap-4 mb-6">
         <div className="w-16 h-16 bg-[#1C3A2E] rounded-full flex items-center justify-center overflow-hidden">
           {session?.user?.image ? (
-            <img src={session.user.image} className="w-16 h-16 rounded-full object-cover" alt="avatar" />
+            <Image src={session.user.image} width={64} height={64} className="w-16 h-16 rounded-full object-cover" alt="avatar" />
           ) : (
             <FaUser className="text-white text-2xl" />
           )}

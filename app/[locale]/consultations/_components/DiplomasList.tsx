@@ -40,7 +40,6 @@ const ANIM_CSS = `
 
 const HEADER_HEIGHT = 57;
 const PADDING = 20;
-const IMG_HEIGHT = `calc(88vh - ${HEADER_HEIGHT}px - ${PADDING * 2}px)`;
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 4;
 
@@ -55,7 +54,6 @@ const colStyle: React.CSSProperties = {
 export default function DiplomasList({ docs }: Props) {
   const [activeFile, setActiveFile] = useState<string | null>(null);
   const [activeTitle, setActiveTitle] = useState<string>('');
-  const [activeUrl, setActiveUrl] = useState<string | undefined>(undefined);
   const [mounted, setMounted] = useState(false);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const [zoom, setZoom] = useState(1);
@@ -85,17 +83,15 @@ export default function DiplomasList({ docs }: Props) {
     };
   }, [activeFile]);
 
-  const openModal = (file: string, title: string, url?: string) => {
+  const openModal = (file: string, title: string) => {
     setActiveFile(file);
     setActiveTitle(title);
-    setActiveUrl(url);
     setZoom(1);
     document.body.style.overflow = 'hidden';
   };
 
   const closeModal = () => {
     setActiveFile(null);
-    setActiveUrl(undefined);
     setZoom(1);
     document.body.style.overflow = '';
   };
@@ -114,7 +110,7 @@ export default function DiplomasList({ docs }: Props) {
             <div key={i} style={{ display: 'flex', flexDirection: 'column', borderRadius: '8px', overflow: 'hidden', ...(doc.url ? { marginTop: 'auto', marginBottom: 'auto' } : {}) }}>
               {doc.file ? (
               <button
-                onClick={() => openModal(doc.file!, doc.title, doc.url)}
+                onClick={() => openModal(doc.file!, doc.title)}
                 onMouseEnter={() => setHoveredIndex(i)}
                 onMouseLeave={() => setHoveredIndex(null)}
                 style={{

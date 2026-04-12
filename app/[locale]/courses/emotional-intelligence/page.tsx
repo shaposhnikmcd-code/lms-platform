@@ -1,6 +1,6 @@
 import { Link } from '@/i18n/navigation';
 import Image from 'next/image';
-import { FaArrowRight, FaBrain, FaUsers, FaHeart, FaCross, FaBookOpen } from 'react-icons/fa';
+import { FaBrain, FaUsers, FaHeart, FaCross, FaBookOpen } from 'react-icons/fa';
 import { Inter } from 'next/font/google';
 import EmotionalIntelligencePricing from './_components/EmotionalIntelligencePricing';
 import CoursePurchaseModal from '@/components/CoursePurchaseModal';

@@ -1,5 +1,6 @@
 'use client';
 
+import Image from "next/image";
 import { useSession, signOut } from "next-auth/react";
 import { FaUser } from 'react-icons/fa';
 import { useTranslations } from 'next-intl';
@@ -23,7 +24,7 @@ export default function AuthButtons() {
         <Link href="/dashboard" className="flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-[#E8F5E0] transition-colors">
           <div className="w-8 h-8 bg-[#D4A017] rounded-full flex items-center justify-center overflow-hidden flex-shrink-0">
             {session.user.image ? (
-              <img src={session.user.image} alt="Avatar" referrerPolicy="no-referrer" className="w-8 h-8 rounded-full object-cover" />
+              <Image src={session.user.image} alt="Avatar" width={32} height={32} referrerPolicy="no-referrer" className="w-8 h-8 rounded-full object-cover" />
             ) : (
               <FaUser className="text-white text-sm" />
             )}

@@ -1,3 +1,4 @@
+import Image from "next/image";
 import { getTranslations } from "next-intl/server";
 import { PSYCHIATRY_COURSE } from "./psychiatry-basics/config";
 import { PSYCHOLOGY_COURSE } from "./psychology-basics/config";
@@ -75,8 +76,7 @@ export default async function CoursesPage({ params }: { params: Promise<{ locale
               <div style={{ position: 'relative' }}>
                 <div style={{ position: 'absolute', inset: -24, borderRadius: '50%', filter: 'blur(40px)', opacity: 0.2, background: 'radial-gradient(circle, #D4A843, #1C3A2E)', pointerEvents: 'none' }} />
                 <div style={{ position: 'relative', width: 208, height: 208 }}>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src="/logo-white.png" alt="UIMP" width={208} height={208} style={{ display: 'block', objectFit: 'contain', filter: 'drop-shadow(0 20px 40px rgba(0,0,0,0.4))' }} />
+                  <Image src="/logo-white.png" alt="UIMP" width={208} height={208} style={{ display: 'block', objectFit: 'contain', filter: 'drop-shadow(0 20px 40px rgba(0,0,0,0.4))' }} />
                 </div>
               </div>
             </div>

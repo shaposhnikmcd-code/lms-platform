@@ -5,6 +5,7 @@ export function ImageBlock({ block }: { block: Block }) {
   if (!block.data.url) return null;
   return (
     <div className="rounded-xl overflow-hidden flex-1" style={bgStyle}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={block.data.url} alt={block.data.alt || ""} className="w-full h-full object-cover" />
     </div>
   );
@@ -18,6 +19,7 @@ export function GalleryBlock({ block }: { block: Block }) {
     <div className={cls} style={bgStyle}>
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         {(block.data.images as string[]).map((url, i) => (
+          // eslint-disable-next-line @next/next/no-img-element
           <img key={i} src={url} alt="" className="w-full h-40 object-cover rounded-xl" />
         ))}
       </div>

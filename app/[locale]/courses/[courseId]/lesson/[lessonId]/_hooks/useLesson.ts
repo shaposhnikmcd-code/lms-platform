@@ -19,11 +19,6 @@ interface Lesson {
   };
 }
 
-interface LessonProgress {
-  watchedAt: number;
-  completed: boolean;
-}
-
 interface UseLessonResult {
   lesson: Lesson | null;
   loading: boolean;

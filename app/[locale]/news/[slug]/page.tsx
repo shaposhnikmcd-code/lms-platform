@@ -1,3 +1,4 @@
+import Image from "next/image";
 import prisma from "@/lib/prisma";
 import { notFound } from "next/navigation";
 import { Link } from "@/i18n/navigation";
@@ -134,6 +135,7 @@ export default async function NewsItemPage({ params }: Props) {
                   }
                   case "image":
                     return block.data.url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
                       <img key={block.id} src={block.data.url} alt={block.data.alt || ""} style={{ width: "100%", borderRadius: "8px", margin: "1em 0" }} />
                     ) : null;
                   case "youtube": {
@@ -177,7 +179,9 @@ export default async function NewsItemPage({ params }: Props) {
                 return (
                 <Link key={r.id} href={"/news/" + r.slug} className="bg-white rounded-xl shadow-sm p-4 hover:shadow-md transition-all">
                   {r.imageUrl && (
-                    <img src={r.imageUrl} alt={rTitle} className="w-full h-32 object-cover rounded-lg mb-3" />
+                    <div className="relative w-full h-32 overflow-hidden rounded-lg mb-3">
+                      <Image src={r.imageUrl} alt={rTitle} fill className="object-cover" />
+                    </div>
                   )}
                   <span className={"text-xs px-2 py-0.5 rounded-full font-medium " + CATEGORY_COLORS[r.category]}>
                     {c.categories[r.category as keyof typeof c.categories] ?? r.category}

@@ -1,3 +1,4 @@
+import Image from 'next/image';
 import prisma from '@/lib/prisma';
 import Link from 'next/link';
 import { FaBook, FaUsers, FaEye, FaEyeSlash, FaChalkboardTeacher, FaPlus } from 'react-icons/fa';
@@ -68,7 +69,7 @@ export default async function AdminCourses() {
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-3">
                         {course.imageUrl ? (
-                          <img src={course.imageUrl} alt="" className="w-10 h-10 rounded-lg object-cover" />
+                          <Image src={course.imageUrl} alt="" width={40} height={40} className="w-10 h-10 rounded-lg object-cover" />
                         ) : (
                           <div className="w-10 h-10 bg-indigo-50 ring-1 ring-indigo-100 rounded-lg flex items-center justify-center">
                             <FaBook className="text-indigo-600 text-sm" />

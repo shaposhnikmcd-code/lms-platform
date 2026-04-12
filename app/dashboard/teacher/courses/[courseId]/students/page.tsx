@@ -1,3 +1,4 @@
+import Image from "next/image";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
@@ -97,7 +98,7 @@ export default async function TeacherCourseStudents({
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
                         {enrollment.user.image ? (
-                          <img src={enrollment.user.image} alt="" className="w-8 h-8 rounded-full object-cover" />
+                          <Image src={enrollment.user.image} alt="" width={32} height={32} className="w-8 h-8 rounded-full object-cover" />
                         ) : (
                           <div className="w-8 h-8 bg-[#1C3A2E]/10 rounded-full flex items-center justify-center text-[#1C3A2E] font-bold text-sm">
                             {(enrollment.user.name || enrollment.user.email)[0].toUpperCase()}

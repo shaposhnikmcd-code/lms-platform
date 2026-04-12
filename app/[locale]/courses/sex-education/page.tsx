@@ -1,6 +1,6 @@
 import { Link } from '@/i18n/navigation';
 import Image from 'next/image';
-import { FaArrowRight, FaHeart, FaUsers, FaChild } from 'react-icons/fa';
+import { FaHeart, FaUsers, FaChild } from 'react-icons/fa';
 import { Inter } from 'next/font/google';
 import SexEducationPricing from './_components/SexEducationPricing';
 import CoursePurchaseModal from '@/components/CoursePurchaseModal';

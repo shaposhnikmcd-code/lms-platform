@@ -5,8 +5,6 @@ export async function POST(request: Request) {
   try {
     const { cityName } = await request.json();
 
-    console.log('🔍 API cities запит для:', cityName);
-
     const response = await fetch('https://api.novaposhta.ua/v2.0/json/', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -23,9 +21,7 @@ export async function POST(request: Request) {
     });
 
     const data = await response.json();
-    console.log('✅ Отримано міст:', data.data?.length || 0);
-    
-    return NextResponse.json({ 
+    return NextResponse.json({
       cities: data.data || [] 
     });
     

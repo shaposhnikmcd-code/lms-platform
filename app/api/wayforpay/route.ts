@@ -8,7 +8,9 @@ export async function POST(req: NextRequest) {
 
     const merchantLogin = process.env.WAYFORPAY_MERCHANT_LOGIN!;
     const secretKey = process.env.WAYFORPAY_SECRET_KEY!;
-    const domain = process.env.NEXTAUTH_URL || 'https://dr-shaposhnik-platform.vercel.app';
+    const host = req.headers.get('x-forwarded-host') || req.headers.get('host');
+    const proto = req.headers.get('x-forwarded-proto') || (host?.includes('localhost') ? 'http' : 'https');
+    const domain = host ? `${proto}://${host}` : (process.env.NEXTAUTH_URL || 'http://localhost:3000');
     const merchantDomain = 'www.uimp.com.ua';
 
     const isConnector = orderReference.startsWith('connector_');

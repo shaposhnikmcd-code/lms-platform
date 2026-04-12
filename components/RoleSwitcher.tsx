@@ -1,7 +1,6 @@
 'use client';
 
 import { useSession } from 'next-auth/react';
-import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
 const ROLE_LABELS: Record<string, string> = {
@@ -27,7 +26,6 @@ const ROLE_HIERARCHY: Record<string, string[]> = {
 
 export default function RoleSwitcher() {
   const { data: session, update } = useSession();
-  const router = useRouter();
   const [loading, setLoading] = useState(false);
 
   if (!session?.user) return null;

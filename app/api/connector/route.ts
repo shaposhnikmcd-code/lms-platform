@@ -5,10 +5,10 @@ import prisma from '@/lib/prisma';
 
 export async function POST(req: NextRequest) {
   try {
-    const { orderReference, email, fullName, phone, city, postOffice, amount, gamePrice, shippingCost, callMe } = await req.json();
+    const { orderReference, email, fullName, phone, city, postOffice, gamePrice, shippingCost, callMe } = await req.json();
 
     const session = await getServerSession(authOptions);
-    const isAdmin = (session?.user as any)?.role === 'ADMIN';
+    const isAdmin = session?.user?.role === 'ADMIN';
     const finalGamePrice = isAdmin ? 1 : (typeof gamePrice === 'number' ? gamePrice : 1099);
     const finalShippingCost = isAdmin ? 0 : (typeof shippingCost === 'number' ? shippingCost : 0);
     const finalAmount = finalGamePrice + finalShippingCost;
@@ -70,7 +70,7 @@ export async function PATCH(req: NextRequest) {
     if (trackingNumber !== undefined) {
       const value = (trackingNumber || '').trim();
       const session = await getServerSession(authOptions);
-      const actor = session?.user as any;
+      const actor = session?.user;
       data.trackingNumber = value || null;
       data.trackingSetAt = value ? new Date() : null;
       data.trackingSetById = value ? (actor?.id ?? null) : null;
