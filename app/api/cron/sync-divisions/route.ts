@@ -7,6 +7,18 @@ const gunzip = promisify(zlib.gunzip);
 
 const ALLOWED_COUNTRIES = ['PL', 'DE', 'CZ', 'LT', 'LV', 'EE', 'IT', 'ES', 'SK', 'HU', 'RO', 'MD', 'FR', 'GB', 'AT', 'NL'];
 
+interface NovaDivision {
+  id: string;
+  name?: string;
+  countryCode?: string;
+  address?: string;
+  settlement?: { name?: string };
+  latitude?: number;
+  longitude?: number;
+  status?: string;
+  divisionCategory?: string;
+}
+
 export async function GET(req: NextRequest) {
   // Vercel cron авторизація
   const authHeader = req.headers.get('authorization');
@@ -24,8 +36,8 @@ export async function GET(req: NextRequest) {
     const decompressed = await gunzip(Buffer.from(buffer));
     const divisions = JSON.parse(decompressed.toString('utf-8'));
 
-    const filtered = divisions.filter((d: any) =>
-      ALLOWED_COUNTRIES.includes(d.countryCode) && d.status === 'Working'
+    const filtered = divisions.filter((d: NovaDivision) =>
+      d.countryCode !== undefined && ALLOWED_COUNTRIES.includes(d.countryCode) && d.status === 'Working'
     );
 
     await prisma.novaPostDivision.deleteMany();
@@ -36,7 +48,7 @@ export async function GET(req: NextRequest) {
     for (let i = 0; i < filtered.length; i += BATCH_SIZE) {
       const batch = filtered.slice(i, i + BATCH_SIZE);
       await prisma.novaPostDivision.createMany({
-        data: batch.map((d: any) => ({
+        data: batch.map((d: NovaDivision) => ({
           id: d.id,
           externalId: d.id,
           name: d.name || '',
@@ -64,14 +76,15 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ success: true, total: saved });
 
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
     await prisma.novaPostSyncLog.create({
       data: {
         totalCount: 0,
         status: 'ERROR',
-        message: error.message,
+        message,
       },
     });
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

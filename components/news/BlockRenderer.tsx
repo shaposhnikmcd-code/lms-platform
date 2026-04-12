@@ -62,6 +62,7 @@ export default function BlockRenderer({ block, editorMode = false }: Props) {
     case "image":
       return block.data.url ? (
         <div style={{ ...rootStyle, padding: 0 }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={block.data.url}
             alt={block.data.alt || ""}
@@ -80,6 +81,7 @@ export default function BlockRenderer({ block, editorMode = false }: Props) {
         <div style={rootStyle}>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "12px" }}>
             {(block.data.images as string[]).map((url, i) => (
+              // eslint-disable-next-line @next/next/no-img-element
               <img key={i} src={url} alt="" draggable={false} style={{ width: "100%", height: "160px", objectFit: "cover", borderRadius: "8px", pointerEvents: "none" }} />
             ))}
           </div>

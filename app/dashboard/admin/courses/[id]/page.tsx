@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import { FaChalkboardTeacher, FaTrash, FaPlus } from "react-icons/fa";
 
 interface Teacher {
@@ -23,7 +23,6 @@ interface Course {
 
 export default function AdminCourseManage() {
   const { id } = useParams();
-  const router = useRouter();
 
   const [course, setCourse] = useState<Course | null>(null);
   const [allTeachers, setAllTeachers] = useState<Teacher[]>([]);

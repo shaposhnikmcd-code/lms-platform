@@ -1,6 +1,6 @@
 import { Link } from '@/i18n/navigation';
 import Image from 'next/image';
-import { FaArrowRight, FaHeart, FaUsers, FaBookOpen, FaQuoteRight, FaQuoteLeft } from 'react-icons/fa';
+import { FaHeart, FaUsers, FaBookOpen, FaQuoteRight, FaQuoteLeft } from 'react-icons/fa';
 import { Inter } from 'next/font/google';
 import MentorshipPricing from './_components/MentorshipPricing';
 import CoursePurchaseModal from '@/components/CoursePurchaseModal';

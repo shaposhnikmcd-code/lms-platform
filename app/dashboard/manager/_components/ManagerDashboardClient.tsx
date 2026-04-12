@@ -123,8 +123,6 @@ export default function ManagerDashboardClient() {
 
   const [editingTracking, setEditingTracking] = useState<string | null>(null);
   const [trackingDraft, setTrackingDraft] = useState('');
-  const [editingNote, setEditingNote] = useState<string | null>(null);
-  const [noteDraft, setNoteDraft] = useState('');
   const [openNoteId, setOpenNoteId] = useState<string | null>(null);
   const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
 
@@ -143,12 +141,12 @@ export default function ManagerDashboardClient() {
       window.removeEventListener('keydown', onKey);
     };
   }, [openNoteId]);
-  const [savingRowId, setSavingRowId] = useState<string | null>(null);
+  const [, setSavingRowId] = useState<string | null>(null);
 
   useEffect(() => {
     if (status === 'unauthenticated') router.push('/');
     if (status === 'authenticated') {
-      const role = (session?.user as any)?.role;
+      const role = session?.user?.role;
       if (role !== 'MANAGER' && role !== 'ADMIN') router.push('/dashboard');
     }
   }, [status, session]);
@@ -321,10 +319,6 @@ export default function ManagerDashboardClient() {
   const SortArrow = ({ k }: { k: typeof sortKey }) =>
     sortKey === k ? <span className="text-indigo-500 ml-0.5">{sortDir === 'asc' ? '↑' : '↓'}</span> : null;
 
-  const fmtDate = (s: string) => {
-    const d = new Date(s);
-    return `${d.toLocaleDateString('uk-UA')} ${d.toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' })}`;
-  };
 
   if (status === 'loading' || loading) {
     return (
@@ -569,7 +563,6 @@ export default function ManagerDashboardClient() {
                           </td>
                         </tr>
                         {g.items.map((order) => {
-                          const isEditingTtn = editingTracking === order.id;
                           return (
                             <tr
                               key={order.id}

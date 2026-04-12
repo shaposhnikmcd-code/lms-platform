@@ -97,12 +97,14 @@ function renderBlock(block: ContentBlock) {
       return block.data.text ? <p key={block.id} className="text-base font-medium text-slate-700 my-2">{block.data.text}</p> : null;
     case 'image':
       return block.data.url ? (
+        // eslint-disable-next-line @next/next/no-img-element
         <img key={block.id} src={block.data.url} alt={block.data.alt || ''} className="w-full rounded-lg my-3" style={{ maxHeight: '400px', objectFit: 'cover' }} />
       ) : null;
     case 'gallery':
       return block.data.images?.length ? (
         <div key={block.id} className="grid grid-cols-2 gap-2 my-3">
           {block.data.images.map((img: any, i: number) => (
+            // eslint-disable-next-line @next/next/no-img-element
             <img key={i} src={typeof img === 'string' ? img : img.url} alt="" className="w-full rounded-lg object-cover" style={{ maxHeight: '200px' }} />
           ))}
         </div>
@@ -251,8 +253,7 @@ export default function AdminNewsPage() {
             const date = new Date(item.createdAt);
             const dateStr = date.toLocaleDateString("uk-UA");
             const timeStr = date.toLocaleTimeString("uk-UA", { hour: "2-digit", minute: "2-digit" });
-            const { text: contentText, firstImage: contentImage } = parseContentPreview(item.content);
-            const preview = item.excerpt || contentText;
+            const { firstImage: contentImage } = parseContentPreview(item.content);
             const thumbnail = item.imageUrl || contentImage;
             const isExpanded = expandedId === item.id;
 
@@ -268,6 +269,7 @@ export default function AdminNewsPage() {
                   {/* Mini thumbnail */}
                   <div className="flex-shrink-0 w-10 h-10 rounded-lg overflow-hidden bg-slate-100">
                     {thumbnail ? (
+                      // eslint-disable-next-line @next/next/no-img-element
                       <img src={thumbnail} alt="" className="w-full h-full object-cover" />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center text-slate-300">

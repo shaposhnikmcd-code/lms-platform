@@ -1,8 +1,8 @@
 'use client';
 
+import Image from 'next/image';
 import { useState, useEffect } from 'react';
-import Link from 'next/link';
-import { FaTrashRestore, FaArrowLeft } from 'react-icons/fa';
+import { FaTrashRestore } from 'react-icons/fa';
 
 const ROLE_LABELS: Record<string, string> = {
   ADMIN: 'Адмін',
@@ -117,7 +117,7 @@ export default function DeletedUsersPage() {
                       <div className="flex items-center gap-3">
                         <div className="w-9 h-9 bg-gradient-to-br from-slate-400 to-slate-500 rounded-full flex items-center justify-center text-white text-sm font-semibold overflow-hidden flex-shrink-0">
                           {u.image ? (
-                            <img src={u.image} alt="" className="w-9 h-9 rounded-full object-cover grayscale" />
+                            <Image src={u.image} alt="" width={36} height={36} className="w-9 h-9 rounded-full object-cover grayscale" />
                           ) : (
                             (u.name?.[0] || u.email?.[0] || '?').toUpperCase()
                           )}

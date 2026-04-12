@@ -1,6 +1,6 @@
 import { Link } from '@/i18n/navigation';
 import Image from 'next/image';
-import { FaArrowRight, FaShieldAlt, FaUsers, FaHospital } from 'react-icons/fa';
+import { FaShieldAlt, FaUsers, FaHospital } from 'react-icons/fa';
 import { Inter } from 'next/font/google';
 import MilitaryPsychologyPricing from './_components/MilitaryPsychologyPricing';
 import CoursePurchaseModal from '@/components/CoursePurchaseModal';

@@ -1,7 +1,6 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { useSession } from "next-auth/react";
 import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import Image from "next/image";
@@ -12,7 +11,6 @@ import LanguageSwitcher from "@/components/LanguageSwitcher";
 
 export default function Navbar() {
   const pathname = usePathname();
-  const { data: session, status } = useSession();
   const [menuOpen, setMenuOpen] = useState(false);
   const t = useTranslations("Navigation");
 

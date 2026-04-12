@@ -1,3 +1,4 @@
+import Image from "next/image";
 import { consultationsContent } from "./_content/uk";
 import { getTranslatedContent } from "@/lib/translate";
 import SpecialistCard from "./_components/SpecialistCard";
@@ -36,8 +37,7 @@ export default async function ConsultationsPage({ params }: { params: Promise<{ 
               <div style={{ position: 'relative' }}>
                 <div style={{ position: 'absolute', inset: -24, borderRadius: '50%', filter: 'blur(40px)', opacity: 0.2, background: 'radial-gradient(circle, #D4A843, #1C3A2E)', pointerEvents: 'none' }} />
                 <div style={{ position: 'relative', width: 208, height: 208 }}>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src="/about-us/logo-yellow.webp" alt="UIMP" width={208} height={208} style={{ display: 'block', objectFit: 'contain', filter: 'drop-shadow(0 20px 40px rgba(0,0,0,0.4))' }} />
+                  <Image src="/about-us/logo-yellow.webp" alt="UIMP" width={208} height={208} style={{ display: 'block', objectFit: 'contain', filter: 'drop-shadow(0 20px 40px rgba(0,0,0,0.4))' }} />
                 </div>
               </div>
             </div>

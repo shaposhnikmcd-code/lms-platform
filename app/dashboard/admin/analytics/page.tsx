@@ -1,6 +1,5 @@
 import prisma from '@/lib/prisma';
 import { FaChartLine, FaUsers, FaGraduationCap, FaDollarSign } from 'react-icons/fa';
-import Link from 'next/link';
 
 export default async function AdminAnalytics() {
   const now = new Date();

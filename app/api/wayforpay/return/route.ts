@@ -1,7 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+function getBaseUrl(req: NextRequest): string {
+  const host = req.headers.get('x-forwarded-host') || req.headers.get('host');
+  const proto = req.headers.get('x-forwarded-proto') || (host?.includes('localhost') ? 'http' : 'https');
+  if (host) return `${proto}://${host}`;
+  return process.env.NEXTAUTH_URL || 'http://localhost:3000';
+}
+
 export async function POST(req: NextRequest) {
-  const baseUrl = process.env.NEXTAUTH_URL || 'https://dr-shaposhnik-platform.vercel.app';
+  const baseUrl = getBaseUrl(req);
 
   // Try to detect course vs connector from form data
   try {
@@ -15,7 +22,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
-  const baseUrl = process.env.NEXTAUTH_URL || 'https://dr-shaposhnik-platform.vercel.app';
+  const baseUrl = getBaseUrl(req);
   const type = req.nextUrl.searchParams.get('type') || '';
   return NextResponse.redirect(`${baseUrl}/payment/success${type ? `?type=${type}` : ''}`, { status: 303 });
 }

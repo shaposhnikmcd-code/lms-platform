@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { FaUsers, FaSearch, FaTrash, FaTrashRestore, FaUserPlus, FaTimes } from 'react-icons/fa';
@@ -216,7 +217,7 @@ export default function AdminUsers() {
                     <div className="flex items-center gap-3">
                       <div className="w-9 h-9 bg-gradient-to-br from-indigo-500 to-indigo-600 rounded-full flex items-center justify-center text-white text-sm font-semibold overflow-hidden flex-shrink-0 shadow-sm">
                         {user.image ? (
-                          <img src={user.image} alt="" className="w-9 h-9 rounded-full object-cover" />
+                          <Image src={user.image} alt="" width={36} height={36} className="w-9 h-9 rounded-full object-cover" />
                         ) : (
                           (user.name?.[0] || user.email?.[0] || '?').toUpperCase()
                         )}

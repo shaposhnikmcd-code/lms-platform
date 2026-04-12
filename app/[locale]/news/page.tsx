@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import prisma from "@/lib/prisma";
 import { FaCalendar, FaUser } from "react-icons/fa";
@@ -53,8 +54,9 @@ export default async function NewsPage({ params }: { params: Promise<{ locale: s
               <Link key={item.id} href={`/news/${item.slug}`}
                 className="bg-white rounded-2xl shadow-sm hover:shadow-md transition-all overflow-hidden group">
                 {item.imageUrl ? (
-                  <img src={item.imageUrl} alt={title}
-                    className="w-full h-48 object-cover group-hover:scale-105 transition-transform duration-300" />
+                  <div className="relative w-full h-48 overflow-hidden">
+                    <Image src={item.imageUrl} alt={title} fill className="object-cover group-hover:scale-105 transition-transform duration-300" />
+                  </div>
                 ) : (
                   <div className="w-full h-48 bg-gradient-to-br from-[#1C3A2E] to-[#2a4f3f] flex items-center justify-center">
                     <span className="text-5xl">{"📰"}</span>

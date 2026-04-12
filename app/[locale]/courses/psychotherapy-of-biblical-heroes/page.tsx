@@ -1,6 +1,6 @@
 import { Link } from '@/i18n/navigation';
 import Image from 'next/image';
-import { FaArrowRight, FaBookOpen, FaPray, FaCrown } from 'react-icons/fa';
+import { FaBookOpen, FaPray, FaCrown } from 'react-icons/fa';
 import { Inter } from 'next/font/google';
 import BiblicalHeroesPricing from './_components/BiblicalHeroesPricing';
 import CoursePurchaseModal from '@/components/CoursePurchaseModal';

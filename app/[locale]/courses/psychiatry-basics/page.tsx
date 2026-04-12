@@ -1,6 +1,6 @@
 import Image from 'next/image';
 import { Link } from '@/i18n/navigation';
-import { FaArrowRight, FaBrain, FaStethoscope, FaPills, FaQuoteLeft, FaQuoteRight } from 'react-icons/fa';
+import { FaBrain, FaStethoscope, FaPills, FaQuoteLeft, FaQuoteRight } from 'react-icons/fa';
 import { Inter } from 'next/font/google';
 import PsychiatryPricing from './_components/PsychiatryPricing';
 import CoursePurchaseModal from '@/components/CoursePurchaseModal';

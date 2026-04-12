@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { signIn } from "next-auth/react";
+import Link from "next/link";
 import { FaFacebook, FaEnvelope, FaTimes } from 'react-icons/fa';
 import { useTranslations } from 'next-intl';
 
@@ -202,9 +203,9 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
 
           <p style={{ fontSize: 12, color: '#9ca3af', textAlign: 'center', marginTop: 24 }}>
             {t('termsText')}{" "}
-            <a href="/terms" style={{ color: '#D4A017' }}>{t('terms')}</a>
+            <Link href="/terms" style={{ color: '#D4A017' }}>{t('terms')}</Link>
             {" "}{t('termsAnd')}{" "}
-            <a href="/privacy" style={{ color: '#D4A017' }}>{t('privacy')}</a>
+            <Link href="/privacy" style={{ color: '#D4A017' }}>{t('privacy')}</Link>
           </p>
         </div>
       </div>

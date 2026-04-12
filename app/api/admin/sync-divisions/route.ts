@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
@@ -9,18 +9,28 @@ const gunzip = promisify(zlib.gunzip);
 
 const ALLOWED_COUNTRIES = ['PL', 'DE', 'CZ', 'LT', 'LV', 'EE', 'IT', 'ES', 'SK', 'HU', 'RO', 'MD', 'FR', 'GB', 'AT', 'NL'];
 
-export async function POST(req: NextRequest) {
+interface NovaDivision {
+  id: string;
+  name?: string;
+  countryCode?: string;
+  address?: string;
+  settlement?: { name?: string };
+  latitude?: number;
+  longitude?: number;
+  status?: string;
+  divisionCategory?: string;
+}
+
+export async function POST() {
   try {
     const session = await getServerSession(authOptions);
-    if (!session || (session.user as any).role !== 'ADMIN') {
+    if (!session || session.user?.role !== 'ADMIN') {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const versionsRes = await fetch('https://api.novapost.com/divisions/versions');
     const versions = await versionsRes.json();
     const archiveUrl = versions.base_version.url;
-
-    console.log('📦 Завантажуємо архів:', archiveUrl);
 
     const archiveRes = await fetch(archiveUrl);
     const buffer = await archiveRes.arrayBuffer();
@@ -30,24 +40,13 @@ export async function POST(req: NextRequest) {
     // Дані в raw.items
     const allDivisions = Array.isArray(raw) ? raw : (raw.items || []);
 
-    console.log(`📦 Всього відділень: ${allDivisions.length}`);
-
-    // Логуємо перший елемент щоб побачити структуру countryCode
-    if (allDivisions.length > 0) {
-      console.log('📦 Перший елемент:', JSON.stringify(allDivisions[0]).substring(0, 500));
-    }
-
     // Фільтруємо по countryCode
-    const filtered = allDivisions.filter((d: any) =>
+    const filtered = allDivisions.filter((d: NovaDivision) =>
       d.countryCode && ALLOWED_COUNTRIES.includes(d.countryCode)
     );
 
-    console.log(`📦 Після фільтрації: ${filtered.length}`);
-
     if (filtered.length === 0) {
-      // Якщо пусто — покажемо унікальні countryCodes
-      const codes = [...new Set(allDivisions.slice(0, 100).map((d: any) => d.countryCode))];
-      console.log('📦 Унікальні countryCodes (перші 100):', codes);
+      const codes = [...new Set(allDivisions.slice(0, 100).map((d: NovaDivision) => d.countryCode))];
       return NextResponse.json({ debug: true, total: allDivisions.length, filtered: 0, codes });
     }
 
@@ -59,7 +58,7 @@ export async function POST(req: NextRequest) {
     for (let i = 0; i < filtered.length; i += BATCH_SIZE) {
       const batch = filtered.slice(i, i + BATCH_SIZE);
       await prisma.novaPostDivision.createMany({
-        data: batch.map((d: any) => ({
+        data: batch.map((d: NovaDivision) => ({
           id: d.id,
           externalId: d.id,
           name: d.name || '',
@@ -75,7 +74,6 @@ export async function POST(req: NextRequest) {
         skipDuplicates: true,
       });
       saved += batch.length;
-      console.log(`✅ Збережено ${saved}/${filtered.length}`);
     }
 
     await prisma.novaPostSyncLog.create({
@@ -88,8 +86,9 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true, total: saved });
 
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
     console.error('❌ Помилка:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

@@ -5,8 +5,6 @@ export async function POST(request: Request) {
   try {
     const { cityName, searchString } = await request.json();
 
-    console.log('Пошук для міста:', cityName);
-
     // Отримуємо відділення直接用 назву міста
     const response = await fetch('https://api.novaposhta.ua/v2.0/json/', {
       method: 'POST',
@@ -26,9 +24,7 @@ export async function POST(request: Request) {
     });
 
     const data = await response.json();
-    console.log('Знайдено відділень:', data.data?.length || 0);
-    
-    return NextResponse.json({ 
+    return NextResponse.json({
       warehouses: data.data || [] 
     });
     

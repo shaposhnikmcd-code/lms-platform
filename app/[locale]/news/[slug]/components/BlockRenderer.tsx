@@ -26,12 +26,14 @@ export default function BlockRenderer({ block }: { block: Block }) {
   );
     case "image":
       return block.data.url ? (
+        // eslint-disable-next-line @next/next/no-img-element
         <img src={block.data.url} alt={block.data.alt || ""} className="w-full h-full object-cover rounded-lg" />
       ) : null;
     case "gallery":
       return (block.data.images as string[]).length > 0 ? (
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3 w-full">
           {(block.data.images as string[]).map((url, i) => (
+            // eslint-disable-next-line @next/next/no-img-element
             <img key={i} src={url} alt="" className="w-full h-40 object-cover rounded-xl" />
           ))}
         </div>

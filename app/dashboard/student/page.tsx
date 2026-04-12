@@ -6,7 +6,7 @@ import prisma from "@/lib/prisma";
 
 export default async function StudentDashboard() {
   const session = await getServerSession(authOptions);
-  const userId = (session?.user as any)?.id;
+  const userId = session?.user?.id;
 
   let enrollments: any[] = [];
 
@@ -27,7 +27,7 @@ export default async function StudentDashboard() {
       })
     : [];
 
-  const progressMap = new Map(progressData.map((p: any) => [p.courseId, p]));
+  const progressMap = new Map(progressData.map((p) => [p.courseId, p]));
 
   return (
     <div className="max-w-6xl mx-auto">
@@ -59,14 +59,10 @@ export default async function StudentDashboard() {
             {enrollments.map(({ course }) => {
               const progress = progressMap.get(course.id);
               const percent = progress?.progressPercent ?? 0;
-              const lastLesson = progress?.lastLesson?.title;
 
               return (
                 <div key={course.id} className="bg-white rounded-xl shadow-sm p-6 hover:shadow-md transition">
                   <h3 className="font-semibold text-lg mb-2 text-[#1C3A2E]">{course.title}</h3>
-                  {lastLesson && (
-                    <p className="text-sm text-gray-500 mb-3">Останнє: {lastLesson}</p>
-                  )}
                   <div className="mb-3">
                     <div className="flex justify-between text-sm mb-1">
                       <span>Прогрес</span>

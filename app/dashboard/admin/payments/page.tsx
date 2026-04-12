@@ -1,6 +1,5 @@
 import prisma from '@/lib/prisma';
 import { FaCreditCard } from 'react-icons/fa';
-import Link from 'next/link';
 
 const STATUS_LABELS: Record<string, string> = {
   PENDING: 'Очікує',
