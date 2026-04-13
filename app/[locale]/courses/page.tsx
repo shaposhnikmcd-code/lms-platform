@@ -34,14 +34,14 @@ const cardLayouts: { width: string; marginLeft: string; className: string }[] = 
   { width: '100%', marginLeft: '0',    className: '' },
 ];
 
-const COURSE_INFO: Record<string, { price: number }> = {
-  'psychology-basics': { price: 3500 },
-  'psychiatry-basics': { price: 3500 },
-  'mentorship': { price: 3500 },
-  'psychotherapy-of-biblical-heroes': { price: 1400 },
-  'sex-education': { price: 4300 },
-  'military-psychology': { price: 5999 },
-  'emotional-intelligence': { price: 1499 },
+const COURSE_INFO: Record<string, { price: number; icon: string; accent: string; accentRgb: string; tagKey: string; descKey: string }> = {
+  'psychology-basics': { price: 3500, icon: '🧠', accent: '#D4A843', accentRgb: '212,168,67', tagKey: 'tags.biblicalTherapy', descKey: 'courses.psychology.description' },
+  'psychiatry-basics': { price: 3500, icon: '🩺', accent: '#C4919A', accentRgb: '196,145,154', tagKey: 'tags.forPsychologists', descKey: 'courses.psychiatry.description' },
+  'mentorship': { price: 3500, icon: '🫂', accent: '#1C3A2E', accentRgb: '28,58,46', tagKey: 'tags.forBeginners', descKey: 'courses.mentorship.description' },
+  'psychotherapy-of-biblical-heroes': { price: 1400, icon: '📖', accent: '#C4919A', accentRgb: '196,145,154', tagKey: 'tags.newPerspective', descKey: 'courses.biblicalHeroes.description' },
+  'sex-education': { price: 4300, icon: '👨‍👩‍👧', accent: '#D4A843', accentRgb: '212,168,67', tagKey: 'tags.forParents', descKey: 'courses.sexEd.description' },
+  'military-psychology': { price: 5999, icon: '🪖', accent: '#1C3A2E', accentRgb: '28,58,46', tagKey: 'tags.forMilitary', descKey: 'courses.militaryPsy.description' },
+  'emotional-intelligence': { price: 1499, icon: '🧠', accent: '#D4A843', accentRgb: '212,168,67', tagKey: 'tags.forEveryone', descKey: 'courses.emotionalIQ.description' },
 };
 
 const COURSE_TITLE_KEYS: Record<string, string> = {
@@ -147,7 +147,7 @@ export default async function CoursesPage({ params }: { params: Promise<{ locale
       </section>
 
       {bundles.length > 0 && (
-        <section className="py-10 sm:py-14 px-4 sm:px-8 md:px-12" style={{ background: '#F5F2ED' }}>
+        <section className="py-4 sm:py-6 px-4 sm:px-8 md:px-12" style={{ background: '#F5F2ED' }}>
           <div style={{ maxWidth: 860, margin: '0 auto' }}>
             <div style={{ marginBottom: 36 }}>
               <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(212,168,67,0.12)', border: '1px solid rgba(212,168,67,0.2)', borderRadius: 100, padding: '4px 14px', marginBottom: 14 }}>
@@ -170,11 +170,20 @@ export default async function CoursesPage({ params }: { params: Promise<{ locale
                   description={bundle.description || undefined}
                   price={bundle.price}
                   slug={bundle.slug}
-                  courses={bundle.courses.map((bc) => ({
-                    slug: bc.courseSlug,
-                    title: t(COURSE_TITLE_KEYS[bc.courseSlug] as Parameters<typeof t>[0]) || bc.courseSlug,
-                    price: COURSE_INFO[bc.courseSlug]?.price || 0,
-                  }))}
+                  courses={bundle.courses.map((bc) => {
+                    const info = COURSE_INFO[bc.courseSlug];
+                    return {
+                      slug: bc.courseSlug,
+                      title: t(COURSE_TITLE_KEYS[bc.courseSlug] as Parameters<typeof t>[0]) || bc.courseSlug,
+                      description: info ? t(info.descKey as Parameters<typeof t>[0]) : '',
+                      tag: info ? t(info.tagKey as Parameters<typeof t>[0]) : '',
+                      price: info?.price || 0,
+                      icon: info?.icon || '📚',
+                      accent: info?.accent || '#D4A843',
+                      accentRgb: info?.accentRgb || '212,168,67',
+                    };
+                  })}
+                  benefits={cardBenefits}
                   currency={currency}
                   priceLabel={t("bundlePriceLabel")}
                   bundleLabel={t("bundleBadge")}
