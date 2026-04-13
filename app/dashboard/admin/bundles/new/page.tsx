@@ -23,7 +23,6 @@ export default function NewBundlePage() {
     description: "",
     slug: "",
     price: "",
-    imageUrl: "",
     published: false,
   });
   const [selectedCourses, setSelectedCourses] = useState<string[]>([]);
@@ -187,30 +186,26 @@ export default function NewBundlePage() {
           )}
         </div>
 
-        <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">
-            URL зображення
-          </label>
-          <input
-            type="text"
-            value={form.imageUrl}
-            onChange={(e) => setForm({ ...form, imageUrl: e.target.value })}
-            placeholder="https://..."
-            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500/20"
-          />
-        </div>
-
-        <div className="flex items-center gap-3">
-          <input
-            type="checkbox"
-            id="published"
-            checked={form.published}
-            onChange={(e) => setForm({ ...form, published: e.target.checked })}
-            className="w-4 h-4 accent-violet-600"
-          />
-          <label htmlFor="published" className="text-sm font-medium text-slate-700">
-            Опублікувати одразу
-          </label>
+        <div className="flex items-center justify-between p-4 rounded-lg border border-slate-200 bg-slate-50/50">
+          <div>
+            <p className="text-sm font-medium text-slate-700">Показувати на сайті</p>
+            <p className="text-xs text-slate-400 mt-0.5">Пакет буде видимий для покупців на сторінці курсів</p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={form.published}
+            onClick={() => setForm({ ...form, published: !form.published })}
+            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors ${
+              form.published ? "bg-violet-600" : "bg-slate-300"
+            }`}
+          >
+            <span
+              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition-transform mt-0.5 ${
+                form.published ? "translate-x-5 ml-0.5" : "translate-x-0 ml-0.5"
+              }`}
+            />
+          </button>
         </div>
 
         <button

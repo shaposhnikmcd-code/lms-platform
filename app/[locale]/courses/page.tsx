@@ -147,8 +147,8 @@ export default async function CoursesPage({ params }: { params: Promise<{ locale
       </section>
 
       {bundles.length > 0 && (
-        <section className="py-4 sm:py-6 px-4 sm:px-8 md:px-12" style={{ background: '#F5F2ED' }}>
-          <div style={{ maxWidth: 860, margin: '0 auto' }}>
+        <section className="pt-0 sm:pt-2 pb-10 sm:pb-12 px-4 sm:px-8 md:px-12" style={{ background: '#F5F2ED' }}>
+          <div style={{ maxWidth: 1400, margin: '0 auto' }}>
             <div style={{ marginBottom: 36 }}>
               <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(212,168,67,0.12)', border: '1px solid rgba(212,168,67,0.2)', borderRadius: 100, padding: '4px 14px', marginBottom: 14 }}>
                 <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.28em', textTransform: 'uppercase' as const, color: '#D4A843', fontFamily: sysFont }}>
@@ -162,36 +162,46 @@ export default async function CoursesPage({ params }: { params: Promise<{ locale
                 {t("bundlesSubtitle")}
               </p>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 16 }}>
-              {bundles.map((bundle) => (
-                <BundleCard
-                  key={bundle.id}
-                  title={bundle.title}
-                  description={bundle.description || undefined}
-                  price={bundle.price}
-                  slug={bundle.slug}
-                  courses={bundle.courses.map((bc) => {
-                    const info = COURSE_INFO[bc.courseSlug];
-                    return {
-                      slug: bc.courseSlug,
-                      title: t(COURSE_TITLE_KEYS[bc.courseSlug] as Parameters<typeof t>[0]) || bc.courseSlug,
-                      description: info ? t(info.descKey as Parameters<typeof t>[0]) : '',
-                      tag: info ? t(info.tagKey as Parameters<typeof t>[0]) : '',
-                      price: info?.price || 0,
-                      icon: info?.icon || '📚',
-                      accent: info?.accent || '#D4A843',
-                      accentRgb: info?.accentRgb || '212,168,67',
-                    };
-                  })}
-                  benefits={cardBenefits}
-                  currency={currency}
-                  priceLabel={t("bundlePriceLabel")}
-                  bundleLabel={t("bundleBadge")}
-                  saveLabel={t("bundleSave")}
-                  buyLabel={t("bundleBuy")}
-                />
-              ))}
-            </div>
+            {(() => {
+              const count = bundles.length;
+              const gridCols = count === 1 ? 'grid-cols-1' : count === 2 ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3';
+              const maxW = count === 1 ? 860 : 1400;
+              const layout = count === 1 ? 'full' as const : 'compact' as const;
+
+              return (
+                <div className={`grid ${gridCols} gap-4 items-stretch`} style={{ maxWidth: maxW, margin: '0 auto' }}>
+                  {bundles.map((bundle) => (
+                    <BundleCard
+                      key={bundle.id}
+                      title={bundle.title}
+                      description={bundle.description || undefined}
+                      price={bundle.price}
+                      slug={bundle.slug}
+                      layout={layout}
+                      courses={bundle.courses.map((bc) => {
+                        const info = COURSE_INFO[bc.courseSlug];
+                        return {
+                          slug: bc.courseSlug,
+                          title: t(COURSE_TITLE_KEYS[bc.courseSlug] as Parameters<typeof t>[0]) || bc.courseSlug,
+                          description: info ? t(info.descKey as Parameters<typeof t>[0]) : '',
+                          tag: info ? t(info.tagKey as Parameters<typeof t>[0]) : '',
+                          price: info?.price || 0,
+                          icon: info?.icon || '📚',
+                          accent: info?.accent || '#D4A843',
+                          accentRgb: info?.accentRgb || '212,168,67',
+                        };
+                      })}
+                      benefits={cardBenefits}
+                      currency={currency}
+                      priceLabel={t("bundlePriceLabel")}
+                      bundleLabel={t("bundleBadge")}
+                      saveLabel={t("bundleSave")}
+                      buyLabel={t("bundleBuy")}
+                    />
+                  ))}
+                </div>
+              );
+            })()}
           </div>
         </section>
       )}

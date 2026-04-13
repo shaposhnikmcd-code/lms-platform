@@ -38,7 +38,7 @@ export default function Footer() {
 
       {/* Соцмережі */}
       <div style={{ background: 'linear-gradient(to right, #162e22, #1C3A2E, #162e22)', borderBottom: '1px solid rgba(212,168,67,0.15)', padding: '6px 24px 2px' }}>
-        <div className="max-w-5xl mx-auto" style={{ position: 'relative', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', minHeight: 76 }}>
+        <div className="max-w-5xl mx-auto" style={{ position: 'relative', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', minHeight: 68 }}>
 
           {/* Заголовок зліва — абсолютно */}
           <div className="hidden sm:flex" style={{ position: 'absolute', left: -80, bottom: 14, flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}>
@@ -73,7 +73,7 @@ export default function Footer() {
                 <span className="icon" style={{ color, display: 'flex', transition: 'transform 0.35s cubic-bezier(0.16,1,0.3,1), filter 0.35s ease' }}>
                   {icon}
                 </span>
-                <span className="label" style={{ fontSize: 14, letterSpacing: '0.05em', color: 'rgba(255,255,255,0.4)', transition: 'color 0.3s ease' }}>{label}</span>
+                <span className="label" style={{ fontSize: 13, letterSpacing: '0.05em', color: 'rgba(255,255,255,0.4)', transition: 'color 0.3s ease' }}>{label}</span>
               </a>
             ))}
           </div>

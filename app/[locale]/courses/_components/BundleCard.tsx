@@ -34,9 +34,10 @@ type Props = {
   slug: string;
   buyLabel: string;
   benefits: Benefit[];
+  layout?: 'full' | 'compact';
 };
 
-export default function BundleCard({ title, description, price, courses, currency, priceLabel, saveLabel, slug, buyLabel, benefits }: Props) {
+export default function BundleCard({ title, description, price, courses, currency, priceLabel, saveLabel, slug, buyLabel, benefits, layout = 'full' }: Props) {
   const [hovered, setHovered] = useState(false);
   const [hoveredCourse, setHoveredCourse] = useState<string | null>(null);
   const totalOriginal = courses.reduce((sum, c) => sum + c.price, 0);
@@ -48,10 +49,12 @@ export default function BundleCard({ title, description, price, courses, currenc
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
+        display: 'flex',
+        flexDirection: 'column' as const,
         background: 'linear-gradient(135deg, rgba(212,168,67,0.06) 0%, rgba(212,168,67,0.12) 50%, rgba(212,168,67,0.04) 100%)',
         borderRadius: 24,
         border: '1px solid rgba(212,168,67,0.06)',
-        padding: 'clamp(20px, 4vw, 40px)',
+        padding: 'clamp(16px, 3vw, 28px)',
         boxShadow: hovered
           ? '0 8px 24px rgba(28,58,46,0.04)'
           : 'none',
@@ -60,44 +63,42 @@ export default function BundleCard({ title, description, price, courses, currenc
       }}
     >
       {/* Header */}
-      <div style={{ marginBottom: 24 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
           <div style={{
             display: 'inline-flex', alignItems: 'center', gap: 6,
-            background: '#1C3A2E', borderRadius: 100, padding: '5px 16px',
+            background: '#1C3A2E', borderRadius: 100, padding: '4px 14px',
           }}>
-            <span style={{ fontSize: 13 }}>📦</span>
-            <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.28em', textTransform: 'uppercase' as const, color: '#D4A843', fontFamily: sysFont }}>
+            <span style={{ fontSize: 12 }}>📦</span>
+            <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.28em', textTransform: 'uppercase' as const, color: '#D4A843', fontFamily: sysFont }}>
               ПАКЕТ
             </span>
           </div>
           {savings > 0 && (
             <div style={{
               display: 'inline-flex', alignItems: 'center',
-              background: '#059669', borderRadius: 100, padding: '5px 14px',
+              background: '#059669', borderRadius: 100, padding: '4px 12px',
             }}>
-              <span style={{ fontSize: 11, fontWeight: 700, color: 'white', fontFamily: sysFont }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: 'white', fontFamily: sysFont }}>
                 −{savingsPercent}%
               </span>
             </div>
           )}
         </div>
 
-        <h3 style={{ fontFamily: sysFont, fontSize: 'clamp(24px, 3vw, 34px)', fontWeight: 700, color: '#1C3A2E', lineHeight: 1.15, margin: '0 0 6px', letterSpacing: '-0.02em' }}>
+        <h3 style={{
+          fontFamily: sysFont, fontSize: 'clamp(20px, 2.5vw, 28px)', fontWeight: 700,
+          color: '#1C3A2E', lineHeight: 1.2, margin: 0, letterSpacing: '-0.02em',
+          minHeight: '2.4em',
+        }}>
           {title}
         </h3>
-
-        {description && (
-          <p style={{ fontSize: 14, color: 'rgba(28,58,46,0.5)', lineHeight: 1.7, margin: 0, fontFamily: sysFont }}>
-            {description}
-          </p>
-        )}
       </div>
 
       {/* Course cards grid */}
       <div
-        className="grid grid-cols-1 sm:grid-cols-2"
-        style={{ gap: 12, marginBottom: 24 }}
+        className={`grid ${courses.length <= 2 ? 'grid-cols-1 sm:grid-cols-2' : courses.length === 3 ? 'grid-cols-1 sm:grid-cols-3' : 'grid-cols-1 sm:grid-cols-2'}`}
+        style={{ gap: layout === 'compact' ? 10 : 14, marginBottom: layout === 'compact' ? 28 : 32, flex: 1 }}
       >
         {courses.map((course, i) => {
           const isHovered = hoveredCourse === course.slug;
@@ -111,7 +112,7 @@ export default function BundleCard({ title, description, price, courses, currenc
               style={{
                 textDecoration: 'none',
                 background: isHovered ? CARD_BG_HOVER : CARD_BG,
-                borderRadius: 16,
+                borderRadius: 14,
                 overflow: 'hidden',
                 boxShadow: isHovered ? '0 16px 40px rgba(0,0,0,0.25)' : '0 2px 10px rgba(0,0,0,0.1)',
                 transform: isHovered ? 'translateY(-3px) scale(1.01)' : 'translateY(0) scale(1)',
@@ -121,50 +122,49 @@ export default function BundleCard({ title, description, price, courses, currenc
               }}
             >
               {/* Content area */}
-              <div style={{ padding: '22px 22px 16px', flex: 1 }}>
+              <div style={{ padding: '25px 21px 21px', flex: 1 }}>
                 {/* Icon + Tag */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                   <div style={{
-                    width: 30, height: 30, borderRadius: 8,
+                    width: 32, height: 32, borderRadius: 8,
                     background: `rgba(${course.accentRgb},0.18)`,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 14, flexShrink: 0,
+                    fontSize: 15, flexShrink: 0,
                     transition: 'transform 0.3s ease',
                     transform: isHovered ? 'scale(1.12) rotate(-5deg)' : 'scale(1)',
                   }}>
                     {course.icon}
                   </div>
-                  <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.28em', textTransform: 'uppercase' as const, color: tagColor, fontFamily: sysFont }}>
+                  <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.25em', textTransform: 'uppercase' as const, color: tagColor, fontFamily: sysFont }}>
                     {course.tag}
                   </span>
                 </div>
 
                 {/* Title */}
                 <h4 style={{
-                  fontFamily: sysFont, fontSize: 'clamp(16px, 1.8vw, 20px)', fontWeight: 700,
-                  color: '#F5EDD6', lineHeight: 1.25, margin: '0 0 10px', letterSpacing: '-0.01em',
+                  fontFamily: sysFont, fontSize: 'clamp(15px, 1.6vw, 19px)', fontWeight: 700,
+                  color: '#F5EDD6', lineHeight: 1.3, margin: '0 0 10px', letterSpacing: '-0.01em',
                 }}>
                   {course.title}
                 </h4>
 
                 {/* Accent line */}
-                <div style={{ width: 28, height: 2, background: tagColor, borderRadius: 2, marginBottom: 10, opacity: 0.5 }} />
+                <div style={{ width: 26, height: 2, background: tagColor, borderRadius: 2, marginBottom: 10, opacity: 0.5 }} />
 
                 {/* Description */}
                 <p style={{
                   fontSize: 12, color: 'rgba(245,237,214,0.5)', lineHeight: 1.7, margin: 0, fontFamily: sysFont,
-                  display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' as const, overflow: 'hidden',
                 }}>
                   {course.description}
                 </p>
               </div>
 
               {/* Benefits strip */}
-              <div style={{ borderTop: `1px solid ${STRIP_BORDER}`, background: 'rgba(255,255,255,0.03)', display: 'flex', flexWrap: 'wrap' }}>
+              <div style={{ borderTop: `1px solid ${STRIP_BORDER}`, background: 'rgba(255,255,255,0.03)', display: 'flex', alignItems: 'center', flexWrap: 'nowrap', overflow: 'hidden' }}>
                 {benefits.map((b, bi) => (
-                  <div key={bi} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '8px 12px', borderRight: bi < benefits.length - 1 ? `1px solid ${STRIP_BORDER}` : 'none' }}>
-                    <span style={{ fontSize: 10 }}>{b.icon}</span>
-                    <span style={{ fontSize: 9, color: 'rgba(245,237,214,0.3)', fontFamily: sysFont, fontWeight: 500, whiteSpace: 'nowrap' as const }}>
+                  <div key={bi} style={{ display: 'flex', alignItems: 'center', gap: 3, padding: '6px 3px', borderRight: bi < benefits.length - 1 ? `1px solid ${STRIP_BORDER}` : 'none', flex: 1, justifyContent: 'center', minWidth: 0 }}>
+                    <span style={{ fontSize: 9, lineHeight: 1, flexShrink: 0 }}>{b.icon}</span>
+                    <span style={{ fontSize: 8.5, color: 'rgba(245,237,214,0.3)', fontFamily: sysFont, fontWeight: 500, whiteSpace: 'nowrap' as const, lineHeight: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {b.title}
                     </span>
                   </div>
@@ -173,27 +173,27 @@ export default function BundleCard({ title, description, price, courses, currenc
 
               {/* Gold price section */}
               {(() => {
-                const discountPerCourse = Math.round(savings / courses.length);
-                const newPrice = course.price - discountPerCourse;
+                const weight = course.price / totalOriginal;
+                const newPrice = Math.round((course.price - savings * weight) / 100) * 100;
                 return (
                   <div style={{
                     background: '#D4A843',
-                    padding: '8px 18px',
+                    padding: '10px 14px',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    gap: 10,
+                    gap: 8,
                   }}>
-                    <span style={{ fontSize: 9, textTransform: 'uppercase' as const, letterSpacing: '0.18em', color: 'rgba(28,58,46,0.4)', fontFamily: sysFont, fontWeight: 600 }}>
+                    <span style={{ fontSize: 8, textTransform: 'uppercase' as const, letterSpacing: '0.18em', color: 'rgba(28,58,46,0.4)', fontFamily: sysFont, fontWeight: 600 }}>
                       {priceLabel}
                     </span>
-                    <span style={{ fontSize: 12, color: 'rgba(28,58,46,0.35)', fontFamily: sysFont, fontWeight: 500, textDecoration: 'line-through' }}>
+                    <span style={{ fontSize: 11, color: 'rgba(28,58,46,0.35)', fontFamily: sysFont, fontWeight: 500, textDecoration: 'line-through' }}>
                       {course.price.toLocaleString()}
                     </span>
-                    <span style={{ fontFamily: sysFont, fontSize: 22, fontWeight: 700, color: '#1C3A2E', lineHeight: 1 }}>
+                    <span style={{ fontFamily: sysFont, fontSize: 18, fontWeight: 700, color: '#1C3A2E', lineHeight: 1 }}>
                       {newPrice.toLocaleString()}
                     </span>
-                    <span style={{ fontSize: 11, color: 'rgba(28,58,46,0.45)', fontFamily: sysFont }}>
+                    <span style={{ fontSize: 10, color: 'rgba(28,58,46,0.45)', fontFamily: sysFont }}>
                       {currency}
                     </span>
                   </div>
@@ -207,30 +207,33 @@ export default function BundleCard({ title, description, price, courses, currenc
       {/* Price + CTA */}
       <div style={{
         background: '#1C3A2E',
-        borderRadius: 16,
-        padding: '20px 24px',
+        borderRadius: layout === 'compact' ? 14 : 16,
+        padding: layout === 'compact' ? '12px 16px' : '20px 24px',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
         flexWrap: 'wrap',
-        gap: 16,
-        maxWidth: 520,
-        margin: '0 auto',
+        gap: layout === 'compact' ? 12 : 16,
+        width: layout === 'compact' ? '53%' : '50%',
+        marginLeft: 'auto',
+        marginRight: 'auto',
+        marginTop: 'auto',
+        marginBottom: 0,
       }}>
         <div>
-          <p style={{ fontSize: 9, textTransform: 'uppercase' as const, letterSpacing: '0.22em', color: 'rgba(212,168,67,0.5)', margin: '0 0 4px', fontFamily: sysFont }}>
+          <p style={{ fontSize: layout === 'compact' ? 8 : 9, textTransform: 'uppercase' as const, letterSpacing: '0.22em', color: 'rgba(212,168,67,0.5)', margin: '0 0 4px', fontFamily: sysFont }}>
             {priceLabel}
           </p>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-            <span style={{ fontFamily: sysFont, fontSize: 'clamp(28px, 3.5vw, 36px)', fontWeight: 700, color: '#D4A843', lineHeight: 1, letterSpacing: '-0.02em' }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: layout === 'compact' ? 6 : 8 }}>
+            <span style={{ fontFamily: sysFont, fontSize: layout === 'compact' ? 'clamp(20px, 2.5vw, 26px)' : 'clamp(28px, 3.5vw, 36px)', fontWeight: 700, color: '#D4A843', lineHeight: 1, letterSpacing: '-0.02em' }}>
               {price.toLocaleString()}
             </span>
-            <span style={{ fontSize: 13, color: 'rgba(212,168,67,0.5)', fontFamily: sysFont }}>
+            <span style={{ fontSize: layout === 'compact' ? 11 : 13, color: 'rgba(212,168,67,0.5)', fontFamily: sysFont }}>
               {currency}
             </span>
           </div>
           {savings > 0 && (
-            <p style={{ fontSize: 12, color: '#D4A843', opacity: 0.7, margin: '4px 0 0', fontFamily: sysFont, fontWeight: 500 }}>
+            <p style={{ fontSize: layout === 'compact' ? 10 : 12, color: '#D4A843', opacity: 0.7, margin: '2px 0 0', fontFamily: sysFont, fontWeight: 500 }}>
               {saveLabel}: {savings.toLocaleString()} {currency}
             </p>
           )}
@@ -241,6 +244,7 @@ export default function BundleCard({ title, description, price, courses, currenc
           courseId={`bundle_${slug}`}
           currency={currency}
           buttonLabel={buyLabel}
+          compact={layout === 'compact'}
         />
       </div>
     </div>
