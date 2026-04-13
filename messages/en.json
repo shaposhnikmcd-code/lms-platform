@@ -139,7 +139,13 @@
         "price": "Free",
         "duration": "recorded"
       }
-    }
+    },
+    "bundlesTitle": "Course Bundles",
+    "bundlesSubtitle": "Choose a bundle — better value than buying separately",
+    "bundlePriceLabel": "bundle price",
+    "bundleSave": "You save",
+    "bundleBadge": "Bundle",
+    "bundleBuy": "Buy bundle"
   },
   "HomePage": {
     "supportLabel": "UIMP Support",

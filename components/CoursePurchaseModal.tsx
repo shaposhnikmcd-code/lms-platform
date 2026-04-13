@@ -83,9 +83,9 @@ export default function CoursePurchaseModal({
       if (data.valid) {
         let newPrice = price;
         if (data.discountType === 'PERCENTAGE') {
-          newPrice = Math.round(price * (1 - data.discountValue / 100));
+          newPrice = Math.max(1, Math.round(price * (1 - data.discountValue / 100)));
         } else {
-          newPrice = Math.max(0, price - data.discountValue);
+          newPrice = Math.max(1, price - data.discountValue);
         }
         setFinalPrice(newPrice);
         setPromoApplied(true);

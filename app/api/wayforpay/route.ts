@@ -14,8 +14,9 @@ export async function POST(req: NextRequest) {
     const merchantDomain = 'www.uimp.com.ua';
 
     const isConnector = orderReference.startsWith('connector_');
+    const isBundle = typeof courseId === 'string' && courseId.startsWith('bundle_');
 
-    // Для курсів — створюємо/знаходимо користувача і Payment
+    // Для курсів/пакетів — створюємо/знаходимо користувача і Payment
     if (!isConnector) {
       if (!clientEmail) {
         return NextResponse.json({ error: 'Email is required' }, { status: 400 });
@@ -50,11 +51,24 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      // Для пакетів — знайти bundleId по slug
+      let bundleId: string | null = null;
+      let paymentCourseId: string | null = courseId;
+      if (isBundle) {
+        const bundleSlug = courseId.replace('bundle_', '');
+        const bundle = await prisma.bundle.findUnique({ where: { slug: bundleSlug } });
+        if (bundle) {
+          bundleId = bundle.id;
+          paymentCourseId = null; // пакет, не окремий курс
+        }
+      }
+
       await prisma.payment.upsert({
         where: { orderReference },
         create: {
           userId: user.id,
-          courseId,
+          courseId: paymentCourseId,
+          bundleId,
           orderReference,
           amount: finalAmount,
           status: 'PENDING',

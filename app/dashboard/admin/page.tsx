@@ -83,6 +83,7 @@ export default async function AdminDashboard() {
   const quickActions = [
     { href: '/dashboard/admin/users', label: 'Користувачі', desc: 'Керування акаунтами та ролями', icon: HiOutlineUserGroup, color: 'text-indigo-600', bg: 'bg-indigo-50' },
     { href: '/dashboard/admin/courses', label: 'Курси', desc: 'Каталог і викладачі', icon: HiOutlineBookOpen, color: 'text-emerald-600', bg: 'bg-emerald-50' },
+    { href: '/dashboard/admin/bundles', label: 'Пакети', desc: 'Пакети курсів зі знижкою', icon: HiOutlineBookOpen, color: 'text-violet-600', bg: 'bg-violet-50' },
     { href: '/dashboard/admin/news', label: 'Новини', desc: 'Публікації та чернетки', icon: HiOutlineNewspaper, color: 'text-rose-600', bg: 'bg-rose-50' },
     { href: '/dashboard/admin/analytics', label: 'Аналітика', desc: 'Метрики та звіти', icon: HiOutlineChartBar, color: 'text-sky-600', bg: 'bg-sky-50' },
     { href: '/dashboard/admin/payments', label: 'Платежі', desc: 'Транзакції та статуси', icon: HiOutlineCreditCard, color: 'text-amber-600', bg: 'bg-amber-50' },

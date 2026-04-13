@@ -139,7 +139,13 @@
         "price": "Bezpłatnie",
         "duration": "w zapisie"
       }
-    }
+    },
+    "bundlesTitle": "Pakiety kursów",
+    "bundlesSubtitle": "Wybierz pakiet — taniej niż osobno",
+    "bundlePriceLabel": "cena pakietu",
+    "bundleSave": "Oszczędzasz",
+    "bundleBadge": "Pakiet",
+    "bundleBuy": "Kup pakiet"
   },
   "HomePage": {
     "supportLabel": "Obsługa UIMP",

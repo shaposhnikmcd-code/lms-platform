@@ -1,7 +1,7 @@
 import Image from 'next/image';
 import prisma from '@/lib/prisma';
 import Link from 'next/link';
-import { FaBook, FaUsers, FaEye, FaEyeSlash, FaChalkboardTeacher, FaPlus } from 'react-icons/fa';
+import { FaBook, FaUsers, FaEye, FaEyeSlash, FaChalkboardTeacher } from 'react-icons/fa';
 
 export default async function AdminCourses() {
   const courses = await prisma.course.findMany({
@@ -27,25 +27,13 @@ export default async function AdminCourses() {
             <FaBook className="text-slate-400" />
             <span>Всього: <span className="font-semibold text-slate-700 tabular-nums">{courses.length}</span></span>
           </div>
-          <Link
-            href="/dashboard/admin/courses/new"
-            className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-500 text-white text-sm font-medium rounded-lg hover:bg-indigo-600 shadow-sm shadow-indigo-500/20 transition-colors"
-          >
-            <FaPlus /> Створити курс
-          </Link>
         </div>
       </div>
 
       {courses.length === 0 ? (
         <div className="bg-white rounded-2xl border border-slate-200/70 p-16 text-center shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
           <FaBook className="text-5xl text-slate-300 mx-auto mb-4" />
-          <p className="text-slate-500 mb-5">Курсів ще немає</p>
-          <Link
-            href="/dashboard/admin/courses/new"
-            className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-500 text-white text-sm font-medium rounded-lg hover:bg-indigo-600 transition-colors"
-          >
-            <FaPlus /> Створити перший курс
-          </Link>
+          <p className="text-slate-500">Курсів ще немає</p>
         </div>
       ) : (
         <div className="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_2px_rgba(15,23,42,0.04)] overflow-hidden">

@@ -9,6 +9,8 @@ import { MILITARY_PSYCHOLOGY_COURSE } from "./military-psychology/config";
 import { EMOTIONAL_INTELLIGENCE_COURSE } from "./emotional-intelligence/config";
 import { getCurrency } from "@/lib/currency";
 import CourseCard from "./_components/CourseCard";
+import BundleCard from "./_components/BundleCard";
+import prisma from "@/lib/prisma";
 
 const sysFont = '-apple-system, BlinkMacSystemFont, sans-serif';
 
@@ -32,10 +34,36 @@ const cardLayouts: { width: string; marginLeft: string; className: string }[] = 
   { width: '100%', marginLeft: '0',    className: '' },
 ];
 
+const COURSE_INFO: Record<string, { price: number }> = {
+  'psychology-basics': { price: 3500 },
+  'psychiatry-basics': { price: 3500 },
+  'mentorship': { price: 3500 },
+  'psychotherapy-of-biblical-heroes': { price: 1400 },
+  'sex-education': { price: 4300 },
+  'military-psychology': { price: 5999 },
+  'emotional-intelligence': { price: 1499 },
+};
+
+const COURSE_TITLE_KEYS: Record<string, string> = {
+  'psychology-basics': 'courses.psychology.title',
+  'psychiatry-basics': 'courses.psychiatry.title',
+  'mentorship': 'courses.mentorship.title',
+  'psychotherapy-of-biblical-heroes': 'courses.biblicalHeroes.title',
+  'sex-education': 'courses.sexEd.title',
+  'military-psychology': 'courses.militaryPsy.title',
+  'emotional-intelligence': 'courses.emotionalIQ.title',
+};
+
 export default async function CoursesPage({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
   const t = await getTranslations("CoursesPage");
   const currency = getCurrency(locale);
+
+  const bundles = await prisma.bundle.findMany({
+    where: { published: true },
+    include: { courses: true },
+    orderBy: { createdAt: 'desc' },
+  });
 
   const benefits = [
     { icon: "🎓", title: t("benefits.record.title"), desc: t("benefits.record.desc") },
@@ -117,6 +145,47 @@ export default async function CoursesPage({ params }: { params: Promise<{ locale
           </div>
         </div>
       </section>
+
+      {bundles.length > 0 && (
+        <section className="py-10 sm:py-14 px-4 sm:px-8 md:px-12" style={{ background: '#F5F2ED' }}>
+          <div style={{ maxWidth: 860, margin: '0 auto' }}>
+            <div style={{ marginBottom: 36 }}>
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(212,168,67,0.12)', border: '1px solid rgba(212,168,67,0.2)', borderRadius: 100, padding: '4px 14px', marginBottom: 14 }}>
+                <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.28em', textTransform: 'uppercase' as const, color: '#D4A843', fontFamily: sysFont }}>
+                  {t("bundleBadge")}
+                </span>
+              </div>
+              <h2 style={{ fontFamily: sysFont, fontSize: 'clamp(24px, 3vw, 36px)', fontWeight: 700, color: '#1C3A2E', margin: 0, letterSpacing: '-0.02em' }}>
+                {t("bundlesTitle")}
+              </h2>
+              <p style={{ fontSize: 14, color: 'rgba(28,58,46,0.5)', marginTop: 8, fontFamily: sysFont }}>
+                {t("bundlesSubtitle")}
+              </p>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 16 }}>
+              {bundles.map((bundle) => (
+                <BundleCard
+                  key={bundle.id}
+                  title={bundle.title}
+                  description={bundle.description || undefined}
+                  price={bundle.price}
+                  slug={bundle.slug}
+                  courses={bundle.courses.map((bc) => ({
+                    slug: bc.courseSlug,
+                    title: t(COURSE_TITLE_KEYS[bc.courseSlug] as Parameters<typeof t>[0]) || bc.courseSlug,
+                    price: COURSE_INFO[bc.courseSlug]?.price || 0,
+                  }))}
+                  currency={currency}
+                  priceLabel={t("bundlePriceLabel")}
+                  bundleLabel={t("bundleBadge")}
+                  saveLabel={t("bundleSave")}
+                  buyLabel={t("bundleBuy")}
+                />
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
     </div>
   );
 }

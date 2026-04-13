@@ -53,8 +53,8 @@ export async function POST(req: NextRequest) {
 
         if (!payment) {
           console.error('❌ Payment не знайдено для:', orderReference);
-        } else if (!payment.courseId) {
-          console.error('❌ courseId відсутній у Payment:', orderReference);
+        } else if (!payment.courseId && !payment.bundleId) {
+          console.error('❌ courseId та bundleId відсутні у Payment:', orderReference);
         } else {
           await prisma.payment.update({
             where: { orderReference },
@@ -64,27 +64,52 @@ export async function POST(req: NextRequest) {
             },
           });
 
-          await prisma.enrollment.upsert({
-            where: {
-              userId_courseId: {
-                userId: payment.userId,
-                courseId: payment.courseId,
-              },
-            },
-            create: {
-              userId: payment.userId,
-              courseId: payment.courseId,
-            },
-            update: {},
-          });
-
-          console.log('✅ Enrollment створено для userId:', payment.userId, 'courseId:', payment.courseId);
-
-          // Відправляємо подію в SendPulse для зарахування на курс
           const user = await prisma.user.findUnique({ where: { id: payment.userId } });
-          if (user?.email) {
-            const sendpulseEventUrl = process.env.SENDPULSE_EVENT_URL;
-            if (sendpulseEventUrl) {
+          const sendpulseEventUrl = process.env.SENDPULSE_EVENT_URL;
+
+          // Визначаємо список courseSlug-ів для enrollment + SendPulse
+          let courseSlugs: string[] = [];
+
+          if (payment.bundleId) {
+            // Пакет — знайти всі курси в пакеті
+            const bundleCourses = await prisma.bundleCourse.findMany({
+              where: { bundleId: payment.bundleId },
+            });
+            courseSlugs = bundleCourses.map((bc) => bc.courseSlug);
+            console.log('📦 Пакет оплачено, курси:', courseSlugs);
+          } else if (payment.courseId) {
+            courseSlugs = [payment.courseId];
+          }
+
+          // Створюємо enrollment для кожного курсу (за slug через courseId)
+          for (const slug of courseSlugs) {
+            // Enrollment використовує courseId, а наші статичні курси мають slug як courseId
+            // Для статичних курсів courseId = slug
+            try {
+              await prisma.enrollment.upsert({
+                where: {
+                  userId_courseId: {
+                    userId: payment.userId,
+                    courseId: slug,
+                  },
+                },
+                create: {
+                  userId: payment.userId,
+                  courseId: slug,
+                },
+                update: {},
+              });
+              console.log('✅ Enrollment створено для userId:', payment.userId, 'courseSlug:', slug);
+            } catch (enrollError) {
+              // courseId може не існувати як Course в БД (статичні курси)
+              // Це нормально — enrollment для статичних курсів не потрібен
+              console.log('ℹ️ Enrollment пропущено (статичний курс):', slug);
+            }
+          }
+
+          // Відправляємо подію в SendPulse для кожного курсу
+          if (user?.email && sendpulseEventUrl) {
+            for (const slug of courseSlugs) {
               try {
                 await fetch(sendpulseEventUrl, {
                   method: 'POST',
@@ -92,15 +117,15 @@ export async function POST(req: NextRequest) {
                   body: JSON.stringify({
                     email: user.email,
                     phone: '',
-                    product_name: payment.courseId || '',
+                    product_name: slug,
                     product_id: 0,
                     product_price: Number(payment.amount),
                     order_date: new Date().toISOString().split('T')[0],
                   }),
                 });
-                console.log('✅ SendPulse event відправлено для:', user.email);
+                console.log('✅ SendPulse event відправлено для:', user.email, 'курс:', slug);
               } catch (spError) {
-                console.error('❌ Помилка SendPulse event:', spError);
+                console.error('❌ Помилка SendPulse event:', spError, 'курс:', slug);
               }
             }
           }

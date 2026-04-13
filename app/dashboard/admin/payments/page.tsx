@@ -21,6 +21,7 @@ export default async function AdminPayments() {
     include: {
       user: true,
       course: true,
+      bundle: true,
     },
   });
 
@@ -90,7 +91,13 @@ export default async function AdminPayments() {
                       <p className="text-xs text-slate-500">{payment.user?.email}</p>
                     </td>
                     <td className="px-5 py-3 text-sm text-slate-600">
-                      {payment.course?.title || '—'}
+                      {payment.bundle ? (
+                        <span className="inline-flex items-center gap-1 text-violet-700 bg-violet-50 ring-1 ring-violet-100 px-2 py-0.5 rounded-full text-xs font-medium">
+                          📦 {payment.bundle.title}
+                        </span>
+                      ) : (
+                        payment.course?.title || '—'
+                      )}
                     </td>
                     <td className="px-5 py-3 text-sm font-semibold text-slate-800 tabular-nums">
                       {payment.amount.toLocaleString()} ₴

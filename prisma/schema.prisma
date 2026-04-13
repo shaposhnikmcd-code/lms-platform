@@ -193,6 +193,7 @@ model Payment {
   id             String        @id @default(cuid())
   userId         String
   courseId       String?
+  bundleId       String?
   orderReference String        @unique
   amount         Int
   currency       String        @default("UAH")
@@ -201,6 +202,7 @@ model Payment {
   paidAt         DateTime?
   user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   course         Course?       @relation(fields: [courseId], references: [id])
+  bundle         Bundle?       @relation(fields: [bundleId], references: [id])
 
   @@index([userId])
   @@index([status])
@@ -363,6 +365,29 @@ enum VideoProvider {
   VIMEO
   SENDPULSE
   LOCAL
+}
+
+model Bundle {
+  id          String         @id @default(cuid())
+  title       String
+  description String?
+  slug        String         @unique
+  price       Int
+  imageUrl    String?
+  published   Boolean        @default(false)
+  createdAt   DateTime       @default(now())
+  courses     BundleCourse[]
+  payments    Payment[]
+}
+
+model BundleCourse {
+  id         String @id @default(cuid())
+  bundleId   String
+  courseSlug  String
+  bundle     Bundle @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+
+  @@unique([bundleId, courseSlug])
+  @@index([bundleId])
 }
 
 model PromoCode {
