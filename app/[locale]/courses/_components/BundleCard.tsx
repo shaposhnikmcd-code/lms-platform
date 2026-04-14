@@ -22,10 +22,15 @@ type BundleCourse = {
 
 type Benefit = { icon: string; title: string };
 
+export type BundleType = 'DISCOUNT' | 'FIXED_FREE' | 'CHOICE_FREE';
+
 type Props = {
   title: string;
   price: number;
   courses: BundleCourse[];
+  freeCourses?: BundleCourse[];
+  bundleType?: BundleType;
+  freeCount?: number;
   currency: string;
   priceLabel: string;
   bundleLabel: string;
@@ -36,12 +41,56 @@ type Props = {
   layout?: 'full' | 'compact';
 };
 
-export default function BundleCard({ title, price, courses, currency, priceLabel, saveLabel, slug, buyLabel, benefits, layout = 'full' }: Props) {
+export default function BundleCard({
+  title,
+  price,
+  courses,
+  freeCourses = [],
+  bundleType = 'DISCOUNT',
+  freeCount = 0,
+  currency,
+  priceLabel,
+  saveLabel,
+  slug,
+  buyLabel,
+  benefits,
+  layout = 'full',
+}: Props) {
   const [hovered, setHovered] = useState(false);
   const [hoveredCourse, setHoveredCourse] = useState<string | null>(null);
+  // Індекс першого видимого кандидата в каруселі (для CHOICE_FREE)
+  const [choiceStart, setChoiceStart] = useState(0);
+  // Які безкоштовні клієнт обрав (для CHOICE_FREE)
+  const [selectedFree, setSelectedFree] = useState<string[]>([]);
+
   const totalOriginal = courses.reduce((sum, c) => sum + c.price, 0);
-  const savings = totalOriginal - price;
-  const savingsPercent = Math.round((savings / totalOriginal) * 100);
+  const savings = Math.max(0, totalOriginal - price);
+  const savingsPercent = totalOriginal > 0 ? Math.round((savings / totalOriginal) * 100) : 0;
+
+  const hasFreeRow = bundleType !== 'DISCOUNT' && freeCourses.length > 0;
+  const choiceMode = bundleType === 'CHOICE_FREE';
+
+  // Для каруселі: скільки карток показуємо одночасно (== freeCount)
+  const choiceWindow = Math.max(1, freeCount || 1);
+  const visibleChoice = choiceMode
+    ? freeCourses
+        .slice(0)
+        .concat(freeCourses) // дубль для нескінченного гортання
+        .slice(choiceStart, choiceStart + choiceWindow)
+    : [];
+
+  const toggleFreeSelection = (courseSlug: string) => {
+    setSelectedFree((prev) => {
+      if (prev.includes(courseSlug)) return prev.filter((s) => s !== courseSlug);
+      if (prev.length >= choiceWindow) {
+        // замінити найдавніший вибір
+        return [...prev.slice(1), courseSlug];
+      }
+      return [...prev, courseSlug];
+    });
+  };
+
+  const canBuy = choiceMode ? selectedFree.length === choiceWindow : true;
 
   return (
     <div
@@ -54,9 +103,7 @@ export default function BundleCard({ title, price, courses, currency, priceLabel
         borderRadius: 24,
         border: '1px solid rgba(212,168,67,0.06)',
         padding: layout === 'compact' ? 'clamp(12px, 2vw, 18px)' : 'clamp(16px, 3vw, 28px)',
-        boxShadow: hovered
-          ? '0 8px 24px rgba(28,58,46,0.04)'
-          : 'none',
+        boxShadow: hovered ? '0 8px 24px rgba(28,58,46,0.04)' : 'none',
         transition: 'all 0.6s ease',
         transform: hovered ? 'translateY(-1px)' : 'translateY(0)',
       }}
@@ -73,13 +120,23 @@ export default function BundleCard({ title, price, courses, currency, priceLabel
               ПАКЕТ
             </span>
           </div>
-          {savings > 0 && (
+          {bundleType === 'DISCOUNT' && savings > 0 && (
             <div style={{
               display: 'inline-flex', alignItems: 'center',
               background: '#059669', borderRadius: 100, padding: '4px 12px',
             }}>
               <span style={{ fontSize: 10, fontWeight: 700, color: 'white', fontFamily: sysFont }}>
                 −{savingsPercent}%
+              </span>
+            </div>
+          )}
+          {bundleType !== 'DISCOUNT' && freeCount > 0 && (
+            <div style={{
+              display: 'inline-flex', alignItems: 'center',
+              background: '#059669', borderRadius: 100, padding: '4px 12px',
+            }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: 'white', fontFamily: sysFont }}>
+                +{freeCount} БЕЗКОШТОВНО
               </span>
             </div>
           )}
@@ -99,10 +156,10 @@ export default function BundleCard({ title, price, courses, currency, priceLabel
         </h3>
       </div>
 
-      {/* Course cards grid */}
+      {/* Paid course cards grid */}
       <div
         className={`grid ${courses.length <= 2 ? 'grid-cols-1 sm:grid-cols-2' : courses.length === 3 ? 'grid-cols-1 sm:grid-cols-3' : 'grid-cols-1 sm:grid-cols-2'}`}
-        style={{ gap: layout === 'compact' ? 8 : 14, marginBottom: layout === 'compact' ? 24 : 32, flex: 1 }}
+        style={{ gap: layout === 'compact' ? 8 : 14, marginBottom: hasFreeRow ? 10 : (layout === 'compact' ? 24 : 32), flex: hasFreeRow ? undefined : 1 }}
       >
         {courses.map((course, i) => {
           const isHovered = hoveredCourse === course.slug;
@@ -125,9 +182,7 @@ export default function BundleCard({ title, price, courses, currency, priceLabel
                 flexDirection: 'column',
               }}
             >
-              {/* Content area */}
               <div style={{ padding: layout === 'full' ? '30px 24px 26px' : '25px 21px 21px', flex: 1 }}>
-                {/* Icon + Tag */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                   <div style={{
                     width: 32, height: 32, borderRadius: 8,
@@ -143,27 +198,19 @@ export default function BundleCard({ title, price, courses, currency, priceLabel
                     {course.tag}
                   </span>
                 </div>
-
-                {/* Title */}
                 <h4 style={{
                   fontFamily: sysFont, fontSize: 'clamp(15px, 1.6vw, 19px)', fontWeight: 700,
                   color: '#F5EDD6', lineHeight: 1.3, margin: '0 0 10px', letterSpacing: '-0.01em',
                 }}>
                   {course.title}
                 </h4>
-
-                {/* Accent line */}
                 <div style={{ width: 26, height: 2, background: tagColor, borderRadius: 2, marginBottom: 10, opacity: 0.5 }} />
-
-                {/* Description */}
                 <p style={{
                   fontSize: 12, color: 'rgba(245,237,214,0.5)', lineHeight: 1.7, margin: 0, fontFamily: sysFont,
                 }}>
                   {course.description}
                 </p>
               </div>
-
-              {/* Benefits strip */}
               <div style={{ borderTop: `1px solid ${STRIP_BORDER}`, background: 'rgba(255,255,255,0.03)', display: 'flex', alignItems: 'center', flexWrap: 'nowrap', overflow: 'hidden' }}>
                 {benefits.map((b, bi) => (
                   <div key={bi} style={{ display: 'flex', alignItems: 'center', gap: 1, padding: layout === 'full' ? '7px 4px' : '4px 1px', borderRight: bi < benefits.length - 1 ? `1px solid ${STRIP_BORDER}` : 'none', flex: 1, justifyContent: 'center', minWidth: 0 }}>
@@ -174,28 +221,41 @@ export default function BundleCard({ title, price, courses, currency, priceLabel
                   </div>
                 ))}
               </div>
-
-              {/* Gold price section */}
               {(() => {
-                const weight = course.price / totalOriginal;
-                const newPrice = Math.round((course.price - savings * weight) / 100) * 100;
+                if (bundleType === 'DISCOUNT') {
+                  const weight = totalOriginal > 0 ? course.price / totalOriginal : 0;
+                  const newPrice = Math.round((course.price - savings * weight) / 100) * 100;
+                  return (
+                    <div style={{
+                      background: '#D4A843', padding: '10px 14px',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                    }}>
+                      <span style={{ fontSize: 8, textTransform: 'uppercase' as const, letterSpacing: '0.18em', color: 'rgba(28,58,46,0.4)', fontFamily: sysFont, fontWeight: 600 }}>
+                        {priceLabel}
+                      </span>
+                      <span style={{ fontSize: 11, color: 'rgba(28,58,46,0.35)', fontFamily: sysFont, fontWeight: 500, textDecoration: 'line-through' }}>
+                        {course.price.toLocaleString()}
+                      </span>
+                      <span style={{ fontFamily: sysFont, fontSize: 18, fontWeight: 700, color: '#1C3A2E', lineHeight: 1 }}>
+                        {newPrice.toLocaleString()}
+                      </span>
+                      <span style={{ fontSize: 10, color: 'rgba(28,58,46,0.45)', fontFamily: sysFont }}>
+                        {currency}
+                      </span>
+                    </div>
+                  );
+                }
+                // Для FIXED_FREE / CHOICE_FREE — у платних показуємо повну ціну (без знижки)
                 return (
                   <div style={{
-                    background: '#D4A843',
-                    padding: '10px 14px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 8,
+                    background: '#D4A843', padding: '10px 14px',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
                   }}>
                     <span style={{ fontSize: 8, textTransform: 'uppercase' as const, letterSpacing: '0.18em', color: 'rgba(28,58,46,0.4)', fontFamily: sysFont, fontWeight: 600 }}>
                       {priceLabel}
                     </span>
-                    <span style={{ fontSize: 11, color: 'rgba(28,58,46,0.35)', fontFamily: sysFont, fontWeight: 500, textDecoration: 'line-through' }}>
-                      {course.price.toLocaleString()}
-                    </span>
                     <span style={{ fontFamily: sysFont, fontSize: 18, fontWeight: 700, color: '#1C3A2E', lineHeight: 1 }}>
-                      {newPrice.toLocaleString()}
+                      {course.price.toLocaleString()}
                     </span>
                     <span style={{ fontSize: 10, color: 'rgba(28,58,46,0.45)', fontFamily: sysFont }}>
                       {currency}
@@ -207,6 +267,81 @@ export default function BundleCard({ title, price, courses, currency, priceLabel
           );
         })}
       </div>
+
+      {/* FREE ROW — FIXED_FREE */}
+      {hasFreeRow && bundleType === 'FIXED_FREE' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: layout === 'compact' ? 20 : 28 }}>
+          <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.22em', textTransform: 'uppercase' as const, color: '#059669', fontFamily: sysFont, textAlign: 'center' }}>
+            + У ПОДАРУНОК
+          </span>
+          <div
+            className={`grid ${freeCourses.length === 1 ? 'grid-cols-1' : freeCourses.length === 2 ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1 sm:grid-cols-3'}`}
+            style={{ gap: layout === 'compact' ? 8 : 14 }}
+          >
+            {freeCourses.map((c) => (
+              <FreeCourseMini key={c.slug} course={c} currency={currency} layout={layout} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* FREE ROW — CHOICE_FREE (carousel) */}
+      {hasFreeRow && choiceMode && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: layout === 'compact' ? 20 : 28 }}>
+          <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.22em', textTransform: 'uppercase' as const, color: '#059669', fontFamily: sysFont, textAlign: 'center' }}>
+            ОБЕРИ БЕЗКОШТОВНИЙ {freeCount > 1 ? `(${selectedFree.length}/${freeCount})` : ''}
+          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button
+              type="button"
+              onClick={() => setChoiceStart((s) => (s - 1 + freeCourses.length) % freeCourses.length)}
+              aria-label="prev"
+              style={{
+                width: 32, height: 32, borderRadius: 999, border: '1px solid rgba(28,58,46,0.2)',
+                background: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 14, color: '#1C3A2E', flexShrink: 0,
+              }}
+            >
+              ←
+            </button>
+            <div
+              className={`grid ${choiceWindow === 1 ? 'grid-cols-1' : choiceWindow === 2 ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1 sm:grid-cols-3'}`}
+              style={{ gap: layout === 'compact' ? 8 : 14, flex: 1 }}
+            >
+              {visibleChoice.map((c, idx) => {
+                const isSelected = selectedFree.includes(c.slug);
+                return (
+                  <button
+                    key={`${c.slug}-${idx}`}
+                    type="button"
+                    onClick={() => toggleFreeSelection(c.slug)}
+                    style={{ padding: 0, border: 'none', background: 'none', cursor: 'pointer', textAlign: 'left' }}
+                  >
+                    <FreeCourseMini
+                      course={c}
+                      currency={currency}
+                      layout={layout}
+                      highlight={isSelected}
+                    />
+                  </button>
+                );
+              })}
+            </div>
+            <button
+              type="button"
+              onClick={() => setChoiceStart((s) => (s + 1) % freeCourses.length)}
+              aria-label="next"
+              style={{
+                width: 32, height: 32, borderRadius: 999, border: '1px solid rgba(28,58,46,0.2)',
+                background: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 14, color: '#1C3A2E', flexShrink: 0,
+              }}
+            >
+              →
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Price + CTA */}
       <div style={{
@@ -236,7 +371,7 @@ export default function BundleCard({ title, price, courses, currency, priceLabel
               {currency}
             </span>
           </div>
-          {savings > 0 && (
+          {bundleType === 'DISCOUNT' && savings > 0 && (
             <p style={{ fontSize: layout === 'compact' ? 10 : 11, color: '#D4A843', opacity: 0.7, margin: '2px 0 0', fontFamily: sysFont, fontWeight: 500 }}>
               {saveLabel}: {savings.toLocaleString()} {currency}
             </p>
@@ -249,7 +384,67 @@ export default function BundleCard({ title, price, courses, currency, priceLabel
           currency={currency}
           buttonLabel={buyLabel}
           compact={layout === 'compact'}
+          selectedFreeSlugs={choiceMode ? selectedFree : undefined}
+          disabled={!canBuy}
         />
+      </div>
+    </div>
+  );
+}
+
+function FreeCourseMini({
+  course,
+  currency,
+  layout,
+  highlight,
+}: {
+  course: BundleCourse;
+  currency: string;
+  layout: 'full' | 'compact';
+  highlight?: boolean;
+}) {
+  return (
+    <div style={{
+      background: CARD_BG,
+      borderRadius: 12,
+      overflow: 'hidden',
+      display: 'flex',
+      flexDirection: 'column',
+      border: highlight ? '2px solid #059669' : '2px solid transparent',
+      transition: 'all 0.2s ease',
+    }}>
+      <div style={{ padding: layout === 'full' ? '14px 18px 12px' : '10px 14px 8px', flex: 1 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+          <div style={{
+            width: 26, height: 26, borderRadius: 6,
+            background: `rgba(${course.accentRgb},0.18)`,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 13, flexShrink: 0,
+          }}>
+            {course.icon}
+          </div>
+          <h4 style={{
+            fontFamily: sysFont, fontSize: 'clamp(13px, 1.3vw, 16px)', fontWeight: 700,
+            color: '#F5EDD6', lineHeight: 1.25, margin: 0, letterSpacing: '-0.01em',
+          }}>
+            {course.title}
+          </h4>
+        </div>
+      </div>
+      <div style={{
+        background: '#059669',
+        padding: '8px 12px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 6,
+      }}>
+        <span style={{ fontSize: 8, textTransform: 'uppercase' as const, letterSpacing: '0.22em', color: 'rgba(255,255,255,0.75)', fontFamily: sysFont, fontWeight: 600 }}>
+          У ПОДАРУНОК
+        </span>
+        <span style={{ fontFamily: sysFont, fontSize: 14, fontWeight: 700, color: 'white', lineHeight: 1 }}>
+          0 {currency}
+        </span>
       </div>
     </div>
   );

@@ -4,7 +4,7 @@ import prisma from '@/lib/prisma';
 
 export async function POST(req: NextRequest) {
   try {
-    const { orderReference, amount, productName, productPrice, productCount, clientEmail, clientName, clientPhone, courseId, promoCode } = await req.json();
+    const { orderReference, amount, productName, productPrice, productCount, clientEmail, clientName, clientPhone, courseId, promoCode, selectedFreeSlugs } = await req.json();
 
     const merchantLogin = process.env.WAYFORPAY_MERCHANT_LOGIN!;
     const secretKey = process.env.WAYFORPAY_SECRET_KEY!;
@@ -51,15 +51,43 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Для пакетів — знайти bundleId по slug
+      // Для пакетів — знайти bundleId по slug і перевалідувати вибір безкоштовних
       let bundleId: string | null = null;
       let paymentCourseId: string | null = courseId;
+      let finalFreeSlugs: string[] = [];
       if (isBundle) {
         const bundleSlug = courseId.replace('bundle_', '');
-        const bundle = await prisma.bundle.findUnique({ where: { slug: bundleSlug } });
+        const bundle = await prisma.bundle.findUnique({
+          where: { slug: bundleSlug },
+          include: { courses: true },
+        });
         if (bundle) {
           bundleId = bundle.id;
           paymentCourseId = null; // пакет, не окремий курс
+
+          const fixedFree = bundle.courses.filter((c) => c.isFree).map((c) => c.courseSlug);
+          const choicePool = bundle.courses.filter((c) => c.isFree).map((c) => c.courseSlug);
+
+          if (bundle.type === 'FIXED_FREE') {
+            finalFreeSlugs = fixedFree;
+          } else if (bundle.type === 'CHOICE_FREE') {
+            const incoming: string[] = Array.isArray(selectedFreeSlugs) ? selectedFreeSlugs : [];
+            // Валідація: всі обрані мають бути в пулі, кількість точно = freeCount
+            const unique = [...new Set(incoming)];
+            if (unique.length !== bundle.freeCount) {
+              return NextResponse.json(
+                { error: `Оберіть рівно ${bundle.freeCount} безкоштовних курсів` },
+                { status: 400 },
+              );
+            }
+            if (unique.some((s) => !choicePool.includes(s))) {
+              return NextResponse.json(
+                { error: 'Один з обраних курсів не входить до пулу пакету' },
+                { status: 400 },
+              );
+            }
+            finalFreeSlugs = unique;
+          }
         }
       }
 
@@ -72,8 +100,11 @@ export async function POST(req: NextRequest) {
           orderReference,
           amount: finalAmount,
           status: 'PENDING',
+          freeSlugs: finalFreeSlugs,
         },
-        update: {},
+        update: {
+          freeSlugs: finalFreeSlugs,
+        },
       });
     }
 

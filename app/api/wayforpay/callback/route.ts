@@ -142,10 +142,22 @@ export async function POST(req: NextRequest) {
 
             let courseSlugs: string[] = [];
             if (payment.bundleId) {
-              const bundleCourses = await prisma.bundleCourse.findMany({
-                where: { bundleId: payment.bundleId },
+              const bundle = await prisma.bundle.findUnique({
+                where: { id: payment.bundleId },
+                include: { courses: true },
               });
-              courseSlugs = bundleCourses.map((bc) => bc.courseSlug);
+              if (bundle) {
+                const paidSlugs = bundle.courses.filter((c) => !c.isFree).map((c) => c.courseSlug);
+                if (bundle.type === 'CHOICE_FREE') {
+                  // Клієнт обирав з пулу — використовуємо збережені freeSlugs
+                  courseSlugs = [...paidSlugs, ...(payment.freeSlugs ?? [])];
+                } else {
+                  // DISCOUNT: всі (isFree=false). FIXED_FREE: платні + всі фіксовані безкоштовні
+                  const freeSlugs = bundle.courses.filter((c) => c.isFree).map((c) => c.courseSlug);
+                  courseSlugs = [...paidSlugs, ...freeSlugs];
+                }
+                actions.push(`bundle:${bundle.type}(${bundle.courses.length})`);
+              }
             } else if (payment.courseId) {
               courseSlugs = [payment.courseId];
             }

@@ -126,7 +126,7 @@ export const consultationsContent = {
       experience: "3+ роки в ментальному здоров'ї",
       image: "/base-of specialists/Anna-Gudzenko.png",
       imagePosition: "center 60%",
-      price: "Уточнюється",
+      price: "1300 грн",
       duration: "50 хвилин",
       about: "Анна Гудзенко — психолог-консультант із 3-річним досвідом у сфері ментального здоров'я. Навчається на спеціальності «Практична психологія» та проходить підготовку з транзакційного аналізу. Вірить, що стосунки — це простір, де люди змінюються та зцілюються.",
       specializations: [
@@ -143,7 +143,7 @@ export const consultationsContent = {
         { type: "cert", title: "Курс сексології", org: "Юлія Сердюк", detail: "2025–2026", year: "2026", tag: "Курс" },
         { type: "cert", title: "PSY BRAIN — школа психології", org: "PSY BRAIN", detail: "2025–2026", year: "2026", tag: "Школа" },
       ],
-      calendlyUrl: "#",
+      calendlyUrl: "https://t.me/hudzenko_anna",
     },
     {
       name: "Катерина Чупініна",
@@ -151,7 +151,7 @@ export const consultationsContent = {
       imagePosition: "center 20%",
       role: "Психолог-консультант",
       experience: "",
-      price: "Уточнюється",
+      price: "Консультації тимчасово закриті",
       duration: "50 хвилин",
       about: "Катерина Чупініна — психолог-консультант, яка навчається когнітивно-поведінковій терапії та здобуває ступінь магістра з клінічної психології. Допомагає людям відкривати новий сенс у звичному та сприймати себе по-новому.",
       specializations: [
@@ -167,7 +167,7 @@ export const consultationsContent = {
         { type: "cert", title: "Шлях до зцілення", org: "UIMP", detail: "Річна програма · 2025", year: "2025", tag: "Програма" },
         { type: "diploma", title: "Магістр клінічної психології", org: "Київський національний університет ім. Т. Шевченка", detail: "Навчання · 2025–дотепер", year: "2027", tag: "Вища освіта" },
       ],
-      calendlyUrl: "#",
+      calendlyUrl: "https://t.me/KaterinaChupinina",
     },
     {
       name: "Марія Клочан",
@@ -175,7 +175,7 @@ export const consultationsContent = {
       experience: "",
       image: "/base-of specialists/Maria-Klochan.JPG",
       imagePosition: "center 35%",
-      price: "Уточнюється",
+      price: "900 грн",
       duration: "50 хвилин",
       about: "Марія Клочан — спеціаліст з душеопіки та секс-едукатор, яка співавторує курси з цих тем. Її місія — висвітлювати темряву та говорити про те, про що зазвичай мовчать.",
       specializations: [
@@ -191,7 +191,7 @@ export const consultationsContent = {
         { type: "cert", title: "Тримодульна програма з духовного зцілення", org: "UIMP", detail: "2023", year: "2023", tag: "Програма" },
         { type: "cert", title: "Шлях до зцілення", org: "UIMP", detail: "Річна програма · 2025", year: "2025", tag: "Програма" },
       ],
-      calendlyUrl: "#",
+      calendlyUrl: "https://t.me/Masha_Klochan",
     },
     {
       name: "Олександра Януш",
@@ -199,7 +199,7 @@ export const consultationsContent = {
       experience: "",
       image: "/base-of specialists/Oleksandra-Janush.jpg",
       imagePosition: "center 25%",
-      price: "Уточнюється",
+      price: "900 грн",
       duration: "50 хвилин",
       about: "Олександра Януш — консультант з душеопіки та куратор програм UIMP. Підтримує людей у переході від виживання до повноцінного життя — у зв'язку з собою, Богом та любов'ю. Також керує жіночим служінням.",
       specializations: [
@@ -212,7 +212,7 @@ export const consultationsContent = {
         { type: "cert", title: "Шлях до зцілення", org: "UIMP", detail: "Річна програма · 2025", year: "2025", tag: "Програма" },
         { type: "diploma", title: "Vision University", org: "Vision University", detail: "2025–дотепер", year: "2027", tag: "Вища освіта" },
       ],
-      calendlyUrl: "#",
+      calendlyUrl: "https://t.me/SashaYanush",
     },
     {
       name: "Марта Холява",
@@ -220,7 +220,7 @@ export const consultationsContent = {
       experience: "17+ років досвіду",
       image: "/base-of specialists/Marta-Kholyava.jpg",
       imagePosition: "center 20%",
-      price: "Уточнюється",
+      price: "1300 грн",
       duration: "50 хвилин",
       about: "Марта Холява — психолог та спеціаліст з душеопіки, директор відділу консультацій UIMP. Має фахову психологічну освіту з 2008 року. Вірить, що в кожній людині є сонце — потрібно лише дати йому засяяти.",
       specializations: [
@@ -236,7 +236,7 @@ export const consultationsContent = {
         { type: "cert", title: "Шлях до зцілення", org: "UIMP", detail: "Практична програма · 2025", year: "2025", tag: "Програма" },
         { type: "cert", title: "Транзакційний аналіз (UATA/EATA)", org: "Українська асоціація транзакційного аналізу", detail: "Навчання · 2024–2027", year: "2027", tag: "Навчання" },
       ],
-      calendlyUrl: "#",
+      calendlyUrl: "https://t.me/martakholiava",
     },
   ],
 };

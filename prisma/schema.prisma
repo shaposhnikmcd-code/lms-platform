@@ -198,6 +198,8 @@ model Payment {
   amount         Int
   currency       String        @default("UAH")
   status         PaymentStatus @default(PENDING)
+  /// Для CHOICE_FREE bundle-ів: слаги курсів, які клієнт обрав як безкоштовні
+  freeSlugs      String[]      @default([])
   createdAt      DateTime      @default(now())
   paidAt         DateTime?
   user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -377,6 +379,12 @@ model Bundle {
   published   Boolean        @default(false)
   suspendedAt DateTime?
   resumeAt    DateTime?
+  /// Тип пакету: DISCOUNT — стара логіка зі знижкою; FIXED_FREE — N платних + M безкоштовних фіксованих; CHOICE_FREE — N платних + пул безкоштовних (клієнт обирає freeCount)
+  type        BundleType     @default(DISCOUNT)
+  /// Очікувана кількість платних курсів у пакеті (для валідації UI/checkout)
+  paidCount   Int            @default(2)
+  /// Кількість безкоштовних, які клієнт отримує при покупці (0 для DISCOUNT)
+  freeCount   Int            @default(0)
   createdAt   DateTime       @default(now())
   courses     BundleCourse[]
   payments    Payment[]
@@ -386,10 +394,18 @@ model BundleCourse {
   id         String @id @default(cuid())
   bundleId   String
   courseSlug  String
+  /// true — курс безкоштовний у цьому пакеті (для FIXED_FREE — видається всім; для CHOICE_FREE — кандидат у пул)
+  isFree     Boolean @default(false)
   bundle     Bundle @relation(fields: [bundleId], references: [id], onDelete: Cascade)
 
   @@unique([bundleId, courseSlug])
   @@index([bundleId])
+}
+
+enum BundleType {
+  DISCOUNT
+  FIXED_FREE
+  CHOICE_FREE
 }
 
 model PromoCode {

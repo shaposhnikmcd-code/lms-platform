@@ -195,34 +195,42 @@ export default async function CoursesPage({ params }: { params: Promise<{ locale
                 return slice;
               });
 
-              const renderBundle = (bundle: typeof bundles[number]) => (
-                <BundleCard
-                  key={bundle.id}
-                  title={bundle.title}
-                  price={bundle.price}
-                  slug={bundle.slug}
-                  layout={layout}
-                  courses={bundle.courses.map((bc) => {
-                    const info = COURSE_INFO[bc.courseSlug];
-                    return {
-                      slug: bc.courseSlug,
-                      title: t(COURSE_TITLE_KEYS[bc.courseSlug] as Parameters<typeof t>[0]) || bc.courseSlug,
-                      description: info ? t(info.descKey as Parameters<typeof t>[0]) : '',
-                      tag: info ? t(info.tagKey as Parameters<typeof t>[0]) : '',
-                      price: info?.price || 0,
-                      icon: info?.icon || '📚',
-                      accent: info?.accent || '#D4A843',
-                      accentRgb: info?.accentRgb || '212,168,67',
-                    };
-                  })}
-                  benefits={cardBenefits}
-                  currency={currency}
-                  priceLabel={t("bundlePriceLabel")}
-                  bundleLabel={t("bundleBadge")}
-                  saveLabel={t("bundleSave")}
-                  buyLabel={t("bundleBuy")}
-                />
-              );
+              const renderBundle = (bundle: typeof bundles[number]) => {
+                const mapCourse = (bc: typeof bundle.courses[number]) => {
+                  const info = COURSE_INFO[bc.courseSlug];
+                  return {
+                    slug: bc.courseSlug,
+                    title: t(COURSE_TITLE_KEYS[bc.courseSlug] as Parameters<typeof t>[0]) || bc.courseSlug,
+                    description: info ? t(info.descKey as Parameters<typeof t>[0]) : '',
+                    tag: info ? t(info.tagKey as Parameters<typeof t>[0]) : '',
+                    price: info?.price || 0,
+                    icon: info?.icon || '📚',
+                    accent: info?.accent || '#D4A843',
+                    accentRgb: info?.accentRgb || '212,168,67',
+                  };
+                };
+                const paidCourses = bundle.courses.filter((c) => !c.isFree).map(mapCourse);
+                const freeCourses = bundle.courses.filter((c) => c.isFree).map(mapCourse);
+                return (
+                  <BundleCard
+                    key={bundle.id}
+                    title={bundle.title}
+                    price={bundle.price}
+                    slug={bundle.slug}
+                    layout={layout}
+                    courses={paidCourses}
+                    freeCourses={freeCourses}
+                    bundleType={bundle.type}
+                    freeCount={bundle.freeCount}
+                    benefits={cardBenefits}
+                    currency={currency}
+                    priceLabel={t("bundlePriceLabel")}
+                    bundleLabel={t("bundleBadge")}
+                    saveLabel={t("bundleSave")}
+                    buyLabel={t("bundleBuy")}
+                  />
+                );
+              };
 
               return (
                 <div className="flex flex-col gap-4">

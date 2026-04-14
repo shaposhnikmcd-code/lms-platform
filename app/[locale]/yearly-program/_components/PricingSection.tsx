@@ -20,7 +20,23 @@ type Props = {
   };
 };
 
+function DisabledButton({ label, variant }: { label: string; variant: 'light' | 'dark' }) {
+  const base =
+    'w-full inline-flex items-center justify-center px-6 py-3 rounded-lg font-semibold text-sm cursor-not-allowed select-none';
+  const theme =
+    variant === 'dark'
+      ? 'bg-white/10 text-white/70 border border-white/20'
+      : 'bg-gray-100 text-gray-500 border border-gray-200';
+  return (
+    <button type="button" disabled className={`${base} ${theme}`}>
+      {label}
+    </button>
+  );
+}
+
 export default function PricingSection({ t }: Props) {
+  const open = YEARLY_PROGRAM.registrationOpen;
+
   return (
     <section id="price" className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-14">
       <div className="text-center mb-8">
@@ -45,12 +61,16 @@ export default function PricingSection({ t }: Props) {
               <div className="w-16 h-px bg-gradient-to-r from-transparent via-[#D4A017]/40 to-transparent mx-auto mb-6" />
 
               <div className="mt-auto">
-                <CoursePurchaseModal
-                  courseName={t.courseNameYear}
-                  price={Number(YEARLY_PROGRAM.price)}
-                  courseId={YEARLY_PROGRAM.courseId}
-                  buttonLabel={t.btnYear}
-                />
+                {open ? (
+                  <CoursePurchaseModal
+                    courseName={t.courseNameYear}
+                    price={Number(YEARLY_PROGRAM.price)}
+                    courseId={YEARLY_PROGRAM.courseId}
+                    buttonLabel={t.btnYear}
+                  />
+                ) : (
+                  <DisabledButton label={t.btnYear} variant="dark" />
+                )}
               </div>
             </div>
           </div>
@@ -78,12 +98,16 @@ export default function PricingSection({ t }: Props) {
             </div>
 
             <div className="mt-auto">
-              <CoursePurchaseModal
-                courseName={t.courseNameMonth}
-                price={Number(YEARLY_PROGRAM.monthlyPrice)}
-                courseId={YEARLY_PROGRAM.monthlyCourseId}
-                buttonLabel={t.btnMonth}
-              />
+              {open ? (
+                <CoursePurchaseModal
+                  courseName={t.courseNameMonth}
+                  price={Number(YEARLY_PROGRAM.monthlyPrice)}
+                  courseId={YEARLY_PROGRAM.monthlyCourseId}
+                  buttonLabel={t.btnMonth}
+                />
+              ) : (
+                <DisabledButton label={t.btnMonth} variant="light" />
+              )}
             </div>
           </div>
         </div>

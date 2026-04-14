@@ -126,7 +126,7 @@ export const consultationsContent = {
       experience: "3+ lata w obszarze zdrowia psychicznego",
       image: "/base-of specialists/Anna-Gudzenko.png",
       imagePosition: "center 60%",
-      price: "Do potwierdzenia",
+      price: "1300 UAH",
       duration: "50 minut",
       about: "Anna Hudzenko — psycholog-konsultant z 3-letnim doświadczeniem w obszarze zdrowia psychicznego. Studiuje „Psychologię praktyczną” i jest w trakcie szkolenia z analizy transakcyjnej. Wierzy, że relacje to przestrzeń, w której ludzie się zmieniają i uzdrawiają.",
       specializations: [
@@ -143,7 +143,7 @@ export const consultationsContent = {
         { type: "cert", title: "Kurs seksuologii", org: "Yulia Serdyuk", detail: "2025–2026", year: "2026", tag: "Kurs" },
         { type: "cert", title: "PSY BRAIN — szkoła psychologii", org: "PSY BRAIN", detail: "2025–2026", year: "2026", tag: "Szkoła" },
       ],
-      calendlyUrl: "#",
+      calendlyUrl: "https://t.me/hudzenko_anna",
     },
     {
       name: "Kateryna Chupinina",
@@ -151,7 +151,7 @@ export const consultationsContent = {
       imagePosition: "center 20%",
       role: "Psycholog-konsultant",
       experience: "",
-      price: "Do potwierdzenia",
+      price: "Konsultacje tymczasowo zamknięte",
       duration: "50 minut",
       about: "Kateryna Chupinina — psycholog-konsultantka, która uczy się terapii poznawczo-behawioralnej i zdobywa stopień magistra z psychologii klinicznej. Pomaga ludziom odkrywać nowe znaczenie w tym, co znane, i postrzegać siebie w nowy sposób.",
       specializations: [
@@ -167,7 +167,7 @@ export const consultationsContent = {
         { type: "cert", title: "Droga do uzdrowienia", org: "UIMP", detail: "Program roczny · 2025", year: "2025", tag: "Program" },
         { type: "diploma", title: "Magister psychologii klinicznej", org: "Kijowski Narodowy Uniwersytet im. Tarasa Szewczenki", detail: "Studia · 2025–obecnie", year: "2027", tag: "Wyższe wykształcenie" },
       ],
-      calendlyUrl: "#",
+      calendlyUrl: "https://t.me/KaterinaChupinina",
     },
     {
       name: "Maria Klochan",
@@ -175,7 +175,7 @@ export const consultationsContent = {
       experience: "",
       image: "/base-of specialists/Maria-Klochan.JPG",
       imagePosition: "center 35%",
-      price: "Do potwierdzenia",
+      price: "900 UAH",
       duration: "50 minut",
       about: "Maria Klochan — specjalistka ds. służby duchowej i edukatorka seksualna, współautorka kursów na te tematy. Jej misją jest rozświetlanie ciemności i mówienie o tym, o czym zwykle się milczy.",
       specializations: [
@@ -191,7 +191,7 @@ export const consultationsContent = {
         { type: "cert", title: "Trzymodułowy program duchowego uzdrowienia", org: "UIMP", detail: "2023", year: "2023", tag: "Program" },
         { type: "cert", title: "Droga do uzdrowienia", org: "UIMP", detail: "Program roczny · 2025", year: "2025", tag: "Program" },
       ],
-      calendlyUrl: "#",
+      calendlyUrl: "https://t.me/Masha_Klochan",
     },
     {
       name: "Oleksandra Yanush",
@@ -199,7 +199,7 @@ export const consultationsContent = {
       experience: "",
       image: "/base-of specialists/Oleksandra-Janush.jpg",
       imagePosition: "center 25%",
-      price: "Do potwierdzenia",
+      price: "900 UAH",
       duration: "50 minut",
       about: "Oleksandra Yanush — konsultantka ds. służby duchowej i kuratorka programów UIMP. Wspiera ludzi w przejściu od przetrwania do pełnego życia — w połączeniu ze sobą, Bogiem i miłością. Prowadzi również służbę dla kobiet.",
       specializations: [
@@ -212,7 +212,7 @@ export const consultationsContent = {
         { type: "cert", title: "Droga do uzdrowienia", org: "UIMP", detail: "Program roczny · 2025", year: "2025", tag: "Program" },
         { type: "diploma", title: "Vision University", org: "Vision University", detail: "2025–obecnie", year: "2027", tag: "Wyższe wykształcenie" },
       ],
-      calendlyUrl: "#",
+      calendlyUrl: "https://t.me/SashaYanush",
     },
     {
       name: "Marta Kholiava",
@@ -220,7 +220,7 @@ export const consultationsContent = {
       experience: "17+ lat doświadczenia",
       image: "/base-of specialists/Marta-Kholyava.jpg",
       imagePosition: "center 20%",
-      price: "Do potwierdzenia",
+      price: "1300 UAH",
       duration: "50 minut",
       about: "Marta Kholiava — psycholog i specjalistka ds. służby duchowej, dyrektorka działu konsultacji UIMP. Posiada zawodowe wykształcenie psychologiczne od 2008 roku. Wierzy, że w każdym człowieku jest słońce — wystarczy pozwolić mu zaświecić.",
       specializations: [
@@ -236,7 +236,7 @@ export const consultationsContent = {
         { type: "cert", title: "Droga do uzdrowienia", org: "UIMP", detail: "Program praktyczny · 2025", year: "2025", tag: "Program" },
         { type: "cert", title: "Analiza transakcyjna (UATA/EATA)", org: "Ukraińskie Stowarzyszenie Analizy Transakcyjnej", detail: "Szkolenie · 2024–2027", year: "2027", tag: "Szkolenie" },
       ],
-      calendlyUrl: "#",
+      calendlyUrl: "https://t.me/martakholiava",
     },
   ],
 };
