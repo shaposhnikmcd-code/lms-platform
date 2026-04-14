@@ -159,6 +159,7 @@ export default async function AdminDashboard({
     { href: '/dashboard/admin/news', label: 'Новини', desc: 'Публікації та чернетки', icon: HiOutlineNewspaper, color: 'text-rose-600', bg: 'bg-rose-50' },
     { href: '/dashboard/admin/analytics', label: 'Аналітика', desc: 'Метрики та звіти', icon: HiOutlineChartBar, color: 'text-sky-600', bg: 'bg-sky-50' },
     { href: '/dashboard/admin/payments', label: 'Платежі', desc: 'Транзакції та статуси', icon: HiOutlineCreditCard, color: 'text-amber-600', bg: 'bg-amber-50' },
+    { href: '/dashboard/admin/payment-logs', label: 'Логи платежів', desc: 'Всі WayForPay callback-и', icon: HiOutlineClock, color: 'text-slate-600', bg: 'bg-slate-50' },
     { href: '/dashboard/admin/users', label: 'Користувачі', desc: 'Керування акаунтами та ролями', icon: HiOutlineUserGroup, color: 'text-indigo-600', bg: 'bg-indigo-50' },
   ];
 
