@@ -46,6 +46,13 @@ export default function AdminUsers() {
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState('');
   const [newUser, setNewUser] = useState({ name: '', email: '', role: 'STUDENT' });
+  const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 4000);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   useEffect(() => {
     fetchUsers();
@@ -75,12 +82,13 @@ export default function AdminUsers() {
       });
       if (res.ok) {
         setUsers(users.filter(u => u.id !== userId));
+        setToast({ message: `Користувача "${name}" перенесено в архів`, type: 'success' });
       } else {
         const data = await res.json();
-        alert(data.error || 'Помилка видалення');
+        setToast({ message: data.error || 'Помилка видалення', type: 'error' });
       }
     } catch {
-      alert('Помилка запиту');
+      setToast({ message: 'Помилка запиту', type: 'error' });
     } finally {
       setUpdatingId(null);
     }
@@ -121,9 +129,13 @@ export default function AdminUsers() {
       });
       if (res.ok) {
         setUsers(users.map(u => u.id === userId ? { ...u, role: newRole } : u));
+        setToast({ message: 'Роль оновлено', type: 'success' });
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setToast({ message: data.error || 'Не вдалося оновити роль', type: 'error' });
       }
-    } catch (error) {
-      console.error('Помилка зміни ролі:', error);
+    } catch {
+      setToast({ message: 'Помилка запиту', type: 'error' });
     } finally {
       setUpdatingId(null);
     }
@@ -160,6 +172,15 @@ export default function AdminUsers() {
 
   return (
     <div className="max-w-7xl mx-auto px-6 py-10">
+      {toast && (
+        <div className={`fixed top-20 right-6 z-50 px-4 py-3 rounded-lg shadow-lg text-sm font-medium ${
+          toast.type === 'success'
+            ? 'bg-emerald-50 border border-emerald-200 text-emerald-700'
+            : 'bg-rose-50 border border-rose-200 text-rose-700'
+        }`}>
+          {toast.message}
+        </div>
+      )}
       <div className="flex items-center justify-between mb-8">
         <h1 className="text-3xl font-bold text-slate-800">Користувачі</h1>
         <div className="flex items-center gap-3">

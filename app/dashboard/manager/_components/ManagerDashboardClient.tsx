@@ -2,7 +2,7 @@
 
 import { useSession } from 'next-auth/react';
 import { Fragment, useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import OrderDetailsModal from './OrderDetailsModal';
 
 type OrderStatus = 'NEW' | 'PROCESSING' | 'SHIPPED' | 'DELIVERED' | 'CANCELLED';
@@ -103,6 +103,7 @@ function computeStats(orders: Order[]) {
 export default function ManagerDashboardClient() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const today = new Date();
 
   const [orders, setOrders] = useState<Order[]>([]);
@@ -155,6 +156,26 @@ export default function ManagerDashboardClient() {
     fetchOrders();
   }, []);
 
+  const [deepLinkHandled, setDeepLinkHandled] = useState(false);
+  useEffect(() => {
+    if (deepLinkHandled) return;
+    const ref = searchParams.get('order');
+    if (!ref || orders.length === 0) return;
+    const match = orders.find((o) => o.orderReference === ref);
+    if (match) setSelectedOrder(match);
+    setDeepLinkHandled(true);
+  }, [searchParams, orders, deepLinkHandled]);
+
+  const handleCloseOrderModal = () => {
+    setSelectedOrder(null);
+    if (searchParams.get('order')) {
+      const params = new URLSearchParams(searchParams);
+      params.delete('order');
+      const query = params.toString();
+      router.replace(`/dashboard/manager${query ? `?${query}` : ''}`, { scroll: false });
+    }
+  };
+
   const fetchOrders = async () => {
     setLoading(true);
     try {
@@ -190,7 +211,7 @@ export default function ManagerDashboardClient() {
       });
       if (res.ok) {
         await fetchOrders();
-        setSelectedOrder(null);
+        handleCloseOrderModal();
       }
     } finally {
       setSaving(false);
@@ -779,7 +800,7 @@ export default function ManagerDashboardClient() {
           trackingNumber={trackingNumber}
           managerNote={managerNote}
           saving={saving}
-          onClose={() => setSelectedOrder(null)}
+          onClose={handleCloseOrderModal}
           onTrackingChange={setTrackingNumber}
           onNoteChange={setManagerNote}
           onSave={saveOrder}

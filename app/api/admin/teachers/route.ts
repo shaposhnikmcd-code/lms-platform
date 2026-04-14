@@ -1,11 +1,9 @@
-import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
+import { isAdmin } from "@/lib/adminAuth";
 
-export async function GET() {
-  const session = await getServerSession(authOptions);
-  if (!session?.user || session.user.role !== "ADMIN") {
+export async function GET(req: NextRequest) {
+  if (!(await isAdmin(req))) {
     return NextResponse.json({ error: "Немає доступу" }, { status: 403 });
   }
 

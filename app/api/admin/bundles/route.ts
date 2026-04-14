@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+import { isAdmin } from "@/lib/adminAuth";
 
-export async function GET() {
-  const session = await getServerSession(authOptions);
-  if (!session?.user || session.user.role !== "ADMIN") {
+export async function GET(req: NextRequest) {
+  if (!(await isAdmin(req))) {
     return NextResponse.json({ error: "Немає доступу" }, { status: 403 });
   }
 
@@ -18,12 +16,11 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user || session.user.role !== "ADMIN") {
+  if (!(await isAdmin(req))) {
     return NextResponse.json({ error: "Немає доступу" }, { status: 403 });
   }
 
-  const { title, description, slug, price, imageUrl, published, courseSlugs } = await req.json();
+  const { title, slug, price, imageUrl, published, courseSlugs } = await req.json();
 
   if (!title || !slug || !price || !courseSlugs?.length) {
     return NextResponse.json({ error: "Заповніть обов'язкові поля" }, { status: 400 });
@@ -37,7 +34,6 @@ export async function POST(req: NextRequest) {
   const bundle = await prisma.bundle.create({
     data: {
       title,
-      description: description || null,
       slug,
       price,
       imageUrl: imageUrl || null,

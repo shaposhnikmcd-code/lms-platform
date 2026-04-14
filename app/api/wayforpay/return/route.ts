@@ -14,7 +14,11 @@ export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
     const orderReference = formData.get('orderReference') as string || '';
-    const type = orderReference.startsWith('connector_') ? 'connector' : 'course';
+    const type = orderReference.startsWith('connector_')
+      ? 'connector'
+      : orderReference.startsWith('bundle_')
+        ? 'bundle'
+        : 'course';
     return NextResponse.redirect(`${baseUrl}/payment/success?type=${type}`, { status: 303 });
   } catch {
     return NextResponse.redirect(`${baseUrl}/payment/success`, { status: 303 });

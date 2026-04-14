@@ -1,31 +1,48 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect } from "react";
 
-const AVAILABLE_COURSES = [
-  { slug: 'psychology-basics', title: 'Основи психології', price: 3500 },
-  { slug: 'psychiatry-basics', title: 'Основи психіатрії', price: 3500 },
-  { slug: 'mentorship', title: 'Основи душеопікунства', price: 3500 },
-  { slug: 'psychotherapy-of-biblical-heroes', title: 'Психотерапія біблійних героїв', price: 1400 },
-  { slug: 'sex-education', title: 'Статеве виховання', price: 4300 },
-  { slug: 'military-psychology', title: 'Військова психологія', price: 5999 },
-  { slug: 'emotional-intelligence', title: 'Емоційний інтелект', price: 1499 },
-];
+interface AvailableCourse {
+  slug: string;
+  title: string;
+  price: number;
+}
 
 export default function NewBundlePage() {
-  const router = useRouter();
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
+  const [availableCourses, setAvailableCourses] = useState<AvailableCourse[]>([]);
+  const [coursesLoading, setCoursesLoading] = useState(true);
 
   const [form, setForm] = useState({
     title: "",
-    description: "",
     slug: "",
     price: "",
     published: false,
   });
   const [selectedCourses, setSelectedCourses] = useState<string[]>([]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/admin/courses");
+        if (!res.ok) throw new Error("Не вдалося завантажити курси");
+        const data = await res.json();
+        const list: AvailableCourse[] = (Array.isArray(data) ? data : [])
+          .filter((c: { slug: string | null }) => !!c.slug)
+          .map((c: { slug: string; title: string; price: number }) => ({
+            slug: c.slug,
+            title: c.title,
+            price: c.price,
+          }));
+        setAvailableCourses(list);
+      } catch (err) {
+        setMessage(err instanceof Error ? err.message : "Помилка завантаження курсів");
+      } finally {
+        setCoursesLoading(false);
+      }
+    })();
+  }, []);
 
   const handleTitleChange = (title: string) => {
     const slug = title
@@ -44,7 +61,7 @@ export default function NewBundlePage() {
   };
 
   const totalOriginalPrice = selectedCourses.reduce((sum, slug) => {
-    const course = AVAILABLE_COURSES.find((c) => c.slug === slug);
+    const course = availableCourses.find((c) => c.slug === slug);
     return sum + (course?.price || 0);
   }, 0);
 
@@ -66,12 +83,12 @@ export default function NewBundlePage() {
         }),
       });
       if (res.ok) {
-        router.push("/dashboard/admin/bundles");
-      } else {
-        const data = await res.json();
-        setMessage(data.error || "Помилка збереження");
-        setSaving(false);
+        window.location.assign("/dashboard/admin/bundles");
+        return;
       }
+      const data = await res.json();
+      setMessage(data.error || "Помилка збереження");
+      setSaving(false);
     } catch {
       setMessage("Помилка збереження");
       setSaving(false);
@@ -96,10 +113,14 @@ export default function NewBundlePage() {
           <input
             type="text"
             value={form.title}
+            maxLength={60}
             onChange={(e) => handleTitleChange(e.target.value)}
             placeholder="Психологія + Психіатрія"
             className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500/20"
           />
+          <p className={`text-xs font-semibold mt-1 text-right tabular-nums ${
+            form.title.length >= 60 ? 'text-rose-600' : form.title.length >= 50 ? 'text-amber-600' : 'text-slate-600'
+          }`}>{form.title.length}/60</p>
         </div>
 
         <div>
@@ -116,50 +137,43 @@ export default function NewBundlePage() {
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">
-            Опис
-          </label>
-          <textarea
-            value={form.description}
-            onChange={(e) => setForm({ ...form, description: e.target.value })}
-            placeholder="Опис пакету..."
-            rows={3}
-            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500/20"
-          />
-        </div>
-
-        <div>
           <label className="block text-sm font-medium text-slate-700 mb-3">
             Курси в пакеті <span className="text-red-400">*</span>
             <span className="text-xs text-slate-400 ml-2">(мінімум 2)</span>
           </label>
           <div className="space-y-2">
-            {AVAILABLE_COURSES.map((course) => {
-              const isSelected = selectedCourses.includes(course.slug);
-              return (
-                <label
-                  key={course.slug}
-                  className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
-                    isSelected
-                      ? "border-violet-300 bg-violet-50"
-                      : "border-slate-200 hover:bg-slate-50"
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={isSelected}
-                    onChange={() => toggleCourse(course.slug)}
-                    className="w-4 h-4 accent-violet-600"
-                  />
-                  <span className="text-sm font-medium text-slate-700 flex-1">
-                    {course.title}
-                  </span>
-                  <span className="text-sm text-slate-500 tabular-nums">
-                    {course.price.toLocaleString()} ₴
-                  </span>
-                </label>
-              );
-            })}
+            {coursesLoading ? (
+              <p className="text-sm text-slate-400">Завантаження курсів…</p>
+            ) : availableCourses.length === 0 ? (
+              <p className="text-sm text-slate-400">Курси в БД відсутні. Спочатку створи курс.</p>
+            ) : (
+              availableCourses.map((course) => {
+                const isSelected = selectedCourses.includes(course.slug);
+                return (
+                  <label
+                    key={course.slug}
+                    className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                      isSelected
+                        ? "border-violet-300 bg-violet-50"
+                        : "border-slate-200 hover:bg-slate-50"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => toggleCourse(course.slug)}
+                      className="w-4 h-4 accent-violet-600"
+                    />
+                    <span className="text-sm font-medium text-slate-700 flex-1">
+                      {course.title}
+                    </span>
+                    <span className="text-sm text-slate-500 tabular-nums">
+                      {course.price.toLocaleString()} ₴
+                    </span>
+                  </label>
+                );
+              })
+            )}
           </div>
           {selectedCourses.length >= 2 && (
             <div className="mt-3 p-3 bg-slate-50 rounded-lg text-sm text-slate-600">

@@ -1,9 +1,8 @@
-import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import zlib from 'zlib';
 import { promisify } from 'util';
+import { isAdmin } from '@/lib/adminAuth';
 
 const gunzip = promisify(zlib.gunzip);
 
@@ -21,10 +20,9 @@ interface NovaDivision {
   divisionCategory?: string;
 }
 
-export async function POST() {
+export async function POST(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session || session.user?.role !== 'ADMIN') {
+    if (!(await isAdmin(req))) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 

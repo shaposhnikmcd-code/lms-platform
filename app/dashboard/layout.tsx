@@ -1,13 +1,21 @@
 import '@/app/globals.css';
+import { getServerSession } from 'next-auth';
+import { redirect } from 'next/navigation';
+import { authOptions } from '@/lib/auth';
 import SessionProviderWrapper from '@/components/SessionProviderWrapper';
 import RoleSwitcher from '@/components/RoleSwitcher';
 import DashboardBackButton from '@/components/DashboardBackButton';
 
-export default function DashboardLayout({
+export default async function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) {
+    redirect('/');
+  }
+
   return (
     <SessionProviderWrapper>
       <div className="min-h-screen bg-slate-50">

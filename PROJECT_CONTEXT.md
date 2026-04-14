@@ -258,6 +258,35 @@ translateContentWithDeepL(obj, lang) → T        // raw escape hatch
 | `ConnectorOrder` | Замовлення продукту "Коннектор" |
 | `NovaPostDivision` | Відділення Нової Пошти (кешовані) |
 | `NovaPostSyncLog` | Логи синхронізації Нової Пошти |
+| `PaymentCallbackLog` | Лог усіх WayForPay callback-ів (course/bundle/connector) |
+
+---
+
+## Логування платежів (ВАЖЛИВО)
+
+**Усі callback-и WayForPay пишуться в таблицю `PaymentCallbackLog`** — і для курсів, і для пакетів, і для гри Конектор. Лог пишеться **ЗАВЖДИ**: навіть при невірному підписі, при retry, при idempotent skip, при помилці.
+
+Джерело: [`app/api/wayforpay/callback/route.ts`](app/api/wayforpay/callback/route.ts)
+
+Поля логу:
+- `kind` — `course` / `bundle` / `connector` / `unknown` (визначається за префіксом `orderReference`)
+- `orderReference`, `transactionStatus`, `amount`, `currency`, `clientEmail`
+- `ip`, `userAgent` — щоб бачити звідки прийшов callback
+- `signatureValid` — пройшла HMAC-перевірка чи ні
+- `prevStatus` — статус Payment/ConnectorOrder **до** цього callback (виявлення ретраїв)
+- `actionsTaken` — `payment:updated`, `enrollment:<slug>`, `sendpulse:sent(N)`, `skip:already_paid`, `connector:paid`, тощо
+- `sendpulseSlugs` — слаги курсів, по яких реально пішли events в SendPulse
+- `skipped` + `skipReason` — `already_paid` / `invalid_signature` / `payment_not_found` / `missing_course_and_bundle`
+- `rawPayload` — повне тіло запиту від WFP (JSON)
+- `error` — повідомлення помилки якщо була
+
+**Ідемпотентність:** якщо Payment/ConnectorOrder уже `PAID` — НЕ повторюємо enrollment і НЕ шлемо SendPulse events повторно (тільки пишемо лог з `skipped=true, skipReason=already_paid`). Це захищає від дублікатів при ретраях WFP.
+
+Як передивлятись логи:
+```bash
+# Останні 20 callback-ів
+node -e "const p=require('@prisma/client');const c=new p.PrismaClient();c.paymentCallbackLog.findMany({orderBy:{createdAt:'desc'},take:20}).then(r=>console.table(r.map(x=>({t:x.createdAt.toISOString(),kind:x.kind,status:x.transactionStatus,amt:x.amount,prev:x.prevStatus,act:x.actionsTaken,sp:x.sendpulseSlugs,ip:x.ip,ref:x.orderReference})))).finally(()=>c.\$disconnect())"
+```
 
 ---
 

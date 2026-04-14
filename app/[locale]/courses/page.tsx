@@ -11,6 +11,7 @@ import { getCurrency } from "@/lib/currency";
 import CourseCard from "./_components/CourseCard";
 import BundleCard from "./_components/BundleCard";
 import prisma from "@/lib/prisma";
+import { COURSES_BY_SLUG } from "@/lib/coursesCatalog";
 
 const sysFont = '-apple-system, BlinkMacSystemFont, sans-serif';
 
@@ -34,33 +35,37 @@ const cardLayouts: { width: string; marginLeft: string; className: string }[] = 
   { width: '100%', marginLeft: '0',    className: '' },
 ];
 
-const COURSE_INFO: Record<string, { price: number; icon: string; accent: string; accentRgb: string; tagKey: string; descKey: string }> = {
-  'psychology-basics': { price: 3500, icon: '🧠', accent: '#D4A843', accentRgb: '212,168,67', tagKey: 'tags.biblicalTherapy', descKey: 'courses.psychology.description' },
-  'psychiatry-basics': { price: 3500, icon: '🩺', accent: '#C4919A', accentRgb: '196,145,154', tagKey: 'tags.forPsychologists', descKey: 'courses.psychiatry.description' },
-  'mentorship': { price: 3500, icon: '🫂', accent: '#1C3A2E', accentRgb: '28,58,46', tagKey: 'tags.forBeginners', descKey: 'courses.mentorship.description' },
-  'psychotherapy-of-biblical-heroes': { price: 1400, icon: '📖', accent: '#C4919A', accentRgb: '196,145,154', tagKey: 'tags.newPerspective', descKey: 'courses.biblicalHeroes.description' },
-  'sex-education': { price: 4300, icon: '👨‍👩‍👧', accent: '#D4A843', accentRgb: '212,168,67', tagKey: 'tags.forParents', descKey: 'courses.sexEd.description' },
-  'military-psychology': { price: 5999, icon: '🪖', accent: '#1C3A2E', accentRgb: '28,58,46', tagKey: 'tags.forMilitary', descKey: 'courses.militaryPsy.description' },
-  'emotional-intelligence': { price: 1499, icon: '🧠', accent: '#D4A843', accentRgb: '212,168,67', tagKey: 'tags.forEveryone', descKey: 'courses.emotionalIQ.description' },
-};
+const COURSE_INFO: Record<string, { price: number; icon: string; accent: string; accentRgb: string; tagKey: string; descKey: string }> = Object.fromEntries(
+  Object.entries(COURSES_BY_SLUG).map(([slug, c]) => [slug, {
+    price: c.price,
+    icon: c.icon,
+    accent: c.accent,
+    accentRgb: c.accentRgb,
+    tagKey: c.tagKey,
+    descKey: c.descKey,
+  }])
+);
 
-const COURSE_TITLE_KEYS: Record<string, string> = {
-  'psychology-basics': 'courses.psychology.title',
-  'psychiatry-basics': 'courses.psychiatry.title',
-  'mentorship': 'courses.mentorship.title',
-  'psychotherapy-of-biblical-heroes': 'courses.biblicalHeroes.title',
-  'sex-education': 'courses.sexEd.title',
-  'military-psychology': 'courses.militaryPsy.title',
-  'emotional-intelligence': 'courses.emotionalIQ.title',
-};
+const COURSE_TITLE_KEYS: Record<string, string> = Object.fromEntries(
+  Object.entries(COURSES_BY_SLUG).map(([slug, c]) => [slug, c.titleKey])
+);
 
 export default async function CoursesPage({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
   const t = await getTranslations("CoursesPage");
   const currency = getCurrency(locale);
 
+  // Auto-resume suspended bundles whose resumeAt has passed
+  await prisma.bundle.updateMany({
+    where: {
+      suspendedAt: { not: null },
+      resumeAt: { not: null, lte: new Date() },
+    },
+    data: { suspendedAt: null, resumeAt: null },
+  });
+
   const bundles = await prisma.bundle.findMany({
-    where: { published: true },
+    where: { published: true, suspendedAt: null },
     include: { courses: true },
     orderBy: { createdAt: 'desc' },
   });
@@ -147,9 +152,9 @@ export default async function CoursesPage({ params }: { params: Promise<{ locale
       </section>
 
       {bundles.length > 0 && (
-        <section className="pt-0 sm:pt-2 pb-10 sm:pb-12 px-4 sm:px-8 md:px-12" style={{ background: '#F5F2ED' }}>
-          <div style={{ maxWidth: 1400, margin: '0 auto' }}>
-            <div style={{ marginBottom: 36 }}>
+        <section className={`pt-0 sm:pt-2 pb-10 sm:pb-12 ${bundles.length >= 3 ? 'px-2 sm:px-3 md:px-4' : 'px-4 sm:px-8 md:px-12'}`} style={{ background: '#F5F2ED' }}>
+          <div style={{ maxWidth: bundles.length >= 3 ? 1800 : 1400, margin: '0 auto' }}>
+            <div style={{ maxWidth: 860, margin: '0 auto 36px' }}>
               <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(212,168,67,0.12)', border: '1px solid rgba(212,168,67,0.2)', borderRadius: 100, padding: '4px 14px', marginBottom: 14 }}>
                 <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.28em', textTransform: 'uppercase' as const, color: '#D4A843', fontFamily: sysFont }}>
                   {t("bundleBadge")}
@@ -164,41 +169,73 @@ export default async function CoursesPage({ params }: { params: Promise<{ locale
             </div>
             {(() => {
               const count = bundles.length;
-              const gridCols = count === 1 ? 'grid-cols-1' : count === 2 ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3';
-              const maxW = count === 1 ? 860 : 1400;
               const layout = count === 1 ? 'full' as const : 'compact' as const;
 
+              // Split bundles into rows based on total count
+              // n ≤ 3: single row (keeps existing frozen designs)
+              // n = 4: [2, 2]
+              // n = 5: [3, 2] (3-row first — intentional exception)
+              // n % 3 === 0: rows of 3
+              // n % 3 === 1 (7, 10, 13…): [2, 2, 3, 3…]
+              // n % 3 === 2 (8, 11, 14…): [2, 3, 3…]
+              const rowSizes: number[] = (() => {
+                if (count <= 3) return [count];
+                if (count === 4) return [2, 2];
+                if (count === 5) return [3, 2];
+                const rem = count % 3;
+                if (rem === 0) return Array(count / 3).fill(3);
+                if (rem === 1) return [2, 2, ...Array((count - 4) / 3).fill(3)];
+                return [2, ...Array((count - 2) / 3).fill(3)];
+              })();
+
+              let offset = 0;
+              const rows = rowSizes.map((size) => {
+                const slice = bundles.slice(offset, offset + size);
+                offset += size;
+                return slice;
+              });
+
+              const renderBundle = (bundle: typeof bundles[number]) => (
+                <BundleCard
+                  key={bundle.id}
+                  title={bundle.title}
+                  price={bundle.price}
+                  slug={bundle.slug}
+                  layout={layout}
+                  courses={bundle.courses.map((bc) => {
+                    const info = COURSE_INFO[bc.courseSlug];
+                    return {
+                      slug: bc.courseSlug,
+                      title: t(COURSE_TITLE_KEYS[bc.courseSlug] as Parameters<typeof t>[0]) || bc.courseSlug,
+                      description: info ? t(info.descKey as Parameters<typeof t>[0]) : '',
+                      tag: info ? t(info.tagKey as Parameters<typeof t>[0]) : '',
+                      price: info?.price || 0,
+                      icon: info?.icon || '📚',
+                      accent: info?.accent || '#D4A843',
+                      accentRgb: info?.accentRgb || '212,168,67',
+                    };
+                  })}
+                  benefits={cardBenefits}
+                  currency={currency}
+                  priceLabel={t("bundlePriceLabel")}
+                  bundleLabel={t("bundleBadge")}
+                  saveLabel={t("bundleSave")}
+                  buyLabel={t("bundleBuy")}
+                />
+              );
+
               return (
-                <div className={`grid ${gridCols} gap-4 items-stretch`} style={{ maxWidth: maxW, margin: '0 auto' }}>
-                  {bundles.map((bundle) => (
-                    <BundleCard
-                      key={bundle.id}
-                      title={bundle.title}
-                      description={bundle.description || undefined}
-                      price={bundle.price}
-                      slug={bundle.slug}
-                      layout={layout}
-                      courses={bundle.courses.map((bc) => {
-                        const info = COURSE_INFO[bc.courseSlug];
-                        return {
-                          slug: bc.courseSlug,
-                          title: t(COURSE_TITLE_KEYS[bc.courseSlug] as Parameters<typeof t>[0]) || bc.courseSlug,
-                          description: info ? t(info.descKey as Parameters<typeof t>[0]) : '',
-                          tag: info ? t(info.tagKey as Parameters<typeof t>[0]) : '',
-                          price: info?.price || 0,
-                          icon: info?.icon || '📚',
-                          accent: info?.accent || '#D4A843',
-                          accentRgb: info?.accentRgb || '212,168,67',
-                        };
-                      })}
-                      benefits={cardBenefits}
-                      currency={currency}
-                      priceLabel={t("bundlePriceLabel")}
-                      bundleLabel={t("bundleBadge")}
-                      saveLabel={t("bundleSave")}
-                      buyLabel={t("bundleBuy")}
-                    />
-                  ))}
+                <div className="flex flex-col gap-4">
+                  {rows.map((rowBundles, rowIdx) => {
+                    const size = rowBundles.length;
+                    const gridCols = size === 1 ? 'grid-cols-1' : size === 2 ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3';
+                    const maxW = size === 1 ? 780 : size === 2 ? 1400 : 1800;
+                    return (
+                      <div key={rowIdx} className={`grid ${gridCols} gap-4 items-stretch`} style={{ maxWidth: maxW, margin: '0 auto', width: '100%' }}>
+                        {rowBundles.map(renderBundle)}
+                      </div>
+                    );
+                  })}
                 </div>
               );
             })()}

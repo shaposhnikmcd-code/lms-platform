@@ -24,7 +24,6 @@ type Benefit = { icon: string; title: string };
 
 type Props = {
   title: string;
-  description?: string;
   price: number;
   courses: BundleCourse[];
   currency: string;
@@ -37,7 +36,7 @@ type Props = {
   layout?: 'full' | 'compact';
 };
 
-export default function BundleCard({ title, description, price, courses, currency, priceLabel, saveLabel, slug, buyLabel, benefits, layout = 'full' }: Props) {
+export default function BundleCard({ title, price, courses, currency, priceLabel, saveLabel, slug, buyLabel, benefits, layout = 'full' }: Props) {
   const [hovered, setHovered] = useState(false);
   const [hoveredCourse, setHoveredCourse] = useState<string | null>(null);
   const totalOriginal = courses.reduce((sum, c) => sum + c.price, 0);
@@ -54,7 +53,7 @@ export default function BundleCard({ title, description, price, courses, currenc
         background: 'linear-gradient(135deg, rgba(212,168,67,0.06) 0%, rgba(212,168,67,0.12) 50%, rgba(212,168,67,0.04) 100%)',
         borderRadius: 24,
         border: '1px solid rgba(212,168,67,0.06)',
-        padding: 'clamp(16px, 3vw, 28px)',
+        padding: layout === 'compact' ? 'clamp(12px, 2vw, 18px)' : 'clamp(16px, 3vw, 28px)',
         boxShadow: hovered
           ? '0 8px 24px rgba(28,58,46,0.04)'
           : 'none',
@@ -87,9 +86,14 @@ export default function BundleCard({ title, description, price, courses, currenc
         </div>
 
         <h3 style={{
-          fontFamily: sysFont, fontSize: 'clamp(20px, 2.5vw, 28px)', fontWeight: 700,
+          fontFamily: sysFont, fontSize: layout === 'compact' ? 'clamp(18px, 2.2vw, 24px)' : 'clamp(20px, 2.5vw, 28px)', fontWeight: 700,
           color: '#1C3A2E', lineHeight: 1.2, margin: 0, letterSpacing: '-0.02em',
           minHeight: '2.4em',
+          display: '-webkit-box',
+          WebkitLineClamp: 2,
+          WebkitBoxOrient: 'vertical',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
         }}>
           {title}
         </h3>
@@ -98,7 +102,7 @@ export default function BundleCard({ title, description, price, courses, currenc
       {/* Course cards grid */}
       <div
         className={`grid ${courses.length <= 2 ? 'grid-cols-1 sm:grid-cols-2' : courses.length === 3 ? 'grid-cols-1 sm:grid-cols-3' : 'grid-cols-1 sm:grid-cols-2'}`}
-        style={{ gap: layout === 'compact' ? 10 : 14, marginBottom: layout === 'compact' ? 28 : 32, flex: 1 }}
+        style={{ gap: layout === 'compact' ? 8 : 14, marginBottom: layout === 'compact' ? 24 : 32, flex: 1 }}
       >
         {courses.map((course, i) => {
           const isHovered = hoveredCourse === course.slug;
@@ -122,7 +126,7 @@ export default function BundleCard({ title, description, price, courses, currenc
               }}
             >
               {/* Content area */}
-              <div style={{ padding: '25px 21px 21px', flex: 1 }}>
+              <div style={{ padding: layout === 'full' ? '30px 24px 26px' : '25px 21px 21px', flex: 1 }}>
                 {/* Icon + Tag */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                   <div style={{
@@ -162,9 +166,9 @@ export default function BundleCard({ title, description, price, courses, currenc
               {/* Benefits strip */}
               <div style={{ borderTop: `1px solid ${STRIP_BORDER}`, background: 'rgba(255,255,255,0.03)', display: 'flex', alignItems: 'center', flexWrap: 'nowrap', overflow: 'hidden' }}>
                 {benefits.map((b, bi) => (
-                  <div key={bi} style={{ display: 'flex', alignItems: 'center', gap: 3, padding: '6px 3px', borderRight: bi < benefits.length - 1 ? `1px solid ${STRIP_BORDER}` : 'none', flex: 1, justifyContent: 'center', minWidth: 0 }}>
-                    <span style={{ fontSize: 9, lineHeight: 1, flexShrink: 0 }}>{b.icon}</span>
-                    <span style={{ fontSize: 8.5, color: 'rgba(245,237,214,0.3)', fontFamily: sysFont, fontWeight: 500, whiteSpace: 'nowrap' as const, lineHeight: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  <div key={bi} style={{ display: 'flex', alignItems: 'center', gap: 1, padding: layout === 'full' ? '7px 4px' : '4px 1px', borderRight: bi < benefits.length - 1 ? `1px solid ${STRIP_BORDER}` : 'none', flex: 1, justifyContent: 'center', minWidth: 0 }}>
+                    <span style={{ fontSize: layout === 'full' ? 10 : 6.5, lineHeight: 1, flexShrink: 0 }}>{b.icon}</span>
+                    <span style={{ fontSize: layout === 'full' ? 9.5 : 6, color: 'rgba(245,237,214,0.3)', fontFamily: sysFont, fontWeight: 500, whiteSpace: 'nowrap' as const, lineHeight: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {b.title}
                     </span>
                   </div>
@@ -208,13 +212,13 @@ export default function BundleCard({ title, description, price, courses, currenc
       <div style={{
         background: '#1C3A2E',
         borderRadius: layout === 'compact' ? 14 : 16,
-        padding: layout === 'compact' ? '12px 16px' : '20px 24px',
+        padding: layout === 'compact' ? '12px 16px' : '9px 28px',
         display: 'flex',
         alignItems: 'center',
-        justifyContent: 'space-between',
-        flexWrap: 'wrap',
-        gap: layout === 'compact' ? 12 : 16,
-        width: layout === 'compact' ? '53%' : '50%',
+        justifyContent: 'center',
+        flexWrap: layout === 'compact' ? 'wrap' : 'nowrap',
+        gap: layout === 'compact' ? 12 : 20,
+        width: layout === 'compact' ? '53%' : '48%',
         marginLeft: 'auto',
         marginRight: 'auto',
         marginTop: 'auto',
@@ -225,15 +229,15 @@ export default function BundleCard({ title, description, price, courses, currenc
             {priceLabel}
           </p>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: layout === 'compact' ? 6 : 8 }}>
-            <span style={{ fontFamily: sysFont, fontSize: layout === 'compact' ? 'clamp(20px, 2.5vw, 26px)' : 'clamp(28px, 3.5vw, 36px)', fontWeight: 700, color: '#D4A843', lineHeight: 1, letterSpacing: '-0.02em' }}>
+            <span style={{ fontFamily: sysFont, fontSize: layout === 'compact' ? 'clamp(20px, 2.5vw, 26px)' : 'clamp(24px, 3vw, 30px)', fontWeight: 700, color: '#D4A843', lineHeight: 1, letterSpacing: '-0.02em' }}>
               {price.toLocaleString()}
             </span>
-            <span style={{ fontSize: layout === 'compact' ? 11 : 13, color: 'rgba(212,168,67,0.5)', fontFamily: sysFont }}>
+            <span style={{ fontSize: layout === 'compact' ? 11 : 12, color: 'rgba(212,168,67,0.5)', fontFamily: sysFont }}>
               {currency}
             </span>
           </div>
           {savings > 0 && (
-            <p style={{ fontSize: layout === 'compact' ? 10 : 12, color: '#D4A843', opacity: 0.7, margin: '2px 0 0', fontFamily: sysFont, fontWeight: 500 }}>
+            <p style={{ fontSize: layout === 'compact' ? 10 : 11, color: '#D4A843', opacity: 0.7, margin: '2px 0 0', fontFamily: sysFont, fontWeight: 500 }}>
               {saveLabel}: {savings.toLocaleString()} {currency}
             </p>
           )}

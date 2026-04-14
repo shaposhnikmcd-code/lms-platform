@@ -1,12 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { translateNewsAllLocales } from "@/lib/translateNews";
+import { getAdminActor, isAdmin } from "@/lib/adminAuth";
 
-export async function GET() {
-  const session = await getServerSession(authOptions);
-  if (!session?.user || session.user.role !== "ADMIN") {
+export async function GET(req: NextRequest) {
+  if (!(await isAdmin(req))) {
     return NextResponse.json({ error: "Немає доступу" }, { status: 403 });
   }
 
@@ -19,8 +17,8 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user || session.user.role !== "ADMIN") {
+  const actor = await getAdminActor(req);
+  if (!actor) {
     return NextResponse.json({ error: "Немає доступу" }, { status: 403 });
   }
 
@@ -30,9 +28,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Невірні дані" }, { status: 400 });
   }
 
-  const user = await prisma.user.findUnique({
-    where: { email: session.user.email! },
-  });
+  const user = actor.email
+    ? await prisma.user.findUnique({ where: { email: actor.email } })
+    : null;
 
   const translations = await translateNewsAllLocales({ title, excerpt, content });
 

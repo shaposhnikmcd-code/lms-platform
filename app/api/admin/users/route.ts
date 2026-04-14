@@ -1,19 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
+import { getToken } from 'next-auth/jwt';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
 
-async function requireAdmin() {
+type AdminActor = { id?: string; name?: string | null; email?: string | null };
+
+async function requireAdmin(req: NextRequest): Promise<
+  { actor: AdminActor } | { error: NextResponse }
+> {
   const session = await getServerSession(authOptions);
-  if (!session?.user) return { error: NextResponse.json({ error: 'Не авторизовано' }, { status: 401 }) };
-  const role = (session.user as any).role;
-  if (role !== 'ADMIN') return { error: NextResponse.json({ error: 'Доступ заборонено' }, { status: 403 }) };
-  return { session };
+  if (session?.user && (session.user as any).role === 'ADMIN') {
+    return { actor: session.user as AdminActor };
+  }
+  const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+  if (token?.role === 'ADMIN') {
+    return {
+      actor: {
+        id: token.id as string | undefined,
+        name: (token.name as string | null | undefined) ?? null,
+        email: (token.email as string | null | undefined) ?? null,
+      },
+    };
+  }
+  return { error: NextResponse.json({ error: 'Доступ заборонено' }, { status: 403 }) };
 }
 
 export async function GET(req: NextRequest) {
   try {
-    const guard = await requireAdmin();
+    const guard = await requireAdmin(req);
     if ('error' in guard) return guard.error;
 
     const deleted = req.nextUrl.searchParams.get('deleted') === '1';
@@ -35,7 +50,7 @@ export async function GET(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   try {
-    const guard = await requireAdmin();
+    const guard = await requireAdmin(req);
     if ('error' in guard) return guard.error;
 
     const { userId, newRole, restore } = await req.json();
@@ -70,7 +85,7 @@ export async function PATCH(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const guard = await requireAdmin();
+    const guard = await requireAdmin(req);
     if ('error' in guard) return guard.error;
 
     const { name, email, role } = await req.json();
@@ -117,13 +132,13 @@ export async function POST(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
-    const guard = await requireAdmin();
+    const guard = await requireAdmin(req);
     if ('error' in guard) return guard.error;
 
     const { userId } = await req.json();
     if (!userId) return NextResponse.json({ error: 'userId обовязковий' }, { status: 400 });
 
-    const actor = guard.session!.user as any;
+    const actor = guard.actor;
     if (actor.id === userId) {
       return NextResponse.json({ error: 'Не можна видалити власний акаунт' }, { status: 400 });
     }

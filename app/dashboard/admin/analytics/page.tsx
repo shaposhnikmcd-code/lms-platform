@@ -1,10 +1,11 @@
 import prisma from '@/lib/prisma';
 import { FaChartLine, FaUsers, FaGraduationCap, FaDollarSign } from 'react-icons/fa';
 
+const daysAgo = (n: number) => new Date(Date.now() - n * 24 * 60 * 60 * 1000);
+
 export default async function AdminAnalytics() {
-  const now = new Date();
-  const thirtyDaysAgo = new Date(now.setDate(now.getDate() - 30));
-  const sevenDaysAgo = new Date(new Date().setDate(new Date().getDate() - 7));
+  const thirtyDaysAgo = daysAgo(30);
+  const sevenDaysAgo = daysAgo(7);
 
   const [
     totalUsers,

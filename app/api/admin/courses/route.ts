@@ -1,30 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+import { isAdmin } from "@/lib/adminAuth";
+import { syncCatalogCourses } from "@/lib/syncCatalogCourses";
 
-export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user || session.user.role !== "ADMIN") {
+// Read-only endpoint for the bundle builder.
+// Source of truth for course metadata is `lib/coursesCatalog.ts` —
+// `syncCatalogCourses()` upserts catalog entries into the DB before we read.
+export async function GET(req: NextRequest) {
+  if (!(await isAdmin(req))) {
     return NextResponse.json({ error: "Немає доступу" }, { status: 403 });
   }
 
-  const { title, description, price, slug, imageUrl, published } = await req.json();
+  await syncCatalogCourses();
 
-  if (!title || !description || !price) {
-    return NextResponse.json({ error: "Невірні дані" }, { status: 400 });
-  }
-
-  const course = await prisma.course.create({
-    data: {
-      title,
-      description,
-      price,
-      slug: slug || null,
-      imageUrl: imageUrl || null,
-      published: published || false,
-    },
+  const rows = await prisma.course.findMany({
+    select: { id: true, slug: true, title: true, price: true, published: true },
+    orderBy: { createdAt: "asc" },
   });
 
-  return NextResponse.json(course);
+  // Legacy data: some courses have slug=null with id storing the slug-like string.
+  const courses = rows.map((c) => ({
+    id: c.id,
+    slug: c.slug ?? c.id,
+    title: c.title,
+    price: c.price,
+    published: c.published,
+  }));
+
+  return NextResponse.json(courses);
 }

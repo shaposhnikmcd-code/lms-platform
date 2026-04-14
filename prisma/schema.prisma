@@ -375,6 +375,8 @@ model Bundle {
   price       Int
   imageUrl    String?
   published   Boolean        @default(false)
+  suspendedAt DateTime?
+  resumeAt    DateTime?
   createdAt   DateTime       @default(now())
   courses     BundleCourse[]
   payments    Payment[]
@@ -415,4 +417,32 @@ enum NewsCategory {
   NEWS
   ANNOUNCEMENT
   ARTICLE
+}
+
+/// Лог усіх платіжних callback-ів (course / bundle / connector).
+/// Пишеться ЗАВЖДИ — навіть для invalid signature, retry або idempotent skip.
+model PaymentCallbackLog {
+  id                 String   @id @default(cuid())
+  source             String   // "wayforpay" | "manual" | ...
+  kind               String   // "course" | "bundle" | "connector" | "unknown"
+  orderReference     String?
+  transactionStatus  String?  // Approved / Declined / Expired / InProcessing / ...
+  amount             Int?
+  currency           String?
+  clientEmail        String?
+  ip                 String?
+  userAgent          String?
+  signatureValid     Boolean?
+  prevStatus         String?  // статус Payment/ConnectorOrder ДО цього callback
+  actionsTaken       String?  // "payment:updated,enrollment:created,sendpulse:sent(2)"
+  sendpulseSlugs     String?  // слаги курсів, по яких реально відправлено events
+  skipped            Boolean  @default(false)
+  skipReason         String?
+  rawPayload         Json?
+  error              String?
+  createdAt          DateTime @default(now())
+
+  @@index([orderReference])
+  @@index([createdAt])
+  @@index([kind])
 }

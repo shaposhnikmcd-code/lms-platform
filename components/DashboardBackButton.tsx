@@ -13,18 +13,20 @@ export default function DashboardBackButton() {
   const router = useRouter();
   const pathname = usePathname();
 
-  const isRoot = pathname === "/dashboard/admin" || pathname === "/dashboard/admin/" || pathname === "/dashboard" || pathname === "/dashboard/";
+  const ROLE_ROOTS = ["/dashboard", "/dashboard/admin", "/dashboard/manager", "/dashboard/teacher", "/dashboard/student"];
+  const normalized = pathname.replace(/\/$/, "");
+  const isRoot = ROLE_ROOTS.includes(normalized);
 
   const handleClick = () => {
     if (isRoot) {
       router.push("/");
       return;
     }
-    if (typeof window !== "undefined" && window.history.length > 1) {
-      router.back();
-    } else {
-      router.push("/dashboard");
-    }
+    // Navigate up one level in the path
+    const segments = pathname.replace(/\/$/, "").split("/");
+    segments.pop();
+    const parentPath = segments.join("/") || "/dashboard";
+    router.push(parentPath);
   };
 
   const label = isRoot ? "На головну" : "Назад";

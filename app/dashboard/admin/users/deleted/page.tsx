@@ -34,6 +34,13 @@ export default function DeletedUsersPage() {
   const [users, setUsers] = useState<DeletedUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [restoringId, setRestoringId] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 4000);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   const fetchDeleted = async () => {
     setLoading(true);
@@ -60,7 +67,13 @@ export default function DeletedUsersPage() {
       });
       if (res.ok) {
         setUsers(users.filter(u => u.id !== userId));
+        setToast({ message: 'Користувача відновлено', type: 'success' });
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setToast({ message: data.error || 'Не вдалося відновити', type: 'error' });
       }
+    } catch {
+      setToast({ message: 'Помилка запиту', type: 'error' });
     } finally {
       setRestoringId(null);
     }
@@ -82,6 +95,15 @@ export default function DeletedUsersPage() {
 
   return (
     <div className="max-w-7xl mx-auto px-6 py-10">
+      {toast && (
+        <div className={`fixed top-20 right-6 z-50 px-4 py-3 rounded-lg shadow-lg text-sm font-medium ${
+          toast.type === 'success'
+            ? 'bg-emerald-50 border border-emerald-200 text-emerald-700'
+            : 'bg-rose-50 border border-rose-200 text-rose-700'
+        }`}>
+          {toast.message}
+        </div>
+      )}
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-3xl font-bold text-slate-800">Видалені користувачі</h1>

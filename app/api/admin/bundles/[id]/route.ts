@@ -1,14 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+import { isAdmin } from "@/lib/adminAuth";
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user || session.user.role !== "ADMIN") {
+  if (!(await isAdmin(req))) {
     return NextResponse.json({ error: "Немає доступу" }, { status: 403 });
   }
 
@@ -30,13 +28,12 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user || session.user.role !== "ADMIN") {
+  if (!(await isAdmin(req))) {
     return NextResponse.json({ error: "Немає доступу" }, { status: 403 });
   }
 
   const { id } = await params;
-  const { title, description, slug, price, imageUrl, published, courseSlugs } = await req.json();
+  const { title, slug, price, imageUrl, published, courseSlugs, suspendedAt, resumeAt } = await req.json();
 
   // Check slug uniqueness if changed
   if (slug) {
@@ -52,11 +49,12 @@ export async function PATCH(
     where: { id },
     data: {
       ...(title !== undefined && { title }),
-      ...(description !== undefined && { description }),
       ...(slug !== undefined && { slug }),
       ...(price !== undefined && { price }),
       ...(imageUrl !== undefined && { imageUrl }),
       ...(published !== undefined && { published }),
+      ...(suspendedAt !== undefined && { suspendedAt: suspendedAt ? new Date(suspendedAt) : null }),
+      ...(resumeAt !== undefined && { resumeAt: resumeAt ? new Date(resumeAt) : null }),
     },
   });
 
@@ -80,11 +78,10 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user || session.user.role !== "ADMIN") {
+  if (!(await isAdmin(req))) {
     return NextResponse.json({ error: "Немає доступу" }, { status: 403 });
   }
 

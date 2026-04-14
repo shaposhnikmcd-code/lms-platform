@@ -46,6 +46,11 @@ Thumbs.db
 # local agent/skill caches and scratch
 .agents/
 .claude/
+.playwright-mcp/
 build_kursova.py
 skills-lock.json
 public/courses/psychology-basics/uimp_temp.bmp
+
+# test screenshots at repo root
+/success-*.png
+/thankyou-*.png

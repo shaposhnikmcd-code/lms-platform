@@ -153,29 +153,64 @@ export default function AdminNewsPage() {
   const [filterCategory, setFilterCategory] = useState("ALL");
   const [filterStatus, setFilterStatus] = useState("ALL");
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
 
   useEffect(() => {
-    fetch("/api/admin/news")
-      .then((r) => r.json())
-      .then((d) => { setNews(d); setLoading(false); });
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 4000);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await fetch("/api/admin/news");
+        if (!r.ok) throw new Error("Не вдалося завантажити новини");
+        const d = await r.json();
+        setNews(Array.isArray(d) ? d : []);
+      } catch (err) {
+        setToast({ message: err instanceof Error ? err.message : 'Помилка завантаження', type: 'error' });
+      } finally {
+        setLoading(false);
+      }
+    })();
   }, []);
 
   const togglePublish = async (e: React.MouseEvent, id: string, published: boolean) => {
     e.stopPropagation();
-    await fetch(`/api/admin/news/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ published: !published }),
-    });
-    setNews(news.map((n) => n.id === id ? { ...n, published: !published } : n));
+    try {
+      const res = await fetch(`/api/admin/news/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ published: !published }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setToast({ message: data.error || 'Не вдалося змінити статус', type: 'error' });
+        return;
+      }
+      setNews(news.map((n) => n.id === id ? { ...n, published: !published } : n));
+    } catch {
+      setToast({ message: 'Помилка запиту', type: 'error' });
+    }
   };
 
   const deleteNews = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
     if (!confirm("Видалити цю новину?")) return;
-    await fetch(`/api/admin/news/${id}`, { method: "DELETE" });
-    setNews(news.filter((n) => n.id !== id));
-    if (expandedId === id) setExpandedId(null);
+    try {
+      const res = await fetch(`/api/admin/news/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setToast({ message: data.error || 'Не вдалося видалити', type: 'error' });
+        return;
+      }
+      setNews(news.filter((n) => n.id !== id));
+      if (expandedId === id) setExpandedId(null);
+      setToast({ message: 'Новину видалено', type: 'success' });
+    } catch {
+      setToast({ message: 'Помилка запиту', type: 'error' });
+    }
   };
 
   const filtered = news.filter((item) => {
@@ -194,6 +229,15 @@ export default function AdminNewsPage() {
 
   return (
     <div className="max-w-6xl mx-auto px-6 py-10">
+      {toast && (
+        <div className={`fixed top-20 right-6 z-50 px-4 py-3 rounded-lg shadow-lg text-sm font-medium ${
+          toast.type === 'success'
+            ? 'bg-emerald-50 border border-emerald-200 text-emerald-700'
+            : 'bg-rose-50 border border-rose-200 text-rose-700'
+        }`}>
+          {toast.message}
+        </div>
+      )}
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-3xl font-bold text-slate-800">Новини</h1>
