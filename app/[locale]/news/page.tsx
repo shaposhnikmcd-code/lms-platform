@@ -14,14 +14,22 @@ const CATEGORY_COLORS: Record<string, string> = {
   NEWS: "bg-blue-100 text-blue-700",
   ANNOUNCEMENT: "bg-yellow-100 text-yellow-700",
   ARTICLE: "bg-green-100 text-green-700",
+  EVENT: "bg-pink-100 text-pink-700",
 };
 
 export default async function NewsPage({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
   const c = await getContent(locale);
 
+  const now = new Date();
   const news = await prisma.news.findMany({
-    where: { published: true },
+    where: {
+      published: true,
+      OR: [
+        { suspendedAt: null },
+        { resumeAt: { lte: now } },
+      ],
+    },
     orderBy: { createdAt: "desc" },
     include: { author: { select: { name: true } } },
   });

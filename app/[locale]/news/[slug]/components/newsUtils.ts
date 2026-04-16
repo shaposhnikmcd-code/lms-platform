@@ -24,11 +24,13 @@ export const CATEGORY_LABELS: Record<string, string> = {
   NEWS: "Новини",
   ANNOUNCEMENT: "Оголошення",
   ARTICLE: "Стаття",
+  EVENT: "Подія",
 };
 export const CATEGORY_COLORS: Record<string, string> = {
   NEWS: "bg-blue-100 text-blue-700",
   ANNOUNCEMENT: "bg-yellow-100 text-yellow-700",
   ARTICLE: "bg-green-100 text-green-700",
+  EVENT: "bg-pink-100 text-pink-700",
 };
 
 export const BG_STYLES: Record<BgColor, React.CSSProperties> = {

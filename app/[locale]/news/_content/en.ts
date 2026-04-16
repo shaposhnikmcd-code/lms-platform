@@ -6,6 +6,7 @@ export const newsContent = {
     NEWS: "News",
     ANNOUNCEMENT: "Announcement",
     ARTICLE: "Article",
+    EVENT: "Event",
   },
   back: "Back to news",
   related: "Related articles",

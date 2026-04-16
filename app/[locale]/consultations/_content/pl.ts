@@ -18,6 +18,7 @@ export const consultationsContent = {
   notionBtn: "Więcej specjalistów w bazie UIMP",
   specialists: [
     {
+      slug: "tetiana-shaposhnyk",
       name: "Tetiana Shaposhnyk",
       role: "Prezydent UIMP, psychoterapeutka",
       experience: "15+ lat praktycznego doświadczenia",
@@ -121,6 +122,7 @@ export const consultationsContent = {
       calendlyUrl: "https://calendly.com/saposniktana878/50",
     },
     {
+      slug: "anna-hudzenko",
       name: "Anna Hudzenko",
       role: "Psycholog-konsultant",
       experience: "3+ lata w obszarze zdrowia psychicznego",
@@ -146,6 +148,7 @@ export const consultationsContent = {
       calendlyUrl: "https://t.me/hudzenko_anna",
     },
     {
+      slug: "kateryna-chupinina",
       name: "Kateryna Chupinina",
       image: "/base-of specialists/Kateryna-Chupinina.jpg",
       imagePosition: "center 20%",
@@ -170,6 +173,7 @@ export const consultationsContent = {
       calendlyUrl: "https://t.me/KaterinaChupinina",
     },
     {
+      slug: "maria-klochan",
       name: "Maria Klochan",
       role: "Specjalistka ds. służby duchowej, edukatorka seksualna",
       experience: "",
@@ -194,6 +198,7 @@ export const consultationsContent = {
       calendlyUrl: "https://t.me/Masha_Klochan",
     },
     {
+      slug: "oleksandra-yanush",
       name: "Oleksandra Yanush",
       role: "Konsultantka ds. służby duchowej, kuratorka programów",
       experience: "",
@@ -215,6 +220,7 @@ export const consultationsContent = {
       calendlyUrl: "https://t.me/SashaYanush",
     },
     {
+      slug: "marta-kholiava",
       name: "Marta Kholiava",
       role: "Psycholog, specjalistka ds. służby duchowej, dyrektorka działu konsultacji",
       experience: "17+ lat doświadczenia",

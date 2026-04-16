@@ -59,10 +59,21 @@ export default async function NewsItemPage({ params }: Props) {
     include: { author: { select: { name: true } } },
   });
 
-  if (!item || !item.published) notFound();
+  const now = new Date();
+  const isSuspended =
+    !!item?.suspendedAt && (!item.resumeAt || new Date(item.resumeAt) > now);
+  if (!item || !item.published || isSuspended) notFound();
 
   const related = await prisma.news.findMany({
-    where: { published: true, id: { not: item.id }, category: item.category },
+    where: {
+      published: true,
+      id: { not: item.id },
+      category: item.category,
+      OR: [
+        { suspendedAt: null },
+        { resumeAt: { lte: now } },
+      ],
+    },
     take: 3,
     orderBy: { createdAt: "desc" },
   });

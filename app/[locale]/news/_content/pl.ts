@@ -6,6 +6,7 @@ export const newsContent = {
     NEWS: "Aktualności",
     ANNOUNCEMENT: "Ogłoszenie",
     ARTICLE: "Artykuł",
+    EVENT: "Wydarzenie",
   },
   back: "Powrót do aktualności",
   related: "Powiązane artykuły",

@@ -3,9 +3,12 @@
 import { useState } from 'react';
 import { HiOutlineGlobeEuropeAfrica } from 'react-icons/hi2';
 
-export default function SyncDivisionsButton() {
+type Theme = 'dark' | 'light';
+
+export default function SyncDivisionsButton({ theme = 'light' }: { theme?: Theme }) {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<string | null>(null);
+  const dark = theme === 'dark';
 
   const handleSync = async () => {
     setLoading(true);
@@ -30,19 +33,27 @@ export default function SyncDivisionsButton() {
       <button
         onClick={handleSync}
         disabled={loading}
-        className="group w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-left"
+        className={`group w-full flex items-center gap-3 px-2 py-2.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-left ${
+          dark ? 'hover:bg-white/[0.04]' : 'hover:bg-stone-100/70'
+        }`}
       >
-        <div className="w-9 h-9 bg-teal-50 rounded-lg flex items-center justify-center flex-shrink-0">
-          <HiOutlineGlobeEuropeAfrica className={`text-lg text-teal-600 ${loading ? 'animate-spin' : ''}`} />
-        </div>
+        <HiOutlineGlobeEuropeAfrica
+          className={`text-lg flex-shrink-0 transition-colors ${loading ? 'animate-spin' : ''} ${
+            dark ? 'text-teal-300' : 'text-teal-700'
+          }`}
+        />
         <div className="min-w-0 flex-1">
-          <div className="text-sm font-medium text-slate-700 group-hover:text-slate-900">
+          <div className={`text-[13px] font-medium leading-tight ${dark ? 'text-slate-100' : 'text-stone-900'}`}>
             {loading ? 'Синхронізація…' : 'Nova Post EU'}
           </div>
-          <div className="text-xs text-slate-400 truncate">Оновити список відділень</div>
+          <div className={`text-[11px] truncate mt-0.5 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+            Оновити список відділень
+          </div>
         </div>
       </button>
-      {result && <p className="mt-2 px-3 text-xs text-slate-500">{result}</p>}
+      {result && (
+        <p className={`mt-2 px-2 text-[11px] ${dark ? 'text-slate-400' : 'text-stone-500'}`}>{result}</p>
+      )}
     </div>
   );
 }

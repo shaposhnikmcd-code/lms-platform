@@ -13,6 +13,7 @@ interface Specialization {
 
 
 interface Specialist {
+  slug: string;
   name: string;
   role: string;
   experience: string;
@@ -27,6 +28,8 @@ interface Specialist {
   certificates?: CertificateDoc[];
   associations?: { short: string; full: string }[];
   calendlyUrl: string;
+  btnLabel?: string;
+  hidden?: boolean;
 }
 
 interface Labels {
@@ -153,7 +156,7 @@ export default function SpecialistCard({ s, labels }: Props) {
                 fontFamily: sysFont,
               }}
             >
-              {labels.btnBook}
+              {s.btnLabel || labels.btnBook}
             </Link>
           </div>
         </div>

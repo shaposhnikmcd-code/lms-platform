@@ -1,11 +1,10 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
+import { HiOutlineCheckCircle } from "react-icons/hi2";
 import { Block, NewsMeta, blocksToJson, jsonToBlocks } from "./types";
 import EditorCanvas from "./EditorCanvas";
 import MetaSidebar from "./MetaSidebar";
-
-const ff = "-apple-system, BlinkMacSystemFont, sans-serif";
 
 function saveDraft(meta: NewsMeta, blocks: Block[], newsId?: string) {
   try { localStorage.setItem(`uimp_draft_${newsId || "new"}`, JSON.stringify({ meta, blocks })); } catch {}
@@ -25,12 +24,12 @@ export default function NewsEditor({
   onBack: () => void;
   saving: boolean;
 }) {
+  void onBack;
   const def: NewsMeta = { title: "", slug: "", excerpt: "", category: "NEWS", imageUrl: "", published: false };
   const [meta, setMeta] = useState<NewsMeta>({ ...def, ...initialMeta });
   const [blocks, setBlocks] = useState<Block[]>(() => jsonToBlocks(initialContent || ""));
   const [message, setMessage] = useState("");
   const [uploading, setUploading] = useState(false);
-  const [draftSaved, setDraftSaved] = useState(false);
 
   useEffect(() => {
     if (initialContent) {
@@ -41,8 +40,6 @@ export default function NewsEditor({
 
   const autoSave = useCallback(() => {
     saveDraft(meta, blocks, newsId);
-    setDraftSaved(true);
-    setTimeout(() => setDraftSaved(false), 2000);
   }, [meta, blocks, newsId]);
 
   useEffect(() => {
@@ -80,84 +77,65 @@ export default function NewsEditor({
   };
 
   return (
-    <div style={{ minHeight: "100vh", background: "#E8E4DC", fontFamily: ff }}>
+    <div className="min-h-screen bg-slate-100">
+      <div className="max-w-[1480px] mx-auto px-6 py-10">
+        {/* Top header — eyebrow + title + buttons (статичні, скролляться разом зі сторінкою) */}
+        <div className="mb-6">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-violet-600 mb-1.5">
+            Admin · Новини
+          </p>
+          <div className="flex items-center justify-between gap-4 pr-32">
+            <h1 className="text-3xl font-bold text-slate-900 tracking-tight flex items-center gap-3 min-w-0">
+              <span
+                className={`inline-block w-2.5 h-2.5 rounded-full flex-shrink-0 ${
+                  meta.published
+                    ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]"
+                    : "bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.5)]"
+                }`}
+              />
+              <span className="truncate">{pageTitle}</span>
+            </h1>
 
-      {/* Fixed header */}
-      <div style={{
-        position: "fixed", top: 0, left: 0, right: 0, zIndex: 300,
-        height: "56px",
-        background: "#1C3A2E",
-        borderBottomWidth: "1px", borderBottomStyle: "solid", borderBottomColor: "rgba(212,168,67,0.2)",
-        display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "0 32px",
-        boxShadow: "0 2px 24px rgba(0,0,0,0.2)",
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-          <button onClick={onBack} style={{
-            padding: "6px 14px", borderRadius: "8px",
-            borderWidth: "1px", borderStyle: "solid", borderColor: "rgba(255,255,255,0.12)",
-            background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.65)",
-            fontSize: "12px", fontWeight: 600, cursor: "pointer", fontFamily: ff,
-          }}>{"← Назад"}</button>
+            <div className="flex items-center gap-2.5 flex-shrink-0">
+              <button
+                type="button"
+                onClick={() => handleSave(false)}
+                disabled={saving}
+                className="px-7 h-12 text-[15px] font-semibold text-slate-700 bg-white ring-1 ring-slate-200 rounded-xl shadow-sm hover:bg-slate-50 hover:ring-slate-300 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Чернетка
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSave(true)}
+                disabled={saving}
+                className="group relative inline-flex items-center justify-center gap-2 px-7 h-12 text-[15px] font-semibold text-white bg-gradient-to-br from-violet-600 to-violet-700 rounded-xl shadow-sm hover:shadow-lg hover:shadow-violet-500/25 hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:shadow-none overflow-hidden"
+              >
+                <span className="absolute inset-0 -translate-x-full group-hover:translate-x-full transition-transform duration-700 bg-gradient-to-r from-transparent via-white/20 to-transparent pointer-events-none" />
+                <span className="relative inline-flex items-center gap-2">
+                  <HiOutlineCheckCircle className="text-lg" />
+                  {saving ? "Збереження…" : "Опублікувати"}
+                </span>
+              </button>
+            </div>
+          </div>
+          {(message || uploading) && (
+            <p className="mt-2 text-[12px] font-medium">
+              {message && <span className="text-rose-600">{message}</span>}
+              {uploading && <span className="text-amber-600">Завантаження…</span>}
+            </p>
+          )}
+        </div>
 
-          <div style={{ width: "1px", height: "20px", background: "rgba(255,255,255,0.08)" }} />
-
-          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <div style={{
-              width: "7px", height: "7px", borderRadius: "50%",
-              background: meta.published ? "#4ADE80" : "#FBBF24",
-              boxShadow: meta.published ? "0 0 8px rgba(74,222,128,0.5)" : "0 0 8px rgba(251,191,36,0.5)",
-            }} />
-            <span style={{ fontSize: "14px", fontWeight: 700, color: "#FAF6F0" }}>{pageTitle}</span>
+        {/* Editor row — Palette | Canvas | Sidebar, всі стартують на одному Y */}
+        <div className="flex flex-col lg:flex-row gap-10 items-start">
+          <div className="flex-1 min-w-0 w-full">
+            <EditorCanvas blocks={blocks} onBlocksChange={setBlocks} onUpload={uploadFile} />
           </div>
 
-          <div style={{ width: "1px", height: "20px", background: "rgba(255,255,255,0.08)" }} />
-
-          <span style={{ fontSize: "11px", color: draftSaved ? "#4ADE80" : "rgba(255,255,255,0.25)", fontWeight: 500, transition: "color 0.4s" }}>
-            {draftSaved ? "✓ Збережено" : "Автозбереження"}
-          </span>
-        </div>
-
-        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-          {message && <span style={{ fontSize: "12px", color: "#F87171", fontWeight: 500 }}>{message}</span>}
-          {uploading && <span style={{ fontSize: "12px", color: "#D4A843", fontWeight: 500 }}>{"Завантаження..."}</span>}
-
-          <div style={{ display: "flex", borderRadius: "10px", overflow: "hidden", borderWidth: "1px", borderStyle: "solid", borderColor: "rgba(255,255,255,0.1)" }}>
-            <button onClick={() => handleSave(false)} disabled={saving} style={{
-              padding: "8px 20px", background: "rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.75)",
-              fontSize: "13px", fontWeight: 600, cursor: saving ? "not-allowed" : "pointer",
-              border: "none", fontFamily: ff, opacity: saving ? 0.5 : 1,
-            }}>{"Чернетка"}</button>
-            <div style={{ width: "1px", background: "rgba(255,255,255,0.1)" }} />
-            <button onClick={() => handleSave(true)} disabled={saving} style={{
-              padding: "8px 24px", background: "#D4A843", color: "#1C3A2E",
-              fontSize: "13px", fontWeight: 700, cursor: saving ? "not-allowed" : "pointer",
-              border: "none", fontFamily: ff, opacity: saving ? 0.6 : 1,
-            }}>{saving ? "Збереження..." : "Опублікувати"}</button>
+          <div className="w-full lg:w-auto lg:sticky lg:top-24 lg:self-start">
+            <MetaSidebar meta={meta} onChange={setMeta} onUpload={uploadFile} />
           </div>
-        </div>
-      </div>
-
-      {/* Content */}
-      <div style={{
-        paddingTop: "80px",
-        paddingBottom: "80px",
-        paddingLeft: "40px",
-        paddingRight: "40px",
-        maxWidth: "1480px",
-        margin: "0 auto",
-        display: "flex",
-        gap: "40px",
-        alignItems: "flex-start",
-      }}>
-        {/* Left palette + canvas */}
-        <div style={{ flex: 1, minWidth: 0, paddingTop: "24px" }}>
-          <EditorCanvas blocks={blocks} onBlocksChange={setBlocks} onUpload={uploadFile} />
-        </div>
-
-        {/* Right sidebar */}
-        <div style={{ position: "sticky", top: "76px", alignSelf: "flex-start", paddingTop: "24px" }}>
-          <MetaSidebar meta={meta} onChange={setMeta} onUpload={uploadFile} />
         </div>
       </div>
     </div>

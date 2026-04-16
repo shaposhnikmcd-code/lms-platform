@@ -12,7 +12,7 @@ const getContent = getTranslatedContent(content, 'military-psychology-page', {
   pl: () => import('../_content/pl').then(m => m.default),
 });
 
-export default async function MilitaryPsychologyPricing({ locale }: { locale: string }) {
+export default async function MilitaryPsychologyPricing({ locale, price, oldPrice }: { locale: string; price: number; oldPrice: number | null }) {
   const c = await getContent(locale);
   const currency = getCurrency(locale);
   const qrLabel = getQrLabel(locale);
@@ -27,10 +27,12 @@ export default async function MilitaryPsychologyPricing({ locale }: { locale: st
           <div className="relative px-6 py-8 md:px-10 grid md:grid-cols-[1fr_auto] gap-8 md:gap-10 items-center">
             <div className="text-center md:border-r md:border-white/10 md:pr-10">
               <p className="text-[#D4A017] text-xs font-semibold uppercase tracking-widest mb-2">{c.pricing.title}</p>
-              <p className="text-white/30 line-through text-sm mb-1">{MILITARY_PSYCHOLOGY_COURSE.priceOld} {currency}</p>
+              {oldPrice !== null && (
+                <p className="text-white/30 line-through text-sm mb-1">{oldPrice} {currency}</p>
+              )}
 
               <div className="flex items-baseline justify-center gap-1.5 mb-4">
-                <span className="text-5xl font-black text-white tracking-tight">{MILITARY_PSYCHOLOGY_COURSE.price}</span>
+                <span className="text-5xl font-black text-white tracking-tight">{price}</span>
                 <span className="text-white/50 text-sm font-medium">{currency}</span>
               </div>
 
@@ -46,7 +48,7 @@ export default async function MilitaryPsychologyPricing({ locale }: { locale: st
 
               <CoursePurchaseModal
                 courseName={`${c.title1} ${c.title2}`}
-                price={Number(MILITARY_PSYCHOLOGY_COURSE.price)}
+                price={price}
                 courseId={MILITARY_PSYCHOLOGY_COURSE.courseId}
                 currency={currency}
                 buttonLabel={c.pricing.btnBuy}

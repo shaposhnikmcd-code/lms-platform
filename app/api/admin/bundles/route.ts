@@ -61,7 +61,7 @@ export async function GET(req: NextRequest) {
 
   const bundles = await prisma.bundle.findMany({
     include: { courses: true },
-    orderBy: { createdAt: "desc" },
+    orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }],
   });
 
   return NextResponse.json(bundles);
@@ -82,6 +82,7 @@ export async function POST(req: NextRequest) {
     type = "DISCOUNT",
     paidCount = 2,
     freeCount = 0,
+    displayMode = "solo",
   } = body;
 
   const bundleType: BundleType = ALLOWED_TYPES.includes(type as BundleType)
@@ -122,6 +123,10 @@ export async function POST(req: NextRequest) {
     }, 0);
   }
 
+  // Новий пакет йде на початок списку — sortOrder = min(existing) - 1
+  const minSort = await prisma.bundle.aggregate({ _min: { sortOrder: true } });
+  const newSortOrder = (minSort._min.sortOrder ?? 0) - 1;
+
   const bundle = await prisma.bundle.create({
     data: {
       title,
@@ -132,6 +137,8 @@ export async function POST(req: NextRequest) {
       type: bundleType,
       paidCount,
       freeCount,
+      sortOrder: newSortOrder,
+      displayMode: displayMode === "solo" ? "solo" : "auto",
       courses: {
         create: courses.map((c) => ({ courseSlug: c.courseSlug, isFree: !!c.isFree })),
       },

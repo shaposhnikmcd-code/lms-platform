@@ -22,9 +22,13 @@ export default function DashboardBackButton() {
       router.push("/");
       return;
     }
-    // Navigate up one level in the path
+    // Navigate up one level in the path. For `.../{id}/edit` patterns, skip
+    // two segments because the dynamic-id level has no page and would 404.
     const segments = pathname.replace(/\/$/, "").split("/");
     segments.pop();
+    if (pathname.replace(/\/$/, "").endsWith("/edit")) {
+      segments.pop();
+    }
     const parentPath = segments.join("/") || "/dashboard";
     router.push(parentPath);
   };

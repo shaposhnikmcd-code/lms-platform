@@ -54,9 +54,17 @@ export async function PATCH(
     }
   }
 
+  const patchData: Record<string, unknown> = { ...data, ...translations };
+  if (data.suspendedAt !== undefined) {
+    patchData.suspendedAt = data.suspendedAt ? new Date(data.suspendedAt) : null;
+  }
+  if (data.resumeAt !== undefined) {
+    patchData.resumeAt = data.resumeAt ? new Date(data.resumeAt) : null;
+  }
+
   const item = await prisma.news.update({
     where: { id },
-    data: { ...data, ...translations },
+    data: patchData,
   });
 
   return NextResponse.json(item);

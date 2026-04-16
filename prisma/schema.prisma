@@ -291,13 +291,17 @@ model News {
   excerptPl String?
   contentEn String?
   contentPl String?
-  imageUrl  String?
-  category  NewsCategory @default(NEWS)
-  published Boolean      @default(false)
-  authorId  String?
-  createdAt DateTime     @default(now())
-  updatedAt DateTime     @updatedAt
-  author    User?        @relation(fields: [authorId], references: [id])
+  imageUrl    String?
+  category    NewsCategory @default(NEWS)
+  published   Boolean      @default(false)
+  /// Коли задано — новина схована з вітрини. Використовується і для "паузи", і для відкладеної публікації (coupled з resumeAt).
+  suspendedAt DateTime?
+  /// Коли задано разом з suspendedAt — новина автоматично повертається на вітрину з цієї дати.
+  resumeAt    DateTime?
+  authorId    String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  author      User?        @relation(fields: [authorId], references: [id])
 
   @@index([published, createdAt])
 }
@@ -385,9 +389,15 @@ model Bundle {
   paidCount   Int            @default(2)
   /// Кількість безкоштовних, які клієнт отримує при покупці (0 для DISCOUNT)
   freeCount   Int            @default(0)
+  /// Позиція у списку (менше = вище). Drag-and-drop reorder в адмінці.
+  sortOrder   Int            @default(0)
+  /// Режим відображення на публічній /courses: 'solo' — завжди один в ряду (за замовчуванням); 'auto' — групується з іншими тієї самої ширини.
+  displayMode String         @default("solo")
   createdAt   DateTime       @default(now())
   courses     BundleCourse[]
   payments    Payment[]
+
+  @@index([sortOrder])
 }
 
 model BundleCourse {
@@ -433,6 +443,7 @@ enum NewsCategory {
   NEWS
   ANNOUNCEMENT
   ARTICLE
+  EVENT
 }
 
 /// Лог усіх платіжних callback-ів (course / bundle / connector).
@@ -461,4 +472,33 @@ model PaymentCallbackLog {
   @@index([orderReference])
   @@index([createdAt])
   @@index([kind])
+}
+
+/// Override-и динамічних полів спеціалістів (ціна, тривалість, кнопка запису, приховування).
+/// Базовий контент (імʼя, опис, освіта, сертифікати) лишається у TS-файлах
+/// `app/[locale]/consultations/_content/*.ts`. Ключ — slug, що дорівнює slug-у в TS.
+model SpecialistOverride {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  price     String?
+  duration  String?
+  btnLabel  String?
+  btnUrl    String?
+  hidden    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// Override ціни курсу для керування з адмінки без деплою.
+/// Ключ — slug із `lib/coursesCatalog.ts`. Якщо відповідне поле не null —
+/// воно перекриває значення з config.ts/каталогу. Відсутність рядка = повний дефолт.
+/// `oldPrice` — стара ціна, що рендериться перекресленою поруч із новою (тільки на
+/// детальних сторінках курсів; у списку /courses завжди видно тільки актуальну ціну).
+model CoursePriceOverride {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  price     Int?
+  oldPrice  Int?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }

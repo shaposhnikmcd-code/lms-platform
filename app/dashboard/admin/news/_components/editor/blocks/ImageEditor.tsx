@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Block } from "../types";
 
 const ff = "-apple-system, BlinkMacSystemFont, sans-serif";
@@ -21,6 +21,22 @@ interface Props {
 export default function ImageEditor({ block, onChange, onUpload }: Props) {
   const ref = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+
+  // Підтягнути aspectRatio для старих фото, де поле ще не збережене
+  useEffect(() => {
+    if (!block.data.url) return;
+    if (block.data.aspectRatio) return;
+    const img = new window.Image();
+    img.onload = () => {
+      if (img.naturalWidth && img.naturalHeight) {
+        onChange({
+          ...block.data,
+          aspectRatio: String(img.naturalWidth / img.naturalHeight),
+        });
+      }
+    };
+    img.src = block.data.url;
+  }, [block.data.url]);
 
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

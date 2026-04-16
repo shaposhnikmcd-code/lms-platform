@@ -123,6 +123,7 @@ export default function MetaSidebar({ meta, onChange, onUpload }: Props) {
               <option value="NEWS">{"Новина"}</option>
               <option value="ANNOUNCEMENT">{"Анонс"}</option>
               <option value="ARTICLE">{"Стаття"}</option>
+              <option value="EVENT">{"Подія"}</option>
             </select>
           </div>
         </div>

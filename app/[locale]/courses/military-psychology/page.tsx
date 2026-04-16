@@ -6,6 +6,7 @@ import MilitaryPsychologyPricing from './_components/MilitaryPsychologyPricing';
 import CoursePurchaseModal from '@/components/CoursePurchaseModal';
 import { MILITARY_PSYCHOLOGY_COURSE } from './config';
 import { getTranslatedContent } from '@/lib/translate';
+import { getCoursePriceInfo } from '@/lib/coursePrice';
 import { content } from './_content/uk';
 import BackButton from '@/components/BackButton';
 
@@ -21,9 +22,16 @@ const audienceIcons = [
   <FaHospital key={2} className="text-3xl text-[#D4A017]" />,
 ];
 
+export const dynamic = 'force-dynamic';
+
 export default async function MilitaryPsychologyPage({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
   const c = await getContent(locale);
+  const { price, oldPrice } = await getCoursePriceInfo(
+    'military-psychology',
+    Number(MILITARY_PSYCHOLOGY_COURSE.price),
+    MILITARY_PSYCHOLOGY_COURSE.priceOld ? Number(MILITARY_PSYCHOLOGY_COURSE.priceOld) : null,
+  );
 
   return (
     <main className={`min-h-screen bg-white ${inter.className}`}>
@@ -46,7 +54,7 @@ export default async function MilitaryPsychologyPage({ params }: { params: Promi
               <div className="flex flex-col sm:flex-row gap-3 !mt-4">
                 <CoursePurchaseModal
                   courseName={`${c.title1} ${c.title2}`}
-                  price={Number(MILITARY_PSYCHOLOGY_COURSE.price)}
+                  price={price}
                   courseId={MILITARY_PSYCHOLOGY_COURSE.courseId}
                   buttonLabel={c.btnBuy}
                 />
@@ -173,7 +181,7 @@ export default async function MilitaryPsychologyPage({ params }: { params: Promi
         </div>
       </section>
 
-      <MilitaryPsychologyPricing locale={locale} />
+      <MilitaryPsychologyPricing locale={locale} price={price} oldPrice={oldPrice} />
 
           <BackButton href="/courses" label="Повернутись до освітніх проєктів" />
     </main>

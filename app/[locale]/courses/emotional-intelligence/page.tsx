@@ -6,6 +6,7 @@ import EmotionalIntelligencePricing from './_components/EmotionalIntelligencePri
 import CoursePurchaseModal from '@/components/CoursePurchaseModal';
 import { EMOTIONAL_INTELLIGENCE_COURSE } from './config';
 import { getTranslatedContent } from '@/lib/translate';
+import { getCoursePriceInfo } from '@/lib/coursePrice';
 import { content } from './_content/uk';
 import BackButton from '@/components/BackButton';
 
@@ -23,9 +24,12 @@ const audienceIcons = [
   <FaBookOpen key={4} className="text-3xl text-[#D4A017]" />,
 ];
 
+export const dynamic = 'force-dynamic';
+
 export default async function EmotionalIntelligencePage({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
   const c = await getContent(locale);
+  const { price, oldPrice } = await getCoursePriceInfo('emotional-intelligence', Number(EMOTIONAL_INTELLIGENCE_COURSE.price));
 
   return (
     <main className={`min-h-screen bg-white ${inter.className}`}>
@@ -49,7 +53,7 @@ export default async function EmotionalIntelligencePage({ params }: { params: Pr
               <div className="flex flex-col sm:flex-row gap-3 !mt-4">
                 <CoursePurchaseModal
                   courseName={`${c.title1} ${c.title2}`}
-                  price={Number(EMOTIONAL_INTELLIGENCE_COURSE.price)}
+                  price={price}
                   courseId={EMOTIONAL_INTELLIGENCE_COURSE.courseId}
                   buttonLabel={c.btnBuy}
                 />
@@ -199,7 +203,7 @@ export default async function EmotionalIntelligencePage({ params }: { params: Pr
       </section>
 
       {/* Pricing */}
-      <EmotionalIntelligencePricing locale={locale} />
+      <EmotionalIntelligencePricing locale={locale} price={price} oldPrice={oldPrice} />
 
           <BackButton href="/courses" label="Повернутись до освітніх проєктів" />
     </main>

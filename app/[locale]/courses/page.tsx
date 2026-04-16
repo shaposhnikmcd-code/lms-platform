@@ -12,17 +12,20 @@ import CourseCard from "./_components/CourseCard";
 import BundleCard from "./_components/BundleCard";
 import prisma from "@/lib/prisma";
 import { COURSES_BY_SLUG } from "@/lib/coursesCatalog";
+import { getCoursePriceOverrides } from "@/lib/coursePrice";
+
+export const dynamic = "force-dynamic";
 
 const sysFont = '-apple-system, BlinkMacSystemFont, sans-serif';
 
 const coursesMeta = [
-  { key: "psychology",     price: null, href: "/courses/psychology-basics",                icon: "🧠", tagKey: "tags.biblicalTherapy",   accent: '#D4A843', accentRgb: '212,168,67' },
-  { key: "psychiatry",     price: null, href: "/courses/psychiatry-basics",                icon: "🩺", tagKey: "tags.forPsychologists",   accent: '#C4919A', accentRgb: '196,145,154' },
-  { key: "mentorship",     price: null, href: "/courses/mentorship",                       icon: "🫂", tagKey: "tags.forBeginners",       accent: '#1C3A2E', accentRgb: '28,58,46' },
-  { key: "biblicalHeroes", price: null, href: "/courses/psychotherapy-of-biblical-heroes", icon: "📖", tagKey: "tags.newPerspective",     accent: '#C4919A', accentRgb: '196,145,154' },
-  { key: "sexEd",          price: null, href: "/courses/sex-education",                    icon: "👨‍👩‍👧", tagKey: "tags.forParents",         accent: '#D4A843', accentRgb: '212,168,67' },
-  { key: "militaryPsy",   price: null, href: "/courses/military-psychology",               icon: "🪖",   tagKey: "tags.forMilitary",        accent: '#1C3A2E', accentRgb: '28,58,46' },
-  { key: "emotionalIQ",  price: null, href: "/courses/emotional-intelligence",            icon: "🧠",   tagKey: "tags.forEveryone",        accent: '#D4A843', accentRgb: '212,168,67' },
+  { key: "psychology",     slug: "psychology-basics",                 href: "/courses/psychology-basics",                icon: "🧠", tagKey: "tags.biblicalTherapy",   accent: '#D4A843', accentRgb: '212,168,67' },
+  { key: "psychiatry",     slug: "psychiatry-basics",                 href: "/courses/psychiatry-basics",                icon: "🩺", tagKey: "tags.forPsychologists",   accent: '#C4919A', accentRgb: '196,145,154' },
+  { key: "mentorship",     slug: "mentorship",                        href: "/courses/mentorship",                       icon: "🫂", tagKey: "tags.forBeginners",       accent: '#1C3A2E', accentRgb: '28,58,46' },
+  { key: "biblicalHeroes", slug: "psychotherapy-of-biblical-heroes", href: "/courses/psychotherapy-of-biblical-heroes", icon: "📖", tagKey: "tags.newPerspective",     accent: '#C4919A', accentRgb: '196,145,154' },
+  { key: "sexEd",          slug: "sex-education",                     href: "/courses/sex-education",                    icon: "👨‍👩‍👧", tagKey: "tags.forParents",         accent: '#D4A843', accentRgb: '212,168,67' },
+  { key: "militaryPsy",    slug: "military-psychology",               href: "/courses/military-psychology",              icon: "🪖",   tagKey: "tags.forMilitary",        accent: '#1C3A2E', accentRgb: '28,58,46' },
+  { key: "emotionalIQ",    slug: "emotional-intelligence",            href: "/courses/emotional-intelligence",           icon: "🧠",   tagKey: "tags.forEveryone",        accent: '#D4A843', accentRgb: '212,168,67' },
 ];
 
 const cardLayouts: { width: string; marginLeft: string; className: string }[] = [
@@ -64,11 +67,14 @@ export default async function CoursesPage({ params }: { params: Promise<{ locale
     data: { suspendedAt: null, resumeAt: null },
   });
 
-  const bundles = await prisma.bundle.findMany({
-    where: { published: true, suspendedAt: null },
-    include: { courses: true },
-    orderBy: { createdAt: 'desc' },
-  });
+  const [bundles, priceOverrides] = await Promise.all([
+    prisma.bundle.findMany({
+      where: { published: true, suspendedAt: null },
+      include: { courses: true },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }],
+    }),
+    getCoursePriceOverrides(),
+  ]);
 
   const benefits = [
     { icon: "🎓", title: t("benefits.record.title"), desc: t("benefits.record.desc") },
@@ -78,15 +84,17 @@ export default async function CoursesPage({ params }: { params: Promise<{ locale
 
   const cardBenefits = benefits.map(b => ({ icon: b.icon, title: b.title }));
 
-  const getPrice = (key: string, override: string | null) => override ?? (
-    key === "psychology"        ? PSYCHOLOGY_COURSE.price
-    : key === "psychiatry"     ? PSYCHIATRY_COURSE.price
-    : key === "mentorship"     ? MENTORSHIP_COURSE.price
-    : key === "biblicalHeroes" ? BIBLICAL_HEROES_COURSE.price
-    : key === "sexEd"         ? SEX_EDUCATION_COURSE.price
-    : key === "militaryPsy"    ? MILITARY_PSYCHOLOGY_COURSE.price
-    : EMOTIONAL_INTELLIGENCE_COURSE.price
-  );
+  const getPrice = (slug: string, key: string) => {
+    const override = priceOverrides.get(slug);
+    if (override !== undefined) return String(override);
+    return key === "psychology"        ? PSYCHOLOGY_COURSE.price
+      : key === "psychiatry"     ? PSYCHIATRY_COURSE.price
+      : key === "mentorship"     ? MENTORSHIP_COURSE.price
+      : key === "biblicalHeroes" ? BIBLICAL_HEROES_COURSE.price
+      : key === "sexEd"         ? SEX_EDUCATION_COURSE.price
+      : key === "militaryPsy"    ? MILITARY_PSYCHOLOGY_COURSE.price
+      : EMOTIONAL_INTELLIGENCE_COURSE.price;
+  };
 
   return (
     <div style={{ background: '#F5F2ED', minHeight: '100vh' }}>
@@ -137,7 +145,7 @@ export default async function CoursesPage({ params }: { params: Promise<{ locale
                     icon={c.icon}
                     title={t(`courses.${c.key}.title` as any)}
                     description={t(`courses.${c.key}.description` as any)}
-                    price={getPrice(c.key, c.price)}
+                    price={getPrice(c.slug, c.key)}
                     duration={t(`courses.${c.key}.duration` as any)}
                     currency={currency}
                     priceLabel={t("priceLabel")}
@@ -171,39 +179,66 @@ export default async function CoursesPage({ params }: { params: Promise<{ locale
               const count = bundles.length;
               const layout = count === 1 ? 'full' as const : 'compact' as const;
 
-              // Split bundles into rows based on total count
-              // n ≤ 3: single row (keeps existing frozen designs)
-              // n = 4: [2, 2]
-              // n = 5: [3, 2] (3-row first — intentional exception)
-              // n % 3 === 0: rows of 3
-              // n % 3 === 1 (7, 10, 13…): [2, 2, 3, 3…]
-              // n % 3 === 2 (8, 11, 14…): [2, 3, 3…]
-              const rowSizes: number[] = (() => {
-                if (count <= 3) return [count];
-                if (count === 4) return [2, 2];
-                if (count === 5) return [3, 2];
-                const rem = count % 3;
-                if (rem === 0) return Array(count / 3).fill(3);
-                if (rem === 1) return [2, 2, ...Array((count - 4) / 3).fill(3)];
-                return [2, ...Array((count - 2) / 3).fill(3)];
-              })();
+              // Групування: за замовчуванням (displayMode !== 'auto' → 'solo') кожен пакет у своєму ряду.
+              // Якщо displayMode === 'auto' — усі пакети з 'auto' йдуть в один спільний bucket
+              // незалежно від ширини / типу; адмін сам вирішує, що з чим комбінувати.
+              const widthKey = (b: typeof bundles[number]) => {
+                if ((b as { displayMode?: string }).displayMode !== 'auto') return `solo:${b.id}`;
+                return 'group';
+              };
 
-              let offset = 0;
-              const rows = rowSizes.map((size) => {
-                const slice = bundles.slice(offset, offset + size);
-                offset += size;
-                return slice;
+              const buckets = new Map<string, typeof bundles>();
+              for (const b of bundles) {
+                const k = widthKey(b);
+                if (!buckets.has(k)) buckets.set(k, [] as typeof bundles);
+                buckets.get(k)!.push(b);
+              }
+
+              // Порядок усередині bucket-у = порядок який прийшов з БД (вже відсортовано за sortOrder).
+              // Таким чином drag-and-drop в адмінці керує порядком відображення.
+
+              // Порядок bucket-ів: той чий перший пакет (за прийдним sortOrder) стоїть найраніше в списку — іде першим.
+              // Тобто drag-and-drop в адмінці керує не тільки позицією всередині групи, а й порядком самих груп.
+              const firstIndex = new Map<string, number>();
+              bundles.forEach((b, i) => {
+                const k = widthKey(b);
+                if (!firstIndex.has(k)) firstIndex.set(k, i);
               });
+              const sortedKeys = Array.from(buckets.keys()).sort(
+                (a, b) => (firstIndex.get(a) ?? 0) - (firstIndex.get(b) ?? 0),
+              );
+
+              const buildRowSizes = (n: number): number[] => {
+                if (n <= 3) return [n];
+                if (n === 4) return [2, 2];
+                if (n === 5) return [3, 2];
+                const rem = n % 3;
+                if (rem === 0) return Array(n / 3).fill(3);
+                if (rem === 1) return [2, 2, ...Array((n - 4) / 3).fill(3)];
+                return [2, ...Array((n - 2) / 3).fill(3)];
+              };
+
+              const rows: (typeof bundles)[] = [];
+              for (const key of sortedKeys) {
+                const group = buckets.get(key)!;
+                const sizes = buildRowSizes(group.length);
+                let offset = 0;
+                for (const size of sizes) {
+                  rows.push(group.slice(offset, offset + size));
+                  offset += size;
+                }
+              }
 
               const renderBundle = (bundle: typeof bundles[number]) => {
                 const mapCourse = (bc: typeof bundle.courses[number]) => {
                   const info = COURSE_INFO[bc.courseSlug];
+                  const overridePrice = priceOverrides.get(bc.courseSlug);
                   return {
                     slug: bc.courseSlug,
                     title: t(COURSE_TITLE_KEYS[bc.courseSlug] as Parameters<typeof t>[0]) || bc.courseSlug,
                     description: info ? t(info.descKey as Parameters<typeof t>[0]) : '',
                     tag: info ? t(info.tagKey as Parameters<typeof t>[0]) : '',
-                    price: info?.price || 0,
+                    price: overridePrice ?? info?.price ?? 0,
                     icon: info?.icon || '📚',
                     accent: info?.accent || '#D4A843',
                     accentRgb: info?.accentRgb || '212,168,67',
@@ -233,13 +268,17 @@ export default async function CoursesPage({ params }: { params: Promise<{ locale
               };
 
               return (
-                <div className="flex flex-col gap-4">
+                <div className="flex flex-col gap-10">
                   {rows.map((rowBundles, rowIdx) => {
                     const size = rowBundles.length;
                     const gridCols = size === 1 ? 'grid-cols-1' : size === 2 ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3';
-                    const maxW = size === 1 ? 780 : size === 2 ? 1400 : 1800;
+                    const paidCount = rowBundles[0]?.courses.filter((c) => !c.isFree).length ?? 0;
+                    const freeCount = rowBundles[0]?.courses.filter((c) => c.isFree).length ?? 0;
+                    const wide4Free = size === 1 && freeCount === 4;
+                    const width2Cols = size === 1 && paidCount <= 2 && freeCount <= 2 && (paidCount + freeCount) >= 2;
+                    const maxW = wide4Free ? 1200 : width2Cols ? 690 : size === 1 ? 780 : size === 2 ? 1400 : 1800;
                     return (
-                      <div key={rowIdx} className={`grid ${gridCols} gap-4 items-stretch`} style={{ maxWidth: maxW, margin: '0 auto', width: '100%' }}>
+                      <div key={rowIdx} className={`grid ${gridCols} gap-4 items-start`} style={{ maxWidth: maxW, margin: '0 auto', width: '100%' }}>
                         {rowBundles.map(renderBundle)}
                       </div>
                     );

@@ -18,6 +18,7 @@ export const consultationsContent = {
   notionBtn: "More specialists in the UIMP directory",
   specialists: [
     {
+      slug: "tetiana-shaposhnyk",
       name: "Tetiana Shaposhnyk",
       role: "President of UIMP, psychotherapist",
       experience: "15+ years of practical experience",
@@ -121,6 +122,7 @@ export const consultationsContent = {
       calendlyUrl: "https://calendly.com/saposniktana878/50",
     },
     {
+      slug: "anna-hudzenko",
       name: "Anna Hudzenko",
       role: "Psychologist-counselor",
       experience: "3+ years in mental health",
@@ -146,6 +148,7 @@ export const consultationsContent = {
       calendlyUrl: "https://t.me/hudzenko_anna",
     },
     {
+      slug: "kateryna-chupinina",
       name: "Kateryna Chupinina",
       image: "/base-of specialists/Kateryna-Chupinina.jpg",
       imagePosition: "center 20%",
@@ -170,6 +173,7 @@ export const consultationsContent = {
       calendlyUrl: "https://t.me/KaterinaChupinina",
     },
     {
+      slug: "maria-klochan",
       name: "Maria Klochan",
       role: "Ministry specialist, sex educator",
       experience: "",
@@ -194,6 +198,7 @@ export const consultationsContent = {
       calendlyUrl: "https://t.me/Masha_Klochan",
     },
     {
+      slug: "oleksandra-yanush",
       name: "Oleksandra Yanush",
       role: "Ministry counselor, program curator",
       experience: "",
@@ -215,6 +220,7 @@ export const consultationsContent = {
       calendlyUrl: "https://t.me/SashaYanush",
     },
     {
+      slug: "marta-kholiava",
       name: "Marta Kholiava",
       role: "Psychologist, ministry specialist, director of the consultations department",
       experience: "17+ years of experience",

@@ -6,6 +6,7 @@ export const newsContent = {
     NEWS: "Новини",
     ANNOUNCEMENT: "Оголошення",
     ARTICLE: "Стаття",
+    EVENT: "Подія",
   },
   back: "Назад до новин",
   related: "Схожі матеріали",

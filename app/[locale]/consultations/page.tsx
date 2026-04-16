@@ -1,8 +1,11 @@
 import Image from "next/image";
+import prisma from "@/lib/prisma";
 import { consultationsContent } from "./_content/uk";
 import { getTranslatedContent } from "@/lib/translate";
 import SpecialistCard from "./_components/SpecialistCard";
 import NotionButton from "./_components/NotionButton";
+
+export const dynamic = "force-dynamic";
 
 const sysFont = '-apple-system, BlinkMacSystemFont, sans-serif';
 const getContent = getTranslatedContent(consultationsContent, 'consultations-page', {
@@ -12,7 +15,24 @@ const getContent = getTranslatedContent(consultationsContent, 'consultations-pag
 
 export default async function ConsultationsPage({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
-  const c = await getContent(locale);
+  const [c, overrides] = await Promise.all([
+    getContent(locale),
+    prisma.specialistOverride.findMany(),
+  ]);
+  const overridesBySlug = new Map(overrides.map((o) => [o.slug, o]));
+  const specialists = c.specialists
+    .map((s) => {
+      const o = overridesBySlug.get(s.slug);
+      return {
+        ...s,
+        price: o?.price ?? s.price,
+        duration: o?.duration ?? s.duration,
+        calendlyUrl: o?.btnUrl ?? s.calendlyUrl,
+        btnLabel: o?.btnLabel ?? undefined,
+        hidden: o?.hidden ?? false,
+      };
+    })
+    .filter((s) => !s.hidden);
 
   return (
     <main className="min-h-screen bg-[#f4f9f4]">
@@ -47,7 +67,7 @@ export default async function ConsultationsPage({ params }: { params: Promise<{ 
       </section>
 
       <div className="max-w-6xl mx-auto px-6 py-16 space-y-8">
-        {c.specialists.map((s, i) => (
+        {specialists.map((s, i) => (
           <SpecialistCard key={i} s={s} labels={{ aboutTitle: c.aboutTitle, worksWithTitle: c.worksWithTitle, diplomasLabel: c.diplomasLabel, educationTitle: c.educationTitle, certificatesTitle: c.certificatesTitle, associationsLabel: c.associationsLabel, costLabel: c.costLabel, durationLabel: c.durationLabel, btnBook: c.btnBook }} />
         ))}
         <NotionButton label={c.notionBtn} />

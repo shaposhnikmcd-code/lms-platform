@@ -18,6 +18,7 @@ export const consultationsContent = {
   notionBtn: "Більше спеціалістів у базі UIMP",
   specialists: [
     {
+      slug: "tetiana-shaposhnyk",
       name: "Тетяна Шапошник",
       role: "Президентка UIMP, психотерапевтка",
       experience: "15+ років практичного досвіду",
@@ -121,6 +122,7 @@ export const consultationsContent = {
       calendlyUrl: "https://calendly.com/saposniktana878/50",
     },
     {
+      slug: "anna-hudzenko",
       name: "Анна Гудзенко",
       role: "Психолог-консультант",
       experience: "3+ роки в ментальному здоров'ї",
@@ -146,6 +148,7 @@ export const consultationsContent = {
       calendlyUrl: "https://t.me/hudzenko_anna",
     },
     {
+      slug: "kateryna-chupinina",
       name: "Катерина Чупініна",
       image: "/base-of specialists/Kateryna-Chupinina.jpg",
       imagePosition: "center 20%",
@@ -170,6 +173,7 @@ export const consultationsContent = {
       calendlyUrl: "https://t.me/KaterinaChupinina",
     },
     {
+      slug: "maria-klochan",
       name: "Марія Клочан",
       role: "Спеціаліст з душеопіки, секс-едукатор",
       experience: "",
@@ -194,6 +198,7 @@ export const consultationsContent = {
       calendlyUrl: "https://t.me/Masha_Klochan",
     },
     {
+      slug: "oleksandra-yanush",
       name: "Олександра Януш",
       role: "Консультант з душеопіки, куратор програм",
       experience: "",
@@ -215,6 +220,7 @@ export const consultationsContent = {
       calendlyUrl: "https://t.me/SashaYanush",
     },
     {
+      slug: "marta-kholiava",
       name: "Марта Холява",
       role: "Психолог, спеціаліст з душеопіки, директор відділу консультацій",
       experience: "17+ років досвіду",

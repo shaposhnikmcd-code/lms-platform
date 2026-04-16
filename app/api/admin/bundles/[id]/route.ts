@@ -97,6 +97,7 @@ export async function PATCH(
     type,
     paidCount,
     freeCount,
+    displayMode,
   } = body;
 
   const courses = body.courses !== undefined || body.courseSlugs !== undefined
@@ -145,6 +146,7 @@ export async function PATCH(
   if (freeCount !== undefined) updateData.freeCount = freeCount;
   if (suspendedAt !== undefined) updateData.suspendedAt = suspendedAt ? new Date(suspendedAt) : null;
   if (resumeAt !== undefined) updateData.resumeAt = resumeAt ? new Date(resumeAt) : null;
+  if (displayMode !== undefined) updateData.displayMode = displayMode === "solo" ? "solo" : "auto";
 
   // Для FIXED_FREE / CHOICE_FREE автоматично перерахувати price = сума платних
   const effectiveType = (updateData.type as BundleType | undefined) ?? (await prisma.bundle.findUnique({ where: { id }, select: { type: true } }))?.type;

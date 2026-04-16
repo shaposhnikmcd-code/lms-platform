@@ -6,6 +6,7 @@ import MentorshipPricing from './_components/MentorshipPricing';
 import CoursePurchaseModal from '@/components/CoursePurchaseModal';
 import { MENTORSHIP_COURSE } from './config';
 import { getTranslatedContent } from '@/lib/translate';
+import { getCoursePriceInfo } from '@/lib/coursePrice';
 import { content } from './_content/uk';
 import BackButton from '@/components/BackButton';
 
@@ -21,9 +22,12 @@ const resultIcons = [
   <FaBookOpen key={2} className="text-3xl text-[#D4A017]" />,
 ];
 
+export const dynamic = 'force-dynamic';
+
 export default async function MentorshipCoursePage({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
   const c = await getContent(locale);
+  const { price, oldPrice } = await getCoursePriceInfo('mentorship', Number(MENTORSHIP_COURSE.price));
 
   return (
     <main className={`min-h-screen bg-white ${inter.className}`}>
@@ -46,7 +50,7 @@ export default async function MentorshipCoursePage({ params }: { params: Promise
               <div className="flex flex-col sm:flex-row gap-3 !mt-4">
                 <CoursePurchaseModal
                   courseName={`${c.title1} ${c.title2}`}
-                  price={Number(MENTORSHIP_COURSE.price)}
+                  price={price}
                   courseId={MENTORSHIP_COURSE.courseId}
                   buttonLabel={c.btnBuy}
                 />
@@ -163,7 +167,7 @@ export default async function MentorshipCoursePage({ params }: { params: Promise
         </div>
       </section>
 
-      <MentorshipPricing locale={locale} />
+      <MentorshipPricing locale={locale} price={price} oldPrice={oldPrice} />
 
           <BackButton href="/courses" label="Повернутись до освітніх проєктів" />
     </main>

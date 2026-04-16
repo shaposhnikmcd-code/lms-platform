@@ -11,7 +11,7 @@ const getContent = getTranslatedContent(content, 'mentorship-page', {
   pl: () => import('../_content/pl').then(m => m.default),
 });
 
-export default async function MentorshipPricing({ locale }: { locale: string }) {
+export default async function MentorshipPricing({ locale, price, oldPrice }: { locale: string; price: number; oldPrice: number | null }) {
   const c = await getContent(locale);
   const currency = getCurrency(locale);
   const qrLabel = getQrLabel(locale);
@@ -28,8 +28,11 @@ export default async function MentorshipPricing({ locale }: { locale: string }) 
               <h2 className="text-2xl md:text-3xl font-bold text-white mb-1">{c.pricing.title}</h2>
               <p className="text-white/50 text-sm mb-5">{c.pricing.subtitle}</p>
 
+              {oldPrice !== null && (
+                <p className="text-white/30 line-through text-sm mb-1">{oldPrice} {currency}</p>
+              )}
               <div className="flex items-baseline justify-center gap-1.5 mb-4">
-                <span className="text-5xl font-black text-white tracking-tight">{MENTORSHIP_COURSE.price}</span>
+                <span className="text-5xl font-black text-white tracking-tight">{price}</span>
                 <span className="text-white/50 text-sm font-medium">{currency}</span>
               </div>
 
@@ -37,7 +40,7 @@ export default async function MentorshipPricing({ locale }: { locale: string }) 
 
               <CoursePurchaseModal
                 courseName={`${c.title1} ${c.title2}`}
-                price={Number(MENTORSHIP_COURSE.price)}
+                price={price}
                 courseId={MENTORSHIP_COURSE.courseId}
                 currency={currency}
                 buttonLabel={c.pricing.btnBuy}

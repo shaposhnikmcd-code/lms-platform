@@ -1,8 +1,19 @@
-"use client";
+'use client';
 
-import { useEffect, useState } from "react";
-import Link from "next/link";
-import { FaPlus, FaEdit, FaTrash, FaEye, FaEyeSlash, FaSearch, FaImage, FaChevronDown } from "react-icons/fa";
+import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import {
+  FaPlus,
+  FaEdit,
+  FaTrash,
+  FaImage,
+  FaChevronDown,
+} from 'react-icons/fa';
+import { useAdminTheme, type Theme } from '../_components/adminTheme';
+import { AdminShell, AdminPanel } from '../_components/AdminShell';
+import NewsPublishButton from './_components/NewsPublishButton';
+import CategoryPicker from './_components/CategoryPicker';
+import StatusPicker from './_components/StatusPicker';
 
 interface NewsItem {
   id: string;
@@ -13,21 +24,12 @@ interface NewsItem {
   imageUrl: string | null;
   category: string;
   published: boolean;
+  suspendedAt: string | null;
+  resumeAt: string | null;
   createdAt: string;
   author?: { name: string | null };
 }
 
-const CATEGORY_LABELS: Record<string, string> = {
-  NEWS: "Новини",
-  ANNOUNCEMENT: "Оголошення",
-  ARTICLE: "Стаття",
-};
-
-const CATEGORY_COLORS: Record<string, string> = {
-  NEWS: "bg-blue-50 text-blue-700 ring-1 ring-blue-100",
-  ANNOUNCEMENT: "bg-amber-50 text-amber-700 ring-1 ring-amber-100",
-  ARTICLE: "bg-violet-50 text-violet-700 ring-1 ring-violet-100",
-};
 
 function stripHtml(html: string): string {
   return html.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim();
@@ -36,6 +38,7 @@ function stripHtml(html: string): string {
 interface ContentBlock {
   id: string;
   type: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   data: Record<string, any>;
 }
 
@@ -43,7 +46,8 @@ function flattenBlocks(content: string): ContentBlock[] {
   try {
     const parsed = JSON.parse(content);
     if (!Array.isArray(parsed)) return [];
-    return parsed.flatMap((item: any) => item.blocks ? item.blocks : [item]);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return parsed.flatMap((item: any) => (item.blocks ? item.blocks : [item]));
   } catch {
     return [];
   }
@@ -82,63 +86,146 @@ function getEmbedUrl(url: string): string | null {
   return match ? `https://www.youtube.com/embed/${match[1]}` : null;
 }
 
-function renderBlock(block: ContentBlock) {
+function renderBlock(block: ContentBlock, theme: Theme) {
+  const dark = theme === 'dark';
   if (!block.data) return null;
   switch (block.type) {
     case 'heading': {
       const Tag = `h${block.data.level || '2'}` as 'h1' | 'h2' | 'h3';
-      return <Tag key={block.id} className="font-bold text-slate-800" style={{ fontSize: Tag === 'h1' ? '1.5rem' : Tag === 'h2' ? '1.25rem' : '1.1rem', margin: '0.8em 0 0.4em' }}>{block.data.text}</Tag>;
+      return (
+        <Tag
+          key={block.id}
+          className={`font-bold ${dark ? 'text-slate-100' : 'text-stone-900'}`}
+          style={{
+            fontSize: Tag === 'h1' ? '1.5rem' : Tag === 'h2' ? '1.25rem' : '1.1rem',
+            margin: '0.8em 0 0.4em',
+          }}
+        >
+          {block.data.text}
+        </Tag>
+      );
     }
     case 'text':
-      return block.data.html
-        ? <div key={block.id} className="news-preview-content" dangerouslySetInnerHTML={{ __html: block.data.html }} />
-        : block.data.text ? <p key={block.id} className="text-sm text-slate-600 leading-relaxed my-1">{block.data.text}</p> : null;
+      return block.data.html ? (
+        <div
+          key={block.id}
+          className="news-preview-content"
+          dangerouslySetInnerHTML={{ __html: block.data.html }}
+        />
+      ) : block.data.text ? (
+        <p
+          key={block.id}
+          className={`text-sm leading-relaxed my-1 ${dark ? 'text-slate-300' : 'text-stone-700'}`}
+        >
+          {block.data.text}
+        </p>
+      ) : null;
     case 'hero':
-      return block.data.text ? <p key={block.id} className="text-base font-medium text-slate-700 my-2">{block.data.text}</p> : null;
+      return block.data.text ? (
+        <p
+          key={block.id}
+          className={`text-base font-medium my-2 ${dark ? 'text-slate-200' : 'text-stone-800'}`}
+        >
+          {block.data.text}
+        </p>
+      ) : null;
     case 'image':
       return block.data.url ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img key={block.id} src={block.data.url} alt={block.data.alt || ''} className="w-full rounded-lg my-3" style={{ maxHeight: '400px', objectFit: 'cover' }} />
+        <img
+          key={block.id}
+          src={block.data.url}
+          alt={block.data.alt || ''}
+          className="w-full rounded-lg my-3"
+          style={{ maxHeight: '400px', objectFit: 'cover' }}
+        />
       ) : null;
     case 'gallery':
       return block.data.images?.length ? (
         <div key={block.id} className="grid grid-cols-2 gap-2 my-3">
+          {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
           {block.data.images.map((img: any, i: number) => (
             // eslint-disable-next-line @next/next/no-img-element
-            <img key={i} src={typeof img === 'string' ? img : img.url} alt="" className="w-full rounded-lg object-cover" style={{ maxHeight: '200px' }} />
+            <img
+              key={i}
+              src={typeof img === 'string' ? img : img.url}
+              alt=""
+              className="w-full rounded-lg object-cover"
+              style={{ maxHeight: '200px' }}
+            />
           ))}
         </div>
       ) : null;
     case 'youtube': {
       const embedUrl = getEmbedUrl(block.data.url || '');
       return embedUrl ? (
-        <iframe key={block.id} src={embedUrl} className="w-full rounded-lg my-3 border-0" style={{ height: '300px' }} allowFullScreen />
+        <iframe
+          key={block.id}
+          src={embedUrl}
+          className="w-full rounded-lg my-3 border-0"
+          style={{ height: '300px' }}
+          allowFullScreen
+        />
       ) : null;
     }
     case 'video': {
       const embedUrl = getEmbedUrl(block.data.url || '');
       return embedUrl ? (
-        <iframe key={block.id} src={embedUrl} className="w-full rounded-lg my-3 border-0" style={{ height: '300px' }} allowFullScreen />
+        <iframe
+          key={block.id}
+          src={embedUrl}
+          className="w-full rounded-lg my-3 border-0"
+          style={{ height: '300px' }}
+          allowFullScreen
+        />
       ) : null;
     }
     case 'quote':
       return (
-        <blockquote key={block.id} className="border-l-4 border-amber-400 bg-emerald-50 rounded-r-md pl-4 py-2 my-3 text-sm text-slate-700 italic">
+        <blockquote
+          key={block.id}
+          className={`border-l-4 rounded-r-md pl-4 py-2 my-3 text-sm italic ${
+            dark
+              ? 'border-amber-400/60 bg-emerald-500/5 text-slate-300'
+              : 'border-amber-500 bg-emerald-100/40 text-stone-700'
+          }`}
+        >
           {block.data.text}
         </blockquote>
       );
     case 'divider':
-      return <hr key={block.id} className="border-t-2 border-amber-300 my-4" />;
+      return (
+        <hr
+          key={block.id}
+          className={`my-4 border-t-2 ${dark ? 'border-amber-400/30' : 'border-amber-400/60'}`}
+        />
+      );
     case 'list':
       return block.data.items?.length ? (
-        <ul key={block.id} className="list-disc pl-5 my-2 text-sm text-slate-600 space-y-1">
-          {block.data.items.map((li: string, i: number) => <li key={i}>{stripHtml(li)}</li>)}
+        <ul
+          key={block.id}
+          className={`list-disc pl-5 my-2 text-sm space-y-1 ${
+            dark ? 'text-slate-300' : 'text-stone-700'
+          }`}
+        >
+          {block.data.items.map((li: string, i: number) => (
+            <li key={i}>{stripHtml(li)}</li>
+          ))}
         </ul>
       ) : null;
     case 'cta':
       return (
-        <div key={block.id} className="my-3 p-4 bg-indigo-50 rounded-lg text-center">
-          <p className="text-sm font-medium text-indigo-700">{block.data.text || block.data.label || 'CTA'}</p>
+        <div
+          key={block.id}
+          className={`my-3 p-4 rounded-lg text-center border ${
+            dark
+              ? 'bg-amber-500/10 border-amber-400/25 text-amber-200'
+              : 'bg-amber-200/30 border-amber-500/30 text-amber-900'
+          }`}
+        >
+          <p className="text-sm font-medium">
+            {block.data.text || block.data.label || 'CTA'}
+          </p>
         </div>
       );
     default:
@@ -147,13 +234,15 @@ function renderBlock(block: ContentBlock) {
 }
 
 export default function AdminNewsPage() {
+  const { theme, setTheme } = useAdminTheme();
+  const dark = theme === 'dark';
+
   const [news, setNews] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
-  const [filterCategory, setFilterCategory] = useState("ALL");
-  const [filterStatus, setFilterStatus] = useState("ALL");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     if (!toast) return;
@@ -164,208 +253,296 @@ export default function AdminNewsPage() {
   useEffect(() => {
     (async () => {
       try {
-        const r = await fetch("/api/admin/news");
-        if (!r.ok) throw new Error("Не вдалося завантажити новини");
+        const r = await fetch('/api/admin/news');
+        if (!r.ok) throw new Error('Не вдалося завантажити новини');
         const d = await r.json();
         setNews(Array.isArray(d) ? d : []);
       } catch (err) {
-        setToast({ message: err instanceof Error ? err.message : 'Помилка завантаження', type: 'error' });
+        setToast({
+          message: err instanceof Error ? err.message : 'Помилка завантаження',
+          type: 'error',
+        });
       } finally {
         setLoading(false);
       }
     })();
   }, []);
 
-  const togglePublish = async (e: React.MouseEvent, id: string, published: boolean) => {
-    e.stopPropagation();
+  const updateNewsLocal = (id: string, patch: Partial<NewsItem>) => {
+    setNews(prev => prev.map(n => (n.id === id ? { ...n, ...patch } : n)));
+  };
+
+  const changeCategory = async (id: string, oldCategory: string, next: string) => {
+    if (next === oldCategory) return;
+    updateNewsLocal(id, { category: next });
     try {
       const res = await fetch(`/api/admin/news/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ published: !published }),
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ category: next }),
       });
       if (!res.ok) {
+        updateNewsLocal(id, { category: oldCategory });
         const data = await res.json().catch(() => ({}));
-        setToast({ message: data.error || 'Не вдалося змінити статус', type: 'error' });
-        return;
+        setToast({ message: data.error || 'Не вдалося змінити категорію', type: 'error' });
       }
-      setNews(news.map((n) => n.id === id ? { ...n, published: !published } : n));
     } catch {
+      updateNewsLocal(id, { category: oldCategory });
       setToast({ message: 'Помилка запиту', type: 'error' });
     }
   };
 
-  const deleteNews = async (e: React.MouseEvent, id: string) => {
-    e.stopPropagation();
-    if (!confirm("Видалити цю новину?")) return;
+  const performDelete = async () => {
+    if (!deleteTarget) return;
+    const { id } = deleteTarget;
+    setDeleting(true);
     try {
-      const res = await fetch(`/api/admin/news/${id}`, { method: "DELETE" });
+      const res = await fetch(`/api/admin/news/${id}`, { method: 'DELETE' });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         setToast({ message: data.error || 'Не вдалося видалити', type: 'error' });
         return;
       }
-      setNews(news.filter((n) => n.id !== id));
+      setNews(news.filter(n => n.id !== id));
       if (expandedId === id) setExpandedId(null);
       setToast({ message: 'Новину видалено', type: 'success' });
+      setDeleteTarget(null);
     } catch {
       setToast({ message: 'Помилка запиту', type: 'error' });
+    } finally {
+      setDeleting(false);
     }
   };
 
-  const filtered = news.filter((item) => {
-    const q = search.toLowerCase();
-    const matchSearch = !q || item.title.toLowerCase().includes(q) || (item.excerpt || '').toLowerCase().includes(q);
-    const matchCategory = filterCategory === "ALL" || item.category === filterCategory;
-    const matchStatus = filterStatus === "ALL" || (filterStatus === "PUBLISHED" ? item.published : !item.published);
-    return matchSearch && matchCategory && matchStatus;
-  });
-
-  if (loading) return (
-    <div className="flex items-center justify-center min-h-[60vh]">
-      <div className="w-10 h-10 border-2 border-slate-200 border-t-indigo-500 rounded-full animate-spin" />
-    </div>
-  );
+  const filtered = news;
+  const publishedCount = news.filter(n => n.published).length;
 
   return (
-    <div className="max-w-6xl mx-auto px-6 py-10">
+    <AdminShell
+      theme={theme}
+      setTheme={setTheme}
+      eyebrow="Admin · Новини"
+      title="Новини"
+      subtitle={`Всього: ${news.length} · Опубліковано: ${publishedCount}`}
+      maxWidth="max-w-4xl"
+      rightSlot={
+        <Link
+          href="/dashboard/admin/news/new"
+          className={`group relative inline-flex items-center gap-2 px-4 py-2 rounded-full text-[12px] font-medium transition-all duration-300 overflow-hidden ${
+            dark
+              ? 'bg-amber-400/90 text-stone-900 shadow-[0_0_20px_-4px_rgba(251,191,36,0.5)] hover:bg-amber-300 hover:shadow-[0_0_28px_-2px_rgba(251,191,36,0.65)]'
+              : 'bg-stone-900 text-amber-100 shadow-sm hover:bg-stone-800 hover:shadow-[0_6px_18px_-6px_rgba(41,37,36,0.35)]'
+          }`}
+        >
+          <span
+            aria-hidden
+            className={`pointer-events-none absolute inset-y-0 -left-1/2 w-1/2 skew-x-[-20deg] opacity-0 group-hover:opacity-100 group-hover:translate-x-[260%] transition-all duration-[900ms] ease-out ${
+              dark ? 'bg-white/30' : 'bg-amber-200/30'
+            }`}
+          />
+          <FaPlus className="relative text-[11px]" />
+          <span className="relative">Створити новину</span>
+        </Link>
+      }
+    >
+      {/* Toast */}
       {toast && (
-        <div className={`fixed top-20 right-6 z-50 px-4 py-3 rounded-lg shadow-lg text-sm font-medium ${
-          toast.type === 'success'
-            ? 'bg-emerald-50 border border-emerald-200 text-emerald-700'
-            : 'bg-rose-50 border border-rose-200 text-rose-700'
-        }`}>
+        <div
+          className={`fixed top-20 right-6 z-50 px-4 py-3 rounded-xl shadow-2xl text-sm font-medium border backdrop-blur-sm ${
+            toast.type === 'success'
+              ? dark
+                ? 'bg-emerald-500/15 border-emerald-400/30 text-emerald-200'
+                : 'bg-emerald-100/90 border-emerald-500/30 text-emerald-800'
+              : dark
+                ? 'bg-rose-500/15 border-rose-400/30 text-rose-200'
+                : 'bg-rose-100/90 border-rose-500/30 text-rose-800'
+          }`}
+        >
           {toast.message}
         </div>
       )}
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="text-3xl font-bold text-slate-800">Новини</h1>
-          <p className="text-sm text-slate-500 mt-1">Всього: {news.length} · Опубліковано: {news.filter(n => n.published).length}</p>
-        </div>
-        <Link href="/dashboard/admin/news/new"
-          className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-500 text-white text-sm font-medium rounded-lg hover:bg-indigo-600 shadow-sm shadow-indigo-500/20 transition-colors">
-          <FaPlus /> Створити новину
-        </Link>
-      </div>
 
-      <div className="flex flex-wrap items-center gap-3 mb-6">
-        <div className="relative flex-1 min-w-[200px]">
-          <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm" />
-          <input
-            type="text"
-            placeholder="Пошук за заголовком..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 bg-white border border-slate-200/70 rounded-lg text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-300"
+      {loading ? (
+        <div className="flex items-center justify-center py-20">
+          <div
+            className={`w-10 h-10 border-2 rounded-full animate-spin ${
+              dark ? 'border-white/[0.1] border-t-amber-300' : 'border-stone-200 border-t-amber-600'
+            }`}
           />
         </div>
-        <select
-          value={filterCategory}
-          onChange={(e) => setFilterCategory(e.target.value)}
-          className="px-3 py-2 bg-white border border-slate-200/70 rounded-lg text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
-        >
-          <option value="ALL">Всі категорії</option>
-          {Object.entries(CATEGORY_LABELS).map(([v, l]) => (
-            <option key={v} value={v}>{l}</option>
-          ))}
-        </select>
-        <select
-          value={filterStatus}
-          onChange={(e) => setFilterStatus(e.target.value)}
-          className="px-3 py-2 bg-white border border-slate-200/70 rounded-lg text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
-        >
-          <option value="ALL">Всі статуси</option>
-          <option value="PUBLISHED">Опубліковано</option>
-          <option value="DRAFT">Чернетки</option>
-        </select>
-      </div>
-
-      {filtered.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-slate-200/70 p-16 text-center shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-          <p className="text-slate-500 mb-5">{news.length === 0 ? "Новин ще немає" : "Нічого не знайдено"}</p>
-          {news.length === 0 && (
-            <Link href="/dashboard/admin/news/new"
-              className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-500 text-white text-sm font-medium rounded-lg hover:bg-indigo-600 transition-colors">
-              <FaPlus /> Створити першу новину
-            </Link>
-          )}
-        </div>
+      ) : filtered.length === 0 ? (
+        <AdminPanel theme={theme} className="py-16 text-center">
+          <p className={`mb-5 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>Новин ще немає</p>
+          <Link
+            href="/dashboard/admin/news/new"
+            className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-[13px] font-medium transition-all ${
+              dark
+                ? 'bg-amber-400/90 text-stone-900 shadow-[0_0_20px_-4px_rgba(251,191,36,0.4)] hover:bg-amber-300'
+                : 'bg-stone-900 text-amber-100 hover:bg-stone-800'
+            }`}
+          >
+            <FaPlus /> Створити першу новину
+          </Link>
+        </AdminPanel>
       ) : (
         <div className="space-y-3">
-          {filtered.map((item) => {
+          {filtered.map(item => {
             const date = new Date(item.createdAt);
-            const dateStr = date.toLocaleDateString("uk-UA");
-            const timeStr = date.toLocaleTimeString("uk-UA", { hour: "2-digit", minute: "2-digit" });
+            const dateStr = date.toLocaleDateString('uk-UA');
+            const timeStr = date.toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' });
             const { firstImage: contentImage } = parseContentPreview(item.content);
             const thumbnail = item.imageUrl || contentImage;
             const isExpanded = expandedId === item.id;
 
             return (
-              <div key={item.id} className={`bg-white rounded-xl border shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-all ${isExpanded ? 'border-indigo-200 shadow-md' : 'border-slate-200/70 hover:shadow-md'}`}>
+              <div
+                key={item.id}
+                className={`rounded-xl border backdrop-blur-sm transition-all ${
+                  isExpanded
+                    ? dark
+                      ? 'bg-white/[0.04] border-amber-400/30 shadow-[0_0_24px_-8px_rgba(251,191,36,0.3)]'
+                      : 'bg-white/70 border-amber-500/40 shadow-[0_4px_20px_-8px_rgba(180,83,9,0.2)]'
+                    : dark
+                      ? 'bg-white/[0.03] border-white/[0.06] hover:bg-white/[0.04] hover:border-white/[0.1]'
+                      : 'bg-white/60 border-stone-300/50 hover:bg-white/80 hover:border-stone-300/70'
+                }`}
+              >
                 {/* Header row — always visible, clickable */}
                 <div
-                  className="flex items-center gap-4 px-4 py-3 cursor-pointer select-none"
+                  className="flex items-center gap-4 px-5 py-4 cursor-pointer select-none"
                   onClick={() => setExpandedId(isExpanded ? null : item.id)}
                 >
-                  <FaChevronDown className={`text-slate-400 text-xs flex-shrink-0 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                  <FaChevronDown
+                    className={`text-xs flex-shrink-0 transition-transform ${
+                      isExpanded ? 'rotate-180' : ''
+                    } ${dark ? 'text-slate-500' : 'text-stone-400'}`}
+                  />
 
                   {/* Mini thumbnail */}
-                  <div className="flex-shrink-0 w-10 h-10 rounded-lg overflow-hidden bg-slate-100">
+                  <div
+                    className={`flex-shrink-0 w-20 h-20 rounded-lg overflow-hidden border ${
+                      dark
+                        ? 'bg-white/[0.04] border-white/[0.08]'
+                        : 'bg-stone-100/70 border-stone-300/60'
+                    }`}
+                  >
                     {thumbnail ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={thumbnail} alt="" className="w-full h-full object-cover" />
                     ) : (
-                      <div className="w-full h-full flex items-center justify-center text-slate-300">
-                        <FaImage size={14} />
+                      <div
+                        className={`w-full h-full flex items-center justify-center ${
+                          dark ? 'text-slate-600' : 'text-stone-400'
+                        }`}
+                      >
+                        <FaImage size={22} />
                       </div>
                     )}
                   </div>
 
                   {/* Title + meta */}
                   <div className="flex-1 min-w-0">
-                    <h3 className="text-sm font-semibold text-slate-800 truncate">{item.title}</h3>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${CATEGORY_COLORS[item.category] || 'bg-slate-100 text-slate-600'}`}>
-                        {CATEGORY_LABELS[item.category]}
+                    <h3
+                      className={`text-[13px] font-semibold leading-snug line-clamp-2 ${
+                        dark ? 'text-slate-100' : 'text-stone-900'
+                      }`}
+                    >
+                      {item.title}
+                    </h3>
+                    <div className="mt-0.5">
+                      <span className={`text-[10px] ${dark ? 'text-slate-500' : 'text-stone-400'}`}>
+                        {dateStr} {timeStr}
                       </span>
-                      {item.published ? (
-                        <span className="text-[10px] font-medium text-emerald-600">Опубліковано</span>
-                      ) : (
-                        <span className="text-[10px] font-medium text-slate-400">Чернетка</span>
-                      )}
-                      <span className="text-[10px] text-slate-400">{dateStr} {timeStr}</span>
                     </div>
                   </div>
 
-                  {/* Actions */}
-                  <div className="flex items-center gap-0.5 flex-shrink-0">
-                    <button
-                      onClick={(e) => togglePublish(e, item.id, item.published)}
-                      className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
-                      title={item.published ? "Зняти з публікації" : "Опублікувати"}
+                  {/* Category — popup picker */}
+                  <div
+                    onClick={e => e.stopPropagation()}
+                    className="hidden md:flex flex-shrink-0"
+                  >
+                    <CategoryPicker
+                      current={item.category}
+                      theme={theme}
+                      onChange={next => changeCategory(item.id, item.category, next)}
+                    />
+                  </div>
+
+                  {/* Status — popup picker with 3 transitions */}
+                  <div
+                    className="hidden sm:flex flex-col items-center gap-1 flex-shrink-0"
+                    onClick={e => e.stopPropagation()}
+                  >
+                    <StatusPicker
+                      newsId={item.id}
+                      published={item.published}
+                      suspendedAt={item.suspendedAt}
+                      resumeAt={item.resumeAt}
+                      theme={theme}
+                      onChange={result => updateNewsLocal(item.id, result)}
+                    />
+                    {!!item.suspendedAt &&
+                      item.resumeAt &&
+                      new Date(item.resumeAt) > new Date() && (
+                        <p
+                          className={`text-[10px] ${dark ? 'text-amber-300/70' : 'text-amber-700'}`}
+                        >
+                          З {new Date(item.resumeAt).toLocaleDateString('uk-UA')}
+                        </p>
+                      )}
+                  </div>
+
+                  {/* Actions stack */}
+                  <div
+                    className="flex flex-col gap-1.5 items-stretch w-[140px] flex-shrink-0"
+                    onClick={e => e.stopPropagation()}
+                  >
+                    <Link
+                      href={`/dashboard/admin/news/${item.id}/edit`}
+                      className={`inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-[12px] font-medium rounded-lg transition-all ${
+                        dark
+                          ? 'bg-amber-400/90 text-stone-900 hover:bg-amber-300 shadow-[0_0_14px_-4px_rgba(251,191,36,0.5)]'
+                          : 'bg-stone-900 text-amber-100 hover:bg-stone-800 shadow-sm'
+                      }`}
                     >
-                      {item.published ? <FaEyeSlash size={13} /> : <FaEye size={13} />}
-                    </button>
-                    <Link href={`/dashboard/admin/news/${item.id}/edit`} onClick={(e) => e.stopPropagation()}
-                      className="p-2 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors">
-                      <FaEdit size={13} />
+                      <FaEdit className="text-[10px]" />
+                      Редагувати
                     </Link>
+                    <NewsPublishButton
+                      newsId={item.id}
+                      published={item.published}
+                      suspendedAt={item.suspendedAt}
+                      resumeAt={item.resumeAt}
+                      theme={theme}
+                      onChange={result => updateNewsLocal(item.id, result)}
+                    />
                     <button
-                      onClick={(e) => deleteNews(e, item.id)}
-                      className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                      type="button"
+                      onClick={() => setDeleteTarget({ id: item.id, title: item.title })}
+                      className={`inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-[12px] font-medium rounded-lg border transition-colors ${
+                        dark
+                          ? 'bg-rose-500/10 text-rose-200 border-rose-400/25 hover:bg-rose-500/20'
+                          : 'bg-rose-200/40 text-rose-800 border-rose-500/30 hover:bg-rose-200/70'
+                      }`}
                     >
-                      <FaTrash size={13} />
+                      <FaTrash className="text-[10px]" />
+                      Видалити
                     </button>
                   </div>
                 </div>
 
                 {/* Expanded full preview */}
                 {isExpanded && (
-                  <div className="border-t border-slate-100">
+                  <div className={`border-t ${dark ? 'border-white/[0.05]' : 'border-stone-300/50'}`}>
                     <div className="max-w-3xl mx-auto px-6 py-6">
                       {item.excerpt && (
-                        <p className="text-base font-medium text-slate-700 mb-4 leading-relaxed">{item.excerpt}</p>
+                        <p
+                          className={`text-base font-medium mb-4 leading-relaxed ${
+                            dark ? 'text-slate-200' : 'text-stone-800'
+                          }`}
+                        >
+                          {item.excerpt}
+                        </p>
                       )}
 
                       {(() => {
@@ -374,35 +551,63 @@ export default function AdminNewsPage() {
                           return (
                             <>
                               <div className="news-preview-content">
-                                {blocks.map(renderBlock)}
+                                {blocks.map(b => renderBlock(b, theme))}
                               </div>
                               <style>{`
-                                .news-preview-content { font-size: 14px; color: #334155; line-height: 1.7; }
+                                .news-preview-content { font-size: 14px; line-height: 1.7; color: ${dark ? '#cbd5e1' : '#44403c'}; }
                                 .news-preview-content p { margin: 0.5em 0; }
                                 .news-preview-content ul { list-style: disc; padding-left: 1.5em; margin: 0.5em 0; }
                                 .news-preview-content ol { list-style: decimal; padding-left: 1.5em; margin: 0.5em 0; }
-                                .news-preview-content strong { font-weight: 700; }
+                                .news-preview-content strong { font-weight: 700; color: ${dark ? '#f1f5f9' : '#1c1917'}; }
                                 .news-preview-content em { font-style: italic; }
                                 .news-preview-content img { max-width: 100%; border-radius: 8px; margin: 0.75em 0; }
+                                .news-preview-content a { color: ${dark ? '#fbbf24' : '#b45309'}; text-decoration: underline; }
                               `}</style>
                             </>
                           );
                         }
                         const rawContent = item.content?.trim();
                         if (rawContent?.startsWith('<')) {
-                          return <div className="news-preview-content text-sm text-slate-600" dangerouslySetInnerHTML={{ __html: rawContent }} />;
+                          return (
+                            <div
+                              className={`news-preview-content text-sm ${
+                                dark ? 'text-slate-300' : 'text-stone-700'
+                              }`}
+                              dangerouslySetInnerHTML={{ __html: rawContent }}
+                            />
+                          );
                         }
-                        return <p className="text-sm text-slate-500 italic">Контент порожній</p>;
+                        return (
+                          <p
+                            className={`text-sm italic ${
+                              dark ? 'text-slate-500' : 'text-stone-500'
+                            }`}
+                          >
+                            Контент порожній
+                          </p>
+                        );
                       })()}
                     </div>
 
-                    <div className="flex items-center justify-between px-4 py-3 bg-slate-50/70 border-t border-slate-100">
-                      <div className="text-xs text-slate-400">
+                    <div
+                      className={`flex items-center justify-between px-4 py-3 border-t ${
+                        dark
+                          ? 'bg-white/[0.02] border-white/[0.05]'
+                          : 'bg-stone-50/60 border-stone-300/50'
+                      }`}
+                    >
+                      <div className={`text-[11px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
                         /news/{item.slug}
                         {item.author?.name && <span> · {item.author.name}</span>}
                       </div>
-                      <Link href={`/dashboard/admin/news/${item.id}/edit`}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-indigo-600 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors">
+                      <Link
+                        href={`/dashboard/admin/news/${item.id}/edit`}
+                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium rounded-lg border transition-colors ${
+                          dark
+                            ? 'bg-white/[0.04] border-white/[0.08] text-amber-200 hover:bg-white/[0.08]'
+                            : 'bg-white/70 border-stone-300/60 text-amber-800 hover:bg-white'
+                        }`}
+                      >
                         <FaEdit size={11} /> Редагувати
                       </Link>
                     </div>
@@ -413,6 +618,58 @@ export default function AdminNewsPage() {
           })}
         </div>
       )}
-    </div>
+
+      {/* Delete modal */}
+      {deleteTarget && (
+        <div
+          className={`fixed inset-0 flex items-center justify-center z-50 backdrop-blur-sm ${
+            dark ? 'bg-black/60' : 'bg-stone-900/30'
+          }`}
+          onClick={() => !deleting && setDeleteTarget(null)}
+        >
+          <div
+            className={`rounded-2xl p-6 w-full max-w-sm mx-4 border shadow-2xl ${
+              dark ? 'bg-[#14161d] border-white/[0.08]' : 'bg-[#fbf7ec] border-stone-300/60'
+            }`}
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 className={`text-lg font-semibold mb-1 ${dark ? 'text-slate-100' : 'text-stone-900'}`}>
+              Видалити новину?
+            </h3>
+            <p className={`text-sm mb-5 ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
+              Новина{' '}
+              <span className={`font-semibold ${dark ? 'text-slate-100' : 'text-stone-900'}`}>
+                «{deleteTarget.title}»
+              </span>{' '}
+              буде видалена назавжди. Цю дію не можна відмінити.
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setDeleteTarget(null)}
+                disabled={deleting}
+                className={`flex-1 px-4 py-2.5 text-sm font-medium rounded-xl border transition-colors disabled:opacity-50 ${
+                  dark
+                    ? 'bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.08]'
+                    : 'bg-white/70 border-stone-300/60 text-stone-700 hover:bg-white'
+                }`}
+              >
+                Скасувати
+              </button>
+              <button
+                onClick={performDelete}
+                disabled={deleting}
+                className={`flex-1 px-4 py-2.5 text-sm font-medium rounded-xl transition-colors disabled:opacity-50 ${
+                  dark
+                    ? 'bg-rose-500/90 text-white hover:bg-rose-500 shadow-[0_0_20px_-4px_rgba(244,63,94,0.5)]'
+                    : 'bg-rose-600 text-white hover:bg-rose-700 shadow-sm'
+                }`}
+              >
+                {deleting ? '...' : 'Видалити'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </AdminShell>
   );
 }

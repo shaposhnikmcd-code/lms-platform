@@ -15,7 +15,7 @@ export interface NewsMeta {
   title: string;
   slug: string;
   excerpt: string;
-  category: "NEWS" | "ANNOUNCEMENT" | "ARTICLE";
+  category: "NEWS" | "ANNOUNCEMENT" | "ARTICLE" | "EVENT";
   imageUrl: string;
   published: boolean;
 }
