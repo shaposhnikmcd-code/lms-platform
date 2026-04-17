@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { Link } from '@/i18n/navigation';
 import CoursePurchaseModal from '@/components/CoursePurchaseModal';
+import { autoTuneBundle } from './bundleAutoTuner';
 
 const sysFont = '-apple-system, BlinkMacSystemFont, sans-serif';
 const CARD_BG = '#1e3d2e';
@@ -57,6 +58,7 @@ export default function BundleCard({
   layout = 'full',
 }: Props) {
   const [hovered, setHovered] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
   const [hoveredCourse, setHoveredCourse] = useState<string | null>(null);
   // Які безкоштовні клієнт обрав (для CHOICE_FREE)
   const [selectedFree, setSelectedFree] = useState<string[]>([]);
@@ -73,6 +75,13 @@ export default function BundleCard({
   const hasFreeRow = bundleType !== 'DISCOUNT' && freeCourses.length > 0;
   const choiceMode = bundleType === 'CHOICE_FREE';
   const isPairLayout = courses.length === 2 && (freeCourses.length === 1 || freeCourses.length === 2) && hasFreeRow;
+  // Уніфікована висота 920px для пакетів, які за замовчуванням рендеряться в діапазоні 850-1000px:
+  // - 3-рядкові конфіги з free-рядом ≥2 (FIXED 1+2, 2+2; CHOICE 1+пул2, 1+пул3, 2+пул2, 2+пул4)
+  // - DISCOUNT 4-paid (2×2 внутрішня сітка) — висота форсована, авто-тюнер вміщує контент
+  const unifyHeight920 = (hasFreeRow && freeCourses.length >= 2) || (bundleType === 'DISCOUNT' && courses.length === 4);
+  // Уніфікована висота 740px для FIXED_FREE з 1 безкоштовним (inline CTA): 6a (1+1), 6b (2+1)
+  const unifyHeight740 = bundleType === 'FIXED_FREE' && freeCourses.length === 1;
+  const unifiedHeight = unifyHeight920 ? 920 : unifyHeight740 ? 740 : undefined;
 
   // Для каруселі: скільки карток показуємо одночасно (== freeCount)
   const choiceWindow = Math.max(1, freeCount || 1);
@@ -135,8 +144,34 @@ export default function BundleCard({
     }
   };
 
+  const [tuned, setTuned] = useState(false);
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    let raf = 0;
+    const run = () => {
+      autoTuneBundle(root);
+      setTuned(true);
+    };
+    raf = requestAnimationFrame(run);
+    const onResize = () => {
+      if (raf) cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => autoTuneBundle(root));
+    };
+    window.addEventListener('resize', onResize);
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      window.removeEventListener('resize', onResize);
+    };
+  }, []);
+
   return (
     <div
+      ref={rootRef}
+      data-bundle-root
+      data-bundle-type={bundleType}
+      data-bundle-paid={courses.length}
+      data-bundle-free={freeCourses.length}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
@@ -149,8 +184,11 @@ export default function BundleCard({
         boxShadow: hovered
           ? '0 14px 36px rgba(28,58,46,0.12), 0 0 0 1px rgba(212,168,67,0.2)'
           : '0 4px 14px rgba(28,58,46,0.06), inset 0 1px 0 rgba(255,255,255,0.4)',
-        transition: 'all 0.4s ease',
+        transition: 'box-shadow 0.4s ease, transform 0.4s ease, opacity 0.25s ease',
         transform: hovered ? 'translateY(-2px)' : 'translateY(0)',
+        opacity: tuned ? 1 : 0,
+        height: unifiedHeight,
+        overflow: unifiedHeight !== undefined ? 'hidden' : undefined,
       }}
     >
       <style dangerouslySetInnerHTML={{ __html: `
@@ -221,7 +259,7 @@ export default function BundleCard({
           )}
         </div>
 
-        <h3 style={{
+        <h3 data-bundle-title style={{
           fontFamily: sysFont, fontSize: layout === 'compact' ? 'clamp(18px, 2.2vw, 24px)' : 'clamp(20px, 2.5vw, 28px)', fontWeight: 700,
           color: '#1C3A2E', lineHeight: 1.2, margin: 0, letterSpacing: '-0.02em',
           paddingLeft: freeCourses.length === 4 && courses.length === 2 ? 'clamp(60px, 9%, 110px)' : 0,
@@ -253,10 +291,11 @@ export default function BundleCard({
           const isLargePaid = false;
           const isMidPaid = courses.length === 2 && freeCourses.length === 4;
           const isEqualPair = isPairLayout;
-          const isDiscount2Paid = bundleType === 'DISCOUNT' && courses.length === 2;
+          const isDiscount2Paid = bundleType === 'DISCOUNT' && (courses.length === 2 || courses.length === 3);
           return (
             <Link
               key={course.slug}
+              data-bundle-paid-card
               href={`/courses/${course.slug}`}
               onMouseEnter={() => setHoveredCourse(course.slug)}
               onMouseLeave={() => setHoveredCourse(null)}
@@ -267,11 +306,11 @@ export default function BundleCard({
                 overflow: 'hidden',
                 boxShadow: isHovered ? '0 16px 40px rgba(0,0,0,0.25)' : '0 2px 10px rgba(0,0,0,0.1)',
                 transform: isHovered ? 'translateY(-3px) scale(1.01)' : 'translateY(0) scale(1)',
-                transition: 'all 0.3s cubic-bezier(0.16,1,0.3,1)',
+                transition: 'box-shadow 0.3s cubic-bezier(0.16,1,0.3,1), transform 0.3s cubic-bezier(0.16,1,0.3,1), background 0.3s cubic-bezier(0.16,1,0.3,1)',
                 display: 'flex',
                 flexDirection: 'column',
                 width: courses.length === 1 ? (layout === 'compact' ? '64%' : '58%') : undefined,
-                minHeight: 345,
+                height: 'var(--tuned-paid-card-h, 345px)',
               }}
             >
               <div style={{
@@ -281,6 +320,8 @@ export default function BundleCard({
                     ? (layout === 'full' ? '36px 28px 30px' : '28px 24px 24px')
                     : (layout === 'full' ? '30px 24px 26px' : '25px 21px 21px'),
                 flex: 1,
+                overflow: 'hidden',
+                minHeight: 0,
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: isLargePaid ? 12 : isMidPaid ? 10 : 8, marginBottom: isLargePaid ? 16 : isMidPaid ? 13 : 10 }}>
                   <div style={{
@@ -315,8 +356,8 @@ export default function BundleCard({
                   {course.title}
                 </h4>
                 <div style={{ width: isLargePaid ? 34 : isMidPaid ? 30 : 26, height: isLargePaid ? 3 : 2, background: tagColor, borderRadius: 2, marginBottom: isLargePaid ? 14 : isMidPaid ? 12 : 10, opacity: 0.5 }} />
-                <p style={{
-                  fontSize: isLargePaid ? 17 : isMidPaid ? 14 : 12,
+                <p data-bundle-desc style={{
+                  fontSize: `var(--tuned-paid-desc-fs, ${isLargePaid ? 17 : isMidPaid ? 14 : 12}px)`,
                   color: 'rgba(245,237,214,0.6)',
                   lineHeight: 1.65,
                   margin: 0,
@@ -334,11 +375,11 @@ export default function BundleCard({
                     borderRight: bi < benefits.length - 1 ? `1px solid ${STRIP_BORDER}` : 'none',
                     flex: 1, justifyContent: 'center', minWidth: 0,
                   }}>
-                    <span style={{
+                    <span data-bundle-benefit-icon style={{
                       fontSize: isLargePaid ? 13 : isDiscount2Paid ? 11 : (layout === 'full' ? 10 : 6.5),
                       lineHeight: 1, flexShrink: 0,
                     }}>{b.icon}</span>
-                    <span style={{
+                    <span data-bundle-benefit-title style={{
                       fontSize: isLargePaid ? 11 : isDiscount2Paid ? (b.title.length > 16 ? 8 : 9) : isEqualPair ? 8.5 : (layout === 'full' ? 9.5 : 6),
                       color: 'rgba(245,237,214,0.5)',
                       fontFamily: sysFont, fontWeight: 500,
@@ -616,22 +657,21 @@ export default function BundleCard({
 
       {/* Price + CTA — прибираємо коли вже вбудовано в free-row (FIXED_FREE з 1 безкоштовним) */}
       {!(hasFreeRow && bundleType === 'FIXED_FREE' && freeCourses.length === 1) && (
-      <div style={{
+      <div data-bundle-cta style={{
         position: 'relative',
         background: 'radial-gradient(140% 180% at 0% 50%, rgba(212,168,67,0.18) 0%, rgba(212,168,67,0) 55%), radial-gradient(140% 180% at 100% 50%, rgba(212,168,67,0.10) 0%, rgba(212,168,67,0) 55%), linear-gradient(135deg, #244838 0%, #1C3A2E 50%, #142A20 100%)',
         borderRadius: layout === 'compact' ? 16 : 18,
-        padding: layout === 'compact' ? '16px 18px' : 'clamp(18px, 2.4vw, 26px) clamp(22px, 3vw, 34px)',
+        padding: layout === 'compact' ? '16px' : 'clamp(18px, 2.4vw, 26px)',
         boxShadow: '0 10px 30px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.06)',
         overflow: 'hidden',
         display: 'flex',
         alignItems: 'center',
-        justifyContent: isPairLayout ? 'space-between' : 'center',
-        flexWrap: isPairLayout ? ('nowrap' as const) : ('wrap' as const),
+        justifyContent: 'space-between',
+        flexWrap: 'nowrap' as const,
         gap: layout === 'compact' ? 20 : 'clamp(28px, 4vw, 48px)',
-        width: layout === 'compact' ? '90%' : '86%',
+        width: 'fit-content',
         maxWidth: freeCourses.length === 4 ? 640
           : (courses.length === 2 && bundleType === 'DISCOUNT') ? 480
-          : (courses.length === 1 && bundleType === 'CHOICE_FREE' && freeCourses.length === 3) ? 480
           : undefined,
         marginTop: 'auto',
         marginLeft: 'auto',
@@ -755,7 +795,7 @@ function FreeCourseMini({
   const tagColor = '#D4A843';
   const showShimmer = !dimmed && !isSelected;
   return (
-    <div style={{
+    <div data-bundle-free-card style={{
       background: CARD_BG,
       borderRadius: 14,
       overflow: 'hidden',
@@ -764,6 +804,7 @@ function FreeCourseMini({
       flexDirection: 'column',
       flex: 1,
       width: '100%',
+      height: 'var(--tuned-free-card-h, auto)',
       boxShadow: dimmed
         ? 'none'
         : highlight
@@ -813,10 +854,9 @@ function FreeCourseMini({
           {course.title}
         </h4>
         <div style={{ width: 26, height: 2, background: tagColor, borderRadius: 2, marginBottom: slim ? 8 : equalPair ? 8 : 10, opacity: 0.5 }} />
-        <p style={{
-          fontSize: slim ? 11 : 12,
+        <p data-bundle-desc style={{
+          fontSize: `var(--tuned-free-desc-fs, ${slim ? 11 : 12}px)`,
           color: 'rgba(245,237,214,0.5)', lineHeight: equalPair ? 1.65 : 1.6, margin: 0, fontFamily: sysFont,
-          minHeight: equalPair ? undefined : slim ? 'calc(11px * 1.6 * 4)' : 'calc(12px * 1.7 * 6)',
         }}>
           {course.description}
         </p>
@@ -825,8 +865,8 @@ function FreeCourseMini({
         <div style={{ borderTop: `1px solid ${STRIP_BORDER}`, background: 'rgba(255,255,255,0.03)', display: 'flex', alignItems: 'center', flexWrap: 'nowrap', overflow: 'hidden' }}>
           {benefits.map((b, bi) => (
             <div key={bi} style={{ display: 'flex', alignItems: 'center', gap: 1, padding: layout === 'full' ? '7px 4px' : '4px 1px', borderRight: bi < benefits.length - 1 ? `1px solid ${STRIP_BORDER}` : 'none', flex: 1, justifyContent: 'center', minWidth: 0 }}>
-              <span style={{ fontSize: layout === 'full' ? 10 : 6.5, lineHeight: 1, flexShrink: 0 }}>{b.icon}</span>
-              <span style={{ fontSize: equalPair ? 8.5 : (layout === 'full' ? 9.5 : 6), color: 'rgba(245,237,214,0.3)', fontFamily: sysFont, fontWeight: 500, whiteSpace: 'nowrap' as const, lineHeight: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              <span data-bundle-benefit-icon style={{ fontSize: layout === 'full' ? 10 : 6.5, lineHeight: 1, flexShrink: 0 }}>{b.icon}</span>
+              <span data-bundle-benefit-title style={{ fontSize: equalPair ? 8.5 : (layout === 'full' ? 9.5 : 6), color: 'rgba(245,237,214,0.3)', fontFamily: sysFont, fontWeight: 500, whiteSpace: 'nowrap' as const, lineHeight: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {b.title}
               </span>
             </div>

@@ -10,6 +10,7 @@ import { EMOTIONAL_INTELLIGENCE_COURSE } from "./emotional-intelligence/config";
 import { getCurrency } from "@/lib/currency";
 import CourseCard from "./_components/CourseCard";
 import BundleCard from "./_components/BundleCard";
+import BundleRowSync from "./_components/BundleRowSync";
 import prisma from "@/lib/prisma";
 import { COURSES_BY_SLUG } from "@/lib/coursesCatalog";
 import { getCoursePriceOverrides } from "@/lib/coursePrice";
@@ -160,8 +161,8 @@ export default async function CoursesPage({ params }: { params: Promise<{ locale
       </section>
 
       {bundles.length > 0 && (
-        <section className={`pt-0 sm:pt-2 pb-10 sm:pb-12 ${bundles.length >= 3 ? 'px-2 sm:px-3 md:px-4' : 'px-4 sm:px-8 md:px-12'}`} style={{ background: '#F5F2ED' }}>
-          <div style={{ maxWidth: bundles.length >= 3 ? 1800 : 1400, margin: '0 auto' }}>
+        <section className="pt-0 sm:pt-2 pb-10 sm:pb-12 px-2 sm:px-3 md:px-4" style={{ background: '#F5F2ED' }}>
+          <div style={{ maxWidth: 1920, margin: '0 auto' }}>
             <div style={{ maxWidth: 860, margin: '0 auto 36px' }}>
               <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(212,168,67,0.12)', border: '1px solid rgba(212,168,67,0.2)', borderRadius: 100, padding: '4px 14px', marginBottom: 14 }}>
                 <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.28em', textTransform: 'uppercase' as const, color: '#D4A843', fontFamily: sysFont }}>
@@ -208,14 +209,17 @@ export default async function CoursesPage({ params }: { params: Promise<{ locale
                 (a, b) => (firstIndex.get(a) ?? 0) - (firstIndex.get(b) ?? 0),
               );
 
+              // Правило: максимум 2 пакети в ряду. Для N пакетів — двійки, останній (якщо непарне) соло.
               const buildRowSizes = (n: number): number[] => {
-                if (n <= 3) return [n];
-                if (n === 4) return [2, 2];
-                if (n === 5) return [3, 2];
-                const rem = n % 3;
-                if (rem === 0) return Array(n / 3).fill(3);
-                if (rem === 1) return [2, 2, ...Array((n - 4) / 3).fill(3)];
-                return [2, ...Array((n - 2) / 3).fill(3)];
+                if (n <= 2) return [n];
+                const rows: number[] = [];
+                let rem = n;
+                while (rem >= 2) {
+                  rows.push(2);
+                  rem -= 2;
+                }
+                if (rem > 0) rows.push(1);
+                return rows;
               };
 
               const rows: (typeof bundles)[] = [];
@@ -267,22 +271,33 @@ export default async function CoursesPage({ params }: { params: Promise<{ locale
                 );
               };
 
+              // Натуральна ширина одного пакету (solo-стан). У 2-per-row групах
+              // кожен пакет зберігає свою ширину — не стискається під сусіда.
+              const nativeBundleWidth = (b: typeof bundles[number]): number => {
+                const paid = b.courses.filter((c) => !c.isFree).length;
+                const free = b.courses.filter((c) => c.isFree).length;
+                if (b.type !== 'DISCOUNT' && free === 4) return 1200;
+                if (paid <= 2 && free <= 2 && paid + free >= 2) return 625;
+                return 730;
+              };
+
               return (
                 <div className="flex flex-col gap-10">
-                  {rows.map((rowBundles, rowIdx) => {
-                    const size = rowBundles.length;
-                    const gridCols = size === 1 ? 'grid-cols-1' : size === 2 ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3';
-                    const paidCount = rowBundles[0]?.courses.filter((c) => !c.isFree).length ?? 0;
-                    const freeCount = rowBundles[0]?.courses.filter((c) => c.isFree).length ?? 0;
-                    const wide4Free = size === 1 && freeCount === 4;
-                    const width2Cols = size === 1 && paidCount <= 2 && freeCount <= 2 && (paidCount + freeCount) >= 2;
-                    const maxW = wide4Free ? 1200 : width2Cols ? 690 : size === 1 ? 780 : size === 2 ? 1400 : 1800;
-                    return (
-                      <div key={rowIdx} className={`grid ${gridCols} gap-4 items-start`} style={{ maxWidth: maxW, margin: '0 auto', width: '100%' }}>
-                        {rowBundles.map(renderBundle)}
-                      </div>
-                    );
-                  })}
+                  {rows.map((rowBundles, rowIdx) => (
+                    <BundleRowSync
+                      key={rowIdx}
+                      className="flex flex-wrap gap-4 items-start justify-center"
+                    >
+                      {rowBundles.map((b) => (
+                        <div
+                          key={b.id}
+                          style={{ width: nativeBundleWidth(b), flexShrink: 0 }}
+                        >
+                          {renderBundle(b)}
+                        </div>
+                      ))}
+                    </BundleRowSync>
+                  ))}
                 </div>
               );
             })()}

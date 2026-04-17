@@ -5,6 +5,8 @@ import { createPortal } from 'react-dom';
 import { FaLayerGroup, FaTimes } from 'react-icons/fa';
 import type { Theme } from '../../_components/adminTheme';
 
+type PairColor = 'blue' | 'red' | 'green' | 'violet' | 'black';
+
 type Model = {
   id: string;
   name: string;
@@ -16,6 +18,22 @@ type Model = {
   rows: number;
   height: string;
   note: string;
+  /** Групи сусідства — пакети з СПІЛЬНИМ кольором можуть стояти в одному рядку. */
+  pairColors: PairColor[];
+};
+
+// Пули сусідства (пакети одного пулу можна поставити в пару в один ряд на /courses):
+//   • 🔵 blue   — H=580: M1, M4 (625+625 ✓, 625+730 ✓)
+//   • 🔴 red    — H=740, W=625: M6a, M6b (625+625 ✓)
+//   • 🟢 green  — H=920, W=625 self-pair: M7a, M7b, M10a, M10b (625+625 ✓)
+//   • 🟣 violet — H=920, W=625+730 cross-pair: M7a/b, M10a/b ⇄ M5, M9 (625+730 ✓)
+//   • ⚫ black  — solo (не паруються): M11 (1200px — не вмістить сусіда)
+const PAIR_COLOR_META: Record<PairColor, { label: string; dark: string; light: string; dot: string }> = {
+  blue:   { label: 'H=580 · 625/730', dark: 'bg-sky-500/25 border-sky-400/60',       light: 'bg-sky-500/30 border-sky-600/60',       dot: '#38bdf8' },
+  red:    { label: 'H=740 · 625',     dark: 'bg-rose-500/25 border-rose-400/60',     light: 'bg-rose-500/30 border-rose-600/60',     dot: '#fb7185' },
+  green:  { label: 'H=920 · 625+625', dark: 'bg-emerald-500/25 border-emerald-400/60', light: 'bg-emerald-500/30 border-emerald-600/60', dot: '#34d399' },
+  violet: { label: 'H=920 · 625+730', dark: 'bg-violet-500/25 border-violet-400/60', light: 'bg-violet-500/30 border-violet-600/60', dot: '#a78bfa' },
+  black:  { label: 'Соло (без пари)', dark: 'bg-slate-500/30 border-slate-400/50',   light: 'bg-stone-700/25 border-stone-700/60',   dot: '#1c1917' },
 };
 
 const TYPE_DISCOUNT = '📉 Знижка на пакет';
@@ -28,39 +46,16 @@ const PRICE_INLINE = 'разом з безплатними';
 const MODELS: Model[] = [
   {
     id: '1',
-    name: '1 пакет в ряду (full)',
+    name: 'DISCOUNT 2 платних',
     type: TYPE_DISCOUNT,
     paid: '2',
     free: '0',
     priceLocation: PRICE_SEPARATE,
-    width: '690px',
+    width: '625px',
     rows: 2,
-    height: '601px',
-    note: 'Один пакет з двома курсами. Layout=full (єдиний пакет на сторінці)',
-  },
-  {
-    id: '2',
-    name: '2 пакети в ряду (compact)',
-    type: TYPE_DISCOUNT,
-    paid: '2',
-    free: '0',
-    priceLocation: PRICE_SEPARATE,
-    width: '692px',
-    rows: 2,
-    height: '601px',
-    note: 'Ряд 1400px, gap 16px → (1400−16)/2=692',
-  },
-  {
-    id: '3',
-    name: '3 пакети в ряду (compact)',
-    type: TYPE_DISCOUNT,
-    paid: '2',
-    free: '0',
-    priceLocation: PRICE_SEPARATE,
-    width: '589px',
-    rows: 2,
-    height: '601px',
-    note: 'Ряд 1800px, gap 16px → (1800−32)/3=589,33',
+    height: '580px',
+    note: 'Однаковий розмір чи соло, чи в 2-per-row групі. Amber savings pill "💰 Економія"',
+    pairColors: ['blue'],
   },
   {
     id: '4',
@@ -69,10 +64,11 @@ const MODELS: Model[] = [
     paid: '3',
     free: '0',
     priceLocation: PRICE_SEPARATE,
-    width: '780px',
+    width: '730px',
     rows: 2,
-    height: '601px',
-    note: 'grid-cols-3 внутрішня сітка (розрахунково)',
+    height: '580px',
+    note: 'grid-cols-3 внутрішня сітка',
+    pairColors: ['blue'],
   },
   {
     id: '5',
@@ -81,10 +77,11 @@ const MODELS: Model[] = [
     paid: '4',
     free: '0',
     priceLocation: PRICE_SEPARATE,
-    width: '780px',
+    width: '730px',
     rows: 2,
-    height: '~1030px',
-    note: '2 × 2 внутрішня сітка → 2× висота paid-ряду (розрахунково)',
+    height: '920px',
+    note: '2 × 2 внутрішня сітка. Висота форсована до 920px — авто-тюнер вміщує контент',
+    pairColors: ['violet'],
   },
   {
     id: '6a',
@@ -93,10 +90,11 @@ const MODELS: Model[] = [
     paid: '1',
     free: '1',
     priceLocation: PRICE_INLINE,
-    width: '690px',
+    width: '625px',
     rows: 2,
-    height: '733px',
-    note: '🎯 badge, ціна в CTA-card поряд з безплатним',
+    height: '740px',
+    note: '🎯 badge, ціна в CTA-card поряд з безплатним. Висота форсована до 740px',
+    pairColors: ['red'],
   },
   {
     id: '6b',
@@ -105,10 +103,11 @@ const MODELS: Model[] = [
     paid: '2',
     free: '1',
     priceLocation: PRICE_INLINE,
-    width: '690px',
+    width: '625px',
     rows: 2,
-    height: '782px',
-    note: '🎯 badge, ціна в CTA-card поряд з безплатним',
+    height: '740px',
+    note: '🎯 badge, ціна в CTA-card поряд з безплатним. Висота форсована до 740px',
+    pairColors: ['red'],
   },
   {
     id: '7a',
@@ -117,10 +116,11 @@ const MODELS: Model[] = [
     paid: '1',
     free: '2',
     priceLocation: PRICE_SEPARATE,
-    width: '690px',
+    width: '625px',
     rows: 3,
-    height: '~830px',
-    note: 'gift-row 2-col + нижній Price+CTA (розрахунково)',
+    height: '920px',
+    note: 'gift-row 2-col + нижній Price+CTA. Висота форсована до 920px',
+    pairColors: ['green', 'violet'],
   },
   {
     id: '7b',
@@ -129,10 +129,11 @@ const MODELS: Model[] = [
     paid: '2',
     free: '2',
     priceLocation: PRICE_SEPARATE,
-    width: '690px',
+    width: '625px',
     rows: 3,
-    height: '~850px',
-    note: 'gift-row + isPairLayout (equalPair) (розрахунково)',
+    height: '920px',
+    note: 'gift-row + isPairLayout (equalPair). Висота форсована до 920px',
+    pairColors: ['green', 'violet'],
   },
   {
     id: '9',
@@ -141,10 +142,11 @@ const MODELS: Model[] = [
     paid: '1',
     free: '3 (пул, клієнт обирає 1)',
     priceLocation: PRICE_SEPARATE,
-    width: '780px',
+    width: '730px',
     rows: 3,
-    height: '999px',
-    note: 'Paid стандартизовано до 345px',
+    height: '920px',
+    note: 'Paid стандартизовано до 345px. Висота форсована до 920px',
+    pairColors: ['violet'],
   },
   {
     id: '10a',
@@ -153,10 +155,11 @@ const MODELS: Model[] = [
     paid: '1',
     free: '2 (пул)',
     priceLocation: PRICE_SEPARATE,
-    width: '690px',
+    width: '625px',
     rows: 3,
-    height: '~830px',
-    note: 'toggle-вибір, dim / wax-seal / shimmer (розрахунково)',
+    height: '920px',
+    note: 'toggle-вибір, dim / wax-seal / shimmer. Висота форсована до 920px',
+    pairColors: ['green', 'violet'],
   },
   {
     id: '10b',
@@ -165,10 +168,11 @@ const MODELS: Model[] = [
     paid: '2',
     free: '2 (пул)',
     priceLocation: PRICE_SEPARATE,
-    width: '690px',
+    width: '625px',
     rows: 3,
-    height: '~870px',
-    note: 'toggle-вибір + isPairLayout (equalPair) (розрахунково)',
+    height: '920px',
+    note: 'toggle-вибір + isPairLayout (equalPair). Висота форсована до 920px',
+    pairColors: ['green', 'violet'],
   },
   {
     id: '11',
@@ -179,32 +183,9 @@ const MODELS: Model[] = [
     priceLocation: PRICE_SEPARATE,
     width: '1200px',
     rows: 3,
-    height: '~900px',
-    note: 'slim free cards, 4 в ряду (розрахунково)',
-  },
-  {
-    id: '12',
-    name: 'Спільний isPairLayout (2 платних + 1/2 безкошт)',
-    type: `${TYPE_FIXED}\n${TYPE_CHOICE}`,
-    paid: '2',
-    free: '1-2',
-    priceLocation: PRICE_SEPARATE,
-    width: '690px',
-    rows: 3,
-    height: '~850px',
-    note: 'Кросс-тип стилістика (equalPair/isPairLayout) для FIXED 2+2, CHOICE 2+1, CHOICE 2+2 (розрахунково)',
-  },
-  {
-    id: '13',
-    name: '2 платних (DISCOUNT)',
-    type: TYPE_DISCOUNT,
-    paid: '2',
-    free: '0',
-    priceLocation: PRICE_SEPARATE,
-    width: '690px',
-    rows: 2,
-    height: '601px',
-    note: 'amber savings pill "💰 Економія"',
+    height: '920px',
+    note: 'slim free cards, 4 в ряду. Висота форсована до 920px',
+    pairColors: ['black'],
   },
 ];
 
@@ -291,7 +272,7 @@ export default function BundleModelsButton({ theme = 'light' }: { theme?: Theme 
                     Моделі пакетів
                   </h2>
                   <p className={`text-[11px] mt-1 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
-                    Заморожені верстки. Дизайн не змінюється без прямого прохання. Джерело:{' '}
+                    Заморожені верстки. Розміри виміряні @viewport 1920×1080. Джерело:{' '}
                     <code
                       className={`px-1 py-0.5 rounded text-[10px] ${
                         dark ? 'bg-white/[0.06] text-slate-300' : 'bg-stone-200/70 text-stone-700'
@@ -313,6 +294,34 @@ export default function BundleModelsButton({ theme = 'light' }: { theme?: Theme 
               </div>
 
               <div className="px-6 py-4 overflow-y-auto flex-1 min-h-0 [&::-webkit-scrollbar]:hidden [scrollbar-width:none] [-ms-overflow-style:none]">
+                {/* Легенда кольорів сусідства */}
+                <div
+                  className={`mb-4 rounded-xl px-4 py-3 border ${
+                    dark ? 'bg-white/[0.02] border-white/[0.06]' : 'bg-white/60 border-stone-300/50'
+                  }`}
+                >
+                  <div className={`text-[10px] uppercase tracking-[0.18em] font-medium mb-2 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+                    Кольори сусідства
+                  </div>
+                  <p className={`text-[11px] mb-2.5 ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
+                    Пакети зі <span className="font-semibold">спільним кольором</span> можуть стояти в одному рядку на сторінці курсів.
+                    Пакет з одним кольором пара шукає лише в цьому пулі. <span className="inline-block w-3 h-3 rounded-sm align-middle border" style={{ background: '#1c1917', borderColor: '#44403c' }} /> — соло, пару не можна.
+                  </p>
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                    {(Object.keys(PAIR_COLOR_META) as PairColor[]).map(c => {
+                      const meta = PAIR_COLOR_META[c];
+                      return (
+                        <div key={c} className="inline-flex items-center gap-1.5">
+                          <span
+                            className={`inline-block w-4 h-4 rounded-md border ${dark ? meta.dark : meta.light}`}
+                          />
+                          <span className={`text-[11px] ${dark ? 'text-slate-400' : 'text-stone-600'}`}>{meta.label}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
                 <div
                   className={`rounded-xl border ${
                     dark ? 'border-white/[0.08]' : 'border-stone-300/60'
@@ -368,22 +377,26 @@ export default function BundleModelsButton({ theme = 'light' }: { theme?: Theme 
                             </ul>
                           </Td>
                           <Td dark={dark} align="center">
-                            <span
-                              className={`inline-flex items-center justify-center w-6 h-6 rounded-md font-bold tabular-nums ${
-                                dark
-                                  ? 'bg-emerald-500/15 text-emerald-200 border border-emerald-400/25'
-                                  : 'bg-emerald-200/50 text-emerald-800 border border-emerald-500/30'
-                              }`}
-                            >
-                              {m.rows}
-                            </span>
+                            <div className="inline-flex items-center gap-1 flex-wrap justify-center">
+                              {m.pairColors.map(c => {
+                                const meta = PAIR_COLOR_META[c];
+                                return (
+                                  <span
+                                    key={c}
+                                    title={meta.label}
+                                    className={`inline-block w-5 h-5 rounded-md border ${dark ? meta.dark : meta.light}`}
+                                    style={{ boxShadow: `0 0 0 1px ${meta.dot}22` }}
+                                  />
+                                );
+                              })}
+                            </div>
                           </Td>
                           <Td dark={dark} align="center">
-                            <span
-                              className={`tabular-nums font-medium ${dark ? 'text-amber-200' : 'text-amber-800'}`}
-                            >
-                              {m.width}
-                            </span>
+                            <div className={`tabular-nums font-medium space-y-0.5 ${dark ? 'text-amber-200' : 'text-amber-800'}`}>
+                              {m.width.split('\n').map((line, i) => (
+                                <div key={i}>{line}</div>
+                              ))}
+                            </div>
                           </Td>
                           <Td dark={dark} align="center">
                             <span className={`tabular-nums ${dark ? 'text-slate-300' : 'text-stone-700'}`}>
@@ -407,13 +420,14 @@ export default function BundleModelsButton({ theme = 'light' }: { theme?: Theme 
                 </div>
 
                 <div
-                  className={`mt-4 rounded-xl p-3 border text-[11px] leading-relaxed ${
+                  className={`mt-4 rounded-xl p-3 border text-[11px] leading-relaxed space-y-2 ${
                     dark
                       ? 'bg-amber-500/[0.06] border-amber-500/15 text-amber-200/90'
                       : 'bg-amber-200/25 border-amber-500/30 text-amber-950'
                   }`}
                 >
-                  <span className="font-semibold">Строчок:</span> 2 = платні + (free інлайн з ціною) або платні + ціна. 3 = платні, безкоштовні, ціна — окремими рядами. Висота платних карток уніфікована на 345px через <code className="px-1 rounded bg-black/10">minHeight</code>.
+                  <div><span className="font-semibold">Строчок:</span> 2 = платні + (free інлайн з ціною) або платні + ціна. 3 = платні, безкоштовні, ціна — окремими рядами. Висота платних карток уніфікована на 345px.</div>
+                  <div><span className="font-semibold">У 2-per-row групі:</span> кожен пакет зберігає свою натуральну ширину (625/730/1200) — розмір не змінюється при групуванні.</div>
                 </div>
               </div>
             </div>

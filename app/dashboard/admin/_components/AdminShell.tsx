@@ -72,7 +72,7 @@ export function AdminShell({
   theme: Theme;
   setTheme: (t: Theme) => void;
   title: string;
-  subtitle?: string;
+  subtitle?: React.ReactNode;
   eyebrow?: string;
   backHref?: string;
   rightSlot?: React.ReactNode;
