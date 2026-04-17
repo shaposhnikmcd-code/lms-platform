@@ -3,6 +3,7 @@ import { Block, BlockAlign, BlockWidth } from "../types";
 
 export function useBlockManager(initial: Block[], onChange: (blocks: Block[]) => void) {
   const [previewWidths, setPreviewWidths] = useState<Record<string, number>>({});
+  const [previewHeights, setPreviewHeights] = useState<Record<string, number>>({});
   const [blockHeights, setBlockHeights] = useState<Record<string, number>>({});
 
   const updateBlock = useCallback((id: string, data: Record<string, string>) =>
@@ -14,6 +15,13 @@ export function useBlockManager(initial: Block[], onChange: (blocks: Block[]) =>
   const setWidth = useCallback((id: string, w: BlockWidth) => {
     setPreviewWidths(prev => { const n = { ...prev }; delete n[id]; return n; });
     onChange(initial.map(b => b.id === id ? { ...b, width: w } : b));
+  }, [initial, onChange]);
+
+  // Атомарний апдейт: одночасно ширина + data. Використовується для діагонального resize,
+  // щоб уникнути stale-closure overlap між setWidth і updateBlock при послідовних викликах.
+  const setWidthAndData = useCallback((id: string, w: BlockWidth, data: Record<string, string>) => {
+    setPreviewWidths(prev => { const n = { ...prev }; delete n[id]; return n; });
+    onChange(initial.map(b => b.id === id ? { ...b, width: w, data } : b));
   }, [initial, onChange]);
 
   const setAlign = useCallback((id: string, a: BlockAlign) =>
@@ -28,13 +36,19 @@ export function useBlockManager(initial: Block[], onChange: (blocks: Block[]) =>
   const clearPreview = useCallback((id: string) =>
     setPreviewWidths(prev => { const n = { ...prev }; delete n[id]; return n; }), []);
 
+  const setPreviewHeight = useCallback((id: string, h: number) =>
+    setPreviewHeights(prev => ({ ...prev, [id]: h })), []);
+
+  const clearPreviewHeight = useCallback((id: string) =>
+    setPreviewHeights(prev => { const n = { ...prev }; delete n[id]; return n; }), []);
+
   const reportHeight = useCallback((id: string, h: number) =>
     setBlockHeights(prev => prev[id] === h ? prev : { ...prev, [id]: h }), []);
 
   return {
-    previewWidths, blockHeights,
+    previewWidths, previewHeights, blockHeights,
     updateBlock, deleteBlock,
-    setWidth, setAlign, setBg,
-    setPreview, clearPreview, reportHeight,
+    setWidth, setWidthAndData, setAlign, setBg,
+    setPreview, clearPreview, setPreviewHeight, clearPreviewHeight, reportHeight,
   };
 }

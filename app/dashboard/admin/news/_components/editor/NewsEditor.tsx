@@ -114,7 +114,7 @@ export default function NewsEditor({
                 <span className="absolute inset-0 -translate-x-full group-hover:translate-x-full transition-transform duration-700 bg-gradient-to-r from-transparent via-white/20 to-transparent pointer-events-none" />
                 <span className="relative inline-flex items-center gap-2">
                   <HiOutlineCheckCircle className="text-lg" />
-                  {saving ? "Збереження…" : "Опублікувати"}
+                  {saving ? "Збереження…" : "Зберегти"}
                 </span>
               </button>
             </div>

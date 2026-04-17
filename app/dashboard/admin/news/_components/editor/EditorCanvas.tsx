@@ -51,10 +51,10 @@ export default function EditorCanvas({ blocks, onBlocksChange, onUpload }: Props
   }, [lastAddedId]);
 
   const {
-    previewWidths, blockHeights,
+    previewWidths, previewHeights, blockHeights,
     updateBlock, deleteBlock,
-    setWidth, setAlign, setBg,
-    setPreview, clearPreview, reportHeight,
+    setWidth, setWidthAndData, setAlign, setBg,
+    setPreview, clearPreview, setPreviewHeight, clearPreviewHeight, reportHeight,
   } = useBlockManager(blocks, onBlocksChange);
 
   const {
@@ -144,12 +144,16 @@ export default function EditorCanvas({ blocks, onBlocksChange, onUpload }: Props
                           onChange={updateBlock}
                           onDelete={deleteBlock}
                           onSetWidth={setWidth}
+                          onSetWidthAndData={setWidthAndData}
                           onSetAlign={setAlign}
                           onSetBg={setBg}
                           onUpload={onUpload}
                           containerWidthPx={innerWidth}
                           onPreviewWidth={setPreview}
                           onClearPreview={clearPreview}
+                          onPreviewHeight={setPreviewHeight}
+                          onClearPreviewHeight={clearPreviewHeight}
+                          previewHeight={previewHeights[block.id]}
                           onReportHeight={reportHeight}
                           getSameRowHeights={() => getSameRowHeights(block.id)}
                           snapThreshold={8}

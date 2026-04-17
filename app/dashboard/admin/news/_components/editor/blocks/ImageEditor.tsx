@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Block } from "../types";
+import CropModal from "./CropModal";
 
 const ff = "-apple-system, BlinkMacSystemFont, sans-serif";
 
@@ -16,11 +17,13 @@ interface Props {
   block: Block;
   onChange: (data: Record<string, string>) => void;
   onUpload: (file: File) => Promise<string>;
+  previewHeight?: number;
 }
 
-export default function ImageEditor({ block, onChange, onUpload }: Props) {
+export default function ImageEditor({ block, onChange, onUpload, previewHeight }: Props) {
   const ref = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  const [cropOpen, setCropOpen] = useState(false);
 
   // Підтягнути aspectRatio для старих фото, де поле ще не збережене
   useEffect(() => {
@@ -64,21 +67,34 @@ export default function ImageEditor({ block, onChange, onUpload }: Props) {
     <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
       {block.data.url ? (
         <div style={{ position: "relative" }}>
-          <img
-            src={block.data.url}
-            alt={block.data.alt || ""}
-            style={{
-              width: "100%",
-              height: block.data.minHeight ? `${block.data.minHeight}px` : "auto",
-              objectFit: block.data.minHeight ? "fill" : "contain",
-              borderRadius: "8px",
-              display: "block",
-            }}
-          />
-          <button
-            onClick={() => onChange({ ...block.data, url: "" })}
-            style={{ position: "absolute", top: "8px", right: "8px", background: "#EF4444", color: "#fff", border: "none", borderRadius: "6px", padding: "4px 10px", cursor: "pointer", fontSize: "12px", fontWeight: 600 }}
-          >{"✕"}</button>
+          {(() => {
+            const effectiveH = previewHeight ?? (block.data.minHeight ? Number(block.data.minHeight) : 0);
+            return (
+              <img
+                src={block.data.url}
+                alt={block.data.alt || ""}
+                style={{
+                  width: "100%",
+                  height: effectiveH > 0 ? `${effectiveH}px` : "auto",
+                  objectFit: effectiveH > 0 ? "fill" : "contain",
+                  borderRadius: "8px",
+                  display: "block",
+                }}
+              />
+            );
+          })()}
+          <div style={{ position: "absolute", top: "8px", right: "8px", display: "flex", gap: "6px" }}>
+            <button
+              onClick={() => setCropOpen(true)}
+              title="Обрізати"
+              style={{ background: "rgba(28,58,46,0.85)", color: "#D4A843", border: "none", borderRadius: "6px", padding: "4px 10px", cursor: "pointer", fontSize: "12px", fontWeight: 600, backdropFilter: "blur(4px)" }}
+            >{"✂️ Обрізати"}</button>
+            <button
+              onClick={() => onChange({ ...block.data, url: "" })}
+              title="Видалити фото"
+              style={{ background: "#EF4444", color: "#fff", border: "none", borderRadius: "6px", padding: "4px 10px", cursor: "pointer", fontSize: "12px", fontWeight: 600 }}
+            >{"✕"}</button>
+          </div>
         </div>
       ) : (
         <div
@@ -88,6 +104,29 @@ export default function ImageEditor({ block, onChange, onUpload }: Props) {
       )}
       <input ref={ref} type="file" accept="image/*" style={{ display: "none" }} onChange={handleFile} />
       <input style={inputStyle} placeholder="Alt текст" value={block.data.alt || ""} onChange={e => onChange({ ...block.data, alt: e.target.value })} />
+      {cropOpen && block.data.url && (
+        <CropModal
+          imageUrl={block.data.url}
+          initialAspect={Number(block.data.aspectRatio) || undefined}
+          onCancel={() => setCropOpen(false)}
+          onCropDone={async (blob, newAspect) => {
+            // Заливаємо обрізаний blob як новий файл — отримуємо нову URL з Cloudinary.
+            const file = new File([blob], "cropped.jpg", { type: blob.type });
+            const url = await onUpload(file);
+            if (url) {
+              // Скидаємо minHeight, бо нові пропорції; aspectRatio оновлюємо новим.
+              const next: Record<string, string> = {
+                ...block.data,
+                url,
+                aspectRatio: String(newAspect),
+              };
+              delete next.minHeight;
+              onChange(next);
+            }
+            setCropOpen(false);
+          }}
+        />
+      )}
     </div>
   );
 }

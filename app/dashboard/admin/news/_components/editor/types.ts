@@ -1,5 +1,7 @@
 export type BlockType = "text" | "heading" | "image" | "youtube" | "quote" | "divider";
-export type BlockWidth = "100" | "75" | "66" | "50" | "33" | "25";
+// BlockWidth — рядок з числом відсотків (1..100). Тримаємо як string для сумісності
+// зі старими записами та з JSON-серіалізацією. Крок resize — 1%.
+export type BlockWidth = string;
 export type BlockAlign = "left" | "center" | "right";
 
 export interface Block {
@@ -84,3 +86,6 @@ export const WIDTH_OPTIONS: { value: BlockWidth; label: string }[] = [
   { value: "75",  label: "¾" },
   { value: "100", label: "Full" },
 ];
+
+// Пресети, до яких resize підхоплюється в межах ±0.8%, щоб зручно «клацнути» стандартну ширину
+export const WIDTH_SNAP_PRESETS = [25, 33, 50, 66, 75, 100];
