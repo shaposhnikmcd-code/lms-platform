@@ -1,5 +1,5 @@
 import prisma from '@/lib/prisma';
-import PaymentsTable, { type Row } from './_components/PaymentsTable';
+import PaymentsView, { type Row } from './_components/PaymentsView';
 
 export default async function AdminPayments() {
   const [payments, connectorOrders] = await Promise.all([
@@ -49,10 +49,5 @@ export default async function AdminPayments() {
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );
 
-  return (
-    <div className="max-w-7xl mx-auto px-6 py-10">
-      <h1 className="text-3xl font-bold text-slate-800 mb-8">Платежі</h1>
-      <PaymentsTable rows={rows} />
-    </div>
-  );
+  return <PaymentsView rows={rows} />;
 }
