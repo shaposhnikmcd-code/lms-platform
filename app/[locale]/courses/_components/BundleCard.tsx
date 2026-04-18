@@ -287,14 +287,21 @@ export default function BundleCard({
   useEffect(() => {
     const root = rootRef.current;
     if (!root) return;
+    // У miniature режимі autoTuner НЕ запускається — він читає розміри через
+    // getBoundingClientRect, а parent має transform:scale(0.5), тож bounding rect
+    // повертає scaled значення. Tuner думає що бандл вузький, застосовує rules
+    // для вузьких (збільшує шрифти/padding) → контент виростає понад unifyHeight,
+    // overflow:hidden зрізає низ. Без tuner content рендериться natural і fit-иться.
+    if (miniature) {
+      setTuned(true);
+      return;
+    }
     let raf = 0;
     const run = () => {
       autoTuneBundle(root);
       setTuned(true);
     };
     raf = requestAnimationFrame(run);
-    // Resize listener лише для production режиму; у miniature pointer-events off тож
-    // resize зрідка спрацьовує, але підпишемось — дешево.
     const onResize = () => {
       if (raf) cancelAnimationFrame(raf);
       raf = requestAnimationFrame(() => autoTuneBundle(root));
