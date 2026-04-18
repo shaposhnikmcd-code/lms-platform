@@ -766,79 +766,6 @@ function SingleDoubleToggle({ bundleId, initialMode, theme }: {
   );
 }
 
-/** @deprecated замінено на SingleDoubleToggle */
-function _UnusedDisplayModeToggle({
-  bundleId,
-  initialMode,
-  theme,
-}: {
-  bundleId: string;
-  initialMode: 'auto' | 'solo';
-  theme: Theme;
-}) {
-  const router = useRouter();
-  const [mode, setMode] = useState<'auto' | 'solo'>(initialMode);
-  const [saving, setSaving] = useState(false);
-  const dark = theme === 'dark';
-  const grouping = mode === 'auto';
-
-  useEffect(() => {
-    setMode(initialMode);
-  }, [initialMode]);
-
-  const toggle = async () => {
-    if (saving) return;
-    const prev = mode;
-    const next: 'auto' | 'solo' = grouping ? 'solo' : 'auto';
-    setMode(next);
-    setSaving(true);
-    try {
-      const res = await fetch(`/api/admin/bundles/${bundleId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ displayMode: next }),
-        credentials: 'include',
-      });
-      if (!res.ok) {
-        setMode(prev);
-        return;
-      }
-      router.refresh();
-    } catch {
-      setMode(prev);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={grouping}
-      aria-label="Групувати з пакетами тієї ж ширини"
-      title={grouping ? 'Групується з пакетами тієї ж ширини' : 'Один в ряду (повна ширина)'}
-      onClick={toggle}
-      disabled={saving}
-      className={`relative inline-flex h-5 w-10 shrink-0 rounded-full transition-colors ${
-        grouping
-          ? dark
-            ? 'bg-amber-400/80'
-            : 'bg-amber-500'
-          : dark
-          ? 'bg-white/[0.08]'
-          : 'bg-stone-300'
-      } ${saving ? 'opacity-50 cursor-wait' : 'cursor-pointer'}`}
-    >
-      <span
-        className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform mt-0.5 ${
-          grouping ? 'translate-x-5 ml-0.5' : 'translate-x-0 ml-0.5'
-        }`}
-      />
-    </button>
-  );
-}
-
 function formatTitle(title: string): string[] {
   const tokens = title.split(/(\s*(?:,|\s+та\s+|\s+або\s+)\s*)/);
   const parts: string[] = [];
@@ -1219,7 +1146,10 @@ function SlotRow({
     opacity: isDragging ? 0.5 : 1,
   };
 
-  const totalWidthNative = slot.reduce((sum, b) => sum + getBundleModel(b).widthPx, 0) + (slot.length - 1) * 40;
+  // Gap між пакетами на реальному /courses сайті — gap-4 (16px native).
+  const PAIR_GAP_NATIVE = 16;
+  const pairGapScaled = Math.round(PAIR_GAP_NATIVE * MINIATURE_SCALE);
+  const totalWidthNative = slot.reduce((sum, b) => sum + getBundleModel(b).widthPx, 0) + (slot.length - 1) * PAIR_GAP_NATIVE;
   const canAcceptPair = slot.length === 1 && dragKind === 'bundle';
   const canvasW = Math.round(SITE_CANVAS_NATIVE_W * MINIATURE_SCALE);
 
@@ -1247,12 +1177,23 @@ function SlotRow({
           <div className={`text-[18px] font-bold tabular-nums ${dark ? 'text-slate-300' : 'text-stone-700'}`}>{slotIdx + 1}</div>
         </div>
       </div>
-      {/* Site canvas — імітація реальної ширини сторінки, центрована */}
+      {/* Site canvas — імітація реальної ширини сторінки, центрована.
+          Фон контрастний до admin bg (admin: слонова/stone), canvas — темніший/прохолодний. */}
       <div
-        className={`rounded-lg border ${
-          dark ? 'bg-stone-900/40 border-white/[0.04]' : 'bg-white/40 border-stone-300/40'
+        className={`rounded-lg border shadow-inner ${
+          dark
+            ? 'bg-slate-950/60 border-amber-400/10'
+            : 'bg-stone-800/[0.06] border-stone-400/30'
         }`}
-        style={{ width: canvasW, padding: '12px 0', position: 'relative' }}
+        style={{
+          width: canvasW,
+          padding: '12px 0',
+          position: 'relative',
+          backgroundImage: dark
+            ? 'linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px)'
+            : 'linear-gradient(rgba(0,0,0,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(0,0,0,0.04) 1px, transparent 1px)',
+          backgroundSize: '20px 20px',
+        }}
       >
         {/* Рулетка зверху показує real page width */}
         <div
@@ -1264,7 +1205,7 @@ function SlotRow({
         >
           {SITE_CANVAS_NATIVE_W}px (ширина сайту)
         </div>
-        <div className="flex items-start justify-center gap-10 pt-3">
+        <div className="flex items-start justify-center pt-3" style={{ gap: pairGapScaled }}>
           {slot.map((b) => (
             <DraggableBundle
               key={b.id}
@@ -1378,7 +1319,7 @@ function BundleMiniature({ bundle, number, dark }: { bundle: BundleRowData; numb
   const paid = bundle.miniaturePaid ?? [];
   const free = bundle.miniatureFree ?? [];
   return (
-    <div className="relative group">
+    <div className="relative group flex flex-col items-center gap-1.5">
       <div
         className={`absolute -top-2 -left-2 z-10 inline-flex items-center justify-center w-7 h-7 rounded-full text-[11px] font-bold tabular-nums shadow-md ${
           dark ? 'bg-amber-400/90 text-stone-900' : 'bg-stone-900 text-amber-100'
@@ -1401,13 +1342,11 @@ function BundleMiniature({ bundle, number, dark }: { bundle: BundleRowData; numb
           ✎
         </Link>
       </div>
-      {/* Scaled BundleCard */}
+      {/* Scaled BundleCard — BundleCard сам clip-ає через forcedHeight + overflow:hidden по borderRadius */}
       <div
         style={{
           width: scaledW,
           height: scaledH,
-          overflow: 'hidden',
-          borderRadius: Math.round(24 * MINIATURE_SCALE),
         }}
       >
         <div
@@ -1439,8 +1378,18 @@ function BundleMiniature({ bundle, number, dark }: { bundle: BundleRowData; numb
             ]}
             layout="full"
             miniature
+            forcedHeight={model.heightPx}
           />
         </div>
+      </div>
+      {/* Size label */}
+      <div
+        className={`text-[10px] tabular-nums font-medium tracking-wide ${
+          dark ? 'text-slate-500' : 'text-stone-500'
+        }`}
+        style={{ width: scaledW, textAlign: 'center' }}
+      >
+        {model.widthPx} × {model.heightPx}
       </div>
     </div>
   );
