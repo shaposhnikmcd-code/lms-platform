@@ -1,6 +1,7 @@
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { redirect } from 'next/navigation';
+import Link from 'next/link';
 import prisma from '@/lib/prisma';
 import SubscriptionView from './_components/SubscriptionView';
 
@@ -25,12 +26,12 @@ export default async function StudentSubscriptionPage() {
       <div className="max-w-2xl mx-auto">
         <h1 className="text-3xl font-bold text-[#1C3A2E] mb-3">Моя підписка</h1>
         <p className="text-gray-600 mb-8">У вас ще немає активної підписки на Річну програму.</p>
-        <a
+        <Link
           href="/uk/yearly-program"
           className="inline-block bg-[#D4A017] text-white font-bold py-3 px-8 rounded-xl hover:bg-[#b88913] transition-colors"
         >
           Переглянути програму
-        </a>
+        </Link>
       </div>
     );
   }
