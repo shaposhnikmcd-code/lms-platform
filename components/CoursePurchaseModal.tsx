@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useSession } from 'next-auth/react';
 import { FaWallet, FaTimes, FaCheck, FaSpinner } from 'react-icons/fa';
@@ -18,6 +18,8 @@ interface CoursePurchaseModalProps {
   selectedFreeSlugs?: string[];
   /// Якщо true — кнопка покупки disabled (наприклад, клієнт не обрав безкоштовний)
   disabled?: boolean;
+  /// Якщо true — показати toggle "Разова / Циклічна 9 міс." (для yearly-program-monthly).
+  allowRecurringChoice?: boolean;
 }
 
 export default function CoursePurchaseModal({
@@ -29,6 +31,7 @@ export default function CoursePurchaseModal({
   compact = false,
   selectedFreeSlugs,
   disabled = false,
+  allowRecurringChoice = false,
 }: CoursePurchaseModalProps) {
   const t = useTranslations('PurchaseModal');
   const { data: session } = useSession();
@@ -41,6 +44,8 @@ export default function CoursePurchaseModal({
   const [loading, setLoading] = useState(false);
   const [promoLoading, setPromoLoading] = useState(false);
   const [mounted, setMounted] = useState(false);
+  /// Синхронний inflight-гард: блокує подвійний клік у вікно між onClick і setLoading(true).
+  const inFlightRef = useRef(false);
 
   const [email, setEmail] = useState('');
   const [firstName, setFirstName] = useState('');
@@ -51,12 +56,24 @@ export default function CoursePurchaseModal({
   const [promoApplied, setPromoApplied] = useState(false);
   const [promoError, setPromoError] = useState('');
   const [finalPrice, setFinalPrice] = useState(effectivePrice);
+  /// Циклічна (true) vs разова (false). null = не обрано (блокує оплату при allowRecurringChoice).
+  const [isRecurring, setIsRecurring] = useState<boolean | null>(null);
+  type FieldErrors = Partial<Record<'email' | 'firstName' | 'lastName' | 'phone' | 'payType' | 'general', string>>;
+  const [errors, setErrors] = useState<FieldErrors>({});
+  const clearError = (k: keyof FieldErrors) =>
+    setErrors((prev) => (prev[k] ? { ...prev, [k]: undefined } : prev));
 
   const closeModal = useCallback(() => setIsOpen(false), []);
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  // Коли зовні зміниться price (Bug #12) — синхронізуємо finalPrice, щоб не надсилати
+  // в оплату застарілу ціну. Не чіпаємо, якщо юзер вже застосував промокод.
+  useEffect(() => {
+    if (!promoApplied) setFinalPrice(effectivePrice);
+  }, [effectivePrice, promoApplied]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -79,6 +96,8 @@ export default function CoursePurchaseModal({
     setPromoApplied(false);
     setPromoError('');
     setPromoCode('');
+    setIsRecurring(null);
+    setErrors({});
     setIsOpen(true);
   };
 
@@ -121,15 +140,29 @@ export default function CoursePurchaseModal({
   };
 
   const handlePay = async () => {
-    if (!email.trim()) return alert(t('alertEmail'));
-    if (!firstName.trim()) return alert(t('alertFirstName'));
-    if (!lastName.trim()) return alert(t('alertLastName'));
-    if (!phone.trim()) return alert(t('alertPhone'));
+    if (inFlightRef.current) return;
+    const next: FieldErrors = {};
+    if (!email.trim()) next.email = t('alertEmail');
+    if (!firstName.trim()) next.firstName = t('alertFirstName');
+    if (!lastName.trim()) next.lastName = t('alertLastName');
+    if (!phone.trim()) next.phone = t('alertPhone');
+    if (allowRecurringChoice && isRecurring === null) next.payType = 'Оберіть тип оплати';
+    if (Object.keys(next).length > 0) {
+      setErrors(next);
+      return;
+    }
+    setErrors({});
     const fullPhone = `${(PHONE_CONFIG[phoneCountry] ?? PHONE_CONFIG['UA']).prefix}${phone}`;
 
+    inFlightRef.current = true;
     setLoading(true);
     try {
-      const orderReference = `${courseId}_${Date.now()}`;
+      // Унікальний orderReference з crypto.randomUUID щоб уникнути колізій при швидких кліках
+      // або двох вкладках (Bug M9).
+      const uuid = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID().slice(0, 8)
+        : Math.random().toString(36).slice(2, 10);
+      const orderReference = `${courseId}_${Date.now()}_${uuid}`;
       const response = await fetch('/api/wayforpay', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -145,6 +178,7 @@ export default function CoursePurchaseModal({
           courseId,
           promoCode: promoApplied ? promoCode.trim() : undefined,
           selectedFreeSlugs: selectedFreeSlugs && selectedFreeSlugs.length > 0 ? selectedFreeSlugs : undefined,
+          recurring: allowRecurringChoice ? isRecurring === true : undefined,
         }),
       });
       if (!response.ok) throw new Error(t('errorPayment'));
@@ -174,8 +208,9 @@ export default function CoursePurchaseModal({
       form.submit();
     } catch (error) {
       console.error('Payment error:', error);
-      alert(t('errorPaymentRetry'));
+      setErrors((prev) => ({ ...prev, general: t('errorPaymentRetry') }));
       setLoading(false);
+      inFlightRef.current = false;
     }
   };
 
@@ -222,11 +257,17 @@ export default function CoursePurchaseModal({
                 id="purchase-email"
                 type="email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => { setEmail(e.target.value); clearError('email'); }}
                 placeholder="username@gmail.com"
                 autoComplete="email"
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#D4A017] focus:border-transparent outline-none text-gray-900"
+                aria-invalid={!!errors.email}
+                className={`w-full px-4 py-3 border rounded-lg outline-none text-gray-900 transition-colors ${
+                  errors.email
+                    ? 'border-red-400 bg-red-50/30 focus:ring-2 focus:ring-red-300 focus:border-red-400'
+                    : 'border-gray-300 focus:ring-2 focus:ring-[#D4A017] focus:border-transparent'
+                }`}
               />
+              {errors.email && <p className="mt-1.5 text-xs text-red-600 flex items-center gap-1"><span aria-hidden>•</span>{errors.email}</p>}
             </div>
 
             <div>
@@ -237,11 +278,17 @@ export default function CoursePurchaseModal({
                 id="purchase-firstname"
                 type="text"
                 value={firstName}
-                onChange={(e) => setFirstName(e.target.value)}
+                onChange={(e) => { setFirstName(e.target.value); clearError('firstName'); }}
                 placeholder={t('firstNamePlaceholder')}
                 autoComplete="given-name"
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#D4A017] focus:border-transparent outline-none text-gray-900"
+                aria-invalid={!!errors.firstName}
+                className={`w-full px-4 py-3 border rounded-lg outline-none text-gray-900 transition-colors ${
+                  errors.firstName
+                    ? 'border-red-400 bg-red-50/30 focus:ring-2 focus:ring-red-300 focus:border-red-400'
+                    : 'border-gray-300 focus:ring-2 focus:ring-[#D4A017] focus:border-transparent'
+                }`}
               />
+              {errors.firstName && <p className="mt-1.5 text-xs text-red-600 flex items-center gap-1"><span aria-hidden>•</span>{errors.firstName}</p>}
             </div>
 
             <div>
@@ -252,19 +299,153 @@ export default function CoursePurchaseModal({
                 id="purchase-lastname"
                 type="text"
                 value={lastName}
-                onChange={(e) => setLastName(e.target.value)}
+                onChange={(e) => { setLastName(e.target.value); clearError('lastName'); }}
                 placeholder={t('lastNamePlaceholder')}
                 autoComplete="family-name"
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#D4A017] focus:border-transparent outline-none text-gray-900"
+                aria-invalid={!!errors.lastName}
+                className={`w-full px-4 py-3 border rounded-lg outline-none text-gray-900 transition-colors ${
+                  errors.lastName
+                    ? 'border-red-400 bg-red-50/30 focus:ring-2 focus:ring-red-300 focus:border-red-400'
+                    : 'border-gray-300 focus:ring-2 focus:ring-[#D4A017] focus:border-transparent'
+                }`}
               />
+              {errors.lastName && <p className="mt-1.5 text-xs text-red-600 flex items-center gap-1"><span aria-hidden>•</span>{errors.lastName}</p>}
             </div>
 
-            <CoursePhoneInput
-              phoneCountry={phoneCountry}
-              phone={phone}
-              onPhoneCountryChange={setPhoneCountry}
-              onPhoneChange={setPhone}
-            />
+            <div>
+              <CoursePhoneInput
+                phoneCountry={phoneCountry}
+                phone={phone}
+                onPhoneCountryChange={setPhoneCountry}
+                onPhoneChange={(v) => { setPhone(v); clearError('phone'); }}
+              />
+              {errors.phone && <p className="mt-1.5 text-xs text-red-600 flex items-center gap-1"><span aria-hidden>•</span>{errors.phone}</p>}
+            </div>
+
+            {allowRecurringChoice && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Тип оплати <span className="text-red-500">*</span>
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  {([
+                    {
+                      value: false as const,
+                      kicker: 'РАЗОВА',
+                      unit: 'одноразово',
+                      hint: '30 днів доступу · без автосписань',
+                      icon: (
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                          <rect x="3" y="6" width="18" height="13" rx="2" />
+                          <path d="M3 10h18" />
+                          <path d="M7 15h3" />
+                        </svg>
+                      ),
+                    },
+                    {
+                      value: true as const,
+                      kicker: 'АВТОПЛАТІЖ · 9 МІС.',
+                      unit: '/міс · 9 разів',
+                      hint: `Автосписання з картки · разом ${(price * 9).toLocaleString('uk-UA')} ₴`,
+                      icon: (
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                          <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+                          <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+                          <polyline points="21 3 21 8 16 8" />
+                          <polyline points="3 21 3 16 8 16" />
+                        </svg>
+                      ),
+                    },
+                  ]).map((opt) => {
+                    const selected = isRecurring === opt.value;
+                    const errored = !!errors.payType && !selected;
+                    return (
+                      <button
+                        key={String(opt.value)}
+                        type="button"
+                        onClick={() => { setIsRecurring(opt.value); clearError('payType'); }}
+                        aria-pressed={selected}
+                        className={`group relative overflow-hidden rounded-xl px-3 py-2 text-left transition-all duration-300 ${
+                          selected
+                            ? 'bg-gradient-to-b from-[#FDF6E0] via-white to-white border-2 border-[#D4A017] shadow-[0_8px_22px_-8px_rgba(212,160,23,0.45)] -translate-y-[1px]'
+                            : errored
+                            ? 'bg-white border-2 border-red-300'
+                            : 'bg-gradient-to-br from-[#FDFBF4] to-white border-2 border-[#D4A017]/35 hover:border-[#D4A017] hover:shadow-[0_4px_14px_-4px_rgba(212,160,23,0.25)] hover:-translate-y-[1px]'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 mb-1">
+                          <div
+                            className={`w-6 h-6 rounded-md flex items-center justify-center shrink-0 transition-colors ${
+                              selected
+                                ? 'bg-[#1C3A2E] text-[#D4A017]'
+                                : 'bg-[#1C3A2E] text-[#D4A017]/90 group-hover:text-[#D4A017]'
+                            }`}
+                            aria-hidden
+                          >
+                            {opt.icon}
+                          </div>
+                          <div
+                            className={`text-[9px] font-bold tracking-[0.14em] flex-1 ${
+                              selected ? 'text-[#B8860B]' : 'text-[#1C3A2E]/70'
+                            }`}
+                          >
+                            {opt.kicker}
+                          </div>
+                          <div
+                            className={`w-[16px] h-[16px] rounded-full flex items-center justify-center shrink-0 transition-all ${
+                              selected
+                                ? 'bg-[#D4A017] shadow-[0_0_0_3px_rgba(212,160,23,0.25)]'
+                                : 'border-2 border-[#D4A017]/50 group-hover:border-[#D4A017]'
+                            }`}
+                            aria-hidden
+                          >
+                            {selected && <FaCheck className="text-white text-[7px]" />}
+                          </div>
+                        </div>
+
+                        <div className="flex items-baseline gap-1 leading-none flex-wrap">
+                          <span
+                            className={`text-[19px] font-black tabular-nums ${
+                              selected ? 'text-[#1C3A2E]' : 'text-[#1C3A2E]'
+                            }`}
+                          >
+                            {price.toLocaleString('uk-UA')}
+                          </span>
+                          <span className="text-[11px] font-bold text-[#1C3A2E]">₴</span>
+                          <span
+                            className={`text-[10px] font-medium ${
+                              selected ? 'text-[#1C3A2E]/70' : 'text-[#1C3A2E]/60'
+                            }`}
+                          >
+                            {opt.unit}
+                          </span>
+                        </div>
+
+                        <div
+                          className={`mt-1 text-[10px] leading-tight ${
+                            selected ? 'text-[#1C3A2E]/80' : 'text-[#1C3A2E]/55'
+                          }`}
+                        >
+                          {opt.hint}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+                {errors.payType && <p className="mt-1.5 text-xs text-red-600 flex items-center gap-1"><span aria-hidden>•</span>{errors.payType}</p>}
+                {isRecurring === true && (
+                  <div className="mt-2 px-3 py-2 rounded-lg bg-[#FDFBF4] border border-[#D4A017]/25 text-[11px] leading-relaxed text-[#1C3A2E]/80 flex gap-2">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5 text-[#D4A017] shrink-0 mt-0.5" aria-hidden>
+                      <rect x="3" y="11" width="18" height="10" rx="2" />
+                      <path d="M7 11V8a5 5 0 0 1 10 0v3" />
+                    </svg>
+                    <span>
+                      Картка списуватиметься автоматично <b>{price.toLocaleString('uk-UA')} ₴ щомісяця, 9 разів</b>. Після 9-го платежу списання припиняється. Скасувати можна будь-коли написавши нам в Тех. підтримку. Контакти можна знайти на сторінці Про нас
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
 
             <div>
               <label htmlFor="purchase-promo" className="block text-sm font-medium text-gray-700 mb-1">
@@ -326,6 +507,13 @@ export default function CoursePurchaseModal({
                 </div>
               </div>
             </div>
+
+            {errors.general && (
+              <div className="mb-3 px-4 py-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm flex items-start gap-2">
+                <span className="mt-0.5" aria-hidden>⚠</span>
+                <span>{errors.general}</span>
+              </div>
+            )}
 
             <button
               onClick={handlePay}

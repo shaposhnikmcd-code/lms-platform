@@ -77,11 +77,7 @@ export default function PricingSection({ t }: Props) {
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-[#D4A017] mt-0.5">✓</span>
-                  <span>Економія {premium.toLocaleString('uk-UA')} ₴ проти розсрочки</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-[#D4A017] mt-0.5">✓</span>
-                  <span>Без автосписань з картки</span>
+                  <span>Економія {premium.toLocaleString('uk-UA')} ₴</span>
                 </li>
               </ul>
 
@@ -104,10 +100,7 @@ export default function PricingSection({ t }: Props) {
         {/* Monthly — автосписання */}
         <div className="relative rounded-2xl border border-[#1C3A2E]/10 bg-white overflow-hidden h-full">
           <div className="px-6 py-8 text-center flex flex-col h-full">
-            <div className="inline-block mx-auto px-3 py-1 bg-[#1C3A2E]/[0.06] text-[#1C3A2E] rounded-full text-xs font-semibold mb-4 border border-[#1C3A2E]/10">
-              🔄 Автосписання щомісяця
-            </div>
-            <h3 className="text-lg font-bold text-[#1C3A2E] mb-1">{t.monthTitle}</h3>
+            <h3 className="text-lg font-bold text-[#1C3A2E] mb-1 mt-4">{t.monthTitle}</h3>
             <p className="text-gray-400 text-sm mb-5">Розсрочка на 9 місяців програми</p>
 
             <div className="flex items-baseline justify-center gap-1.5 mb-2">
@@ -120,22 +113,6 @@ export default function PricingSection({ t }: Props) {
 
             <div className="w-16 h-px bg-gray-200 mx-auto mb-5" />
 
-            {/* Transparent auto-debit disclosure */}
-            <ul className="text-left text-gray-700 text-[13px] space-y-2 mb-6 max-w-[280px] mx-auto">
-              <li className="flex items-start gap-2">
-                <span className="text-[#D4A017] mt-0.5">🔄</span>
-                <span>Картка списується автоматично раз на місяць, {TOTAL_MONTHLY_PAYMENTS} разів</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-[#D4A017] mt-0.5">📅</span>
-                <span>Списання припиниться після 9-го платежу</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-[#D4A017] mt-0.5">❌</span>
-                <span>Можна скасувати будь-коли — напишіть нам</span>
-              </li>
-            </ul>
-
             <div className="mt-auto">
               {open ? (
                 <CoursePurchaseModal
@@ -143,6 +120,7 @@ export default function PricingSection({ t }: Props) {
                   price={monthlyPrice}
                   courseId={YEARLY_PROGRAM.monthlyCourseId}
                   buttonLabel={t.btnMonth}
+                  allowRecurringChoice
                 />
               ) : (
                 <DisabledButton label={t.btnMonth} variant="light" />
