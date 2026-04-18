@@ -139,15 +139,23 @@ export function deriveVirtualModel(b: BundleLike): BundleModel {
   const { type, paidCount, freeCount, pickN } = b;
 
   // Висота (зі same логіки BundleCard.tsx `unifyHeight`):
+  //  - FIXED_FREE з 1 безкоштовним (inline CTA) → 740
+  //  - DISCOUNT 2–3 paid (без free) → 605
+  //  - інакше → 920 (включно з DISCOUNT 4+ paid, усі конфіги з free-рядом ≥ 2)
   let heightPx = 920;
   if (type === 'FIXED_FREE' && freeCount === 1) heightPx = 740;
   else if (type === 'DISCOUNT' && freeCount === 0 && (paidCount === 2 || paidCount === 3)) heightPx = 605;
 
-  // Ширина:
-  let widthPx = 625;
-  if (type === 'DISCOUNT' && freeCount === 0 && paidCount >= 3) widthPx = 730;
-  else if (type === 'CHOICE_FREE' && paidCount === 1 && freeCount === 3) widthPx = 730;
-  else if (type === 'CHOICE_FREE' && freeCount >= 4) widthPx = 1250;
+  // Ширина — узгоджена з `nativeBundleWidth` в app/[locale]/courses/page.tsx:
+  //   - non-DISCOUNT з paid=2 і free=4 (CHOICE pool=4)       → 1250
+  //   - non-DISCOUNT з free=4                                 → 1200
+  //   - paid ≤ 2 AND free ≤ 2 AND paid+free ≥ 2              → 625
+  //   - інакше (3+ paid; 2 paid з 3 free; 1 paid з 3 free)   → 730
+  let widthPx: number;
+  if (type !== 'DISCOUNT' && paidCount === 2 && freeCount === 4) widthPx = 1250;
+  else if (type !== 'DISCOUNT' && freeCount === 4) widthPx = 1200;
+  else if (paidCount <= 2 && freeCount <= 2 && paidCount + freeCount >= 2) widthPx = 625;
+  else widthPx = 730;
 
   // Pair colors — залежно від ширини, solid якщо є frozen model з такою ж шириною+висотою, інакше striped
   const pairColors: PairTag[] = [];

@@ -12,6 +12,7 @@ import {
   KeyboardSensor,
   useSensor,
   useSensors,
+  useDroppable,
   type DragEndEvent,
   type DragStartEvent,
 } from '@dnd-kit/core';
@@ -970,6 +971,8 @@ function ViewModeSwitch({ mode, setMode, dark }: { mode: 'table' | 'rows'; setMo
 const ROW_WIDTH_LIMIT_NATIVE = 1460;
 /** Ширина "сторінки" сайту в native пікселях — те що юзер бачить у браузері. */
 const SITE_CANVAS_NATIVE_W = 1460;
+/** Масштаб мініатюр у builder-і. Pакет N×M native рендериться як N·s × M·s. */
+const MINIATURE_SCALE = 0.5;
 
 /** Початкова розбивка бандлів на слоти: pack-by-2 в DB порядку з урахуванням
  *  displayMode ('solo' = завжди один у слоті) і перевіркою сумарної ширини ≤ 1460. */
@@ -1055,7 +1058,7 @@ function RowsView({ bundles, dark }: { bundles: BundleRowData[]; dark: boolean }
       });
     } else if (data?.kind === 'bundle') {
       const bundleId = data.bundleId!;
-      const overData = over.data.current as { kind?: string; slotIdx?: number; bundleId?: string } | undefined;
+      const overData = over.data.current as { kind?: string; slotIdx?: number; insertAt?: number; bundleId?: string } | undefined;
       if (overData?.kind === 'slot-pair-zone' && overData.slotIdx !== undefined) {
         // Drop на pair-зону іншого слота
         setSlots((prev) => {
@@ -1078,6 +1081,24 @@ function RowsView({ bundles, dark }: { bundles: BundleRowData[]; dark: boolean }
           }
           return next;
         });
+      } else if (overData?.kind === 'empty-slot' && overData.insertAt !== undefined) {
+        // Drop на empty-slot зону — винести бандл у новий окремий ряд на позицію insertAt
+        setSlots((prev) => {
+          const fromSlotIdx = prev.findIndex((s) => s.some((b) => b.id === bundleId));
+          if (fromSlotIdx === -1) return prev;
+          const fromSlot = prev[fromSlotIdx];
+          // Якщо бандл вже соло — немає сенсу виносити в новий ряд (він і так сам)
+          if (fromSlot.length === 1) return prev;
+          const bundle = fromSlot.find((b) => b.id === bundleId)!;
+          const insertAt = overData.insertAt!;
+          const next = [...prev];
+          // Видаляємо бандл зі старого слота (там лишається інший)
+          next[fromSlotIdx] = fromSlot.filter((b) => b.id !== bundleId);
+          // Вставляємо новий slot з одним бандлом на позицію insertAt.
+          // Старий slot не видаляємо (він ще має другого) → insertAt не зсувається.
+          next.splice(insertAt, 0, [bundle]);
+          return next;
+        });
       }
     }
   };
@@ -1085,25 +1106,29 @@ function RowsView({ bundles, dark }: { bundles: BundleRowData[]; dark: boolean }
   return (
     <>
       <div className={`mb-4 rounded-lg border px-4 py-2.5 text-[11px] ${dark ? 'bg-white/[0.03] border-white/[0.08] text-slate-400' : 'bg-white/70 border-stone-300/50 text-stone-600'}`}>
-        <span className="font-semibold">Як користуватись:</span> перетягни ручку зліва щоб змінити порядок рядів; перетягни сам пакет на правий край іншого ряду щоб поставити в пару (якщо ширини вміщаються).
+        <span className="font-semibold">Як користуватись:</span> перетягни ручку зліва щоб змінити порядок рядів; перетягни пакет на іншу сторінку (solo) — стане в пару; у зону «Новий ряд» між сторінками — винесе в окремий ряд.
       </div>
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
         <SortableContext
           items={slots.map((slot, idx) => `slot-${idx}`)}
           strategy={verticalListSortingStrategy}
         >
-          <div className="flex flex-col gap-5 py-2">
+          <div className="flex flex-col gap-2 py-2">
+            {/* Зона "новий ряд зверху" — показується тільки при drag бандла з пари */}
+            <EmptySlotDropZone insertAt={0} dark={dark} show={dragKind === 'bundle'} />
             {slots.map((slot, sIdx) => (
-              <SlotRow
-                key={slot.map((b) => b.id).join('-')}
-                slot={slot}
-                slotIdx={sIdx}
-                globalIdxOf={globalIdxOf}
-                dark={dark}
-                dragActive={dragKind !== null}
-                dragKind={dragKind}
-                activeId={activeId}
-              />
+              <div key={slot.map((b) => b.id).join('-')} className="flex flex-col gap-2">
+                <SlotRow
+                  slot={slot}
+                  slotIdx={sIdx}
+                  globalIdxOf={globalIdxOf}
+                  dark={dark}
+                  dragActive={dragKind !== null}
+                  dragKind={dragKind}
+                  activeId={activeId}
+                />
+                <EmptySlotDropZone insertAt={sIdx + 1} dark={dark} show={dragKind === 'bundle'} />
+              </div>
             ))}
             {slots.length === 0 && (
               <div className={`text-center text-[12px] italic ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
@@ -1117,8 +1142,10 @@ function RowsView({ bundles, dark }: { bundles: BundleRowData[]; dark: boolean }
   );
 }
 
-/** Один візуальний рядок — містить 1 або 2 пакети. Drag-handle щоб переносити весь слот;
- *  drop-zone справа для прийняття бандла з іншого слота (пара). */
+/** Один візуальний рядок — містить 1 або 2 пакети.
+ *  - Drag-handle зліва перемішує ряди (вертикальний reorder).
+ *  - Весь canvas = drop-target для pair coupling (коли там solo).
+ *  - Написи (header/розмір) винесені ПОЗА canvas. */
 function SlotRow({
   slot,
   slotIdx,
@@ -1153,13 +1180,21 @@ function SlotRow({
   const canAcceptPair = slot.length === 1 && dragKind === 'bundle';
   const canvasW = Math.round(SITE_CANVAS_NATIVE_W * MINIATURE_SCALE);
 
+  // Весь canvas — drop-target для pair coupling (коли там solo і dragKind='bundle').
+  // Це дозволяє легко попасти з будь-якого ряду, не цілячись у вузьку pair-zone.
+  const { setNodeRef: setPairDropRef, isOver: isPairOver } = useDroppable({
+    id: `slot-pair-zone-${slotIdx}`,
+    data: { kind: 'slot-pair-zone', slotIdx },
+    disabled: !canAcceptPair,
+  });
+
   return (
     <div
       ref={setNodeRef}
       style={style}
       className="relative flex items-stretch justify-center gap-3"
     >
-      {/* Drag handle + label — абсолютно позиційовані зліва щоб не ламати центрування */}
+      {/* Drag handle + номер ряду — абсолютно позиційовані зліва, не ламають центрування canvas */}
       <div className="absolute left-0 top-0 bottom-0 flex items-stretch gap-2">
         <button
           type="button"
@@ -1177,68 +1212,129 @@ function SlotRow({
           <div className={`text-[18px] font-bold tabular-nums ${dark ? 'text-slate-300' : 'text-stone-700'}`}>{slotIdx + 1}</div>
         </div>
       </div>
-      {/* Site canvas — імітація реальної ширини сторінки, центрована.
-          Фон контрастний до admin bg (admin: слонова/stone), canvas — темніший/прохолодний. */}
-      <div
-        className={`rounded-lg border shadow-inner ${
-          dark
-            ? 'bg-slate-950/60 border-amber-400/10'
-            : 'bg-stone-800/[0.06] border-stone-400/30'
-        }`}
-        style={{
-          width: canvasW,
-          padding: '12px 0',
-          position: 'relative',
-          backgroundImage: dark
-            ? 'linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px)'
-            : 'linear-gradient(rgba(0,0,0,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(0,0,0,0.04) 1px, transparent 1px)',
-          backgroundSize: '20px 20px',
-        }}
-      >
-        {/* Рулетка зверху показує real page width */}
+      {/* Canvas wrapper — написи поза canvas, сам canvas містить тільки пакети */}
+      <div className="flex flex-col items-center" style={{ width: canvasW }}>
+        {/* Header: ширина сайту + зайнято/пара — над canvas */}
         <div
-          aria-hidden
-          className={`absolute top-0 left-0 right-0 h-[3px] ${dark ? 'bg-amber-400/20' : 'bg-amber-500/30'}`}
-        />
-        <div
-          className={`absolute top-[4px] left-1 text-[8px] uppercase tracking-wider ${dark ? 'text-amber-400/60' : 'text-amber-700/70'}`}
-        >
-          {SITE_CANVAS_NATIVE_W}px (ширина сайту)
-        </div>
-        <div className="flex items-start justify-center pt-3" style={{ gap: pairGapScaled }}>
-          {slot.map((b) => (
-            <DraggableBundle
-              key={b.id}
-              bundle={b}
-              number={globalIdxOf(b.id)}
-              dark={dark}
-              isActive={activeId === `bundle-${b.id}`}
-            />
-          ))}
-          {canAcceptPair && (
-            <PairDropZone
-              slotIdx={slotIdx}
-              existingBundle={slot[0]}
-              dark={dark}
-              activeId={activeId}
-            />
-          )}
-        </div>
-        {/* Width footer */}
-        <div
-          className={`mt-2 pt-1.5 border-t flex justify-between text-[9px] ${
-            dark ? 'border-white/[0.04] text-slate-500' : 'border-stone-300/40 text-stone-500'
+          className={`w-full flex items-center justify-between text-[12px] px-1 mb-2 ${
+            dark ? 'text-slate-400' : 'text-stone-600'
           }`}
-          style={{ paddingLeft: 6, paddingRight: 6 }}
         >
-          <span>
-            Зайнято: <b className={dark ? 'text-slate-300' : 'text-stone-700'}>{totalWidthNative}px</b> / {SITE_CANVAS_NATIVE_W}px
+          <span className="uppercase tracking-wider">
+            Ширина сайту: <b className={dark ? 'text-slate-300' : 'text-stone-700'}>{SITE_CANVAS_NATIVE_W}px</b>
           </span>
           <span>
+            Зайнято: <b className={dark ? 'text-slate-300' : 'text-stone-700'}>{totalWidthNative}px</b>
+            <span className="mx-1.5 opacity-50">·</span>
             {slot.length === 2 ? 'пара' : 'соло'}
           </span>
         </div>
+        {/* Site canvas — тільки пакети. Drop-target для pair coupling (isPairOver підсвітка). */}
+        <div
+          ref={setPairDropRef}
+          className={`rounded-lg border shadow-inner transition-all ${
+            isPairOver
+              ? (dark ? 'border-emerald-400 bg-emerald-500/10 ring-2 ring-emerald-400/40' : 'border-emerald-500 bg-emerald-200/30 ring-2 ring-emerald-500/40')
+              : dark
+                ? 'bg-slate-950/60 border-amber-400/10'
+                : 'bg-stone-800/[0.06] border-stone-400/30'
+          }`}
+          style={{
+            width: canvasW,
+            padding: '14px 0',
+            position: 'relative',
+            boxSizing: 'border-box',
+            backgroundImage: dark
+              ? 'linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px)'
+              : 'linear-gradient(rgba(0,0,0,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(0,0,0,0.04) 1px, transparent 1px)',
+            backgroundSize: '20px 20px',
+          }}
+        >
+          <div className="flex items-start justify-center" style={{ gap: pairGapScaled }}>
+            {slot.map((b) => (
+              <DraggableBundle
+                key={b.id}
+                bundle={b}
+                number={globalIdxOf(b.id)}
+                dark={dark}
+                isActive={activeId === `bundle-${b.id}`}
+              />
+            ))}
+            {canAcceptPair && (
+              <div
+                className={`flex items-center justify-center rounded-xl border-2 border-dashed transition-colors ${
+                  isPairOver
+                    ? (dark ? 'border-emerald-400 bg-emerald-500/15' : 'border-emerald-500 bg-emerald-200/40')
+                    : (dark ? 'border-white/10' : 'border-stone-300/50')
+                }`}
+                style={{
+                  width: 220,
+                  height: getBundleModel(slot[0]).heightPx * MINIATURE_SCALE,
+                  minHeight: 100,
+                  pointerEvents: 'none',
+                }}
+              >
+                <span className={`text-[11px] font-semibold ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+                  {isPairOver ? '+ Пара' : 'Кинь сюди для пари'}
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+        {/* Size labels — під canvas, один під кожним пакетом у flex-позиції */}
+        <div
+          className="flex items-start justify-center mt-2"
+          style={{ gap: pairGapScaled, width: canvasW }}
+        >
+          {slot.map((b) => {
+            const m = getBundleModel(b);
+            return (
+              <div
+                key={b.id}
+                className={`text-[15px] tabular-nums font-semibold tracking-wide text-center ${
+                  dark ? 'text-slate-300' : 'text-stone-700'
+                }`}
+                style={{ width: Math.round(m.widthPx * MINIATURE_SCALE) }}
+              >
+                {m.widthPx} × {m.heightPx}
+              </div>
+            );
+          })}
+        </div>
       </div>
+    </div>
+  );
+}
+
+/** Пустий слот між рядами — drop тут виносить бандл у новий окремий ряд.
+ *  Показується тільки коли юзер drag-ає бандл (dragKind='bundle'). */
+function EmptySlotDropZone({ insertAt, dark, show }: { insertAt: number; dark: boolean; show: boolean }) {
+  const { setNodeRef, isOver } = useDroppable({
+    id: `empty-slot-${insertAt}`,
+    data: { kind: 'empty-slot', insertAt },
+  });
+  if (!show) return null;
+  const canvasW = Math.round(SITE_CANVAS_NATIVE_W * MINIATURE_SCALE);
+  return (
+    <div
+      ref={setNodeRef}
+      className={`mx-auto flex items-center justify-center rounded-lg border-2 border-dashed transition-all ${
+        isOver
+          ? (dark ? 'border-amber-400 bg-amber-500/10' : 'border-amber-500 bg-amber-200/30')
+          : (dark ? 'border-white/10' : 'border-stone-300/60')
+      }`}
+      style={{
+        width: canvasW,
+        height: isOver ? 60 : 32,
+      }}
+    >
+      <span className={`text-[11px] uppercase tracking-[0.18em] font-semibold ${
+        isOver
+          ? (dark ? 'text-amber-200' : 'text-amber-900')
+          : (dark ? 'text-slate-500' : 'text-stone-500')
+      }`}>
+        {isOver ? '+ Новий ряд тут' : 'Новий ряд'}
+      </span>
     </div>
   );
 }
@@ -1271,55 +1367,41 @@ function DraggableBundle({
   );
 }
 
-/** Drop-zone справа від solo-слота — сюди можна кинути інший бандл щоб створити пару. */
-function PairDropZone({
-  slotIdx,
-  existingBundle,
-  dark,
-  activeId,
-}: {
-  slotIdx: number;
-  existingBundle: BundleRowData;
-  dark: boolean;
-  activeId: string | null;
-}) {
-  const { setNodeRef, isOver } = useSortable({
-    id: `pair-zone-${slotIdx}`,
-    data: { kind: 'slot-pair-zone', slotIdx },
-  });
-  // Evaluate width fit when bundle is being dragged
-  const existingModel = getBundleModel(existingBundle);
-  return (
-    <div
-      ref={setNodeRef}
-      className={`flex items-center justify-center rounded-xl border-2 border-dashed transition-colors ${
-        isOver
-          ? (dark ? 'border-emerald-400 bg-emerald-500/10' : 'border-emerald-500 bg-emerald-200/30')
-          : (dark ? 'border-white/10 hover:border-white/20' : 'border-stone-300/50 hover:border-stone-400/60')
-      }`}
-      style={{
-        width: 220,
-        height: existingModel.heightPx * MINIATURE_SCALE,
-        minHeight: 100,
-      }}
-    >
-      <span className={`text-[11px] font-semibold ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
-        {isOver ? '+ Пара' : 'Кинь сюди для пари'}
-      </span>
-    </div>
-  );
-}
-
-const MINIATURE_SCALE = 0.35;
-
+/** Scaled-рендер реального BundleCard.
+ *  Висоту НЕ хардкодимо — вимірюємо через ResizeObserver natural height після рендеру
+ *  (яку BundleCard сам визначає через `forcedHeight` → `unifyHeight` → natural).
+ *  Outer wrapper = (measuredH × scale) → нічого не обрізається. */
 function BundleMiniature({ bundle, number, dark }: { bundle: BundleRowData; number: number; dark: boolean }) {
   const model = getBundleModel(bundle);
   const scaledW = Math.round(model.widthPx * MINIATURE_SCALE);
-  const scaledH = Math.round(model.heightPx * MINIATURE_SCALE);
   const paid = bundle.miniaturePaid ?? [];
   const free = bundle.miniatureFree ?? [];
+
+  // Вимірюємо реальну висоту BundleCard після рендеру (BundleCard сам форсить height через unifyHeight).
+  // Fallback до model.heightPx коли ще не виміряно.
+  const measureRef = useRef<HTMLDivElement>(null);
+  const [measuredH, setMeasuredH] = useState<number>(model.heightPx);
+
+  useLayoutEffect(() => {
+    const el = measureRef.current;
+    if (!el) return;
+    const measure = () => {
+      const h = el.offsetHeight;
+      if (h > 50) setMeasuredH(h);
+    };
+    // Одразу після mount + через 100ms (щоб autoTuner завершив), + ResizeObserver для будь-яких наступних змін.
+    measure();
+    const t = setTimeout(measure, 120);
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => { clearTimeout(t); ro.disconnect(); };
+  }, [bundle.id]);
+
+  const scaledH = Math.round(measuredH * MINIATURE_SCALE);
+
   return (
-    <div className="relative group flex flex-col items-center gap-1.5">
+    <div className="relative group">
+      {/* Number badge */}
       <div
         className={`absolute -top-2 -left-2 z-10 inline-flex items-center justify-center w-7 h-7 rounded-full text-[11px] font-bold tabular-nums shadow-md ${
           dark ? 'bg-amber-400/90 text-stone-900' : 'bg-stone-900 text-amber-100'
@@ -1330,7 +1412,6 @@ function BundleMiniature({ bundle, number, dark }: { bundle: BundleRowData; numb
       {/* Hover overlay з actions */}
       <div
         className={`absolute inset-0 z-20 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none group-hover:pointer-events-auto flex items-start justify-end p-2 gap-1`}
-        style={{ backgroundColor: 'rgba(0,0,0,0)' }}
       >
         <Link
           href={`/dashboard/admin/bundles/${bundle.id}`}
@@ -1342,54 +1423,51 @@ function BundleMiniature({ bundle, number, dark }: { bundle: BundleRowData; numb
           ✎
         </Link>
       </div>
-      {/* Scaled BundleCard — BundleCard сам clip-ає через forcedHeight + overflow:hidden по borderRadius */}
+      {/* Scaled BundleCard wrapper — чітка amber-рамка + drop shadow для viзуальних меж.
+          overflow:hidden по 12px radius (24×scale) зрізає scaled content по кутах. */}
       <div
         style={{
           width: scaledW,
           height: scaledH,
+          overflow: 'hidden',
+          borderRadius: Math.round(24 * MINIATURE_SCALE),
+          boxShadow: dark
+            ? '0 0 0 1.5px rgba(212,168,67,0.55), 0 6px 18px rgba(0,0,0,0.35)'
+            : '0 0 0 1.5px rgba(164,122,40,0.6), 0 6px 16px rgba(28,58,46,0.14)',
         }}
       >
         <div
           style={{
             width: model.widthPx,
-            height: model.heightPx,
             transform: `scale(${MINIATURE_SCALE})`,
             transformOrigin: 'top left',
             pointerEvents: 'none',
           }}
         >
-          <BundleCard
-            title={bundle.title}
-            price={bundle.price}
-            slug={bundle.id}
-            courses={paid}
-            freeCourses={free}
-            bundleType={bundle.type}
-            freeCount={bundle.pickN ?? 0}
-            currency="грн"
-            priceLabel="ЦІНА ПАКЕТУ"
-            bundleLabel="ПАКЕТ"
-            saveLabel="Економія"
-            buyLabel="Купити пакет"
-            benefits={[
-              { icon: '📼', title: 'Навчання в записі' },
-              { icon: '💛', title: 'Підтримка кураторів' },
-              { icon: '📜', title: 'Сертифікат UIMP' },
-            ]}
-            layout="full"
-            miniature
-            forcedHeight={model.heightPx}
-          />
+          <div ref={measureRef}>
+            <BundleCard
+              title={bundle.title}
+              price={bundle.price}
+              slug={bundle.id}
+              courses={paid}
+              freeCourses={free}
+              bundleType={bundle.type}
+              freeCount={bundle.pickN ?? 0}
+              currency="грн"
+              priceLabel="ЦІНА ПАКЕТУ"
+              bundleLabel="ПАКЕТ"
+              saveLabel="Економія"
+              buyLabel="Купити пакет"
+              benefits={[
+                { icon: '📼', title: 'Навчання в записі' },
+                { icon: '💛', title: 'Підтримка кураторів' },
+                { icon: '📜', title: 'Сертифікат UIMP' },
+              ]}
+              layout="full"
+              miniature
+            />
+          </div>
         </div>
-      </div>
-      {/* Size label */}
-      <div
-        className={`text-[13px] tabular-nums font-semibold tracking-wide mt-1 ${
-          dark ? 'text-slate-400' : 'text-stone-600'
-        }`}
-        style={{ width: scaledW, textAlign: 'center' }}
-      >
-        {model.widthPx} × {model.heightPx}
       </div>
     </div>
   );
