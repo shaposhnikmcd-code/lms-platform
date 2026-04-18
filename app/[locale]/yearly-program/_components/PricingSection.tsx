@@ -20,6 +20,8 @@ type Props = {
   };
 };
 
+const TOTAL_MONTHLY_PAYMENTS = 9;
+
 function DisabledButton({ label, variant }: { label: string; variant: 'light' | 'dark' }) {
   const base =
     'w-full inline-flex items-center justify-center px-6 py-3 rounded-lg font-semibold text-sm cursor-not-allowed select-none';
@@ -36,29 +38,52 @@ function DisabledButton({ label, variant }: { label: string; variant: 'light' | 
 
 export default function PricingSection({ t }: Props) {
   const open = YEARLY_PROGRAM.registrationOpen;
+  const monthlyPrice = Number(YEARLY_PROGRAM.monthlyPrice);
+  const totalMonthly = monthlyPrice * TOTAL_MONTHLY_PAYMENTS;
+  const premium = totalMonthly - Number(YEARLY_PROGRAM.price);
 
   return (
     <section id="price" className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-14">
       <div className="text-center mb-8">
         <h2 className="text-2xl md:text-3xl font-bold text-[#1C3A2E]">{t.title}</h2>
+        <p className="text-sm text-gray-500 mt-2">Оберіть зручний варіант оплати — одноразово на рік або автосписання щомісяця</p>
       </div>
 
       <div className="grid md:grid-cols-2 gap-5">
-        {/* Full year */}
+        {/* Full year — одноразова оплата */}
         <div className="relative rounded-2xl p-px bg-gradient-to-b from-[#D4A017]/40 via-[#D4A017]/10 to-transparent">
           <div className="relative bg-gradient-to-br from-[#1C3A2E] to-[#2a4f3f] rounded-2xl overflow-hidden h-full">
             <div className="absolute top-0 left-1/2 -translate-x-1/2 w-60 h-32 bg-[#D4A017]/[0.07] rounded-full blur-3xl" />
             <div className="relative px-6 py-8 text-center flex flex-col h-full">
-              <div className="inline-block mx-auto px-3 py-1 bg-[#D4A017] text-white rounded-full text-xs font-semibold mb-4">{t.badge}</div>
+              <div className="inline-block mx-auto px-3 py-1 bg-[#D4A017] text-white rounded-full text-xs font-semibold mb-4">
+                {t.badge}
+              </div>
               <h3 className="text-lg font-bold text-white mb-1">{t.yearTitle}</h3>
               <p className="text-white/40 text-sm mb-5">{t.yearSubtitle}</p>
 
-              <div className="flex items-baseline justify-center gap-1.5 mb-4">
+              <div className="flex items-baseline justify-center gap-1.5 mb-2">
                 <span className="text-5xl font-black text-white tracking-tight">{YEARLY_PROGRAM.price}</span>
                 <span className="text-white/50 text-sm font-medium">{t.currency}</span>
               </div>
+              <p className="text-white/60 text-xs mb-5">Одноразовий платіж · Доступ на весь час програми</p>
 
-              <div className="w-16 h-px bg-gradient-to-r from-transparent via-[#D4A017]/40 to-transparent mx-auto mb-6" />
+              <div className="w-16 h-px bg-gradient-to-r from-transparent via-[#D4A017]/40 to-transparent mx-auto mb-5" />
+
+              {/* Benefits */}
+              <ul className="text-left text-white/80 text-[13px] space-y-2 mb-6 max-w-[280px] mx-auto">
+                <li className="flex items-start gap-2">
+                  <span className="text-[#D4A017] mt-0.5">✓</span>
+                  <span>Одна оплата — весь курс на 9 місяців</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-[#D4A017] mt-0.5">✓</span>
+                  <span>Економія {premium.toLocaleString('uk-UA')} ₴ проти розсрочки</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-[#D4A017] mt-0.5">✓</span>
+                  <span>Без автосписань з картки</span>
+                </li>
+              </ul>
 
               <div className="mt-auto">
                 {open ? (
@@ -76,32 +101,46 @@ export default function PricingSection({ t }: Props) {
           </div>
         </div>
 
-        {/* Monthly */}
+        {/* Monthly — автосписання */}
         <div className="relative rounded-2xl border border-[#1C3A2E]/10 bg-white overflow-hidden h-full">
           <div className="px-6 py-8 text-center flex flex-col h-full">
+            <div className="inline-block mx-auto px-3 py-1 bg-[#1C3A2E]/[0.06] text-[#1C3A2E] rounded-full text-xs font-semibold mb-4 border border-[#1C3A2E]/10">
+              🔄 Автосписання щомісяця
+            </div>
             <h3 className="text-lg font-bold text-[#1C3A2E] mb-1">{t.monthTitle}</h3>
-            <p className="text-gray-400 text-sm mb-5">{t.monthSubtitle}</p>
+            <p className="text-gray-400 text-sm mb-5">Розсрочка на 9 місяців програми</p>
 
-            <div className="flex items-baseline justify-center gap-1.5 mb-1">
+            <div className="flex items-baseline justify-center gap-1.5 mb-2">
               <span className="text-5xl font-black text-[#1C3A2E] tracking-tight">{YEARLY_PROGRAM.monthlyPrice}</span>
               <span className="text-gray-400 text-sm font-medium">{t.currencyMonth}</span>
             </div>
-            <p className="text-gray-300 text-xs mb-5">{t.monthsCalc}</p>
+            <p className="text-gray-400 text-xs mb-5">
+              {TOTAL_MONTHLY_PAYMENTS} платежів × {YEARLY_PROGRAM.monthlyPrice} ₴ = {totalMonthly.toLocaleString('uk-UA')} ₴
+            </p>
 
-            <div className="w-16 h-px bg-gray-200 mx-auto mb-4" />
+            <div className="w-16 h-px bg-gray-200 mx-auto mb-5" />
 
-            <div className="bg-[#FDF2EB] rounded-lg px-4 py-3 mb-6">
-              <p className="text-[#1C3A2E] text-sm">
-                {t.promoText}
-              </p>
-              <p className="font-mono font-bold text-[#D4A017] text-lg tracking-wider">{YEARLY_PROGRAM.monthlyPromoCode}</p>
-            </div>
+            {/* Transparent auto-debit disclosure */}
+            <ul className="text-left text-gray-700 text-[13px] space-y-2 mb-6 max-w-[280px] mx-auto">
+              <li className="flex items-start gap-2">
+                <span className="text-[#D4A017] mt-0.5">🔄</span>
+                <span>Картка списується автоматично раз на місяць, {TOTAL_MONTHLY_PAYMENTS} разів</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-[#D4A017] mt-0.5">📅</span>
+                <span>Списання припиниться після 9-го платежу</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-[#D4A017] mt-0.5">❌</span>
+                <span>Можна скасувати будь-коли — напишіть нам</span>
+              </li>
+            </ul>
 
             <div className="mt-auto">
               {open ? (
                 <CoursePurchaseModal
                   courseName={t.courseNameMonth}
-                  price={Number(YEARLY_PROGRAM.monthlyPrice)}
+                  price={monthlyPrice}
                   courseId={YEARLY_PROGRAM.monthlyCourseId}
                   buttonLabel={t.btnMonth}
                 />

@@ -3,7 +3,7 @@ import crypto from 'crypto';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
-import { isYearlyProgramOrderRef } from '@/lib/yearlyProgramConfig';
+import { isYearlyProgramOrderRef, YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
 import { buildRegularPurchaseFlags } from '@/lib/wayforpay';
 
 export async function POST(req: NextRequest) {
@@ -201,7 +201,10 @@ export async function POST(req: NextRequest) {
     // на стороні WFP. WFP щомісяця шле callback з новим orderReference, який ми ловимо нижче.
     // (Не входить у signature — додаткові поля.)
     if (yearlyKind === 'monthly') {
-      const flags = buildRegularPurchaseFlags({ amount: Number(amount) });
+      const flags = buildRegularPurchaseFlags({
+        amount: Number(amount),
+        totalPayments: YEARLY_PROGRAM_CONFIG.totalMonthlyPayments,
+      });
       Object.assign(paymentData, flags);
     }
 

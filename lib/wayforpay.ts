@@ -16,13 +16,27 @@ export function signFields(fields: (string | number)[], secretKey: string): stri
 /// Параметри, що йдуть у Purchase як flags для токенізації + регулярних списань.
 /// Використовується для ПЕРШОГО платежу Місячної підписки — WFP запамʼятає картку
 /// і почне щомісячно списувати автоматично. Кожне списання шле callback на serviceUrl.
+///
+/// `totalPayments` задає скільки ВСЬОГО списань має бути (1 Purchase + (N-1) scheduled).
+/// Для Річної програми 9 місяців → 9 платежів → dateEnd = dateBegin + 8 місяців + 10 днів буфер.
+/// Після dateEnd WFP припиняє автосписання автоматично.
 export function buildRegularPurchaseFlags(opts: {
   amount: number;
   dateBegin?: Date;
   dateEnd?: Date;
+  totalPayments?: number;
 }) {
   const begin = opts.dateBegin ?? new Date();
-  const end = opts.dateEnd ?? new Date(begin.getTime() + 10 * 365 * 24 * 60 * 60 * 1000);
+  let end: Date;
+  if (opts.dateEnd) {
+    end = opts.dateEnd;
+  } else if (opts.totalPayments && opts.totalPayments > 1) {
+    end = new Date(begin);
+    end.setMonth(end.getMonth() + (opts.totalPayments - 1));
+    end.setDate(end.getDate() + 10);
+  } else {
+    end = new Date(begin.getTime() + 10 * 365 * 24 * 60 * 60 * 1000);
+  }
   const fmt = (d: Date) => {
     const dd = String(d.getDate()).padStart(2, '0');
     const mm = String(d.getMonth() + 1).padStart(2, '0');

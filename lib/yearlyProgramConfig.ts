@@ -21,6 +21,10 @@ export const YEARLY_PROGRAM_CONFIG = {
   yearlyDurationDays: 365,
   monthlyDurationDays: 30,
 
+  /// Скільки всього щомісячних списань має бути у Місячній підписці (включно з першим Purchase).
+  /// Програма триває 9 місяців → 9 платежів → після 9-го списання WFP припиняє регулярку.
+  totalMonthlyPayments: 9,
+
   /// Grace-період після expiresAt, протягом якого доступ залишається відкритим.
   graceDays: 1,
 

@@ -1,7 +1,7 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import Link from "next/link";
-import { FaBook, FaCertificate, FaCreditCard, FaCog, FaEnvelope } from "react-icons/fa";
+import { FaBook, FaCertificate, FaCreditCard, FaCog, FaEnvelope, FaRegCalendarCheck } from "react-icons/fa";
 import prisma from "@/lib/prisma";
 
 export default async function StudentDashboard() {
@@ -89,7 +89,7 @@ export default async function StudentDashboard() {
       </div>
 
       {/* Навігація по розділах */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
         <Link href="/dashboard/student/my-courses"
           className="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition text-center">
           <FaBook className="text-3xl text-[#1C3A2E] mx-auto mb-2" />
@@ -106,6 +106,12 @@ export default async function StudentDashboard() {
           className="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition text-center">
           <FaCreditCard className="text-3xl text-[#1C3A2E] mx-auto mb-2" />
           <span className="font-medium">Платежі</span>
+        </Link>
+
+        <Link href="/dashboard/student/subscription"
+          className="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition text-center">
+          <FaRegCalendarCheck className="text-3xl text-[#1C3A2E] mx-auto mb-2" />
+          <span className="font-medium">Моя підписка</span>
         </Link>
 
         <Link href="/dashboard/student/settings"
