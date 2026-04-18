@@ -28,6 +28,19 @@ import { AdminShell, AdminPanel } from '../../_components/AdminShell';
 import SuspendButton from './SuspendButton';
 import DeleteBundleButton from './DeleteBundleButton';
 import BundleModelsButton from './BundleModelsButton';
+import BundleCard from '@/app/[locale]/courses/_components/BundleCard';
+import { FaTable, FaTh } from 'react-icons/fa';
+import {
+  matchBundleToModel,
+  getBundleModelOrVirtual,
+  canPairBundles,
+  PAIR_COLOR_META,
+  type BundleModel,
+  type PairColor,
+  type PairTag,
+  type PairResult,
+} from '@/lib/bundleModels';
+// `matchBundleToModel` використовується в isExactMatchModel — не видаляти.
 
 export type BundleType = 'DISCOUNT' | 'FIXED_FREE' | 'CHOICE_FREE';
 
@@ -51,8 +64,46 @@ export type BundleRowData = {
   suspendedAt: string | null;
   resumeAt: string | null;
   displayMode: 'auto' | 'solo';
+  pickN?: number;
   courses: BundleCourseData[];
+  miniaturePaid?: MiniatureCourse[];
+  miniatureFree?: MiniatureCourse[];
 };
+
+export type MiniatureCourse = {
+  slug: string;
+  title: string;
+  description: string;
+  tag: string;
+  price: number;
+  icon: string;
+  accent: string;
+  accentRgb: string;
+};
+
+/** Helper: bundle → model (exact або derived virtual). */
+export function getBundleModel(b: BundleRowData): BundleModel {
+  const paid = b.courses.filter((c) => !c.isFree).length;
+  const free = b.courses.filter((c) => c.isFree).length;
+  return getBundleModelOrVirtual({
+    type: b.type,
+    paidCount: paid,
+    freeCount: free,
+    pickN: b.type === 'CHOICE_FREE' ? b.pickN : undefined,
+  });
+}
+
+/** Helper: чи це exact (frozen) match, щоб візуально відрізнити. */
+export function isExactMatchModel(b: BundleRowData): boolean {
+  const paid = b.courses.filter((c) => !c.isFree).length;
+  const free = b.courses.filter((c) => c.isFree).length;
+  return matchBundleToModel({
+    type: b.type,
+    paidCount: paid,
+    freeCount: free,
+    pickN: b.type === 'CHOICE_FREE' ? b.pickN : undefined,
+  }) !== null;
+}
 
 /** Обчислити "ширину" пакета: скільки курсів у найширшому ряду (2, 3 або 4). */
 export function bundleWidth(paid: number, free: number): 2 | 3 | 4 {
@@ -92,6 +143,7 @@ export default function BundlesView({
   const dark = theme === 'dark';
   const [order, setOrder] = useState(bundles);
   const [saving, setSaving] = useState(false);
+  const [viewMode, setViewMode] = useState<'table' | 'rows'>('table');
   const tableRef = useRef<HTMLTableElement | null>(null);
   const [markers, setMarkers] = useState<Array<{ id: string; top: number; height: number }>>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -197,6 +249,7 @@ export default function BundlesView({
       rightSlotAfter={<BundleModelsButton theme={theme} />}
       rightSlot={
         <div className="flex items-center gap-2">
+          <ViewModeSwitch mode={viewMode} setMode={setViewMode} dark={dark} />
           <Link
             href="/dashboard/admin/bundles/new"
             className={`group relative inline-flex items-center gap-2 px-4 py-2 rounded-full text-[12px] font-medium transition-all duration-300 overflow-hidden ${
@@ -234,6 +287,8 @@ export default function BundlesView({
             <FaPlus /> Створити перший пакет
           </Link>
         </AdminPanel>
+      ) : viewMode === 'rows' ? (
+        <RowsView bundles={order} dark={dark} />
       ) : (
         <DndContext
           sensors={sensors}
@@ -241,6 +296,7 @@ export default function BundlesView({
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
         >
+        <PairingLegend dark={dark} />
         <div className="flex items-start gap-3">
         <AdminPanel theme={theme} padding="p-0" className="overflow-hidden flex-1 min-w-0">
           <div
@@ -277,18 +333,12 @@ export default function BundlesView({
           </div>
         </AdminPanel>
 
-        {/* Зовнішня смуга з римськими маркерами ширини пакетів — вирівняна до кожного рядка таблиці */}
-        <div className="relative shrink-0" style={{ minWidth: 100, alignSelf: 'stretch' }}>
+        {/* Зовнішня смуга: кольори сусідства + номери пакетів-кандидатів у парі */}
+        <div className="relative shrink-0" style={{ minWidth: 110, alignSelf: 'stretch' }}>
           {markers.map((m) => {
             const bundle = order.find((b) => b.id === m.id);
             if (!bundle) return null;
-            const paid = bundle.courses.filter((c) => !c.isFree).length;
-            const free = bundle.courses.filter((c) => c.isFree).length;
-            const w = bundleWidth(paid, free);
-            const roman = w === 2 ? 'II' : w === 3 ? 'III' : 'IV';
-            const bgCls = dark
-              ? 'bg-white/[0.04] text-slate-300 border-white/[0.06]'
-              : 'bg-stone-900/[0.05] text-stone-700 border-stone-300/40';
+            const model = getBundleModel(bundle);
             const isActive = activeId === m.id;
             const liveTransform = rowTransforms[m.id];
             const style: React.CSSProperties = {
@@ -301,24 +351,69 @@ export default function BundlesView({
               transition: activeId ? 'none' : 'transform 200ms ease',
               ...(isActive ? { opacity: 0.4, zIndex: 30 } : {}),
             };
+
+            // Для кожного іншого бандла: чи може стати в пару по ШИРИНІ?
+            // - perfect = canPair=true + однакова висота
+            // - mismatch = canPair=true + різна висота (сходинка)
+            // - не пара = ширина не вміщується → не показуємо
+            const myParams = {
+              type: bundle.type,
+              paidCount: bundle.courses.filter((c) => !c.isFree).length,
+              freeCount: bundle.courses.filter((c) => c.isFree).length,
+              pickN: bundle.type === 'CHOICE_FREE' ? bundle.pickN : undefined,
+            };
+            const perfectNums: number[] = [];
+            const mismatchNums: number[] = [];
+            order.forEach((other, idx) => {
+              if (other.id === bundle.id) return;
+              const otherParams = {
+                type: other.type,
+                paidCount: other.courses.filter((c) => !c.isFree).length,
+                freeCount: other.courses.filter((c) => c.isFree).length,
+                pickN: other.type === 'CHOICE_FREE' ? other.pickN : undefined,
+              };
+              const pr = canPairBundles(myParams, otherParams);
+              if (!pr.canPair) return;
+              if (pr.quality === 'solid') perfectNums.push(idx + 1);
+              else mismatchNums.push(idx + 1);
+            });
+            const isSolo = model.pairColors.every((p) => p.color === 'black');
+
             return (
-              <div
-                key={m.id}
-                style={style}
-                className="flex items-center justify-center"
-              >
-                <div className="flex flex-col items-center gap-1.5">
-                  <span
-                    title={`Ширина пакета: ${w} курс${w === 2 ? 'и' : 'и'}`}
-                    className={`inline-flex items-center justify-center w-14 h-14 rounded-xl border font-serif text-[26px] font-bold tracking-wider leading-none select-none ${bgCls}`}
-                  >
-                    {roman}
-                  </span>
-                  <DisplayModeToggle
-                    bundleId={bundle.id}
-                    initialMode={bundle.displayMode}
-                    theme={theme}
-                  />
+              <div key={m.id}>
+                <div style={style} className="flex items-center justify-center px-1">
+                  <div className="flex flex-col items-center gap-1.5 w-full">
+                    {isSolo ? (
+                      <span
+                        title="Соло — ширина 1200px+, жоден інший пакет не вміщається поруч."
+                        className={`text-[11px] uppercase tracking-[0.16em] font-semibold ${dark ? 'text-slate-400' : 'text-stone-500'}`}
+                      >
+                        Соло
+                      </span>
+                    ) : (
+                      <>
+                        <div className="w-full flex flex-col gap-1 text-[10px] leading-tight">
+                          <PairTextRow
+                            label="Perfect"
+                            nums={perfectNums}
+                            dark={dark}
+                            tone="good"
+                          />
+                          <PairTextRow
+                            label="Height mismatch"
+                            nums={mismatchNums}
+                            dark={dark}
+                            tone="warn"
+                          />
+                        </div>
+                        <SingleDoubleToggle
+                          bundleId={bundle.id}
+                          initialMode={bundle.displayMode}
+                          theme={theme}
+                        />
+                      </>
+                    )}
+                  </div>
                 </div>
               </div>
             );
@@ -608,7 +703,71 @@ function StatusPill({
   );
 }
 
-function DisplayModeToggle({
+/** Single/Double toggle: Single = solo (повна ширина), Double = auto (пара з іншими). */
+function SingleDoubleToggle({ bundleId, initialMode, theme }: {
+  bundleId: string;
+  initialMode: 'auto' | 'solo';
+  theme: Theme;
+}) {
+  const router = useRouter();
+  const [mode, setMode] = useState<'auto' | 'solo'>(initialMode);
+  const [saving, setSaving] = useState(false);
+  const dark = theme === 'dark';
+  const isDouble = mode === 'auto';
+
+  useEffect(() => {
+    setMode(initialMode);
+  }, [initialMode]);
+
+  const set = async (next: 'auto' | 'solo') => {
+    if (saving || next === mode) return;
+    const prev = mode;
+    setMode(next);
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/admin/bundles/${bundleId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ displayMode: next }),
+        credentials: 'include',
+      });
+      if (!res.ok) setMode(prev);
+      else router.refresh();
+    } catch {
+      setMode(prev);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const baseBtn = `flex-1 px-2 py-1 text-[9px] uppercase tracking-wider font-semibold rounded transition-colors disabled:opacity-50`;
+  const activeCls = dark ? 'bg-amber-400/25 text-amber-200 border border-amber-400/40' : 'bg-amber-400/40 text-amber-900 border border-amber-500/50';
+  const inactiveCls = dark ? 'bg-white/[0.04] text-slate-500 border border-white/[0.06] hover:text-slate-300' : 'bg-stone-900/[0.04] text-stone-500 border border-stone-300/40 hover:text-stone-700';
+
+  return (
+    <div className="w-full inline-flex gap-0.5" title="Single = один в ряду. Double = пара з іншим пакетом тієї ж ширини.">
+      <button
+        type="button"
+        onClick={() => set('solo')}
+        disabled={saving}
+        className={`${baseBtn} ${!isDouble ? activeCls : inactiveCls}`}
+      >
+        Single
+      </button>
+      <button
+        type="button"
+        onClick={() => set('auto')}
+        disabled={saving}
+        className={`${baseBtn} ${isDouble ? activeCls : inactiveCls}`}
+      >
+        Double
+      </button>
+    </div>
+  );
+}
+
+/** @deprecated замінено на SingleDoubleToggle */
+function _UnusedDisplayModeToggle({
   bundleId,
   initialMode,
   theme,
@@ -690,4 +849,599 @@ function formatTitle(title: string): string[] {
     parts.push(sep === ',' ? `${word},` : sep ? `${word} ${sep}` : word);
   }
   return parts;
+}
+
+/** @deprecated замінено на PairRow (показує номери пакетів з тим же кольором) */
+function _UnusedModelBadge({ model, isVirtual = false, dark }: { model: BundleModel; isVirtual?: boolean; dark: boolean }) {
+  const pairs = model.pairColors.filter((p) => p.color !== 'black');
+  const isSolo = model.pairColors.every((p) => p.color === 'black');
+  const label = isVirtual ? `~${model.paid}+${model.free}` : `M${model.id}`;
+  const title = isVirtual
+    ? `Не в frozen списку Моделей. Обчислено: ${model.widthPx}×${model.heightPx}. ${model.note}`
+    : `${model.name} · ${model.widthPx}×${model.heightPx}`;
+  return (
+    <div
+      title={title}
+      className={`w-full rounded-lg border px-2 py-1.5 flex flex-col gap-1 ${
+        isVirtual
+          ? (dark ? 'bg-amber-500/[0.06] border-amber-400/30 border-dashed' : 'bg-amber-50/70 border-amber-400/50 border-dashed')
+          : (dark ? 'bg-white/[0.035] border-white/[0.08]' : 'bg-white/80 border-stone-300/50')
+      }`}
+    >
+      <div className="flex items-center justify-between gap-1">
+        <span className={`text-[11px] font-semibold ${dark ? 'text-slate-200' : 'text-stone-800'}`}>
+          {label}
+        </span>
+        <span className={`text-[10px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+          {model.widthPx}×{model.heightPx}
+        </span>
+      </div>
+      <div className="flex items-center gap-1 flex-wrap">
+        {isSolo ? (
+          <PairDot tag={{ color: 'black' }} dark={dark} />
+        ) : (
+          pairs.map((p) => <PairDot key={p.color} tag={p} dark={dark} />)
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Рядок "Perfect: 2, 5, 6" або "Height mismatch: 3, 7". */
+function PairTextRow({ label, nums, dark, tone }: { label: string; nums: number[]; dark: boolean; tone: 'good' | 'warn' }) {
+  const labelColor = tone === 'good'
+    ? (dark ? 'text-emerald-400' : 'text-emerald-700')
+    : (dark ? 'text-amber-400' : 'text-amber-700');
+  const valueColor = dark ? 'text-slate-200' : 'text-stone-800';
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className={`text-[9px] uppercase tracking-wider font-semibold ${labelColor}`}>{label}</span>
+      <span className={`text-[11px] font-semibold tabular-nums ${valueColor}`}>
+        {nums.length ? nums.join(', ') : '—'}
+      </span>
+    </div>
+  );
+}
+
+/** @deprecated використано PairTextRow */
+function PairRow({ color, solid, striped, dark }: { color: PairColor; solid: number[]; striped: number[]; dark: boolean }) {
+  const meta = PAIR_COLOR_META[color];
+  const title = `${meta.label}\nЧисті пари (однакова висота): ${solid.length ? solid.join(', ') : 'немає'}\nЗі сходинкою (різна висота): ${striped.length ? striped.join(', ') : 'немає'}`;
+  return (
+    <div
+      title={title}
+      className="flex items-center gap-1.5 px-1 py-0.5 flex-wrap"
+    >
+      <PairDot tag={{ color }} dark={dark} />
+      <span className={`text-[11px] font-semibold tabular-nums ${dark ? 'text-slate-200' : 'text-stone-800'}`}>
+        {solid.length ? solid.join(', ') : '—'}
+      </span>
+      {striped.length > 0 && (
+        <span
+          className={`text-[9px] italic tabular-nums ${dark ? 'text-slate-500' : 'text-stone-500'}`}
+          title="Пари зі сходинкою (різна висота)"
+        >
+          [{striped.join(',')}]
+        </span>
+      )}
+    </div>
+  );
+}
+
+function PairDot({ tag, dark }: { tag: PairTag; dark: boolean }) {
+  const meta = PAIR_COLOR_META[tag.color];
+  const cls = dark ? meta.dark : meta.light;
+  const title = `${meta.label}${tag.striped ? ' (різна висота — штрихована)' : ''}`;
+  const style: React.CSSProperties = tag.striped
+    ? {
+        backgroundImage: `repeating-linear-gradient(45deg, ${meta.dot}99 0, ${meta.dot}99 2px, transparent 2px, transparent 5px)`,
+      }
+    : {};
+  return (
+    <span
+      title={title}
+      className={`inline-block w-4 h-4 rounded-sm border ${cls}`}
+      style={style}
+    />
+  );
+}
+
+/** Легенда — пояснення для правої колонки. */
+function PairingLegend({ dark }: { dark: boolean }) {
+  return (
+    <div className={`rounded-lg border px-3 py-2 mb-3 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-[11px] ${dark ? 'bg-white/[0.03] border-white/[0.08] text-slate-400' : 'bg-white/70 border-stone-300/50 text-stone-600'}`}>
+      <span className={`uppercase tracking-[0.18em] font-semibold ${dark ? 'text-slate-300' : 'text-stone-700'}`}>
+        У правій колонці:
+      </span>
+      <span className="inline-flex items-center gap-1.5">
+        <span className={`text-[9px] uppercase tracking-wider font-semibold ${dark ? 'text-emerald-400' : 'text-emerald-700'}`}>Perfect</span>
+        <span>— вміщується в ряд + висота збігається</span>
+      </span>
+      <span className="inline-flex items-center gap-1.5">
+        <span className={`text-[9px] uppercase tracking-wider font-semibold ${dark ? 'text-amber-400' : 'text-amber-700'}`}>Height mismatch</span>
+        <span>— вміщується по ширині, але висота різна (сходинка)</span>
+      </span>
+      <span className="inline-flex items-center gap-1.5 ml-auto">
+        <span className="font-semibold">Single</span><span>— один в ряду · </span>
+        <span className="font-semibold">Double</span><span>— у парі</span>
+      </span>
+    </div>
+  );
+}
+
+/** Коннектор між двома сусідніми рядками: лінія + підпис. */
+function PairConnector({ result, dark, top, height }: { result: PairResult; dark: boolean; top: number; height: number }) {
+  if (!result.canPair) {
+    // Немає пари — не малюємо лінію (кожен буде в окремому ряду)
+    return null;
+  }
+  const lineColor = result.quality === 'solid'
+    ? (dark ? '#34d399' : '#10b981')
+    : (dark ? '#fbbf24' : '#d97706');
+  const lineStyle = result.quality === 'solid' ? 'solid' : 'dashed';
+  const label = result.quality === 'solid' ? 'В ОДИН РЯД' : 'В ОДИН РЯД (різна висота)';
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        top,
+        left: 0,
+        right: 0,
+        height: Math.max(0, height),
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        pointerEvents: 'none',
+      }}
+    >
+      <div className="flex flex-col items-center gap-0.5">
+        <div
+          style={{
+            width: 2,
+            height: Math.max(0, height - 18),
+            borderLeft: `2px ${lineStyle} ${lineColor}`,
+          }}
+        />
+        <span
+          className={`text-[8px] uppercase font-bold tracking-wider ${dark ? '' : ''}`}
+          style={{ color: lineColor, letterSpacing: '0.12em' }}
+        >
+          {label}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/** Toggle між Table view і Rows view (конструктор). */
+function ViewModeSwitch({ mode, setMode, dark }: { mode: 'table' | 'rows'; setMode: (m: 'table' | 'rows') => void; dark: boolean }) {
+  const base = `inline-flex items-center gap-1.5 px-3 py-2 text-[11px] font-medium rounded-full transition-all`;
+  const active = dark ? 'bg-amber-400/90 text-stone-900' : 'bg-stone-900 text-amber-100';
+  const inactive = dark ? 'bg-white/[0.04] text-slate-400 hover:text-slate-200' : 'bg-stone-900/[0.04] text-stone-600 hover:text-stone-900';
+  return (
+    <div className="inline-flex gap-1 p-1 rounded-full" style={{ backgroundColor: dark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)' }}>
+      <button
+        type="button"
+        onClick={() => setMode('table')}
+        className={`${base} ${mode === 'table' ? active : inactive}`}
+        title="Класична таблиця"
+      >
+        <FaTable className="text-[11px]" /> Таблиця
+      </button>
+      <button
+        type="button"
+        onClick={() => setMode('rows')}
+        className={`${base} ${mode === 'rows' ? active : inactive}`}
+        title="Візуальний конструктор рядів"
+      >
+        <FaTh className="text-[11px]" /> Ряди
+      </button>
+    </div>
+  );
+}
+
+const ROW_WIDTH_LIMIT_NATIVE = 1460;
+/** Ширина "сторінки" сайту в native пікселях — те що юзер бачить у браузері. */
+const SITE_CANVAS_NATIVE_W = 1460;
+
+/** Початкова розбивка бандлів на слоти: pack-by-2 в DB порядку з урахуванням
+ *  displayMode ('solo' = завжди один у слоті) і перевіркою сумарної ширини ≤ 1460. */
+function buildInitialSlots(bundles: BundleRowData[]): BundleRowData[][] {
+  const slots: BundleRowData[][] = [];
+  let i = 0;
+  while (i < bundles.length) {
+    const a = bundles[i];
+    if (a.displayMode === 'solo') {
+      slots.push([a]);
+      i++;
+      continue;
+    }
+    const b = bundles[i + 1];
+    if (!b || b.displayMode === 'solo') {
+      slots.push([a]);
+      i++;
+      continue;
+    }
+    const mA = getBundleModel(a);
+    const mB = getBundleModel(b);
+    if (mA.widthPx + mB.widthPx <= ROW_WIDTH_LIMIT_NATIVE) {
+      slots.push([a, b]);
+      i += 2;
+    } else {
+      slots.push([a]);
+      i++;
+    }
+  }
+  return slots;
+}
+
+/** Row View v2 — кожен пакет у своєму рядку, пропорційно. Drag-and-drop для пар.
+ *
+ * Slots: масив [[b1], [b2], [b3, b4], ...] — кожен sub-array = візуальний ряд.
+ * Початково кожен пакет у своєму слоті. Юзер:
+ *   - Drag handle зліва → тягне цілий слот вертикально для reorder
+ *   - Drag на сам пакет → тягне той пакет, може дропнути на інший слот для пари
+ *     (якщо ширини вміщаються в 1460px)
+ *   - Якщо в слоті вже 2 пакети і перетягують один з них → роз'єднання
+ */
+function RowsView({ bundles, dark }: { bundles: BundleRowData[]; dark: boolean }) {
+  const [slots, setSlots] = useState<BundleRowData[][]>(() => buildInitialSlots(bundles));
+  const [dragKind, setDragKind] = useState<'slot' | 'bundle' | null>(null);
+  const [activeId, setActiveId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSlots(buildInitialSlots(bundles));
+  }, [bundles]);
+
+  const globalIdxOf = (id: string) => bundles.findIndex((b) => b.id === id) + 1;
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  const handleDragStart = (e: DragStartEvent) => {
+    const data = e.active.data.current as { kind?: 'slot' | 'bundle' } | undefined;
+    setDragKind(data?.kind ?? null);
+    setActiveId(String(e.active.id));
+  };
+
+  const handleDragEnd = (e: DragEndEvent) => {
+    const { active, over } = e;
+    setDragKind(null);
+    setActiveId(null);
+    if (!over) return;
+    const data = active.data.current as { kind?: 'slot' | 'bundle'; slotIdx?: number; bundleId?: string } | undefined;
+
+    if (data?.kind === 'slot') {
+      // Reorder слотів
+      const fromIdx = data.slotIdx!;
+      const overData = over.data.current as { kind?: string; slotIdx?: number } | undefined;
+      if (!overData?.slotIdx && overData?.slotIdx !== 0) return;
+      const toIdx = overData.slotIdx!;
+      if (fromIdx === toIdx) return;
+      setSlots((prev) => {
+        const next = [...prev];
+        const [moved] = next.splice(fromIdx, 1);
+        next.splice(toIdx, 0, moved);
+        return next;
+      });
+    } else if (data?.kind === 'bundle') {
+      const bundleId = data.bundleId!;
+      const overData = over.data.current as { kind?: string; slotIdx?: number; bundleId?: string } | undefined;
+      if (overData?.kind === 'slot-pair-zone' && overData.slotIdx !== undefined) {
+        // Drop на pair-зону іншого слота
+        setSlots((prev) => {
+          const fromSlotIdx = prev.findIndex((s) => s.some((b) => b.id === bundleId));
+          if (fromSlotIdx === -1 || fromSlotIdx === overData.slotIdx) return prev;
+          const bundle = prev[fromSlotIdx].find((b) => b.id === bundleId)!;
+          const targetSlot = prev[overData.slotIdx!];
+          if (targetSlot.length >= 2) return prev; // вже пара
+          // Перевірити сумісність по ширині
+          const mA = getBundleModel(targetSlot[0]);
+          const mB = getBundleModel(bundle);
+          if (mA.widthPx + mB.widthPx > ROW_WIDTH_LIMIT_NATIVE) return prev;
+          const next = [...prev];
+          next[overData.slotIdx!] = [...targetSlot, bundle];
+          // Видаляємо зі старого слота — якщо він був solo, видаляємо слот; інакше лишаємо iншого бандла
+          if (next[fromSlotIdx].length === 1) {
+            next.splice(fromSlotIdx, 1);
+          } else {
+            next[fromSlotIdx] = next[fromSlotIdx].filter((b) => b.id !== bundleId);
+          }
+          return next;
+        });
+      }
+    }
+  };
+
+  return (
+    <>
+      <div className={`mb-4 rounded-lg border px-4 py-2.5 text-[11px] ${dark ? 'bg-white/[0.03] border-white/[0.08] text-slate-400' : 'bg-white/70 border-stone-300/50 text-stone-600'}`}>
+        <span className="font-semibold">Як користуватись:</span> перетягни ручку зліва щоб змінити порядок рядів; перетягни сам пакет на правий край іншого ряду щоб поставити в пару (якщо ширини вміщаються).
+      </div>
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+        <SortableContext
+          items={slots.map((slot, idx) => `slot-${idx}`)}
+          strategy={verticalListSortingStrategy}
+        >
+          <div className="flex flex-col gap-5 py-2">
+            {slots.map((slot, sIdx) => (
+              <SlotRow
+                key={slot.map((b) => b.id).join('-')}
+                slot={slot}
+                slotIdx={sIdx}
+                globalIdxOf={globalIdxOf}
+                dark={dark}
+                dragActive={dragKind !== null}
+                dragKind={dragKind}
+                activeId={activeId}
+              />
+            ))}
+            {slots.length === 0 && (
+              <div className={`text-center text-[12px] italic ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+                Пакетів немає
+              </div>
+            )}
+          </div>
+        </SortableContext>
+      </DndContext>
+    </>
+  );
+}
+
+/** Один візуальний рядок — містить 1 або 2 пакети. Drag-handle щоб переносити весь слот;
+ *  drop-zone справа для прийняття бандла з іншого слота (пара). */
+function SlotRow({
+  slot,
+  slotIdx,
+  globalIdxOf,
+  dark,
+  dragActive,
+  dragKind,
+  activeId,
+}: {
+  slot: BundleRowData[];
+  slotIdx: number;
+  globalIdxOf: (id: string) => number;
+  dark: boolean;
+  dragActive: boolean;
+  dragKind: 'slot' | 'bundle' | null;
+  activeId: string | null;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: `slot-${slotIdx}`,
+    data: { kind: 'slot', slotIdx },
+  });
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  const totalWidthNative = slot.reduce((sum, b) => sum + getBundleModel(b).widthPx, 0) + (slot.length - 1) * 40;
+  const canAcceptPair = slot.length === 1 && dragKind === 'bundle';
+  const canvasW = Math.round(SITE_CANVAS_NATIVE_W * MINIATURE_SCALE);
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="relative flex items-stretch justify-center gap-3"
+    >
+      {/* Drag handle + label — абсолютно позиційовані зліва щоб не ламати центрування */}
+      <div className="absolute left-0 top-0 bottom-0 flex items-stretch gap-2">
+        <button
+          type="button"
+          title="Перетягніть щоб змінити порядок рядів"
+          {...attributes}
+          {...listeners}
+          className={`shrink-0 w-7 rounded-md flex items-center justify-center cursor-grab active:cursor-grabbing select-none ${
+            dark ? 'bg-white/[0.04] text-slate-500 hover:text-slate-300' : 'bg-stone-900/[0.04] text-stone-400 hover:text-stone-700'
+          }`}
+        >
+          <FaGripVertical className="text-[14px]" />
+        </button>
+        <div className={`shrink-0 w-12 flex flex-col items-center justify-center ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+          <div className="text-[9px] uppercase tracking-[0.16em] font-semibold">Ряд</div>
+          <div className={`text-[18px] font-bold tabular-nums ${dark ? 'text-slate-300' : 'text-stone-700'}`}>{slotIdx + 1}</div>
+        </div>
+      </div>
+      {/* Site canvas — імітація реальної ширини сторінки, центрована */}
+      <div
+        className={`rounded-lg border ${
+          dark ? 'bg-stone-900/40 border-white/[0.04]' : 'bg-white/40 border-stone-300/40'
+        }`}
+        style={{ width: canvasW, padding: '12px 0', position: 'relative' }}
+      >
+        {/* Рулетка зверху показує real page width */}
+        <div
+          aria-hidden
+          className={`absolute top-0 left-0 right-0 h-[3px] ${dark ? 'bg-amber-400/20' : 'bg-amber-500/30'}`}
+        />
+        <div
+          className={`absolute top-[4px] left-1 text-[8px] uppercase tracking-wider ${dark ? 'text-amber-400/60' : 'text-amber-700/70'}`}
+        >
+          {SITE_CANVAS_NATIVE_W}px (ширина сайту)
+        </div>
+        <div className="flex items-start justify-center gap-10 pt-3">
+          {slot.map((b) => (
+            <DraggableBundle
+              key={b.id}
+              bundle={b}
+              number={globalIdxOf(b.id)}
+              dark={dark}
+              isActive={activeId === `bundle-${b.id}`}
+            />
+          ))}
+          {canAcceptPair && (
+            <PairDropZone
+              slotIdx={slotIdx}
+              existingBundle={slot[0]}
+              dark={dark}
+              activeId={activeId}
+            />
+          )}
+        </div>
+        {/* Width footer */}
+        <div
+          className={`mt-2 pt-1.5 border-t flex justify-between text-[9px] ${
+            dark ? 'border-white/[0.04] text-slate-500' : 'border-stone-300/40 text-stone-500'
+          }`}
+          style={{ paddingLeft: 6, paddingRight: 6 }}
+        >
+          <span>
+            Зайнято: <b className={dark ? 'text-slate-300' : 'text-stone-700'}>{totalWidthNative}px</b> / {SITE_CANVAS_NATIVE_W}px
+          </span>
+          <span>
+            {slot.length === 2 ? 'пара' : 'соло'}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Бандл як draggable — можна тягнути сам пакет щоб переставити в інший слот. */
+function DraggableBundle({
+  bundle,
+  number,
+  dark,
+  isActive,
+}: {
+  bundle: BundleRowData;
+  number: number;
+  dark: boolean;
+  isActive: boolean;
+}) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useSortable({
+    id: `bundle-${bundle.id}`,
+    data: { kind: 'bundle', bundleId: bundle.id },
+  });
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    opacity: isDragging || isActive ? 0.4 : 1,
+    cursor: 'grab',
+  };
+  return (
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+      <BundleMiniature bundle={bundle} number={number} dark={dark} />
+    </div>
+  );
+}
+
+/** Drop-zone справа від solo-слота — сюди можна кинути інший бандл щоб створити пару. */
+function PairDropZone({
+  slotIdx,
+  existingBundle,
+  dark,
+  activeId,
+}: {
+  slotIdx: number;
+  existingBundle: BundleRowData;
+  dark: boolean;
+  activeId: string | null;
+}) {
+  const { setNodeRef, isOver } = useSortable({
+    id: `pair-zone-${slotIdx}`,
+    data: { kind: 'slot-pair-zone', slotIdx },
+  });
+  // Evaluate width fit when bundle is being dragged
+  const existingModel = getBundleModel(existingBundle);
+  return (
+    <div
+      ref={setNodeRef}
+      className={`flex items-center justify-center rounded-xl border-2 border-dashed transition-colors ${
+        isOver
+          ? (dark ? 'border-emerald-400 bg-emerald-500/10' : 'border-emerald-500 bg-emerald-200/30')
+          : (dark ? 'border-white/10 hover:border-white/20' : 'border-stone-300/50 hover:border-stone-400/60')
+      }`}
+      style={{
+        width: 220,
+        height: existingModel.heightPx * MINIATURE_SCALE,
+        minHeight: 100,
+      }}
+    >
+      <span className={`text-[11px] font-semibold ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+        {isOver ? '+ Пара' : 'Кинь сюди для пари'}
+      </span>
+    </div>
+  );
+}
+
+const MINIATURE_SCALE = 0.35;
+
+function BundleMiniature({ bundle, number, dark }: { bundle: BundleRowData; number: number; dark: boolean }) {
+  const model = getBundleModel(bundle);
+  const scaledW = Math.round(model.widthPx * MINIATURE_SCALE);
+  const scaledH = Math.round(model.heightPx * MINIATURE_SCALE);
+  const paid = bundle.miniaturePaid ?? [];
+  const free = bundle.miniatureFree ?? [];
+  return (
+    <div className="relative group">
+      <div
+        className={`absolute -top-2 -left-2 z-10 inline-flex items-center justify-center w-7 h-7 rounded-full text-[11px] font-bold tabular-nums shadow-md ${
+          dark ? 'bg-amber-400/90 text-stone-900' : 'bg-stone-900 text-amber-100'
+        }`}
+      >
+        {number}
+      </div>
+      {/* Hover overlay з actions */}
+      <div
+        className={`absolute inset-0 z-20 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none group-hover:pointer-events-auto flex items-start justify-end p-2 gap-1`}
+        style={{ backgroundColor: 'rgba(0,0,0,0)' }}
+      >
+        <Link
+          href={`/dashboard/admin/bundles/${bundle.id}`}
+          title="Редагувати"
+          className={`w-8 h-8 rounded-md flex items-center justify-center text-[12px] font-semibold shadow-md ${
+            dark ? 'bg-amber-400/90 text-stone-900 hover:bg-amber-300' : 'bg-stone-900 text-amber-100 hover:bg-stone-800'
+          }`}
+        >
+          ✎
+        </Link>
+      </div>
+      {/* Scaled BundleCard */}
+      <div
+        style={{
+          width: scaledW,
+          height: scaledH,
+          overflow: 'hidden',
+          borderRadius: Math.round(24 * MINIATURE_SCALE),
+        }}
+      >
+        <div
+          style={{
+            width: model.widthPx,
+            height: model.heightPx,
+            transform: `scale(${MINIATURE_SCALE})`,
+            transformOrigin: 'top left',
+            pointerEvents: 'none',
+          }}
+        >
+          <BundleCard
+            title={bundle.title}
+            price={bundle.price}
+            slug={bundle.id}
+            courses={paid}
+            freeCourses={free}
+            bundleType={bundle.type}
+            freeCount={bundle.pickN ?? 0}
+            currency="грн"
+            priceLabel="ЦІНА ПАКЕТУ"
+            bundleLabel="ПАКЕТ"
+            saveLabel="Економія"
+            buyLabel="Купити пакет"
+            benefits={[
+              { icon: '📼', title: 'Навчання в записі' },
+              { icon: '💛', title: 'Підтримка кураторів' },
+              { icon: '📜', title: 'Сертифікат UIMP' },
+            ]}
+            layout="full"
+            miniature
+          />
+        </div>
+      </div>
+    </div>
+  );
 }

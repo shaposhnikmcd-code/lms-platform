@@ -40,6 +40,9 @@ type Props = {
   buyLabel: string;
   benefits: Benefit[];
   layout?: 'full' | 'compact';
+  /** Міні-режим для адмінки: пропускає autoTuner/hover/drag, статичний рендер.
+   * Використовується для Row View в /dashboard/admin/bundles. */
+  miniature?: boolean;
 };
 
 export default function BundleCard({
@@ -56,6 +59,7 @@ export default function BundleCard({
   buyLabel,
   benefits,
   layout = 'full',
+  miniature = false,
 }: Props) {
   const [hovered, setHovered] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -71,17 +75,53 @@ export default function BundleCard({
   const totalOriginal = courses.reduce((sum, c) => sum + c.price, 0);
   const savings = Math.max(0, totalOriginal - price);
   const savingsPercent = totalOriginal > 0 ? Math.round((savings / totalOriginal) * 100) : 0;
+  // Gift value — сума цін безкоштовних курсів.
+  // FIXED_FREE: сума всіх freeCourses.
+  // CHOICE_FREE:
+  //   - коли ВСІ pickN вибрано → фактична сума вибраних (число)
+  //   - коли частково / нічого → вилка "MIN – MAX грн"
+  //     MIN = сума top pickN найдешевших з пулу
+  //     MAX = сума top pickN найдорожчих з пулу
+  const isChoiceFullySelected = bundleType !== 'CHOICE_FREE' || selectedFree.length >= (freeCount || 0);
+  const pickN = freeCount || 0;
+  const sortedFreeByPrice = [...freeCourses].sort((a, b) => a.price - b.price);
+  const choiceMin = sortedFreeByPrice.slice(0, pickN).reduce((sum, c) => sum + c.price, 0);
+  const choiceMax = sortedFreeByPrice.slice(-pickN).reduce((sum, c) => sum + c.price, 0);
+  const choiceActual = freeCourses.filter((c) => selectedFree.includes(c.slug)).reduce((sum, c) => sum + c.price, 0);
+  const giftValue = bundleType === 'CHOICE_FREE'
+    ? (isChoiceFullySelected ? choiceActual : choiceMax)
+    : freeCourses.reduce((sum, c) => sum + c.price, 0);
+  const displayedSavings = bundleType === 'DISCOUNT' ? savings : giftValue;
+  // Показувати вилку "min – max" коли CHOICE ще не довершено (і min !== max)
+  const savingsRange = bundleType === 'CHOICE_FREE' && !isChoiceFullySelected && choiceMin !== choiceMax;
 
   const hasFreeRow = bundleType !== 'DISCOUNT' && freeCourses.length > 0;
   const choiceMode = bundleType === 'CHOICE_FREE';
   const isPairLayout = courses.length === 2 && (freeCourses.length === 1 || freeCourses.length === 2) && hasFreeRow;
-  // Уніфікована висота 920px для пакетів, які за замовчуванням рендеряться в діапазоні 850-1000px:
+  // Уніфіковані відступи 28px скрізь (header→paid, paid→free, free→CTA, боки, низ).
+  // Слак іде/береться з висоти частини картки з описом (rule #18). Скоуп: 2+2 і 2+4.
+  const isUniformSpacing = courses.length === 2 && (freeCourses.length === 2 || freeCourses.length === 4) && hasFreeRow;
+  // Inline square CTA-card (rule #24) — останній ряд має 1 блок:
+  //   - FIXED_FREE з 1 безкоштовним (free-row grid-cols-2: FreeMini + InlineCTA)
+  //   - DISCOUNT з непарною кількістю paid ≥ 5 у grid-cols-2 (5-paid, 7-paid, ...):
+  //     після paid cards рендериться InlineCTA як останній grid item
+  const inlineCtaInFreeRow = hasFreeRow && bundleType === 'FIXED_FREE' && freeCourses.length === 1;
+  const inlineCtaInPaidRow = !hasFreeRow && bundleType === 'DISCOUNT' && courses.length >= 5 && courses.length % 2 === 1;
+  const hideBottomCta = inlineCtaInFreeRow || inlineCtaInPaidRow;
+  // Уніфікована висота 920px для пакетів:
   // - 3-рядкові конфіги з free-рядом ≥2 (FIXED 1+2, 2+2; CHOICE 1+пул2, 1+пул3, 2+пул2, 2+пул4)
-  // - DISCOUNT 4-paid (2×2 внутрішня сітка) — висота форсована, авто-тюнер вміщує контент
-  const unifyHeight920 = (hasFreeRow && freeCourses.length >= 2) || (bundleType === 'DISCOUNT' && courses.length === 4);
+  // - DISCOUNT 4-paid (2×2 сітка) — M5
+  // - DISCOUNT ≥5 paid з inline CTA (rule #24) — немає в таблиці, беремо найближче M5
+  const unifyHeight920 = (hasFreeRow && freeCourses.length >= 2)
+    || (bundleType === 'DISCOUNT' && courses.length === 4)
+    || (bundleType === 'DISCOUNT' && courses.length >= 5 && courses.length % 2 === 1);
   // Уніфікована висота 740px для FIXED_FREE з 1 безкоштовним (inline CTA): 6a (1+1), 6b (2+1)
   const unifyHeight740 = bundleType === 'FIXED_FREE' && freeCourses.length === 1;
-  const unifiedHeight = unifyHeight920 ? 920 : unifyHeight740 ? 740 : undefined;
+  // Уніфікована висота 605px для DISCOUNT 2-paid (M1) і 3-paid (M4).
+  // Було 580px, підвищено до 605 щоб виконувався rule #38 (мін 4px gap desc→benefits,
+  // без клiпінгу 4-го рядка опису). Назва змінної збережена історична (unifyHeight580).
+  const unifyHeight580 = bundleType === 'DISCOUNT' && !hasFreeRow && (courses.length === 2 || courses.length === 3);
+  const unifiedHeight = unifyHeight920 ? 920 : unifyHeight740 ? 740 : unifyHeight580 ? 605 : undefined;
 
   // Для каруселі: скільки карток показуємо одночасно (== freeCount)
   const choiceWindow = Math.max(1, freeCount || 1);
@@ -144,6 +184,102 @@ export default function BundleCard({
     }
   };
 
+  // Rule #24 — рендерер inline квадратної CTA-картки. Використовується коли в
+  // останньому ряду пакета рівно 1 блок: FIXED_FREE з 1 free та DISCOUNT з непарним paid ≥ 5.
+  const renderInlineCtaCard = () => (
+    <div style={{
+      position: 'relative',
+      background: 'radial-gradient(120% 100% at 100% 0%, rgba(212,168,67,0.22) 0%, rgba(212,168,67,0) 55%), linear-gradient(160deg, #244838 0%, #1C3A2E 55%, #152C22 100%)',
+      borderRadius: 14,
+      display: 'flex',
+      flexDirection: 'column',
+      boxShadow: '0 4px 18px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.06)',
+      overflow: 'hidden',
+      minHeight: 220,
+    }}>
+      <span aria-hidden style={{
+        position: 'absolute', top: -40, right: -40, width: 140, height: 140,
+        borderRadius: '50%', background: 'rgba(212,168,67,0.07)', filter: 'blur(20px)',
+      }} />
+      <span aria-hidden style={{
+        position: 'absolute', top: 16, left: 20, right: 20, height: 1,
+        background: 'linear-gradient(to right, transparent, rgba(212,168,67,0.2), transparent)',
+      }} />
+      <div style={{ position: 'relative', padding: layout === 'full' ? '22px 22px 14px' : '18px 18px 10px' }}>
+        <div style={{
+          display: 'inline-flex', alignItems: 'center', gap: 6,
+          background: 'rgba(212,168,67,0.14)',
+          border: '1px solid rgba(212,168,67,0.28)',
+          borderRadius: 100, padding: '4px 10px',
+        }}>
+          <span style={{ fontSize: 11 }}>🎯</span>
+          <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.28em', textTransform: 'uppercase' as const, color: '#D4A843', fontFamily: sysFont }}>
+            ГОТОВИЙ НАБІР
+          </span>
+        </div>
+      </div>
+      <div style={{ position: 'relative', padding: layout === 'full' ? '0 22px 18px' : '0 18px 14px', flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+        <p style={{ fontSize: 9, textTransform: 'uppercase' as const, letterSpacing: '0.26em', color: 'rgba(245,237,214,0.45)', margin: '0 0 6px', fontFamily: sysFont, fontWeight: 600 }}>
+          {priceLabel}
+        </p>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+          <span style={{
+            fontFamily: sysFont,
+            fontSize: 'clamp(30px, 3.4vw, 42px)',
+            fontWeight: 800,
+            background: 'linear-gradient(135deg, #F2C76D 0%, #D4A843 50%, #B8901F 100%)',
+            WebkitBackgroundClip: 'text',
+            WebkitTextFillColor: 'transparent',
+            backgroundClip: 'text',
+            lineHeight: 1,
+            letterSpacing: '-0.03em',
+          }}>
+            {price.toLocaleString()}
+          </span>
+          <span style={{ fontSize: 14, color: 'rgba(212,168,67,0.6)', fontFamily: sysFont, fontWeight: 500 }}>
+            {currency}
+          </span>
+        </div>
+        {displayedSavings > 0 && (
+          <div style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            background: 'rgba(212,168,67,0.12)',
+            border: '1px solid rgba(212,168,67,0.35)',
+            borderRadius: 999, padding: '3px 10px',
+            alignSelf: 'flex-start',
+            marginTop: 8,
+          }}>
+            <span style={{ fontSize: 10, lineHeight: 1 }}>💰</span>
+            <span style={{
+              fontSize: 10, fontWeight: 700,
+              color: 'rgba(242,199,109,0.9)', fontFamily: sysFont, letterSpacing: '-0.01em',
+              whiteSpace: 'nowrap' as const,
+            }}>
+              {saveLabel}: {savingsRange
+                ? `${choiceMin.toLocaleString()} – ${choiceMax.toLocaleString()}`
+                : displayedSavings.toLocaleString()} {currency}
+            </span>
+          </div>
+        )}
+      </div>
+      <div
+        className="[&>button]:!ml-auto [&>button]:!mr-0 [&>button]:!px-6 sm:[&>button]:!px-8 [&>button]:!py-[14px] sm:[&>button]:!py-[16px] [&>button]:!text-[14px] sm:[&>button]:!text-[15px] [&>button]:!gap-2 sm:[&>button]:!gap-2.5 [&>button]:!whitespace-nowrap [&>button]:!bg-[linear-gradient(135deg,#F2C76D_0%,#D4A843_50%,#B8901F_100%)] [&>button]:!text-[#152C22] [&>button]:!border-[rgba(255,255,255,0.18)] [&>button]:!shadow-[0_12px_32px_rgba(212,168,67,0.38),inset_0_1px_0_rgba(255,255,255,0.35)] hover:[&>button]:!bg-[linear-gradient(135deg,#F5CE78_0%,#DBAF4B_50%,#C19A27_100%)] hover:[&>button]:!shadow-[0_16px_40px_rgba(212,168,67,0.5),inset_0_1px_0_rgba(255,255,255,0.4)]"
+        style={{ position: 'relative', padding: layout === 'full' ? '14px 22px 20px' : '12px 18px 18px', display: 'flex', justifyContent: 'flex-end' }}
+      >
+        <CoursePurchaseModal
+          courseName={title}
+          price={price}
+          courseId={`bundle_${slug}`}
+          currency={currency}
+          buttonLabel={buyLabel}
+          compact={layout === 'compact'}
+          selectedFreeSlugs={choiceMode ? selectedFree : undefined}
+          disabled={!canBuy}
+        />
+      </div>
+    </div>
+  );
+
   const [tuned, setTuned] = useState(false);
   useEffect(() => {
     const root = rootRef.current;
@@ -154,6 +290,8 @@ export default function BundleCard({
       setTuned(true);
     };
     raf = requestAnimationFrame(run);
+    // Resize listener лише для production режиму; у miniature pointer-events off тож
+    // resize зрідка спрацьовує, але підпишемось — дешево.
     const onResize = () => {
       if (raf) cancelAnimationFrame(raf);
       raf = requestAnimationFrame(() => autoTuneBundle(root));
@@ -163,7 +301,7 @@ export default function BundleCard({
       if (raf) cancelAnimationFrame(raf);
       window.removeEventListener('resize', onResize);
     };
-  }, []);
+  }, [miniature]);
 
   return (
     <div
@@ -262,8 +400,8 @@ export default function BundleCard({
         <h3 data-bundle-title style={{
           fontFamily: sysFont, fontSize: layout === 'compact' ? 'clamp(18px, 2.2vw, 24px)' : 'clamp(20px, 2.5vw, 28px)', fontWeight: 700,
           color: '#1C3A2E', lineHeight: 1.2, margin: 0, letterSpacing: '-0.02em',
-          paddingLeft: freeCourses.length === 4 && courses.length === 2 ? 'clamp(60px, 9%, 110px)' : 0,
-          paddingRight: freeCourses.length === 4 && courses.length === 2 ? 'clamp(60px, 9%, 110px)' : 0,
+          paddingLeft: freeCourses.length === 4 && courses.length === 2 ? 'clamp(20px, 3%, 50px)' : 0,
+          paddingRight: freeCourses.length === 4 && courses.length === 2 ? 'clamp(20px, 3%, 50px)' : 0,
         }}>
           {title}
         </h3>
@@ -276,7 +414,7 @@ export default function BundleCard({
           : `grid ${courses.length === 2 ? 'grid-cols-1 sm:grid-cols-2' : courses.length === 3 ? 'grid-cols-1 sm:grid-cols-3' : 'grid-cols-1 sm:grid-cols-2'}`}
         style={{
           gap: layout === 'compact' ? 8 : 14,
-          marginBottom: hasFreeRow ? 10 : (layout === 'compact' ? 24 : 32),
+          marginBottom: isUniformSpacing ? 28 : (hasFreeRow ? 10 : (layout === 'compact' ? 24 : 32)),
           flex: hasFreeRow ? undefined : 1,
           maxWidth: freeCourses.length === 4 && courses.length === 2 ? 705 : undefined,
           marginLeft: freeCourses.length === 4 && courses.length === 2 ? 'auto' : undefined,
@@ -310,58 +448,62 @@ export default function BundleCard({
                 display: 'flex',
                 flexDirection: 'column',
                 width: courses.length === 1 ? (layout === 'compact' ? '64%' : '58%') : undefined,
+                maxWidth: courses.length === 1 && freeCourses.length >= 3 ? 390 : undefined,
                 height: 'var(--tuned-paid-card-h, 345px)',
               }}
             >
               <div style={{
                 padding: isLargePaid
-                  ? (layout === 'full' ? '40px 34px 36px' : '32px 28px 28px')
+                  ? (layout === 'full' ? '40px 34px 8px' : '32px 28px 8px')
                   : isMidPaid
-                    ? (layout === 'full' ? '36px 28px 30px' : '28px 24px 24px')
-                    : (layout === 'full' ? '30px 24px 26px' : '25px 21px 21px'),
+                    ? (layout === 'full' ? '36px 28px 8px' : '28px 24px 8px')
+                    : (layout === 'full' ? '30px 24px 8px' : '25px 21px 8px'),
                 flex: 1,
                 overflow: 'hidden',
                 minHeight: 0,
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: isLargePaid ? 12 : isMidPaid ? 10 : 8, marginBottom: isLargePaid ? 16 : isMidPaid ? 13 : 10 }}>
                   <div style={{
-                    width: isLargePaid ? 44 : isMidPaid ? 36 : 32,
-                    height: isLargePaid ? 44 : isMidPaid ? 36 : 32,
-                    borderRadius: isLargePaid ? 10 : 8,
+                    width: 33,
+                    height: 33,
+                    borderRadius: 8,
                     background: `rgba(${course.accentRgb},0.18)`,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: isLargePaid ? 20 : isMidPaid ? 17 : 15, flexShrink: 0,
+                    fontSize: 16, flexShrink: 0,
                     transition: 'transform 0.3s ease',
                     transform: isHovered ? 'scale(1.12) rotate(-5deg)' : 'scale(1)',
                   }}>
                     {course.icon}
                   </div>
-                  <span style={{ fontSize: isLargePaid ? 10 : isMidPaid ? 9 : 8, fontWeight: 700, letterSpacing: '0.25em', textTransform: 'uppercase' as const, color: tagColor, fontFamily: sysFont }}>
+                  <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.25em', textTransform: 'uppercase' as const, color: tagColor, fontFamily: sysFont }}>
                     {course.tag}
                   </span>
                 </div>
                 <h4 style={{
                   fontFamily: sysFont,
-                  fontSize: isLargePaid
-                    ? 'clamp(25px, 2.5vw, 32px)'
-                    : isMidPaid
-                      ? 'clamp(18px, 1.9vw, 22px)'
-                      : 'clamp(15px, 1.6vw, 19px)',
+                  fontSize: 19,
                   fontWeight: 700,
                   color: '#F5EDD6',
                   lineHeight: 1.25,
-                  margin: isLargePaid ? '0 0 14px' : isMidPaid ? '0 0 12px' : '0 0 10px',
+                  margin: isLargePaid ? '0 0 10px' : isMidPaid ? '0 0 8px' : '0 0 6px',
                   letterSpacing: '-0.015em',
-                }}>
+                }} data-bundle-paid-h4>
                   {course.title}
                 </h4>
-                <div style={{ width: isLargePaid ? 34 : isMidPaid ? 30 : 26, height: isLargePaid ? 3 : 2, background: tagColor, borderRadius: 2, marginBottom: isLargePaid ? 14 : isMidPaid ? 12 : 10, opacity: 0.5 }} />
+                <div style={{ width: isLargePaid ? 34 : isMidPaid ? 30 : 26, height: isLargePaid ? 3 : 2, background: tagColor, borderRadius: 2, marginBottom: isLargePaid ? 10 : isMidPaid ? 8 : 6, opacity: 0.5 }} />
                 <p data-bundle-desc style={{
-                  fontSize: `var(--tuned-paid-desc-fs, ${isLargePaid ? 17 : isMidPaid ? 14 : 12}px)`,
+                  fontSize: 12,
                   color: 'rgba(245,237,214,0.6)',
                   lineHeight: 1.65,
                   margin: 0,
+                  paddingBottom: 4,
+                  minHeight: 'calc(1.65em * 4)',
                   fontFamily: sysFont,
+                  display: '-webkit-box',
+                  WebkitLineClamp: 4,
+                  WebkitBoxOrient: 'vertical',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
                 }}>
                   {course.description}
                 </p>
@@ -397,7 +539,7 @@ export default function BundleCard({
                   const newPrice = Math.round((course.price - savings * weight) / 100) * 100;
                   return (
                     <div style={{
-                      background: '#D4A843', padding: '10px 14px',
+                      background: '#D4A843', padding: '6px 14px',
                       display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
                     }}>
                       <span style={{ fontSize: 8, textTransform: 'uppercase' as const, letterSpacing: '0.18em', color: 'rgba(28,58,46,0.4)', fontFamily: sysFont, fontWeight: 600 }}>
@@ -419,7 +561,7 @@ export default function BundleCard({
                 return (
                   <div style={{
                     background: '#D4A843',
-                    padding: isLargePaid ? '9px 16px' : '10px 14px',
+                    padding: isLargePaid ? '5px 16px' : '6px 14px',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     gap: isLargePaid ? 9 : 8,
                   }}>
@@ -449,95 +591,52 @@ export default function BundleCard({
             </Link>
           );
         })}
+        {inlineCtaInPaidRow && renderInlineCtaCard()}
       </div>
 
       {/* FREE ROW — FIXED_FREE */}
       {hasFreeRow && bundleType === 'FIXED_FREE' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: freeCourses.length === 1 ? 0 : (layout === 'compact' ? 20 : 28) }}>
-          <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.22em', textTransform: 'uppercase' as const, color: '#059669', fontFamily: sysFont, textAlign: 'center' }}>
-            + У ПОДАРУНОК
-          </span>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: freeCourses.length === 1 ? 0 : (layout === 'compact' ? 20 : 28), alignItems: 'center' }}>
+          {/* Paper gift tag (rule #27 стиль) — аналогічно CHOICE_FREE */}
+          <div style={{
+            position: 'relative',
+            display: 'inline-flex', alignItems: 'center', gap: 12,
+            background: 'linear-gradient(135deg, #FFFCF3 0%, #FAF2DA 55%, #EDDBA5 100%) padding-box, linear-gradient(135deg, #F2C76D 0%, #D4A843 50%, #B8901F 100%) border-box',
+            border: '1.5px solid transparent',
+            borderRadius: 10,
+            padding: '8px 22px 8px 36px',
+            boxShadow: '0 8px 20px rgba(164,122,40,0.3), 0 2px 5px rgba(70,48,10,0.12), inset 0 1px 0 rgba(255,255,255,0.7)',
+            transform: 'rotate(-0.8deg)',
+          }}>
+            <span aria-hidden style={{
+              position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)',
+              width: 11, height: 11, borderRadius: '50%',
+              background: 'radial-gradient(circle at 35% 30%, #1C3A2E 0%, #142A20 70%, #0A1A13 100%)',
+              boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.5), 0 0 0 1px rgba(164,122,40,0.4)',
+            }} />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 1, lineHeight: 1 }}>
+              <span style={{
+                fontSize: 8, fontWeight: 700, letterSpacing: '0.26em',
+                textTransform: 'uppercase' as const, color: 'rgba(70,48,10,0.55)', fontFamily: sysFont,
+              }}>
+                🎁 Ваш подарунок
+              </span>
+              <span style={{
+                fontSize: 13, fontWeight: 800, letterSpacing: '-0.01em',
+                color: '#3A2608', fontFamily: sysFont,
+              }}>
+                {(() => {
+                  const n = freeCourses.length;
+                  const word = n === 1 ? 'курс' : (n >= 2 && n <= 4) ? 'курси' : 'курсів';
+                  return `${n} ${word} безкоштовно`;
+                })()}
+              </span>
+            </div>
+          </div>
           {freeCourses.length === 1 ? (
             <div className="grid grid-cols-1 sm:grid-cols-2" style={{ gap: layout === 'compact' ? 8 : 14 }}>
               <FreeCourseMini course={freeCourses[0]} currency={currency} layout={layout} benefits={benefits} equalPair />
-              {/* Premium CTA card */}
-              <div style={{
-                position: 'relative',
-                background: 'radial-gradient(120% 100% at 100% 0%, rgba(212,168,67,0.22) 0%, rgba(212,168,67,0) 55%), linear-gradient(160deg, #244838 0%, #1C3A2E 55%, #152C22 100%)',
-                borderRadius: 14,
-                display: 'flex',
-                flexDirection: 'column',
-                boxShadow: '0 4px 18px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.06)',
-                overflow: 'hidden',
-                minHeight: 220,
-              }}>
-                {/* Subtle pattern */}
-                <span aria-hidden style={{
-                  position: 'absolute', top: -40, right: -40, width: 140, height: 140,
-                  borderRadius: '50%', background: 'rgba(212,168,67,0.07)', filter: 'blur(20px)',
-                }} />
-                <span aria-hidden style={{
-                  position: 'absolute', top: 16, left: 20, right: 20, height: 1,
-                  background: 'linear-gradient(to right, transparent, rgba(212,168,67,0.2), transparent)',
-                }} />
-
-                {/* Top: badge + декор */}
-                <div style={{ position: 'relative', padding: layout === 'full' ? '22px 22px 14px' : '18px 18px 10px' }}>
-                  <div style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 6,
-                    background: 'rgba(212,168,67,0.14)',
-                    border: '1px solid rgba(212,168,67,0.28)',
-                    borderRadius: 100, padding: '4px 10px',
-                  }}>
-                    <span style={{ fontSize: 11 }}>🎯</span>
-                    <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.28em', textTransform: 'uppercase' as const, color: '#D4A843', fontFamily: sysFont }}>
-                      ГОТОВИЙ НАБІР
-                    </span>
-                  </div>
-                </div>
-
-                {/* Mid: price hero */}
-                <div style={{ position: 'relative', padding: layout === 'full' ? '0 22px 18px' : '0 18px 14px', flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                  <p style={{ fontSize: 9, textTransform: 'uppercase' as const, letterSpacing: '0.26em', color: 'rgba(245,237,214,0.45)', margin: '0 0 6px', fontFamily: sysFont, fontWeight: 600 }}>
-                    {priceLabel}
-                  </p>
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-                    <span style={{
-                      fontFamily: sysFont,
-                      fontSize: 'clamp(30px, 3.4vw, 42px)',
-                      fontWeight: 800,
-                      background: 'linear-gradient(135deg, #F2C76D 0%, #D4A843 50%, #B8901F 100%)',
-                      WebkitBackgroundClip: 'text',
-                      WebkitTextFillColor: 'transparent',
-                      backgroundClip: 'text',
-                      lineHeight: 1,
-                      letterSpacing: '-0.03em',
-                    }}>
-                      {price.toLocaleString()}
-                    </span>
-                    <span style={{ fontSize: 14, color: 'rgba(212,168,67,0.6)', fontFamily: sysFont, fontWeight: 500 }}>
-                      {currency}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Bottom: amber CTA — більша і зміщена вправо */}
-                <div
-                  className="[&>button]:!ml-auto [&>button]:!mr-0 [&>button]:!px-4 [&>button]:!py-3 [&>button]:!text-[18px] [&>button]:!gap-2 [&>button>span:last-child]:!max-w-[90px] [&>button>span:last-child]:!whitespace-normal [&>button>span:last-child]:!leading-tight [&>button>span:last-child]:!inline-block [&>button>span:last-child]:!text-center"
-                  style={{ position: 'relative', padding: layout === 'full' ? '14px 22px 20px' : '12px 18px 18px', display: 'flex', justifyContent: 'flex-end' }}
-                >
-                  <CoursePurchaseModal
-                    courseName={title}
-                    price={price}
-                    courseId={`bundle_${slug}`}
-                    currency={currency}
-                    buttonLabel={buyLabel}
-                    compact={layout === 'compact'}
-                    selectedFreeSlugs={choiceMode ? selectedFree : undefined}
-                    disabled={!canBuy}
-                  />
-                </div>
-              </div>
+              {renderInlineCtaCard()}
             </div>
           ) : (
             <div
@@ -555,27 +654,41 @@ export default function BundleCard({
       {/* FREE ROW — CHOICE_FREE (footer-як-сигнал вибору) */}
       {hasFreeRow && choiceMode && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: layout === 'compact' ? 20 : 28, alignItems: 'center' }}>
+          {/* Paper gift tag — метафора реального подарункового ярлика з дірочкою для стрічки */}
           <div style={{
-            display: 'inline-flex', alignItems: 'center', gap: 8,
-            background: '#059669', borderRadius: 999, padding: '5px 14px',
-            boxShadow: '0 4px 14px rgba(5,150,105,0.25)',
+            position: 'relative',
+            display: 'inline-flex', alignItems: 'center', gap: 12,
+            background: 'linear-gradient(135deg, #FFFCF3 0%, #FAF2DA 55%, #EDDBA5 100%) padding-box, linear-gradient(135deg, #F2C76D 0%, #D4A843 50%, #B8901F 100%) border-box',
+            border: '1.5px solid transparent',
+            borderRadius: 10,
+            padding: '8px 22px 8px 36px',
+            boxShadow: '0 8px 20px rgba(164,122,40,0.3), 0 2px 5px rgba(70,48,10,0.12), inset 0 1px 0 rgba(255,255,255,0.7)',
+            transform: 'rotate(-0.8deg)',
           }}>
-            <span style={{ fontSize: 12 }}>🎁</span>
-            <span style={{
-              fontSize: 10, fontWeight: 700, letterSpacing: '0.22em',
-              textTransform: 'uppercase' as const, color: 'white', fontFamily: sysFont,
-            }}>
-              Курс в подарунок на вибір
-            </span>
-            {freeCount > 1 && (
+            {/* Дірочка для стрічки — темний круг зліва з 3D ефектом */}
+            <span aria-hidden style={{
+              position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)',
+              width: 11, height: 11, borderRadius: '50%',
+              background: 'radial-gradient(circle at 35% 30%, #1C3A2E 0%, #142A20 70%, #0A1A13 100%)',
+              boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.5), 0 0 0 1px rgba(164,122,40,0.4)',
+            }} />
+
+            {/* Текст: 2 рядки (label + main) */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 1, lineHeight: 1 }}>
               <span style={{
-                fontSize: 10, fontWeight: 800, color: 'white', fontFamily: sysFont,
-                background: 'rgba(255,255,255,0.2)', borderRadius: 999,
-                padding: '2px 7px', fontVariantNumeric: 'tabular-nums',
+                fontSize: 8, fontWeight: 700, letterSpacing: '0.26em',
+                textTransform: 'uppercase' as const, color: 'rgba(70,48,10,0.55)', fontFamily: sysFont,
               }}>
-                {selectedFree.length}/{freeCount}
+                🎁 Ваш подарунок
               </span>
-            )}
+              <span style={{
+                fontSize: 13, fontWeight: 800, letterSpacing: '-0.01em',
+                color: '#3A2608', fontFamily: sysFont,
+              }}>
+                {freeCount > 1 ? `Оберіть ${freeCount} курси` : 'Оберіть один курс'}
+              </span>
+            </div>
+
           </div>
           {(() => {
             const renderCard = (c: BundleCourse) => {
@@ -598,24 +711,26 @@ export default function BundleCard({
                     transform: isSelected ? 'translateY(-2px) scale(1.015)' : undefined,
                   }}
                 >
-                  {/* Wax seal — преміум медальйон при виборі */}
+                  {/* UIMP branded wax seal — premium індикатор вибору */}
                   {isSelected && (
                     <span aria-hidden className="bundle-seal" style={{
-                      position: 'absolute', top: -10, right: -10, zIndex: 5,
-                      width: 46, height: 46, borderRadius: '50%',
-                      background: 'radial-gradient(circle at 32% 28%, #10b981 0%, #059669 55%, #047857 100%)',
-                      border: '2px solid rgba(255,255,255,0.4)',
-                      boxShadow: '0 8px 22px rgba(5,150,105,0.42), inset 0 1px 0 rgba(255,255,255,0.3)',
+                      position: 'absolute', top: -12, right: -12, zIndex: 5,
+                      width: 48, height: 48, borderRadius: '50%',
+                      background: 'radial-gradient(circle at 30% 25%, #FFFCF3 0%, #FAF2DA 55%, #EDDBA5 100%)',
+                      border: '1.5px solid rgba(164,122,40,0.65)',
+                      boxShadow: '0 10px 26px rgba(164,122,40,0.4), 0 2px 8px rgba(0,0,0,0.2), inset 0 1px 1px rgba(255,255,255,0.95), inset 0 -1.5px 3px rgba(164,122,40,0.25)',
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      transformOrigin: 'center',
+                      overflow: 'hidden',
                     }}>
-                      <span aria-hidden style={{
-                        position: 'absolute', inset: 3, borderRadius: '50%',
-                        border: '1px dashed rgba(255,255,255,0.4)',
-                      }} />
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ position: 'relative', zIndex: 1, filter: 'drop-shadow(0 1px 1px rgba(0,0,0,0.25))' }}>
-                        <path d="M5 12L10 17L19 8" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
-                      </svg>
+                      <img
+                        src="/logo-white.png"
+                        alt=""
+                        style={{
+                          width: 38, height: 38,
+                          objectFit: 'contain',
+                          mixBlendMode: 'multiply' as const,
+                        }}
+                      />
                     </span>
                   )}
 
@@ -624,6 +739,7 @@ export default function BundleCard({
                     currency={currency}
                     layout={layout}
                     highlight={isSelected}
+                    highlightColor="#D4A843"
                     dimmed={dimmed}
                     benefits={benefits}
                     choiceMode
@@ -655,13 +771,14 @@ export default function BundleCard({
         </div>
       )}
 
-      {/* Price + CTA — прибираємо коли вже вбудовано в free-row (FIXED_FREE з 1 безкоштовним) */}
-      {!(hasFreeRow && bundleType === 'FIXED_FREE' && freeCourses.length === 1) && (
+      {/* Price + CTA — прибираємо коли inline-CTA задіяний (rule #24):
+           FIXED_FREE з 1 безкоштовним АБО DISCOUNT з непарним paid ≥ 5 */}
+      {!hideBottomCta && (
       <div data-bundle-cta style={{
         position: 'relative',
         background: 'radial-gradient(140% 180% at 0% 50%, rgba(212,168,67,0.18) 0%, rgba(212,168,67,0) 55%), radial-gradient(140% 180% at 100% 50%, rgba(212,168,67,0.10) 0%, rgba(212,168,67,0) 55%), linear-gradient(135deg, #244838 0%, #1C3A2E 50%, #142A20 100%)',
         borderRadius: layout === 'compact' ? 16 : 18,
-        padding: layout === 'compact' ? '16px' : 'clamp(18px, 2.4vw, 26px)',
+        padding: layout === 'compact' ? '8px 16px' : '11px clamp(18px, 2.4vw, 26px)',
         boxShadow: '0 10px 30px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.06)',
         overflow: 'hidden',
         display: 'flex',
@@ -669,10 +786,9 @@ export default function BundleCard({
         justifyContent: 'space-between',
         flexWrap: 'nowrap' as const,
         gap: layout === 'compact' ? 20 : 'clamp(28px, 4vw, 48px)',
-        width: 'fit-content',
-        maxWidth: freeCourses.length === 4 ? 640
-          : (courses.length === 2 && bundleType === 'DISCOUNT') ? 480
-          : undefined,
+        width: 'max-content',
+        minWidth: 510,
+        minHeight: 104,
         marginTop: 'auto',
         marginLeft: 'auto',
         marginRight: 'auto',
@@ -727,7 +843,7 @@ export default function BundleCard({
               {currency}
             </span>
           </div>
-          {bundleType === 'DISCOUNT' && savings > 0 && (
+          {displayedSavings > 0 && (
             <div style={{
               display: 'inline-flex', alignItems: 'center', gap: 6,
               background: 'rgba(212,168,67,0.12)',
@@ -740,8 +856,11 @@ export default function BundleCard({
               <span style={{
                 fontSize: layout === 'compact' ? 10 : 11, fontWeight: 700,
                 color: 'rgba(242,199,109,0.9)', fontFamily: sysFont, letterSpacing: '-0.01em',
+                whiteSpace: 'nowrap' as const,
               }}>
-                {saveLabel}: {savings.toLocaleString()} {currency}
+                {saveLabel}: {savingsRange
+                  ? `${choiceMin.toLocaleString()} – ${choiceMax.toLocaleString()}`
+                  : displayedSavings.toLocaleString()} {currency}
               </span>
             </div>
           )}
@@ -749,8 +868,8 @@ export default function BundleCard({
 
         {/* Right: amber CTA — мега преміум кнопка з gradient + amber halo */}
         <div
-          className={`[&>button]:!px-9 [&>button]:!text-[16px] [&>button]:!gap-2.5 sm:[&>button]:!px-12 sm:[&>button]:!text-[18px] sm:[&>button]:!gap-3 [&>button]:!bg-[linear-gradient(135deg,#F2C76D_0%,#D4A843_50%,#B8901F_100%)] [&>button]:!text-[#152C22] [&>button]:!border-[rgba(255,255,255,0.18)] [&>button]:!shadow-[0_12px_32px_rgba(212,168,67,0.38),inset_0_1px_0_rgba(255,255,255,0.35)] hover:[&>button]:!bg-[linear-gradient(135deg,#F5CE78_0%,#DBAF4B_50%,#C19A27_100%)] hover:[&>button]:!shadow-[0_16px_40px_rgba(212,168,67,0.5),inset_0_1px_0_rgba(255,255,255,0.4)] ${isPairLayout ? '[&>button]:!py-4 sm:[&>button]:!py-5' : (bundleType === 'DISCOUNT' && courses.length === 2) ? '[&>button]:!py-[18px] sm:[&>button]:!py-[22px]' : '[&>button]:!py-3.5 sm:[&>button]:!py-4'}`}
-          style={{ position: 'relative', display: 'flex', justifyContent: 'flex-end', alignSelf: isPairLayout ? 'flex-end' : undefined }}
+          className={`[&>button]:!px-10 [&>button]:!text-[17px] [&>button]:!gap-2.5 [&>button]:!whitespace-nowrap sm:[&>button]:!px-[58px] sm:[&>button]:!text-[19px] sm:[&>button]:!gap-3 [&>button]:!bg-[linear-gradient(135deg,#F2C76D_0%,#D4A843_50%,#B8901F_100%)] [&>button]:!text-[#152C22] [&>button]:!border-[rgba(255,255,255,0.18)] [&>button]:!shadow-[0_12px_32px_rgba(212,168,67,0.38),inset_0_1px_0_rgba(255,255,255,0.35)] hover:[&>button]:!bg-[linear-gradient(135deg,#F5CE78_0%,#DBAF4B_50%,#C19A27_100%)] hover:[&>button]:!shadow-[0_16px_40px_rgba(212,168,67,0.5),inset_0_1px_0_rgba(255,255,255,0.4)] [&>button]:!py-[15px] sm:[&>button]:!py-[19px]`}
+          style={{ position: 'relative', display: 'flex', justifyContent: 'flex-end', marginRight: 16 }}
         >
           <CoursePurchaseModal
             courseName={title}
@@ -774,6 +893,7 @@ function FreeCourseMini({
   currency,
   layout,
   highlight,
+  highlightColor = '#059669',
   dimmed,
   benefits = [],
   choiceMode = false,
@@ -785,6 +905,7 @@ function FreeCourseMini({
   currency: string;
   layout: 'full' | 'compact';
   highlight?: boolean;
+  highlightColor?: string;
   dimmed?: boolean;
   benefits?: Benefit[];
   choiceMode?: boolean;
@@ -808,7 +929,7 @@ function FreeCourseMini({
       boxShadow: dimmed
         ? 'none'
         : highlight
-          ? '0 0 0 2px #059669, 0 2px 10px rgba(0,0,0,0.1)'
+          ? `0 0 0 2px ${highlightColor}, 0 2px 10px rgba(0,0,0,0.1)`
           : '0 2px 10px rgba(0,0,0,0.1)',
       opacity: dimmed ? 0.35 : 1,
       filter: dimmed ? 'grayscale(0.6) blur(0.5px)' : 'none',
@@ -833,30 +954,37 @@ function FreeCourseMini({
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: slim ? 8 : equalPair ? 8 : 10 }}>
           <div style={{
-            width: slim ? 28 : 32, height: slim ? 28 : 32, borderRadius: 8,
+            width: 33, height: 33, borderRadius: 8,
             background: `rgba(${course.accentRgb},0.18)`,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: slim ? 13 : 15, flexShrink: 0,
+            fontSize: 16, flexShrink: 0,
           }}>
             {course.icon}
           </div>
-          <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.25em', textTransform: 'uppercase' as const, color: tagColor, fontFamily: sysFont }}>
+          <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.25em', textTransform: 'uppercase' as const, color: tagColor, fontFamily: sysFont }}>
             {course.tag}
           </span>
         </div>
-        <h4 style={{
+        <h4 data-bundle-free-h4 style={{
           fontFamily: sysFont,
-          fontSize: slim ? 'clamp(14px, 1.3vw, 16px)' : 'clamp(15px, 1.6vw, 19px)',
+          fontSize: 19,
           fontWeight: 700,
-          color: '#F5EDD6', lineHeight: 1.3, margin: slim ? '0 0 8px' : equalPair ? '0 0 8px' : '0 0 10px', letterSpacing: '-0.01em',
-          minHeight: equalPair ? undefined : '2.6em',
+          color: '#F5EDD6', lineHeight: 1.3, margin: slim ? '0 0 5px' : equalPair ? '0 0 5px' : '0 0 6px', letterSpacing: '-0.01em',
         }}>
           {course.title}
         </h4>
-        <div style={{ width: 26, height: 2, background: tagColor, borderRadius: 2, marginBottom: slim ? 8 : equalPair ? 8 : 10, opacity: 0.5 }} />
+        <div style={{ width: 26, height: 2, background: tagColor, borderRadius: 2, marginBottom: slim ? 5 : equalPair ? 5 : 6, opacity: 0.5 }} />
         <p data-bundle-desc style={{
-          fontSize: `var(--tuned-free-desc-fs, ${slim ? 11 : 12}px)`,
-          color: 'rgba(245,237,214,0.5)', lineHeight: equalPair ? 1.65 : 1.6, margin: 0, fontFamily: sysFont,
+          fontSize: 12,
+          color: 'rgba(245,237,214,0.5)', lineHeight: equalPair ? 1.65 : 1.6, margin: 0,
+          paddingBottom: 4,
+          minHeight: equalPair ? 'calc(1.65em * 4)' : 'calc(1.6em * 4)',
+          fontFamily: sysFont,
+          display: '-webkit-box',
+          WebkitLineClamp: 4,
+          WebkitBoxOrient: 'vertical',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
         }}>
           {course.description}
         </p>
@@ -874,20 +1002,30 @@ function FreeCourseMini({
         </div>
       )}
       <div style={{
-        background: '#059669', padding: '10px 14px',
-        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+        background: '#065f46',
+        padding: '9px 16px',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12,
+        borderTop: '1px solid rgba(255,255,255,0.08)',
       }}>
-        <span style={{ fontSize: 8, textTransform: 'uppercase' as const, letterSpacing: '0.22em', color: 'rgba(255,255,255,0.75)', fontFamily: sysFont, fontWeight: 600 }}>
+        <span style={{
+          fontFamily: sysFont, fontSize: 9, fontWeight: 500,
+          textTransform: 'uppercase' as const, letterSpacing: '0.24em',
+          color: 'rgba(255,255,255,0.7)',
+          lineHeight: 1,
+        }}>
           У ПОДАРУНОК
         </span>
-        <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.55)', fontFamily: sysFont, fontWeight: 500, textDecoration: 'line-through' }}>
-          {course.price.toLocaleString()}
-        </span>
-        <span style={{ fontFamily: sysFont, fontSize: 18, fontWeight: 700, color: 'white', lineHeight: 1 }}>
-          0
-        </span>
-        <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.6)', fontFamily: sysFont }}>
-          {currency}
+        <span aria-hidden style={{
+          width: 3, height: 3, borderRadius: '50%',
+          background: 'rgba(255,255,255,0.3)',
+        }} />
+        <span style={{
+          fontFamily: sysFont, fontSize: 12.5, fontWeight: 500,
+          color: 'rgba(255,255,255,0.95)', lineHeight: 1,
+          fontVariantNumeric: 'tabular-nums',
+          letterSpacing: '0.01em',
+        }}>
+          {course.price.toLocaleString()} {currency}
         </span>
       </div>
     </div>

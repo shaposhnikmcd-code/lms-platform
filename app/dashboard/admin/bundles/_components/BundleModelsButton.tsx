@@ -5,7 +5,8 @@ import { createPortal } from 'react-dom';
 import { FaLayerGroup, FaTimes } from 'react-icons/fa';
 import type { Theme } from '../../_components/adminTheme';
 
-type PairColor = 'blue' | 'red' | 'green' | 'violet' | 'black';
+type PairColor = 'blue' | 'green' | 'black';
+type PairTag = { color: PairColor; striped?: boolean };
 
 type Model = {
   id: string;
@@ -18,22 +19,22 @@ type Model = {
   rows: number;
   height: string;
   note: string;
-  /** Групи сусідства — пакети з СПІЛЬНИМ кольором можуть стояти в одному рядку. */
-  pairColors: PairColor[];
+  /**
+   * Кольорові пули сусідства по ШИРИНІ — спільний колір = можна поставити в один ряд.
+   * `striped: true` — ширина вміщується, але висоти не збігаються → візуально «сходинка».
+   */
+  pairColors: PairTag[];
 };
 
-// Пули сусідства (пакети одного пулу можна поставити в пару в один ряд на /courses):
-//   • 🔵 blue   — H=580: M1, M4 (625+625 ✓, 625+730 ✓)
-//   • 🔴 red    — H=740, W=625: M6a, M6b (625+625 ✓)
-//   • 🟢 green  — H=920, W=625 self-pair: M7a, M7b, M10a, M10b (625+625 ✓)
-//   • 🟣 violet — H=920, W=625+730 cross-pair: M7a/b, M10a/b ⇄ M5, M9 (625+730 ✓)
-//   • ⚫ black  — solo (не паруються): M11 (1200px — не вмістить сусіда)
+// Width-based pools (перевірка «чи фізично вмістяться поруч у контейнері»):
+//   • 🔵 blue  — «можу в пару з 625-piксельним пакетом» (self+625 вмістяться)
+//   • 🟢 green — «можу в пару з 730-піксельним пакетом» (self+730 вмістяться)
+//   • ⚫ black — соло (1200px — ніяка пара не вмістяється)
+// Висота показується окремим tag-ом: пари з різною висотою візуально розʼїдуться.
 const PAIR_COLOR_META: Record<PairColor, { label: string; dark: string; light: string; dot: string }> = {
-  blue:   { label: 'H=580 · 625/730', dark: 'bg-sky-500/25 border-sky-400/60',       light: 'bg-sky-500/30 border-sky-600/60',       dot: '#38bdf8' },
-  red:    { label: 'H=740 · 625',     dark: 'bg-rose-500/25 border-rose-400/60',     light: 'bg-rose-500/30 border-rose-600/60',     dot: '#fb7185' },
-  green:  { label: 'H=920 · 625+625', dark: 'bg-emerald-500/25 border-emerald-400/60', light: 'bg-emerald-500/30 border-emerald-600/60', dot: '#34d399' },
-  violet: { label: 'H=920 · 625+730', dark: 'bg-violet-500/25 border-violet-400/60', light: 'bg-violet-500/30 border-violet-600/60', dot: '#a78bfa' },
-  black:  { label: 'Соло (без пари)', dark: 'bg-slate-500/30 border-slate-400/50',   light: 'bg-stone-700/25 border-stone-700/60',   dot: '#1c1917' },
+  blue:  { label: 'Пара з 625px', dark: 'bg-sky-500/25 border-sky-400/60',       light: 'bg-sky-500/30 border-sky-600/60',       dot: '#38bdf8' },
+  green: { label: 'Пара з 730px', dark: 'bg-emerald-500/25 border-emerald-400/60', light: 'bg-emerald-500/30 border-emerald-600/60', dot: '#34d399' },
+  black: { label: 'Соло (1200px)', dark: 'bg-slate-500/30 border-slate-400/50',   light: 'bg-stone-700/25 border-stone-700/60',   dot: '#1c1917' },
 };
 
 const TYPE_DISCOUNT = '📉 Знижка на пакет';
@@ -53,9 +54,10 @@ const MODELS: Model[] = [
     priceLocation: PRICE_SEPARATE,
     width: '625px',
     rows: 2,
-    height: '580px',
-    note: 'Однаковий розмір чи соло, чи в 2-per-row групі. Amber savings pill "💰 Економія"',
-    pairColors: ['blue'],
+    height: '605px',
+    note: 'Однаковий розмір чи соло, чи в 2-per-row групі. Amber savings pill "💰 Економія". H підвищена 580→605 для rule #38 (4px gap desc→benefits)',
+    // M1: H=605 (було 580). Серед інших 625 — ніхто не має H=605 → 🔵 striped. Серед 730 — M4 має H=605 → 🟢 solid.
+    pairColors: [{ color: 'blue', striped: true }, { color: 'green' }],
   },
   {
     id: '4',
@@ -66,9 +68,10 @@ const MODELS: Model[] = [
     priceLocation: PRICE_SEPARATE,
     width: '730px',
     rows: 2,
-    height: '580px',
-    note: 'grid-cols-3 внутрішня сітка',
-    pairColors: ['blue'],
+    height: '605px',
+    note: 'grid-cols-3 внутрішня сітка. H підвищена 580→605 для rule #38 (4px gap desc→benefits)',
+    // M4: H=605 (було 580). Серед 625 — M1 має H=605 → 🔵 solid. Серед інших 730 — тільки H=920 → 🟢 striped.
+    pairColors: [{ color: 'blue' }, { color: 'green', striped: true }],
   },
   {
     id: '5',
@@ -81,7 +84,8 @@ const MODELS: Model[] = [
     rows: 2,
     height: '920px',
     note: '2 × 2 внутрішня сітка. Висота форсована до 920px — авто-тюнер вміщує контент',
-    pairColors: ['violet'],
+    // M5: H=920. Серед 625 — M7a/b, M10a/b мають H=920 → 🔵 solid. Серед інших 730 — M9 H=920 → 🟢 solid.
+    pairColors: [{ color: 'blue' }, { color: 'green' }],
   },
   {
     id: '6a',
@@ -94,7 +98,8 @@ const MODELS: Model[] = [
     rows: 2,
     height: '740px',
     note: '🎯 badge, ціна в CTA-card поряд з безплатним. Висота форсована до 740px',
-    pairColors: ['red'],
+    // M6a: H=740. Серед 625 — M6b теж H=740 → 🔵 solid. Серед 730 — ніхто не має H=740 → 🟢 striped.
+    pairColors: [{ color: 'blue' }, { color: 'green', striped: true }],
   },
   {
     id: '6b',
@@ -107,7 +112,8 @@ const MODELS: Model[] = [
     rows: 2,
     height: '740px',
     note: '🎯 badge, ціна в CTA-card поряд з безплатним. Висота форсована до 740px',
-    pairColors: ['red'],
+    // M6b: як M6a — H=740. Пара з M6a solid, з 730 — striped.
+    pairColors: [{ color: 'blue' }, { color: 'green', striped: true }],
   },
   {
     id: '7a',
@@ -120,7 +126,7 @@ const MODELS: Model[] = [
     rows: 3,
     height: '920px',
     note: 'gift-row 2-col + нижній Price+CTA. Висота форсована до 920px',
-    pairColors: ['green', 'violet'],
+    pairColors: [{ color: 'blue' }, { color: 'green' }],
   },
   {
     id: '7b',
@@ -133,7 +139,7 @@ const MODELS: Model[] = [
     rows: 3,
     height: '920px',
     note: 'gift-row + isPairLayout (equalPair). Висота форсована до 920px',
-    pairColors: ['green', 'violet'],
+    pairColors: [{ color: 'blue' }, { color: 'green' }],
   },
   {
     id: '9',
@@ -146,7 +152,7 @@ const MODELS: Model[] = [
     rows: 3,
     height: '920px',
     note: 'Paid стандартизовано до 345px. Висота форсована до 920px',
-    pairColors: ['violet'],
+    pairColors: [{ color: 'blue' }, { color: 'green' }],
   },
   {
     id: '10a',
@@ -159,7 +165,7 @@ const MODELS: Model[] = [
     rows: 3,
     height: '920px',
     note: 'toggle-вибір, dim / wax-seal / shimmer. Висота форсована до 920px',
-    pairColors: ['green', 'violet'],
+    pairColors: [{ color: 'blue' }, { color: 'green' }],
   },
   {
     id: '10b',
@@ -172,7 +178,7 @@ const MODELS: Model[] = [
     rows: 3,
     height: '920px',
     note: 'toggle-вибір + isPairLayout (equalPair). Висота форсована до 920px',
-    pairColors: ['green', 'violet'],
+    pairColors: [{ color: 'blue' }, { color: 'green' }],
   },
   {
     id: '11',
@@ -181,11 +187,11 @@ const MODELS: Model[] = [
     paid: '2',
     free: '4 (пул)',
     priceLocation: PRICE_SEPARATE,
-    width: '1200px',
+    width: '1250px',
     rows: 3,
     height: '920px',
     note: 'slim free cards, 4 в ряду. Висота форсована до 920px',
-    pairColors: ['black'],
+    pairColors: [{ color: 'black' }],
   },
 ];
 
@@ -272,7 +278,7 @@ export default function BundleModelsButton({ theme = 'light' }: { theme?: Theme 
                     Моделі пакетів
                   </h2>
                   <p className={`text-[11px] mt-1 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
-                    Заморожені верстки. Розміри виміряні @viewport 1920×1080. Джерело:{' '}
+                    Заморожені верстки. Розміри виміряні @viewport 1519×960 (1536×960 logical, 16&quot; ноут). Джерело:{' '}
                     <code
                       className={`px-1 py-0.5 rounded text-[10px] ${
                         dark ? 'bg-white/[0.06] text-slate-300' : 'bg-stone-200/70 text-stone-700'
@@ -304,8 +310,11 @@ export default function BundleModelsButton({ theme = 'light' }: { theme?: Theme 
                     Кольори сусідства
                   </div>
                   <p className={`text-[11px] mb-2.5 ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
-                    Пакети зі <span className="font-semibold">спільним кольором</span> можуть стояти в одному рядку на сторінці курсів.
-                    Пакет з одним кольором пара шукає лише в цьому пулі. <span className="inline-block w-3 h-3 rounded-sm align-middle border" style={{ background: '#1c1917', borderColor: '#44403c' }} /> — соло, пару не можна.
+                    Кольори показують <span className="font-semibold">з якою шириною</span> пакет може стати в пару.
+                    Два пакети можуть стояти поруч якщо мають <span className="font-semibold">спільний колір</span>.
+                    Суцільна заливка = висоти однакові, пара вирівнюється.
+                    <span className="font-semibold"> Штрихований</span> — ширина вміщується, але висоти різні → пара виглядатиме «сходинкою».
+                    Число під плитками — висота пакета.
                   </p>
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
                     {(Object.keys(PAIR_COLOR_META) as PairColor[]).map(c => {
@@ -319,6 +328,16 @@ export default function BundleModelsButton({ theme = 'light' }: { theme?: Theme 
                         </div>
                       );
                     })}
+                    <div className="inline-flex items-center gap-1.5">
+                      <span
+                        className={`inline-block w-4 h-4 rounded-md border ${dark ? 'border-white/25' : 'border-stone-500/40'}`}
+                        style={{
+                          backgroundImage: 'repeating-linear-gradient(45deg, #94a3b855 0, #94a3b855 2px, transparent 2px, transparent 5px)',
+                          backgroundColor: dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+                        }}
+                      />
+                      <span className={`text-[11px] ${dark ? 'text-slate-400' : 'text-stone-600'}`}>Штрихована = різна висота</span>
+                    </div>
                   </div>
                 </div>
 
@@ -377,18 +396,40 @@ export default function BundleModelsButton({ theme = 'light' }: { theme?: Theme 
                             </ul>
                           </Td>
                           <Td dark={dark} align="center">
-                            <div className="inline-flex items-center gap-1 flex-wrap justify-center">
-                              {m.pairColors.map(c => {
-                                const meta = PAIR_COLOR_META[c];
-                                return (
-                                  <span
-                                    key={c}
-                                    title={meta.label}
-                                    className={`inline-block w-5 h-5 rounded-md border ${dark ? meta.dark : meta.light}`}
-                                    style={{ boxShadow: `0 0 0 1px ${meta.dot}22` }}
-                                  />
-                                );
-                              })}
+                            <div className="inline-flex flex-col items-center gap-1">
+                              <div className="inline-flex items-center gap-1 flex-wrap justify-center">
+                                {m.pairColors.map(tag => {
+                                  const meta = PAIR_COLOR_META[tag.color];
+                                  const stripedStyle: React.CSSProperties = tag.striped
+                                    ? {
+                                        backgroundImage: `repeating-linear-gradient(45deg, ${meta.dot}55 0, ${meta.dot}55 2px, transparent 2px, transparent 5px)`,
+                                        backgroundColor: dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+                                      }
+                                    : { boxShadow: `0 0 0 1px ${meta.dot}22` };
+                                  return (
+                                    <span
+                                      key={`${tag.color}-${tag.striped ? 's' : 'f'}`}
+                                      title={`${meta.label}${tag.striped ? ' · різна висота (striped)' : ''}`}
+                                      className={`inline-block w-5 h-5 rounded-md border ${
+                                        tag.striped
+                                          ? dark ? 'border-white/25' : 'border-stone-500/40'
+                                          : dark ? meta.dark : meta.light
+                                      }`}
+                                      style={stripedStyle}
+                                    />
+                                  );
+                                })}
+                              </div>
+                              <span
+                                title="Висота блока — пари з різною висотою візуально розʼїдуться"
+                                className={`px-1.5 py-0.5 rounded-md text-[9px] font-mono font-semibold tabular-nums border ${
+                                  dark
+                                    ? 'bg-white/[0.04] border-white/[0.08] text-slate-400'
+                                    : 'bg-stone-100/70 border-stone-300/60 text-stone-600'
+                                }`}
+                              >
+                                {m.height.replace('px', '')}
+                              </span>
                             </div>
                           </Td>
                           <Td dark={dark} align="center">

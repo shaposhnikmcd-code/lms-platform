@@ -17,14 +17,8 @@ export default function BundleRowSync({
 
     const compute = () => {
       const titles = Array.from(root.querySelectorAll<HTMLElement>('[data-bundle-title]'));
-      if (titles.length < 2) return;
-      let max = 0;
-      for (const el of titles) {
-        if (el.scrollHeight > max) max = el.scrollHeight;
-      }
-      max = Math.ceil(max);
       titles.forEach((el) => {
-        el.style.minHeight = `${max}px`;
+        el.style.minHeight = '';
       });
     };
 

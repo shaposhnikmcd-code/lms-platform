@@ -1,8 +1,11 @@
 import prisma from '@/lib/prisma';
-import BundlesView, { type BundleRowData, type BundleType } from './_components/BundlesView';
+import { getTranslations, getMessages } from 'next-intl/server';
+import { NextIntlClientProvider } from 'next-intl';
+import { COURSES_BY_SLUG } from '@/lib/coursesCatalog';
+import BundlesView, { type BundleRowData, type BundleType, type MiniatureCourse } from './_components/BundlesView';
 
 export default async function AdminBundles() {
-  const [bundles, courses] = await Promise.all([
+  const [bundles, courses, t, messages] = await Promise.all([
     prisma.bundle.findMany({
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }],
       include: { courses: true },
@@ -10,6 +13,8 @@ export default async function AdminBundles() {
     prisma.course.findMany({
       select: { id: true, slug: true, title: true, price: true },
     }),
+    getTranslations({ locale: 'uk', namespace: 'CoursesPage' }),
+    getMessages({ locale: 'uk' }),
   ]);
 
   const COURSE_TITLES: Record<string, string> = {};
@@ -19,6 +24,28 @@ export default async function AdminBundles() {
     COURSE_TITLES[key] = c.title;
     COURSE_PRICES[key] = c.price;
   }
+
+  // Дані для міні-рендеру BundleCard (Row View в адмінці)
+  const toMiniature = (slug: string, overridePrice?: number): MiniatureCourse | null => {
+    const info = COURSES_BY_SLUG[slug];
+    if (!info) return null;
+    let title = COURSE_TITLES[slug] || info.titleUk || slug;
+    let description = info.titleUk;
+    let tag = info.titleUk;
+    try { title = t(info.titleKey as Parameters<typeof t>[0]) || title; } catch {}
+    try { description = t(info.descKey as Parameters<typeof t>[0]) || description; } catch {}
+    try { tag = t(info.tagKey as Parameters<typeof t>[0]) || tag; } catch {}
+    return {
+      slug,
+      title,
+      description,
+      tag,
+      price: overridePrice ?? info.price,
+      icon: info.icon,
+      accent: info.accent,
+      accentRgb: info.accentRgb,
+    };
+  };
 
   const rows: BundleRowData[] = bundles.map(bundle => {
     const type = ((bundle as { type?: string }).type ?? 'DISCOUNT') as BundleType;
@@ -50,14 +77,25 @@ export default async function AdminBundles() {
       suspendedAt: bundle.suspendedAt?.toISOString() ?? null,
       resumeAt: bundle.resumeAt?.toISOString() ?? null,
       displayMode: ((bundle as { displayMode?: string }).displayMode === 'solo' ? 'solo' : 'auto') as 'auto' | 'solo',
+      pickN: bundle.freeCount,
       courses: bundle.courses.map(bc => ({
         id: bc.id,
         courseSlug: bc.courseSlug,
         title: COURSE_TITLES[bc.courseSlug] || bc.courseSlug,
         isFree: bc.isFree,
       })),
+      miniaturePaid: bundle.courses.filter(bc => !bc.isFree)
+        .map(bc => toMiniature(bc.courseSlug))
+        .filter((x): x is MiniatureCourse => !!x),
+      miniatureFree: bundle.courses.filter(bc => bc.isFree)
+        .map(bc => toMiniature(bc.courseSlug))
+        .filter((x): x is MiniatureCourse => !!x),
     };
   });
 
-  return <BundlesView bundles={rows} />;
+  return (
+    <NextIntlClientProvider locale="uk" messages={messages}>
+      <BundlesView bundles={rows} />
+    </NextIntlClientProvider>
+  );
 }

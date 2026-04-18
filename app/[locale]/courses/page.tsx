@@ -180,13 +180,12 @@ export default async function CoursesPage({ params }: { params: Promise<{ locale
               const count = bundles.length;
               const layout = count === 1 ? 'full' as const : 'compact' as const;
 
-              // Групування: за замовчуванням (displayMode !== 'auto' → 'solo') кожен пакет у своєму ряду.
-              // Якщо displayMode === 'auto' — усі пакети з 'auto' йдуть в один спільний bucket
-              // незалежно від ширини / типу; адмін сам вирішує, що з чим комбінувати.
-              const widthKey = (b: typeof bundles[number]) => {
-                if ((b as { displayMode?: string }).displayMode !== 'auto') return `solo:${b.id}`;
-                return 'group';
-              };
+              // [TEMP] Експеримент — тимчасово знімаємо правило «кожен у своєму ряду».
+              // Усі пакети йдуть в один спільний bucket → buildRowSizes пакує їх по 2 в ряд
+              // у порядку з БД. Так адмін бачить наживо, які комбінації виглядають добре,
+              // і на основі цього фіналізує систему кольорів сусідства.
+              // Після завершення експерименту повернути перевірку displayMode.
+              const widthKey = (_b: typeof bundles[number]) => 'group';
 
               const buckets = new Map<string, typeof bundles>();
               for (const b of bundles) {
@@ -276,6 +275,8 @@ export default async function CoursesPage({ params }: { params: Promise<{ locale
               const nativeBundleWidth = (b: typeof bundles[number]): number => {
                 const paid = b.courses.filter((c) => !c.isFree).length;
                 const free = b.courses.filter((c) => c.isFree).length;
+                // M11: CHOICE/FIXED 2+4 pool=4 — 1250
+                if (b.type !== 'DISCOUNT' && paid === 2 && free === 4) return 1250;
                 if (b.type !== 'DISCOUNT' && free === 4) return 1200;
                 if (paid <= 2 && free <= 2 && paid + free >= 2) return 625;
                 return 730;
