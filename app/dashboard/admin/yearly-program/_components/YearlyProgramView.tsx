@@ -184,7 +184,6 @@ export default function YearlyProgramView({
       eyebrow="Admin · Річна програма"
       title="Річна програма"
       subtitle="Платежі та доступ до Річної програми (SendPulse). Місячна підписка — з автосписанням, річна — одна оплата на рік."
-      backHref="/dashboard/admin"
       maxWidth="max-w-7xl"
     >
       <div

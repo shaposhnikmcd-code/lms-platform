@@ -85,11 +85,11 @@ export default function AdminDashboardView({ data }: { data: AdminDashboardData 
   const quickActions = [
     { href: '/dashboard/admin/courses', label: 'Курси', desc: 'Ціни курсів', icon: HiOutlineBookOpen },
     { href: '/dashboard/admin/bundles', label: 'Пакети', desc: 'Курси зі знижкою', icon: HiOutlineSparkles },
+    { href: '/dashboard/admin/yearly-program', label: 'Річна програма', desc: 'Підписки та доступ', icon: HiOutlineCalendarDays },
     { href: '/dashboard/admin/specialists', label: 'Спеціалісти', desc: 'Ціни та запис', icon: HiOutlineUsers },
     { href: '/dashboard/admin/news', label: 'Новини', desc: 'Публікації', icon: HiOutlineNewspaper },
     { href: '/dashboard/admin/analytics', label: 'Аналітика', desc: 'Метрики та звіти', icon: HiOutlineChartBar },
     { href: '/dashboard/admin/payments', label: 'Платежі', desc: 'Транзакції', icon: HiOutlineCreditCard },
-    { href: '/dashboard/admin/yearly-program', label: 'Річна програма', desc: 'Підписки та доступ', icon: HiOutlineCalendarDays },
     { href: '/dashboard/admin/payment-logs', label: 'Логи', desc: 'WayForPay callback-и', icon: HiOutlineClock },
     { href: '/dashboard/admin/users', label: 'Користувачі', desc: 'Акаунти та ролі', icon: HiOutlineUserGroup },
   ];
