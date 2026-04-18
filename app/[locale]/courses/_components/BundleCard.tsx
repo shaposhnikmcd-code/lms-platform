@@ -43,6 +43,8 @@ type Props = {
   /** Міні-режим для адмінки: пропускає autoTuner/hover/drag, статичний рендер.
    * Використовується для Row View в /dashboard/admin/bundles. */
   miniature?: boolean;
+  /** Форсована висота бандла (обрізає контент по borderRadius). Для miniature в адмінці. */
+  forcedHeight?: number;
 };
 
 export default function BundleCard({
@@ -60,6 +62,7 @@ export default function BundleCard({
   benefits,
   layout = 'full',
   miniature = false,
+  forcedHeight,
 }: Props) {
   const [hovered, setHovered] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -325,8 +328,8 @@ export default function BundleCard({
         transition: 'box-shadow 0.4s ease, transform 0.4s ease, opacity 0.25s ease',
         transform: hovered ? 'translateY(-2px)' : 'translateY(0)',
         opacity: tuned ? 1 : 0,
-        height: unifiedHeight,
-        overflow: unifiedHeight !== undefined ? 'hidden' : undefined,
+        height: forcedHeight ?? unifiedHeight,
+        overflow: forcedHeight !== undefined || unifiedHeight !== undefined ? 'hidden' : undefined,
       }}
     >
       <style dangerouslySetInnerHTML={{ __html: `
@@ -786,8 +789,9 @@ export default function BundleCard({
         justifyContent: 'space-between',
         flexWrap: 'nowrap' as const,
         gap: layout === 'compact' ? 20 : 'clamp(28px, 4vw, 48px)',
-        width: 'max-content',
-        minWidth: 510,
+        width: miniature ? '100%' : 'max-content',
+        minWidth: miniature ? undefined : 510,
+        maxWidth: miniature ? '100%' : undefined,
         minHeight: 104,
         marginTop: 'auto',
         marginLeft: 'auto',

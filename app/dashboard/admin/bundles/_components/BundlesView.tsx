@@ -1384,8 +1384,8 @@ function BundleMiniature({ bundle, number, dark }: { bundle: BundleRowData; numb
       </div>
       {/* Size label */}
       <div
-        className={`text-[10px] tabular-nums font-medium tracking-wide ${
-          dark ? 'text-slate-500' : 'text-stone-500'
+        className={`text-[13px] tabular-nums font-semibold tracking-wide mt-1 ${
+          dark ? 'text-slate-400' : 'text-stone-600'
         }`}
         style={{ width: scaledW, textAlign: 'center' }}
       >
