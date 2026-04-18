@@ -8,7 +8,7 @@ export type Tone = 'neutral' | 'success' | 'warning' | 'danger';
 const THEME_STORAGE_KEY = 'admin-theme-v1';
 
 export function useAdminTheme() {
-  const [theme, setTheme] = useState<Theme>('dark');
+  const [theme, setTheme] = useState<Theme>('light');
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {

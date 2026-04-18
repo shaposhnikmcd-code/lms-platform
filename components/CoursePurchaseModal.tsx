@@ -33,8 +33,10 @@ export default function CoursePurchaseModal({
   const t = useTranslations('PurchaseModal');
   const { data: session } = useSession();
   const isAdmin = (session?.user as { role?: string } | undefined)?.role === 'ADMIN';
-  /// Адмін тестує за 1 ₴ — промо не застосовується, повна ціна ховається.
-  const effectivePrice = isAdmin ? 1 : price;
+  /// Адмін тестує за символічну ціну — щоб легко розрізняти плани в логах/callback:
+  /// `yearly-program` (річна) = 2 ₴, решта (місячна, курси, пакети) = 1 ₴.
+  const adminTestPrice = courseId === 'yearly-program' ? 2 : 1;
+  const effectivePrice = isAdmin ? adminTestPrice : price;
   const [isOpen, setIsOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [promoLoading, setPromoLoading] = useState(false);
@@ -84,7 +86,7 @@ export default function CoursePurchaseModal({
     if (!promoCode.trim()) return;
     if (isAdmin) {
       // У адмін-тесті промокод не потрібен — ціна вже 1 ₴.
-      setPromoError('У адмін-тесті промо не застосовується — ціна вже 1 ₴.');
+      setPromoError(`У адмін-тесті промо не застосовується — ціна вже ${adminTestPrice} ₴.`);
       return;
     }
     setPromoLoading(true);
@@ -205,7 +207,7 @@ export default function CoursePurchaseModal({
             <h2 className="text-xl sm:text-2xl font-bold text-gray-900 pr-10">{courseName}</h2>
             {isAdmin && (
               <div className="mt-2 inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-amber-100 text-amber-800 text-xs font-semibold border border-amber-300/50">
-                🔧 Тестовий режим адміна: 1 ₴
+                🔧 Тестовий режим адміна: {adminTestPrice} ₴
               </div>
             )}
           </div>
