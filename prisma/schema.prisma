@@ -26,6 +26,7 @@ model User {
   payments      Payment[]
   certificates  Certificate[]
   subscriptions Subscription[]
+  yearlyProgramSubscriptions YearlyProgramSubscription[]
   courseTeachers CourseTeacher[]
   sentMessages     Message[]   @relation("SentMessages")
   receivedMessages Message[]   @relation("ReceivedMessages")
@@ -202,12 +203,17 @@ model Payment {
   freeSlugs      String[]      @default([])
   createdAt      DateTime      @default(now())
   paidAt         DateTime?
+  /// Якщо платіж є частиною підписки річної програми — лінк сюди.
+  /// Один Payment = один щомісячний charge; для YEARLY plan створюється один Payment на рік.
+  yearlyProgramSubscriptionId String?
+  yearlyProgramSubscription   YearlyProgramSubscription? @relation("YearlyProgramPayments", fields: [yearlyProgramSubscriptionId], references: [id])
   user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   course         Course?       @relation(fields: [courseId], references: [id])
   bundle         Bundle?       @relation(fields: [bundleId], references: [id])
 
   @@index([userId])
   @@index([status])
+  @@index([yearlyProgramSubscriptionId])
 }
 
 model Certificate {
@@ -472,6 +478,86 @@ model PaymentCallbackLog {
   @@index([orderReference])
   @@index([createdAt])
   @@index([kind])
+}
+
+/// Підписка на Річну програму (навчальна програма на платформі SendPulse).
+/// YEARLY = одна оплата, доступ на 1 рік. MONTHLY = щомісячне авто-списання через WayForPay recToken,
+/// при кожному успішному charge expiresAt продовжується на +30 днів. Доступ до SendPulse
+/// курсу відкривається подією (SENDPULSE_EVENT_URL) і закривається через Education API
+/// (DELETE /students/{studentId}/{courseId}).
+model YearlyProgramSubscription {
+  id                      String                          @id @default(cuid())
+  userId                  String
+  user                    User                            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan                    YearlyProgramPlan
+  status                  YearlyProgramSubscriptionStatus @default(PENDING)
+  startDate               DateTime?
+  /// Для YEARLY = startDate + 1 рік. Для MONTHLY = останній успішний charge + 30 днів.
+  expiresAt               DateTime?
+  cancelledAt             DateTime?
+  cancelledBy             String?                         // "user" | "admin" | "system"
+  cancelledReason         String?
+
+  /// WayForPay tokenization — для авто-списання MONTHLY плану.
+  recToken                String?
+  /// Опційно: orderReference запису в regularApi (якщо колись перейдемо на WFP-managed schedule).
+  wfpRegularRef           String?
+  lastPaymentAt           DateTime?
+  lastChargeAttemptAt     DateTime?
+  lastChargeError         String?
+  failedChargeCount       Int                             @default(0)
+
+  /// SendPulse Education API — studentId (integer) для виклику DELETE /students/{id}/{courseId}.
+  /// Лук-апимо через POST /students/by-course/{courseId} по email після першої оплати.
+  sendpulseStudentId      Int?
+  sendpulseAccessOpenedAt DateTime?
+  sendpulseAccessClosedAt DateTime?
+
+  /// Нагадування про закінчення / grace.
+  reminderSent3d          Boolean                         @default(false)
+  reminderSent1d          Boolean                         @default(false)
+  reminderSentExpired     Boolean                         @default(false)
+
+  createdAt               DateTime                        @default(now())
+  updatedAt               DateTime                        @updatedAt
+
+  payments                Payment[]                       @relation("YearlyProgramPayments")
+  events                  YearlyProgramSubscriptionEvent[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([expiresAt])
+}
+
+/// Лог важливих подій підписки — видно в адмінці для прозорості й дебагу.
+model YearlyProgramSubscriptionEvent {
+  id             String                    @id @default(cuid())
+  subscriptionId String
+  subscription   YearlyProgramSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  /// "created" | "renewed" | "charge_attempt" | "charge_success" | "charge_failed"
+  /// | "access_opened" | "access_closed" | "reminder_3d" | "reminder_1d" | "reminder_expired"
+  /// | "cancelled" | "reactivated" | "admin_action"
+  type           String
+  message        String?
+  metadata       Json?
+  createdAt      DateTime                  @default(now())
+
+  @@index([subscriptionId])
+  @@index([createdAt])
+  @@index([type])
+}
+
+enum YearlyProgramPlan {
+  YEARLY
+  MONTHLY
+}
+
+enum YearlyProgramSubscriptionStatus {
+  PENDING    // створено, перша оплата ще не пройшла
+  ACTIVE     // доступ відкритий, expiresAt у майбутньому
+  GRACE      // expiresAt у минулому, але в межах grace-періоду (1 день)
+  EXPIRED    // доступ закрито, списання припинено
+  CANCELLED  // юзер/адмін скасував регулярку
 }
 
 /// Override-и динамічних полів спеціалістів (ціна, тривалість, кнопка запису, приховування).

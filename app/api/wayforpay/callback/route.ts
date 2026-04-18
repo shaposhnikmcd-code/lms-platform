@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import prisma from '@/lib/prisma';
+import { isYearlyProgramOrderRef, YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
+import { lookupStudentIdByEmail, openAccessViaEvent } from '@/lib/sendpulse';
 
 function getClientIp(req: NextRequest): string {
   const xff = req.headers.get('x-forwarded-for');
@@ -8,10 +10,14 @@ function getClientIp(req: NextRequest): string {
   return req.headers.get('x-real-ip') || req.headers.get('cf-connecting-ip') || 'unknown';
 }
 
-function detectKind(orderReference: string | undefined): 'course' | 'bundle' | 'connector' | 'unknown' {
+type CallbackKind = 'course' | 'bundle' | 'connector' | 'yearly' | 'monthly' | 'unknown';
+
+function detectKind(orderReference: string | undefined): CallbackKind {
   if (!orderReference) return 'unknown';
   if (orderReference.startsWith('connector_')) return 'connector';
   if (orderReference.startsWith('bundle_')) return 'bundle';
+  const yp = isYearlyProgramOrderRef(orderReference);
+  if (yp) return yp;
   return 'course';
 }
 
@@ -22,7 +28,7 @@ export async function POST(req: NextRequest) {
   const actions: string[] = [];
   const sendpulseSlugs: string[] = [];
   let signatureValid: boolean | null = null;
-  let kind: 'course' | 'bundle' | 'connector' | 'unknown' = 'unknown';
+  let kind: CallbackKind = 'unknown';
   let prevStatus: string | null = null;
   let skipped = false;
   let skipReason: string | null = null;
@@ -105,6 +111,18 @@ export async function POST(req: NextRequest) {
           actions.push('connector:paid');
           console.log('✅ Конектор оплачено:', orderReference);
         }
+      } else if (kind === 'yearly' || kind === 'monthly') {
+        const result = await handleYearlyProgramCallback({
+          orderReference: orderReference!,
+          kind,
+          body,
+        });
+        prevStatus = result.prevStatus;
+        skipped = result.skipped;
+        skipReason = result.skipReason;
+        errorMsg = result.errorMsg;
+        actions.push(...result.actions);
+        sendpulseSlugs.push(...result.sendpulseSlugs);
       } else {
         // course або bundle
         const payment = await prisma.payment.findUnique({
@@ -219,6 +237,34 @@ export async function POST(req: NextRequest) {
           data: { status: 'FAILED' },
         });
         actions.push('payment:failed');
+
+        // Для MONTHLY регулярки фіксуємо невдалу спробу на підписці — cron
+        // потім вирішує чи закривати доступ після grace-періоду.
+        if (kind === 'monthly') {
+          const failedPayment = await prisma.payment.findUnique({
+            where: { orderReference: orderReference! },
+            select: { yearlyProgramSubscriptionId: true },
+          });
+          if (failedPayment?.yearlyProgramSubscriptionId) {
+            await prisma.yearlyProgramSubscription.update({
+              where: { id: failedPayment.yearlyProgramSubscriptionId },
+              data: {
+                failedChargeCount: { increment: 1 },
+                lastChargeAttemptAt: new Date(),
+                lastChargeError: `WFP ${transactionStatus}: ${String(body.reason ?? body.reasonCode ?? '')}`.slice(0, 500),
+              },
+            });
+            await prisma.yearlyProgramSubscriptionEvent.create({
+              data: {
+                subscriptionId: failedPayment.yearlyProgramSubscriptionId,
+                type: 'charge_failed',
+                message: `${transactionStatus}: ${String(body.reason ?? body.reasonCode ?? 'unknown')}`,
+                metadata: { orderReference, transactionStatus, reason: body.reason ?? null },
+              },
+            });
+            actions.push('yearly:charge_failed_logged');
+          }
+        }
       }
       console.log('❌ Оплата відхилена для:', orderReference);
     } else {
@@ -324,4 +370,249 @@ async function writeLog(args: LogArgs) {
   } catch (logError) {
     console.error('⚠️ Не вдалося записати PaymentCallbackLog:', logError);
   }
+}
+
+interface YearlyResult {
+  prevStatus: string | null;
+  skipped: boolean;
+  skipReason: string | null;
+  errorMsg: string | null;
+  actions: string[];
+  sendpulseSlugs: string[];
+}
+
+/// Обробка callback-а для Річної програми (yearly або monthly plan).
+/// — Перший платіж: Payment із orderReference знайдений у БД → PAID, активуємо підписку.
+/// — Наступний регулярний (WFP автосписання): Payment не знайдений, шукаємо підписку по email
+///   користувача → створюємо новий Payment, продовжуємо expiresAt.
+async function handleYearlyProgramCallback(args: {
+  orderReference: string;
+  kind: 'yearly' | 'monthly';
+  body: Record<string, unknown>;
+}): Promise<YearlyResult> {
+  const actions: string[] = [];
+  const sendpulseSlugs: string[] = [];
+  const clientEmail = (args.body.email as string | undefined) ?? null;
+  const amountRaw = args.body.amount;
+  const amountInt = typeof amountRaw === 'number'
+    ? Math.round(amountRaw)
+    : typeof amountRaw === 'string'
+      ? Math.round(Number(amountRaw))
+      : 0;
+  const recToken = (args.body.recToken as string | undefined) ?? null;
+
+  // 1) Знаходимо Payment за orderReference (перший платіж).
+  const existingPayment = await prisma.payment.findUnique({
+    where: { orderReference: args.orderReference },
+    include: { user: true },
+  });
+
+  let payment = existingPayment;
+  let isRecurring = false;
+
+  if (!payment) {
+    // 2) Це, найімовірніше, WFP авто-списання по регулярному платежу. orderReference новий.
+    //    Шукаємо активну MONTHLY підписку по email клієнта.
+    if (args.kind !== 'monthly' || !clientEmail) {
+      return {
+        prevStatus: null,
+        skipped: true,
+        skipReason: 'payment_not_found',
+        errorMsg: `Payment not found for ${args.orderReference}${clientEmail ? '' : ' (no email)'}`,
+        actions,
+        sendpulseSlugs,
+      };
+    }
+    const user = await prisma.user.findUnique({ where: { email: clientEmail } });
+    if (!user) {
+      return {
+        prevStatus: null,
+        skipped: true,
+        skipReason: 'user_not_found',
+        errorMsg: `User not found for email ${clientEmail}`,
+        actions,
+        sendpulseSlugs,
+      };
+    }
+    const sub = await prisma.yearlyProgramSubscription.findFirst({
+      where: {
+        userId: user.id,
+        plan: 'MONTHLY',
+        status: { in: ['ACTIVE', 'GRACE'] },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!sub) {
+      return {
+        prevStatus: null,
+        skipped: true,
+        skipReason: 'subscription_not_found',
+        errorMsg: `No active MONTHLY subscription for ${clientEmail}`,
+        actions,
+        sendpulseSlugs,
+      };
+    }
+    // Створюємо Payment для цього автосписання і лінкуємо з підпискою.
+    payment = await prisma.payment.create({
+      data: {
+        userId: user.id,
+        courseId: null,
+        bundleId: null,
+        orderReference: args.orderReference,
+        amount: amountInt || 0,
+        status: 'PENDING',
+        yearlyProgramSubscriptionId: sub.id,
+      },
+      include: { user: true },
+    });
+    isRecurring = true;
+    actions.push('yearly:recurring_payment_created');
+  }
+
+  const prevStatus = payment.status;
+  if (prevStatus === 'PAID') {
+    return {
+      prevStatus,
+      skipped: true,
+      skipReason: 'already_paid',
+      errorMsg: null,
+      actions: [...actions, 'skip:already_paid'],
+      sendpulseSlugs,
+    };
+  }
+
+  if (!payment.yearlyProgramSubscriptionId) {
+    return {
+      prevStatus,
+      skipped: true,
+      skipReason: 'missing_subscription_link',
+      errorMsg: `Payment ${payment.id} has no yearlyProgramSubscriptionId`,
+      actions,
+      sendpulseSlugs,
+    };
+  }
+
+  // Markуємо Payment PAID
+  await prisma.payment.update({
+    where: { id: payment.id },
+    data: { status: 'PAID', paidAt: new Date() },
+  });
+  actions.push('payment:paid');
+
+  // Тягнемо підписку і користувача
+  const sub = await prisma.yearlyProgramSubscription.findUnique({
+    where: { id: payment.yearlyProgramSubscriptionId },
+  });
+  const user = payment.user;
+  if (!sub || !user) {
+    return {
+      prevStatus,
+      skipped: false,
+      skipReason: null,
+      errorMsg: 'Subscription or user missing after payment',
+      actions,
+      sendpulseSlugs,
+    };
+  }
+
+  // Продовжуємо доступ
+  const now = new Date();
+  const durationDays = sub.plan === 'YEARLY'
+    ? YEARLY_PROGRAM_CONFIG.yearlyDurationDays
+    : YEARLY_PROGRAM_CONFIG.monthlyDurationDays;
+  const currentExpires = sub.expiresAt && sub.expiresAt > now ? sub.expiresAt : now;
+  const newExpiresAt = new Date(currentExpires.getTime() + durationDays * 24 * 60 * 60 * 1000);
+  const wasFirstPayment = !sub.startDate;
+
+  await prisma.yearlyProgramSubscription.update({
+    where: { id: sub.id },
+    data: {
+      status: 'ACTIVE',
+      startDate: sub.startDate ?? now,
+      expiresAt: newExpiresAt,
+      lastPaymentAt: now,
+      failedChargeCount: 0,
+      lastChargeError: null,
+      // recToken оновлюємо якщо WFP прислав його у цьому callback (перший платіж monthly).
+      ...(recToken ? { recToken } : {}),
+      // Reset reminders — щоб наступний цикл знову їх відправив.
+      reminderSent3d: false,
+      reminderSent1d: false,
+      reminderSentExpired: false,
+    },
+  });
+
+  await prisma.yearlyProgramSubscriptionEvent.create({
+    data: {
+      subscriptionId: sub.id,
+      type: wasFirstPayment ? 'created' : (isRecurring ? 'renewed' : 'renewed'),
+      message: `Payment ${payment.orderReference} · +${durationDays}d · expires ${newExpiresAt.toISOString().slice(0, 10)}`,
+      metadata: {
+        amount: payment.amount,
+        paymentId: payment.id,
+        recurring: isRecurring,
+      },
+    },
+  });
+  actions.push(`yearly:${sub.plan.toLowerCase()}:+${durationDays}d`);
+
+  // Відкриваємо доступ у SendPulse (event → funnel → enrollment).
+  // Для recurring-платежу це не обовʼязково (доступ вже відкритий), але повторне відправлення
+  // не шкодить — SendPulse ігнорує дублі.
+  try {
+    await openAccessViaEvent(
+      user.email,
+      YEARLY_PROGRAM_CONFIG.sendpulseEventSlug,
+      payment.amount,
+    );
+    sendpulseSlugs.push(YEARLY_PROGRAM_CONFIG.sendpulseEventSlug);
+    actions.push('sendpulse:event_sent');
+
+    if (!sub.sendpulseAccessOpenedAt) {
+      await prisma.yearlyProgramSubscription.update({
+        where: { id: sub.id },
+        data: { sendpulseAccessOpenedAt: now, sendpulseAccessClosedAt: null },
+      });
+      await prisma.yearlyProgramSubscriptionEvent.create({
+        data: {
+          subscriptionId: sub.id,
+          type: 'access_opened',
+          message: `SendPulse event sent (${YEARLY_PROGRAM_CONFIG.sendpulseEventSlug})`,
+        },
+      });
+    }
+
+    // Лукапимо SendPulse studentId, якщо його ще нема і сконфігуровано courseId.
+    // Це може не спрацювати одразу (воронка створює Student async), тому не блокуючи.
+    if (!sub.sendpulseStudentId && YEARLY_PROGRAM_CONFIG.sendpulseCourseId) {
+      try {
+        const studentId = await lookupStudentIdByEmail(
+          YEARLY_PROGRAM_CONFIG.sendpulseCourseId,
+          user.email,
+        );
+        if (studentId) {
+          await prisma.yearlyProgramSubscription.update({
+            where: { id: sub.id },
+            data: { sendpulseStudentId: studentId },
+          });
+          actions.push(`sendpulse:student_id:${studentId}`);
+        } else {
+          actions.push('sendpulse:student_id:not_found_yet');
+        }
+      } catch (e) {
+        actions.push(`sendpulse:lookup_err:${(e as Error).message.slice(0, 40)}`);
+      }
+    }
+  } catch (e) {
+    actions.push(`sendpulse:event_err:${(e as Error).message.slice(0, 40)}`);
+  }
+
+  return {
+    prevStatus,
+    skipped: false,
+    skipReason: null,
+    errorMsg: null,
+    actions,
+    sendpulseSlugs,
+  };
 }

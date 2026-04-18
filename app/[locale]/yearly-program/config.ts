@@ -4,5 +4,5 @@ export const YEARLY_PROGRAM = {
   courseId: 'yearly-program',
   monthlyCourseId: 'yearly-program-monthly',
   monthlyPromoCode: 'S1llDW',
-  registrationOpen: false,
+  registrationOpen: true,
 };

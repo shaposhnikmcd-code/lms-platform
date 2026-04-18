@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
+import { isYearlyProgramOrderRef } from '@/lib/yearlyProgramConfig';
+import { buildRegularPurchaseFlags } from '@/lib/wayforpay';
 
 export async function POST(req: NextRequest) {
   try {
@@ -15,6 +19,7 @@ export async function POST(req: NextRequest) {
 
     const isConnector = orderReference.startsWith('connector_');
     const isBundle = typeof courseId === 'string' && courseId.startsWith('bundle_');
+    const yearlyKind = isYearlyProgramOrderRef(orderReference);
 
     // Для курсів/пакетів — створюємо/знаходимо користувача і Payment
     if (!isConnector) {
@@ -26,6 +31,17 @@ export async function POST(req: NextRequest) {
       const finalAmount = Number(amount);
       if (!Number.isFinite(finalAmount) || finalAmount <= 0) {
         return NextResponse.json({ error: 'Invalid amount' }, { status: 400 });
+      }
+
+      // Admin test mode: 1 ₴ дозволено лише для ADMIN-сесії.
+      // Якщо ціна підозріло низька (< 10 ₴) і user не адмін — відкидаємо, щоб ніхто
+      // не прикидався адміном через фронтенд-підробку.
+      if (finalAmount < 10) {
+        const session = await getServerSession(authOptions);
+        const isAdmin = (session?.user as { role?: string } | undefined)?.role === 'ADMIN';
+        if (!isAdmin) {
+          return NextResponse.json({ error: 'Amount too low' }, { status: 400 });
+        }
       }
 
       // Знайти або створити користувача за email
@@ -91,6 +107,37 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      // Для річної програми — знаходимо/створюємо підписку і лінкуємо Payment
+      let yearlyProgramSubscriptionId: string | null = null;
+      if (yearlyKind) {
+        const plan = yearlyKind === 'yearly' ? 'YEARLY' : 'MONTHLY';
+        // Шукаємо активну/pending підписку цього юзера на цьому плані. Якщо є — реюзаємо,
+        // інакше створюємо нову. Один юзер може мати лише одну актуальну підписку.
+        const existing = await prisma.yearlyProgramSubscription.findFirst({
+          where: {
+            userId: user.id,
+            plan,
+            status: { in: ['PENDING', 'ACTIVE', 'GRACE'] },
+          },
+          orderBy: { createdAt: 'desc' },
+        });
+        if (existing) {
+          yearlyProgramSubscriptionId = existing.id;
+        } else {
+          const created = await prisma.yearlyProgramSubscription.create({
+            data: {
+              userId: user.id,
+              plan,
+              status: 'PENDING',
+            },
+          });
+          yearlyProgramSubscriptionId = created.id;
+        }
+        // paymentCourseId лишаємо як є (yearly-program / yearly-program-monthly) —
+        // Payment.course FK опційна й немає такого запису в Course, тож обнулимо.
+        paymentCourseId = null;
+      }
+
       await prisma.payment.upsert({
         where: { orderReference },
         create: {
@@ -101,9 +148,11 @@ export async function POST(req: NextRequest) {
           amount: finalAmount,
           status: 'PENDING',
           freeSlugs: finalFreeSlugs,
+          yearlyProgramSubscriptionId,
         },
         update: {
           freeSlugs: finalFreeSlugs,
+          yearlyProgramSubscriptionId,
         },
       });
     }
@@ -127,7 +176,7 @@ export async function POST(req: NextRequest) {
       .update(signatureString)
       .digest('hex');
 
-    const paymentData = {
+    const paymentData: Record<string, unknown> = {
       merchantAccount: merchantLogin,
       merchantDomainName: merchantDomain,
       orderReference,
@@ -147,6 +196,14 @@ export async function POST(req: NextRequest) {
       merchantSignature,
       language: 'UA',
     };
+
+    // Для MONTHLY плану Річної програми — увімкнути токенізацію й регулярне щомісячне списання
+    // на стороні WFP. WFP щомісяця шле callback з новим orderReference, який ми ловимо нижче.
+    // (Не входить у signature — додаткові поля.)
+    if (yearlyKind === 'monthly') {
+      const flags = buildRegularPurchaseFlags({ amount: Number(amount) });
+      Object.assign(paymentData, flags);
+    }
 
     return NextResponse.json(paymentData);
   } catch (error) {

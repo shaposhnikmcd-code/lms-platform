@@ -12,6 +12,7 @@ import {
   HiOutlineUsers,
   HiOutlineArrowRight,
   HiOutlineSparkles,
+  HiOutlineCalendarDays,
 } from 'react-icons/hi2';
 import SyncDivisionsButton from './SyncDivisionsButton';
 import { useAdminTheme, type Theme, type Tone } from './adminTheme';
@@ -88,6 +89,7 @@ export default function AdminDashboardView({ data }: { data: AdminDashboardData 
     { href: '/dashboard/admin/news', label: 'Новини', desc: 'Публікації', icon: HiOutlineNewspaper },
     { href: '/dashboard/admin/analytics', label: 'Аналітика', desc: 'Метрики та звіти', icon: HiOutlineChartBar },
     { href: '/dashboard/admin/payments', label: 'Платежі', desc: 'Транзакції', icon: HiOutlineCreditCard },
+    { href: '/dashboard/admin/yearly-program', label: 'Річна програма', desc: 'Підписки та доступ', icon: HiOutlineCalendarDays },
     { href: '/dashboard/admin/payment-logs', label: 'Логи', desc: 'WayForPay callback-и', icon: HiOutlineClock },
     { href: '/dashboard/admin/users', label: 'Користувачі', desc: 'Акаунти та ролі', icon: HiOutlineUserGroup },
   ];

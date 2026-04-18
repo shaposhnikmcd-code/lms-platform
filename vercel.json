@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/sync-divisions",
       "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/yearly-subscriptions",
+      "schedule": "0 4 * * *"
     }
   ]
 }
