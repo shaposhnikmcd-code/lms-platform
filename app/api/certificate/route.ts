@@ -38,8 +38,10 @@ export async function GET(req: NextRequest) {
       year: 'numeric',
     });
 
-    const studentName = session.user.name || 'Студент';
-    const courseName = certificate.course.title;
+    const escapeHtml = (s: string) =>
+      s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    const studentName = escapeHtml(session.user.name || 'Студент');
+    const courseName = escapeHtml(certificate.course.title);
 
     // Генеруємо HTML сертифікат
     const html = `

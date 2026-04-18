@@ -287,11 +287,10 @@ export default function BundleCard({
   useEffect(() => {
     const root = rootRef.current;
     if (!root) return;
-    // У miniature режимі autoTuner НЕ запускається — він читає розміри через
-    // getBoundingClientRect, а parent має transform:scale(0.5), тож bounding rect
-    // повертає scaled значення. Tuner думає що бандл вузький, застосовує rules
-    // для вузьких (збільшує шрифти/padding) → контент виростає понад unifyHeight,
-    // overflow:hidden зрізає низ. Без tuner content рендериться natural і fit-иться.
+    // У miniature autoTuner не запускається — він читає getBoundingClientRect
+    // (scaled через transform:scale parent) і думає що бандл вузький. Його манipуляції
+    // в scaled-контексті псують layout. Нам потрібен просто natural React/CSS рендер
+    // без tuner-adjustments для preview.
     if (miniature) {
       setTuned(true);
       return;
@@ -335,8 +334,12 @@ export default function BundleCard({
         transition: 'box-shadow 0.4s ease, transform 0.4s ease, opacity 0.25s ease',
         transform: hovered ? 'translateY(-2px)' : 'translateY(0)',
         opacity: tuned ? 1 : 0,
-        height: forcedHeight ?? unifiedHeight,
-        overflow: forcedHeight !== undefined || unifiedHeight !== undefined ? 'hidden' : undefined,
+        // У miniature — не форсуємо висоту і не клипаємо. BundleCard flow natural,
+        // outer wrapper у BundleMiniature вимірює і підганяє scaled розмір.
+        height: miniature ? undefined : (forcedHeight ?? unifiedHeight),
+        overflow: miniature
+          ? undefined
+          : (forcedHeight !== undefined || unifiedHeight !== undefined ? 'hidden' : undefined),
       }}
     >
       <style dangerouslySetInnerHTML={{ __html: `

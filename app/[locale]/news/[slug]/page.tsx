@@ -5,6 +5,7 @@ import { Link } from "@/i18n/navigation";
 import { FaCalendar, FaUser, FaArrowLeft } from "react-icons/fa";
 import { getTranslatedContent } from "@/lib/translate";
 import { newsContent } from "../_content/uk";
+import { sanitizeHtml } from "@/lib/sanitizeHtml";
 
 const getContent = getTranslatedContent(newsContent, "news-page", {
   en: () => import("../_content/en").then(m => m.default),
@@ -139,7 +140,7 @@ export default async function NewsItemPage({ params }: Props) {
               {blocks.map((block) => {
                 switch (block.type) {
                   case "text":
-                    return <div key={block.id} dangerouslySetInnerHTML={{ __html: block.data.html || "" }} />;
+                    return <div key={block.id} dangerouslySetInnerHTML={{ __html: sanitizeHtml(block.data.html || "") }} />;
                   case "heading": {
                     const Tag = `h${block.data.level || "2"}` as "h1" | "h2" | "h3";
                     return <Tag key={block.id} style={{ color: "#1C3A2E", fontWeight: 700, margin: "1em 0 0.5em" }}>{block.data.text}</Tag>;
@@ -171,7 +172,7 @@ export default async function NewsItemPage({ params }: Props) {
           )}
 
           {isOldHtml && (
-            <div className="news-content" dangerouslySetInnerHTML={{ __html: item.content || "" }} />
+            <div className="news-content" dangerouslySetInnerHTML={{ __html: sanitizeHtml(item.content || "") }} />
           )}
 
           {!isJson && !isOldHtml && (

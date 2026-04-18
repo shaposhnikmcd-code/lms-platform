@@ -320,7 +320,6 @@ export default function OrderForm({ isOpen, onClose, labels }: OrderFormProps) {
     setIsSubmitting(true);
     setSubmitStatus(null);
     try {
-      const orderReference = `connector_${Date.now()}`;
       const selectedCountry = ALL_COUNTRIES.find(c => c.code === formData.country);
       const deliveryAddress = deliveryType === 'courier' ? buildCourierAddress() : formData.postOffice;
       const phonePrefix = COUNTRY_PHONE[phoneCountry]?.prefix ?? '+380';
@@ -330,7 +329,7 @@ export default function OrderForm({ isOpen, onClose, labels }: OrderFormProps) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          orderReference, email: formData.email, fullName: formData.fullName,
+          email: formData.email, fullName: formData.fullName,
           phone: fullPhone,
           city: isUkraine ? formData.city : `${selectedCountry?.name}, ${formData.city}`,
           postOffice: deliveryAddress,
@@ -341,6 +340,9 @@ export default function OrderForm({ isOpen, onClose, labels }: OrderFormProps) {
         }),
       });
       if (!orderRes.ok) throw new Error('Order save error');
+      const orderData = await orderRes.json();
+      const orderReference = orderData.orderReference as string;
+      if (!orderReference) throw new Error('Missing orderReference');
 
       const paymentRes = await fetch('/api/wayforpay', {
         method: 'POST',

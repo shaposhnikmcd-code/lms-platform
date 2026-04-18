@@ -22,7 +22,7 @@ const audienceIcons = [
   <FaHospital key={2} className="text-3xl text-[#D4A017]" />,
 ];
 
-export const dynamic = 'force-dynamic';
+export const revalidate = 60;
 
 export default async function MilitaryPsychologyPage({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;

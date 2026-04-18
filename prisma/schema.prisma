@@ -3,38 +3,39 @@ generator client {
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  provider          = "postgresql"
+  url               = env("DATABASE_URL")
+  directUrl         = env("DIRECT_URL")
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
 }
 
 model User {
-  id            String         @id @default(cuid())
-  name          String?
-  email         String         @unique
-  emailVerified DateTime?
-  password      String?
-  image         String?
-  createdAt     DateTime       @default(now())
-  lastLoginAt   DateTime?
-  role          UserRole       @default(STUDENT)
-  accounts      Account[]
-  enrollments   Enrollment[]
-  sessions      Session[]
-  progress      CourseProgress[]
-  lessonProgress LessonProgress[]
-  payments      Payment[]
-  certificates  Certificate[]
-  subscriptions Subscription[]
+  id                         String                      @id @default(cuid())
+  name                       String?
+  email                      String                      @unique
+  emailVerified              DateTime?
+  password                   String?
+  image                      String?
+  createdAt                  DateTime                    @default(now())
+  lastLoginAt                DateTime?
+  role                       UserRole                    @default(STUDENT)
+  accounts                   Account[]
+  enrollments                Enrollment[]
+  sessions                   Session[]
+  progress                   CourseProgress[]
+  lessonProgress             LessonProgress[]
+  payments                   Payment[]
+  certificates               Certificate[]
+  subscriptions              Subscription[]
   yearlyProgramSubscriptions YearlyProgramSubscription[]
-  courseTeachers CourseTeacher[]
-  sentMessages     Message[]   @relation("SentMessages")
-  receivedMessages Message[]   @relation("ReceivedMessages")
-  news          News[]
-  deletedAt      DateTime?
-  deletedById    String?
-  deletedByName  String?
-  deletedByEmail String?
+  courseTeachers             CourseTeacher[]
+  sentMessages               Message[]                   @relation("SentMessages")
+  receivedMessages           Message[]                   @relation("ReceivedMessages")
+  news                       News[]
+  deletedAt                  DateTime?
+  deletedById                String?
+  deletedByName              String?
+  deletedByEmail             String?
 
   @@index([role])
   @@index([deletedAt])
@@ -75,21 +76,21 @@ model VerificationToken {
 }
 
 model Course {
-  id           String           @id @default(cuid())
-  title        String
-  description  String
-  price        Int
-  published    Boolean          @default(false)
-  createdAt    DateTime         @default(now())
-  imageUrl     String?
-  slug         String?          @unique
-  enrollments  Enrollment[]
-  modules      Module[]
-  progress     CourseProgress[]
-  payments     Payment[]
-  certificates Certificate[]
+  id             String           @id @default(cuid())
+  title          String
+  description    String
+  price          Int
+  published      Boolean          @default(false)
+  createdAt      DateTime         @default(now())
+  imageUrl       String?
+  slug           String?          @unique
+  enrollments    Enrollment[]
+  modules        Module[]
+  progress       CourseProgress[]
+  payments       Payment[]
+  certificates   Certificate[]
   courseTeachers CourseTeacher[]
-  promoCodes    PromoCode[]
+  promoCodes     PromoCode[]
 }
 
 model CourseTeacher {
@@ -191,29 +192,33 @@ model CourseProgress {
 }
 
 model Payment {
-  id             String        @id @default(cuid())
-  userId         String
-  courseId       String?
-  bundleId       String?
-  orderReference String        @unique
-  amount         Int
-  currency       String        @default("UAH")
-  status         PaymentStatus @default(PENDING)
+  id                          String                     @id @default(cuid())
+  userId                      String
+  courseId                    String?
+  bundleId                    String?
+  orderReference              String                     @unique
+  amount                      Int
+  currency                    String                     @default("UAH")
+  status                      PaymentStatus              @default(PENDING)
   /// Для CHOICE_FREE bundle-ів: слаги курсів, які клієнт обрав як безкоштовні
-  freeSlugs      String[]      @default([])
-  createdAt      DateTime      @default(now())
-  paidAt         DateTime?
+  freeSlugs                   String[]                   @default([])
+  createdAt                   DateTime                   @default(now())
+  paidAt                      DateTime?
   /// Якщо платіж є частиною підписки річної програми — лінк сюди.
   /// Один Payment = один щомісячний charge; для YEARLY plan створюється один Payment на рік.
   yearlyProgramSubscriptionId String?
   yearlyProgramSubscription   YearlyProgramSubscription? @relation("YearlyProgramPayments", fields: [yearlyProgramSubscriptionId], references: [id])
-  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  course         Course?       @relation(fields: [courseId], references: [id])
-  bundle         Bundle?       @relation(fields: [bundleId], references: [id])
+  user                        User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course                      Course?                    @relation(fields: [courseId], references: [id])
+  bundle                      Bundle?                    @relation(fields: [bundleId], references: [id])
 
   @@index([userId])
   @@index([status])
   @@index([yearlyProgramSubscriptionId])
+  @@index([status, createdAt])
+  @@index([bundleId])
+  @@index([courseId])
+  @@index([createdAt])
 }
 
 model Certificate {
@@ -241,62 +246,62 @@ model Subscription {
 }
 
 model ConnectorOrder {
-  id             String        @id @default(cuid())
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-  email          String
-  fullName       String
-  phone          String
-  city           String
-  postOffice     String
-  orderReference String        @unique
-  amount         Int
-  gamePrice      Int?
-  shippingCost   Int?
+  id                 String                      @id @default(cuid())
+  createdAt          DateTime                    @default(now())
+  updatedAt          DateTime                    @updatedAt
+  email              String
+  fullName           String
+  phone              String
+  city               String
+  postOffice         String
+  orderReference     String                      @unique
+  amount             Int
+  gamePrice          Int?
+  shippingCost       Int?
   actualShippingCost Int?
-  paymentStatus  PaymentStatus @default(PENDING)
-  paidAt         DateTime?
-  orderStatus    OrderStatus   @default(NEW)
-  trackingNumber String?
-  trackingSetAt  DateTime?
+  paymentStatus      PaymentStatus               @default(PENDING)
+  paidAt             DateTime?
+  orderStatus        OrderStatus                 @default(NEW)
+  trackingNumber     String?
+  trackingSetAt      DateTime?
   trackingSetById    String?
   trackingSetByName  String?
   trackingSetByEmail String?
   trackingSetByRole  String?
-  managerNote    String?
-  callMe         Boolean       @default(false)
-  trackingHistory ConnectorOrderTrackingLog[]
+  managerNote        String?
+  callMe             Boolean                     @default(false)
+  trackingHistory    ConnectorOrderTrackingLog[]
 
   @@index([paymentStatus])
   @@index([orderStatus])
 }
 
 model ConnectorOrderTrackingLog {
-  id            String         @id @default(cuid())
-  orderId       String
-  order         ConnectorOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  value         String
-  changedAt     DateTime       @default(now())
-  changedById   String?
-  changedByName String?
+  id             String         @id @default(cuid())
+  orderId        String
+  order          ConnectorOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  value          String
+  changedAt      DateTime       @default(now())
+  changedById    String?
+  changedByName  String?
   changedByEmail String?
-  changedByRole String?
+  changedByRole  String?
 
   @@index([orderId])
 }
 
 model News {
-  id        String       @id @default(cuid())
-  title     String
-  slug      String       @unique
-  content   String
-  excerpt   String?
-  titleEn   String?
-  titlePl   String?
-  excerptEn String?
-  excerptPl String?
-  contentEn String?
-  contentPl String?
+  id          String       @id @default(cuid())
+  title       String
+  slug        String       @unique
+  content     String
+  excerpt     String?
+  titleEn     String?
+  titlePl     String?
+  excerptEn   String?
+  excerptPl   String?
+  contentEn   String?
+  contentPl   String?
   imageUrl    String?
   category    NewsCategory @default(NEWS)
   published   Boolean      @default(false)
@@ -331,11 +336,11 @@ model NovaPostDivision {
 }
 
 model NovaPostSyncLog {
-  id          String   @id @default(cuid())
-  syncedAt    DateTime @default(now())
-  totalCount  Int
-  status      String
-  message     String?
+  id         String   @id @default(cuid())
+  syncedAt   DateTime @default(now())
+  totalCount Int
+  status     String
+  message    String?
 }
 
 enum UserRole {
@@ -407,12 +412,12 @@ model Bundle {
 }
 
 model BundleCourse {
-  id         String @id @default(cuid())
+  id         String  @id @default(cuid())
   bundleId   String
-  courseSlug  String
+  courseSlug String
   /// true — курс безкоштовний у цьому пакеті (для FIXED_FREE — видається всім; для CHOICE_FREE — кандидат у пул)
   isFree     Boolean @default(false)
-  bundle     Bundle @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+  bundle     Bundle  @relation(fields: [bundleId], references: [id], onDelete: Cascade)
 
   @@unique([bundleId, courseSlug])
   @@index([bundleId])
@@ -425,17 +430,17 @@ enum BundleType {
 }
 
 model PromoCode {
-  id            String    @id @default(cuid())
-  code          String    @unique
+  id            String       @id @default(cuid())
+  code          String       @unique
   discountType  DiscountType @default(PERCENTAGE)
   discountValue Int
-  courseId       String?
+  courseId      String?
   maxUses       Int?
-  usedCount     Int       @default(0)
-  active        Boolean   @default(true)
+  usedCount     Int          @default(0)
+  active        Boolean      @default(true)
   expiresAt     DateTime?
-  createdAt     DateTime  @default(now())
-  course        Course?   @relation(fields: [courseId], references: [id])
+  createdAt     DateTime     @default(now())
+  course        Course?      @relation(fields: [courseId], references: [id])
 
   @@index([code])
 }
@@ -455,25 +460,25 @@ enum NewsCategory {
 /// Лог усіх платіжних callback-ів (course / bundle / connector).
 /// Пишеться ЗАВЖДИ — навіть для invalid signature, retry або idempotent skip.
 model PaymentCallbackLog {
-  id                 String   @id @default(cuid())
-  source             String   // "wayforpay" | "manual" | ...
-  kind               String   // "course" | "bundle" | "connector" | "unknown"
-  orderReference     String?
-  transactionStatus  String?  // Approved / Declined / Expired / InProcessing / ...
-  amount             Int?
-  currency           String?
-  clientEmail        String?
-  ip                 String?
-  userAgent          String?
-  signatureValid     Boolean?
-  prevStatus         String?  // статус Payment/ConnectorOrder ДО цього callback
-  actionsTaken       String?  // "payment:updated,enrollment:created,sendpulse:sent(2)"
-  sendpulseSlugs     String?  // слаги курсів, по яких реально відправлено events
-  skipped            Boolean  @default(false)
-  skipReason         String?
-  rawPayload         Json?
-  error              String?
-  createdAt          DateTime @default(now())
+  id                String   @id @default(cuid())
+  source            String // "wayforpay" | "manual" | ...
+  kind              String // "course" | "bundle" | "connector" | "unknown"
+  orderReference    String?
+  transactionStatus String? // Approved / Declined / Expired / InProcessing / ...
+  amount            Int?
+  currency          String?
+  clientEmail       String?
+  ip                String?
+  userAgent         String?
+  signatureValid    Boolean?
+  prevStatus        String? // статус Payment/ConnectorOrder ДО цього callback
+  actionsTaken      String? // "payment:updated,enrollment:created,sendpulse:sent(2)"
+  sendpulseSlugs    String? // слаги курсів, по яких реально відправлено events
+  skipped           Boolean  @default(false)
+  skipReason        String?
+  rawPayload        Json?
+  error             String?
+  createdAt         DateTime @default(now())
 
   @@index([orderReference])
   @@index([createdAt])
@@ -486,26 +491,26 @@ model PaymentCallbackLog {
 /// курсу відкривається подією (SENDPULSE_EVENT_URL) і закривається через Education API
 /// (DELETE /students/{studentId}/{courseId}).
 model YearlyProgramSubscription {
-  id                      String                          @id @default(cuid())
-  userId                  String
-  user                    User                            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  plan                    YearlyProgramPlan
-  status                  YearlyProgramSubscriptionStatus @default(PENDING)
-  startDate               DateTime?
+  id              String                          @id @default(cuid())
+  userId          String
+  user            User                            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan            YearlyProgramPlan
+  status          YearlyProgramSubscriptionStatus @default(PENDING)
+  startDate       DateTime?
   /// Для YEARLY = startDate + 1 рік. Для MONTHLY = останній успішний charge + 30 днів.
-  expiresAt               DateTime?
-  cancelledAt             DateTime?
-  cancelledBy             String?                         // "user" | "admin" | "system"
-  cancelledReason         String?
+  expiresAt       DateTime?
+  cancelledAt     DateTime?
+  cancelledBy     String? // "user" | "admin" | "system"
+  cancelledReason String?
 
   /// WayForPay tokenization — для авто-списання MONTHLY плану.
-  recToken                String?
+  recToken            String?
   /// Опційно: orderReference запису в regularApi (якщо колись перейдемо на WFP-managed schedule).
-  wfpRegularRef           String?
-  lastPaymentAt           DateTime?
-  lastChargeAttemptAt     DateTime?
-  lastChargeError         String?
-  failedChargeCount       Int                             @default(0)
+  wfpRegularRef       String?
+  lastPaymentAt       DateTime?
+  lastChargeAttemptAt DateTime?
+  lastChargeError     String?
+  failedChargeCount   Int       @default(0)
 
   /// SendPulse Education API — studentId (integer) для виклику DELETE /students/{id}/{courseId}.
   /// Лук-апимо через POST /students/by-course/{courseId} по email після першої оплати.
@@ -513,20 +518,30 @@ model YearlyProgramSubscription {
   sendpulseAccessOpenedAt DateTime?
   sendpulseAccessClosedAt DateTime?
 
+  /// Момент переходу ACTIVE→GRACE + розрахована межа закінчення grace-періоду.
+  /// expiresAt + graceDays НЕ використовуємо як фільтр expireGraceSubscriptions, бо при
+  /// пропущеному cron-добу підписка потрапляє в GRACE з expiresAt глибоко в минулому —
+  /// це б миттєво expire-ало її. Ми фіксуємо, коли саме GRACE почалось, і експайраємо
+  /// лише коли `gracePeriodEndsAt < now`.
+  graceStartedAt      DateTime?
+  gracePeriodEndsAt   DateTime?
+
   /// Нагадування про закінчення / grace.
-  reminderSent3d          Boolean                         @default(false)
-  reminderSent1d          Boolean                         @default(false)
-  reminderSentExpired     Boolean                         @default(false)
+  reminderSent3d      Boolean @default(false)
+  reminderSent1d      Boolean @default(false)
+  reminderSentExpired Boolean @default(false)
 
-  createdAt               DateTime                        @default(now())
-  updatedAt               DateTime                        @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  payments                Payment[]                       @relation("YearlyProgramPayments")
-  events                  YearlyProgramSubscriptionEvent[]
+  payments Payment[]                        @relation("YearlyProgramPayments")
+  events   YearlyProgramSubscriptionEvent[]
 
   @@index([userId])
   @@index([status])
   @@index([expiresAt])
+  @@index([status, expiresAt])
+  @@index([plan, status, expiresAt])
 }
 
 /// Лог важливих подій підписки — видно в адмінці для прозорості й дебагу.
@@ -553,11 +568,11 @@ enum YearlyProgramPlan {
 }
 
 enum YearlyProgramSubscriptionStatus {
-  PENDING    // створено, перша оплата ще не пройшла
-  ACTIVE     // доступ відкритий, expiresAt у майбутньому
-  GRACE      // expiresAt у минулому, але в межах grace-періоду (1 день)
-  EXPIRED    // доступ закрито, списання припинено
-  CANCELLED  // юзер/адмін скасував регулярку
+  PENDING // створено, перша оплата ще не пройшла
+  ACTIVE // доступ відкритий, expiresAt у майбутньому
+  GRACE // expiresAt у минулому, але в межах grace-періоду (1 день)
+  EXPIRED // доступ закрито, списання припинено
+  CANCELLED // юзер/адмін скасував регулярку
 }
 
 /// Override-и динамічних полів спеціалістів (ціна, тривалість, кнопка запису, приховування).

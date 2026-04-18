@@ -32,11 +32,22 @@ export async function GET(req: NextRequest) {
     if ('error' in guard) return guard.error;
 
     const deleted = req.nextUrl.searchParams.get('deleted') === '1';
+    const MAX_USERS = 1000;
 
     const users = await prisma.user.findMany({
       where: deleted ? { deletedAt: { not: null } } : { deletedAt: null },
       orderBy: deleted ? { deletedAt: 'desc' } : { createdAt: 'desc' },
-      include: {
+      take: MAX_USERS,
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        createdAt: true,
+        lastLoginAt: true,
+        deletedAt: true,
+        deletedByName: true,
+        deletedByEmail: true,
         _count: { select: { enrollments: true } },
       },
     });
@@ -141,6 +152,19 @@ export async function DELETE(req: NextRequest) {
     const actor = guard.actor;
     if (actor.id === userId) {
       return NextResponse.json({ error: 'Не можна видалити власний акаунт' }, { status: 400 });
+    }
+
+    // Захист від lockout: ADMIN не може soft-delete іншого ADMIN. Якщо треба зняти права —
+    // спершу PATCH { newRole: 'STUDENT' }, потім DELETE.
+    const target = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { role: true },
+    });
+    if (target?.role === 'ADMIN') {
+      return NextResponse.json(
+        { error: 'Не можна видалити іншого адміна. Спершу зніміть роль ADMIN.' },
+        { status: 400 }
+      );
     }
 
     const updated = await prisma.user.update({

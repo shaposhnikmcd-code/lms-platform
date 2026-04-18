@@ -1,14 +1,29 @@
 import prisma from '@/lib/prisma';
 import PaymentsView, { type Row } from './_components/PaymentsView';
 
+/// Ліміт на server-side fetch — щоб не тягнути багатотисячну історію в dashboard.
+/// Show 500 latest — покриває ~місяць трафіку. Більше — через окремий search/archive view.
+const MAX_ROWS = 500;
+
 export default async function AdminPayments() {
   const [payments, connectorOrders] = await Promise.all([
     prisma.payment.findMany({
       orderBy: { createdAt: 'desc' },
-      include: { user: true, course: true, bundle: true },
+      take: MAX_ROWS,
+      select: {
+        id: true,
+        createdAt: true,
+        amount: true,
+        status: true,
+        orderReference: true,
+        user: { select: { name: true, email: true } },
+        course: { select: { title: true } },
+        bundle: { select: { title: true } },
+      },
     }),
     prisma.connectorOrder.findMany({
       orderBy: { createdAt: 'desc' },
+      take: MAX_ROWS,
       select: {
         id: true,
         createdAt: true,

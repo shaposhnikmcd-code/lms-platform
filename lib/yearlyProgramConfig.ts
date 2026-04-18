@@ -26,7 +26,7 @@ export const YEARLY_PROGRAM_CONFIG = {
   totalMonthlyPayments: 9,
 
   /// Grace-період після expiresAt, протягом якого доступ залишається відкритим.
-  graceDays: 1,
+  graceDays: 7,
 
   /// Нагадування — за скільки днів до expiresAt.
   reminderDaysBefore: [3, 1],

@@ -16,7 +16,7 @@ const getContent = getTranslatedContent(content, 'psychology-basics-page', {
   pl: () => import('./_content/pl').then(m => m.default),
 });
 
-export const dynamic = 'force-dynamic';
+export const revalidate = 60;
 
 export default async function PsychologyBasicsPage({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;

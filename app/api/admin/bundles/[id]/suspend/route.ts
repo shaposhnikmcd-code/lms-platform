@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { isAdmin } from "@/lib/adminAuth";
+import { revalidateLocalized } from "@/lib/revalidatePaths";
 
 // POST { action: "suspend", resumeAt? } — suspend bundle
 // POST { action: "resume" } — resume bundle immediately
@@ -23,6 +24,7 @@ export async function POST(
         resumeAt: null,
       },
     });
+    revalidateLocalized('/courses');
     return NextResponse.json(bundle);
   }
 
@@ -35,5 +37,6 @@ export async function POST(
     },
   });
 
+  revalidateLocalized('/courses');
   return NextResponse.json(bundle);
 }

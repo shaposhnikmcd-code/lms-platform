@@ -11,7 +11,27 @@ export async function POST(req: NextRequest) {
     }
 
     const userId = (session.user as any).id;
+    const role = (session.user as { role?: string }).role;
     const { lessonId, watchedAt, completed } = await req.json();
+
+    // Enrollment guard (M2 fix): юзер може писати прогрес лише для уроків курсу, на який
+    // він enrolled (або якщо це TEACHER/ADMIN, або урок безкоштовний).
+    const lessonCheck = await prisma.lesson.findUnique({
+      where: { id: lessonId },
+      select: { isFree: true, module: { select: { courseId: true } } },
+    });
+    if (!lessonCheck) {
+      return NextResponse.json({ error: 'Урок не знайдено' }, { status: 404 });
+    }
+    const isPrivileged = role === 'ADMIN' || role === 'TEACHER';
+    if (!lessonCheck.isFree && !isPrivileged) {
+      const enrollment = await prisma.enrollment.findUnique({
+        where: { userId_courseId: { userId, courseId: lessonCheck.module.courseId } },
+      });
+      if (!enrollment) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+    }
 
     // Оновлюємо прогрес уроку
     const lessonProgress = await prisma.lessonProgress.upsert({

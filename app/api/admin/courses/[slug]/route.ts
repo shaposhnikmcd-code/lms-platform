@@ -1,17 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { revalidatePath } from "next/cache";
 import prisma from "@/lib/prisma";
 import { isAdmin } from "@/lib/adminAuth";
 import { COURSES_BY_SLUG } from "@/lib/coursesCatalog";
+import { revalidateLocalized } from "@/lib/revalidatePaths";
 
 function revalidateCoursesPages(slug: string) {
-  for (const locale of ["uk", "pl", "en"]) {
-    try {
-      revalidatePath(`/${locale}/courses`);
-      revalidatePath(`/${locale}/courses/${slug}`);
-    } catch {
-    }
-  }
+  revalidateLocalized('/courses');
+  revalidateLocalized(`/courses/${slug}`);
 }
 
 export async function PATCH(

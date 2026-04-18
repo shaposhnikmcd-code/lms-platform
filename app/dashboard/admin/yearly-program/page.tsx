@@ -1,9 +1,12 @@
 import prisma from '@/lib/prisma';
 import YearlyProgramView, { type Row, type SummaryData } from './_components/YearlyProgramView';
 
+const MAX_ROWS = 500;
+
 export default async function AdminYearlyProgramPage() {
   const subs = await prisma.yearlyProgramSubscription.findMany({
     orderBy: { createdAt: 'desc' },
+    take: MAX_ROWS,
     include: {
       user: { select: { id: true, name: true, email: true } },
       payments: { select: { id: true, amount: true, status: true, createdAt: true, paidAt: true } },
@@ -42,13 +45,28 @@ export default async function AdminYearlyProgramPage() {
     };
   });
 
+  // Summary рахуємо через groupBy у БД — щоб KPI були точні навіть якщо subs > MAX_ROWS.
+  const [statusCounts, totalAggr, revenueAggr] = await Promise.all([
+    prisma.yearlyProgramSubscription.groupBy({
+      by: ['status'],
+      _count: { _all: true },
+    }),
+    prisma.yearlyProgramSubscription.count(),
+    prisma.payment.aggregate({
+      where: { status: 'PAID', yearlyProgramSubscriptionId: { not: null } },
+      _sum: { amount: true },
+    }),
+  ]);
+  const countByStatus = (st: string) =>
+    statusCounts.find((s) => s.status === st)?._count._all ?? 0;
+
   const summary: SummaryData = {
-    total: subs.length,
-    active: subs.filter((s) => s.status === 'ACTIVE').length,
-    grace: subs.filter((s) => s.status === 'GRACE').length,
-    expired: subs.filter((s) => s.status === 'EXPIRED').length,
-    cancelled: subs.filter((s) => s.status === 'CANCELLED').length,
-    revenueTotal: rows.reduce((sum, r) => sum + r.totalPaid, 0),
+    total: totalAggr,
+    active: countByStatus('ACTIVE'),
+    grace: countByStatus('GRACE'),
+    expired: countByStatus('EXPIRED'),
+    cancelled: countByStatus('CANCELLED'),
+    revenueTotal: revenueAggr._sum.amount ?? 0,
   };
 
   return <YearlyProgramView rows={rows} summary={summary} />;

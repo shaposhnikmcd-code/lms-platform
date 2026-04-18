@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
+import { checkRateLimit } from '@/lib/ratelimit';
 
 export async function POST(req: NextRequest) {
   try {
+    const rl = await checkRateLimit(req, 'promo');
+    if (!rl.ok) return rl.response!;
+
     const { code, courseId } = await req.json();
 
     if (!code) {

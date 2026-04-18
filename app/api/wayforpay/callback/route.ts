@@ -3,6 +3,8 @@ import crypto from 'crypto';
 import prisma from '@/lib/prisma';
 import { isYearlyProgramOrderRef, YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
 import { lookupStudentIdByEmail, openAccessViaEvent } from '@/lib/sendpulse';
+import { timingSafeEqualStr } from '@/lib/authTiming';
+import { YEARLY_PROGRAM } from '@/app/[locale]/yearly-program/config';
 
 function getClientIp(req: NextRequest): string {
   const xff = req.headers.get('x-forwarded-for');
@@ -66,7 +68,8 @@ export async function POST(req: NextRequest) {
       .update(signatureString)
       .digest('hex');
 
-    signatureValid = merchantSignature === expectedSignature;
+    signatureValid = typeof merchantSignature === 'string'
+      && timingSafeEqualStr(merchantSignature, expectedSignature);
 
     if (!signatureValid) {
       console.error('❌ Невірний підпис WayForPay:', orderReference);
@@ -94,20 +97,22 @@ export async function POST(req: NextRequest) {
         });
         prevStatus = existing?.paymentStatus || null;
 
-        if (prevStatus === 'PAID') {
+        // Claim-then-act: атомарний flip, щоб два одночасних callback-и не задвоїли зміну
+        // orderStatus/paidAt. count=0 ⇒ вже PAID, skip.
+        const claim = await prisma.connectorOrder.updateMany({
+          where: { orderReference: orderReference!, paymentStatus: { not: 'PAID' } },
+          data: {
+            paymentStatus: 'PAID',
+            paidAt: new Date(),
+            orderStatus: 'NEW',
+          },
+        });
+        if (claim.count === 0) {
           skipped = true;
           skipReason = 'already_paid';
           actions.push('skip:already_paid');
-          console.log('ℹ️ Конектор уже PAID, пропускаю:', orderReference);
+          console.log('ℹ️ Конектор уже PAID (claim lost), пропускаю:', orderReference);
         } else {
-          await prisma.connectorOrder.update({
-            where: { orderReference: orderReference! },
-            data: {
-              paymentStatus: 'PAID',
-              paidAt: new Date(),
-              orderStatus: 'NEW',
-            },
-          });
           actions.push('connector:paid');
           console.log('✅ Конектор оплачено:', orderReference);
         }
@@ -142,17 +147,20 @@ export async function POST(req: NextRequest) {
         } else {
           prevStatus = payment.status;
 
-          if (payment.status === 'PAID') {
-            // Ідемпотентність: callback вже оброблявся раніше — НЕ повторювати enrollment/SendPulse
+          // Claim-then-act (Bug #2 fix): атомарно переводимо PENDING → PAID. Якщо count=0,
+          // значить інший callback вже відпрацював — skip enrollment/SendPulse, щоб уникнути
+          // подвійної відправки SendPulse event.
+          const claim = await prisma.payment.updateMany({
+            where: { orderReference: orderReference!, status: { not: 'PAID' } },
+            data: { status: 'PAID', paidAt: new Date() },
+          });
+
+          if (claim.count === 0) {
             skipped = true;
             skipReason = 'already_paid';
             actions.push('skip:already_paid');
-            console.log('ℹ️ Payment уже PAID, пропускаю enrollment+SendPulse:', orderReference);
+            console.log('ℹ️ Payment уже PAID (claim lost), пропускаю:', orderReference);
           } else {
-            await prisma.payment.update({
-              where: { orderReference: orderReference! },
-              data: { status: 'PAID', paidAt: new Date() },
-            });
             actions.push('payment:updated');
 
             const user = await prisma.user.findUnique({ where: { id: payment.userId } });
@@ -174,6 +182,8 @@ export async function POST(req: NextRequest) {
                   const freeSlugs = bundle.courses.filter((c) => c.isFree).map((c) => c.courseSlug);
                   courseSlugs = [...paidSlugs, ...freeSlugs];
                 }
+                // Dedupe (Bug #15): якщо той самий courseSlug у paid і free — не шлемо двічі SendPulse.
+                courseSlugs = [...new Set(courseSlugs)];
                 actions.push(`bundle:${bundle.type}(${bundle.courses.length})`);
               }
             } else if (payment.courseId) {
@@ -434,11 +444,25 @@ async function handleYearlyProgramCallback(args: {
         sendpulseSlugs,
       };
     }
+    // Для recurring callback обовʼязково привʼязуємо по recToken (C5 fix).
+    // Не довіряємо тільки email — WFP може прислати callback з правильним підписом,
+    // але без recToken це ще не доводить що це наш merchantAccount.
+    if (!recToken) {
+      return {
+        prevStatus: null,
+        skipped: true,
+        skipReason: 'missing_rec_token',
+        errorMsg: `Recurring callback without recToken for ${clientEmail}`,
+        actions,
+        sendpulseSlugs,
+      };
+    }
     const sub = await prisma.yearlyProgramSubscription.findFirst({
       where: {
         userId: user.id,
         plan: 'MONTHLY',
         status: { in: ['ACTIVE', 'GRACE'] },
+        recToken,
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -447,7 +471,33 @@ async function handleYearlyProgramCallback(args: {
         prevStatus: null,
         skipped: true,
         skipReason: 'subscription_not_found',
-        errorMsg: `No active MONTHLY subscription for ${clientEmail}`,
+        errorMsg: `No active MONTHLY subscription matching email+recToken`,
+        actions,
+        sendpulseSlugs,
+      };
+    }
+    // Перевірка суми — має відповідати config.monthlyPrice (допустимий дрейф ±1 ₴).
+    const expectedAmount = Number(YEARLY_PROGRAM.monthlyPrice);
+    if (Number.isFinite(expectedAmount) && Math.abs(amountInt - expectedAmount) > 1) {
+      return {
+        prevStatus: null,
+        skipped: true,
+        skipReason: 'amount_mismatch',
+        errorMsg: `Recurring charge amount ${amountInt} ≠ expected ${expectedAmount}`,
+        actions,
+        sendpulseSlugs,
+      };
+    }
+    // Перевірка 9-платіжного cap (Bug #4): якщо вже є N PAID платежів — відмовляємо.
+    const paidCount = await prisma.payment.count({
+      where: { yearlyProgramSubscriptionId: sub.id, status: 'PAID' },
+    });
+    if (paidCount >= YEARLY_PROGRAM_CONFIG.totalMonthlyPayments) {
+      return {
+        prevStatus: null,
+        skipped: true,
+        skipReason: 'monthly_cap_reached',
+        errorMsg: `MONTHLY already has ${paidCount} paid (cap ${YEARLY_PROGRAM_CONFIG.totalMonthlyPayments})`,
         actions,
         sendpulseSlugs,
       };
@@ -467,6 +517,36 @@ async function handleYearlyProgramCallback(args: {
     });
     isRecurring = true;
     actions.push('yearly:recurring_payment_created');
+  } else {
+    // Перший платіж: Payment знайдений. Перевіряємо, що підписка ще не CANCELLED/EXPIRED
+    // (Bug #6) — callback для такої підписки не має продовжувати доступ.
+    if (payment.yearlyProgramSubscriptionId) {
+      const subCheck = await prisma.yearlyProgramSubscription.findUnique({
+        where: { id: payment.yearlyProgramSubscriptionId },
+        select: { status: true },
+      });
+      if (subCheck && (subCheck.status === 'CANCELLED' || subCheck.status === 'EXPIRED')) {
+        return {
+          prevStatus: payment.status,
+          skipped: true,
+          skipReason: `subscription_${subCheck.status.toLowerCase()}`,
+          errorMsg: `Subscription is ${subCheck.status}, refusing to extend`,
+          actions,
+          sendpulseSlugs,
+        };
+      }
+    }
+    // Якщо email у callback відрізняється від Payment.user.email — відмовляємо (H2 fix).
+    if (clientEmail && payment.user?.email && clientEmail.toLowerCase() !== payment.user.email.toLowerCase()) {
+      return {
+        prevStatus: payment.status,
+        skipped: true,
+        skipReason: 'email_mismatch',
+        errorMsg: `Callback email ≠ Payment.user.email`,
+        actions,
+        sendpulseSlugs,
+      };
+    }
   }
 
   const prevStatus = payment.status;
@@ -492,11 +572,22 @@ async function handleYearlyProgramCallback(args: {
     };
   }
 
-  // Markуємо Payment PAID
-  await prisma.payment.update({
-    where: { id: payment.id },
+  // Claim-then-act: атомарний flip PAID. Якщо інший callback вже позначив PAID — skip
+  // щоб не продовжити expiresAt двічі (Bug #1 fix).
+  const claim = await prisma.payment.updateMany({
+    where: { id: payment.id, status: { not: 'PAID' } },
     data: { status: 'PAID', paidAt: new Date() },
   });
+  if (claim.count === 0) {
+    return {
+      prevStatus: 'PAID',
+      skipped: true,
+      skipReason: 'already_paid',
+      errorMsg: null,
+      actions: [...actions, 'skip:already_paid_claim_lost'],
+      sendpulseSlugs,
+    };
+  }
   actions.push('payment:paid');
 
   // Тягнемо підписку і користувача

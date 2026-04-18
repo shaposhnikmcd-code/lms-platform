@@ -14,6 +14,7 @@ import { AdminShell, AdminPanel } from '../_components/AdminShell';
 import NewsPublishButton from './_components/NewsPublishButton';
 import CategoryPicker from './_components/CategoryPicker';
 import StatusPicker from './_components/StatusPicker';
+import { sanitizeHtml } from '@/lib/sanitizeHtml';
 
 interface NewsItem {
   id: string;
@@ -110,7 +111,7 @@ function renderBlock(block: ContentBlock, theme: Theme) {
         <div
           key={block.id}
           className="news-preview-content"
-          dangerouslySetInnerHTML={{ __html: block.data.html }}
+          dangerouslySetInnerHTML={{ __html: sanitizeHtml(block.data.html) }}
         />
       ) : block.data.text ? (
         <p
@@ -573,7 +574,7 @@ export default function AdminNewsPage() {
                               className={`news-preview-content text-sm ${
                                 dark ? 'text-slate-300' : 'text-stone-700'
                               }`}
-                              dangerouslySetInnerHTML={{ __html: rawContent }}
+                              dangerouslySetInnerHTML={{ __html: sanitizeHtml(rawContent) }}
                             />
                           );
                         }

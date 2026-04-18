@@ -1,5 +1,3 @@
-export const dynamic = 'force-dynamic';
-
 import { Link } from '@/i18n/navigation';
 
 const SENDPULSE_LOGIN_URL = 'https://uimp-edu.sendpulse.online/courses/auth/login';

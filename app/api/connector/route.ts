@@ -1,17 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server';
+import crypto from 'crypto';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
 
+const CONNECTOR_ORDER_STATUSES = ['NEW', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED'] as const;
+
+async function requireAdmin() {
+  const session = await getServerSession(authOptions);
+  const role = (session?.user as { role?: string } | undefined)?.role;
+  return role === 'ADMIN' ? session : null;
+}
+
 export async function POST(req: NextRequest) {
   try {
-    const { orderReference, email, fullName, phone, city, postOffice, gamePrice, shippingCost, callMe } = await req.json();
+    const { email, fullName, phone, city, postOffice, gamePrice, shippingCost, callMe } = await req.json();
 
     const session = await getServerSession(authOptions);
-    const isAdmin = session?.user?.role === 'ADMIN';
+    const isAdmin = (session?.user as { role?: string } | undefined)?.role === 'ADMIN';
     const finalGamePrice = isAdmin ? 1 : (typeof gamePrice === 'number' ? gamePrice : 1099);
     const finalShippingCost = isAdmin ? 0 : (typeof shippingCost === 'number' ? shippingCost : 0);
     const finalAmount = finalGamePrice + finalShippingCost;
+
+    // orderReference генерується server-side щоб не довіряти клієнту
+    const orderReference = `connector_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
 
     const order = await prisma.connectorOrder.create({
       data: {
@@ -30,7 +42,7 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    return NextResponse.json({ success: true, orderId: order.id });
+    return NextResponse.json({ success: true, orderId: order.id, orderReference });
   } catch (error) {
     console.error('❌ Помилка створення замовлення:', error);
     return NextResponse.json({ success: false, error: 'Помилка сервера' }, { status: 500 });
@@ -39,11 +51,19 @@ export async function POST(req: NextRequest) {
 
 export async function GET(req: NextRequest) {
   try {
+    if (!(await requireAdmin())) {
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    }
+
     const { searchParams } = new URL(req.url);
     const status = searchParams.get('status');
+    const statusFilter =
+      status && (CONNECTOR_ORDER_STATUSES as readonly string[]).includes(status)
+        ? { orderStatus: status as (typeof CONNECTOR_ORDER_STATUSES)[number] }
+        : undefined;
 
     const orders = await prisma.connectorOrder.findMany({
-      where: status ? { orderStatus: status as any } : undefined,
+      where: statusFilter,
       orderBy: { createdAt: 'desc' },
       include: { trackingHistory: { orderBy: { changedAt: 'desc' } } },
     });
@@ -57,7 +77,15 @@ export async function GET(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   try {
+    if (!(await requireAdmin())) {
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    }
+
     const { id, orderStatus, trackingNumber, managerNote, actualShippingCost } = await req.json();
+
+    if (orderStatus && !(CONNECTOR_ORDER_STATUSES as readonly string[]).includes(orderStatus)) {
+      return NextResponse.json({ success: false, error: 'Invalid orderStatus' }, { status: 400 });
+    }
 
     const data: any = {
       ...(orderStatus && { orderStatus }),

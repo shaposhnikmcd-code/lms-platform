@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import zlib from 'zlib';
 import { promisify } from 'util';
+import { verifyBearer } from '@/lib/authTiming';
 
 const gunzip = promisify(zlib.gunzip);
 
@@ -20,9 +21,8 @@ interface NovaDivision {
 }
 
 export async function GET(req: NextRequest) {
-  // Vercel cron авторизація
-  const authHeader = req.headers.get('authorization');
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  // Vercel cron авторизація (timing-safe)
+  if (!verifyBearer(req.headers.get('authorization'), process.env.CRON_SECRET)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

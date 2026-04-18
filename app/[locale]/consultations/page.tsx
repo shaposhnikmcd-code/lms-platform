@@ -5,7 +5,7 @@ import { getTranslatedContent } from "@/lib/translate";
 import SpecialistCard from "./_components/SpecialistCard";
 import NotionButton from "./_components/NotionButton";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 60;
 
 const sysFont = '-apple-system, BlinkMacSystemFont, sans-serif';
 const getContent = getTranslatedContent(consultationsContent, 'consultations-page', {

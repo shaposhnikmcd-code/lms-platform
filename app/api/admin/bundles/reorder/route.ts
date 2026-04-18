@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { isAdmin } from "@/lib/adminAuth";
+import { revalidateLocalized } from "@/lib/revalidatePaths";
 
 export async function POST(req: NextRequest) {
   if (!(await isAdmin(req))) {
@@ -25,5 +26,6 @@ export async function POST(req: NextRequest) {
     ),
   );
 
+  revalidateLocalized('/courses');
   return NextResponse.json({ ok: true });
 }

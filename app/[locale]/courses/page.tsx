@@ -15,7 +15,9 @@ import prisma from "@/lib/prisma";
 import { COURSES_BY_SLUG } from "@/lib/coursesCatalog";
 import { getCoursePriceOverrides } from "@/lib/coursePrice";
 
-export const dynamic = "force-dynamic";
+// ISR: 60s stale — після зміни ціни/пакету в адмінці публіка побачить нові дані
+// максимум через хвилину. Миттєве оновлення — через `revalidatePath` у admin-мутаціях.
+export const revalidate = 60;
 
 const sysFont = '-apple-system, BlinkMacSystemFont, sans-serif';
 

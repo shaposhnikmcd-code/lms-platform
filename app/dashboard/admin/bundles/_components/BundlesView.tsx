@@ -7,6 +7,7 @@ import { FaPlus, FaEye, FaEyeSlash, FaPause, FaGripVertical } from 'react-icons/
 import { HiOutlineBookOpen, HiOutlineGift } from 'react-icons/hi2';
 import {
   DndContext,
+  DragOverlay,
   closestCenter,
   PointerSensor,
   KeyboardSensor,
@@ -22,6 +23,7 @@ import {
   sortableKeyboardCoordinates,
   useSortable,
   verticalListSortingStrategy,
+  rectSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useAdminTheme, type Theme } from '../../_components/adminTheme';
@@ -245,7 +247,7 @@ export default function BundlesView({
       eyebrow="Admin · Пакети"
       title="Пакети курсів"
       subtitle="Керуй пакетами: типи, ціни, публікація, призупинення."
-      maxWidth="max-w-[1360px]"
+      maxWidth={viewMode === 'rows' ? 'max-w-[1760px]' : 'max-w-[1360px]'}
       rightInset={140}
       rightSlotAfter={<BundleModelsButton theme={theme} />}
       rightSlot={
@@ -1106,37 +1108,83 @@ function RowsView({ bundles, dark }: { bundles: BundleRowData[]; dark: boolean }
   return (
     <>
       <div className={`mb-4 rounded-lg border px-4 py-2.5 text-[11px] ${dark ? 'bg-white/[0.03] border-white/[0.08] text-slate-400' : 'bg-white/70 border-stone-300/50 text-stone-600'}`}>
-        <span className="font-semibold">Як користуватись:</span> перетягни ручку зліва щоб змінити порядок рядів; перетягни пакет на іншу сторінку (solo) — стане в пару; у зону «Новий ряд» між сторінками — винесе в окремий ряд.
+        <span className="font-semibold">Як користуватись:</span> ряди розкладені по 2 в лінію. Перетягни ручку зліва щоб змінити порядок; перетягни пакет на solo-сторінку — стане в пару; кинь у зону «Винести в новий ряд» внизу — створить окремий ряд у кінці.
       </div>
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
         <SortableContext
           items={slots.map((slot, idx) => `slot-${idx}`)}
-          strategy={verticalListSortingStrategy}
+          strategy={rectSortingStrategy}
         >
-          <div className="flex flex-col gap-2 py-2">
-            {/* Зона "новий ряд зверху" — показується тільки при drag бандла з пари */}
-            <EmptySlotDropZone insertAt={0} dark={dark} show={dragKind === 'bundle'} />
-            {slots.map((slot, sIdx) => (
-              <div key={slot.map((b) => b.id).join('-')} className="flex flex-col gap-2">
-                <SlotRow
-                  slot={slot}
-                  slotIdx={sIdx}
-                  globalIdxOf={globalIdxOf}
-                  dark={dark}
-                  dragActive={dragKind !== null}
-                  dragKind={dragKind}
-                  activeId={activeId}
-                />
-                <EmptySlotDropZone insertAt={sIdx + 1} dark={dark} show={dragKind === 'bundle'} />
-              </div>
-            ))}
-            {slots.length === 0 && (
-              <div className={`text-center text-[12px] italic ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
-                Пакетів немає
-              </div>
-            )}
-          </div>
+          {slots.length === 0 ? (
+            <div className={`text-center text-[12px] italic ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+              Пакетів немає
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2 py-2">
+              {/* Розбиваємо слоти на пари (по 2 в лінію) і між кожною парою — empty-slot drop zone.
+                  Zones видимі тільки при drag bundle, щоб не забивати UI у звичайному стані. */}
+              {(() => {
+                const chunks: { startIdx: number; items: BundleRowData[][] }[] = [];
+                for (let i = 0; i < slots.length; i += 2) {
+                  chunks.push({ startIdx: i, items: slots.slice(i, i + 2) });
+                }
+                return (
+                  <>
+                    {/* Зона "новий ряд зверху" */}
+                    <EmptySlotDropZone
+                      insertAt={0}
+                      dark={dark}
+                      highlighted={dragKind === 'bundle'}
+                      visible={dragKind === 'bundle'}
+                    />
+                    {chunks.map((chunk) => (
+                      <div key={chunk.startIdx} className="flex flex-col gap-2">
+                        {/* Лінія з 1-2 slot-рядами */}
+                        <div className="grid grid-cols-1 xl:grid-cols-2 gap-x-6 items-start">
+                          {chunk.items.map((slot, localIdx) => (
+                            <SlotRow
+                              key={slot.map((b) => b.id).join('-')}
+                              slot={slot}
+                              slotIdx={chunk.startIdx + localIdx}
+                              globalIdxOf={globalIdxOf}
+                              dark={dark}
+                              dragActive={dragKind !== null}
+                              dragKind={dragKind}
+                              activeId={activeId}
+                            />
+                          ))}
+                        </div>
+                        {/* Empty-zone після цієї лінії */}
+                        <EmptySlotDropZone
+                          insertAt={chunk.startIdx + chunk.items.length}
+                          dark={dark}
+                          highlighted={dragKind === 'bundle'}
+                          visible={dragKind === 'bundle'}
+                        />
+                      </div>
+                    ))}
+                  </>
+                );
+              })()}
+            </div>
+          )}
         </SortableContext>
+        {/* DragOverlay — рендерить клон активного елемента у portal що точно слідує за курсором.
+            Без нього scaled-transformed content всередині item погано відображає drag-рух. */}
+        <DragOverlay dropAnimation={null}>
+          {dragKind === 'bundle' && activeId
+            ? (() => {
+                const bundleId = activeId.replace(/^bundle-/, '');
+                const bundle = bundles.find((b) => b.id === bundleId);
+                if (!bundle) return null;
+                return (
+                  <div style={{ cursor: 'grabbing', pointerEvents: 'none' }}>
+                    <BundleMiniature bundle={bundle} number={globalIdxOf(bundle.id)} dark={dark} />
+                  </div>
+                );
+              })()
+            : null}
+        </DragOverlay>
       </DndContext>
     </>
   );
@@ -1189,39 +1237,33 @@ function SlotRow({
   });
 
   return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className="relative flex items-stretch justify-center gap-3"
-    >
-      {/* Drag handle + номер ряду — абсолютно позиційовані зліва, не ламають центрування canvas */}
-      <div className="absolute left-0 top-0 bottom-0 flex items-stretch gap-2">
+    <div ref={setNodeRef} style={{ ...style, width: canvasW }} className="flex flex-col">
+      {/* Header з інтегрованим drag-handle + row#. Width точно = canvasW, fit у grid-cell. */}
+      <div className="flex items-center gap-2 mb-2 px-1">
+        {/* Drag handle + Ряд N — компактний pill */}
         <button
           type="button"
           title="Перетягніть щоб змінити порядок рядів"
           {...attributes}
           {...listeners}
-          className={`shrink-0 w-7 rounded-md flex items-center justify-center cursor-grab active:cursor-grabbing select-none ${
-            dark ? 'bg-white/[0.04] text-slate-500 hover:text-slate-300' : 'bg-stone-900/[0.04] text-stone-400 hover:text-stone-700'
+          className={`shrink-0 inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-semibold cursor-grab active:cursor-grabbing select-none transition-colors ${
+            dark
+              ? 'bg-white/[0.05] text-slate-300 hover:bg-white/[0.09] hover:text-slate-100'
+              : 'bg-stone-900/[0.06] text-stone-700 hover:bg-stone-900/[0.12] hover:text-stone-900'
           }`}
         >
-          <FaGripVertical className="text-[14px]" />
+          <FaGripVertical className="text-[12px] opacity-70" />
+          <span className="uppercase tracking-wider text-[10px] opacity-80">Ряд</span>
+          <span className="tabular-nums">{slotIdx + 1}</span>
         </button>
-        <div className={`shrink-0 w-12 flex flex-col items-center justify-center ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
-          <div className="text-[9px] uppercase tracking-[0.16em] font-semibold">Ряд</div>
-          <div className={`text-[18px] font-bold tabular-nums ${dark ? 'text-slate-300' : 'text-stone-700'}`}>{slotIdx + 1}</div>
-        </div>
-      </div>
-      {/* Canvas wrapper — написи поза canvas, сам canvas містить тільки пакети */}
-      <div className="flex flex-col items-center" style={{ width: canvasW }}>
-        {/* Header: ширина сайту + зайнято/пара — над canvas */}
+        {/* Інфо-рядок: ширина сайту · зайнято · solo/пара */}
         <div
-          className={`w-full flex items-center justify-between text-[12px] px-1 mb-2 ${
+          className={`flex-1 flex items-center justify-between text-[12px] ${
             dark ? 'text-slate-400' : 'text-stone-600'
           }`}
         >
           <span className="uppercase tracking-wider">
-            Ширина сайту: <b className={dark ? 'text-slate-300' : 'text-stone-700'}>{SITE_CANVAS_NATIVE_W}px</b>
+            Ширина: <b className={dark ? 'text-slate-300' : 'text-stone-700'}>{SITE_CANVAS_NATIVE_W}px</b>
           </span>
           <span>
             Зайнято: <b className={dark ? 'text-slate-300' : 'text-stone-700'}>{totalWidthNative}px</b>
@@ -1229,111 +1271,125 @@ function SlotRow({
             {slot.length === 2 ? 'пара' : 'соло'}
           </span>
         </div>
-        {/* Site canvas — тільки пакети. Drop-target для pair coupling (isPairOver підсвітка). */}
-        <div
-          ref={setPairDropRef}
-          className={`rounded-lg border shadow-inner transition-all ${
-            isPairOver
-              ? (dark ? 'border-emerald-400 bg-emerald-500/10 ring-2 ring-emerald-400/40' : 'border-emerald-500 bg-emerald-200/30 ring-2 ring-emerald-500/40')
-              : dark
-                ? 'bg-slate-950/60 border-amber-400/10'
-                : 'bg-stone-800/[0.06] border-stone-400/30'
-          }`}
-          style={{
-            width: canvasW,
-            padding: '14px 0',
-            position: 'relative',
-            boxSizing: 'border-box',
-            backgroundImage: dark
-              ? 'linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px)'
-              : 'linear-gradient(rgba(0,0,0,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(0,0,0,0.04) 1px, transparent 1px)',
-            backgroundSize: '20px 20px',
-          }}
-        >
-          <div className="flex items-start justify-center" style={{ gap: pairGapScaled }}>
-            {slot.map((b) => (
-              <DraggableBundle
-                key={b.id}
-                bundle={b}
-                number={globalIdxOf(b.id)}
-                dark={dark}
-                isActive={activeId === `bundle-${b.id}`}
-              />
-            ))}
-            {canAcceptPair && (
-              <div
-                className={`flex items-center justify-center rounded-xl border-2 border-dashed transition-colors ${
-                  isPairOver
-                    ? (dark ? 'border-emerald-400 bg-emerald-500/15' : 'border-emerald-500 bg-emerald-200/40')
-                    : (dark ? 'border-white/10' : 'border-stone-300/50')
-                }`}
-                style={{
-                  width: 220,
-                  height: getBundleModel(slot[0]).heightPx * MINIATURE_SCALE,
-                  minHeight: 100,
-                  pointerEvents: 'none',
-                }}
-              >
-                <span className={`text-[11px] font-semibold ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
-                  {isPairOver ? '+ Пара' : 'Кинь сюди для пари'}
-                </span>
-              </div>
-            )}
-          </div>
+      </div>
+      {/* Canvas — тільки пакети. Drop-target для pair coupling (isPairOver підсвітка). */}
+      <div
+        ref={setPairDropRef}
+        className={`rounded-lg border shadow-inner transition-all ${
+          isPairOver
+            ? (dark ? 'border-emerald-400 bg-emerald-500/10 ring-2 ring-emerald-400/40' : 'border-emerald-500 bg-emerald-200/30 ring-2 ring-emerald-500/40')
+            : dark
+              ? 'bg-slate-950/60 border-amber-400/10'
+              : 'bg-stone-800/[0.06] border-stone-400/30'
+        }`}
+        style={{
+          width: canvasW,
+          padding: '14px 0',
+          position: 'relative',
+          boxSizing: 'border-box',
+          backgroundImage: dark
+            ? 'linear-gradient(rgba(255,255,255,0.012) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.012) 1px, transparent 1px)'
+            : 'linear-gradient(rgba(0,0,0,0.02) 1px, transparent 1px), linear-gradient(90deg, rgba(0,0,0,0.02) 1px, transparent 1px)',
+          backgroundSize: '40px 40px',
+        }}
+      >
+        <div className="flex items-start justify-center" style={{ gap: pairGapScaled }}>
+          {slot.map((b) => (
+            <DraggableBundle
+              key={b.id}
+              bundle={b}
+              number={globalIdxOf(b.id)}
+              dark={dark}
+              isActive={activeId === `bundle-${b.id}`}
+            />
+          ))}
+          {canAcceptPair && (
+            <div
+              className={`flex items-center justify-center rounded-xl border-2 border-dashed transition-colors ${
+                isPairOver
+                  ? (dark ? 'border-emerald-400 bg-emerald-500/15' : 'border-emerald-500 bg-emerald-200/40')
+                  : (dark ? 'border-white/10' : 'border-stone-300/50')
+              }`}
+              style={{
+                width: 220,
+                height: getBundleModel(slot[0]).heightPx * MINIATURE_SCALE,
+                minHeight: 100,
+                pointerEvents: 'none',
+              }}
+            >
+              <span className={`text-[11px] font-semibold ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+                {isPairOver ? '+ Пара' : 'Кинь сюди для пари'}
+              </span>
+            </div>
+          )}
         </div>
-        {/* Size labels — під canvas, один під кожним пакетом у flex-позиції */}
-        <div
-          className="flex items-start justify-center mt-2"
-          style={{ gap: pairGapScaled, width: canvasW }}
-        >
-          {slot.map((b) => {
-            const m = getBundleModel(b);
-            return (
-              <div
-                key={b.id}
-                className={`text-[15px] tabular-nums font-semibold tracking-wide text-center ${
-                  dark ? 'text-slate-300' : 'text-stone-700'
-                }`}
-                style={{ width: Math.round(m.widthPx * MINIATURE_SCALE) }}
-              >
-                {m.widthPx} × {m.heightPx}
-              </div>
-            );
-          })}
-        </div>
+      </div>
+      {/* Size labels — один під кожним пакетом у тій самій flex-позиції */}
+      <div
+        className="flex items-start justify-center mt-2"
+        style={{ gap: pairGapScaled, width: canvasW }}
+      >
+        {slot.map((b) => {
+          const m = getBundleModel(b);
+          return (
+            <div
+              key={b.id}
+              className={`text-[15px] tabular-nums font-semibold tracking-wide text-center ${
+                dark ? 'text-slate-300' : 'text-stone-700'
+              }`}
+              style={{ width: Math.round(m.widthPx * MINIATURE_SCALE) }}
+            >
+              {m.widthPx} × {m.heightPx}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
 }
 
-/** Пустий слот між рядами — drop тут виносить бандл у новий окремий ряд.
- *  Показується тільки коли юзер drag-ає бандл (dragKind='bundle'). */
-function EmptySlotDropZone({ insertAt, dark, show }: { insertAt: number; dark: boolean; show: boolean }) {
+/** Зона "Винести в новий ряд". Рендериться між кожною парою ряду і зверху списку.
+ *  `visible` керує видимістю (показуємо тільки при drag бандла щоб не забивати UI).
+ *  Droppable ЗАВЖДИ зареєстрований у dnd-kit — навіть коли visually hidden,
+ *  щоб collision detection працював миттєво після старту drag. */
+function EmptySlotDropZone({
+  insertAt,
+  dark,
+  highlighted,
+  visible,
+}: {
+  insertAt: number;
+  dark: boolean;
+  highlighted: boolean;
+  visible: boolean;
+}) {
   const { setNodeRef, isOver } = useDroppable({
     id: `empty-slot-${insertAt}`,
     data: { kind: 'empty-slot', insertAt },
   });
-  if (!show) return null;
-  const canvasW = Math.round(SITE_CANVAS_NATIVE_W * MINIATURE_SCALE);
+  // Не видима → schedule zero-height pin-точку що droppable але не забирає простір.
+  if (!visible) {
+    return <div ref={setNodeRef} className="h-0 w-full pointer-events-auto" aria-hidden />;
+  }
+  const state: 'dragActive' | 'hover' = isOver ? 'hover' : 'dragActive';
+  const borderCls = {
+    dragActive: dark ? 'border-amber-400/50 bg-amber-500/[0.05]' : 'border-amber-500/60 bg-amber-200/25',
+    hover:      dark ? 'border-amber-400 bg-amber-500/20 ring-2 ring-amber-400/40' : 'border-amber-500 bg-amber-200/50 ring-2 ring-amber-500/40',
+  }[state];
+  const textCls = {
+    dragActive: dark ? 'text-amber-300/90' : 'text-amber-800/90',
+    hover:      dark ? 'text-amber-200' : 'text-amber-900',
+  }[state];
   return (
     <div
       ref={setNodeRef}
-      className={`mx-auto flex items-center justify-center rounded-lg border-2 border-dashed transition-all ${
-        isOver
-          ? (dark ? 'border-amber-400 bg-amber-500/10' : 'border-amber-500 bg-amber-200/30')
-          : (dark ? 'border-white/10' : 'border-stone-300/60')
-      }`}
+      className={`w-full flex items-center justify-center rounded-lg border-2 border-dashed transition-all ${borderCls}`}
       style={{
-        width: canvasW,
-        height: isOver ? 60 : 32,
+        height: state === 'hover' ? 72 : 48,
       }}
     >
-      <span className={`text-[11px] uppercase tracking-[0.18em] font-semibold ${
-        isOver
-          ? (dark ? 'text-amber-200' : 'text-amber-900')
-          : (dark ? 'text-slate-500' : 'text-stone-500')
-      }`}>
-        {isOver ? '+ Новий ряд тут' : 'Новий ряд'}
+      <span className={`text-[13px] uppercase tracking-[0.18em] font-semibold ${textCls}`}>
+        {state === 'hover' ? '+ Новий ряд тут' : '➕ Винести в новий ряд'}
       </span>
     </div>
   );

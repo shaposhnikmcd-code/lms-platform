@@ -3,6 +3,7 @@ import { Resend } from 'resend';
 import prisma from '@/lib/prisma';
 import { YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
 import { closeAccessInCourse, lookupStudentIdByEmail } from '@/lib/sendpulse';
+import { verifyBearer } from '@/lib/authTiming';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 const FROM = 'UIMP <onboarding@resend.dev>';
@@ -18,8 +19,7 @@ interface StepResult {
 /// — Закриває доступ (GRACE → EXPIRED) коли grace-період вийшов.
 /// — Шле нагадування за 3 та 1 день до expiresAt.
 export async function GET(req: NextRequest) {
-  const authHeader = req.headers.get('authorization');
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!verifyBearer(req.headers.get('authorization'), process.env.CRON_SECRET)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -35,6 +35,7 @@ export async function GET(req: NextRequest) {
 async function transitionActiveToGrace(): Promise<StepResult> {
   const now = new Date();
   const errors: string[] = [];
+  const gracePeriodEndsAt = new Date(now.getTime() + YEARLY_PROGRAM_CONFIG.graceDays * 24 * 60 * 60 * 1000);
   const subs = await prisma.yearlyProgramSubscription.findMany({
     where: {
       status: 'ACTIVE',
@@ -45,15 +46,22 @@ async function transitionActiveToGrace(): Promise<StepResult> {
 
   for (const s of subs) {
     try {
+      // Ставимо graceStartedAt=now і gracePeriodEndsAt=now+graceDays, щоб
+      // expireGraceSubscriptions експайрав саме через graceDays після переходу,
+      // а не одразу якщо cron пропустив день (Bug #8 fix).
       await prisma.yearlyProgramSubscription.update({
         where: { id: s.id },
-        data: { status: 'GRACE' },
+        data: {
+          status: 'GRACE',
+          graceStartedAt: now,
+          gracePeriodEndsAt,
+        },
       });
       await prisma.yearlyProgramSubscriptionEvent.create({
         data: {
           subscriptionId: s.id,
-          type: 'access_opened', // це GRACE — доступ ще відкритий, але на межі
-          message: `Moved to GRACE — expiresAt ${s.expiresAt?.toISOString().slice(0, 10)}`,
+          type: 'grace_entered',
+          message: `Moved to GRACE — expiresAt ${s.expiresAt?.toISOString().slice(0, 10)} · grace ends ${gracePeriodEndsAt.toISOString().slice(0, 10)}`,
         },
       });
     } catch (e) {
@@ -69,11 +77,17 @@ async function expireGraceSubscriptions(): Promise<StepResult> {
   const graceCutoff = new Date(now.getTime() - YEARLY_PROGRAM_CONFIG.graceDays * 24 * 60 * 60 * 1000);
   const errors: string[] = [];
 
-  // Знаходимо підписки де grace вже минув (expiresAt + graceDays < now).
+  // Нова семантика: експайраємо коли gracePeriodEndsAt < now.
+  // Fallback для legacy-рядків (до міграції add_grace_period_ends_at) — лишаємо
+  // старий фільтр по expiresAt. Коли всі існуючі GRACE пройдуть хоча б один cron —
+  // fallback можна прибрати.
   const subs = await prisma.yearlyProgramSubscription.findMany({
     where: {
       status: 'GRACE',
-      expiresAt: { lt: graceCutoff },
+      OR: [
+        { gracePeriodEndsAt: { lt: now } },
+        { gracePeriodEndsAt: null, expiresAt: { lt: graceCutoff } },
+      ],
     },
     include: { user: true },
   });

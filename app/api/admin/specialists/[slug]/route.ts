@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { revalidatePath } from "next/cache";
 import prisma from "@/lib/prisma";
 import { isAdmin } from "@/lib/adminAuth";
+import { revalidateLocalized } from "@/lib/revalidatePaths";
 
 function normalizeNullable(value: unknown): string | null | undefined {
   if (value === undefined) return undefined;
@@ -12,12 +12,7 @@ function normalizeNullable(value: unknown): string | null | undefined {
 }
 
 function revalidateConsultations() {
-  for (const locale of ["uk", "pl", "en"]) {
-    try {
-      revalidatePath(`/${locale}/consultations`);
-    } catch {
-    }
-  }
+  revalidateLocalized('/consultations');
 }
 
 export async function PATCH(

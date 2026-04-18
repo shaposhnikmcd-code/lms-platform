@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { isAdmin } from "@/lib/adminAuth";
+import { revalidateLocalized } from "@/lib/revalidatePaths";
 import type { BundleType } from "@prisma/client";
 
 interface BundleCourseInput {
@@ -184,6 +185,7 @@ export async function PATCH(
     include: { courses: true },
   });
 
+  revalidateLocalized('/courses');
   return NextResponse.json(updated);
 }
 
@@ -199,5 +201,6 @@ export async function DELETE(
 
   await prisma.bundle.delete({ where: { id } });
 
+  revalidateLocalized('/courses');
   return NextResponse.json({ ok: true });
 }

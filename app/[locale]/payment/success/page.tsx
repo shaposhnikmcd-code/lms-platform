@@ -1,5 +1,3 @@
-export const dynamic = 'force-dynamic';
-
 import { Link } from '@/i18n/navigation';
 import AutoRedirect from './_components/AutoRedirect';
 

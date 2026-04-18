@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   HiOutlineUserGroup,
@@ -10,6 +10,8 @@ import {
   HiOutlineBanknotes,
   HiOutlineChevronDown,
   HiOutlineChevronUp,
+  HiOutlineChevronLeft,
+  HiOutlineChevronRight,
 } from 'react-icons/hi2';
 import { useAdminTheme, type Theme } from '../../_components/adminTheme';
 import { AdminShell, AdminPanel } from '../../_components/AdminShell';
@@ -95,7 +97,7 @@ const PLAN_OPTIONS: { value: 'ALL' | Plan; label: string }[] = [
 const STATUS_OPTIONS: { value: 'ALL' | SubStatus; label: string }[] = [
   { value: 'ALL', label: 'Усі' },
   { value: 'ACTIVE', label: 'Активний' },
-  { value: 'GRACE', label: 'Grace' },
+  { value: 'GRACE', label: 'Grace (7 днів)' },
   { value: 'EXPIRED', label: 'Прострочено' },
   { value: 'CANCELLED', label: 'Скасовано' },
   { value: 'PENDING', label: 'Очікує' },
@@ -118,6 +120,8 @@ export default function YearlyProgramView({
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [details, setDetails] = useState<Record<string, SubscriptionDetails | 'loading' | 'error'>>({});
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [pageSize, setPageSize] = useState<number>(25);
+  const [page, setPage] = useState<number>(1);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -128,6 +132,17 @@ export default function YearlyProgramView({
       return true;
     });
   }, [rows, planFilter, statusFilter, search]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  useEffect(() => {
+    setPage(1);
+  }, [planFilter, statusFilter, search, pageSize]);
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
+
+  const pageStart = (page - 1) * pageSize;
+  const paged = filtered.slice(pageStart, pageStart + pageSize);
 
   async function toggleExpand(id: string) {
     if (expandedId === id) {
@@ -195,7 +210,7 @@ export default function YearlyProgramView({
       >
         <Kpi theme={theme} icon={HiOutlineUserGroup} label="Всього підписок" value={summary.total.toLocaleString()} />
         <Kpi theme={theme} icon={HiOutlineCheckCircle} label="Активних" value={summary.active.toLocaleString()} tone="success" />
-        <Kpi theme={theme} icon={HiOutlineClock} label="Grace" value={summary.grace.toLocaleString()} tone="warning" />
+        <Kpi theme={theme} icon={HiOutlineClock} label="Grace (7 днів)" value={summary.grace.toLocaleString()} tone="warning" />
         <Kpi theme={theme} icon={HiOutlineXCircle} label="Прострочено / скасовано" value={(summary.expired + summary.cancelled).toLocaleString()} />
         <Kpi
           theme={theme}
@@ -261,7 +276,7 @@ export default function YearlyProgramView({
                   </td>
                 </tr>
               ) : (
-                filtered.map((r) => (
+                paged.map((r) => (
                   <RowBlock
                     key={r.id}
                     r={r}
@@ -277,9 +292,135 @@ export default function YearlyProgramView({
             </tbody>
           </table>
         </div>
+        {filtered.length > 0 && (
+          <PaginationBar
+            theme={theme}
+            page={page}
+            totalPages={totalPages}
+            total={filtered.length}
+            pageStart={pageStart}
+            pageEnd={Math.min(pageStart + pageSize, filtered.length)}
+            pageSize={pageSize}
+            onPage={setPage}
+            onPageSize={setPageSize}
+          />
+        )}
       </AdminPanel>
     </AdminShell>
   );
+}
+
+function PaginationBar({
+  theme,
+  page,
+  totalPages,
+  total,
+  pageStart,
+  pageEnd,
+  pageSize,
+  onPage,
+  onPageSize,
+}: {
+  theme: Theme;
+  page: number;
+  totalPages: number;
+  total: number;
+  pageStart: number;
+  pageEnd: number;
+  pageSize: number;
+  onPage: (p: number) => void;
+  onPageSize: (n: number) => void;
+}) {
+  const dark = theme === 'dark';
+  const pages = computePageList(page, totalPages);
+  const btnBase = 'inline-flex items-center justify-center h-7 min-w-7 px-2 rounded-md text-[12px] tabular-nums transition-colors';
+  const btnIdle = dark
+    ? 'text-slate-400 hover:text-slate-100 hover:bg-white/[0.06] border border-white/[0.06]'
+    : 'text-stone-600 hover:text-stone-900 hover:bg-stone-100 border border-stone-300/50';
+  const btnActive = dark
+    ? 'bg-amber-400/15 text-amber-200 border border-amber-400/30'
+    : 'bg-amber-100 text-amber-800 border border-amber-300/60';
+  const btnDisabled = dark
+    ? 'text-slate-600 border border-white/[0.04] cursor-not-allowed'
+    : 'text-stone-300 border border-stone-200/60 cursor-not-allowed';
+
+  return (
+    <div
+      className={`flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-t text-[12px] ${
+        dark ? 'border-white/[0.06] text-slate-400' : 'border-stone-300/40 text-stone-600'
+      }`}
+    >
+      <div className="tabular-nums">
+        Показано <span className={dark ? 'text-slate-200' : 'text-stone-800'}>{pageStart + 1}–{pageEnd}</span> з{' '}
+        <span className={dark ? 'text-slate-200' : 'text-stone-800'}>{total}</span>
+      </div>
+      <div className="flex items-center gap-3">
+        <label className="flex items-center gap-2">
+          <span>На сторінці:</span>
+          <select
+            value={pageSize}
+            onChange={(e) => onPageSize(Number(e.target.value))}
+            className={`h-7 px-2 rounded-md text-[12px] outline-none ${
+              dark
+                ? 'bg-white/[0.04] border border-white/[0.08] text-slate-200'
+                : 'bg-white/80 border border-stone-300/60 text-stone-800'
+            }`}
+          >
+            <option value={25}>25</option>
+            <option value={50}>50</option>
+            <option value={100}>100</option>
+          </select>
+        </label>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => onPage(Math.max(1, page - 1))}
+            disabled={page <= 1}
+            className={`${btnBase} ${page <= 1 ? btnDisabled : btnIdle}`}
+            aria-label="Попередня сторінка"
+          >
+            <HiOutlineChevronLeft className="text-sm" />
+          </button>
+          {pages.map((p, i) =>
+            p === '…' ? (
+              <span key={`dots-${i}`} className={`${btnBase} ${dark ? 'text-slate-600' : 'text-stone-400'}`}>…</span>
+            ) : (
+              <button
+                key={p}
+                type="button"
+                onClick={() => onPage(p)}
+                className={`${btnBase} ${p === page ? btnActive : btnIdle}`}
+                aria-current={p === page ? 'page' : undefined}
+              >
+                {p}
+              </button>
+            ),
+          )}
+          <button
+            type="button"
+            onClick={() => onPage(Math.min(totalPages, page + 1))}
+            disabled={page >= totalPages}
+            className={`${btnBase} ${page >= totalPages ? btnDisabled : btnIdle}`}
+            aria-label="Наступна сторінка"
+          >
+            <HiOutlineChevronRight className="text-sm" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function computePageList(current: number, total: number): (number | '…')[] {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+  const pages: (number | '…')[] = [1];
+  const left = Math.max(2, current - 1);
+  const right = Math.min(total - 1, current + 1);
+  if (left > 2) pages.push('…');
+  for (let p = left; p <= right; p++) pages.push(p);
+  if (right < total - 1) pages.push('…');
+  pages.push(total);
+  return pages;
 }
 
 function RowBlock({
@@ -681,7 +822,7 @@ function StatusBadge({ status, theme }: { status: SubStatus; theme: Theme }) {
   const dark = theme === 'dark';
   const map: Record<SubStatus, { label: string; dark: string; light: string }> = {
     ACTIVE:    { label: 'Активний',    dark: 'bg-emerald-500/15 text-emerald-300 border-emerald-400/20', light: 'bg-emerald-100 text-emerald-800 border-emerald-300/50' },
-    GRACE:     { label: 'Grace',       dark: 'bg-amber-500/15 text-amber-300 border-amber-400/20',       light: 'bg-amber-100 text-amber-800 border-amber-300/50' },
+    GRACE:     { label: 'Grace (7 днів)', dark: 'bg-amber-500/15 text-amber-300 border-amber-400/20',       light: 'bg-amber-100 text-amber-800 border-amber-300/50' },
     EXPIRED:   { label: 'Прострочено', dark: 'bg-rose-500/15 text-rose-300 border-rose-400/20',          light: 'bg-rose-100 text-rose-800 border-rose-300/50' },
     CANCELLED: { label: 'Скасовано',   dark: 'bg-slate-500/15 text-slate-300 border-slate-400/20',      light: 'bg-stone-200 text-stone-700 border-stone-300/60' },
     PENDING:   { label: 'Очікує',      dark: 'bg-slate-500/15 text-slate-400 border-slate-400/10',      light: 'bg-stone-100 text-stone-600 border-stone-300/50' },
