@@ -115,7 +115,6 @@ export default function ConnectorView({
       eyebrow="Admin · Connector"
       title="Конектор"
       subtitle="Замовлення гри «Конектор» — статистика, історія, фільтри"
-      backHref="/dashboard/admin"
       maxWidth="max-w-7xl"
       rightSlot={
         <Link
