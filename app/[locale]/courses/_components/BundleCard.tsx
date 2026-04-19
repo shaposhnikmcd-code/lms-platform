@@ -366,6 +366,59 @@ export default function BundleCard({
         .bundle-seal {
           animation: bundleSealIn 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
         }
+        @media (max-width: 767px) {
+          [data-bundle-root] {
+            height: auto !important;
+            overflow: visible !important;
+            padding: 16px !important;
+            --tuned-paid-card-h: auto !important;
+            --tuned-free-card-h: auto !important;
+          }
+          [data-bundle-root] [data-bundle-paid-card],
+          [data-bundle-root] [data-bundle-free-card] {
+            height: auto !important;
+            min-height: 0 !important;
+          }
+          [data-bundle-root][data-bundle-paid="1"] [data-bundle-paid-card] {
+            width: 100% !important;
+            max-width: none !important;
+          }
+          [data-bundle-root][data-bundle-paid="2"][data-bundle-free="4"] > div:nth-of-type(2) {
+            max-width: none !important;
+            width: 100% !important;
+          }
+          .bundle-bottom-cta {
+            width: 100% !important;
+            min-width: 0 !important;
+            max-width: none !important;
+            flex-direction: column !important;
+            align-items: stretch !important;
+            gap: 14px !important;
+            padding: 18px 16px !important;
+            min-height: 0 !important;
+          }
+          .bundle-bottom-cta > div:first-child {
+            align-items: center !important;
+            text-align: center;
+            width: 100%;
+          }
+          .bundle-bottom-cta > div:first-child > div:nth-child(2) {
+            margin-left: 0 !important;
+            justify-content: center !important;
+          }
+          .bundle-bottom-cta > div:first-child > div:nth-child(3) {
+            align-self: center !important;
+          }
+          .bundle-bottom-cta > div:last-child {
+            margin-right: 0 !important;
+            justify-content: center !important;
+            width: 100%;
+          }
+          .bundle-bottom-cta > div:last-child > button {
+            width: 100% !important;
+            max-width: 340px;
+          }
+        }
       `}} />
       {/* Header */}
       <div style={{ marginBottom: 16 }}>
