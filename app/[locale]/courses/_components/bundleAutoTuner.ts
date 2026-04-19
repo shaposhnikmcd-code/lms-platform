@@ -283,6 +283,20 @@
 //     desc-контейнері = 4 * line-height + 4), або тюнер (міряє maxDescHeight у ряду,
 //     виставляє uniform minHeight на всі картки + 4px bottom gap).
 //     TODO: конкретну реалізацію user затвердить окремим запитом. Зараз — лише правило.
+// 41. Cross-bundle row sync: коли два (або більше) однотипних бандли (same type/paid/free)
+//     стоять поруч у тому ж ряду, тюнер синхронізує їхню paid-card висоту до max(natural)
+//     серед пари. Вирішує кейс: DISCOUNT 2-paid з коротким desc (natural 220) поруч з
+//     бандлом з довшим desc (natural 249) → обидва стають 249, щоб уникнути візуальної
+//     диспропорції коли adjuster "роздуває" відступи у коротшого для fit-у в unifiedHeight.
+//     Не зачіпає CTA (rule #19/14) і не зачіпає free-cards (можна розширити за потреби).
+//     Реалізація: `syncBundleRow()` у кінці `autoTuneBundle()`.
+// 40. CAP calc враховує margin ОСТАННЬОГО grid-контейнера → CTA. У `computeCardHeightCaps`
+//     до `gapsTotal` додається `lastContainer.marginBottom` (lastContainer = freeContainer
+//     якщо є, інакше paidContainer). Раніше враховувався лише paid→free (коли обидва
+//     контейнери існують) — для бандлів без free-row paid-grid.marginBottom "провалювався"
+//     і cap був завищений на цю величину. Наслідок: bundle переповнювався overflow-ом АБО
+//     картки капалися зі значною порожнечею перед CTA (через grid.mb + CTA auto-margin
+//     розв'язки). Фікс: єдине правило для обох кейсів (з і без free-row).
 
 const MIN_DESC_FS = 10;
 const MAX_DESC_FS = 24;
@@ -379,6 +393,16 @@ function computeCardHeightCaps(
   if (paidContainer && freeContainer && paidContainer !== freeContainer) {
     gapsTotal += parseFloat(getComputedStyle(paidContainer).marginBottom) || 0;
     gapsTotal += parseFloat(getComputedStyle(freeContainer).marginTop) || 0;
+  }
+  // Rule #40: margin між ОСТАННІМ grid-контейнером (free якщо є, інакше paid) і CTA.
+  // Раніше враховувався лише paid→free margin. Для бандлів БЕЗ free-row (напр. DISCOUNT 2/3/4-paid)
+  // `paidContainer.marginBottom` (за JSX 32px у full / 24px у compact) залишався не врахованим,
+  // → cap був більшим за реально доступне місце на величину цього margin → картки капалися таким,
+  // що bundle переповнювався і overflow:hidden кліпив частину контенту ТА одночасно створював
+  // видимий відступ перед CTA (adjuster returns early при extraSpace<=8).
+  const lastContainer = freeContainer ?? paidContainer;
+  if (lastContainer && cta) {
+    gapsTotal += parseFloat(getComputedStyle(lastContainer).marginBottom) || 0;
   }
 
   const rootCs = getComputedStyle(root);
@@ -544,6 +568,12 @@ export function autoTuneBundle(root: HTMLElement) {
   // між усіма слотами відступів (top padding, inter-block gaps, bottom padding).
   // Запускається ПІСЛЯ всіх card-tuning + h4-equalize — коли всі розміри фінальні.
   adjustBundleSpacing(root, cta);
+
+  // Правило 41: Cross-bundle row sync — синхронізує висоту paid-cards серед однотипних
+  // сусідів у тому ж рядку (одна лінія на екрані, same type/paid/free). Коли два DISCOUNT
+  // 2-paid бандли стоять поруч з різним natural cards (220 vs 249), sync робить обидва 249.
+  // Це зменшує "роздуття" adjuster-ом відступів у коротшого бандла → візуальна рівність пари.
+  syncBundleRow(root);
 }
 
 // Правило 39 (adjuster): коли сума всіх блоків < bundleH, тюнер розподіляє delta
@@ -632,4 +662,54 @@ function adjustBundleSpacing(root: HTMLElement, cta: HTMLElement | null) {
   // CTA marginTop лишаємо 0 (delta вже розподілена) — візуально CTA на своєму місці
   // завдяки margin на попередньому sibling-у + padding-bottom.
   // Не суперечить Rule #14 (marginTop auto) — adjuster явно вирішує куди розподілити.
+}
+
+// Правило 41: синхронізує paid-card висоту серед однотипних сусідів у тому ж ряду.
+// Кожен бандл зберігає свій naturalMax у dataset під час tune. Sync знаходить mate-ів
+// (same type/paid/free, top Y в межах 10px), виводить max(naturals), та застосовує
+// через `--tuned-paid-card-h` на всіх учасниках. Після зміни — перезапускає adjuster
+// на оновлених бандлах (margins/padding перерозподіляються під нову card.h).
+// Idempotent: викликається в кожному autoTuneBundle; перший бандл у ряду просто збереже
+// свій natural, останній — знайде всіх готових і застосує row-max.
+function syncBundleRow(root: HTMLElement) {
+  const paidCards = Array.from(root.querySelectorAll<HTMLElement>('[data-bundle-paid-card]'));
+  if (paidCards.length === 0) return;
+
+  // Зберегти natural у dataset (measurement — після adjuster, але cards height фіксована varom)
+  const myCardH = parseFloat(root.style.getPropertyValue('--tuned-paid-card-h')) || paidCards[0].offsetHeight;
+  root.dataset.bundleNaturalPaidH = String(myCardH);
+
+  const myType = root.getAttribute('data-bundle-type');
+  const myPaid = root.getAttribute('data-bundle-paid');
+  const myFree = root.getAttribute('data-bundle-free');
+  const myTop = root.getBoundingClientRect().top;
+
+  const allRoots = Array.from(document.querySelectorAll<HTMLElement>('[data-bundle-root]'));
+  const mates = allRoots.filter((r) => {
+    if (r.getAttribute('data-bundle-type') !== myType) return false;
+    if (r.getAttribute('data-bundle-paid') !== myPaid) return false;
+    if (r.getAttribute('data-bundle-free') !== myFree) return false;
+    return Math.abs(r.getBoundingClientRect().top - myTop) < 10;
+  });
+  if (mates.length < 2) return;
+
+  // Перевірити чи всі mate-и вже мають встановлений natural
+  const naturals = mates.map((r) => parseFloat(r.dataset.bundleNaturalPaidH || '0'));
+  if (naturals.some((n) => !n || n <= 0)) return;
+
+  const rowMax = Math.max(...naturals);
+  const changed: HTMLElement[] = [];
+  mates.forEach((r) => {
+    const currentVar = parseFloat(r.style.getPropertyValue('--tuned-paid-card-h')) || 0;
+    if (Math.abs(currentVar - rowMax) > 1) {
+      r.style.setProperty('--tuned-paid-card-h', `${rowMax}px`);
+      changed.push(r);
+    }
+  });
+
+  // Перезапустити adjuster на mate-ах з оновленою card height (margins/padding тепер застарілі)
+  changed.forEach((r) => {
+    const ct = r.querySelector<HTMLElement>('[data-bundle-cta]');
+    adjustBundleSpacing(r, ct);
+  });
 }

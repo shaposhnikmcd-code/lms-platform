@@ -120,11 +120,13 @@ export default function BundleCard({
     || (bundleType === 'DISCOUNT' && courses.length >= 5 && courses.length % 2 === 1);
   // Уніфікована висота 740px для FIXED_FREE з 1 безкоштовним (inline CTA): 6a (1+1), 6b (2+1)
   const unifyHeight740 = bundleType === 'FIXED_FREE' && freeCourses.length === 1;
-  // Уніфікована висота 605px для DISCOUNT 2-paid (M1) і 3-paid (M4).
-  // Було 580px, підвищено до 605 щоб виконувався rule #38 (мін 4px gap desc→benefits,
-  // без клiпінгу 4-го рядка опису). Назва змінної збережена історична (unifyHeight580).
-  const unifyHeight580 = bundleType === 'DISCOUNT' && !hasFreeRow && (courses.length === 2 || courses.length === 3);
-  const unifiedHeight = unifyHeight920 ? 920 : unifyHeight740 ? 740 : unifyHeight580 ? 605 : undefined;
+  // Уніфіковані висоти для DISCOUNT без free:
+  //  - 2 paid (cards широкі, ~312px) → 560
+  //  - 3 paid (cards вужчі 240px, text wraps more → вища картка) → 620
+  const isDiscount2Only = bundleType === 'DISCOUNT' && !hasFreeRow && courses.length === 2;
+  const isDiscount3Only = bundleType === 'DISCOUNT' && !hasFreeRow && courses.length === 3;
+  const unifyHeight580 = isDiscount2Only || isDiscount3Only;
+  const unifiedHeight = unifyHeight920 ? 920 : unifyHeight740 ? 740 : isDiscount2Only ? 560 : isDiscount3Only ? 620 : undefined;
 
   // Для каруселі: скільки карток показуємо одночасно (== freeCount)
   const choiceWindow = Math.max(1, freeCount || 1);
@@ -422,8 +424,13 @@ export default function BundleCard({
           : `grid ${courses.length === 2 ? 'grid-cols-1 sm:grid-cols-2' : courses.length === 3 ? 'grid-cols-1 sm:grid-cols-3' : 'grid-cols-1 sm:grid-cols-2'}`}
         style={{
           gap: layout === 'compact' ? 8 : 14,
-          marginBottom: isUniformSpacing ? 28 : (hasFreeRow ? 10 : (layout === 'compact' ? 24 : 32)),
-          flex: hasFreeRow ? undefined : 1,
+          // isDiscount2Only: 16 (замість 32) — щоб cap у тюнері залишив ≥4 рядки desc у картках
+          // при unifiedHeight=560 (див. Rule #40 у bundleAutoTuner.ts).
+          marginBottom: isUniformSpacing ? 28 : (hasFreeRow ? 10 : (isDiscount2Only ? 16 : (layout === 'compact' ? 24 : 32))),
+          // flex:1 видалено: коли cards мають explicit height, flex:1 на grid ростив би
+          // контейнер повз cards → порожнеча ВСЕРЕДИНІ grid, adjuster бачив extraSpace≈0
+          // і не спрацьовував. Без flex:1 grid=natural(cards), adjuster розподіляє delta
+          // рівно в padding/margins (rule #39 + #40).
           maxWidth: freeCourses.length === 4 && courses.length === 2 ? 705 : undefined,
           marginLeft: freeCourses.length === 4 && courses.length === 2 ? 'auto' : undefined,
           marginRight: freeCourses.length === 4 && courses.length === 2 ? 'auto' : undefined,
