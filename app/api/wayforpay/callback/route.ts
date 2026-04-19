@@ -295,15 +295,18 @@ export async function POST(req: NextRequest) {
       errorMsg,
     });
 
+    // WFP вимагає підпис над orderReference;status;time. Без time у вхідному рядку
+    // WFP вважає acknowledge невалідним і ретраїть callback кожні 30-60с до 24г.
+    const responseTime = Math.floor(Date.now() / 1000);
     const responseSignature = crypto
       .createHmac('md5', secretKey)
-      .update(`${orderReference};accept`)
+      .update(`${orderReference};accept;${responseTime}`)
       .digest('hex');
 
     return NextResponse.json({
       orderReference,
       status: 'accept',
-      time: Math.floor(Date.now() / 1000),
+      time: responseTime,
       signature: responseSignature,
     });
   } catch (error) {
