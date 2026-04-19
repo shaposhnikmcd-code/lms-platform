@@ -202,7 +202,7 @@ export const consultationsContent = {
       name: "Oleksandra Yanush",
       role: "Konsultantka ds. służby duchowej, kuratorka programów",
       experience: "",
-      image: "/base-of specialists/Oleksandra-Janush.webp",
+      image: "/base-of specialists/Oleksandra-Janush-v2.webp",
       imagePosition: "center 25%",
       price: "900 UAH",
       duration: "50 minut",

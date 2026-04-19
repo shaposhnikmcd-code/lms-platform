@@ -202,7 +202,7 @@ export const consultationsContent = {
       name: "Олександра Януш",
       role: "Консультант з душеопіки, куратор програм",
       experience: "",
-      image: "/base-of specialists/Oleksandra-Janush.webp",
+      image: "/base-of specialists/Oleksandra-Janush-v2.webp",
       imagePosition: "center 25%",
       price: "900 грн",
       duration: "50 хвилин",
