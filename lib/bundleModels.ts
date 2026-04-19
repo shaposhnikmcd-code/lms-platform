@@ -25,15 +25,15 @@ export const MODELS: BundleModel[] = [
   {
     id: '1', name: 'DISCOUNT 2 платних',
     type: 'DISCOUNT', paid: 2, free: 0,
-    widthPx: 625, heightPx: 605,
-    note: 'Однаковий розмір чи соло, чи в 2-per-row групі. Amber savings pill "💰 Економія". H підвищена 580→605 для rule #38.',
+    widthPx: 625, heightPx: 560,
+    note: 'Однаковий розмір чи соло, чи в 2-per-row групі. Amber savings pill "💰 Економія". H = 560.',
     pairColors: [{ color: 'blue', striped: true }, { color: 'green' }],
   },
   {
     id: '4', name: '3 платних в ряду',
     type: 'DISCOUNT', paid: 3, free: 0,
-    widthPx: 730, heightPx: 605,
-    note: 'grid-cols-3 внутрішня сітка. H підвищена 580→605 для rule #38.',
+    widthPx: 730, heightPx: 560,
+    note: 'grid-cols-3 внутрішня сітка. H = 560.',
     pairColors: [{ color: 'blue' }, { color: 'green', striped: true }],
   },
   {
@@ -140,11 +140,11 @@ export function deriveVirtualModel(b: BundleLike): BundleModel {
 
   // Висота (зі same логіки BundleCard.tsx `unifyHeight`):
   //  - FIXED_FREE з 1 безкоштовним (inline CTA) → 740
-  //  - DISCOUNT 2–3 paid (без free) → 605
+  //  - DISCOUNT 2–3 paid (без free) → 560
   //  - інакше → 920 (включно з DISCOUNT 4+ paid, усі конфіги з free-рядом ≥ 2)
   let heightPx = 920;
   if (type === 'FIXED_FREE' && freeCount === 1) heightPx = 740;
-  else if (type === 'DISCOUNT' && freeCount === 0 && (paidCount === 2 || paidCount === 3)) heightPx = 605;
+  else if (type === 'DISCOUNT' && freeCount === 0 && (paidCount === 2 || paidCount === 3)) heightPx = 560;
 
   // Ширина — узгоджена з `nativeBundleWidth` в app/[locale]/courses/page.tsx:
   //   - non-DISCOUNT з paid=2 і free=4 (CHOICE pool=4)       → 1250
@@ -200,7 +200,7 @@ export type PairResult =
   | { canPair: true; quality: 'solid' | 'striped'; sharedColors: PairColor[] }
   | { canPair: false; reason: 'too-wide' | 'unknown-model' };
 
-const ROW_WIDTH_LIMIT_PX = 1500;
+const ROW_WIDTH_LIMIT_PX = 1536;
 
 export function canPairBundles(a: BundleLike, b: BundleLike): PairResult {
   const mA = matchBundleToModel(a) ?? deriveVirtualModel(a);

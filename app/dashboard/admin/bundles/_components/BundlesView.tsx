@@ -978,27 +978,28 @@ function ViewModeSwitch({ mode, setMode, dark }: { mode: 'table' | 'rows'; setMo
     <div className="inline-flex gap-1 p-1 rounded-full" style={{ backgroundColor: dark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)' }}>
       <button
         type="button"
-        onClick={() => setMode('table')}
-        className={`${base} ${mode === 'table' ? active : inactive}`}
-        title="Класична таблиця"
-      >
-        <FaTable className="text-[11px]" /> Таблиця
-      </button>
-      <button
-        type="button"
         onClick={() => setMode('rows')}
         className={`${base} ${mode === 'rows' ? active : inactive}`}
         title="Візуальний конструктор рядів"
       >
         <FaTh className="text-[11px]" /> Ряди
       </button>
+      <button
+        type="button"
+        onClick={() => setMode('table')}
+        className={`${base} ${mode === 'table' ? active : inactive}`}
+        title="Класична таблиця"
+      >
+        <FaTable className="text-[11px]" /> Таблиця
+      </button>
     </div>
   );
 }
 
-const ROW_WIDTH_LIMIT_NATIVE = 1500;
+const ROW_WIDTH_LIMIT_NATIVE = 1536;
 /** Ширина "сторінки" сайту в native пікселях — те що юзер бачить у браузері. */
-const SITE_CANVAS_NATIVE_W = 1500;
+const SITE_CANVAS_NATIVE_W = 1536;
+const SITE_CANVAS_NATIVE_H = 960;
 /** Масштаб мініатюр у builder-і. Pакет N×M native рендериться як N·s × M·s. */
 const MINIATURE_SCALE = 0.5;
 
@@ -1337,6 +1338,7 @@ function SlotRow({
   const PAIR_GAP_NATIVE = 16;
   const pairGapScaled = Math.round(PAIR_GAP_NATIVE * MINIATURE_SCALE);
   const totalWidthNative = slot.reduce((sum, b) => sum + getBundleModel(b).widthPx, 0) + (slot.length - 1) * PAIR_GAP_NATIVE;
+  const totalHeightNative = slot.reduce((mx, b) => Math.max(mx, getBundleModel(b).heightPx), 0);
   const canAcceptPair = slot.length === 1 && dragKind === 'bundle';
   const canvasW = Math.round(SITE_CANVAS_NATIVE_W * MINIATURE_SCALE);
 
@@ -1379,8 +1381,6 @@ function SlotRow({
           </span>
           <span>
             Зайнято: <b className={dark ? 'text-slate-300' : 'text-stone-700'}>{totalWidthNative}px</b>
-            <span className="mx-1.5 opacity-50">·</span>
-            {slot.length === 2 ? 'пара' : 'соло'}
           </span>
         </div>
       </div>
@@ -1405,6 +1405,38 @@ function SlotRow({
           backgroundSize: '40px 40px',
         }}
       >
+        {/* Вертикальна підпис — висота сторінки. Абсолют зліва від canvas. */}
+        <div
+          aria-hidden
+          className={`absolute pointer-events-none text-[11px] uppercase tracking-[0.2em] font-semibold tabular-nums ${
+            dark ? 'text-slate-400' : 'text-stone-600'
+          }`}
+          style={{
+            left: -18,
+            top: 12,
+            transform: 'rotate(180deg)',
+            writingMode: 'vertical-rl',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          Висота: <b className={dark ? 'text-slate-300' : 'text-stone-800'}>{SITE_CANVAS_NATIVE_H}px</b>
+        </div>
+        {/* Вертикальна підпис — «зайнято» по вертикалі + solo/пара. Справа від canvas, зверху. */}
+        <div
+          aria-hidden
+          className={`absolute pointer-events-none text-[12px] tabular-nums ${
+            dark ? 'text-slate-400' : 'text-stone-600'
+          }`}
+          style={{
+            right: -18,
+            top: 12,
+            transform: 'rotate(180deg)',
+            writingMode: 'vertical-rl',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          Зайнято: <b className={dark ? 'text-slate-300' : 'text-stone-700'}>{totalHeightNative}px</b>
+        </div>
         <div className="flex items-start justify-center" style={{ gap: pairGapScaled }}>
           {/* Вкладений SortableContext з horizontalListSortingStrategy — dnd-kit САМ анімує
               зсув сусідніх карток при драгу (витискання ефект) і highlight-ить позицію drop-у.
@@ -1414,13 +1446,15 @@ function SlotRow({
             items={slot.map((b) => `bundle-${b.id}`)}
             strategy={horizontalListSortingStrategy}
           >
-            {slot.map((b) => (
+            {slot.map((b, bi) => (
               <DraggableBundle
                 key={b.id}
                 bundle={b}
                 number={globalIdxOf(b.id)}
                 dark={dark}
                 isActive={activeId === `bundle-${b.id}`}
+                slotSize={slot.length}
+                slotPos={bi + 1}
               />
             ))}
           </SortableContext>
@@ -1527,53 +1561,82 @@ function DraggableBundle({
   number,
   dark,
   isActive,
+  slotSize,
+  slotPos,
 }: {
   bundle: BundleRowData;
   number: number;
   dark: boolean;
   isActive: boolean;
+  slotSize: number;
+  slotPos: number;
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging, isOver } = useSortable({
+  const { attributes, listeners, setNodeRef, transform, isDragging, isOver, isSorting } = useSortable({
     id: `bundle-${bundle.id}`,
     data: { kind: 'bundle', bundleId: bundle.id },
-    // Довша тривалість + smooth easing → «магнітне» плавне зсування сусіднього пакета.
-    transition: {
-      duration: 420,
-      easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
-    },
-    // Завжди анімувати layout-зміни (і під час сортування, і після drop).
-    animateLayoutChanges: () => true,
   });
-  const SHIFT_TRANSITION = 'transform 420ms cubic-bezier(0.22, 1, 0.36, 1)';
-  const style: React.CSSProperties = {
-    // Transform застосовуємо ТІЛЬКИ сусіднім бандлам (для shift-анімації),
-    // а джерелу drag-у — ні: DragOverlay малює його копію, дубль-transform причиняє layout-стрибок.
-    transform: isDragging || isActive ? undefined : CSS.Transform.toString(transform),
-    // Fallback transition — якщо useSortable повернув null (наприклад, під час sorting
-    // dnd-kit може занулити transition для performance), все одно маємо CSS-анімацію.
-    transition: transition ?? SHIFT_TRANSITION,
-    opacity: isDragging || isActive ? 0.35 : 1,
+  const SHIFT_TRANSITION = 'transform 520ms cubic-bezier(0.22, 1, 0.36, 1)';
+  const isSource = isDragging || isActive;
+  const model = getBundleModel(bundle);
+  const scaledW = Math.round(model.widthPx * MINIATURE_SCALE);
+  const scaledH = Math.round(model.heightPx * MINIATURE_SCALE);
+  const frameStyle: React.CSSProperties = {
+    position: 'absolute',
+    inset: 0,
+    borderRadius: 14,
+    border: dark ? '2px dashed rgba(212,168,67,0.45)' : '2px dashed rgba(164,122,40,0.5)',
+    background: dark ? 'rgba(212,168,67,0.04)' : 'rgba(212,168,67,0.06)',
+    pointerEvents: 'none',
+    // Рамка-«слот» показується, коли в контексті триває dnd (для всіх бандлів).
+    // Коли картка зміщується через transform — під нею відкривається ця рамка,
+    // тобто місце, де пакет «був» до зсуву.
+    opacity: isSorting ? 1 : 0,
+    transition: 'opacity 200ms ease',
+  };
+  const cardStyle: React.CSSProperties = {
+    position: 'relative',
+    zIndex: 1,
+    transform: isSource ? undefined : CSS.Transform.toString(transform),
+    transition: SHIFT_TRANSITION,
     cursor: 'grab',
-    // Зелений контур «магніт» — коли інший драг наводиться на цей бандл.
     outline: isOver && !isDragging ? (dark ? '2px solid #34d399' : '2px solid #059669') : 'none',
     outlineOffset: isOver && !isDragging ? 2 : 0,
     borderRadius: 12,
     willChange: 'transform',
+    visibility: isSource ? 'hidden' : 'visible',
   };
   return (
-    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
-      <BundleMiniature bundle={bundle} number={number} dark={dark} />
+    <div style={{ position: 'relative', width: scaledW, height: scaledH }}>
+      {/* Рамка-«слот» під карткою. Видно коли йде dnd. */}
+      <div aria-hidden style={frameStyle} />
+      {/* Сама картка — має transform для shift-анімації, listeners для drag. */}
+      <div ref={setNodeRef} style={cardStyle} {...attributes} {...listeners}>
+        <BundleMiniature bundle={bundle} number={number} dark={dark} slotSize={slotSize} slotPos={slotPos} />
+      </div>
     </div>
   );
 }
 
 /** Scaled-рендер реального BundleCard з фіксованою висотою = model.heightPx (як на сайті). */
-function BundleMiniature({ bundle, number, dark }: { bundle: BundleRowData; number: number; dark: boolean }) {
+function BundleMiniature({
+  bundle,
+  number,
+  dark,
+  slotSize = 1,
+  slotPos = 1,
+}: {
+  bundle: BundleRowData;
+  number: number;
+  dark: boolean;
+  slotSize?: number;
+  slotPos?: number;
+}) {
   const model = getBundleModel(bundle);
   const scaledW = Math.round(model.widthPx * MINIATURE_SCALE);
   const scaledH = Math.round(model.heightPx * MINIATURE_SCALE);
   const paid = bundle.miniaturePaid ?? [];
   const free = bundle.miniatureFree ?? [];
+  const isPair = slotSize === 2;
 
   return (
     <div className="relative group">
@@ -1584,6 +1647,42 @@ function BundleMiniature({ bundle, number, dark }: { bundle: BundleRowData; numb
         }`}
       >
         {number}
+      </div>
+      {/* Слот-ярлик (solo / pair with position). Top-right, elegant pill. */}
+      <div
+        className="absolute -top-2 -right-2 z-10 inline-flex items-center gap-1.5 px-2.5 h-7 rounded-full text-[10px] font-bold uppercase tracking-[0.14em] shadow-md select-none"
+        style={{
+          background: isPair
+            ? (dark
+                ? 'linear-gradient(135deg, rgba(16,78,56,0.95), rgba(5,150,105,0.95))'
+                : 'linear-gradient(135deg, #047857, #10b981)')
+            : (dark
+                ? 'linear-gradient(135deg, rgba(120,84,24,0.95), rgba(212,168,67,0.95))'
+                : 'linear-gradient(135deg, #A47A28, #D4A843)'),
+          color: dark ? '#0c1a11' : '#fffbeb',
+          border: isPair
+            ? (dark ? '1px solid rgba(110,231,183,0.35)' : '1px solid rgba(5,150,105,0.35)')
+            : (dark ? '1px solid rgba(242,199,109,0.45)' : '1px solid rgba(164,122,40,0.45)'),
+        }}
+        title={isPair ? `Пара · позиція ${slotPos} з ${slotSize}` : 'Соло у ряду'}
+      >
+        {/* Dots indicator — filled = current position */}
+        <span className="inline-flex items-center gap-[3px]" aria-hidden>
+          {Array.from({ length: slotSize }).map((_, i) => (
+            <span
+              key={i}
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: '50%',
+                background: i + 1 === slotPos ? 'currentColor' : 'transparent',
+                border: i + 1 === slotPos ? 'none' : '1.2px solid currentColor',
+                opacity: i + 1 === slotPos ? 1 : 0.55,
+              }}
+            />
+          ))}
+        </span>
+        <span>{isPair ? 'Пара' : 'Соло'}</span>
       </div>
       {/* Hover overlay з actions */}
       <div
@@ -1611,38 +1710,53 @@ function BundleMiniature({ bundle, number, dark }: { bundle: BundleRowData; numb
             : '0 0 0 1.5px rgba(164,122,40,0.6), 0 6px 16px rgba(28,58,46,0.14)',
         }}
       >
-        <div
-          style={{
-            width: model.widthPx,
-            height: model.heightPx,
-            transform: `scale(${MINIATURE_SCALE})`,
-            transformOrigin: 'top left',
-            pointerEvents: 'none',
-          }}
-        >
-          <BundleCard
-            title={bundle.title}
-            price={bundle.price}
-            slug={bundle.id}
-            courses={paid}
-            freeCourses={free}
-            bundleType={bundle.type}
-            freeCount={bundle.pickN ?? 0}
-            currency="грн"
-            priceLabel="ЦІНА ПАКЕТУ"
-            bundleLabel="ПАКЕТ"
-            saveLabel="Економія"
-            buyLabel="Купити пакет"
-            benefits={[
-              { icon: '📼', title: 'Навчання в записі' },
-              { icon: '💛', title: 'Підтримка кураторів' },
-              { icon: '📜', title: 'Сертифікат UIMP' },
-            ]}
-            layout="full"
-            miniature
-            forcedHeight={model.heightPx}
-          />
-        </div>
+        {/* Overflow compensation (ТІЛЬКИ в білдер-мініатюрі, не на сайті):
+         * для «щільних» конфігів (5+ курсів сумарно) autoTuner + scale(0.5) квірк
+         * переповнює висоту. Рішення БЕЗ зміни frozen розмірів: рендеримо BundleCard
+         * у збільшеному native-просторі (+8%) і компенсуємо scale-ом, щоб візуально
+         * мініатюра мала точно ті самі розміри. Результат: курси+CTA візуально на 8%
+         * менші всередині — усе рівномірно, без зрізань. */}
+        {(() => {
+          const needsInflate = paid.length + free.length >= 5;
+          const inflate = needsInflate ? 1.08 : 1;
+          const nativeW = Math.round(model.widthPx * inflate);
+          const nativeH = Math.round(model.heightPx * inflate);
+          const innerScale = MINIATURE_SCALE / inflate;
+          return (
+            <div
+              style={{
+                width: nativeW,
+                height: nativeH,
+                transform: `scale(${innerScale})`,
+                transformOrigin: 'top left',
+                pointerEvents: 'none',
+              }}
+            >
+              <BundleCard
+                title={bundle.title}
+                price={bundle.price}
+                slug={bundle.id}
+                courses={paid}
+                freeCourses={free}
+                bundleType={bundle.type}
+                freeCount={bundle.pickN ?? 0}
+                currency="грн"
+                priceLabel="ЦІНА ПАКЕТУ"
+                bundleLabel="ПАКЕТ"
+                saveLabel="Економія"
+                buyLabel="Купити пакет"
+                benefits={[
+                  { icon: '📼', title: 'Навчання в записі' },
+                  { icon: '💛', title: 'Підтримка кураторів' },
+                  { icon: '📜', title: 'Сертифікат UIMP' },
+                ]}
+                layout="full"
+                miniature
+                forcedHeight={nativeH}
+              />
+            </div>
+          );
+        })()}
       </div>
     </div>
   );

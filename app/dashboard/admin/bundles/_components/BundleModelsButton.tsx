@@ -54,9 +54,9 @@ const MODELS: Model[] = [
     priceLocation: PRICE_SEPARATE,
     width: '625px',
     rows: 2,
-    height: '605px',
-    note: 'Однаковий розмір чи соло, чи в 2-per-row групі. Amber savings pill "💰 Економія". H підвищена 580→605 для rule #38 (4px gap desc→benefits)',
-    // M1: H=605 (було 580). Серед інших 625 — ніхто не має H=605 → 🔵 striped. Серед 730 — M4 має H=605 → 🟢 solid.
+    height: '560px',
+    note: 'Однаковий розмір чи соло, чи в 2-per-row групі. Amber savings pill "💰 Економія". H=560.',
+    // M1: H=560. Серед інших 625 — ніхто не має H=560 → 🔵 striped. Серед 730 — M4 має H=560 → 🟢 solid.
     pairColors: [{ color: 'blue', striped: true }, { color: 'green' }],
   },
   {
@@ -68,9 +68,9 @@ const MODELS: Model[] = [
     priceLocation: PRICE_SEPARATE,
     width: '730px',
     rows: 2,
-    height: '605px',
-    note: 'grid-cols-3 внутрішня сітка. H підвищена 580→605 для rule #38 (4px gap desc→benefits)',
-    // M4: H=605 (було 580). Серед 625 — M1 має H=605 → 🔵 solid. Серед інших 730 — тільки H=920 → 🟢 striped.
+    height: '560px',
+    note: 'grid-cols-3 внутрішня сітка. H=560.',
+    // M4: H=560. Серед 625 — M1 має H=560 → 🔵 solid. Серед інших 730 — тільки H=920 → 🟢 striped.
     pairColors: [{ color: 'blue' }, { color: 'green', striped: true }],
   },
   {

@@ -213,8 +213,8 @@ export default async function CoursesPage({ params }: { params: Promise<{ locale
                 for (const b of ungrouped) rows.push([b]);
               } else {
                 // Fallback у тому ж форматі, що й builder's buildInitialSlots:
-                // displayMode='solo' → завжди один у ряду; інакше пара якщо widthA+widthB ≤ 1500.
-                const ROW_WIDTH_LIMIT_NATIVE = 1500;
+                // displayMode='solo' → завжди один у ряду; інакше пара якщо widthA+widthB ≤ 1536.
+                const ROW_WIDTH_LIMIT_NATIVE = 1536;
                 const modelFor = (b: BundleRow) => {
                   const paid = b.courses.filter((c) => !c.isFree).length;
                   const free = b.courses.filter((c) => c.isFree).length;
