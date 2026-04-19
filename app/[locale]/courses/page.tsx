@@ -322,9 +322,13 @@ export default async function CoursesPage({ params }: { params: Promise<{ locale
                       className="flex flex-wrap gap-4 items-start justify-center"
                     >
                       {rowBundles.map((b) => (
+                        // Mobile: width 100% з maxWidth для центрування контенту.
+                        // md+ (≥768px): фіксована nativeBundleWidth + flex-shrink-0
+                        // (зберігає frozen "natural width у 2-per-row" — feedback_bundle_native_width_in_group).
                         <div
                           key={b.id}
-                          style={{ width: nativeBundleWidth(b), flexShrink: 0 }}
+                          className="w-full md:w-auto md:flex-shrink-0"
+                          style={{ maxWidth: nativeBundleWidth(b) }}
                         >
                           {renderBundle(b)}
                         </div>

@@ -73,6 +73,24 @@
   .mission-grid > div > div[style*="position: absolute"] {
     display: none !important;
   }
+
+  /* Bundle bottom CTA — на мобільному: на всю ширину пакета,
+     прибираємо minWidth=510 та width=max-content, дозволяємо wrap.
+     Inline style з BundleCard.tsx (frozen) перебивається через !important. */
+  .bundle-bottom-cta {
+    width: 100% !important;
+    min-width: 0 !important;
+    flex-wrap: wrap !important;
+    gap: 12px !important;
+    padding: 14px 16px !important;
+  }
+  /* Кнопка "Купити пакет" всередині CTA — вирівнювання + повний margin reset на мобільному. */
+  .bundle-bottom-cta > div:last-child {
+    margin-right: 0 !important;
+    width: 100%;
+    display: flex;
+    justify-content: center;
+  }
 }
 
 /* Prevent horizontal overflow — only on body to preserve sticky nav */

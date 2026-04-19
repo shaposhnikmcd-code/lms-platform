@@ -800,7 +800,7 @@ export default function BundleCard({
       {/* Price + CTA — прибираємо коли inline-CTA задіяний (rule #24):
            FIXED_FREE з 1 безкоштовним АБО DISCOUNT з непарним paid ≥ 5 */}
       {!hideBottomCta && (
-      <div data-bundle-cta style={{
+      <div data-bundle-cta className="bundle-bottom-cta" style={{
         position: 'relative',
         background: 'radial-gradient(140% 180% at 0% 50%, rgba(212,168,67,0.18) 0%, rgba(212,168,67,0) 55%), radial-gradient(140% 180% at 100% 50%, rgba(212,168,67,0.10) 0%, rgba(212,168,67,0) 55%), linear-gradient(135deg, #244838 0%, #1C3A2E 50%, #142A20 100%)',
         borderRadius: layout === 'compact' ? 16 : 18,
