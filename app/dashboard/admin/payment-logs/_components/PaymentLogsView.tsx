@@ -6,6 +6,8 @@ import {
   HiOutlineCheckCircle,
   HiOutlineArrowUturnLeft,
   HiOutlineShieldExclamation,
+  HiOutlineChevronLeft,
+  HiOutlineChevronRight,
 } from 'react-icons/hi2';
 import { useAdminTheme, type Theme } from '../../_components/adminTheme';
 import { AdminShell, AdminPanel } from '../../_components/AdminShell';
@@ -36,6 +38,7 @@ export interface PaymentLogsData {
   kind: 'all' | 'course' | 'bundle' | 'connector' | 'unknown';
   page: number;
   totalPages: number;
+  pageSize: number;
 }
 
 const KIND_TABS: { value: PaymentLogsData['kind']; label: string }[] = [
@@ -50,8 +53,16 @@ export default function PaymentLogsView({ data }: { data: PaymentLogsData }) {
   const { theme, setTheme } = useAdminTheme();
   const dark = theme === 'dark';
 
-  const prevQs = new URLSearchParams({ ...(data.kind !== 'all' && { kind: data.kind }), page: String(data.page - 1) }).toString();
-  const nextQs = new URLSearchParams({ ...(data.kind !== 'all' && { kind: data.kind }), page: String(data.page + 1) }).toString();
+  const buildUrl = (overrides: { page?: number; pageSize?: number }) => {
+    const qs = new URLSearchParams();
+    if (data.kind !== 'all') qs.set('kind', data.kind);
+    const targetPage = overrides.page ?? data.page;
+    const targetSize = overrides.pageSize ?? data.pageSize;
+    if (targetPage > 1) qs.set('page', String(targetPage));
+    if (targetSize !== 25) qs.set('pageSize', String(targetSize));
+    const s = qs.toString();
+    return s ? `/dashboard/admin/payment-logs?${s}` : '/dashboard/admin/payment-logs';
+  };
 
   return (
     <AdminShell
@@ -205,45 +216,15 @@ export default function PaymentLogsView({ data }: { data: PaymentLogsData }) {
           </table>
         </div>
 
-        {/* Pagination */}
-        {data.totalPages > 1 && (
-          <div
-            className={`flex items-center justify-between px-4 py-3 border-t ${
-              dark ? 'border-white/[0.06] bg-black/20' : 'border-stone-300/40 bg-stone-50/60'
-            }`}
-          >
-            <p className={`text-[11px] uppercase tracking-[0.18em] font-medium ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
-              Сторінка <span className={`tabular-nums ${dark ? 'text-slate-200' : 'text-stone-800'}`}>{data.page}</span>
-              <span className="opacity-60"> з {data.totalPages}</span>
-              <span className="opacity-60"> · Всього {data.total.toLocaleString()}</span>
-            </p>
-            <div className="flex items-center gap-2">
-              {data.page > 1 && (
-                <Link
-                  href={`/dashboard/admin/payment-logs?${prevQs}`}
-                  className={`px-3 py-1.5 text-[12px] font-medium rounded-lg border transition-colors ${
-                    dark
-                      ? 'bg-white/[0.04] border-white/[0.1] text-slate-300 hover:bg-white/[0.08] hover:text-white'
-                      : 'bg-white/70 border-stone-300/60 text-stone-700 hover:bg-white hover:border-stone-400/60'
-                  }`}
-                >
-                  ← Попередня
-                </Link>
-              )}
-              {data.page < data.totalPages && (
-                <Link
-                  href={`/dashboard/admin/payment-logs?${nextQs}`}
-                  className={`px-3 py-1.5 text-[12px] font-medium rounded-lg border transition-colors ${
-                    dark
-                      ? 'bg-white/[0.04] border-white/[0.1] text-slate-300 hover:bg-white/[0.08] hover:text-white'
-                      : 'bg-white/70 border-stone-300/60 text-stone-700 hover:bg-white hover:border-stone-400/60'
-                  }`}
-                >
-                  Наступна →
-                </Link>
-              )}
-            </div>
-          </div>
+        {data.total > 0 && (
+          <ServerPaginationBar
+            theme={theme}
+            page={data.page}
+            totalPages={data.totalPages}
+            total={data.total}
+            pageSize={data.pageSize}
+            buildUrl={buildUrl}
+          />
         )}
       </AdminPanel>
     </AdminShell>
@@ -347,4 +328,105 @@ function StatusBadge({
       {label}
     </span>
   );
+}
+
+function ServerPaginationBar({
+  theme,
+  page,
+  totalPages,
+  total,
+  pageSize,
+  buildUrl,
+}: {
+  theme: Theme;
+  page: number;
+  totalPages: number;
+  total: number;
+  pageSize: number;
+  buildUrl: (overrides: { page?: number; pageSize?: number }) => string;
+}) {
+  const dark = theme === 'dark';
+  const pageStart = (page - 1) * pageSize;
+  const pageEnd = Math.min(pageStart + pageSize, total);
+  const pages = computePageList(page, totalPages);
+  const btnBase = 'inline-flex items-center justify-center h-7 min-w-7 px-2 rounded-md text-[12px] tabular-nums transition-colors';
+  const btnIdle = dark
+    ? 'text-slate-400 hover:text-slate-100 hover:bg-white/[0.06] border border-white/[0.06]'
+    : 'text-stone-600 hover:text-stone-900 hover:bg-stone-100 border border-stone-300/50';
+  const btnActive = dark
+    ? 'bg-amber-400/15 text-amber-200 border border-amber-400/30'
+    : 'bg-amber-100 text-amber-800 border border-amber-300/60';
+  const btnDisabled = dark
+    ? 'text-slate-600 border border-white/[0.04] cursor-not-allowed pointer-events-none'
+    : 'text-stone-300 border border-stone-200/60 cursor-not-allowed pointer-events-none';
+
+  return (
+    <div className={`flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-t text-[12px] ${
+      dark ? 'border-white/[0.06] text-slate-400' : 'border-stone-300/40 text-stone-600'
+    }`}>
+      <div className="tabular-nums">
+        Показано <span className={dark ? 'text-slate-200' : 'text-stone-800'}>{pageStart + 1}–{pageEnd}</span> з{' '}
+        <span className={dark ? 'text-slate-200' : 'text-stone-800'}>{total}</span>
+      </div>
+      <div className="flex items-center gap-3">
+        <label className="flex items-center gap-2">
+          <span>На сторінці:</span>
+          {/* page-size — server-side, тому через нативний <select> з window.location */}
+          <select
+            value={pageSize}
+            onChange={(e) => {
+              const next = Number(e.target.value);
+              window.location.href = buildUrl({ pageSize: next, page: 1 });
+            }}
+            className={`h-7 px-2 rounded-md text-[12px] outline-none ${
+              dark
+                ? 'bg-white/[0.04] border border-white/[0.08] text-slate-200'
+                : 'bg-white/80 border border-stone-300/60 text-stone-800'
+            }`}
+          >
+            <option value={25}>25</option>
+            <option value={50}>50</option>
+            <option value={100}>100</option>
+          </select>
+        </label>
+        <div className="flex items-center gap-1">
+          {page > 1 ? (
+            <Link href={buildUrl({ page: page - 1 })} className={`${btnBase} ${btnIdle}`} aria-label="Попередня сторінка">
+              <HiOutlineChevronLeft className="text-sm" />
+            </Link>
+          ) : (
+            <span className={`${btnBase} ${btnDisabled}`}><HiOutlineChevronLeft className="text-sm" /></span>
+          )}
+          {pages.map((p, i) =>
+            p === '…' ? (
+              <span key={`dots-${i}`} className={`${btnBase} ${dark ? 'text-slate-600' : 'text-stone-400'}`}>…</span>
+            ) : p === page ? (
+              <span key={p} className={`${btnBase} ${btnActive}`} aria-current="page">{p}</span>
+            ) : (
+              <Link key={p} href={buildUrl({ page: p })} className={`${btnBase} ${btnIdle}`}>{p}</Link>
+            ),
+          )}
+          {page < totalPages ? (
+            <Link href={buildUrl({ page: page + 1 })} className={`${btnBase} ${btnIdle}`} aria-label="Наступна сторінка">
+              <HiOutlineChevronRight className="text-sm" />
+            </Link>
+          ) : (
+            <span className={`${btnBase} ${btnDisabled}`}><HiOutlineChevronRight className="text-sm" /></span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function computePageList(current: number, total: number): (number | '…')[] {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+  const pages: (number | '…')[] = [1];
+  const left = Math.max(2, current - 1);
+  const right = Math.min(total - 1, current + 1);
+  if (left > 2) pages.push('…');
+  for (let p = left; p <= right; p++) pages.push(p);
+  if (right < total - 1) pages.push('…');
+  pages.push(total);
+  return pages;
 }

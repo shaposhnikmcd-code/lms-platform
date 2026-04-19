@@ -4,19 +4,24 @@ import PaymentLogsView, { type PaymentLogsData } from './_components/PaymentLogs
 const KIND_FILTERS = ['all', 'course', 'bundle', 'connector', 'unknown'] as const;
 type KindFilter = (typeof KIND_FILTERS)[number];
 
-const PAGE_SIZE = 50;
+const ALLOWED_PAGE_SIZES = [25, 50, 100] as const;
+const DEFAULT_PAGE_SIZE = 25;
 
 export default async function PaymentLogsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ kind?: string; page?: string }>;
+  searchParams: Promise<{ kind?: string; page?: string; pageSize?: string }>;
 }) {
   const sp = await searchParams;
   const kind: KindFilter = (KIND_FILTERS as readonly string[]).includes(sp.kind ?? '')
     ? (sp.kind as KindFilter)
     : 'all';
+  const parsedPageSize = parseInt(sp.pageSize ?? '') || DEFAULT_PAGE_SIZE;
+  const pageSize = (ALLOWED_PAGE_SIZES as readonly number[]).includes(parsedPageSize)
+    ? parsedPageSize
+    : DEFAULT_PAGE_SIZE;
   const page = Math.max(1, parseInt(sp.page ?? '1') || 1);
-  const skip = (page - 1) * PAGE_SIZE;
+  const skip = (page - 1) * pageSize;
 
   const where = kind === 'all' ? {} : { kind };
 
@@ -25,7 +30,7 @@ export default async function PaymentLogsPage({
     prisma.paymentCallbackLog.findMany({
       where,
       orderBy: { createdAt: 'desc' },
-      take: PAGE_SIZE,
+      take: pageSize,
       skip,
     }),
     prisma.paymentCallbackLog.count({
@@ -35,7 +40,7 @@ export default async function PaymentLogsPage({
     prisma.paymentCallbackLog.count({ where: { ...where, signatureValid: false } }),
   ]);
 
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   const data: PaymentLogsData = {
     logs: logs.map((l) => ({
@@ -61,6 +66,7 @@ export default async function PaymentLogsPage({
     kind,
     page,
     totalPages,
+    pageSize,
   };
 
   return <PaymentLogsView data={data} />;
