@@ -200,7 +200,7 @@ export type PairResult =
   | { canPair: true; quality: 'solid' | 'striped'; sharedColors: PairColor[] }
   | { canPair: false; reason: 'too-wide' | 'unknown-model' };
 
-const ROW_WIDTH_LIMIT_PX = 1460;
+const ROW_WIDTH_LIMIT_PX = 1500;
 
 export function canPairBundles(a: BundleLike, b: BundleLike): PairResult {
   const mA = matchBundleToModel(a) ?? deriveVirtualModel(a);

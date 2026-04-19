@@ -24,6 +24,7 @@ import {
   useSortable,
   verticalListSortingStrategy,
   rectSortingStrategy,
+  horizontalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useAdminTheme, type Theme } from '../../_components/adminTheme';
@@ -67,6 +68,8 @@ export type BundleRowData = {
   suspendedAt: string | null;
   resumeAt: string | null;
   displayMode: 'auto' | 'solo';
+  /** Номер ряду у Row View / на публічній /courses. null = ще не згруповано, fallback до pack-by-2. */
+  rowGroup: number | null;
   pickN?: number;
   courses: BundleCourseData[];
   miniaturePaid?: MiniatureCourse[];
@@ -146,7 +149,9 @@ export default function BundlesView({
   const dark = theme === 'dark';
   const [order, setOrder] = useState(bundles);
   const [saving, setSaving] = useState(false);
-  const [viewMode, setViewMode] = useState<'table' | 'rows'>('table');
+  // Rows — основний view за замовчуванням. Synchronizація order з Rows відбувається через
+  // колбек persistOrder, який оновлює local state + пушить на сервер.
+  const [viewMode, setViewMode] = useState<'table' | 'rows'>('rows');
   const tableRef = useRef<HTMLTableElement | null>(null);
   const [markers, setMarkers] = useState<Array<{ id: string; top: number; height: number }>>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -227,17 +232,37 @@ export default function BundlesView({
     const newIndex = order.findIndex(b => b.id === over.id);
     if (oldIndex < 0 || newIndex < 0) return;
     const next = arrayMove(order, oldIndex, newIndex);
-    setOrder(next);
+    persistOrder(next);
+  };
+
+  // Єдина точка збереження порядку + групування у ряди. Викликається з Rows view (slots з dnd)
+  // і з Table view (flat reorder → дефолтний pack-by-2).
+  const persistSlots = async (slots: BundleRowData[][]) => {
+    const flat = slots.flat();
+    // Локально оновлюємо order з новими rowGroup — щоб Rows + Table одразу бачили стабільне групування.
+    const stamped: BundleRowData[] = [];
+    slots.forEach((slot, rowGroup) => {
+      slot.forEach((b) => stamped.push({ ...b, rowGroup }));
+    });
+    setOrder(stamped);
+    const payload = stamped.map((b) => ({ id: b.id, rowGroup: b.rowGroup }));
     setSaving(true);
     try {
       await fetch('/api/admin/bundles/reorder', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ order: next.map(b => b.id) }),
+        body: JSON.stringify({ order: payload }),
       });
     } finally {
       setSaving(false);
     }
+    void flat;
+  };
+
+  // Table view reorder — flat список. Ряди автогрупуємо за тією самою логікою, що й Rows view
+  // використовує при першому завантаженні (displayMode + width ≤ 1460).
+  const persistOrder = async (next: BundleRowData[]) => {
+    persistSlots(buildInitialSlots(next));
   };
 
   return (
@@ -247,7 +272,7 @@ export default function BundlesView({
       eyebrow="Admin · Пакети"
       title="Пакети курсів"
       subtitle="Керуй пакетами: типи, ціни, публікація, призупинення."
-      maxWidth={viewMode === 'rows' ? 'max-w-[1760px]' : 'max-w-[1360px]'}
+      maxWidth="max-w-[1360px]"
       rightInset={140}
       rightSlotAfter={<BundleModelsButton theme={theme} />}
       rightSlot={
@@ -291,9 +316,10 @@ export default function BundlesView({
           </Link>
         </AdminPanel>
       ) : viewMode === 'rows' ? (
-        <RowsView bundles={order} dark={dark} />
+        <RowsView bundles={order} dark={dark} onReorder={persistSlots} />
       ) : (
         <DndContext
+          id="bundles-table-dnd"
           sensors={sensors}
           collisionDetection={closestCenter}
           onDragStart={handleDragStart}
@@ -970,15 +996,41 @@ function ViewModeSwitch({ mode, setMode, dark }: { mode: 'table' | 'rows'; setMo
   );
 }
 
-const ROW_WIDTH_LIMIT_NATIVE = 1460;
+const ROW_WIDTH_LIMIT_NATIVE = 1500;
 /** Ширина "сторінки" сайту в native пікселях — те що юзер бачить у браузері. */
-const SITE_CANVAS_NATIVE_W = 1460;
+const SITE_CANVAS_NATIVE_W = 1500;
 /** Масштаб мініатюр у builder-і. Pакет N×M native рендериться як N·s × M·s. */
 const MINIATURE_SCALE = 0.5;
 
-/** Початкова розбивка бандлів на слоти: pack-by-2 в DB порядку з урахуванням
- *  displayMode ('solo' = завжди один у слоті) і перевіркою сумарної ширини ≤ 1460. */
+/** Розбивка бандлів на слоти для Row View / публічної сторінки.
+ *
+ *  1) Якщо хоча б один бандл має rowGroup (не null) — групуємо строго за rowGroup
+ *     у DB порядку. Це source of truth після збереження з dnd-builder-а.
+ *  2) Інакше (усі null — свіжі бандли, ще не торкалися builder-а) — fallback pack-by-2
+ *     з урахуванням displayMode ('solo' = завжди один у слоті) і сумарної ширини ≤ 1460.
+ */
 function buildInitialSlots(bundles: BundleRowData[]): BundleRowData[][] {
+  const hasPersistedGroups = bundles.some((b) => b.rowGroup !== null && b.rowGroup !== undefined);
+  if (hasPersistedGroups) {
+    const slots: BundleRowData[][] = [];
+    const byGroup = new Map<number, BundleRowData[]>();
+    const ungrouped: BundleRowData[] = [];
+    for (const b of bundles) {
+      if (b.rowGroup === null || b.rowGroup === undefined) {
+        ungrouped.push(b);
+        continue;
+      }
+      const arr = byGroup.get(b.rowGroup) ?? [];
+      arr.push(b);
+      byGroup.set(b.rowGroup, arr);
+    }
+    const sortedKeys = Array.from(byGroup.keys()).sort((a, b) => a - b);
+    for (const k of sortedKeys) slots.push(byGroup.get(k)!);
+    // Бандли без rowGroup (щойно створені) — кожен у своєму слоті, у кінець.
+    for (const b of ungrouped) slots.push([b]);
+    return slots;
+  }
+  // Fallback: pack-by-2 за displayMode + шириною.
   const slots: BundleRowData[][] = [];
   let i = 0;
   while (i < bundles.length) {
@@ -1016,14 +1068,43 @@ function buildInitialSlots(bundles: BundleRowData[]): BundleRowData[][] {
  *     (якщо ширини вміщаються в 1460px)
  *   - Якщо в слоті вже 2 пакети і перетягують один з них → роз'єднання
  */
-function RowsView({ bundles, dark }: { bundles: BundleRowData[]; dark: boolean }) {
+function RowsView({
+  bundles,
+  dark,
+  onReorder,
+}: {
+  bundles: BundleRowData[];
+  dark: boolean;
+  onReorder: (slots: BundleRowData[][]) => void;
+}) {
   const [slots, setSlots] = useState<BundleRowData[][]>(() => buildInitialSlots(bundles));
   const [dragKind, setDragKind] = useState<'slot' | 'bundle' | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
+  // Якщо user мутував slots локально — зберігаємо next тут, щоб після commit
+  // useEffect[slots] прочитав і викликав onReorder. Зовнішні зміни bundles НЕ
+  // встановлюють цей ref, тож не викликають зайвий onReorder loop.
+  const pendingUserNextRef = useRef<BundleRowData[][] | null>(null);
 
+  // Коли bundles prop змінюється ЗОВНІШНЬО (з Table drag / iншої сесії),
+  // перебудовуємо slots — але тільки якщо порядок дійсно різний від поточних slots.
+  // (Після нашого власного onReorder bundles вже збігається з slots → skip.)
   useEffect(() => {
-    setSlots(buildInitialSlots(bundles));
+    const slotsFlatIds = slots.flat().map((b) => b.id).join(',');
+    const bundlesIds = bundles.map((b) => b.id).join(',');
+    if (slotsFlatIds !== bundlesIds) {
+      setSlots(buildInitialSlots(bundles));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bundles]);
+
+  // Після локальної мутації slots — пушимо slots у parent (який синхронізує Table + DB + rowGroup).
+  useEffect(() => {
+    if (pendingUserNextRef.current) {
+      const next = pendingUserNextRef.current;
+      pendingUserNextRef.current = null;
+      onReorder(next);
+    }
+  }, [slots, onReorder]);
 
   const globalIdxOf = (id: string) => bundles.findIndex((b) => b.id === id) + 1;
 
@@ -1056,12 +1137,57 @@ function RowsView({ bundles, dark }: { bundles: BundleRowData[]; dark: boolean }
         const next = [...prev];
         const [moved] = next.splice(fromIdx, 1);
         next.splice(toIdx, 0, moved);
+        pendingUserNextRef.current = next;
         return next;
       });
     } else if (data?.kind === 'bundle') {
       const bundleId = data.bundleId!;
       const overData = over.data.current as { kind?: string; slotIdx?: number; insertAt?: number; bundleId?: string } | undefined;
-      if (overData?.kind === 'slot-pair-zone' && overData.slotIdx !== undefined) {
+      if (overData?.kind === 'bundle' && overData.bundleId && overData.bundleId !== bundleId) {
+        // Drop бандла на інший бандл — свап позицій (у тому ж слоті = reorder lr;
+        // в іншому слоті = обмін місцями, з перевіркою сумарної ширини пари після свопу).
+        const targetId = overData.bundleId;
+        setSlots((prev) => {
+          const fromSlotIdx = prev.findIndex((s) => s.some((b) => b.id === bundleId));
+          const toSlotIdx = prev.findIndex((s) => s.some((b) => b.id === targetId));
+          if (fromSlotIdx === -1 || toSlotIdx === -1) return prev;
+
+          if (fromSlotIdx === toSlotIdx) {
+            const slot = prev[fromSlotIdx];
+            if (slot.length < 2) return prev;
+            const next = [...prev];
+            next[fromSlotIdx] = [...slot].reverse();
+            pendingUserNextRef.current = next;
+            return next;
+          }
+
+          const fromSlot = prev[fromSlotIdx];
+          const toSlot = prev[toSlotIdx];
+          const fromPos = fromSlot.findIndex((b) => b.id === bundleId);
+          const toPos = toSlot.findIndex((b) => b.id === targetId);
+          const bundleA = fromSlot[fromPos];
+          const bundleB = toSlot[toPos];
+
+          if (toSlot.length === 2) {
+            const other = toSlot[1 - toPos];
+            if (getBundleModel(other).widthPx + getBundleModel(bundleA).widthPx > ROW_WIDTH_LIMIT_NATIVE) return prev;
+          }
+          if (fromSlot.length === 2) {
+            const other = fromSlot[1 - fromPos];
+            if (getBundleModel(other).widthPx + getBundleModel(bundleB).widthPx > ROW_WIDTH_LIMIT_NATIVE) return prev;
+          }
+
+          const next = [...prev];
+          const nextFrom = [...fromSlot];
+          nextFrom[fromPos] = bundleB;
+          next[fromSlotIdx] = nextFrom;
+          const nextTo = [...toSlot];
+          nextTo[toPos] = bundleA;
+          next[toSlotIdx] = nextTo;
+          pendingUserNextRef.current = next;
+          return next;
+        });
+      } else if (overData?.kind === 'slot-pair-zone' && overData.slotIdx !== undefined) {
         // Drop на pair-зону іншого слота
         setSlots((prev) => {
           const fromSlotIdx = prev.findIndex((s) => s.some((b) => b.id === bundleId));
@@ -1081,6 +1207,7 @@ function RowsView({ bundles, dark }: { bundles: BundleRowData[]; dark: boolean }
           } else {
             next[fromSlotIdx] = next[fromSlotIdx].filter((b) => b.id !== bundleId);
           }
+          pendingUserNextRef.current = next;
           return next;
         });
       } else if (overData?.kind === 'empty-slot' && overData.insertAt !== undefined) {
@@ -1099,6 +1226,7 @@ function RowsView({ bundles, dark }: { bundles: BundleRowData[]; dark: boolean }
           // Вставляємо новий slot з одним бандлом на позицію insertAt.
           // Старий slot не видаляємо (він ще має другого) → insertAt не зсувається.
           next.splice(insertAt, 0, [bundle]);
+          pendingUserNextRef.current = next;
           return next;
         });
       }
@@ -1108,9 +1236,9 @@ function RowsView({ bundles, dark }: { bundles: BundleRowData[]; dark: boolean }
   return (
     <>
       <div className={`mb-4 rounded-lg border px-4 py-2.5 text-[11px] ${dark ? 'bg-white/[0.03] border-white/[0.08] text-slate-400' : 'bg-white/70 border-stone-300/50 text-stone-600'}`}>
-        <span className="font-semibold">Як користуватись:</span> ряди розкладені по 2 в лінію. Перетягни ручку зліва щоб змінити порядок; перетягни пакет на solo-сторінку — стане в пару; кинь у зону «Винести в новий ряд» внизу — створить окремий ряд у кінці.
+        <span className="font-semibold">Як користуватись:</span> перетягни pill «Ряд N» у шапці щоб змінити порядок; перетягни пакет на solo-сторінку — стане в пару; кинь у зону «Винести в новий ряд» — створить окремий ряд.
       </div>
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+      <DndContext id="bundles-rows-dnd" sensors={sensors} collisionDetection={closestCenter} autoScroll={false} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
         <SortableContext
           items={slots.map((slot, idx) => `slot-${idx}`)}
           strategy={rectSortingStrategy}
@@ -1120,52 +1248,36 @@ function RowsView({ bundles, dark }: { bundles: BundleRowData[]; dark: boolean }
               Пакетів немає
             </div>
           ) : (
-            <div className="flex flex-col gap-2 py-2">
-              {/* Розбиваємо слоти на пари (по 2 в лінію) і між кожною парою — empty-slot drop zone.
-                  Zones видимі тільки при drag bundle, щоб не забивати UI у звичайному стані. */}
-              {(() => {
-                const chunks: { startIdx: number; items: BundleRowData[][] }[] = [];
-                for (let i = 0; i < slots.length; i += 2) {
-                  chunks.push({ startIdx: i, items: slots.slice(i, i + 2) });
-                }
-                return (
-                  <>
-                    {/* Зона "новий ряд зверху" */}
-                    <EmptySlotDropZone
-                      insertAt={0}
-                      dark={dark}
-                      highlighted={dragKind === 'bundle'}
-                      visible={dragKind === 'bundle'}
-                    />
-                    {chunks.map((chunk) => (
-                      <div key={chunk.startIdx} className="flex flex-col gap-2">
-                        {/* Лінія з 1-2 slot-рядами */}
-                        <div className="grid grid-cols-1 xl:grid-cols-2 gap-x-6 items-start">
-                          {chunk.items.map((slot, localIdx) => (
-                            <SlotRow
-                              key={slot.map((b) => b.id).join('-')}
-                              slot={slot}
-                              slotIdx={chunk.startIdx + localIdx}
-                              globalIdxOf={globalIdxOf}
-                              dark={dark}
-                              dragActive={dragKind !== null}
-                              dragKind={dragKind}
-                              activeId={activeId}
-                            />
-                          ))}
-                        </div>
-                        {/* Empty-zone після цієї лінії */}
-                        <EmptySlotDropZone
-                          insertAt={chunk.startIdx + chunk.items.length}
-                          dark={dark}
-                          highlighted={dragKind === 'bundle'}
-                          visible={dragKind === 'bundle'}
-                        />
-                      </div>
-                    ))}
-                  </>
-                );
-              })()}
+            <div className="flex flex-col items-center gap-2 py-2">
+              {/* 1-колонка центрована. Між кожним рядом — empty-slot drop zone
+                  (видима тільки при drag бандла з пари). */}
+              <EmptySlotDropZone
+                insertAt={0}
+                dark={dark}
+                highlighted={dragKind === 'bundle'}
+                visible={dragKind === 'bundle'}
+              />
+              {slots.map((slot, sIdx) => (
+                // Ключ НЕЗАЛЕЖНИЙ від порядку бандлів у слоті (сортуємо IDs) —
+                // щоб при swap left↔right React не перемонтовував слот, а просто ререндерив з новим slot prop.
+                <div key={[...slot].map((b) => b.id).sort().join('|')} className="flex flex-col items-center gap-2 w-full">
+                  <SlotRow
+                    slot={slot}
+                    slotIdx={sIdx}
+                    globalIdxOf={globalIdxOf}
+                    dark={dark}
+                    dragActive={dragKind !== null}
+                    dragKind={dragKind}
+                    activeId={activeId}
+                  />
+                  <EmptySlotDropZone
+                    insertAt={sIdx + 1}
+                    dark={dark}
+                    highlighted={dragKind === 'bundle'}
+                    visible={dragKind === 'bundle'}
+                  />
+                </div>
+              ))}
             </div>
           )}
         </SortableContext>
@@ -1294,15 +1406,24 @@ function SlotRow({
         }}
       >
         <div className="flex items-start justify-center" style={{ gap: pairGapScaled }}>
-          {slot.map((b) => (
-            <DraggableBundle
-              key={b.id}
-              bundle={b}
-              number={globalIdxOf(b.id)}
-              dark={dark}
-              isActive={activeId === `bundle-${b.id}`}
-            />
-          ))}
+          {/* Вкладений SortableContext з horizontalListSortingStrategy — dnd-kit САМ анімує
+              зсув сусідніх карток при драгу (витискання ефект) і highlight-ить позицію drop-у.
+              Ключ з унікальними ID слота щоб контекст не «застрягав» при reshuffle слотів. */}
+          <SortableContext
+            key={slot.map((b) => b.id).sort().join('|')}
+            items={slot.map((b) => `bundle-${b.id}`)}
+            strategy={horizontalListSortingStrategy}
+          >
+            {slot.map((b) => (
+              <DraggableBundle
+                key={b.id}
+                bundle={b}
+                number={globalIdxOf(b.id)}
+                dark={dark}
+                isActive={activeId === `bundle-${b.id}`}
+              />
+            ))}
+          </SortableContext>
           {canAcceptPair && (
             <div
               className={`flex items-center justify-center rounded-xl border-2 border-dashed transition-colors ${
@@ -1367,10 +1488,9 @@ function EmptySlotDropZone({
     id: `empty-slot-${insertAt}`,
     data: { kind: 'empty-slot', insertAt },
   });
-  // Не видима → schedule zero-height pin-точку що droppable але не забирає простір.
-  if (!visible) {
-    return <div ref={setNodeRef} className="h-0 w-full pointer-events-auto" aria-hidden />;
-  }
+  const canvasW = Math.round(SITE_CANVAS_NATIVE_W * MINIATURE_SCALE);
+  // Завжди тримаємо фіксовану висоту щоб НЕ стрибав layout при старті драгу.
+  // `visible=false` → просто невидимий (opacity 0), droppable все одно зареєстрований.
   const state: 'dragActive' | 'hover' = isOver ? 'hover' : 'dragActive';
   const borderCls = {
     dragActive: dark ? 'border-amber-400/50 bg-amber-500/[0.05]' : 'border-amber-500/60 bg-amber-200/25',
@@ -1383,14 +1503,20 @@ function EmptySlotDropZone({
   return (
     <div
       ref={setNodeRef}
-      className={`w-full flex items-center justify-center rounded-lg border-2 border-dashed transition-all ${borderCls}`}
+      className={`flex items-center justify-center rounded-lg border-2 border-dashed transition-all ${visible ? borderCls : 'border-transparent'}`}
       style={{
-        height: state === 'hover' ? 72 : 48,
+        width: canvasW,
+        height: 48,
+        opacity: visible ? 1 : 0,
+        pointerEvents: visible ? undefined : 'none',
       }}
+      aria-hidden={!visible}
     >
-      <span className={`text-[13px] uppercase tracking-[0.18em] font-semibold ${textCls}`}>
-        {state === 'hover' ? '+ Новий ряд тут' : '➕ Винести в новий ряд'}
-      </span>
+      {visible && (
+        <span className={`text-[13px] uppercase tracking-[0.18em] font-semibold ${textCls}`}>
+          {state === 'hover' ? '+ Новий ряд тут' : '➕ Винести в новий ряд'}
+        </span>
+      )}
     </div>
   );
 }
@@ -1407,14 +1533,32 @@ function DraggableBundle({
   dark: boolean;
   isActive: boolean;
 }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useSortable({
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging, isOver } = useSortable({
     id: `bundle-${bundle.id}`,
     data: { kind: 'bundle', bundleId: bundle.id },
+    // Довша тривалість + smooth easing → «магнітне» плавне зсування сусіднього пакета.
+    transition: {
+      duration: 420,
+      easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+    },
+    // Завжди анімувати layout-зміни (і під час сортування, і після drop).
+    animateLayoutChanges: () => true,
   });
+  const SHIFT_TRANSITION = 'transform 420ms cubic-bezier(0.22, 1, 0.36, 1)';
   const style: React.CSSProperties = {
-    transform: CSS.Transform.toString(transform),
-    opacity: isDragging || isActive ? 0.4 : 1,
+    // Transform застосовуємо ТІЛЬКИ сусіднім бандлам (для shift-анімації),
+    // а джерелу drag-у — ні: DragOverlay малює його копію, дубль-transform причиняє layout-стрибок.
+    transform: isDragging || isActive ? undefined : CSS.Transform.toString(transform),
+    // Fallback transition — якщо useSortable повернув null (наприклад, під час sorting
+    // dnd-kit може занулити transition для performance), все одно маємо CSS-анімацію.
+    transition: transition ?? SHIFT_TRANSITION,
+    opacity: isDragging || isActive ? 0.35 : 1,
     cursor: 'grab',
+    // Зелений контур «магніт» — коли інший драг наводиться на цей бандл.
+    outline: isOver && !isDragging ? (dark ? '2px solid #34d399' : '2px solid #059669') : 'none',
+    outlineOffset: isOver && !isDragging ? 2 : 0,
+    borderRadius: 12,
+    willChange: 'transform',
   };
   return (
     <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
@@ -1423,37 +1567,13 @@ function DraggableBundle({
   );
 }
 
-/** Scaled-рендер реального BundleCard.
- *  Висоту НЕ хардкодимо — вимірюємо через ResizeObserver natural height після рендеру
- *  (яку BundleCard сам визначає через `forcedHeight` → `unifyHeight` → natural).
- *  Outer wrapper = (measuredH × scale) → нічого не обрізається. */
+/** Scaled-рендер реального BundleCard з фіксованою висотою = model.heightPx (як на сайті). */
 function BundleMiniature({ bundle, number, dark }: { bundle: BundleRowData; number: number; dark: boolean }) {
   const model = getBundleModel(bundle);
   const scaledW = Math.round(model.widthPx * MINIATURE_SCALE);
+  const scaledH = Math.round(model.heightPx * MINIATURE_SCALE);
   const paid = bundle.miniaturePaid ?? [];
   const free = bundle.miniatureFree ?? [];
-
-  // Вимірюємо реальну висоту BundleCard після рендеру (BundleCard сам форсить height через unifyHeight).
-  // Fallback до model.heightPx коли ще не виміряно.
-  const measureRef = useRef<HTMLDivElement>(null);
-  const [measuredH, setMeasuredH] = useState<number>(model.heightPx);
-
-  useLayoutEffect(() => {
-    const el = measureRef.current;
-    if (!el) return;
-    const measure = () => {
-      const h = el.offsetHeight;
-      if (h > 50) setMeasuredH(h);
-    };
-    // Одразу після mount + через 100ms (щоб autoTuner завершив), + ResizeObserver для будь-яких наступних змін.
-    measure();
-    const t = setTimeout(measure, 120);
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => { clearTimeout(t); ro.disconnect(); };
-  }, [bundle.id]);
-
-  const scaledH = Math.round(measuredH * MINIATURE_SCALE);
 
   return (
     <div className="relative group">
@@ -1479,8 +1599,7 @@ function BundleMiniature({ bundle, number, dark }: { bundle: BundleRowData; numb
           ✎
         </Link>
       </div>
-      {/* Scaled BundleCard wrapper — чітка amber-рамка + drop shadow для viзуальних меж.
-          overflow:hidden по 12px radius (24×scale) зрізає scaled content по кутах. */}
+      {/* Scaled BundleCard wrapper — amber-рамка + drop shadow. Висота = model.heightPx * scale. */}
       <div
         style={{
           width: scaledW,
@@ -1495,34 +1614,34 @@ function BundleMiniature({ bundle, number, dark }: { bundle: BundleRowData; numb
         <div
           style={{
             width: model.widthPx,
+            height: model.heightPx,
             transform: `scale(${MINIATURE_SCALE})`,
             transformOrigin: 'top left',
             pointerEvents: 'none',
           }}
         >
-          <div ref={measureRef}>
-            <BundleCard
-              title={bundle.title}
-              price={bundle.price}
-              slug={bundle.id}
-              courses={paid}
-              freeCourses={free}
-              bundleType={bundle.type}
-              freeCount={bundle.pickN ?? 0}
-              currency="грн"
-              priceLabel="ЦІНА ПАКЕТУ"
-              bundleLabel="ПАКЕТ"
-              saveLabel="Економія"
-              buyLabel="Купити пакет"
-              benefits={[
-                { icon: '📼', title: 'Навчання в записі' },
-                { icon: '💛', title: 'Підтримка кураторів' },
-                { icon: '📜', title: 'Сертифікат UIMP' },
-              ]}
-              layout="full"
-              miniature
-            />
-          </div>
+          <BundleCard
+            title={bundle.title}
+            price={bundle.price}
+            slug={bundle.id}
+            courses={paid}
+            freeCourses={free}
+            bundleType={bundle.type}
+            freeCount={bundle.pickN ?? 0}
+            currency="грн"
+            priceLabel="ЦІНА ПАКЕТУ"
+            bundleLabel="ПАКЕТ"
+            saveLabel="Економія"
+            buyLabel="Купити пакет"
+            benefits={[
+              { icon: '📼', title: 'Навчання в записі' },
+              { icon: '💛', title: 'Підтримка кураторів' },
+              { icon: '📜', title: 'Сертифікат UIMP' },
+            ]}
+            layout="full"
+            miniature
+            forcedHeight={model.heightPx}
+          />
         </div>
       </div>
     </div>

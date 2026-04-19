@@ -384,6 +384,8 @@ model Bundle {
   freeCount   Int            @default(0)
   /// Позиція у списку (менше = вище). Drag-and-drop reorder в адмінці.
   sortOrder   Int            @default(0)
+  /// Номер ряду на публічній /courses (bundles з однаковим rowGroup ідуть у тому ж ряду). null = ще не згруповано, fallback до pack-by-2.
+  rowGroup    Int?
   /// Режим відображення на публічній /courses: 'solo' — завжди один в ряду (за замовчуванням); 'auto' — групується з іншими тієї самої ширини.
   displayMode String         @default("solo")
   createdAt   DateTime       @default(now())

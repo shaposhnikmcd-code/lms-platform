@@ -77,6 +77,7 @@ export default async function AdminBundles() {
       suspendedAt: bundle.suspendedAt?.toISOString() ?? null,
       resumeAt: bundle.resumeAt?.toISOString() ?? null,
       displayMode: ((bundle as { displayMode?: string }).displayMode === 'solo' ? 'solo' : 'auto') as 'auto' | 'solo',
+      rowGroup: (bundle as { rowGroup?: number | null }).rowGroup ?? null,
       pickN: bundle.freeCount,
       courses: bundle.courses.map(bc => ({
         id: bc.id,

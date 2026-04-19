@@ -14,6 +14,7 @@ import BundleRowSync from "./_components/BundleRowSync";
 import prisma from "@/lib/prisma";
 import { COURSES_BY_SLUG } from "@/lib/coursesCatalog";
 import { getCoursePriceOverrides } from "@/lib/coursePrice";
+import { getBundleModelOrVirtual } from "@/lib/bundleModels";
 
 // ISR: 60s stale — після зміни ціни/пакету в адмінці публіка побачить нові дані
 // максимум через хвилину. Миттєве оновлення — через `revalidatePath` у admin-мутаціях.
@@ -182,55 +183,62 @@ export default async function CoursesPage({ params }: { params: Promise<{ locale
               const count = bundles.length;
               const layout = count === 1 ? 'full' as const : 'compact' as const;
 
-              // [TEMP] Експеримент — тимчасово знімаємо правило «кожен у своєму ряду».
-              // Усі пакети йдуть в один спільний bucket → buildRowSizes пакує їх по 2 в ряд
-              // у порядку з БД. Так адмін бачить наживо, які комбінації виглядають добре,
-              // і на основі цього фіналізує систему кольорів сусідства.
-              // Після завершення експерименту повернути перевірку displayMode.
-              const widthKey = (_b: typeof bundles[number]) => 'group';
-
-              const buckets = new Map<string, typeof bundles>();
-              for (const b of bundles) {
-                const k = widthKey(b);
-                if (!buckets.has(k)) buckets.set(k, [] as typeof bundles);
-                buckets.get(k)!.push(b);
-              }
-
-              // Порядок усередині bucket-у = порядок який прийшов з БД (вже відсортовано за sortOrder).
-              // Таким чином drag-and-drop в адмінці керує порядком відображення.
-
-              // Порядок bucket-ів: той чий перший пакет (за прийдним sortOrder) стоїть найраніше в списку — іде першим.
-              // Тобто drag-and-drop в адмінці керує не тільки позицією всередині групи, а й порядком самих груп.
-              const firstIndex = new Map<string, number>();
-              bundles.forEach((b, i) => {
-                const k = widthKey(b);
-                if (!firstIndex.has(k)) firstIndex.set(k, i);
-              });
-              const sortedKeys = Array.from(buckets.keys()).sort(
-                (a, b) => (firstIndex.get(a) ?? 0) - (firstIndex.get(b) ?? 0),
+              // Групування у ряди:
+              //  1) Якщо хоча б один бандл має rowGroup (не null) — source of truth з адмінки
+              //     (Row View builder → POST /api/admin/bundles/reorder зберігає rowGroup).
+              //     Бандли без rowGroup (щойно створені) додаємо кожен у свій ряд у кінець.
+              //  2) Інакше (усі null, міграція щойно застосована) — fallback pack-by-2 у DB порядку.
+              type BundleRow = typeof bundles[number];
+              const hasPersistedGroups = bundles.some(
+                (b) => (b as { rowGroup?: number | null }).rowGroup !== null
+                    && (b as { rowGroup?: number | null }).rowGroup !== undefined,
               );
 
-              // Правило: максимум 2 пакети в ряду. Для N пакетів — двійки, останній (якщо непарне) соло.
-              const buildRowSizes = (n: number): number[] => {
-                if (n <= 2) return [n];
-                const rows: number[] = [];
-                let rem = n;
-                while (rem >= 2) {
-                  rows.push(2);
-                  rem -= 2;
+              const rows: BundleRow[][] = [];
+              if (hasPersistedGroups) {
+                const byGroup = new Map<number, BundleRow[]>();
+                const ungrouped: BundleRow[] = [];
+                for (const b of bundles) {
+                  const rg = (b as { rowGroup?: number | null }).rowGroup;
+                  if (rg === null || rg === undefined) {
+                    ungrouped.push(b);
+                    continue;
+                  }
+                  const arr = byGroup.get(rg) ?? [];
+                  arr.push(b);
+                  byGroup.set(rg, arr);
                 }
-                if (rem > 0) rows.push(1);
-                return rows;
-              };
-
-              const rows: (typeof bundles)[] = [];
-              for (const key of sortedKeys) {
-                const group = buckets.get(key)!;
-                const sizes = buildRowSizes(group.length);
-                let offset = 0;
-                for (const size of sizes) {
-                  rows.push(group.slice(offset, offset + size));
-                  offset += size;
+                const sortedKeys = Array.from(byGroup.keys()).sort((a, b) => a - b);
+                for (const k of sortedKeys) rows.push(byGroup.get(k)!);
+                for (const b of ungrouped) rows.push([b]);
+              } else {
+                // Fallback у тому ж форматі, що й builder's buildInitialSlots:
+                // displayMode='solo' → завжди один у ряду; інакше пара якщо widthA+widthB ≤ 1500.
+                const ROW_WIDTH_LIMIT_NATIVE = 1500;
+                const modelFor = (b: BundleRow) => {
+                  const paid = b.courses.filter((c) => !c.isFree).length;
+                  const free = b.courses.filter((c) => c.isFree).length;
+                  const type = ((b as { type?: string }).type ?? 'DISCOUNT') as 'DISCOUNT' | 'FIXED_FREE' | 'CHOICE_FREE';
+                  const pickN = type === 'CHOICE_FREE' ? (b.freeCount || 1) : undefined;
+                  return getBundleModelOrVirtual({ type, paidCount: paid, freeCount: free, pickN });
+                };
+                let i = 0;
+                while (i < bundles.length) {
+                  const a = bundles[i];
+                  const aMode = (a as { displayMode?: string }).displayMode;
+                  if (aMode === 'solo') { rows.push([a]); i++; continue; }
+                  const b = bundles[i + 1];
+                  const bMode = b ? (b as { displayMode?: string }).displayMode : null;
+                  if (!b || bMode === 'solo') { rows.push([a]); i++; continue; }
+                  const mA = modelFor(a);
+                  const mB = modelFor(b);
+                  if (mA.widthPx + mB.widthPx <= ROW_WIDTH_LIMIT_NATIVE) {
+                    rows.push([a, b]);
+                    i += 2;
+                  } else {
+                    rows.push([a]);
+                    i++;
+                  }
                 }
               }
 

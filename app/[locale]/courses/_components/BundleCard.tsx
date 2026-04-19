@@ -287,20 +287,13 @@ export default function BundleCard({
   useEffect(() => {
     const root = rootRef.current;
     if (!root) return;
-    // У miniature autoTuner не запускається — він читає getBoundingClientRect
-    // (scaled через transform:scale parent) і думає що бандл вузький. Його манipуляції
-    // в scaled-контексті псують layout. Нам потрібен просто natural React/CSS рендер
-    // без tuner-adjustments для preview.
-    if (miniature) {
-      setTuned(true);
-      return;
-    }
     let raf = 0;
     const run = () => {
       autoTuneBundle(root);
       setTuned(true);
     };
     raf = requestAnimationFrame(run);
+    // Resize listener потрібен і для miniature (scale не змінюється але viewport може).
     const onResize = () => {
       if (raf) cancelAnimationFrame(raf);
       raf = requestAnimationFrame(() => autoTuneBundle(root));
@@ -334,12 +327,8 @@ export default function BundleCard({
         transition: 'box-shadow 0.4s ease, transform 0.4s ease, opacity 0.25s ease',
         transform: hovered ? 'translateY(-2px)' : 'translateY(0)',
         opacity: tuned ? 1 : 0,
-        // У miniature — не форсуємо висоту і не клипаємо. BundleCard flow natural,
-        // outer wrapper у BundleMiniature вимірює і підганяє scaled розмір.
-        height: miniature ? undefined : (forcedHeight ?? unifiedHeight),
-        overflow: miniature
-          ? undefined
-          : (forcedHeight !== undefined || unifiedHeight !== undefined ? 'hidden' : undefined),
+        height: forcedHeight ?? unifiedHeight,
+        overflow: forcedHeight !== undefined || unifiedHeight !== undefined ? 'hidden' : undefined,
       }}
     >
       <style dangerouslySetInnerHTML={{ __html: `
@@ -411,7 +400,13 @@ export default function BundleCard({
         </div>
 
         <h3 data-bundle-title style={{
-          fontFamily: sysFont, fontSize: layout === 'compact' ? 'clamp(18px, 2.2vw, 24px)' : 'clamp(20px, 2.5vw, 28px)', fontWeight: 700,
+          fontFamily: sysFont,
+          // У miniature фіксуємо title fontSize (не clamp) — viewport-based clamp у scaled контейнері
+          // поводиться непередбачувано і робить title на 1 рядок вище ніж на сайті.
+          fontSize: miniature
+            ? (layout === 'compact' ? 19 : 22)
+            : (layout === 'compact' ? 'clamp(18px, 2.2vw, 24px)' : 'clamp(20px, 2.5vw, 28px)'),
+          fontWeight: 700,
           color: '#1C3A2E', lineHeight: 1.2, margin: 0, letterSpacing: '-0.02em',
           paddingLeft: freeCourses.length === 4 && courses.length === 2 ? 'clamp(20px, 3%, 50px)' : 0,
           paddingRight: freeCourses.length === 4 && courses.length === 2 ? 'clamp(20px, 3%, 50px)' : 0,
@@ -647,7 +642,18 @@ export default function BundleCard({
             </div>
           </div>
           {freeCourses.length === 1 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2" style={{ gap: layout === 'compact' ? 8 : 14 }}>
+            <div
+              className="grid grid-cols-1 sm:grid-cols-2"
+              style={{
+                gap: layout === 'compact' ? 8 : 14,
+                // У miniature трохи зменшуємо пару (FreeMini + InlineCTA) пропорційно разом,
+                // щоб inline CTA не виглядав завеликим, і FreeMini поруч не розбіглась по розміру.
+                ...(miniature ? {
+                  transform: 'scale(0.92)',
+                  transformOrigin: 'top center',
+                } : {}),
+              }}
+            >
               <FreeCourseMini course={freeCourses[0]} currency={currency} layout={layout} benefits={benefits} equalPair />
               {renderInlineCtaCard()}
             </div>
@@ -799,14 +805,18 @@ export default function BundleCard({
         justifyContent: 'space-between',
         flexWrap: 'nowrap' as const,
         gap: layout === 'compact' ? 20 : 'clamp(28px, 4vw, 48px)',
-        width: miniature ? '100%' : 'max-content',
-        minWidth: miniature ? undefined : 510,
-        maxWidth: miniature ? '100%' : undefined,
+        width: 'max-content',
+        minWidth: 510,
         minHeight: 104,
         marginTop: 'auto',
         marginLeft: 'auto',
         marginRight: 'auto',
         marginBottom: 0,
+        // У miniature — візуально зменшуємо весь CTA пропорційно (minWidth/fontSize/padding усе разом).
+        ...(miniature ? {
+          transform: 'scale(0.82)',
+          transformOrigin: 'center bottom',
+        } : {}),
       }}>
         {/* Декор: blurred amber blobs + верхня hairline */}
         <span aria-hidden style={{
