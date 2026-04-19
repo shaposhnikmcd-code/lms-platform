@@ -3,7 +3,7 @@ import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import prisma from "@/lib/prisma";
 import Link from "next/link";
-import { FaBook, FaUsers, FaEnvelope } from "react-icons/fa";
+import { FaBook, FaUsers } from "react-icons/fa";
 
 export default async function TeacherDashboard() {
   const session = await getServerSession(authOptions);
@@ -32,10 +32,6 @@ export default async function TeacherDashboard() {
     (acc, ct) => acc + ct.course._count.enrollments, 0
   );
 
-  const unreadMessages = await prisma.message.count({
-    where: { receiverId: teacherId, read: false },
-  });
-
   return (
     <div className="max-w-5xl mx-auto">
       <h1 className="text-3xl font-bold text-[#1C3A2E] mb-2">
@@ -45,7 +41,7 @@ export default async function TeacherDashboard() {
         {"Ласкаво просимо, "}{session.user.name || session.user.email}
       </p>
 
-      <div className="grid grid-cols-3 gap-6 mb-8">
+      <div className="grid grid-cols-2 gap-6 mb-8">
         <div className="bg-white rounded-xl shadow-sm p-6">
           <div className="w-12 h-12 bg-green-50 rounded-full flex items-center justify-center mb-4">
             <FaBook className="text-green-600 text-xl" />
@@ -59,13 +55,6 @@ export default async function TeacherDashboard() {
           </div>
           <div className="text-2xl font-bold text-[#1C3A2E] mb-1">{totalStudents}</div>
           <div className="text-sm text-gray-500">{"Студентів"}</div>
-        </div>
-        <div className="bg-white rounded-xl shadow-sm p-6">
-          <div className="w-12 h-12 bg-yellow-50 rounded-full flex items-center justify-center mb-4">
-            <FaEnvelope className="text-yellow-600 text-xl" />
-          </div>
-          <div className="text-2xl font-bold text-[#1C3A2E] mb-1">{unreadMessages}</div>
-          <div className="text-sm text-gray-500">{"Нових повідомлень"}</div>
         </div>
       </div>
 
@@ -89,12 +78,6 @@ export default async function TeacherDashboard() {
                     className="flex items-center gap-1 px-3 py-1.5 bg-[#1C3A2E] text-white text-xs rounded-lg hover:bg-[#1C3A2E]/80 transition-colors"
                   >
                     <FaUsers className="text-xs" /> {"Студенти"}
-                  </Link>
-                  <Link
-                    href={`/dashboard/teacher/messages`}
-                    className="flex items-center gap-1 px-3 py-1.5 bg-[#D4A843] text-white text-xs rounded-lg hover:bg-[#D4A843]/80 transition-colors"
-                  >
-                    <FaEnvelope className="text-xs" /> {"Повідомлення"}
                   </Link>
                 </div>
               </div>

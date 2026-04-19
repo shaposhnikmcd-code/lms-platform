@@ -29,8 +29,6 @@ model User {
   subscriptions              Subscription[]
   yearlyProgramSubscriptions YearlyProgramSubscription[]
   courseTeachers             CourseTeacher[]
-  sentMessages               Message[]                   @relation("SentMessages")
-  receivedMessages           Message[]                   @relation("ReceivedMessages")
   news                       News[]
   deletedAt                  DateTime?
   deletedById                String?
@@ -103,22 +101,6 @@ model CourseTeacher {
 
   @@unique([courseId, userId])
   @@index([userId])
-}
-
-model Message {
-  id         String   @id @default(cuid())
-  senderId   String
-  receiverId String
-  courseId   String?
-  text       String
-  read       Boolean  @default(false)
-  createdAt  DateTime @default(now())
-  sender     User     @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
-  receiver   User     @relation("ReceivedMessages", fields: [receiverId], references: [id], onDelete: Cascade)
-
-  @@index([senderId])
-  @@index([receiverId])
-  @@index([receiverId, read])
 }
 
 model Module {

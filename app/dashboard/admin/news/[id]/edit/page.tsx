@@ -1,9 +1,19 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import { useRouter, useParams } from "next/navigation";
-import NewsEditor from "../../_components/editor/NewsEditor";
 import { NewsMeta } from "../../_components/editor/types";
+
+// Lazy-load Tiptap editor (~200KB) — skeleton while chunk loads.
+const NewsEditor = dynamic(() => import("../../_components/editor/NewsEditor"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex items-center justify-center h-64">
+      <div className="w-8 h-8 border-2 border-[#D4A843] border-t-transparent rounded-full animate-spin" />
+    </div>
+  ),
+});
 
 export default function EditNewsPage() {
   const router = useRouter();

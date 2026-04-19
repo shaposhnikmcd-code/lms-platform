@@ -84,7 +84,6 @@ export default async function TeacherCourseStudents({
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">{"Прогрес"}</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">{"Уроків переглянуто"}</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">{"Статус"}</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">{"Написати"}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
@@ -142,14 +141,6 @@ export default async function TeacherCourseStudents({
                           {"⏳ Не почав"}
                         </span>
                       )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <Link
-                        href={`/dashboard/teacher/messages?studentId=${enrollment.user.id}`}
-                        className="inline-flex items-center gap-1 px-3 py-1.5 bg-[#D4A843] text-white text-xs rounded-lg hover:bg-[#D4A843]/80 transition-colors"
-                      >
-                        {"✉️ Написати"}
-                      </Link>
                     </td>
                   </tr>
                 );

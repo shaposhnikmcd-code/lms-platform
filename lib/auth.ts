@@ -5,6 +5,7 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import type { NextAuthOptions } from "next-auth";
 import bcrypt from "bcryptjs";
 import prisma from "@/lib/prisma";
+import { checkRateLimitRaw } from "@/lib/ratelimit";
 
 const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || "").split(",").map(e => e.trim()).filter(Boolean);
 
@@ -72,6 +73,17 @@ export const authOptions: NextAuthOptions = {
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null;
+
+        // Rate limit за email — обмежує брутфорс паролів на конкретний акаунт.
+        // IP-based ліміт тут зробити складно (NextAuth не передає req у authorize),
+        // але email-based + стандартний NextAuth CSRF + NEXTAUTH_SECRET дають
+        // достатній захист.
+        const normalizedEmail = credentials.email.toLowerCase().trim();
+        const { success } = await checkRateLimitRaw('login', `email:${normalizedEmail}`);
+        if (!success) {
+          console.warn('🚫 Login rate limit exceeded for:', normalizedEmail);
+          return null;
+        }
 
         try {
           const user = await prisma.user.findUnique({ where: { email: credentials.email } });

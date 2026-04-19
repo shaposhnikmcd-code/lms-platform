@@ -1,7 +1,7 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import Link from "next/link";
-import { FaBook, FaCertificate, FaCreditCard, FaCog, FaEnvelope, FaRegCalendarCheck } from "react-icons/fa";
+import { FaBook, FaCertificate, FaCreditCard, FaCog, FaRegCalendarCheck } from "react-icons/fa";
 import prisma from "@/lib/prisma";
 
 export default async function StudentDashboard() {
@@ -118,12 +118,6 @@ export default async function StudentDashboard() {
           className="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition text-center">
           <FaCog className="text-3xl text-[#1C3A2E] mx-auto mb-2" />
           <span className="font-medium">Налаштування</span>
-        </Link>
-
-        <Link href="/dashboard/student/messages"
-          className="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition text-center">
-          <FaEnvelope className="text-3xl text-[#1C3A2E] mx-auto mb-2" />
-          <span className="font-medium">Повідомлення</span>
         </Link>
       </div>
     </div>
