@@ -94,6 +94,11 @@ async function handleCancel(sub: NonNullable<SubWithUser>, actor: string, reason
       cancelledAt: new Date(),
       cancelledBy: actor,
       cancelledReason: reason ?? null,
+      // Очищуємо recToken незалежно від того, вдалось зняти WFP-регулярку чи ні.
+      // Якщо WFP remove впав — наступний autocharge callback не зможе знайти sub через
+      // recToken-binding (callback перевіряє where.recToken), тобто автосписання не продовжиться
+      // навіть при reopen_access.
+      recToken: null,
     },
   });
 

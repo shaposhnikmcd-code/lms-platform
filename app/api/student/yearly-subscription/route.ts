@@ -115,6 +115,9 @@ export async function POST(req: NextRequest) {
       cancelledAt: new Date(),
       cancelledBy: 'user',
       cancelledReason: 'Self-service cancel from /dashboard/student/subscription',
+      // Очищуємо recToken — якщо WFP remove впав, callback на подальше автосписання
+      // не знайде підписку через recToken-binding і не продовжить expiresAt.
+      recToken: null,
     },
   });
 
