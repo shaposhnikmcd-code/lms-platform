@@ -4,6 +4,7 @@ import { isAdmin, getAdminActor } from '@/lib/adminAuth';
 import { closeAccessInCourse, lookupStudentIdByEmail, openAccessViaEvent } from '@/lib/sendpulse';
 import { removeRegularSchedule } from '@/lib/wayforpay';
 import { YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
+import { YEARLY_PROGRAM } from '@/app/[locale]/yearly-program/config';
 
 /// Admin actions над конкретною підпискою Річної програми.
 /// Body: { action: "cancel" | "close_access" | "reopen_access" | "extend" | "delete",
@@ -165,11 +166,17 @@ async function handleReopenAccess(sub: NonNullable<SubWithUser>, actor: string) 
     return NextResponse.json({ error: 'У користувача немає email' }, { status: 400 });
   }
 
+  // Передаємо реальну суму плану — щоб у CRM SendPulse запис мав коректну ціну
+  // (а не 0 ₴ після ручного reopen). YEARLY = 15000, MONTHLY = 2200.
+  const planPrice = sub.plan === 'YEARLY'
+    ? Number(YEARLY_PROGRAM.price)
+    : Number(YEARLY_PROGRAM.monthlyPrice);
+
   try {
     await openAccessViaEvent(
       sub.user.email,
       YEARLY_PROGRAM_CONFIG.sendpulseEventSlug,
-      0, // символічна сума для event (це не платіж)
+      planPrice,
     );
   } catch (e) {
     return NextResponse.json({ error: `SendPulse event: ${(e as Error).message}` }, { status: 500 });
