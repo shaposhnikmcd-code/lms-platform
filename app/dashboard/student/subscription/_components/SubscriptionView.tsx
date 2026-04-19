@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 type Plan = 'YEARLY' | 'MONTHLY';
-type SubStatus = 'PENDING' | 'ACTIVE' | 'GRACE' | 'EXPIRED' | 'CANCELLED';
+type SubStatus = 'PENDING' | 'ACTIVE' | 'GRACE' | 'EXPIRED' | 'CANCELLED' | 'ARCHIVED';
 
 interface Data {
   id: string;
@@ -33,6 +33,7 @@ const STATUS_LABELS: Record<SubStatus, { label: string; className: string }> = {
   EXPIRED:   { label: 'Завершилась', className: 'bg-rose-100 text-rose-800 border-rose-300/60' },
   CANCELLED: { label: 'Скасована',   className: 'bg-stone-200 text-stone-700 border-stone-300/60' },
   PENDING:   { label: 'Очікує',      className: 'bg-stone-100 text-stone-600 border-stone-300/60' },
+  ARCHIVED:  { label: 'Архів',       className: 'bg-zinc-200 text-zinc-700 border-zinc-300/60' },
 };
 
 export default function SubscriptionView({ data }: { data: Data }) {
