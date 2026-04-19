@@ -53,15 +53,39 @@ export default async function PaymentLogsPage({
     : [];
   const nameByEmail = new Map(users.map((u) => [u.email, u.name]));
 
+  // Для monthly-логів підтягуємо autoRenew з підписки через orderReference → Payment → sub.
+  // Використовуємо щоб відобразити «Місячна Автоплатіж» vs «Місячна на 1 міс.» у бейджі.
+  const monthlyOrderRefs = Array.from(
+    new Set(
+      logs
+        .filter((l) => l.kind === 'monthly' && l.orderReference)
+        .map((l) => l.orderReference as string),
+    ),
+  );
+  const monthlyPayments = monthlyOrderRefs.length
+    ? await prisma.payment.findMany({
+        where: { orderReference: { in: monthlyOrderRefs } },
+        select: {
+          orderReference: true,
+          yearlyProgramSubscription: { select: { autoRenew: true } },
+        },
+      })
+    : [];
+  const autoRenewByOrderRef = new Map(
+    monthlyPayments
+      .filter((p) => p.yearlyProgramSubscription)
+      .map((p) => [p.orderReference, p.yearlyProgramSubscription!.autoRenew]),
+  );
+
   const data: PaymentLogsData = {
     logs: logs.map((l) => ({
       id: l.id,
       createdAt: l.createdAt.toISOString(),
       kind: l.kind,
+      autoRenew: l.orderReference ? autoRenewByOrderRef.get(l.orderReference) ?? null : null,
       transactionStatus: l.transactionStatus,
       signatureValid: l.signatureValid,
       skipped: l.skipped,
-      prevStatus: l.prevStatus,
       amount: l.amount,
       currency: l.currency,
       clientName: l.clientEmail ? nameByEmail.get(l.clientEmail) ?? null : null,

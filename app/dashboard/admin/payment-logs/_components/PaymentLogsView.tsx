@@ -16,10 +16,12 @@ export interface LogRow {
   id: string;
   createdAt: string; // ISO
   kind: string;
+  /// Для kind === 'monthly': true — підписка з автосписанням, false — разова на 1 міс.,
+  /// null — не знайшли відповідний Payment (легасі/orphan запис).
+  autoRenew: boolean | null;
   transactionStatus: string | null;
   signatureValid: boolean | null;
   skipped: boolean;
-  prevStatus: string | null;
   amount: number | null;
   currency: string | null;
   clientName: string | null;
@@ -144,12 +146,6 @@ export default function PaymentLogsView({ data }: { data: PaymentLogsData }) {
                 <Th theme={theme}>Клієнт</Th>
                 <Th theme={theme}>Тип</Th>
                 <Th theme={theme}>Статус</Th>
-                <Th
-                  theme={theme}
-                  title="Статус платежу в БД ДО приходу цього webhook. PENDING — платіж щойно створено і ще чекав підтвердження. Після Approved-callback стає PAID. Це нормальний шлях успішної оплати."
-                >
-                  До обробки
-                </Th>
                 <Th theme={theme}>Сума</Th>
                 <Th theme={theme}>IP</Th>
                 <Th theme={theme}>Дії</Th>
@@ -160,7 +156,7 @@ export default function PaymentLogsView({ data }: { data: PaymentLogsData }) {
             <tbody className={dark ? 'divide-y divide-white/[0.04]' : 'divide-y divide-stone-200/60'}>
               {data.logs.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className={`px-4 py-14 text-center text-sm ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+                  <td colSpan={9} className={`px-4 py-14 text-center text-sm ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
                     Логів немає
                   </td>
                 </tr>
@@ -190,7 +186,7 @@ export default function PaymentLogsView({ data }: { data: PaymentLogsData }) {
                         )}
                       </td>
                       <td className="px-4 py-2.5">
-                        <KindBadge theme={theme} kind={log.kind} />
+                        <KindBadge theme={theme} kind={log.kind} autoRenew={log.autoRenew} />
                       </td>
                       <td className="px-4 py-2.5">
                         <StatusBadge
@@ -199,9 +195,6 @@ export default function PaymentLogsView({ data }: { data: PaymentLogsData }) {
                           signatureValid={log.signatureValid}
                           skipped={log.skipped}
                         />
-                      </td>
-                      <td className={`px-4 py-2.5 text-[11px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
-                        {log.prevStatus ?? '—'}
                       </td>
                       <td className={`px-4 py-2.5 text-[12px] tabular-nums whitespace-nowrap ${dark ? 'text-slate-300' : 'text-stone-700'}`}>
                         {log.amount != null ? `${log.amount} ${log.currency ?? 'UAH'}` : '—'}
@@ -307,13 +300,23 @@ function Th({ children, theme, title }: { children: React.ReactNode; theme: Them
   );
 }
 
-function KindBadge({ kind, theme }: { kind: string; theme: Theme }) {
+function KindBadge({ kind, autoRenew, theme }: { kind: string; autoRenew?: boolean | null; theme: Theme }) {
   const dark = theme === 'dark';
+  const effectiveKind =
+    kind === 'monthly'
+      ? autoRenew === true
+        ? 'monthly_auto'
+        : autoRenew === false
+          ? 'monthly_once'
+          : 'monthly'
+      : kind;
   const map: Record<string, { label: string; dark: string; light: string }> = {
-    course:    { label: 'Курс',      dark: 'bg-sky-500/15 text-sky-300 border-sky-500/20',              light: 'bg-sky-500/10 text-sky-800 border-sky-500/25' },
-    bundle:    { label: 'Пакет',     dark: 'bg-violet-500/15 text-violet-300 border-violet-500/20',    light: 'bg-violet-500/10 text-violet-800 border-violet-500/25' },
-    yearly:    { label: 'Річна',     dark: 'bg-amber-500/15 text-amber-300 border-amber-500/20',        light: 'bg-amber-500/10 text-amber-800 border-amber-500/25' },
-    monthly:   { label: 'Місячна',   dark: 'bg-indigo-500/15 text-indigo-300 border-indigo-500/20',    light: 'bg-indigo-500/10 text-indigo-800 border-indigo-500/25' },
+    course:        { label: 'Курс',                  dark: 'bg-sky-500/15 text-sky-300 border-sky-500/20',              light: 'bg-sky-500/10 text-sky-800 border-sky-500/25' },
+    bundle:        { label: 'Пакет',                 dark: 'bg-violet-500/15 text-violet-300 border-violet-500/20',    light: 'bg-violet-500/10 text-violet-800 border-violet-500/25' },
+    yearly:        { label: 'Річна',                 dark: 'bg-amber-500/15 text-amber-300 border-amber-500/20',        light: 'bg-amber-500/10 text-amber-800 border-amber-500/25' },
+    monthly_auto:  { label: 'Місячна Автоплатіж',    dark: 'bg-indigo-500/15 text-indigo-300 border-indigo-500/20',    light: 'bg-indigo-500/10 text-indigo-800 border-indigo-500/25' },
+    monthly_once:  { label: 'Місячна на 1 міс.',     dark: 'bg-sky-500/15 text-sky-300 border-sky-500/20',              light: 'bg-sky-500/10 text-sky-800 border-sky-500/25' },
+    monthly:       { label: 'Місячна',               dark: 'bg-indigo-500/15 text-indigo-300 border-indigo-500/20',    light: 'bg-indigo-500/10 text-indigo-800 border-indigo-500/25' },
     connector: { label: 'Коннектор', dark: 'bg-orange-500/15 text-orange-300 border-orange-500/20',    light: 'bg-orange-500/10 text-orange-800 border-orange-500/25' },
     unknown:   { label: '?',         dark: 'bg-slate-500/20 text-slate-400 border-slate-500/20',       light: 'bg-stone-200/70 text-stone-600 border-stone-300/70' },
   };

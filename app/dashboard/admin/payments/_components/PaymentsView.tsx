@@ -342,9 +342,17 @@ function ProductCell({ row, theme }: { row: Row; theme: Theme }) {
     );
   }
   if (row.source === 'yearly') {
+    // Уніфіковані кольори з /admin/yearly-program PlanBadge і /admin/payment-logs KindBadge:
+    // Річна = amber, Місячна Автоплатіж = indigo, Місячна на 1 міс. = sky.
+    const yearlyTone =
+      row.productLabel === 'Місячна Автоплатіж'
+        ? { dark: 'bg-indigo-500/10 text-indigo-300 border-indigo-500/20', light: 'bg-indigo-500/10 text-indigo-800 border-indigo-500/25' }
+        : row.productLabel === 'Місячна на 1 міс.'
+          ? { dark: 'bg-sky-500/10 text-sky-300 border-sky-500/20', light: 'bg-sky-500/10 text-sky-800 border-sky-500/25' }
+          : { dark: 'bg-amber-500/10 text-amber-300 border-amber-500/20', light: 'bg-amber-500/10 text-amber-800 border-amber-500/25' };
     return (
       <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium border ${
-        dark ? 'bg-amber-500/10 text-amber-300 border-amber-500/20' : 'bg-amber-500/10 text-amber-800 border-amber-500/25'
+        dark ? yearlyTone.dark : yearlyTone.light
       }`}>
         🎓 <span>{row.productLabel}</span>
       </span>
