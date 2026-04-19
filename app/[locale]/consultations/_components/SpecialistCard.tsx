@@ -47,6 +47,7 @@ interface Labels {
 interface Props {
   s: Specialist;
   labels: Labels;
+  priority?: boolean;
 }
 
 function SectionHeader({ title }: { title: string }) {
@@ -68,7 +69,7 @@ function SectionHeader({ title }: { title: string }) {
   );
 }
 
-export default function SpecialistCard({ s, labels }: Props) {
+export default function SpecialistCard({ s, labels, priority = false }: Props) {
   const hasNewFormat = !!s.education;
 
   return (
@@ -91,9 +92,10 @@ export default function SpecialistCard({ s, labels }: Props) {
                 sizes="(max-width: 1024px) 100vw, 22vw"
                 className="object-cover"
                 style={{ objectPosition: s.imagePosition ?? 'center top' }}
-                priority
-                quality={100}
-                unoptimized
+                priority={priority}
+                quality={priority ? 100 : 85}
+                unoptimized={priority}
+                loading={priority ? undefined : 'lazy'}
               />
             ) : (
               <div className="absolute inset-0 bg-gradient-to-br from-[#1C3A2E] to-[#0f2219] flex items-center justify-center">
