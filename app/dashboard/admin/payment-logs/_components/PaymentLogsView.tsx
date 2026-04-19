@@ -25,6 +25,7 @@ export interface LogRow {
   clientEmail: string | null;
   ip: string | null;
   actionsTaken: string | null;
+  skipReason: string | null;
   sendpulseSlugs: string | null;
   orderReference: string | null;
 }
@@ -190,8 +191,17 @@ export default function PaymentLogsView({ data }: { data: PaymentLogsData }) {
                         {log.ip ?? '—'}
                       </td>
                       <td className={`px-4 py-2.5 text-[11px] max-w-[280px] ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
-                        {log.actionsTaken ? (
-                          <span className="font-mono text-[10px] break-all">{log.actionsTaken}</span>
+                        {log.actionsTaken || log.skipReason ? (
+                          <div className="flex flex-col gap-1">
+                            {log.skipReason && (
+                              <span className={`font-mono text-[10px] font-semibold ${dark ? 'text-amber-300' : 'text-amber-700'}`}>
+                                skip:{log.skipReason}
+                              </span>
+                            )}
+                            {log.actionsTaken && (
+                              <span className="font-mono text-[10px] break-all">{log.actionsTaken}</span>
+                            )}
+                          </div>
                         ) : (
                           <span className={dark ? 'text-slate-600' : 'text-stone-400'}>—</span>
                         )}

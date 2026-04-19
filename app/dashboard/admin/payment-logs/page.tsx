@@ -56,6 +56,7 @@ export default async function PaymentLogsPage({
       clientEmail: l.clientEmail,
       ip: l.ip,
       actionsTaken: l.actionsTaken,
+      skipReason: l.skipReason,
       sendpulseSlugs: l.sendpulseSlugs,
       orderReference: l.orderReference,
     })),

@@ -147,61 +147,69 @@ export async function POST(req: NextRequest) {
         } else {
           prevStatus = payment.status;
 
-          // Claim-then-act (Bug #2 fix): атомарно переводимо PENDING → PAID. Якщо count=0,
-          // значить інший callback вже відпрацював — skip enrollment/SendPulse, щоб уникнути
-          // подвійної відправки SendPulse event.
-          const claim = await prisma.payment.updateMany({
-            where: { orderReference: orderReference!, status: { not: 'PAID' } },
-            data: { status: 'PAID', paidAt: new Date() },
-          });
+          // Atomic: claim-then-act flip PAID + enrollment creation в одній транзакції.
+          // Захист від: (1) подвійного flip'у якщо 2 колбеки паралельно, (2) partial state
+          // коли Payment стає PAID але enrollment не створено — WFP retry побачить already_paid
+          // і не зможе додати enrollment. Rollback при падінні будь-якого кроку.
+          type CourseBundleFlipResult =
+            | { kind: 'already_paid' }
+            | { kind: 'ok'; courseSlugs: string[]; bundleActions: string[] };
 
-          if (claim.count === 0) {
-            skipped = true;
-            skipReason = 'already_paid';
-            actions.push('skip:already_paid');
-            console.log('ℹ️ Payment уже PAID (claim lost), пропускаю:', orderReference);
-          } else {
-            actions.push('payment:updated');
+          const flipResult = await prisma.$transaction(async (tx): Promise<CourseBundleFlipResult> => {
+            const claim = await tx.payment.updateMany({
+              where: { orderReference: orderReference!, status: { not: 'PAID' } },
+              data: { status: 'PAID', paidAt: new Date() },
+            });
+            if (claim.count === 0) {
+              return { kind: 'already_paid' };
+            }
 
-            const user = await prisma.user.findUnique({ where: { id: payment.userId } });
-            const sendpulseEventUrl = process.env.SENDPULSE_EVENT_URL;
-
-            let courseSlugs: string[] = [];
+            const bundleActions: string[] = [];
+            let slugs: string[] = [];
             if (payment.bundleId) {
-              const bundle = await prisma.bundle.findUnique({
+              const bundle = await tx.bundle.findUnique({
                 where: { id: payment.bundleId },
                 include: { courses: true },
               });
               if (bundle) {
                 const paidSlugs = bundle.courses.filter((c) => !c.isFree).map((c) => c.courseSlug);
                 if (bundle.type === 'CHOICE_FREE') {
-                  // Клієнт обирав з пулу — використовуємо збережені freeSlugs
-                  courseSlugs = [...paidSlugs, ...(payment.freeSlugs ?? [])];
+                  slugs = [...paidSlugs, ...(payment.freeSlugs ?? [])];
                 } else {
-                  // DISCOUNT: всі (isFree=false). FIXED_FREE: платні + всі фіксовані безкоштовні
                   const freeSlugs = bundle.courses.filter((c) => c.isFree).map((c) => c.courseSlug);
-                  courseSlugs = [...paidSlugs, ...freeSlugs];
+                  slugs = [...paidSlugs, ...freeSlugs];
                 }
-                // Dedupe (Bug #15): якщо той самий courseSlug у paid і free — не шлемо двічі SendPulse.
-                courseSlugs = [...new Set(courseSlugs)];
-                actions.push(`bundle:${bundle.type}(${bundle.courses.length})`);
+                slugs = [...new Set(slugs)];
+                bundleActions.push(`bundle:${bundle.type}(${bundle.courses.length})`);
               }
             } else if (payment.courseId) {
-              courseSlugs = [payment.courseId];
+              slugs = [payment.courseId];
             }
 
-            for (const slug of courseSlugs) {
-              try {
-                await prisma.enrollment.upsert({
-                  where: { userId_courseId: { userId: payment.userId, courseId: slug } },
-                  create: { userId: payment.userId, courseId: slug },
-                  update: {},
-                });
-                actions.push(`enrollment:${slug}`);
-              } catch {
-                actions.push(`enrollment-skip:${slug}`);
-              }
+            for (const slug of slugs) {
+              await tx.enrollment.upsert({
+                where: { userId_courseId: { userId: payment.userId, courseId: slug } },
+                create: { userId: payment.userId, courseId: slug },
+                update: {},
+              });
+              bundleActions.push(`enrollment:${slug}`);
             }
+
+            return { kind: 'ok', courseSlugs: slugs, bundleActions };
+          });
+
+          if (flipResult.kind === 'already_paid') {
+            skipped = true;
+            skipReason = 'already_paid';
+            actions.push('skip:already_paid');
+            console.log('ℹ️ Payment уже PAID (claim lost), пропускаю:', orderReference);
+          } else {
+            actions.push('payment:updated');
+            actions.push(...flipResult.bundleActions);
+
+            const user = await prisma.user.findUnique({ where: { id: payment.userId } });
+            const sendpulseEventUrl = process.env.SENDPULSE_EVENT_URL;
+            const courseSlugs = flipResult.courseSlugs;
 
             if (user?.email && sendpulseEventUrl) {
               for (const slug of courseSlugs) {
@@ -398,6 +406,14 @@ interface YearlyResult {
 /// — Перший платіж: Payment із orderReference знайдений у БД → PAID, активуємо підписку.
 /// — Наступний регулярний (WFP автосписання): Payment не знайдений, шукаємо підписку по email
 ///   користувача → створюємо новий Payment, продовжуємо expiresAt.
+///
+/// Atomicity guarantees (100% no double-charge, no partial state):
+/// 1. Recurring Payment creation: Serializable $transaction (sub lookup + cap check + create)
+///    захищає від гонки двох паралельних recurring-колбеків з різними orderRef на одну sub.
+/// 2. Payment flip PAID + subscription extend + renewal event: один $transaction.
+///    Якщо будь-який з кроків падає — rollback, Payment лишається PENDING, WFP retry відпрацює.
+/// 3. Payment.orderReference UNIQUE (БД) — захист від дубля Payment для того самого orderRef.
+/// 4. Claim-then-act `updateMany where status != PAID` — захист від подвійного flip паралельними колбеками.
 async function handleYearlyProgramCallback(args: {
   orderReference: string;
   kind: 'yearly' | 'monthly';
@@ -424,8 +440,9 @@ async function handleYearlyProgramCallback(args: {
   let isRecurring = false;
 
   if (!payment) {
-    // 2) Це, найімовірніше, WFP авто-списання по регулярному платежу. orderReference новий.
-    //    Шукаємо активну MONTHLY підписку по email клієнта.
+    // 2) Це WFP авто-списання по регулярному платежу. orderReference новий.
+    //    Валідуємо kind/email/recToken, потім атомарно створюємо Payment у Serializable tx
+    //    (щоб два одночасних recurring-колбеки з різними orderRef не подвоїли списання).
     if (args.kind !== 'monthly' || !clientEmail) {
       return {
         prevStatus: null,
@@ -460,66 +477,92 @@ async function handleYearlyProgramCallback(args: {
         sendpulseSlugs,
       };
     }
-    const sub = await prisma.yearlyProgramSubscription.findFirst({
-      where: {
-        userId: user.id,
-        plan: 'MONTHLY',
-        status: { in: ['ACTIVE', 'GRACE'] },
-        recToken,
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-    if (!sub) {
+
+    type RecurringCreateResult =
+      | { kind: 'ok'; payment: NonNullable<typeof existingPayment> }
+      | { kind: 'error'; skipReason: string; errorMsg: string };
+
+    let createResult: RecurringCreateResult;
+    try {
+      createResult = await prisma.$transaction(async (tx) => {
+        const sub = await tx.yearlyProgramSubscription.findFirst({
+          where: {
+            userId: user.id,
+            plan: 'MONTHLY',
+            status: { in: ['ACTIVE', 'GRACE'] },
+            recToken,
+          },
+          orderBy: { createdAt: 'desc' },
+        });
+        if (!sub) {
+          return {
+            kind: 'error',
+            skipReason: 'subscription_not_found',
+            errorMsg: `No active MONTHLY subscription matching email+recToken`,
+          } as RecurringCreateResult;
+        }
+        const expectedAmount = Number(YEARLY_PROGRAM.monthlyPrice);
+        if (Number.isFinite(expectedAmount) && Math.abs(amountInt - expectedAmount) > 1) {
+          return {
+            kind: 'error',
+            skipReason: 'amount_mismatch',
+            errorMsg: `Recurring charge amount ${amountInt} ≠ expected ${expectedAmount}`,
+          } as RecurringCreateResult;
+        }
+        const paidCount = await tx.payment.count({
+          where: { yearlyProgramSubscriptionId: sub.id, status: 'PAID' },
+        });
+        if (paidCount >= YEARLY_PROGRAM_CONFIG.totalMonthlyPayments) {
+          return {
+            kind: 'error',
+            skipReason: 'monthly_cap_reached',
+            errorMsg: `MONTHLY already has ${paidCount} paid (cap ${YEARLY_PROGRAM_CONFIG.totalMonthlyPayments})`,
+          } as RecurringCreateResult;
+        }
+        const created = await tx.payment.create({
+          data: {
+            userId: user.id,
+            courseId: null,
+            bundleId: null,
+            orderReference: args.orderReference,
+            amount: amountInt || 0,
+            status: 'PENDING',
+            yearlyProgramSubscriptionId: sub.id,
+          },
+          include: { user: true },
+        });
+        return { kind: 'ok', payment: created } as RecurringCreateResult;
+      }, { isolationLevel: 'Serializable' });
+    } catch (e) {
+      // UNIQUE constraint violation на orderReference: паралельний колбек встиг створити
+      // Payment першим. Перечитуємо і продовжуємо у звичайному флоу — claim-then-act нижче
+      // обробить подвійний flip коректно.
+      const retry = await prisma.payment.findUnique({
+        where: { orderReference: args.orderReference },
+        include: { user: true },
+      });
+      if (!retry) throw e;
+      payment = retry;
+      isRecurring = true;
+      actions.push('yearly:recurring_race_recovered');
+      createResult = { kind: 'ok', payment: retry };
+    }
+
+    if (createResult.kind === 'error') {
       return {
         prevStatus: null,
         skipped: true,
-        skipReason: 'subscription_not_found',
-        errorMsg: `No active MONTHLY subscription matching email+recToken`,
+        skipReason: createResult.skipReason,
+        errorMsg: createResult.errorMsg,
         actions,
         sendpulseSlugs,
       };
     }
-    // Перевірка суми — має відповідати config.monthlyPrice (допустимий дрейф ±1 ₴).
-    const expectedAmount = Number(YEARLY_PROGRAM.monthlyPrice);
-    if (Number.isFinite(expectedAmount) && Math.abs(amountInt - expectedAmount) > 1) {
-      return {
-        prevStatus: null,
-        skipped: true,
-        skipReason: 'amount_mismatch',
-        errorMsg: `Recurring charge amount ${amountInt} ≠ expected ${expectedAmount}`,
-        actions,
-        sendpulseSlugs,
-      };
+    if (!payment) {
+      payment = createResult.payment;
+      isRecurring = true;
+      actions.push('yearly:recurring_payment_created');
     }
-    // Перевірка 9-платіжного cap (Bug #4): якщо вже є N PAID платежів — відмовляємо.
-    const paidCount = await prisma.payment.count({
-      where: { yearlyProgramSubscriptionId: sub.id, status: 'PAID' },
-    });
-    if (paidCount >= YEARLY_PROGRAM_CONFIG.totalMonthlyPayments) {
-      return {
-        prevStatus: null,
-        skipped: true,
-        skipReason: 'monthly_cap_reached',
-        errorMsg: `MONTHLY already has ${paidCount} paid (cap ${YEARLY_PROGRAM_CONFIG.totalMonthlyPayments})`,
-        actions,
-        sendpulseSlugs,
-      };
-    }
-    // Створюємо Payment для цього автосписання і лінкуємо з підпискою.
-    payment = await prisma.payment.create({
-      data: {
-        userId: user.id,
-        courseId: null,
-        bundleId: null,
-        orderReference: args.orderReference,
-        amount: amountInt || 0,
-        status: 'PENDING',
-        yearlyProgramSubscriptionId: sub.id,
-      },
-      include: { user: true },
-    });
-    isRecurring = true;
-    actions.push('yearly:recurring_payment_created');
   } else {
     // Перший платіж: Payment знайдений. Перевіряємо, що підписка ще не CANCELLED/EXPIRED
     // (Bug #6) — callback для такої підписки не має продовжувати доступ.
@@ -571,13 +614,84 @@ async function handleYearlyProgramCallback(args: {
     };
   }
 
-  // Claim-then-act: атомарний flip PAID. Якщо інший callback вже позначив PAID — skip
-  // щоб не продовжити expiresAt двічі (Bug #1 fix).
-  const claim = await prisma.payment.updateMany({
-    where: { id: payment.id, status: { not: 'PAID' } },
-    data: { status: 'PAID', paidAt: new Date() },
-  });
-  if (claim.count === 0) {
+  // Atomic: flip Payment → PAID + extend subscription + create renewal event.
+  // Якщо будь-який крок падає — rollback. Payment лишається PENDING, WFP retry відпрацює знову.
+  // Гарантує: неможливо мати PAID Payment без відповідного extend-у sub.expiresAt.
+  type FlipResult =
+    | { kind: 'already_paid' }
+    | { kind: 'sub_missing' }
+    | { kind: 'ok'; sub: NonNullable<Awaited<ReturnType<typeof prisma.yearlyProgramSubscription.findUnique>>>; newExpiresAt: Date; durationDays: number; wasFirstPayment: boolean };
+
+  const SUB_MISSING_SENTINEL = '__SUB_MISSING_ROLLBACK__';
+  let flipResult: FlipResult;
+  try {
+    flipResult = await prisma.$transaction(async (tx): Promise<FlipResult> => {
+      const claim = await tx.payment.updateMany({
+        where: { id: payment!.id, status: { not: 'PAID' } },
+        data: { status: 'PAID', paidAt: new Date() },
+      });
+      if (claim.count === 0) {
+        return { kind: 'already_paid' };
+      }
+
+      const sub = await tx.yearlyProgramSubscription.findUnique({
+        where: { id: payment!.yearlyProgramSubscriptionId! },
+      });
+      if (!sub) {
+        // Кидаємо sentinel щоб зробити rollback flip-а — Payment має лишитись PENDING.
+        throw new Error(SUB_MISSING_SENTINEL);
+      }
+
+      const now = new Date();
+      const durationDays = sub.plan === 'YEARLY'
+        ? YEARLY_PROGRAM_CONFIG.yearlyDurationDays
+        : YEARLY_PROGRAM_CONFIG.monthlyDurationDays;
+      const currentExpires = sub.expiresAt && sub.expiresAt > now ? sub.expiresAt : now;
+      const newExpiresAt = new Date(currentExpires.getTime() + durationDays * 24 * 60 * 60 * 1000);
+      const wasFirstPayment = !sub.startDate;
+
+      await tx.yearlyProgramSubscription.update({
+        where: { id: sub.id },
+        data: {
+          status: 'ACTIVE',
+          startDate: sub.startDate ?? now,
+          expiresAt: newExpiresAt,
+          lastPaymentAt: now,
+          failedChargeCount: 0,
+          lastChargeError: null,
+          // recToken оновлюємо якщо WFP прислав його у цьому callback (перший платіж monthly).
+          ...(recToken ? { recToken } : {}),
+          // Reset reminders — щоб наступний цикл знову їх відправив.
+          reminderSent3d: false,
+          reminderSent1d: false,
+          reminderSentExpired: false,
+        },
+      });
+
+      await tx.yearlyProgramSubscriptionEvent.create({
+        data: {
+          subscriptionId: sub.id,
+          type: wasFirstPayment ? 'created' : 'renewed',
+          message: `Payment ${payment!.orderReference} · +${durationDays}d · expires ${newExpiresAt.toISOString().slice(0, 10)}`,
+          metadata: {
+            amount: payment!.amount,
+            paymentId: payment!.id,
+            recurring: isRecurring,
+          },
+        },
+      });
+
+      return { kind: 'ok', sub, newExpiresAt, durationDays, wasFirstPayment };
+    });
+  } catch (e) {
+    if (e instanceof Error && e.message === SUB_MISSING_SENTINEL) {
+      flipResult = { kind: 'sub_missing' };
+    } else {
+      throw e;
+    }
+  }
+
+  if (flipResult.kind === 'already_paid') {
     return {
       prevStatus: 'PAID',
       skipped: true,
@@ -587,64 +701,31 @@ async function handleYearlyProgramCallback(args: {
       sendpulseSlugs,
     };
   }
-  actions.push('payment:paid');
-
-  // Тягнемо підписку і користувача
-  const sub = await prisma.yearlyProgramSubscription.findUnique({
-    where: { id: payment.yearlyProgramSubscriptionId },
-  });
-  const user = payment.user;
-  if (!sub || !user) {
+  if (flipResult.kind === 'sub_missing') {
     return {
       prevStatus,
-      skipped: false,
-      skipReason: null,
-      errorMsg: 'Subscription or user missing after payment',
+      skipped: true,
+      skipReason: 'subscription_missing',
+      errorMsg: `Subscription ${payment.yearlyProgramSubscriptionId} not found (tx rolled back, payment stays PENDING)`,
       actions,
       sendpulseSlugs,
     };
   }
 
-  // Продовжуємо доступ
-  const now = new Date();
-  const durationDays = sub.plan === 'YEARLY'
-    ? YEARLY_PROGRAM_CONFIG.yearlyDurationDays
-    : YEARLY_PROGRAM_CONFIG.monthlyDurationDays;
-  const currentExpires = sub.expiresAt && sub.expiresAt > now ? sub.expiresAt : now;
-  const newExpiresAt = new Date(currentExpires.getTime() + durationDays * 24 * 60 * 60 * 1000);
-  const wasFirstPayment = !sub.startDate;
-
-  await prisma.yearlyProgramSubscription.update({
-    where: { id: sub.id },
-    data: {
-      status: 'ACTIVE',
-      startDate: sub.startDate ?? now,
-      expiresAt: newExpiresAt,
-      lastPaymentAt: now,
-      failedChargeCount: 0,
-      lastChargeError: null,
-      // recToken оновлюємо якщо WFP прислав його у цьому callback (перший платіж monthly).
-      ...(recToken ? { recToken } : {}),
-      // Reset reminders — щоб наступний цикл знову їх відправив.
-      reminderSent3d: false,
-      reminderSent1d: false,
-      reminderSentExpired: false,
-    },
-  });
-
-  await prisma.yearlyProgramSubscriptionEvent.create({
-    data: {
-      subscriptionId: sub.id,
-      type: wasFirstPayment ? 'created' : (isRecurring ? 'renewed' : 'renewed'),
-      message: `Payment ${payment.orderReference} · +${durationDays}d · expires ${newExpiresAt.toISOString().slice(0, 10)}`,
-      metadata: {
-        amount: payment.amount,
-        paymentId: payment.id,
-        recurring: isRecurring,
-      },
-    },
-  });
-  actions.push(`yearly:${sub.plan.toLowerCase()}:+${durationDays}d`);
+  const sub = flipResult.sub;
+  const user = payment.user;
+  if (!user) {
+    return {
+      prevStatus,
+      skipped: false,
+      skipReason: null,
+      errorMsg: 'User missing after payment flip',
+      actions,
+      sendpulseSlugs,
+    };
+  }
+  actions.push('payment:paid');
+  actions.push(`yearly:${sub.plan.toLowerCase()}:+${flipResult.durationDays}d`);
 
   // Відкриваємо доступ у SendPulse (event → funnel → enrollment).
   // Для recurring-платежу це не обовʼязково (доступ вже відкритий), але повторне відправлення
@@ -661,7 +742,7 @@ async function handleYearlyProgramCallback(args: {
     if (!sub.sendpulseAccessOpenedAt) {
       await prisma.yearlyProgramSubscription.update({
         where: { id: sub.id },
-        data: { sendpulseAccessOpenedAt: now, sendpulseAccessClosedAt: null },
+        data: { sendpulseAccessOpenedAt: new Date(), sendpulseAccessClosedAt: null },
       });
       await prisma.yearlyProgramSubscriptionEvent.create({
         data: {
