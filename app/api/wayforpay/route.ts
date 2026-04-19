@@ -74,15 +74,36 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Email is required' }, { status: 400 });
       }
 
-      // Знайти або створити користувача за email
-      const user = await prisma.user.upsert({
-        where: { email: clientEmail },
-        create: {
-          email: clientEmail,
-          name: typeof clientName === 'string' ? clientName : '',
-        },
-        update: {},
+      // Знайти активного (НЕ soft-deleted) юзера за email, або створити нового з
+      // ім'ям з форми WFP. Soft-deleted користувачі свідомо ігноруються — їх дані
+      // (name/email) не повинні потрапляти в нові замовлення та аналітику.
+      // Якщо email вже зайнятий soft-deleted юзером — звільняємо слот, перейменувавши
+      // його email у `deleted_{timestamp}_{original}`, щоб створити свіжий запис.
+      const trimmedName = typeof clientName === 'string' ? clientName.trim() : '';
+
+      let user = await prisma.user.findFirst({
+        where: { email: clientEmail, deletedAt: null },
       });
+
+      if (user) {
+        if (trimmedName && trimmedName !== user.name) {
+          user = await prisma.user.update({
+            where: { id: user.id },
+            data: { name: trimmedName },
+          });
+        }
+      } else {
+        const zombie = await prisma.user.findUnique({ where: { email: clientEmail } });
+        if (zombie && zombie.deletedAt) {
+          await prisma.user.update({
+            where: { id: zombie.id },
+            data: { email: `deleted_${Date.now()}_${zombie.email}` },
+          });
+        }
+        user = await prisma.user.create({
+          data: { email: clientEmail, name: trimmedName },
+        });
+      }
 
       // Для bundle — валідація вибору безкоштовних (CHOICE_FREE) + обчислення finalFreeSlugs
       let finalFreeSlugs: string[] = [];
@@ -133,11 +154,13 @@ export async function POST(req: NextRequest) {
         if (existing) {
           yearlyProgramSubscriptionId = existing.id;
         } else {
+          const autoRenew = plan === 'MONTHLY' && recurring === true;
           const created = await prisma.yearlyProgramSubscription.create({
             data: {
               userId: user.id,
               plan,
               status: 'PENDING',
+              autoRenew,
             },
           });
           yearlyProgramSubscriptionId = created.id;

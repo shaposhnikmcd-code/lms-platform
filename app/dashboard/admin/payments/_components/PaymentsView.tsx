@@ -200,10 +200,10 @@ export default function PaymentsView({ rows }: { rows: Row[] }) {
                         >
                           <td className="px-5 py-3 whitespace-nowrap">
                             <p className={`text-[13px] ${dark ? 'text-slate-200' : 'text-stone-800'}`}>
-                              {date.toLocaleDateString('uk-UA')}
+                              {date.toLocaleDateString('uk-UA', { timeZone: 'Europe/Kyiv' })}
                             </p>
                             <p className={`text-[11px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
-                              {date.toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' })}
+                              {date.toLocaleTimeString('uk-UA', { timeZone: 'Europe/Kyiv', hour: '2-digit', minute: '2-digit' })}
                             </p>
                           </td>
                           <td className="px-5 py-3">

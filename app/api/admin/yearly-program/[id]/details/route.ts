@@ -42,6 +42,7 @@ export async function GET(
     id: sub.id,
     user: sub.user,
     plan: sub.plan,
+    autoRenew: sub.autoRenew,
     status: sub.status,
     startDate: sub.startDate?.toISOString() ?? null,
     expiresAt: sub.expiresAt?.toISOString() ?? null,

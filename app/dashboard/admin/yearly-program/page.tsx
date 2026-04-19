@@ -27,6 +27,7 @@ export default async function AdminYearlyProgramPage() {
       userName: s.user?.name ?? null,
       userEmail: s.user?.email ?? '',
       plan: s.plan,
+      autoRenew: s.autoRenew,
       status: s.status,
       startDate: s.startDate?.toISOString() ?? null,
       expiresAt: s.expiresAt?.toISOString() ?? null,

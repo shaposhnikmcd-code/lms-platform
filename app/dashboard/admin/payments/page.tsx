@@ -19,7 +19,7 @@ export default async function AdminPayments() {
         user: { select: { name: true, email: true } },
         course: { select: { title: true } },
         bundle: { select: { title: true } },
-        yearlyProgramSubscription: { select: { plan: true } },
+        yearlyProgramSubscription: { select: { plan: true, autoRenew: true } },
       },
     }),
     prisma.connectorOrder.findMany({
@@ -40,14 +40,20 @@ export default async function AdminPayments() {
   const courseRows: Row[] = payments.map((p) => {
     // Пріоритет визначення source: yearly (по yearlyProgramSubscription) > bundle > course.
     if (p.yearlyProgramSubscription) {
-      const plan = p.yearlyProgramSubscription.plan; // 'YEARLY' | 'MONTHLY'
+      const { plan, autoRenew } = p.yearlyProgramSubscription;
+      const productLabel =
+        plan === 'YEARLY'
+          ? 'Річна'
+          : autoRenew
+            ? 'Місячна Автоплатіж'
+            : 'Місячна на 1 міс.';
       return {
         id: `pay_${p.id}`,
         source: 'yearly' as const,
         createdAt: p.createdAt.toISOString(),
         clientName: p.user?.name || '—',
         clientEmail: p.user?.email || '',
-        productLabel: plan === 'YEARLY' ? 'Річна' : 'Місячна',
+        productLabel,
         amount: p.amount,
         status: p.status,
         orderReference: p.orderReference,

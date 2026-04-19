@@ -22,6 +22,7 @@ export interface LogRow {
   prevStatus: string | null;
   amount: number | null;
   currency: string | null;
+  clientName: string | null;
   clientEmail: string | null;
   ip: string | null;
   actionsTaken: string | null;
@@ -36,7 +37,7 @@ export interface PaymentLogsData {
   approvedCount: number;
   skippedCount: number;
   invalidSigCount: number;
-  kind: 'all' | 'course' | 'bundle' | 'connector' | 'unknown';
+  kind: 'all' | 'course' | 'bundle' | 'yearly' | 'monthly' | 'connector' | 'unknown';
   page: number;
   totalPages: number;
   pageSize: number;
@@ -46,6 +47,8 @@ const KIND_TABS: { value: PaymentLogsData['kind']; label: string }[] = [
   { value: 'all',       label: 'Всі' },
   { value: 'course',    label: 'Курси' },
   { value: 'bundle',    label: 'Пакети' },
+  { value: 'yearly',    label: 'Річна' },
+  { value: 'monthly',   label: 'Місячна' },
   { value: 'connector', label: 'Коннектор' },
   { value: 'unknown',   label: 'Невідомо' },
 ];
@@ -138,11 +141,16 @@ export default function PaymentLogsView({ data }: { data: PaymentLogsData }) {
             <thead className={`border-b ${dark ? 'border-white/[0.06] bg-black/10' : 'border-stone-300/40 bg-stone-50/40'}`}>
               <tr>
                 <Th theme={theme}>Час</Th>
+                <Th theme={theme}>Клієнт</Th>
                 <Th theme={theme}>Тип</Th>
                 <Th theme={theme}>Статус</Th>
-                <Th theme={theme}>Поперед.</Th>
+                <Th
+                  theme={theme}
+                  title="Статус платежу в БД ДО приходу цього webhook. PENDING — платіж щойно створено і ще чекав підтвердження. Після Approved-callback стає PAID. Це нормальний шлях успішної оплати."
+                >
+                  До обробки
+                </Th>
                 <Th theme={theme}>Сума</Th>
-                <Th theme={theme}>Email</Th>
                 <Th theme={theme}>IP</Th>
                 <Th theme={theme}>Дії</Th>
                 <Th theme={theme}>SendPulse</Th>
@@ -162,7 +170,24 @@ export default function PaymentLogsView({ data }: { data: PaymentLogsData }) {
                   return (
                     <tr key={log.id} className={dark ? 'hover:bg-white/[0.02]' : 'hover:bg-stone-50/60'}>
                       <td className={`px-4 py-2.5 whitespace-nowrap text-[11px] tabular-nums ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
-                        {dt.toISOString().replace('T', ' ').slice(0, 19)}
+                        {fmtKyivDateTime(dt)}
+                      </td>
+                      <td
+                        className="px-4 py-2.5 max-w-[200px]"
+                        title={[log.clientName, log.clientEmail].filter(Boolean).join(' · ')}
+                      >
+                        {log.clientName || log.clientEmail ? (
+                          <div className="flex flex-col gap-0.5 min-w-0">
+                            <span className={`text-[12px] font-medium truncate ${dark ? 'text-slate-200' : 'text-stone-800'}`}>
+                              {log.clientName ?? '—'}
+                            </span>
+                            <span className={`text-[10px] truncate ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+                              {log.clientEmail ?? ''}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className={`text-[11px] ${dark ? 'text-slate-600' : 'text-stone-400'}`}>—</span>
+                        )}
                       </td>
                       <td className="px-4 py-2.5">
                         <KindBadge theme={theme} kind={log.kind} />
@@ -180,12 +205,6 @@ export default function PaymentLogsView({ data }: { data: PaymentLogsData }) {
                       </td>
                       <td className={`px-4 py-2.5 text-[12px] tabular-nums whitespace-nowrap ${dark ? 'text-slate-300' : 'text-stone-700'}`}>
                         {log.amount != null ? `${log.amount} ${log.currency ?? 'UAH'}` : '—'}
-                      </td>
-                      <td
-                        className={`px-4 py-2.5 text-[11px] max-w-[180px] truncate ${dark ? 'text-slate-400' : 'text-stone-600'}`}
-                        title={log.clientEmail ?? ''}
-                      >
-                        {log.clientEmail ?? '—'}
                       </td>
                       <td className={`px-4 py-2.5 text-[11px] tabular-nums ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
                         {log.ip ?? '—'}
@@ -276,10 +295,13 @@ function Kpi({
   );
 }
 
-function Th({ children, theme }: { children: React.ReactNode; theme: Theme }) {
+function Th({ children, theme, title }: { children: React.ReactNode; theme: Theme; title?: string }) {
   const dark = theme === 'dark';
   return (
-    <th className={`text-left px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.18em] whitespace-nowrap ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+    <th
+      title={title}
+      className={`text-left px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.18em] whitespace-nowrap ${dark ? 'text-slate-500' : 'text-stone-500'} ${title ? 'cursor-help' : ''}`}
+    >
       {children}
     </th>
   );
@@ -290,6 +312,8 @@ function KindBadge({ kind, theme }: { kind: string; theme: Theme }) {
   const map: Record<string, { label: string; dark: string; light: string }> = {
     course:    { label: 'Курс',      dark: 'bg-sky-500/15 text-sky-300 border-sky-500/20',              light: 'bg-sky-500/10 text-sky-800 border-sky-500/25' },
     bundle:    { label: 'Пакет',     dark: 'bg-violet-500/15 text-violet-300 border-violet-500/20',    light: 'bg-violet-500/10 text-violet-800 border-violet-500/25' },
+    yearly:    { label: 'Річна',     dark: 'bg-amber-500/15 text-amber-300 border-amber-500/20',        light: 'bg-amber-500/10 text-amber-800 border-amber-500/25' },
+    monthly:   { label: 'Місячна',   dark: 'bg-indigo-500/15 text-indigo-300 border-indigo-500/20',    light: 'bg-indigo-500/10 text-indigo-800 border-indigo-500/25' },
     connector: { label: 'Коннектор', dark: 'bg-orange-500/15 text-orange-300 border-orange-500/20',    light: 'bg-orange-500/10 text-orange-800 border-orange-500/25' },
     unknown:   { label: '?',         dark: 'bg-slate-500/20 text-slate-400 border-slate-500/20',       light: 'bg-stone-200/70 text-stone-600 border-stone-300/70' },
   };
@@ -427,6 +451,21 @@ function ServerPaginationBar({
       </div>
     </div>
   );
+}
+
+const KYIV_DATETIME_SEC_FMT = new Intl.DateTimeFormat('sv-SE', {
+  timeZone: 'Europe/Kyiv',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hour12: false,
+});
+
+function fmtKyivDateTime(d: Date): string {
+  return KYIV_DATETIME_SEC_FMT.format(d).replace(',', '');
 }
 
 function computePageList(current: number, total: number): (number | '…')[] {

@@ -1,7 +1,7 @@
 import prisma from '@/lib/prisma';
 import PaymentLogsView, { type PaymentLogsData } from './_components/PaymentLogsView';
 
-const KIND_FILTERS = ['all', 'course', 'bundle', 'connector', 'unknown'] as const;
+const KIND_FILTERS = ['all', 'course', 'bundle', 'yearly', 'monthly', 'connector', 'unknown'] as const;
 type KindFilter = (typeof KIND_FILTERS)[number];
 
 const ALLOWED_PAGE_SIZES = [25, 50, 100] as const;
@@ -42,6 +42,17 @@ export default async function PaymentLogsPage({
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
+  const uniqueEmails = Array.from(
+    new Set(logs.map((l) => l.clientEmail).filter((e): e is string => !!e)),
+  );
+  const users = uniqueEmails.length
+    ? await prisma.user.findMany({
+        where: { email: { in: uniqueEmails } },
+        select: { email: true, name: true },
+      })
+    : [];
+  const nameByEmail = new Map(users.map((u) => [u.email, u.name]));
+
   const data: PaymentLogsData = {
     logs: logs.map((l) => ({
       id: l.id,
@@ -53,6 +64,7 @@ export default async function PaymentLogsPage({
       prevStatus: l.prevStatus,
       amount: l.amount,
       currency: l.currency,
+      clientName: l.clientEmail ? nameByEmail.get(l.clientEmail) ?? null : null,
       clientEmail: l.clientEmail,
       ip: l.ip,
       actionsTaken: l.actionsTaken,

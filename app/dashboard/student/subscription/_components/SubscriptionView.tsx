@@ -199,7 +199,7 @@ function StatusPill({ status }: { status: string }) {
 }
 
 function fmtDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('uk-UA', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  return new Date(iso).toLocaleDateString('uk-UA', { timeZone: 'Europe/Kyiv', day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
 function pluralPayments(n: number): string {

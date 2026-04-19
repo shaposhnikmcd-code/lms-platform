@@ -725,7 +725,13 @@ async function handleYearlyProgramCallback(args: {
     };
   }
   actions.push('payment:paid');
-  actions.push(`yearly:${sub.plan.toLowerCase()}:+${flipResult.durationDays}d`);
+  const planLabel =
+    sub.plan === 'YEARLY'
+      ? 'yearly'
+      : sub.autoRenew
+        ? 'monthly-autopay'
+        : 'monthly-once';
+  actions.push(`yearly:${planLabel}:+${flipResult.durationDays}d`);
 
   // Відкриваємо доступ у SendPulse (event → funnel → enrollment).
   // Для recurring-платежу це не обовʼязково (доступ вже відкритий), але повторне відправлення

@@ -480,6 +480,10 @@ model YearlyProgramSubscription {
   user            User                            @relation(fields: [userId], references: [id], onDelete: Cascade)
   plan            YearlyProgramPlan
   status          YearlyProgramSubscriptionStatus @default(PENDING)
+  /// Для MONTHLY плану: true — автосписання ввімкнено (9 платежів через WFP recToken);
+  /// false — разова оплата за 1 місяць без рекурентних списань.
+  /// Для YEARLY плану завжди false (у річної немає рекурентних списань).
+  autoRenew       Boolean                         @default(false)
   startDate       DateTime?
   /// Для YEARLY = startDate + 1 рік. Для MONTHLY = останній успішний charge + 30 днів.
   expiresAt       DateTime?

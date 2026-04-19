@@ -27,6 +27,7 @@ export interface Row {
   userName: string | null;
   userEmail: string;
   plan: Plan;
+  autoRenew: boolean;
   status: SubStatus;
   startDate: string | null;
   expiresAt: string | null;
@@ -57,6 +58,7 @@ interface SubscriptionDetails {
   id: string;
   user: { id: string; name: string | null; email: string } | null;
   plan: Plan;
+  autoRenew: boolean;
   status: SubStatus;
   startDate: string | null;
   expiresAt: string | null;
@@ -90,10 +92,13 @@ interface SubscriptionDetails {
   }>;
 }
 
-const PLAN_OPTIONS: { value: 'ALL' | Plan; label: string }[] = [
+type PlanFilter = 'ALL' | 'YEARLY' | 'MONTHLY_AUTO' | 'MONTHLY_ONCE';
+
+const PLAN_OPTIONS: { value: PlanFilter; label: string }[] = [
   { value: 'ALL', label: 'Всі' },
   { value: 'YEARLY', label: 'Річний' },
-  { value: 'MONTHLY', label: 'Місячний' },
+  { value: 'MONTHLY_AUTO', label: 'Місячний Автоплатіж' },
+  { value: 'MONTHLY_ONCE', label: 'Місячний на 1 міс.' },
 ];
 
 const STATUS_OPTIONS: { value: 'ALL' | SubStatus; label: string }[] = [
@@ -117,7 +122,7 @@ export default function YearlyProgramView({
   const dark = theme === 'dark';
   const router = useRouter();
 
-  const [planFilter, setPlanFilter] = useState<'ALL' | Plan>('ALL');
+  const [planFilter, setPlanFilter] = useState<PlanFilter>('ALL');
   const [statusFilter, setStatusFilter] = useState<'ALL' | SubStatus>('ALL');
   const [search, setSearch] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -130,7 +135,9 @@ export default function YearlyProgramView({
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return rows.filter((r) => {
-      if (planFilter !== 'ALL' && r.plan !== planFilter) return false;
+      if (planFilter === 'YEARLY' && r.plan !== 'YEARLY') return false;
+      if (planFilter === 'MONTHLY_AUTO' && !(r.plan === 'MONTHLY' && r.autoRenew)) return false;
+      if (planFilter === 'MONTHLY_ONCE' && !(r.plan === 'MONTHLY' && !r.autoRenew)) return false;
       if (statusFilter !== 'ALL' && r.status !== statusFilter) return false;
       if (q && !r.userEmail.toLowerCase().includes(q) && !(r.userName ?? '').toLowerCase().includes(q)) return false;
       return true;
@@ -232,7 +239,7 @@ export default function YearlyProgramView({
             label="План"
             options={PLAN_OPTIONS}
             value={planFilter}
-            onChange={(v) => setPlanFilter(v as 'ALL' | Plan)}
+            onChange={(v) => setPlanFilter(v as PlanFilter)}
           />
           <FilterGroup
             theme={theme}
@@ -479,7 +486,7 @@ function RowBlock({
           <div className={`text-[12px] font-medium ${dark ? 'text-slate-200' : 'text-stone-800'}`}>{r.userName ?? '—'}</div>
           <div className={`text-[10px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>{r.userEmail}</div>
         </td>
-        <td className="px-4 py-2.5"><PlanBadge theme={theme} plan={r.plan} /></td>
+        <td className="px-4 py-2.5"><PlanBadge theme={theme} plan={r.plan} autoRenew={r.autoRenew} /></td>
         <td className="px-4 py-2.5"><StatusBadge theme={theme} status={r.status} /></td>
         <td className={`px-4 py-2.5 text-[11px] tabular-nums whitespace-nowrap ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
           {r.expiresAt ? (
@@ -684,7 +691,7 @@ function ExpandedRowContent({
                   <div className="flex items-start justify-between gap-2">
                     <span className={`font-mono text-[10px] font-semibold ${eventTypeColor(ev.type, dark)}`}>{ev.type}</span>
                     <span className={`text-[9px] tabular-nums shrink-0 ${dark ? 'text-slate-600' : 'text-stone-400'}`}>
-                      {new Date(ev.createdAt).toISOString().replace('T', ' ').slice(0, 16)}
+                      {fmtDate(ev.createdAt)}
                     </span>
                   </div>
                   {ev.message && (
@@ -764,12 +771,29 @@ function Dl({ theme, items }: { theme: Theme; items: [string, string][] }) {
   );
 }
 
+const KYIV_DATETIME_FMT = new Intl.DateTimeFormat('sv-SE', {
+  timeZone: 'Europe/Kyiv',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+});
+
+const KYIV_DATE_FMT = new Intl.DateTimeFormat('sv-SE', {
+  timeZone: 'Europe/Kyiv',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+
 function fmtDate(iso: string): string {
-  return new Date(iso).toISOString().replace('T', ' ').slice(0, 16);
+  return KYIV_DATETIME_FMT.format(new Date(iso)).replace(',', '');
 }
 
 function fmtDateShort(iso: string): string {
-  return new Date(iso).toISOString().slice(0, 10);
+  return KYIV_DATE_FMT.format(new Date(iso));
 }
 
 function Th({ children, theme }: { children: React.ReactNode; theme: Theme }) {
@@ -860,7 +884,7 @@ function FilterGroup<T extends string>({
   );
 }
 
-function PlanBadge({ plan, theme }: { plan: Plan; theme: Theme }) {
+function PlanBadge({ plan, autoRenew, theme }: { plan: Plan; autoRenew: boolean; theme: Theme }) {
   const dark = theme === 'dark';
   if (plan === 'YEARLY') {
     return (
@@ -869,10 +893,17 @@ function PlanBadge({ plan, theme }: { plan: Plan; theme: Theme }) {
       }`}>Річний</span>
     );
   }
+  if (autoRenew) {
+    return (
+      <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider ${
+        dark ? 'bg-indigo-500/15 text-indigo-300 border border-indigo-400/20' : 'bg-indigo-100 text-indigo-800 border border-indigo-300/50'
+      }`}>Місячний Автоплатіж</span>
+    );
+  }
   return (
     <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider ${
-      dark ? 'bg-indigo-500/15 text-indigo-300 border border-indigo-400/20' : 'bg-indigo-100 text-indigo-800 border border-indigo-300/50'
-    }`}>Місячний</span>
+      dark ? 'bg-sky-500/15 text-sky-300 border border-sky-400/20' : 'bg-sky-100 text-sky-800 border border-sky-300/50'
+    }`}>Місячний на 1 міс.</span>
   );
 }
 
