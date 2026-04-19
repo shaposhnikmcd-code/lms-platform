@@ -165,6 +165,12 @@ async function handleReopenAccess(sub: NonNullable<SubWithUser>, actor: string) 
   if (!sub.user?.email) {
     return NextResponse.json({ error: 'У користувача немає email' }, { status: 400 });
   }
+  if (sub.status === 'ARCHIVED') {
+    return NextResponse.json(
+      { error: 'Підписка заархівована — відкрити доступ знову не можна. Створіть нову.' },
+      { status: 400 },
+    );
+  }
 
   // Передаємо реальну суму плану — щоб у CRM SendPulse запис мав коректну ціну
   // (а не 0 ₴ після ручного reopen). YEARLY = 15000, MONTHLY = 2200.
@@ -183,16 +189,20 @@ async function handleReopenAccess(sub: NonNullable<SubWithUser>, actor: string) 
   }
 
   const now = new Date();
+  // Plan-aware buffer: YEARLY → +365д, MONTHLY → +30д. Раніше було хардкод +30 для всіх.
+  const bufferDays = sub.plan === 'YEARLY'
+    ? YEARLY_PROGRAM_CONFIG.yearlyDurationDays
+    : YEARLY_PROGRAM_CONFIG.monthlyDurationDays;
   await prisma.yearlyProgramSubscription.update({
     where: { id: sub.id },
     data: {
       status: 'ACTIVE',
       sendpulseAccessOpenedAt: now,
       sendpulseAccessClosedAt: null,
-      // Якщо expiresAt у минулому — даємо +30 днів як буфер, щоб cron одразу не закрив знову.
+      // Якщо expiresAt у майбутньому — лишаємо. Інакше даємо буфер згідно плану.
       expiresAt: sub.expiresAt && sub.expiresAt > now
         ? sub.expiresAt
-        : new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000),
+        : new Date(now.getTime() + bufferDays * 24 * 60 * 60 * 1000),
     },
   });
   await prisma.yearlyProgramSubscriptionEvent.create({
@@ -235,10 +245,52 @@ async function handleExtend(sub: NonNullable<SubWithUser>, daysToAdd: number, ac
 }
 
 async function handleDelete(sub: NonNullable<SubWithUser>, actor: string) {
-  // Hard-delete підписки. Payment.yearlyProgramSubscriptionId стане NULL (ON DELETE SET NULL).
-  // Events каскадно видаляться (ON DELETE CASCADE).
-  await prisma.yearlyProgramSubscription.delete({ where: { id: sub.id } });
-  // Лог втрачаємо разом з підпискою — окремо нікуди не пишемо, бо вся історія йде в /dashboard/admin/payment-logs.
-  console.log(`🗑 Admin ${actor} deleted YearlyProgramSubscription ${sub.id}`);
-  return NextResponse.json({ ok: true });
+  // Soft-archive: закриваємо доступ у SendPulse, чистимо технічні поля (recToken/studentId),
+  // ставимо статус ARCHIVED. Картка лишається в адмінці як архівний запис; reopen заборонений.
+  // Payment-и лишаються нерушеними з лінком на цю підписку.
+  let sendpulseClosed = false;
+  let sendpulseError: string | null = null;
+
+  const courseId = YEARLY_PROGRAM_CONFIG.sendpulseCourseId;
+  if (courseId && sub.user?.email) {
+    try {
+      let studentId = sub.sendpulseStudentId;
+      if (!studentId) {
+        studentId = await lookupStudentIdByEmail(courseId, sub.user.email);
+      }
+      if (studentId) {
+        await closeAccessInCourse(studentId, courseId);
+        sendpulseClosed = true;
+      } else {
+        sendpulseError = 'studentId не знайдено в SendPulse — закриття пропущено';
+      }
+    } catch (e) {
+      sendpulseError = (e as Error).message;
+    }
+  } else if (!courseId) {
+    sendpulseError = 'SENDPULSE_YEARLY_COURSE_ID не налаштовано';
+  }
+
+  const now = new Date();
+  await prisma.yearlyProgramSubscription.update({
+    where: { id: sub.id },
+    data: {
+      status: 'ARCHIVED',
+      sendpulseAccessClosedAt: sendpulseClosed ? now : sub.sendpulseAccessClosedAt,
+      // Чистимо технічні поля — підписку вже не можна реактивувати
+      recToken: null,
+      sendpulseStudentId: null,
+    },
+  });
+
+  await prisma.yearlyProgramSubscriptionEvent.create({
+    data: {
+      subscriptionId: sub.id,
+      type: 'admin_action',
+      message: `Archived by ${actor}${sendpulseClosed ? ' · SendPulse access closed' : (sendpulseError ? ` · SendPulse: ${sendpulseError}` : '')}`,
+      metadata: { sendpulseClosed, sendpulseError },
+    },
+  });
+
+  return NextResponse.json({ ok: true, sendpulseClosed, sendpulseError });
 }

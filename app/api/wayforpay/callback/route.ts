@@ -528,7 +528,7 @@ async function handleYearlyProgramCallback(args: {
         where: { id: payment.yearlyProgramSubscriptionId },
         select: { status: true },
       });
-      if (subCheck && (subCheck.status === 'CANCELLED' || subCheck.status === 'EXPIRED')) {
+      if (subCheck && (subCheck.status === 'CANCELLED' || subCheck.status === 'EXPIRED' || subCheck.status === 'ARCHIVED')) {
         return {
           prevStatus: payment.status,
           skipped: true,

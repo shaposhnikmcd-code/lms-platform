@@ -17,7 +17,7 @@ import { useAdminTheme, type Theme } from '../../_components/adminTheme';
 import { AdminShell, AdminPanel } from '../../_components/AdminShell';
 
 export type Plan = 'YEARLY' | 'MONTHLY';
-export type SubStatus = 'PENDING' | 'ACTIVE' | 'GRACE' | 'EXPIRED' | 'CANCELLED';
+export type SubStatus = 'PENDING' | 'ACTIVE' | 'GRACE' | 'EXPIRED' | 'CANCELLED' | 'ARCHIVED';
 
 export interface Row {
   id: string;
@@ -101,6 +101,7 @@ const STATUS_OPTIONS: { value: 'ALL' | SubStatus; label: string }[] = [
   { value: 'EXPIRED', label: 'Прострочено' },
   { value: 'CANCELLED', label: 'Скасовано' },
   { value: 'PENDING', label: 'Очікує' },
+  { value: 'ARCHIVED', label: 'Архів' },
 ];
 
 export default function YearlyProgramView({
@@ -544,33 +545,46 @@ function ExpandedRowContent({
       <div className="md:col-span-1">
         <SectionTitle theme={theme}>Дії</SectionTitle>
         <div className="flex flex-col gap-2">
-          <ActionBtn theme={theme} disabled={busy || row.status === 'EXPIRED'} onClick={() => {
+          <ActionBtn theme={theme} disabled={busy || row.status === 'EXPIRED' || row.status === 'ARCHIVED'} onClick={() => {
             const days = window.prompt('На скільки днів продовжити?', '30');
             const n = Number(days);
             if (Number.isFinite(n) && n > 0) onAction('extend', { daysToAdd: n });
           }}>
             ⏱ Продовжити…
           </ActionBtn>
-          <ActionBtn theme={theme} disabled={busy || row.status === 'CANCELLED'} tone="warning" onClick={() => {
+          <ActionBtn theme={theme} disabled={busy || row.status === 'CANCELLED' || row.status === 'ARCHIVED'} tone="warning" onClick={() => {
+            const isMonthly = row.plan === 'MONTHLY';
+            const confirmMsg = isMonthly
+              ? 'Скасувати автосписання на WFP і позначити підписку як CANCELLED?'
+              : 'Позначити підписку як CANCELLED? Доступ зберігається до кінця оплаченого року.';
             const reason = window.prompt('Причина (необовʼязково):') ?? undefined;
-            onAction('cancel', { reason }, 'Скасувати регулярку на WFP і позначити CANCELLED?');
+            onAction('cancel', { reason }, confirmMsg);
           }}>
-            🚫 Скасувати підписку
+            {row.plan === 'MONTHLY' ? '🚫 Скасувати автосписання' : '🚫 Позначити як скасовану'}
           </ActionBtn>
-          <ActionBtn theme={theme} disabled={busy || row.status === 'EXPIRED' || !!row.sendpulseAccessClosedAt} tone="danger" onClick={() =>
+          <ActionBtn theme={theme} disabled={busy || row.status === 'EXPIRED' || row.status === 'ARCHIVED' || !!row.sendpulseAccessClosedAt} tone="danger" onClick={() =>
             onAction('close_access', undefined, 'Закрити доступ до SendPulse курсу?')
           }>
             ✕ Закрити доступ у SendPulse
           </ActionBtn>
-          <ActionBtn theme={theme} disabled={busy} tone="success" onClick={() =>
+          <ActionBtn theme={theme} disabled={busy || row.status === 'ARCHIVED'} tone="success" onClick={() =>
             onAction('reopen_access', undefined, 'Відкрити доступ знову (event у SendPulse)?')
           }>
             ✓ Відкрити доступ знову
           </ActionBtn>
-          <ActionBtn theme={theme} disabled={busy} tone="danger" onClick={() =>
-            onAction('delete', undefined, 'Видалити підписку повністю? Повʼязані платежі залишаться, але без лінка.')
-          }>
-            🗑 Видалити запис
+          <ActionBtn theme={theme} disabled={busy || row.status === 'ARCHIVED'} tone="danger" onClick={() => {
+            const expectedEmail = row.userEmail ?? '';
+            const typed = window.prompt(
+              `Архівація: закриваємо доступ у SendPulse, статус → ARCHIVED, очищаємо технічні поля. Картка лишається в адмінці, але ВІДКРИТИ ЗНОВУ вже не вийде.\n\nДля підтвердження введи email користувача (${expectedEmail}):`,
+            );
+            if (!typed) return;
+            if (typed.trim().toLowerCase() !== expectedEmail.toLowerCase()) {
+              alert('Email не співпадає — дію скасовано.');
+              return;
+            }
+            onAction('delete');
+          }}>
+            🗑 Архівувати запис
           </ActionBtn>
         </div>
 
@@ -826,6 +840,7 @@ function StatusBadge({ status, theme }: { status: SubStatus; theme: Theme }) {
     EXPIRED:   { label: 'Прострочено', dark: 'bg-rose-500/15 text-rose-300 border-rose-400/20',          light: 'bg-rose-100 text-rose-800 border-rose-300/50' },
     CANCELLED: { label: 'Скасовано',   dark: 'bg-slate-500/15 text-slate-300 border-slate-400/20',      light: 'bg-stone-200 text-stone-700 border-stone-300/60' },
     PENDING:   { label: 'Очікує',      dark: 'bg-slate-500/15 text-slate-400 border-slate-400/10',      light: 'bg-stone-100 text-stone-600 border-stone-300/50' },
+    ARCHIVED:  { label: 'Архів',       dark: 'bg-zinc-700/30 text-zinc-400 border-zinc-500/20',         light: 'bg-zinc-200 text-zinc-600 border-zinc-300/60' },
   };
   const cls = map[status];
   return (
