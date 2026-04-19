@@ -19,6 +19,7 @@ export default async function AdminPayments() {
         user: { select: { name: true, email: true } },
         course: { select: { title: true } },
         bundle: { select: { title: true } },
+        yearlyProgramSubscription: { select: { plan: true } },
       },
     }),
     prisma.connectorOrder.findMany({
@@ -36,17 +37,34 @@ export default async function AdminPayments() {
     }),
   ]);
 
-  const courseRows: Row[] = payments.map((p) => ({
-    id: `pay_${p.id}`,
-    source: p.bundle ? 'bundle' : 'course',
-    createdAt: p.createdAt.toISOString(),
-    clientName: p.user?.name || '—',
-    clientEmail: p.user?.email || '',
-    productLabel: p.bundle?.title || p.course?.title || '—',
-    amount: p.amount,
-    status: p.status,
-    orderReference: p.orderReference,
-  }));
+  const courseRows: Row[] = payments.map((p) => {
+    // Пріоритет визначення source: yearly (по yearlyProgramSubscription) > bundle > course.
+    if (p.yearlyProgramSubscription) {
+      const plan = p.yearlyProgramSubscription.plan; // 'YEARLY' | 'MONTHLY'
+      return {
+        id: `pay_${p.id}`,
+        source: 'yearly' as const,
+        createdAt: p.createdAt.toISOString(),
+        clientName: p.user?.name || '—',
+        clientEmail: p.user?.email || '',
+        productLabel: plan === 'YEARLY' ? 'Річна' : 'Місячна',
+        amount: p.amount,
+        status: p.status,
+        orderReference: p.orderReference,
+      };
+    }
+    return {
+      id: `pay_${p.id}`,
+      source: p.bundle ? 'bundle' as const : 'course' as const,
+      createdAt: p.createdAt.toISOString(),
+      clientName: p.user?.name || '—',
+      clientEmail: p.user?.email || '',
+      productLabel: p.bundle?.title || p.course?.title || '—',
+      amount: p.amount,
+      status: p.status,
+      orderReference: p.orderReference,
+    };
+  });
 
   const connectorRows: Row[] = connectorOrders.map((o) => ({
     id: `conn_${o.id}`,

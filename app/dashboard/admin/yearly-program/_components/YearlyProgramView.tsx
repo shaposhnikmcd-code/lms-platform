@@ -265,14 +265,13 @@ export default function YearlyProgramView({
                 <Th theme={theme}>Доступ до</Th>
                 <Th theme={theme}>Платежів</Th>
                 <Th theme={theme}>Сплачено</Th>
-                <Th theme={theme}>Токен</Th>
                 <Th theme={theme}>SendPulse</Th>
               </tr>
             </thead>
             <tbody className={dark ? 'divide-y divide-white/[0.04]' : 'divide-y divide-stone-200/60'}>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className={`px-4 py-14 text-center text-sm ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+                  <td colSpan={9} className={`px-4 py-14 text-center text-sm ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
                     {rows.length === 0 ? 'Поки ніхто не підписався.' : 'Нічого не знайдено за фільтрами.'}
                   </td>
                 </tr>
@@ -489,22 +488,13 @@ function RowBlock({
           {r.totalPaid.toLocaleString()} ₴
         </td>
         <td className="px-4 py-2.5">
-          {r.hasRecToken ? (
-            <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium ${
-              dark ? 'bg-emerald-500/15 text-emerald-300' : 'bg-emerald-100 text-emerald-800'
-            }`}>є</span>
-          ) : (
-            <span className={`text-[10px] ${dark ? 'text-slate-600' : 'text-stone-400'}`}>—</span>
-          )}
-        </td>
-        <td className="px-4 py-2.5">
           <SendpulseBadge theme={theme} openedAt={r.sendpulseAccessOpenedAt} closedAt={r.sendpulseAccessClosedAt} studentId={r.sendpulseStudentId} />
         </td>
       </tr>
 
       {expanded && (
         <tr className={dark ? 'bg-black/20' : 'bg-stone-50/80'}>
-          <td colSpan={10} className="px-6 py-5">
+          <td colSpan={9} className="px-6 py-5">
             <ExpandedRowContent
               theme={theme}
               details={details}
@@ -533,6 +523,7 @@ function ExpandedRowContent({
   onAction: (action: string, payload?: Record<string, unknown>, confirm?: string) => void;
 }) {
   const dark = theme === 'dark';
+  const [helpOpen, setHelpOpen] = useState(false);
   if (details === 'loading' || !details) {
     return <div className={`text-[12px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>Завантаження деталей…</div>;
   }
@@ -542,8 +533,24 @@ function ExpandedRowContent({
 
   return (
     <div className="grid md:grid-cols-3 gap-5">
+      {helpOpen && <HelpModal theme={theme} onClose={() => setHelpOpen(false)} />}
       <div className="md:col-span-1">
-        <SectionTitle theme={theme}>Дії</SectionTitle>
+        <div className="flex items-center gap-2 mb-2">
+          <SectionTitle theme={theme} className="!mb-0">Дії</SectionTitle>
+          <button
+            type="button"
+            onClick={() => setHelpOpen(true)}
+            aria-label="Що означають статуси та дії"
+            title="Що означають статуси та дії"
+            className={`w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold border transition-colors ${
+              dark
+                ? 'border-white/20 text-slate-400 hover:bg-white/10 hover:text-white'
+                : 'border-stone-300 text-stone-500 hover:bg-stone-200 hover:text-stone-800'
+            }`}
+          >
+            i
+          </button>
+        </div>
         <div className="flex flex-col gap-2">
           <ActionBtn theme={theme} disabled={busy || row.status === 'EXPIRED' || row.status === 'ARCHIVED'} onClick={() => {
             const days = window.prompt('На скільки днів продовжити?', '30');
@@ -568,9 +575,9 @@ function ExpandedRowContent({
             ✕ Закрити доступ у SendPulse
           </ActionBtn>
           <ActionBtn theme={theme} disabled={busy || row.status === 'ARCHIVED'} tone="success" onClick={() =>
-            onAction('reopen_access', undefined, 'Відкрити доступ знову (event у SendPulse)?')
+            onAction('reopen_access', undefined, 'Відкрити доступ до SendPulse знову (через event)?')
           }>
-            ✓ Відкрити доступ знову
+            ✓ Відкрити доступ до SendPulse знову
           </ActionBtn>
           <ActionBtn theme={theme} disabled={busy || row.status === 'ARCHIVED'} tone="danger" onClick={() => {
             const expectedEmail = row.userEmail ?? '';
@@ -588,14 +595,35 @@ function ExpandedRowContent({
           </ActionBtn>
         </div>
 
-        <SectionTitle theme={theme} className="mt-5">Технічні поля</SectionTitle>
-        <Dl theme={theme} items={[
-          ['recToken', details.recTokenMasked ?? '—'],
-          ['SP studentId', details.sendpulseStudentId?.toString() ?? '—'],
-          ['fail count', details.failedChargeCount.toString()],
-          ['last error', details.lastChargeError ?? '—'],
-          ['reminders', `3д:${details.reminderSent3d ? '✓' : '–'} · 1д:${details.reminderSent1d ? '✓' : '–'} · exp:${details.reminderSentExpired ? '✓' : '–'}`],
-        ]} />
+        {(() => {
+          // Показуємо лише поля, які реально несуть інформацію (відрізняються від дефолту).
+          // Якщо все «чисто» — секція взагалі не рендериться.
+          const items: [string, string][] = [];
+          // recToken цікавий тільки для MONTHLY: якщо ACTIVE без токена — потенційна проблема автосписання.
+          if (row.plan === 'MONTHLY') {
+            items.push(['recToken', details.recTokenMasked ?? '⚠ нема (автосписання не пройде)']);
+          }
+          if (details.sendpulseStudentId != null) {
+            items.push(['SP studentId', details.sendpulseStudentId.toString()]);
+          }
+          if (details.failedChargeCount > 0) {
+            items.push(['fail count', `⚠ ${details.failedChargeCount}`]);
+          }
+          if (details.lastChargeError) {
+            items.push(['last error', details.lastChargeError]);
+          }
+          const anyReminder = details.reminderSent3d || details.reminderSent1d || details.reminderSentExpired;
+          if (anyReminder) {
+            items.push(['reminders', `3д:${details.reminderSent3d ? '✓' : '–'} · 1д:${details.reminderSent1d ? '✓' : '–'} · exp:${details.reminderSentExpired ? '✓' : '–'}`]);
+          }
+          if (items.length === 0) return null;
+          return (
+            <>
+              <SectionTitle theme={theme} className="mt-5">Технічні поля</SectionTitle>
+              <Dl theme={theme} items={items} />
+            </>
+          );
+        })()}
       </div>
 
       <div className="md:col-span-1">
@@ -877,4 +905,72 @@ function SendpulseBadge({
     );
   }
   return <span className={`text-[10px] ${dark ? 'text-slate-600' : 'text-stone-400'}`}>—</span>;
+}
+
+function HelpModal({ theme, onClose }: { theme: Theme; onClose: () => void }) {
+  const dark = theme === 'dark';
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    document.body.style.overflow = 'hidden';
+    return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = ''; };
+  }, [onClose]);
+
+  const statuses: { badge: string; name: string; desc: string; cls: string }[] = [
+    { badge: 'PENDING',   name: 'Очікує',     desc: 'Підписка створена, але оплата ще не надійшла. Доступу немає.', cls: dark ? 'bg-slate-500/15 text-slate-400' : 'bg-stone-100 text-stone-600' },
+    { badge: 'ACTIVE',    name: 'Активний',   desc: 'Все добре — оплата пройшла, доступ відкрито, користувач навчається.', cls: dark ? 'bg-emerald-500/15 text-emerald-300' : 'bg-emerald-100 text-emerald-800' },
+    { badge: 'GRACE',     name: 'Grace',      desc: 'Термін доступу закінчився, але є 7 днів пільгового періоду — встигнемо продовжити без втрати доступу.', cls: dark ? 'bg-amber-500/15 text-amber-300' : 'bg-amber-100 text-amber-800' },
+    { badge: 'EXPIRED',   name: 'Прострочено', desc: 'Термін доступу + grace вийшли. Доступ автоматично закрито в SendPulse.', cls: dark ? 'bg-rose-500/15 text-rose-300' : 'bg-rose-100 text-rose-800' },
+    { badge: 'CANCELLED', name: 'Скасовано',  desc: 'Користувач/адмін скасував підписку. Для MONTHLY автосписання зупинено. Доступ зберігається до кінця оплаченого періоду.', cls: dark ? 'bg-slate-500/15 text-slate-300' : 'bg-stone-200 text-stone-700' },
+    { badge: 'ARCHIVED',  name: 'Архів',      desc: 'Адмін заархівував. Доступ у SendPulse закрито, технічні поля очищено. Картка лишається як історичний запис, але відновити не можна.', cls: dark ? 'bg-zinc-700/30 text-zinc-400' : 'bg-zinc-200 text-zinc-600' },
+  ];
+
+  const actions: { icon: string; name: string; desc: string }[] = [
+    { icon: '⏱', name: 'Продовжити', desc: 'Додає вказану кількість днів до поточного терміну доступу. Корисно для бонусів, подарунків чи компенсацій.' },
+    { icon: '🚫', name: 'Скасувати автосписання (MONTHLY) / Позначити як скасовану (YEARLY)', desc: 'MONTHLY: зупиняє автоматичні списання з картки на боці WayForPay. YEARLY: лише ставить статус CANCELLED — доступ працює до кінця оплаченого року.' },
+    { icon: '✕', name: 'Закрити доступ у SendPulse', desc: 'Миттєво забирає доступ до курсу в SendPulse. Підписка стає EXPIRED. Можна потім "Відкрити знову".' },
+    { icon: '✓', name: 'Відкрити доступ до SendPulse знову', desc: 'Відновлює доступ у SendPulse + продовжує термін згідно плану (YEARLY +365д, MONTHLY +30д). Не працює для ARCHIVED.' },
+    { icon: '🗑', name: 'Архівувати запис', desc: 'Назавжди закриває доступ у SendPulse, очищає технічні поля (recToken, studentId), ставить статус ARCHIVED. Картка лишається в адмінці як архів. Відновити не можна. Для підтвердження треба ввести email.' },
+  ];
+
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4" role="dialog" aria-modal="true">
+      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
+      <div className={`relative max-w-2xl w-full max-h-[85vh] overflow-y-auto rounded-2xl shadow-2xl ${dark ? 'bg-zinc-900 border border-white/10 text-slate-200' : 'bg-white border border-stone-200 text-stone-800'}`}>
+        <div className={`sticky top-0 z-10 flex items-center justify-between px-5 py-3 border-b ${dark ? 'bg-zinc-900 border-white/10' : 'bg-white border-stone-200'}`}>
+          <h3 className="text-base font-bold">Статуси та дії — довідка</h3>
+          <button onClick={onClose} aria-label="Закрити" className={`w-7 h-7 rounded-full flex items-center justify-center ${dark ? 'hover:bg-white/10' : 'hover:bg-stone-100'}`}>✕</button>
+        </div>
+
+        <div className="px-5 py-4 space-y-5">
+          <section>
+            <h4 className="text-[11px] uppercase tracking-[0.14em] font-bold mb-2 opacity-60">Статуси підписки</h4>
+            <div className="space-y-2">
+              {statuses.map((s) => (
+                <div key={s.badge} className="flex items-start gap-3">
+                  <span className={`shrink-0 px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider ${s.cls}`}>{s.name}</span>
+                  <p className={`text-[12px] leading-snug ${dark ? 'text-slate-300' : 'text-stone-700'}`}>{s.desc}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section>
+            <h4 className="text-[11px] uppercase tracking-[0.14em] font-bold mb-2 opacity-60">Що робить кожна дія</h4>
+            <div className="space-y-2">
+              {actions.map((a) => (
+                <div key={a.name} className={`p-3 rounded-lg border ${dark ? 'border-white/10 bg-white/[0.03]' : 'border-stone-200 bg-stone-50/50'}`}>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-base">{a.icon}</span>
+                    <span className="text-[12px] font-bold">{a.name}</span>
+                  </div>
+                  <p className={`text-[11px] leading-snug ${dark ? 'text-slate-400' : 'text-stone-600'}`}>{a.desc}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  );
 }

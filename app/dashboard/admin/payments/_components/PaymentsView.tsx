@@ -2,16 +2,17 @@
 
 import { useMemo, useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { HiOutlineFunnel, HiOutlineBanknotes, HiOutlineCheckCircle, HiOutlineClock, HiOutlineCreditCard } from 'react-icons/hi2';
+import { HiOutlineFunnel, HiOutlineBanknotes, HiOutlineCheckCircle, HiOutlineClock, HiOutlineCreditCard, HiOutlineChevronLeft, HiOutlineChevronRight } from 'react-icons/hi2';
 import { useAdminTheme, type Theme } from '../../_components/adminTheme';
 import { AdminShell, AdminPanel } from '../../_components/AdminShell';
 
 export type Row = {
   id: string;
-  source: 'course' | 'bundle' | 'connector';
+  source: 'course' | 'bundle' | 'connector' | 'yearly';
   createdAt: string;
   clientName: string;
   clientEmail: string;
+  /// Для course/bundle/connector — назва продукту. Для yearly — "Річна" або "Місячна".
   productLabel: string;
   amount: number;
   status: string;
@@ -29,6 +30,7 @@ const TYPE_OPTIONS = [
   { value: 'ALL', label: 'Усі' },
   { value: 'course', label: 'Курс' },
   { value: 'bundle', label: 'Пакет' },
+  { value: 'yearly', label: 'Річна програма' },
   { value: 'connector', label: 'Коннектор' },
 ];
 
@@ -47,12 +49,15 @@ export default function PaymentsView({ rows }: { rows: Row[] }) {
 
   const [typeFilter, setTypeFilter] = useState<string>('ALL');
   const [productFilter, setProductFilter] = useState<string>('ALL');
-  const [statusFilter, setStatusFilter] = useState<string>('PAID');
+  const [statusFilter, setStatusFilter] = useState<string>('ALL');
+  const [pageSize, setPageSize] = useState<number>(25);
+  const [page, setPage] = useState<number>(1);
 
   const productOptions = useMemo(() => {
     const PRODUCT_PREFIX: Record<Row['source'], string> = {
       course: 'Курс',
       bundle: 'Пакет',
+      yearly: 'Річна програма',
       connector: 'Гра',
     };
     const base = typeFilter === 'ALL' ? rows : rows.filter(r => r.source === typeFilter);
@@ -90,7 +95,14 @@ export default function PaymentsView({ rows }: { rows: Row[] }) {
     return { total, paid, pending, paidCount };
   }, [rows]);
 
-  const isFilterActive = typeFilter !== 'ALL' || productFilter !== 'ALL' || statusFilter !== 'PAID';
+  const isFilterActive = typeFilter !== 'ALL' || productFilter !== 'ALL' || statusFilter !== 'ALL';
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  useEffect(() => { setPage(1); }, [typeFilter, productFilter, statusFilter, pageSize]);
+  useEffect(() => { if (page > totalPages) setPage(totalPages); }, [page, totalPages]);
+  const pageStart = (page - 1) * pageSize;
+  const pageEnd = Math.min(pageStart + pageSize, filtered.length);
+  const paged = filtered.slice(pageStart, pageEnd);
 
   return (
     <AdminShell
@@ -109,7 +121,7 @@ export default function PaymentsView({ rows }: { rows: Row[] }) {
             : 'bg-white/55 border-stone-300/50 divide-stone-300/40 shadow-[0_1px_2px_rgba(68,64,60,0.04)]'
         }`}
       >
-        <Kpi theme={theme} icon={HiOutlineCreditCard} label="Всього платежів" value={totals.total.toLocaleString()} />
+        <Kpi theme={theme} icon={HiOutlineCreditCard} label="Всього записів" value={totals.total.toLocaleString()} />
         <Kpi theme={theme} icon={HiOutlineCheckCircle} label="Успішних" value={totals.paidCount.toLocaleString()} tone="success" />
         <Kpi theme={theme} icon={HiOutlineClock} label="Очікують" value={totals.pending.toLocaleString()} tone={totals.pending > 0 ? 'warning' : 'neutral'} />
         <Kpi theme={theme} icon={HiOutlineBanknotes} label="Загальний дохід" value={`${totals.paid.toLocaleString()} ₴`} glow />
@@ -136,7 +148,7 @@ export default function PaymentsView({ rows }: { rows: Row[] }) {
               </p>
               {isFilterActive && (
                 <button
-                  onClick={() => { setTypeFilter('ALL'); setProductFilter('ALL'); setStatusFilter('PAID'); }}
+                  onClick={() => { setTypeFilter('ALL'); setProductFilter('ALL'); setStatusFilter('ALL'); }}
                   className={`text-[11px] font-medium transition-colors ${
                     dark ? 'text-amber-300 hover:text-amber-200' : 'text-amber-800 hover:text-amber-900'
                   }`}
@@ -173,7 +185,7 @@ export default function PaymentsView({ rows }: { rows: Row[] }) {
                       </td>
                     </tr>
                   ) : (
-                    filtered.map(row => {
+                    paged.map(row => {
                       const date = new Date(row.createdAt);
                       const isClickable = row.source === 'connector';
                       return (
@@ -220,6 +232,19 @@ export default function PaymentsView({ rows }: { rows: Row[] }) {
                 </tbody>
               </table>
             </div>
+            {filtered.length > 0 && (
+              <PaginationBar
+                theme={theme}
+                page={page}
+                totalPages={totalPages}
+                total={filtered.length}
+                pageStart={pageStart}
+                pageEnd={pageEnd}
+                pageSize={pageSize}
+                onPage={setPage}
+                onPageSize={setPageSize}
+              />
+            )}
           </>
         )}
       </AdminPanel>
@@ -284,9 +309,10 @@ function Th({ children, theme }: { children: React.ReactNode; theme: Theme }) {
 function TypePill({ source, theme }: { source: Row['source']; theme: Theme }) {
   const dark = theme === 'dark';
   const map = {
-    bundle:    { label: 'Пакет',     dark: 'bg-violet-500/15 text-violet-300 border-violet-500/20',   light: 'bg-violet-500/10 text-violet-800 border-violet-500/25' },
-    connector: { label: 'Коннектор', dark: 'bg-orange-500/15 text-orange-300 border-orange-500/20',   light: 'bg-orange-500/10 text-orange-800 border-orange-500/25' },
-    course:    { label: 'Курс',      dark: 'bg-sky-500/15 text-sky-300 border-sky-500/20',             light: 'bg-sky-500/10 text-sky-800 border-sky-500/25' },
+    bundle:    { label: 'Пакет',          dark: 'bg-violet-500/15 text-violet-300 border-violet-500/20',   light: 'bg-violet-500/10 text-violet-800 border-violet-500/25' },
+    connector: { label: 'Коннектор',      dark: 'bg-orange-500/15 text-orange-300 border-orange-500/20',   light: 'bg-orange-500/10 text-orange-800 border-orange-500/25' },
+    course:    { label: 'Курс',           dark: 'bg-sky-500/15 text-sky-300 border-sky-500/20',             light: 'bg-sky-500/10 text-sky-800 border-sky-500/25' },
+    yearly:    { label: 'Річна програма', dark: 'bg-amber-500/15 text-amber-300 border-amber-500/20',       light: 'bg-amber-500/10 text-amber-800 border-amber-500/25' },
   }[source];
   return (
     <span className={`inline-flex px-2 py-0.5 rounded-md text-[10px] font-semibold border ${dark ? map.dark : map.light}`}>
@@ -312,6 +338,15 @@ function ProductCell({ row, theme }: { row: Row; theme: Theme }) {
         dark ? 'bg-orange-500/10 text-orange-300 border-orange-500/20' : 'bg-orange-500/10 text-orange-800 border-orange-500/25'
       }`}>
         🧩 <span className="truncate max-w-[260px]">{row.productLabel}</span>
+      </span>
+    );
+  }
+  if (row.source === 'yearly') {
+    return (
+      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium border ${
+        dark ? 'bg-amber-500/10 text-amber-300 border-amber-500/20' : 'bg-amber-500/10 text-amber-800 border-amber-500/25'
+      }`}>
+        🎓 <span>{row.productLabel}</span>
       </span>
     );
   }
@@ -419,4 +454,115 @@ function FilterHeader({
       )}
     </div>
   );
+}
+
+function PaginationBar({
+  theme,
+  page,
+  totalPages,
+  total,
+  pageStart,
+  pageEnd,
+  pageSize,
+  onPage,
+  onPageSize,
+}: {
+  theme: Theme;
+  page: number;
+  totalPages: number;
+  total: number;
+  pageStart: number;
+  pageEnd: number;
+  pageSize: number;
+  onPage: (p: number) => void;
+  onPageSize: (n: number) => void;
+}) {
+  const dark = theme === 'dark';
+  const pages = computePageList(page, totalPages);
+  const btnBase = 'inline-flex items-center justify-center h-7 min-w-7 px-2 rounded-md text-[12px] tabular-nums transition-colors';
+  const btnIdle = dark
+    ? 'text-slate-400 hover:text-slate-100 hover:bg-white/[0.06] border border-white/[0.06]'
+    : 'text-stone-600 hover:text-stone-900 hover:bg-stone-100 border border-stone-300/50';
+  const btnActive = dark
+    ? 'bg-amber-400/15 text-amber-200 border border-amber-400/30'
+    : 'bg-amber-100 text-amber-800 border border-amber-300/60';
+  const btnDisabled = dark
+    ? 'text-slate-600 border border-white/[0.04] cursor-not-allowed'
+    : 'text-stone-300 border border-stone-200/60 cursor-not-allowed';
+
+  return (
+    <div className={`flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-t text-[12px] ${
+      dark ? 'border-white/[0.06] text-slate-400' : 'border-stone-300/40 text-stone-600'
+    }`}>
+      <div className="tabular-nums">
+        Показано <span className={dark ? 'text-slate-200' : 'text-stone-800'}>{pageStart + 1}–{pageEnd}</span> з{' '}
+        <span className={dark ? 'text-slate-200' : 'text-stone-800'}>{total}</span>
+      </div>
+      <div className="flex items-center gap-3">
+        <label className="flex items-center gap-2">
+          <span>На сторінці:</span>
+          <select
+            value={pageSize}
+            onChange={(e) => onPageSize(Number(e.target.value))}
+            className={`h-7 px-2 rounded-md text-[12px] outline-none ${
+              dark
+                ? 'bg-white/[0.04] border border-white/[0.08] text-slate-200'
+                : 'bg-white/80 border border-stone-300/60 text-stone-800'
+            }`}
+          >
+            <option value={25}>25</option>
+            <option value={50}>50</option>
+            <option value={100}>100</option>
+          </select>
+        </label>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => onPage(Math.max(1, page - 1))}
+            disabled={page <= 1}
+            className={`${btnBase} ${page <= 1 ? btnDisabled : btnIdle}`}
+            aria-label="Попередня сторінка"
+          >
+            <HiOutlineChevronLeft className="text-sm" />
+          </button>
+          {pages.map((p, i) =>
+            p === '…' ? (
+              <span key={`dots-${i}`} className={`${btnBase} ${dark ? 'text-slate-600' : 'text-stone-400'}`}>…</span>
+            ) : (
+              <button
+                key={p}
+                type="button"
+                onClick={() => onPage(p)}
+                className={`${btnBase} ${p === page ? btnActive : btnIdle}`}
+                aria-current={p === page ? 'page' : undefined}
+              >
+                {p}
+              </button>
+            ),
+          )}
+          <button
+            type="button"
+            onClick={() => onPage(Math.min(totalPages, page + 1))}
+            disabled={page >= totalPages}
+            className={`${btnBase} ${page >= totalPages ? btnDisabled : btnIdle}`}
+            aria-label="Наступна сторінка"
+          >
+            <HiOutlineChevronRight className="text-sm" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function computePageList(current: number, total: number): (number | '…')[] {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+  const pages: (number | '…')[] = [1];
+  const left = Math.max(2, current - 1);
+  const right = Math.min(total - 1, current + 1);
+  if (left > 2) pages.push('…');
+  for (let p = left; p <= right; p++) pages.push(p);
+  if (right < total - 1) pages.push('…');
+  pages.push(total);
+  return pages;
 }
