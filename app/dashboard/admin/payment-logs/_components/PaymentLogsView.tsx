@@ -144,7 +144,7 @@ export default function PaymentLogsView({ data }: { data: PaymentLogsData }) {
               <tr>
                 <Th theme={theme}>Час</Th>
                 <Th theme={theme}>Клієнт</Th>
-                <Th theme={theme}>Тип</Th>
+                <Th theme={theme}>Підписка</Th>
                 <Th theme={theme}>Статус</Th>
                 <Th theme={theme}>Сума</Th>
                 <Th theme={theme}>IP</Th>

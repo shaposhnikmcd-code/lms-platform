@@ -283,7 +283,7 @@ export default function YearlyProgramView({
                 <Th theme={theme}>{''}</Th>
                 <Th theme={theme}>Створено</Th>
                 <Th theme={theme}>Користувач</Th>
-                <Th theme={theme}>План</Th>
+                <Th theme={theme}>Підписка</Th>
                 <Th theme={theme}>Статус</Th>
                 <Th theme={theme}>Доступ до</Th>
                 <Th theme={theme}>Платежів</Th>

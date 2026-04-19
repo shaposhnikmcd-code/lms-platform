@@ -168,7 +168,7 @@ export default function PaymentsView({ rows }: { rows: Row[] }) {
                       <FilterHeader theme={theme} label="Тип" value={typeFilter} options={TYPE_OPTIONS} onChange={setTypeFilter} />
                     </Th>
                     <Th theme={theme}>
-                      <FilterHeader theme={theme} label="Продукт" value={productFilter} options={productOptions} onChange={setProductFilter} />
+                      <FilterHeader theme={theme} label="Підписка" value={productFilter} options={productOptions} onChange={setProductFilter} />
                     </Th>
                     <Th theme={theme}>Сума</Th>
                     <Th theme={theme}>
