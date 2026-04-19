@@ -164,10 +164,10 @@ export default function PaymentsView({ rows }: { rows: Row[] }) {
                   <tr>
                     <Th theme={theme}>Дата</Th>
                     <Th theme={theme}>Клієнт</Th>
-                    <Th theme={theme}>
+                    <Th theme={theme} align="center">
                       <FilterHeader theme={theme} label="Тип" value={typeFilter} options={TYPE_OPTIONS} onChange={setTypeFilter} />
                     </Th>
-                    <Th theme={theme}>
+                    <Th theme={theme} align="center">
                       <FilterHeader theme={theme} label="Підписка" value={productFilter} options={productOptions} onChange={setProductFilter} />
                     </Th>
                     <Th theme={theme}>Сума</Th>
@@ -210,10 +210,10 @@ export default function PaymentsView({ rows }: { rows: Row[] }) {
                             <p className={`text-[13px] font-medium ${dark ? 'text-slate-100' : 'text-stone-900'}`}>{row.clientName}</p>
                             <p className={`text-[11px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>{row.clientEmail}</p>
                           </td>
-                          <td className="px-5 py-3">
+                          <td className="px-5 py-3 text-center">
                             <TypePill theme={theme} source={row.source} />
                           </td>
-                          <td className="px-5 py-3">
+                          <td className="px-5 py-3 text-center">
                             <ProductCell theme={theme} row={row} />
                           </td>
                           <td className={`px-5 py-3 text-[13px] font-semibold tabular-nums ${dark ? 'text-slate-100' : 'text-stone-900'}`}>
@@ -297,10 +297,19 @@ function Kpi({
   );
 }
 
-function Th({ children, theme }: { children: React.ReactNode; theme: Theme }) {
+function Th({
+  children,
+  theme,
+  align = 'left',
+}: {
+  children: React.ReactNode;
+  theme: Theme;
+  align?: 'left' | 'center' | 'right';
+}) {
   const dark = theme === 'dark';
+  const alignCls = align === 'center' ? 'text-center' : align === 'right' ? 'text-right' : 'text-left';
   return (
-    <th className={`text-left px-5 py-3 text-[10px] font-semibold uppercase tracking-[0.18em] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+    <th className={`${alignCls} px-5 py-3 text-[10px] font-semibold uppercase tracking-[0.18em] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
       {children}
     </th>
   );
@@ -346,7 +355,7 @@ function ProductCell({ row, theme }: { row: Row; theme: Theme }) {
     // Річна = amber, Місячна Автоплатіж = indigo, Місячна на 1 міс. = sky.
     const yearlyTone =
       row.productLabel === 'Місячна Автоплатіж'
-        ? { dark: 'bg-indigo-500/10 text-indigo-300 border-indigo-500/20', light: 'bg-indigo-500/10 text-indigo-800 border-indigo-500/25' }
+        ? { dark: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20', light: 'bg-emerald-500/10 text-emerald-800 border-emerald-500/25' }
         : row.productLabel === 'Місячна на 1 міс.'
           ? { dark: 'bg-sky-500/10 text-sky-300 border-sky-500/20', light: 'bg-sky-500/10 text-sky-800 border-sky-500/25' }
           : { dark: 'bg-amber-500/10 text-amber-300 border-amber-500/20', light: 'bg-amber-500/10 text-amber-800 border-amber-500/25' };

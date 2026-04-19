@@ -144,7 +144,7 @@ export default function PaymentLogsView({ data }: { data: PaymentLogsData }) {
               <tr>
                 <Th theme={theme}>Час</Th>
                 <Th theme={theme}>Клієнт</Th>
-                <Th theme={theme}>Підписка</Th>
+                <Th theme={theme} align="center">Підписка</Th>
                 <Th theme={theme}>Статус</Th>
                 <Th theme={theme}>Сума</Th>
                 <Th theme={theme}>IP</Th>
@@ -185,7 +185,7 @@ export default function PaymentLogsView({ data }: { data: PaymentLogsData }) {
                           <span className={`text-[11px] ${dark ? 'text-slate-600' : 'text-stone-400'}`}>—</span>
                         )}
                       </td>
-                      <td className="px-4 py-2.5">
+                      <td className="px-4 py-2.5 text-center">
                         <KindBadge theme={theme} kind={log.kind} autoRenew={log.autoRenew} />
                       </td>
                       <td className="px-4 py-2.5">
@@ -288,12 +288,23 @@ function Kpi({
   );
 }
 
-function Th({ children, theme, title }: { children: React.ReactNode; theme: Theme; title?: string }) {
+function Th({
+  children,
+  theme,
+  title,
+  align = 'left',
+}: {
+  children: React.ReactNode;
+  theme: Theme;
+  title?: string;
+  align?: 'left' | 'center' | 'right';
+}) {
   const dark = theme === 'dark';
+  const alignCls = align === 'center' ? 'text-center' : align === 'right' ? 'text-right' : 'text-left';
   return (
     <th
       title={title}
-      className={`text-left px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.18em] whitespace-nowrap ${dark ? 'text-slate-500' : 'text-stone-500'} ${title ? 'cursor-help' : ''}`}
+      className={`${alignCls} px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.18em] whitespace-nowrap ${dark ? 'text-slate-500' : 'text-stone-500'} ${title ? 'cursor-help' : ''}`}
     >
       {children}
     </th>
@@ -314,13 +325,13 @@ function KindBadge({ kind, autoRenew, theme }: { kind: string; autoRenew?: boole
     course:        { label: 'Курс',                  dark: 'bg-sky-500/15 text-sky-300 border-sky-500/20',              light: 'bg-sky-500/10 text-sky-800 border-sky-500/25' },
     bundle:        { label: 'Пакет',                 dark: 'bg-violet-500/15 text-violet-300 border-violet-500/20',    light: 'bg-violet-500/10 text-violet-800 border-violet-500/25' },
     yearly:        { label: 'Річна',                 dark: 'bg-amber-500/15 text-amber-300 border-amber-500/20',        light: 'bg-amber-500/10 text-amber-800 border-amber-500/25' },
-    monthly_auto:  { label: 'Місячна Автоплатіж',    dark: 'bg-indigo-500/15 text-indigo-300 border-indigo-500/20',    light: 'bg-indigo-500/10 text-indigo-800 border-indigo-500/25' },
+    monthly_auto:  { label: 'Місячна Автоплатіж',    dark: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/20', light: 'bg-emerald-500/10 text-emerald-800 border-emerald-500/25' },
     monthly_once:  { label: 'Місячна на 1 міс.',     dark: 'bg-sky-500/15 text-sky-300 border-sky-500/20',              light: 'bg-sky-500/10 text-sky-800 border-sky-500/25' },
     monthly:       { label: 'Місячна',               dark: 'bg-indigo-500/15 text-indigo-300 border-indigo-500/20',    light: 'bg-indigo-500/10 text-indigo-800 border-indigo-500/25' },
     connector: { label: 'Коннектор', dark: 'bg-orange-500/15 text-orange-300 border-orange-500/20',    light: 'bg-orange-500/10 text-orange-800 border-orange-500/25' },
     unknown:   { label: '?',         dark: 'bg-slate-500/20 text-slate-400 border-slate-500/20',       light: 'bg-stone-200/70 text-stone-600 border-stone-300/70' },
   };
-  const m = map[kind] ?? map.unknown;
+  const m = map[effectiveKind] ?? map.unknown;
   return (
     <span className={`inline-flex items-center px-2 py-0.5 text-[10px] font-semibold rounded-md border ${dark ? m.dark : m.light}`}>
       {m.label}

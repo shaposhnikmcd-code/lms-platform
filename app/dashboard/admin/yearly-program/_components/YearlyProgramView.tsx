@@ -283,8 +283,8 @@ export default function YearlyProgramView({
                 <Th theme={theme}>{''}</Th>
                 <Th theme={theme}>Створено</Th>
                 <Th theme={theme}>Користувач</Th>
-                <Th theme={theme}>Підписка</Th>
-                <Th theme={theme}>Статус</Th>
+                <Th theme={theme} align="center">Підписка</Th>
+                <Th theme={theme} align="center">Статус</Th>
                 <Th theme={theme}>Доступ до</Th>
                 <Th theme={theme}>Платежів</Th>
                 <Th theme={theme}>Сплачено</Th>
@@ -486,8 +486,8 @@ function RowBlock({
           <div className={`text-[12px] font-medium ${dark ? 'text-slate-200' : 'text-stone-800'}`}>{r.userName ?? '—'}</div>
           <div className={`text-[10px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>{r.userEmail}</div>
         </td>
-        <td className="px-4 py-2.5"><PlanBadge theme={theme} plan={r.plan} autoRenew={r.autoRenew} /></td>
-        <td className="px-4 py-2.5"><StatusBadge theme={theme} status={r.status} /></td>
+        <td className="px-4 py-2.5 text-center"><PlanBadge theme={theme} plan={r.plan} autoRenew={r.autoRenew} /></td>
+        <td className="px-4 py-2.5 text-center"><StatusBadge theme={theme} status={r.status} /></td>
         <td className={`px-4 py-2.5 text-[11px] tabular-nums whitespace-nowrap ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
           {r.expiresAt ? (
             <>
@@ -796,10 +796,19 @@ function fmtDateShort(iso: string): string {
   return KYIV_DATE_FMT.format(new Date(iso));
 }
 
-function Th({ children, theme }: { children: React.ReactNode; theme: Theme }) {
+function Th({
+  children,
+  theme,
+  align = 'left',
+}: {
+  children: React.ReactNode;
+  theme: Theme;
+  align?: 'left' | 'center' | 'right';
+}) {
   const dark = theme === 'dark';
+  const alignCls = align === 'center' ? 'text-center' : align === 'right' ? 'text-right' : 'text-left';
   return (
-    <th className={`text-left px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.18em] whitespace-nowrap ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+    <th className={`${alignCls} px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.18em] whitespace-nowrap ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
       {children}
     </th>
   );
@@ -896,7 +905,7 @@ function PlanBadge({ plan, autoRenew, theme }: { plan: Plan; autoRenew: boolean;
   if (autoRenew) {
     return (
       <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider ${
-        dark ? 'bg-indigo-500/15 text-indigo-300 border border-indigo-400/20' : 'bg-indigo-100 text-indigo-800 border border-indigo-300/50'
+        dark ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-400/20' : 'bg-emerald-100 text-emerald-800 border border-emerald-300/50'
       }`}>Місячний Автоплатіж</span>
     );
   }
