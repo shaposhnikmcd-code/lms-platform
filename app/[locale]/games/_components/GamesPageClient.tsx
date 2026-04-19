@@ -1,10 +1,19 @@
 'use client';
 
 import React, { useState } from 'react';
-import OrderForm from '@/components/connector/OrderForm';
+import dynamic from 'next/dynamic';
 import GamesHero from './GamesHero';
 import GamesAbout from './GamesAbout';
 import GamesQuote from './GamesQuote';
+
+// OrderForm — модальне вікно (~1400 рядків клієнтського JS з countries dataset,
+// useSession, react-icons, Nova Poshta городи/відділення logic).
+// Завантажується тільки коли користувач натискає "Замовити" → значно меншe first-load JS.
+// ssr:false — модал ніколи не рендериться у SSR, бо умовно прихований.
+const OrderForm = dynamic(() => import('@/components/connector/OrderForm'), {
+  ssr: false,
+  loading: () => null,
+});
 
 const sysFont = '-apple-system, BlinkMacSystemFont, sans-serif';
 
@@ -103,7 +112,10 @@ export default function GamesPageClient({ content, currency }: Props) {
       />
       <GamesAbout desc1={content.desc1} desc2={content.desc2} desc3={content.desc3} />
       <GamesQuote quote={content.quote} comingSoon={content.comingSoon} />
-      <OrderForm isOpen={showOrderForm} onClose={() => setShowOrderForm(false)} labels={content.form} />
+      {/* Умовний рендер: OrderForm JS завантажується лише після першого "Замовити" */}
+      {showOrderForm && (
+        <OrderForm isOpen={showOrderForm} onClose={() => setShowOrderForm(false)} labels={content.form} />
+      )}
       <style>{`
         @media (max-width: 768px) {
           .games-hero-grid { grid-template-columns: 1fr !important; gap: 2rem !important; padding: 3rem 1.5rem 2.5rem !important; }

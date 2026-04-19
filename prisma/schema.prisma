@@ -393,6 +393,10 @@ model Bundle {
   payments    Payment[]
 
   @@index([sortOrder])
+  /// Прискорює основний публічний запит /courses: where published=true AND suspendedAt IS NULL ORDER BY sortOrder, createdAt
+  @@index([published, suspendedAt, sortOrder, createdAt])
+  /// Прискорює auto-resume cron: where suspendedAt IS NOT NULL AND resumeAt <= now()
+  @@index([suspendedAt, resumeAt])
 }
 
 model BundleCourse {
@@ -511,18 +515,18 @@ model YearlyProgramSubscription {
   /// пропущеному cron-добу підписка потрапляє в GRACE з expiresAt глибоко в минулому —
   /// це б миттєво expire-ало її. Ми фіксуємо, коли саме GRACE почалось, і експайраємо
   /// лише коли `gracePeriodEndsAt < now`.
-  graceStartedAt      DateTime?
-  gracePeriodEndsAt   DateTime?
+  graceStartedAt    DateTime?
+  gracePeriodEndsAt DateTime?
 
   /// Нагадування про закінчення / grace.
   /// MANUAL flow: manualBeforeExpiry (3д до) → manualOnExpiry (день 0) → manualGraceStart (день +1) → accessClosed (день +7)
   /// CYCLICAL flow (тільки при charge failure): cyclicalChargeFailed1 (день +1) → cyclicalChargeFailed3 (день +3) → accessClosed (день +7)
-  reminderSent3d           Boolean @default(false) /// legacy: manual "за 3 дні"
-  reminderSent1d           Boolean @default(false) /// legacy, не використовується новою логікою
-  reminderSentExpired      Boolean @default(false) /// spіvlynyi: accessClosed на день +7
-  reminderSentOnExpiry     Boolean @default(false) /// manual: у день закінчення
-  reminderSentGraceStart   Boolean @default(false) /// manual: день +1 (grace стартував) АБО cyclical: charge failed
-  reminderSentGraceMid     Boolean @default(false) /// cyclical: день +3 (все ще не списано)
+  reminderSent3d         Boolean @default(false) /// legacy: manual "за 3 дні"
+  reminderSent1d         Boolean @default(false) /// legacy, не використовується новою логікою
+  reminderSentExpired    Boolean @default(false) /// spіvlynyi: accessClosed на день +7
+  reminderSentOnExpiry   Boolean @default(false) /// manual: у день закінчення
+  reminderSentGraceStart Boolean @default(false) /// manual: день +1 (grace стартував) АБО cyclical: charge failed
+  reminderSentGraceMid   Boolean @default(false) /// cyclical: день +3 (все ще не списано)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

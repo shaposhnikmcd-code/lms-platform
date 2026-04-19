@@ -5,6 +5,10 @@ import { FaCalendar, FaUser } from "react-icons/fa";
 import { getTranslatedContent } from "@/lib/translate";
 import { newsContent } from "./_content/uk";
 
+// ISR: 60s. Раніше — без revalidate → повний SSR з Prisma findMany на КОЖЕН запит (~1-2с).
+// Миттєве оновлення після публікації — через `revalidatePath('/news')` у admin-мутаціях.
+export const revalidate = 60;
+
 const getContent = getTranslatedContent(newsContent, "news-page", {
   en: () => import("./_content/en").then(m => m.default),
   pl: () => import("./_content/pl").then(m => m.default),
@@ -63,7 +67,7 @@ export default async function NewsPage({ params }: { params: Promise<{ locale: s
                 className="bg-white rounded-2xl shadow-sm hover:shadow-md transition-all overflow-hidden group">
                 {item.imageUrl ? (
                   <div className="relative w-full h-48 overflow-hidden">
-                    <Image src={item.imageUrl} alt={title} fill className="object-cover group-hover:scale-105 transition-transform duration-300" />
+                    <Image src={item.imageUrl} alt={title} fill sizes="(max-width: 768px) 100vw, (max-width: 1024px) 50vw, 33vw" className="object-cover group-hover:scale-105 transition-transform duration-300" />
                   </div>
                 ) : (
                   <div className="w-full h-48 bg-gradient-to-br from-[#1C3A2E] to-[#2a4f3f] flex items-center justify-center">

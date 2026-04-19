@@ -22,6 +22,32 @@ export const revalidate = 60;
 
 const sysFont = '-apple-system, BlinkMacSystemFont, sans-serif';
 
+// Throttle для auto-resume bundle перевірки. На кожному server-instance тримаємо
+// timestamp останнього виклику, щоб не довбати БД на КОЖЕН SSR.
+// 5 хвилин достатньо: resumeAt проставляється з адмінки і допуски в часі прийнятні.
+const AUTO_RESUME_INTERVAL_MS = 5 * 60 * 1000;
+let lastAutoResumeAt = 0;
+let autoResumeInflight: Promise<unknown> | null = null;
+
+function maybeAutoResumeBundles(): void {
+  const now = Date.now();
+  if (autoResumeInflight) return; // вже летить — пропустимо дубль
+  if (now - lastAutoResumeAt < AUTO_RESUME_INTERVAL_MS) return;
+  lastAutoResumeAt = now;
+  autoResumeInflight = prisma.bundle
+    .updateMany({
+      where: {
+        suspendedAt: { not: null },
+        resumeAt: { not: null, lte: new Date() },
+      },
+      data: { suspendedAt: null, resumeAt: null },
+    })
+    .catch((e) => console.error('[bundle auto-resume] failed:', e))
+    .finally(() => {
+      autoResumeInflight = null;
+    });
+}
+
 const coursesMeta = [
   { key: "psychology",     slug: "psychology-basics",                 href: "/courses/psychology-basics",                icon: "🧠", tagKey: "tags.biblicalTherapy",   accent: '#D4A843', accentRgb: '212,168,67' },
   { key: "psychiatry",     slug: "psychiatry-basics",                 href: "/courses/psychiatry-basics",                icon: "🩺", tagKey: "tags.forPsychologists",   accent: '#C4919A', accentRgb: '196,145,154' },
@@ -62,14 +88,10 @@ export default async function CoursesPage({ params }: { params: Promise<{ locale
   const t = await getTranslations("CoursesPage");
   const currency = getCurrency(locale);
 
-  // Auto-resume suspended bundles whose resumeAt has passed
-  await prisma.bundle.updateMany({
-    where: {
-      suspendedAt: { not: null },
-      resumeAt: { not: null, lte: new Date() },
-    },
-    data: { suspendedAt: null, resumeAt: null },
-  });
+  // Auto-resume suspended bundles — НЕ блокує рендер.
+  // Throttled fire-and-forget: один inflight check на server-instance раз/5хв.
+  // Раніше прямий await додавав 100-300ms DB round-trip до КОЖНОГО SSR.
+  maybeAutoResumeBundles();
 
   const [bundles, priceOverrides] = await Promise.all([
     prisma.bundle.findMany({
@@ -121,7 +143,7 @@ export default async function CoursesPage({ params }: { params: Promise<{ locale
               <div style={{ position: 'relative' }}>
                 <div style={{ position: 'absolute', inset: -24, borderRadius: '50%', filter: 'blur(40px)', opacity: 0.2, background: 'radial-gradient(circle, #D4A843, #1C3A2E)', pointerEvents: 'none' }} />
                 <div style={{ position: 'relative', width: 208, height: 208 }}>
-                  <Image src="/logo-white.png" alt="UIMP" width={208} height={208} style={{ display: 'block', objectFit: 'contain', filter: 'drop-shadow(0 20px 40px rgba(0,0,0,0.4))' }} />
+                  <Image src="/logo-white.png" alt="UIMP" width={208} height={208} priority style={{ display: 'block', objectFit: 'contain', filter: 'drop-shadow(0 20px 40px rgba(0,0,0,0.4))' }} />
                 </div>
               </div>
             </div>

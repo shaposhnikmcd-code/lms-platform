@@ -12,7 +12,12 @@ import OutcomesSection from './_components/OutcomesSection';
 import StepsSection from './_components/StepsSection';
 import CtaSection from './_components/CtaSection';
 
-const inter = Inter({ subsets: ['latin', 'cyrillic'] });
+const inter = Inter({ subsets: ['latin', 'cyrillic'], display: 'swap' });
+
+// ISR: статичний контент з файлів, без БД. Регенерація раз/годину достатньо.
+// Миттєве оновлення — через revalidatePath('/yearly-program') у CMS-мутаціях, якщо з’являться.
+export const revalidate = 3600;
+
 const getContent = getTranslatedContent(learningContent, 'yearly-program-page', {
   en: () => import('./_content/en').then(m => m.default),
   pl: () => import('./_content/pl').then(m => m.default),

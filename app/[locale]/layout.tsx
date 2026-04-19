@@ -1,5 +1,3 @@
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { NextIntlClientProvider } from "next-intl";
 import { getMessages } from "next-intl/server";
 import { notFound } from "next/navigation";
@@ -23,12 +21,14 @@ export default async function LocaleLayout({
     notFound();
   }
 
-  const session = await getServerSession(authOptions);
+  // Свідомо НЕ викликаємо getServerSession() — це робило весь tree dynamic
+  // і ламало ISR для маркетингових сторінок. SessionProvider підтягне session
+  // client-side через /api/auth/session при потребі (useSession в Navbar/AuthButtons).
   const messages = await getMessages();
 
   return (
     <NextIntlClientProvider messages={messages}>
-      <SessionProviderWrapper session={session}>
+      <SessionProviderWrapper>
         <Navbar />
         <main className="flex-1">{children}</main>
         <Footer />

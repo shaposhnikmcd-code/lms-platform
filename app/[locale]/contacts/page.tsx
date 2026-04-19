@@ -11,6 +11,9 @@ import SocialSection from "./_components/SocialSection";
 import FormSection from "./_components/FormSection";
 import FaqSection from "./_components/FaqSection";
 
+// ISR: статичний контент з файлів. Перезбірка раз/годину.
+export const revalidate = 3600;
+
 const sysFont = '-apple-system, BlinkMacSystemFont, sans-serif';
 const getContent = getTranslatedContent(contactsContent, "contacts-page", {
   en: () => import("./_content/en").then(m => m.default),
