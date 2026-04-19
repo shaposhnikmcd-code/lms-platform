@@ -536,16 +536,12 @@ async function handleYearlyProgramCallback(args: {
         };
       }
     }
-    // Якщо email у callback відрізняється від Payment.user.email — відмовляємо (H2 fix).
+    // Email у callback може відрізнятись від форми (інша картка, saved profile WFP,
+    // share-cart). Підпис WFP вже гарантує автентичність — orderReference унікальний
+    // і WFP надсилає callback лише за платіж, який він сам обробив. Email — лише
+    // metadata для audit-trail, не блокуємо.
     if (clientEmail && payment.user?.email && clientEmail.toLowerCase() !== payment.user.email.toLowerCase()) {
-      return {
-        prevStatus: payment.status,
-        skipped: true,
-        skipReason: 'email_mismatch',
-        errorMsg: `Callback email ≠ Payment.user.email`,
-        actions,
-        sendpulseSlugs,
-      };
+      actions.push(`warn:email_diff:${clientEmail.toLowerCase()}≠${payment.user.email.toLowerCase()}`);
     }
   }
 
