@@ -27,7 +27,7 @@ const teamMeta = [
     tg: tgTetianaUrl,
   },
   {
-    photo: "/about-us/Liliia-Zakharevych.jpg",
+    photo: "/about-us/Liliia-Zakharevych.webp",
     objectFit: 'cover' as const,
     objectPosition: 'center center',
     wrapperStyle: { transform: 'scale(1.3)', transformOrigin: 'center bottom' } as React.CSSProperties,

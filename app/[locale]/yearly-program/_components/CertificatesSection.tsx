@@ -16,7 +16,7 @@ const visionUrl = "https://www.vision.edu/web/";
 
 const certMeta = [
   { src: '/yearly-program/Vision_International_Certificate.pdf', preview: '/yearly-program/vision_cert-v3.png', link: visionUrl },
-  { src: '/yearly-program/UIMP_Practical_Certificate.pdf', preview: '/yearly-program/uimp_cert-1.png', link: null as string | null },
+  { src: '/yearly-program/UIMP_Practical_Certificate.pdf', preview: '/yearly-program/uimp_cert-1.webp', link: null as string | null },
 ];
 
 type CertItem = { title: string; subtitle: string };

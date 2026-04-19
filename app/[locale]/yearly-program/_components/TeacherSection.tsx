@@ -7,8 +7,8 @@ const sysFont = '-apple-system, BlinkMacSystemFont, sans-serif';
 
 const peopleMeta = [
   { photo: '/yearly-program/Tetiana-Shaposhnyk.webp', objectPosition: 'center top' },
-  { photo: '/yearly-program/Oleksandra-Janush.jpg',   objectPosition: 'center 20%' },
-  { photo: '/yearly-program/Anna-Gudzenko.png',       objectPosition: 'center 65%' },
+  { photo: '/yearly-program/Oleksandra-Janush.webp',   objectPosition: 'center 20%' },
+  { photo: '/yearly-program/Anna-Gudzenko.webp',       objectPosition: 'center 65%' },
   { photo: '/yearly-program/Marta-Kholyava.jpg',      objectPosition: 'center 15%' },
 ];
 
