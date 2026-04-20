@@ -125,7 +125,7 @@ export default function ConnectorClient({ content, currency }: Props) {
           <div className="flex flex-col items-center justify-center mt-16">
             <div className="w-full mb-8">
               <div className="relative w-full h-auto aspect-square scale-125">
-                <Image src="/Connector game.jpg" alt={content.title} fill className="object-contain" priority quality={100} />
+                <Image src="/Connector game.jpg" alt={content.title} fill sizes="(max-width: 768px) 100vw, 500px" className="object-contain" priority quality={85} />
               </div>
             </div>
 

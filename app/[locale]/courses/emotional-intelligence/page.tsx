@@ -149,7 +149,7 @@ export default async function EmotionalIntelligencePage({ params }: { params: Pr
           {c.teachers.items.map((teacher, i) => (
             <div key={i} className="bg-white rounded-xl shadow-lg hover:shadow-xl transition-all overflow-hidden group">
               <div className="relative w-full overflow-hidden bg-[#f5f0eb]">
-                <Image src={teacher.image} alt={teacher.name} width={853} height={1280} unoptimized
+                <Image src={teacher.image} alt={teacher.name} width={853} height={1280} quality={85} loading="lazy"
                   className="h-auto transition-transform duration-500"
                   style={{
                     marginTop: '-30%',

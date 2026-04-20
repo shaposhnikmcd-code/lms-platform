@@ -66,7 +66,8 @@ export default function HeroSection({ badge, title1, title2, description, btnEnr
                     src="/courses/psychology-basics/uimp_wide-logo.webp"
                     alt="UIMP Logo"
                     fill
-                    unoptimized
+                    sizes="480px"
+                    quality={90}
                     style={{ objectFit: 'cover', objectPosition: 'center' }}
                     priority
                   />

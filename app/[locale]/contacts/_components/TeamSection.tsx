@@ -287,8 +287,8 @@ function PersonCard({ person }: { person: TeamMember }) {
             fill
             style={{ objectFit: person.objectFit, objectPosition: person.objectPosition }}
             sizes="(max-width: 1200px) 50vw, 560px"
-            quality={100}
-            unoptimized
+            quality={85}
+            loading="lazy"
           />
         </div>
         <div style={gradientOverlayStyle} />

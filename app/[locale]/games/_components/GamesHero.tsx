@@ -225,7 +225,7 @@ export default function GamesHero({ pageTitle, gameTitle, gameSubtitle, cards, p
         </div>
         <div className="order-1 md:order-2 flex justify-center" style={{ paddingBottom: '2.5rem' }}>
           <div style={imageWrapStyle}>
-            <Image src={"/Connector game.jpg"} alt={gameTitle} width={420} height={420} style={imageStyle} priority quality={100} />
+            <Image src={"/Connector game.jpg"} alt={gameTitle} width={420} height={420} style={imageStyle} priority quality={85} />
           </div>
         </div>
       </div>

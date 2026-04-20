@@ -25,8 +25,8 @@ export default function Footer() {
         <div className="max-w-5xl mx-auto px-4 py-3 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-white/60">
           <p>{`© ${currentYear} Ukrainian Institute of Ministry and Psychotherapy`}</p>
           <div className="flex gap-4">
-            <Link href="/privacy" className="hover:text-white transition-colors">{t('privacyShort')}</Link>
-            <Link href="/terms" className="hover:text-white transition-colors">{t('termsShort')}</Link>
+            <Link href="/privacy" prefetch={false} className="hover:text-white transition-colors">{t('privacyShort')}</Link>
+            <Link href="/terms" prefetch={false} className="hover:text-white transition-colors">{t('termsShort')}</Link>
           </div>
         </div>
       </footer>
@@ -89,9 +89,9 @@ export default function Footer() {
         </div>
         <div className="flex items-start gap-10">
           <div className="flex flex-col gap-1.5">
-            <Link href="/privacy" className={linkClass}>{t('privacy')}</Link>
-            <Link href="/terms" className={linkClass}>{t('terms')}</Link>
-            <Link href="/accessibility" className={linkClass}>{t('accessibility')}</Link>
+            <Link href="/privacy" prefetch={false} className={linkClass}>{t('privacy')}</Link>
+            <Link href="/terms" prefetch={false} className={linkClass}>{t('terms')}</Link>
+            <Link href="/accessibility" prefetch={false} className={linkClass}>{t('accessibility')}</Link>
           </div>
           <div className="flex flex-col gap-1.5">
             <a href={tgSupportUrl} target="_blank" rel="noopener noreferrer" className={linkClass}>{t('techSupport')}</a>

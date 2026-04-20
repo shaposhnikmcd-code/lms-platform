@@ -27,7 +27,10 @@ export default function Navbar() {
         : "text-[#1C3A2E] hover:text-[#D4A843]"
     }`;
 
-  const navLinks = [
+  // prefetch=false для рідко відвідуваних сторінок: клієнт все ще отримає їх
+  // при кліку (лише +100-300 ms), але сервер не буде довбаним RSC-prefetch-ами
+  // на кожен візит (було до 15 _rsc= на сторінку).
+  const navLinks: { href: string; label: string; prefetch?: false }[] = [
     { href: "/", label: t("home") },
     { href: "/courses", label: t("courses") },
     { href: "/yearly-program", label: t("yearly-program") },
@@ -35,9 +38,9 @@ export default function Navbar() {
     { href: "/games", label: t("games") },
     { href: "/news", label: t("news") },
     { href: "/contacts", label: t("contacts") },
-    { href: "/charity", label: t("charity") },
-    { href: "/partners", label: t("partners") },
-    { href: "/additional-materials", label: t("additionalMaterials") },
+    { href: "/charity", label: t("charity"), prefetch: false },
+    { href: "/partners", label: t("partners"), prefetch: false },
+    { href: "/additional-materials", label: t("additionalMaterials"), prefetch: false },
   ];
 
   const isActive = (path: string) => isActivePath(path);
@@ -57,7 +60,12 @@ export default function Navbar() {
             <div className="flex-1" />
             <div className="flex items-center gap-1 flex-shrink-0" style={{ fontSize: 'clamp(10px, 1vw, 14px)' }}>
               {navLinks.map((link) => (
-                <Link key={link.href} href={link.href} className={linkClass(link.href)}>
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  prefetch={link.prefetch}
+                  className={linkClass(link.href)}
+                >
                   {link.label}
                 </Link>
               ))}
@@ -115,6 +123,7 @@ export default function Navbar() {
             <Link
               key={link.href}
               href={link.href}
+              prefetch={link.prefetch}
               onClick={() => setMenuOpen(false)}
               style={{
                 display: 'block',

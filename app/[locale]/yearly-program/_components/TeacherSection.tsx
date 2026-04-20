@@ -64,8 +64,8 @@ function PersonCard({ person, index }: { person: Person; index: number }) {
               fill
               style={{ objectFit: 'cover', objectPosition: person.objectPosition }}
               sizes="540px"
-              quality={100}
-              unoptimized
+              quality={85}
+              loading="lazy"
             />
           ) : (
             <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
