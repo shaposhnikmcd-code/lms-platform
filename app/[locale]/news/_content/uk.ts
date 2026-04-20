@@ -1,5 +1,5 @@
 export const newsContent = {
-  title: "Новини",
+  title: "Події та Новини",
   subtitle: "Останні події та оголошення UIMP",
   empty: "Новин ще немає",
   categories: {

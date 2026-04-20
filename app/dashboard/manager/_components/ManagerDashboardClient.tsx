@@ -3,7 +3,24 @@
 import { useSession } from 'next-auth/react';
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import {
+  HiOutlineArrowPath,
+  HiOutlineCubeTransparent,
+  HiOutlineClipboardDocumentList,
+  HiOutlineTruck,
+  HiOutlineBanknotes,
+  HiOutlineSparkles,
+  HiOutlineChevronLeft,
+  HiOutlineChevronRight,
+  HiOutlineChevronDown,
+  HiOutlineMagnifyingGlass,
+  HiOutlinePhone,
+  HiOutlineXMark,
+  HiOutlineInboxStack,
+} from 'react-icons/hi2';
 import OrderDetailsModal from './OrderDetailsModal';
+import { useAdminTheme, type Theme, type Tone } from '../../admin/_components/adminTheme';
+import { AdminShell, AdminPanel } from '../../admin/_components/AdminShell';
 
 type OrderStatus = 'NEW' | 'PROCESSING' | 'SHIPPED' | 'DELIVERED' | 'CANCELLED';
 type PaymentStatus = 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED';
@@ -49,14 +66,6 @@ const STATUS_LABELS: Record<OrderStatus, string> = {
   CANCELLED: 'Скасовано',
 };
 
-const STATUS_DOT: Record<OrderStatus, string> = {
-  NEW: 'bg-sky-500',
-  PROCESSING: 'bg-amber-500',
-  SHIPPED: 'bg-indigo-500',
-  DELIVERED: 'bg-emerald-500',
-  CANCELLED: 'bg-rose-500',
-};
-
 const PAYMENT_LABELS: Record<PaymentStatus, string> = {
   PENDING: 'Очікує',
   PAID: 'Оплачено',
@@ -64,15 +73,41 @@ const PAYMENT_LABELS: Record<PaymentStatus, string> = {
   REFUNDED: 'Повернено',
 };
 
-const PAYMENT_DOT: Record<PaymentStatus, string> = {
-  PENDING: 'bg-slate-400',
-  PAID: 'bg-emerald-500',
-  FAILED: 'bg-orange-500',
-  REFUNDED: 'bg-amber-500',
+const STATUS_DOT: Record<OrderStatus, keyof typeof DOT_COLORS> = {
+  NEW: 'sky',
+  PROCESSING: 'amber',
+  SHIPPED: 'indigo',
+  DELIVERED: 'emerald',
+  CANCELLED: 'rose',
 };
 
+const PAYMENT_DOT: Record<PaymentStatus, keyof typeof DOT_COLORS> = {
+  PENDING: 'slate',
+  PAID: 'emerald',
+  FAILED: 'rose',
+  REFUNDED: 'amber',
+};
+
+const DOT_COLORS: Record<string, { dark: string; light: string }> = {
+  sky: { dark: 'bg-sky-400', light: 'bg-sky-600' },
+  amber: { dark: 'bg-amber-400', light: 'bg-amber-600' },
+  indigo: { dark: 'bg-indigo-400', light: 'bg-indigo-600' },
+  emerald: { dark: 'bg-emerald-400', light: 'bg-emerald-600' },
+  rose: { dark: 'bg-rose-400', light: 'bg-rose-600' },
+  slate: { dark: 'bg-slate-400', light: 'bg-stone-400' },
+};
+
+// Тип доставки не зберігається в БД — детектимо з postOffice. Див. OrderDetailsModal.tsx.
+function detectDeliveryType(postOffice: string): 'warehouse' | 'courier' {
+  const s = (postOffice ?? '').trim();
+  if (!s) return 'warehouse';
+  if (/(\s|^)(буд\.|корп\.|кв\.)/i.test(s)) return 'courier';
+  if (/^Відділення|^Поштомат|Parcel Shop|Pick[-\s]?up|Nova Post/i.test(s)) return 'warehouse';
+  if (/^(вул\.|просп\.|бул\.|пл\.|пр-т|пров\.)/i.test(s)) return 'courier';
+  return 'warehouse';
+}
+
 // Fallback тільки для історичних замовлень, де gamePrice не записувався в БД.
-// Для нових замовлень ціна береться з order.gamePrice (з payload форми).
 const LEGACY_GAME_PRICE = 1099;
 
 const getGamePrice = (o: { gamePrice?: number | null; amount: number }) =>
@@ -101,6 +136,9 @@ function computeStats(orders: Order[]) {
 }
 
 export default function ManagerDashboardClient() {
+  const { theme, setTheme, mounted } = useAdminTheme();
+  const dark = theme === 'dark';
+
   const { data: session, status } = useSession();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -117,31 +155,14 @@ export default function ManagerDashboardClient() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState(toDateInput(today));
   const [search, setSearch] = useState('');
-  const [sortKey, setSortKey] = useState<'date' | 'name' | 'city' | 'amount' | 'status'>('date');
+  const [sortKey, setSortKey] = useState<'date' | 'name' | 'delivery' | 'amount' | 'status'>('date');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
 
   const [editingTracking, setEditingTracking] = useState<string | null>(null);
   const [trackingDraft, setTrackingDraft] = useState('');
-  const [openNoteId, setOpenNoteId] = useState<string | null>(null);
   const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!openNoteId) return;
-    const handler = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      if (!target.closest('[data-note-popup]')) setOpenNoteId(null);
-    };
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpenNoteId(null); };
-    const t = setTimeout(() => document.addEventListener('mousedown', handler), 0);
-    window.addEventListener('keydown', onKey);
-    return () => {
-      clearTimeout(t);
-      document.removeEventListener('mousedown', handler);
-      window.removeEventListener('keydown', onKey);
-    };
-  }, [openNoteId]);
   const [, setSavingRowId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -150,7 +171,7 @@ export default function ManagerDashboardClient() {
       const role = session?.user?.role;
       if (role !== 'MANAGER' && role !== 'ADMIN') router.push('/dashboard');
     }
-  }, [status, session]);
+  }, [status, session, router]);
 
   useEffect(() => {
     fetchOrders();
@@ -312,7 +333,7 @@ export default function ManagerDashboardClient() {
       switch (sortKey) {
         case 'date': av = new Date(a.createdAt).getTime(); bv = new Date(b.createdAt).getTime(); break;
         case 'name': av = a.fullName ?? ''; bv = b.fullName ?? ''; break;
-        case 'city': av = a.city ?? ''; bv = b.city ?? ''; break;
+        case 'delivery': av = detectDeliveryType(a.postOffice); bv = detectDeliveryType(b.postOffice); break;
         case 'amount': av = a.amount; bv = b.amount; break;
         case 'status': av = a.orderStatus; bv = b.orderStatus; break;
       }
@@ -338,113 +359,134 @@ export default function ManagerDashboardClient() {
   };
 
   const SortArrow = ({ k }: { k: typeof sortKey }) =>
-    sortKey === k ? <span className="text-indigo-500 ml-0.5">{sortDir === 'asc' ? '↑' : '↓'}</span> : null;
+    sortKey === k ? (
+      <span className={dark ? 'text-amber-300 ml-0.5' : 'text-amber-700 ml-0.5'}>{sortDir === 'asc' ? '↑' : '↓'}</span>
+    ) : null;
 
-
-  if (status === 'loading' || loading) {
+  if (!mounted || status === 'loading' || loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <div className="animate-spin rounded-full h-10 w-10 border-2 border-slate-200 border-t-indigo-500" />
+      <div className={`min-h-[calc(100vh-4rem)] flex items-center justify-center ${dark ? 'bg-[#0b0d12]' : 'bg-[#f4eee1]'}`}>
+        <div className={`animate-spin rounded-full h-10 w-10 border-2 ${dark ? 'border-white/10 border-t-amber-300' : 'border-stone-300 border-t-amber-700'}`} />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <div className="max-w-[1400px] mx-auto px-6 py-6 space-y-4">
+    <AdminShell
+      theme={theme}
+      setTheme={setTheme}
+      eyebrow="Manager · Connector"
+      title="Гра «Конектор»"
+      subtitle="Замовлення — статуси, ТТН, нотатки, швидке редагування"
+      maxWidth="max-w-[1400px]"
+      rightSlot={
+        <button
+          type="button"
+          onClick={fetchOrders}
+          title="Оновити"
+          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[12px] font-medium transition-all ${
+            dark
+              ? 'bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.08] hover:text-white hover:border-amber-400/40'
+              : 'bg-white/80 border-stone-300/60 text-stone-700 hover:bg-stone-100 hover:border-amber-600/50'
+          }`}
+        >
+          <HiOutlineArrowPath className="text-sm" />
+          Оновити
+        </button>
+      }
+    >
+      {/* KPI strip */}
+      <div
+        className={`mb-5 rounded-2xl grid grid-cols-2 lg:grid-cols-5 overflow-hidden backdrop-blur-sm border divide-y lg:divide-y-0 lg:divide-x ${
+          dark
+            ? 'bg-white/[0.03] border-white/[0.06] divide-white/[0.06]'
+            : 'bg-white/55 border-stone-300/50 divide-stone-300/40 shadow-[0_1px_2px_rgba(68,64,60,0.04)]'
+        }`}
+      >
+        <Kpi theme={theme} icon={HiOutlineCubeTransparent} label="Всього" value={stats.total.toLocaleString()} />
+        <Kpi
+          theme={theme}
+          icon={HiOutlineSparkles}
+          label="Нових"
+          value={stats.new.toLocaleString()}
+          tone={stats.new > 0 ? 'warning' : 'neutral'}
+        />
+        <Kpi
+          theme={theme}
+          icon={HiOutlineClipboardDocumentList}
+          label="В обробці"
+          value={stats.processing.toLocaleString()}
+          tone={stats.processing > 0 ? 'warning' : 'neutral'}
+        />
+        <Kpi theme={theme} icon={HiOutlineTruck} label="Відправлено" value={stats.shipped.toLocaleString()} />
+        <Kpi theme={theme} icon={HiOutlineBanknotes} label="Дохід" value={`${stats.revenue.toLocaleString()} ₴`} tone="success" glow />
+      </div>
 
-        {/* Toolbar — breadcrumb + KPI inline + дія */}
-        <div className="flex items-center gap-6 flex-wrap">
-          <div className="flex items-baseline gap-2">
-            <h1 className="text-xl font-bold text-slate-800 tracking-tight">Гра «Конектор»</h1>
-            <span className="text-sm font-medium text-slate-400 uppercase tracking-wider">Замовлення</span>
-          </div>
-
-          <div className="flex-1 flex items-center justify-center gap-1 flex-wrap pl-64">
-            {[
-              { label: 'Всього', value: stats.total },
-              { label: 'Нових', value: stats.new },
-              { label: 'В обробці', value: stats.processing },
-              { label: 'Відправлено', value: stats.shipped },
-              { label: 'Дохід', value: `${stats.revenue.toLocaleString()} ₴` },
-            ].map((s, i, arr) => (
-              <div key={s.label} className="flex items-center">
-                <div className="px-3.5 text-center">
-                  <div className="text-[9px] font-semibold tracking-wider text-slate-400 uppercase mb-0.5">{s.label}</div>
-                  <div className="text-base font-bold text-slate-800 tabular-nums leading-none">{s.value}</div>
-                </div>
-                {i < arr.length - 1 && <div className="h-8 w-px bg-slate-200" />}
-              </div>
-            ))}
-          </div>
-          <button
-            onClick={fetchOrders}
-            className="ml-auto mr-12 inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-indigo-500 rounded-lg shadow-md shadow-indigo-500/30 ring-1 ring-indigo-400/40 hover:bg-indigo-600 hover:shadow-lg hover:shadow-indigo-500/40 transition-all"
-            title="Оновити"
-          >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
-                <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 01-9.201 2.466l-.312-.311h2.433a.75.75 0 000-1.5H3.989a.75.75 0 00-.75.75v4.242a.75.75 0 001.5 0v-2.43l.31.31a7 7 0 0011.712-3.138.75.75 0 00-1.449-.39zm1.23-3.723a.75.75 0 00.219-.53V2.929a.75.75 0 00-1.5 0V5.36l-.31-.31A7 7 0 003.239 8.188a.75.75 0 101.448.389A5.5 5.5 0 0113.89 6.11l.311.31h-2.432a.75.75 0 000 1.5h4.243a.75.75 0 00.53-.219z" clipRule="evenodd" />
-              </svg>
-              Оновити
-            </button>
-        </div>
-
-        {/* Sub-toolbar — пошук + статуси + дати */}
+      {/* Filters */}
+      <AdminPanel theme={theme} padding="p-4" className="mb-5">
         <div className="flex items-center gap-3 flex-wrap">
           {/* Search */}
           <div className="relative flex-1 min-w-[260px] max-w-sm">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400">
-              <path fillRule="evenodd" d="M9 3.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11zM2 9a7 7 0 1112.452 4.391l3.328 3.329a.75.75 0 11-1.06 1.06l-3.329-3.328A7 7 0 012 9z" clipRule="evenodd" />
-            </svg>
+            <HiOutlineMagnifyingGlass
+              className={`absolute left-3 top-1/2 -translate-y-1/2 text-base ${dark ? 'text-slate-500' : 'text-stone-500'}`}
+            />
             <input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Пошук: ім'я, телефон, ТТН, місто…"
-              className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-lg text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-300 transition-all"
+              className={`w-full pl-9 pr-3 py-1.5 rounded-lg border text-[12px] outline-none transition-colors ${
+                dark
+                  ? 'bg-white/[0.04] border-white/[0.08] text-slate-200 placeholder:text-slate-600 focus:border-amber-400/40'
+                  : 'bg-white/80 border-stone-300/60 text-stone-800 placeholder:text-stone-400 focus:border-amber-600/50'
+              }`}
             />
           </div>
 
           {/* Status pills */}
-          <div className="flex items-center gap-1 bg-white p-1 rounded-lg border border-slate-200">
-            {(['ALL', ...Object.keys(STATUS_LABELS)] as string[]).map((s) => (
-              <button
-                key={s}
-                onClick={() => setFilterStatus(s)}
-                className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
-                  filterStatus === s
-                    ? 'bg-slate-900 text-white shadow-sm'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                {s === 'ALL' ? 'Всі' : STATUS_LABELS[s as OrderStatus]}
-              </button>
-            ))}
-          </div>
+          <FilterGroup
+            theme={theme}
+            label="Статус"
+            options={[
+              { value: 'ALL', label: 'Всі' },
+              ...Object.entries(STATUS_LABELS).map(([v, l]) => ({ value: v, label: l })),
+            ]}
+            value={filterStatus}
+            onChange={setFilterStatus}
+          />
 
           {/* Date range */}
-          <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-lg px-1">
+          <div className={`inline-flex items-center gap-1 rounded-lg px-1 border ${
+            dark ? 'bg-black/30 border-white/[0.06]' : 'bg-stone-100/80 border-stone-300/50'
+          }`}>
             <input
               type="date"
               value={dateFrom}
               onChange={(e) => setDateFrom(e.target.value)}
-              className="px-2 py-1.5 text-sm bg-transparent focus:outline-none"
+              className={`px-2 py-1 text-[12px] bg-transparent focus:outline-none tabular-nums ${
+                dark ? 'text-slate-200 [color-scheme:dark]' : 'text-stone-800'
+              }`}
             />
-            <span className="text-slate-300">—</span>
+            <span className={dark ? 'text-slate-600' : 'text-stone-400'}>—</span>
             <input
               type="date"
               value={dateTo}
               onChange={(e) => setDateTo(e.target.value)}
-              className="px-2 py-1.5 text-sm bg-transparent focus:outline-none"
+              className={`px-2 py-1 text-[12px] bg-transparent focus:outline-none tabular-nums ${
+                dark ? 'text-slate-200 [color-scheme:dark]' : 'text-stone-800'
+              }`}
             />
           </div>
 
+          {/* Quick dates */}
           <div className="flex items-center gap-0.5">
             {quickDates.map(({ label, days }) => (
               <button
                 key={days}
                 onClick={() => setQuickDate(days)}
-                className="px-2 py-1.5 text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-md transition-colors"
+                className={`px-2 py-1 text-[12px] font-medium rounded-md transition-colors ${
+                  dark ? 'text-slate-400 hover:text-slate-100 hover:bg-white/[0.06]' : 'text-stone-600 hover:text-stone-900 hover:bg-stone-100'
+                }`}
               >
                 {label}
               </button>
@@ -452,347 +494,234 @@ export default function ManagerDashboardClient() {
             {(dateFrom || search) && (
               <button
                 onClick={() => { setDateFrom(''); setDateTo(toDateInput(today)); setSearch(''); }}
-                className="px-2 py-1.5 text-sm font-medium text-slate-400 hover:text-rose-600 transition-colors"
                 title="Скинути все"
+                className={`inline-flex items-center justify-center w-7 h-7 rounded-md transition-colors ${
+                  dark ? 'text-slate-500 hover:text-rose-300 hover:bg-white/[0.06]' : 'text-stone-400 hover:text-rose-600 hover:bg-stone-100'
+                }`}
               >
-                ✕
+                <HiOutlineXMark className="text-sm" />
               </button>
             )}
           </div>
         </div>
+      </AdminPanel>
 
-        {/* Table card */}
-        <div className="bg-white rounded-xl border border-slate-200">
-          {pageOrders.length === 0 ? (
-            <div className="p-20 text-center overflow-hidden">
-              <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-slate-100 flex items-center justify-center">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-5 h-5 text-slate-400">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.76c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.184-4.183a1.14 1.14 0 01.778-.332 48.294 48.294 0 005.83-.498c1.585-.233 2.708-1.626 2.708-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
-                </svg>
-              </div>
-              <p className="text-sm text-slate-500">Немає замовлень за цими критеріями</p>
-            </div>
-          ) : (
-            <div data-orders-table>
-              <table className="w-full table-fixed text-sm border-separate border-spacing-0 [&_th]:border-r [&_th]:border-slate-200/70 [&_th:last-child]:border-r-0 [&_tbody_td]:border-b [&_tbody_td]:border-slate-100">
-                <colgroup>
-                  <col style={{ width: '55px' }} />
-                  <col style={{ width: '240px' }} />
-                  <col style={{ width: '130px' }} />
-                  <col style={{ width: '42px' }} />
-                  <col style={{ width: '82px' }} />
-                  <col style={{ width: '82px' }} />
-                  <col style={{ width: '115px' }} />
-                  <col style={{ width: '140px' }} />
-                  <col style={{ width: '200px' }} />
-                  <col style={{ width: '80px' }} />
-                  <col style={{ width: '180px' }} />
-                </colgroup>
-                <thead>
-                  <tr className="bg-slate-100 border-y border-slate-200 [&_th]:text-xs [&_th]:font-bold [&_th]:text-slate-700 [&_th]:uppercase [&_th]:tracking-wider [&_th]:px-4 [&_th]:py-3.5 [&_th]:whitespace-nowrap [&_th]:text-center">
-                    <th>
-                      <button onClick={() => toggleSort('date')} className="inline-flex items-center gap-1 uppercase tracking-wider font-bold hover:text-indigo-600 mx-auto">Час<SortArrow k="date" /></button>
-                    </th>
-                    <th className="!text-left">
-                      <button onClick={() => toggleSort('name')} className="inline-flex items-center gap-1 uppercase tracking-wider font-bold hover:text-indigo-600">Клієнт<SortArrow k="name" /></button>
-                    </th>
-                    <th className="!text-left">
-                      <button onClick={() => toggleSort('city')} className="inline-flex items-center gap-1 uppercase tracking-wider font-bold hover:text-indigo-600">Місто<SortArrow k="city" /></button>
-                    </th>
-                    <th title="Передзвонити клієнту">
-                      <span className="inline-flex items-center justify-center text-slate-500">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-                          <path fillRule="evenodd" d="M2 3.5A1.5 1.5 0 013.5 2h1.148a1.5 1.5 0 011.465 1.175l.716 3.223a1.5 1.5 0 01-1.052 1.767l-.933.267c-.41.117-.643.555-.48.95a11.542 11.542 0 006.254 6.254c.395.163.833-.07.95-.48l.267-.933a1.5 1.5 0 011.767-1.052l3.223.716A1.5 1.5 0 0118 15.352V16.5a1.5 1.5 0 01-1.5 1.5H15c-1.149 0-2.263-.15-3.326-.43A13.022 13.022 0 012.43 8.326 13.019 13.019 0 012 5V3.5z" clipRule="evenodd" />
-                        </svg>
-                      </span>
-                    </th>
-                    <th>
-                      <button onClick={() => toggleSort('amount')} className="inline-flex items-center gap-1 uppercase tracking-wider font-bold hover:text-indigo-600 mx-auto">Гра<SortArrow k="amount" /></button>
-                    </th>
-                    <th><div className="flex items-center justify-center">Доставка</div></th>
-                    <th>
-                      <span className="inline-flex items-center gap-1.5">
-                        Оплата
-                        <span className="group relative inline-flex">
-                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5 text-slate-400 hover:text-slate-600 cursor-help">
-                            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                          </svg>
-                          <span className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 z-[100] ml-2 w-72 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <span className="block rounded-lg bg-slate-900 text-white text-xs font-normal normal-case tracking-normal text-left px-3 py-2.5 shadow-xl ring-1 ring-slate-700">
-                              <span className="block font-semibold mb-1.5 text-slate-200">Статуси оплати</span>
-                              <span className="block space-y-1">
-                                <span className="block"><b className="text-white">Очікує</b> — рахунок виставлений, оплати ще немає</span>
-                                <span className="block"><b className="text-white">Оплачено</b> — кошти отримані</span>
-                                <span className="block"><b className="text-white">Помилка</b> — платіж не пройшов</span>
-                                <span className="block"><b className="text-white">Повернено</b> — кошти повернуто клієнту</span>
-                              </span>
-                            </span>
-                          </span>
-                        </span>
-                      </span>
-                    </th>
-                    <th>
-                      <button onClick={() => toggleSort('status')} className="inline-flex items-center gap-1 uppercase tracking-wider font-bold hover:text-indigo-600 mx-auto">Статус<SortArrow k="status" /></button>
-                    </th>
-                    <th>ТТН</th>
-                    <th title="Фактична вартість доставки" className="!whitespace-normal !leading-tight">
-                      <div className="flex flex-col items-center">
-                        <span>Факт.</span>
-                        <span>доставка</span>
-                      </div>
-                    </th>
-                    <th>Нотатки</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(() => {
-                    // Групуємо по даті
-                    const groups: { dateKey: string; label: string; items: typeof pageOrders }[] = [];
-                    const todayKey = new Date().toLocaleDateString('uk-UA');
-                    const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
-                    const yesterdayKey = yesterday.toLocaleDateString('uk-UA');
-
-                    pageOrders.forEach((o) => {
-                      const k = new Date(o.createdAt).toLocaleDateString('uk-UA');
-                      const last = groups[groups.length - 1];
-                      if (last && last.dateKey === k) {
-                        last.items.push(o);
-                      } else {
-                        let label = k;
-                        if (k === todayKey) label = 'Сьогодні';
-                        else if (k === yesterdayKey) label = 'Вчора';
-                        groups.push({ dateKey: k, label, items: [o] });
-                      }
-                    });
-
-                    return groups.map((g) => (
-                      <Fragment key={`g-${g.dateKey}`}>
-                        <tr>
-                          <td colSpan={11} className="!border-r-0 !border-b-0 px-4 pt-5 pb-2 bg-white">
-                            <div className="flex items-center gap-3">
-                              <div className="flex items-baseline gap-2">
-                                <span className="text-sm font-bold text-slate-800">{g.label}</span>
-                                {g.label !== g.dateKey && (
-                                  <span className="text-sm text-slate-400 tabular-nums">{g.dateKey}</span>
-                                )}
-                                <span className="inline-flex items-center justify-center px-2 py-0.5 rounded-full bg-indigo-50 text-xs font-semibold text-indigo-600 tabular-nums">
-                                  {g.items.length} {g.items.length === 1 ? 'замовлення' : g.items.length < 5 ? 'замовлення' : 'замовлень'}
-                                </span>
-                              </div>
-                              <div className="flex-1 h-px bg-slate-200" />
-                            </div>
-                          </td>
-                        </tr>
-                        {g.items.map((order) => {
-                          return (
-                            <tr
-                              key={order.id}
-                              onMouseEnter={() => setHoveredRowId(order.id)}
-                              onMouseLeave={() => setHoveredRowId(null)}
-                              onClick={(e) => {
-                                // не відкривати модалку при кліку в editable-поля/кнопки
-                                const target = e.target as HTMLElement;
-                                if (target.closest('input, select, button, a, [data-note-popup]')) return;
-                                openOrder(order);
-                              }}
-                              data-hovered={hoveredRowId === order.id ? 'true' : undefined}
-                              className="cursor-pointer transition-colors [&[data-hovered=true]>td:nth-child(-n+7)]:bg-slate-50 [&[data-hovered=true]>td:nth-child(-n+7)]:shadow-[inset_0_1px_0_#a5b4fc,inset_0_-1px_0_#a5b4fc] [&[data-hovered=true]>td:nth-child(1)]:!shadow-[inset_1px_0_0_#a5b4fc,inset_0_1px_0_#a5b4fc,inset_0_-1px_0_#a5b4fc] [&[data-hovered=true]>td:nth-child(1)]:!rounded-l-lg [&[data-hovered=true]>td:nth-child(7)]:!shadow-[inset_-1px_0_0_#a5b4fc,inset_0_1px_0_#a5b4fc,inset_0_-1px_0_#a5b4fc] [&[data-hovered=true]>td:nth-child(7)]:!rounded-r-lg [&[data-hovered=true]>td:nth-child(-n+7)]:transition-colors [&[data-hovered=true]>td:nth-child(-n+7)]:duration-150"
-                            >
-                        {/* Час */}
-                        <td className="px-4 py-2 text-sm text-slate-600 tabular-nums whitespace-nowrap">
-                          {new Date(order.createdAt).toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' })}
-                        </td>
-
-                        {/* Клієнт */}
-                        <td className="px-4 py-2 min-w-0">
-                          <div className="text-sm font-medium text-slate-800 truncate" title={order.fullName}>{order.fullName}</div>
-                          <div className="text-xs text-slate-500 tabular-nums">{order.phone}</div>
-                        </td>
-
-                        {/* Місто */}
-                        <td className="px-4 py-2 text-sm text-slate-600 truncate" title={`${order.city}, ${order.postOffice}`}>
-                          {order.city}
-                        </td>
-
-                        {/* Дзвінок */}
-                        <td className="px-2 py-3 text-center">
-                          {order.callMe ? (
-                            <span title="Клієнт просить передзвонити" className="inline-flex w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-emerald-100" />
-                          ) : (
-                            <span title="Дзвонити не потрібно" className="inline-flex w-2.5 h-2.5 rounded-full bg-slate-300 ring-2 ring-slate-100" />
-                          )}
-                        </td>
-
-                        {/* Гра */}
-                        <td className="px-4 py-2 text-center text-sm text-slate-700 tabular-nums whitespace-nowrap">
-                          {getGamePrice(order).toLocaleString()}
-                        </td>
-                        {/* Доставка */}
-                        <td className="px-4 py-2 text-center text-sm text-slate-700 tabular-nums whitespace-nowrap">
-                          {getShippingCost(order).toLocaleString()}
-                        </td>
-
-                        {/* Оплата */}
-                        <td className="px-4 py-2 align-middle text-sm font-medium text-slate-700">
-                          <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1.5 align-middle ${PAYMENT_DOT[order.paymentStatus]}`} />
-                          <span className="align-middle">{PAYMENT_LABELS[order.paymentStatus]}</span>
-                        </td>
-
-                        {/* Статус */}
-                        <td className="px-4 py-2" onClick={(e) => e.stopPropagation()}>
-                          <div className="relative inline-flex items-center">
-                            <span className={`absolute left-2.5 w-1.5 h-1.5 rounded-full ${STATUS_DOT[order.orderStatus]}`} />
-                            <select
-                              value={order.orderStatus}
-                              onChange={(e) => updateStatus(order.id, e.target.value as OrderStatus)}
-                              className="appearance-none pl-6 pr-7 py-1 text-sm font-medium text-slate-700 bg-transparent border border-transparent rounded-md hover:bg-slate-100 hover:border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-300 cursor-pointer transition-all"
-                            >
-                              {Object.entries(STATUS_LABELS).map(([v, l]) => (
-                                <option key={v} value={v}>{l}</option>
-                              ))}
-                            </select>
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="absolute right-2 w-3 h-3 text-slate-400 pointer-events-none">
-                              <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.06l3.71-3.83a.75.75 0 111.08 1.04l-4.25 4.39a.75.75 0 01-1.08 0L5.21 8.27a.75.75 0 01.02-1.06z" clipRule="evenodd" />
-                            </svg>
-                          </div>
-                        </td>
-
-                        {/* ТТН */}
-                        <td className="px-4 py-2 align-middle relative" onClick={(e) => e.stopPropagation()}>
-                          <div className="relative">
-                            <input
-                              type="text"
-                              defaultValue={order.trackingNumber ?? ''}
-                              placeholder=""
-                              onBlur={(e) => {
-                                const v = e.target.value.trim();
-                                if (v !== (order.trackingNumber ?? '')) {
-                                  setTrackingDraft(v);
-                                  saveTracking(order.id);
-                                }
-                                setTrackingDraft('');
-                                setEditingTracking(null);
-                              }}
-                              onFocus={(e) => { setEditingTracking(order.id); setTrackingDraft(e.target.value); }}
-                              onChange={(e) => setTrackingDraft(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter' || e.key === 'Escape') (e.target as HTMLInputElement).blur();
-                              }}
-                              key={order.id + (order.trackingNumber ?? '')}
-                              className="w-full px-2 py-1 pr-7 text-center text-sm font-mono font-bold tabular-nums text-slate-800 bg-slate-50 border border-indigo-300 rounded-md placeholder:text-slate-300 focus:outline-none focus:bg-white focus:ring-2 focus:ring-indigo-500/20 transition-all"
-                            />
-                            {editingTracking === order.id && trackingDraft ? (
-                              <span className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-xs font-semibold text-indigo-500 tabular-nums bg-white px-1 rounded">
-                                {trackingDraft.length}
-                              </span>
-                            ) : order.trackingNumber ? (
-                              <span className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-xs font-normal text-slate-400 tabular-nums">
-                                {order.trackingNumber.length}
-                              </span>
-                            ) : null}
-                          </div>
-                        </td>
-
-                        {/* Факт. доставка */}
-                        <td className="px-4 py-2 align-middle" onClick={(e) => e.stopPropagation()}>
-                          <input
-                            type="number"
-                            min="0"
-                            defaultValue={order.actualShippingCost ?? ''}
-                            placeholder=""
-                            onBlur={(e) => {
-                              const v = e.target.value;
-                              const cur = order.actualShippingCost ?? '';
-                              if (String(v) !== String(cur)) saveActualShipping(order.id, v);
-                            }}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter' || e.key === 'Escape') (e.target as HTMLInputElement).blur();
-                            }}
-                            key={order.id + String(order.actualShippingCost ?? '')}
-                            className="w-full px-2 py-1 text-center text-sm tabular-nums text-slate-700 bg-slate-50 border border-indigo-300 rounded-md placeholder:text-slate-400 focus:outline-none focus:bg-white focus:ring-2 focus:ring-indigo-500/20 transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none leading-none"
-                          />
-                        </td>
-                        {/* Нотатки */}
-                        <td className="px-4 py-2 min-w-0 align-middle" onClick={(e) => e.stopPropagation()}>
-                          <div className="relative" data-note-popup onClick={(e) => e.stopPropagation()}>
-                            {/* Превʼю — видно завжди, ховається коли відкритий попап */}
-                            <button
-                              type="button"
-                              onClick={() => setOpenNoteId(openNoteId === order.id ? null : order.id)}
-                              className={`block w-full text-left px-2 py-1 text-sm text-slate-700 truncate rounded-md bg-slate-50 border border-indigo-300 leading-none ${openNoteId === order.id ? 'opacity-0 invisible' : ''}`}
-                            >
-                              {order.managerNote || <span className="text-slate-400">Нотатка…</span>}
-                            </button>
-                            {/* Розгорнута картка — повністю накриває комірку і виходить за неї */}
-                            <div className={`absolute -inset-x-2 top-1/2 -translate-y-1/2 z-[100] origin-center transition-all duration-150 ${openNoteId === order.id ? 'opacity-100 visible scale-100' : 'opacity-0 invisible scale-95'}`}>
-                              <div className="rounded-lg bg-white border-2 border-indigo-400 shadow-2xl shadow-slate-900/25 ring-4 ring-indigo-500/15 p-2">
-                                <textarea
-                                  defaultValue={order.managerNote ?? ''}
-                                  placeholder="Нотатка…"
-                                  rows={3}
-                                  ref={(el) => {
-                                    if (el) {
-                                      el.style.height = 'auto';
-                                      el.style.height = Math.max(el.scrollHeight, 60) + 'px';
-                                    }
-                                  }}
-                                  onInput={(e) => {
-                                    const t = e.target as HTMLTextAreaElement;
-                                    t.style.height = 'auto';
-                                    t.style.height = t.scrollHeight + 'px';
-                                  }}
-                                  onBlur={(e) => {
-                                    const v = e.target.value;
-                                    if (v !== (order.managerNote ?? '')) saveNote(order.id, v);
-                                  }}
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Escape') (e.target as HTMLTextAreaElement).blur();
-                                  }}
-                                  key={order.id + (order.managerNote ?? '')}
-                                  className="w-full px-2 py-1.5 text-sm text-slate-800 leading-snug bg-slate-50 border border-slate-200 rounded-md resize-none overflow-hidden focus:outline-none focus:bg-white focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500/20"
-                                />
-                              </div>
-                            </div>
-                          </div>
-                        </td>
-
-                      </tr>
-                          );
-                        })}
-                      </Fragment>
-                    ));
-                  })()}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {/* Pagination */}
-          {sortedOrders.length > 0 && (
-            <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-t border-slate-200 bg-slate-50/40">
-              <div className="text-sm text-slate-500">
-                Показано <span className="font-semibold text-slate-700 tabular-nums">{pageStart + 1}–{Math.min(pageStart + pageSize, sortedOrders.length)}</span> з{' '}
-                <span className="font-semibold text-slate-700 tabular-nums">{sortedOrders.length}</span>
-                <select
-                  value={pageSize}
-                  onChange={(e) => setPageSize(Number(e.target.value))}
-                  className="ml-3 px-1.5 py-0.5 border border-slate-200 rounded-md text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
-                >
-                  {[25, 50, 100, 200].map((n) => <option key={n} value={n}>По {n}</option>)}
-                </select>
-              </div>
-
-              <div className="flex items-center gap-0.5">
-                <button onClick={() => setPage(1)} disabled={currentPage === 1} className="w-7 h-7 flex items-center justify-center text-sm text-slate-600 hover:bg-slate-200 rounded-md disabled:opacity-30 disabled:cursor-not-allowed transition-colors">«</button>
-                <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={currentPage === 1} className="w-7 h-7 flex items-center justify-center text-sm text-slate-600 hover:bg-slate-200 rounded-md disabled:opacity-30 disabled:cursor-not-allowed transition-colors">‹</button>
-                <span className="px-3 text-sm font-medium text-slate-700 tabular-nums">{currentPage} / {totalPages}</span>
-                <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="w-7 h-7 flex items-center justify-center text-sm text-slate-600 hover:bg-slate-200 rounded-md disabled:opacity-30 disabled:cursor-not-allowed transition-colors">›</button>
-                <button onClick={() => setPage(totalPages)} disabled={currentPage === totalPages} className="w-7 h-7 flex items-center justify-center text-sm text-slate-600 hover:bg-slate-200 rounded-md disabled:opacity-30 disabled:cursor-not-allowed transition-colors">»</button>
-              </div>
-            </div>
-          )}
+      {/* Status legend */}
+      <AdminPanel theme={theme} padding="px-4 py-3" className="mb-5">
+        <div className="flex items-center gap-x-4 gap-y-2 flex-wrap">
+          <span className={`text-[10px] uppercase tracking-[0.18em] font-medium ${dark ? 'text-slate-600' : 'text-stone-500'}`}>
+            Статуси
+          </span>
+          {(['NEW', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED'] as OrderStatus[]).map((s) => (
+            <StatusLabel
+              key={s}
+              theme={theme}
+              label={STATUS_LABELS[s]}
+              value={orders.filter((o) => o.orderStatus === s).length}
+              dot={STATUS_DOT[s]}
+              muted={s === 'CANCELLED'}
+            />
+          ))}
         </div>
-      </div>
+      </AdminPanel>
+
+      {/* Table */}
+      <AdminPanel theme={theme} padding="p-0">
+        {pageOrders.length === 0 ? (
+          <div className={`p-16 text-center ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+            <div
+              className={`w-12 h-12 mx-auto mb-3 rounded-full flex items-center justify-center ${
+                dark ? 'bg-white/[0.04] border border-white/[0.06]' : 'bg-stone-100 border border-stone-200/70'
+              }`}
+            >
+              <HiOutlineInboxStack className={`text-lg ${dark ? 'text-slate-500' : 'text-stone-400'}`} />
+            </div>
+            <p className="text-[13px]">Немає замовлень за цими критеріями</p>
+          </div>
+        ) : (
+          <div data-orders-table>
+            <table className="w-full table-fixed text-[13px] border-separate border-spacing-0">
+              <colgroup>
+                <col style={{ width: '55px' }} />
+                <col style={{ width: '200px' }} />
+                <col style={{ width: '195px' }} />
+                <col style={{ width: '34px' }} />
+                <col style={{ width: '72px' }} />
+                <col style={{ width: '82px' }} />
+                <col style={{ width: '110px' }} />
+                <col style={{ width: '150px' }} />
+                <col style={{ width: '190px' }} />
+                <col style={{ width: '74px' }} />
+                <col style={{ width: '170px' }} />
+              </colgroup>
+              <thead>
+                <tr
+                  className={`[&_th]:px-4 [&_th]:py-3.5 [&_th]:text-[12px] [&_th]:text-center [&_th]:uppercase [&_th]:tracking-[0.16em] [&_th]:font-semibold [&_th]:whitespace-nowrap ${
+                    dark
+                      ? 'bg-black/20 [&_th]:text-slate-400 [&_th]:border-b [&_th]:border-white/[0.06]'
+                      : 'bg-stone-50/60 [&_th]:text-stone-600 [&_th]:border-b [&_th]:border-stone-300/40'
+                  }`}
+                >
+                  <th>
+                    <button
+                      onClick={() => toggleSort('date')}
+                      className={`inline-flex items-center gap-1 transition-colors ${
+                        dark ? 'hover:text-amber-300' : 'hover:text-amber-700'
+                      }`}
+                    >
+                      Час<SortArrow k="date" />
+                    </button>
+                  </th>
+                  <th>
+                    <button
+                      onClick={() => toggleSort('name')}
+                      className={`inline-flex items-center gap-1 transition-colors ${
+                        dark ? 'hover:text-amber-300' : 'hover:text-amber-700'
+                      }`}
+                    >
+                      Клієнт<SortArrow k="name" />
+                    </button>
+                  </th>
+                  <th>
+                    <button
+                      onClick={() => toggleSort('delivery')}
+                      className={`inline-flex items-center gap-1 transition-colors ${
+                        dark ? 'hover:text-amber-300' : 'hover:text-amber-700'
+                      }`}
+                    >
+                      Тип доставки<SortArrow k="delivery" />
+                    </button>
+                  </th>
+                  <th title="Передзвонити клієнту">
+                    <HiOutlinePhone className={`inline-block text-base ${dark ? 'text-slate-400' : 'text-stone-500'}`} />
+                  </th>
+                  <th>
+                    <button
+                      onClick={() => toggleSort('amount')}
+                      className={`inline-flex items-center gap-1 transition-colors ${
+                        dark ? 'hover:text-amber-300' : 'hover:text-amber-700'
+                      }`}
+                    >
+                      Гра<SortArrow k="amount" />
+                    </button>
+                  </th>
+                  <th>Доставка</th>
+                  <th>Оплата</th>
+                  <th>
+                    <button
+                      onClick={() => toggleSort('status')}
+                      className={`inline-flex items-center gap-1 transition-colors ${
+                        dark ? 'hover:text-amber-300' : 'hover:text-amber-700'
+                      }`}
+                    >
+                      Статус<SortArrow k="status" />
+                    </button>
+                  </th>
+                  <th>ТТН</th>
+                  <th className="!leading-tight !whitespace-normal" title="Фактична вартість доставки">
+                    <div className="flex flex-col items-center">
+                      <span>Факт.</span>
+                      <span>доставка</span>
+                    </div>
+                  </th>
+                  <th>Нотатки</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(() => {
+                  const groups: { dateKey: string; label: string; items: typeof pageOrders }[] = [];
+                  const todayKey = new Date().toLocaleDateString('uk-UA');
+                  const yesterday = new Date();
+                  yesterday.setDate(yesterday.getDate() - 1);
+                  const yesterdayKey = yesterday.toLocaleDateString('uk-UA');
+
+                  pageOrders.forEach((o) => {
+                    const k = new Date(o.createdAt).toLocaleDateString('uk-UA');
+                    const last = groups[groups.length - 1];
+                    if (last && last.dateKey === k) {
+                      last.items.push(o);
+                    } else {
+                      let label = k;
+                      if (k === todayKey) label = 'Сьогодні';
+                      else if (k === yesterdayKey) label = 'Вчора';
+                      groups.push({ dateKey: k, label, items: [o] });
+                    }
+                  });
+
+                  return groups.map((g) => (
+                    <Fragment key={`g-${g.dateKey}`}>
+                      <tr>
+                        <td colSpan={11} className="px-4 pt-5 pb-2">
+                          <div className="flex items-center gap-3">
+                            <div className="flex items-baseline gap-2">
+                              <span
+                                className={`text-[10px] uppercase tracking-[0.18em] font-semibold ${
+                                  dark ? 'text-amber-300/80' : 'text-amber-800'
+                                }`}
+                              >
+                                {g.label}
+                              </span>
+                              {g.label !== g.dateKey && (
+                                <span className={`text-[11px] tabular-nums ${dark ? 'text-slate-600' : 'text-stone-400'}`}>
+                                  {g.dateKey}
+                                </span>
+                              )}
+                              <span
+                                className={`inline-flex items-center justify-center px-2 py-0.5 rounded-full text-[10px] font-semibold tabular-nums border ${
+                                  dark
+                                    ? 'bg-amber-500/[0.08] text-amber-300 border-amber-500/20'
+                                    : 'bg-amber-100/60 text-amber-800 border-amber-300/50'
+                                }`}
+                              >
+                                {g.items.length}
+                              </span>
+                            </div>
+                            <div className={`flex-1 h-px ${dark ? 'bg-white/[0.06]' : 'bg-stone-300/40'}`} />
+                          </div>
+                        </td>
+                      </tr>
+                      {g.items.map((order) => (
+                        <OrderRow
+                          key={order.id}
+                          order={order}
+                          theme={theme}
+                          hovered={hoveredRowId === order.id}
+                          onHoverEnter={() => setHoveredRowId(order.id)}
+                          onHoverLeave={() => setHoveredRowId(null)}
+                          onOpen={() => openOrder(order)}
+                          onStatusChange={updateStatus}
+                          editingTracking={editingTracking}
+                          trackingDraft={trackingDraft}
+                          setEditingTracking={setEditingTracking}
+                          setTrackingDraft={setTrackingDraft}
+                          saveTracking={saveTracking}
+                          saveActualShipping={saveActualShipping}
+                          saveNote={saveNote}
+                        />
+                      ))}
+                    </Fragment>
+                  ));
+                })()}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Pagination */}
+        {sortedOrders.length > 0 && (
+          <PaginationBar
+            theme={theme}
+            page={currentPage}
+            totalPages={totalPages}
+            total={sortedOrders.length}
+            pageStart={pageStart}
+            pageEnd={Math.min(pageStart + pageSize, sortedOrders.length)}
+            pageSize={pageSize}
+            onPage={setPage}
+            onPageSize={setPageSize}
+          />
+        )}
+      </AdminPanel>
 
       {selectedOrder && (
         <OrderDetailsModal
@@ -806,6 +735,589 @@ export default function ManagerDashboardClient() {
           onSave={saveOrder}
         />
       )}
+    </AdminShell>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Order Row
+// ─────────────────────────────────────────────────────────────────────
+
+function OrderRow({
+  order,
+  theme,
+  hovered,
+  onHoverEnter,
+  onHoverLeave,
+  onOpen,
+  onStatusChange,
+  editingTracking,
+  trackingDraft,
+  setEditingTracking,
+  setTrackingDraft,
+  saveTracking,
+  saveActualShipping,
+  saveNote,
+}: {
+  order: Order;
+  theme: Theme;
+  hovered: boolean;
+  onHoverEnter: () => void;
+  onHoverLeave: () => void;
+  onOpen: () => void;
+  onStatusChange: (id: string, s: OrderStatus) => void;
+  editingTracking: string | null;
+  trackingDraft: string;
+  setEditingTracking: (v: string | null) => void;
+  setTrackingDraft: (v: string) => void;
+  saveTracking: (id: string) => void;
+  saveActualShipping: (id: string, v: string) => void;
+  saveNote: (id: string, v: string) => void;
+}) {
+  const dark = theme === 'dark';
+  const cellBase = `px-4 py-2 align-middle text-[13px] border-b ${
+    dark ? 'border-white/[0.04] text-slate-300' : 'border-stone-200/60 text-stone-700'
+  }`;
+  const hoverCls = hovered
+    ? dark
+      ? 'bg-white/[0.03]'
+      : 'bg-stone-50/80'
+    : '';
+
+  const inputCls = `w-full px-2 py-1 text-center text-[13px] tabular-nums rounded-md border outline-none transition-all leading-none ${
+    dark
+      ? 'bg-white/[0.04] border-white/[0.1] text-slate-100 placeholder:text-slate-600 focus:bg-white/[0.08] focus:border-amber-400/50 focus:ring-2 focus:ring-amber-400/20'
+      : 'bg-white/90 border-stone-300/70 text-stone-800 placeholder:text-stone-400 focus:bg-white focus:border-amber-600/60 focus:ring-2 focus:ring-amber-500/20'
+  }`;
+
+  return (
+    <tr
+      onMouseEnter={onHoverEnter}
+      onMouseLeave={onHoverLeave}
+      onClick={(e) => {
+        const target = e.target as HTMLElement;
+        if (target.closest('input, select, button, a, textarea, [data-note-popup]')) return;
+        onOpen();
+      }}
+      className={`cursor-pointer transition-colors ${hoverCls}`}
+    >
+      {/* Час */}
+      <td className={`${cellBase} text-center tabular-nums whitespace-nowrap`}>
+        {new Date(order.createdAt).toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' })}
+      </td>
+
+      {/* Клієнт */}
+      <td className={`${cellBase} min-w-0`}>
+        <div className={`font-medium truncate ${dark ? 'text-slate-100' : 'text-stone-900'}`} title={order.fullName}>
+          {order.fullName}
+        </div>
+        <div className={`text-[11px] tabular-nums ${dark ? 'text-slate-500' : 'text-stone-500'}`}>{order.phone}</div>
+      </td>
+
+      {/* Тип доставки */}
+      <td className={`${cellBase} text-center`} title={`${order.city}, ${order.postOffice}`}>
+        {(() => {
+          const dt = detectDeliveryType(order.postOffice);
+          const isCourier = dt === 'courier';
+          return (
+            <span
+              className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium border whitespace-nowrap ${
+                isCourier
+                  ? dark
+                    ? 'bg-indigo-500/10 text-indigo-300 border-indigo-500/25'
+                    : 'bg-indigo-50 text-indigo-800 border-indigo-300/60'
+                  : dark
+                    ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/25'
+                    : 'bg-emerald-50 text-emerald-800 border-emerald-300/60'
+              }`}
+            >
+              {isCourier ? "🚗 Кур'єром за адресою" : '📦 До відділення НП'}
+            </span>
+          );
+        })()}
+      </td>
+
+      {/* Дзвінок */}
+      <td className={`${cellBase} text-center`}>
+        {order.callMe ? (
+          <span
+            title="Клієнт просить передзвонити"
+            className={`inline-flex w-2.5 h-2.5 rounded-full ring-2 ${
+              dark ? 'bg-emerald-400 ring-emerald-500/20' : 'bg-emerald-500 ring-emerald-100'
+            }`}
+          />
+        ) : (
+          <span
+            title="Дзвонити не потрібно"
+            className={`inline-flex w-2.5 h-2.5 rounded-full ring-2 ${
+              dark ? 'bg-slate-600 ring-white/[0.04]' : 'bg-stone-300 ring-stone-100'
+            }`}
+          />
+        )}
+      </td>
+
+      {/* Гра */}
+      <td className={`${cellBase} text-center tabular-nums whitespace-nowrap`}>
+        {getGamePrice(order).toLocaleString()}
+      </td>
+
+      {/* Доставка */}
+      <td className={`${cellBase} text-center tabular-nums whitespace-nowrap`}>
+        {getShippingCost(order).toLocaleString()}
+      </td>
+
+      {/* Оплата */}
+      <td className={cellBase}>
+        <span className="inline-flex items-center gap-1.5">
+          <span
+            className={`w-1.5 h-1.5 rounded-full ${
+              dark ? DOT_COLORS[PAYMENT_DOT[order.paymentStatus]].dark : DOT_COLORS[PAYMENT_DOT[order.paymentStatus]].light
+            }`}
+          />
+          <span className={`font-medium ${dark ? 'text-slate-200' : 'text-stone-800'}`}>
+            {PAYMENT_LABELS[order.paymentStatus]}
+          </span>
+        </span>
+      </td>
+
+      {/* Статус */}
+      <td className={cellBase} onClick={(e) => e.stopPropagation()}>
+        <div className="relative inline-flex items-center w-full">
+          <span
+            className={`absolute left-2.5 w-1.5 h-1.5 rounded-full pointer-events-none ${
+              dark ? DOT_COLORS[STATUS_DOT[order.orderStatus]].dark : DOT_COLORS[STATUS_DOT[order.orderStatus]].light
+            }`}
+          />
+          <select
+            value={order.orderStatus}
+            onChange={(e) => onStatusChange(order.id, e.target.value as OrderStatus)}
+            className={`appearance-none pl-6 pr-7 py-1 w-full text-[13px] font-medium rounded-md border cursor-pointer outline-none transition-all ${
+              dark
+                ? 'bg-transparent border-transparent text-slate-200 hover:bg-white/[0.05] hover:border-white/[0.08] focus:bg-white/[0.06] focus:border-amber-400/40 focus:ring-2 focus:ring-amber-400/20'
+                : 'bg-transparent border-transparent text-stone-800 hover:bg-stone-100 hover:border-stone-300/60 focus:bg-white focus:border-amber-600/50 focus:ring-2 focus:ring-amber-500/20'
+            }`}
+          >
+            {Object.entries(STATUS_LABELS).map(([v, l]) => (
+              <option key={v} value={v} className={dark ? 'bg-[#0b0d12]' : ''}>
+                {l}
+              </option>
+            ))}
+          </select>
+          <HiOutlineChevronDown className={`absolute right-2 text-xs pointer-events-none ${dark ? 'text-slate-500' : 'text-stone-400'}`} />
+        </div>
+      </td>
+
+      {/* ТТН */}
+      <td className={cellBase} onClick={(e) => e.stopPropagation()}>
+        <div className="relative">
+          <input
+            type="text"
+            defaultValue={order.trackingNumber ?? ''}
+            placeholder="—"
+            onBlur={(e) => {
+              const v = e.target.value.trim();
+              if (v !== (order.trackingNumber ?? '')) {
+                setTrackingDraft(v);
+                saveTracking(order.id);
+              }
+              setTrackingDraft('');
+              setEditingTracking(null);
+            }}
+            onFocus={(e) => {
+              setEditingTracking(order.id);
+              setTrackingDraft(e.target.value);
+            }}
+            onChange={(e) => setTrackingDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === 'Escape') (e.target as HTMLInputElement).blur();
+            }}
+            key={order.id + (order.trackingNumber ?? '')}
+            className={`${inputCls} pr-7 font-mono font-medium`}
+          />
+          {editingTracking === order.id && trackingDraft ? (
+            <span
+              className={`pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] font-semibold tabular-nums px-1 rounded ${
+                dark ? 'bg-[#0b0d12] text-amber-300' : 'bg-white text-amber-700'
+              }`}
+            >
+              {trackingDraft.length}
+            </span>
+          ) : order.trackingNumber ? (
+            <span
+              className={`pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] tabular-nums ${
+                dark ? 'text-slate-500' : 'text-stone-400'
+              }`}
+            >
+              {order.trackingNumber.length}
+            </span>
+          ) : null}
+        </div>
+      </td>
+
+      {/* Факт. доставка — м'яка амбер-підказка якщо ТТН є, а сума порожня */}
+      <td className={cellBase} onClick={(e) => e.stopPropagation()}>
+        {(() => {
+          const needsAttention = !!order.trackingNumber && order.actualShippingCost == null;
+          const attentionInputCls = needsAttention
+            ? dark
+              ? 'bg-amber-500/[0.07] border-amber-400/40 text-amber-100 placeholder:text-amber-300/60 focus:bg-amber-500/[0.1] focus:border-amber-400/60 focus:ring-2 focus:ring-amber-400/25'
+              : 'bg-amber-50/80 border-amber-500/50 text-amber-900 placeholder:text-amber-700/60 focus:bg-amber-50 focus:border-amber-600/70 focus:ring-2 focus:ring-amber-500/25'
+            : '';
+          return (
+            <div className="relative">
+              <input
+                type="number"
+                min="0"
+                defaultValue={order.actualShippingCost ?? ''}
+                placeholder={needsAttention ? 'ввести' : '—'}
+                onBlur={(e) => {
+                  const v = e.target.value;
+                  const cur = order.actualShippingCost ?? '';
+                  if (String(v) !== String(cur)) saveActualShipping(order.id, v);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === 'Escape') (e.target as HTMLInputElement).blur();
+                }}
+                key={order.id + String(order.actualShippingCost ?? '')}
+                className={`w-full px-2 py-1 text-center text-[13px] tabular-nums rounded-md border outline-none transition-all leading-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
+                  needsAttention
+                    ? attentionInputCls
+                    : dark
+                      ? 'bg-white/[0.04] border-white/[0.1] text-slate-100 placeholder:text-slate-600 focus:bg-white/[0.08] focus:border-amber-400/50 focus:ring-2 focus:ring-amber-400/20'
+                      : 'bg-white/90 border-stone-300/70 text-stone-800 placeholder:text-stone-400 focus:bg-white focus:border-amber-600/60 focus:ring-2 focus:ring-amber-500/20'
+                }`}
+              />
+              {needsAttention && (
+                <span
+                  aria-hidden
+                  className="pointer-events-none absolute top-1/2 -translate-y-1/2 right-1.5 flex w-1.5 h-1.5"
+                  title="Заповніть фактичну доставку"
+                >
+                  <span
+                    className={`absolute inset-0 rounded-full animate-ping opacity-60 ${
+                      dark ? 'bg-amber-400' : 'bg-amber-500'
+                    }`}
+                  />
+                  <span
+                    className={`relative w-1.5 h-1.5 rounded-full ${dark ? 'bg-amber-400' : 'bg-amber-500'}`}
+                  />
+                </span>
+              )}
+            </div>
+          );
+        })()}
+      </td>
+
+      {/* Нотатки — 3 рядки ідл, на focus розгортається ВГОРУ як overlay */}
+      <td className={`${cellBase} min-w-0`} onClick={(e) => e.stopPropagation()}>
+        {(() => {
+          const NOTE_IDLE_MAX_PX = 60; // ~3 рядки при 13px / leading-tight
+          const NOTE_EXPANDED_MAX_PX = 320; // cap розгорнутої висоти, далі — scroll
+          const fitIdle = (t: HTMLTextAreaElement) => {
+            t.style.height = 'auto';
+            t.style.height = Math.min(t.scrollHeight, NOTE_IDLE_MAX_PX) + 'px';
+          };
+          const fitExpanded = (t: HTMLTextAreaElement) => {
+            t.style.height = 'auto';
+            t.style.height = Math.min(t.scrollHeight, NOTE_EXPANDED_MAX_PX) + 'px';
+          };
+          return (
+            <div className="relative grid">
+              {/* Sizer — задає висоту клітинки в ідлі, невидимий */}
+              <div
+                aria-hidden
+                className="[grid-area:1/1] invisible select-none px-2 py-1 text-[13px] leading-tight whitespace-pre-wrap break-words rounded-md border border-transparent overflow-hidden"
+                style={{ maxHeight: NOTE_IDLE_MAX_PX }}
+              >
+                {(order.managerNote ?? '') || '\u00A0'}
+              </div>
+              <textarea
+                key={order.id + (order.managerNote ?? '')}
+                defaultValue={order.managerNote ?? ''}
+                placeholder="Нотатка…"
+                rows={1}
+                ref={(el) => { if (el) fitIdle(el); }}
+                onFocus={(e) => {
+                  const t = e.target as HTMLTextAreaElement;
+                  t.style.position = 'absolute';
+                  t.style.left = '0';
+                  t.style.right = '0';
+                  t.style.bottom = '0';
+                  t.style.zIndex = '30';
+                  t.style.overflowY = 'auto';
+                  fitExpanded(t);
+                }}
+                onInput={(e) => fitExpanded(e.target as HTMLTextAreaElement)}
+                onBlur={(e) => {
+                  const t = e.target;
+                  const v = t.value;
+                  if (v !== (order.managerNote ?? '')) saveNote(order.id, v);
+                  t.style.position = '';
+                  t.style.left = '';
+                  t.style.right = '';
+                  t.style.bottom = '';
+                  t.style.zIndex = '';
+                  t.style.overflowY = '';
+                  fitIdle(t);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') (e.target as HTMLTextAreaElement).blur();
+                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) (e.target as HTMLTextAreaElement).blur();
+                }}
+                className={`[grid-area:1/1] block w-full px-2 py-1 text-[13px] leading-tight rounded-md border resize-none overflow-hidden outline-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${
+                  dark
+                    ? 'bg-white/[0.04] border-white/[0.1] text-slate-200 placeholder:text-slate-600 focus:bg-[#0f1218] focus:border-amber-400/50 focus:ring-2 focus:ring-amber-400/20 focus:shadow-2xl focus:shadow-black/60'
+                    : 'bg-white/90 border-stone-300/70 text-stone-800 placeholder:text-stone-400 focus:bg-white focus:border-amber-600/60 focus:ring-2 focus:ring-amber-500/20 focus:shadow-2xl focus:shadow-stone-900/20'
+                }`}
+              />
+            </div>
+          );
+        })()}
+      </td>
+    </tr>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Small reusable bits (mirrored from admin ConnectorView)
+// ─────────────────────────────────────────────────────────────────────
+
+function Kpi({
+  label,
+  value,
+  icon: Icon,
+  tone = 'neutral',
+  theme,
+  glow = false,
+}: {
+  label: string;
+  value: string;
+  icon: React.ComponentType<{ className?: string }>;
+  tone?: Tone;
+  theme: Theme;
+  glow?: boolean;
+}) {
+  const dark = theme === 'dark';
+  const toneColor: Record<Tone, { dark: string; light: string }> = {
+    neutral: { dark: 'text-white', light: 'text-stone-900' },
+    success: { dark: 'text-emerald-300', light: 'text-emerald-800' },
+    warning: { dark: 'text-amber-300', light: 'text-amber-800' },
+    danger: { dark: 'text-rose-300', light: 'text-rose-700' },
+  };
+  const glowCls = glow
+    ? dark
+      ? 'drop-shadow-[0_0_16px_rgba(251,191,36,0.25)]'
+      : 'drop-shadow-[0_0_14px_rgba(180,83,9,0.2)]'
+    : '';
+  return (
+    <div className="px-5 py-5">
+      <div
+        className={`flex items-center gap-2 text-[10px] uppercase tracking-[0.18em] font-medium mb-2 ${
+          dark ? 'text-slate-500' : 'text-stone-500'
+        }`}
+      >
+        <Icon className="text-sm" />
+        {label}
+      </div>
+      <div
+        className={`text-[22px] font-semibold tabular-nums leading-none ${
+          dark ? toneColor[tone].dark : toneColor[tone].light
+        } ${glowCls}`}
+      >
+        {value}
+      </div>
     </div>
   );
+}
+
+function FilterGroup({
+  theme,
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  theme: Theme;
+  label: string;
+  options: { value: string; label: string }[];
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const dark = theme === 'dark';
+  return (
+    <div className="flex items-center gap-2">
+      <span className={`text-[10px] uppercase tracking-[0.18em] font-medium ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+        {label}
+      </span>
+      <div
+        className={`inline-flex rounded-lg p-0.5 border ${
+          dark ? 'bg-black/30 border-white/[0.06]' : 'bg-stone-100/80 border-stone-300/50'
+        }`}
+      >
+        {options.map((opt) => {
+          const active = opt.value === value;
+          return (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => onChange(opt.value)}
+              className={`px-2.5 py-1 text-[11px] font-medium rounded-md transition-all ${
+                active
+                  ? dark
+                    ? 'bg-white/10 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]'
+                    : 'bg-stone-900 text-white shadow-sm'
+                  : dark
+                    ? 'text-slate-500 hover:text-slate-200'
+                    : 'text-stone-500 hover:text-stone-900'
+              }`}
+            >
+              {opt.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function StatusLabel({
+  label,
+  value,
+  dot,
+  muted = false,
+  theme,
+}: {
+  label: string;
+  value: number;
+  dot: keyof typeof DOT_COLORS;
+  muted?: boolean;
+  theme: Theme;
+}) {
+  const dark = theme === 'dark';
+  const dotClass = dark ? DOT_COLORS[dot].dark : DOT_COLORS[dot].light;
+  return (
+    <span className={`inline-flex items-center gap-1.5 text-[11px] tabular-nums ${muted ? 'opacity-60' : ''}`}>
+      <span className={`w-1 h-1 rounded-full ${dotClass}`} />
+      <span className={dark ? 'text-slate-500' : 'text-stone-500'}>{label}</span>
+      <span className={`font-semibold ${dark ? 'text-slate-200' : 'text-stone-800'}`}>{value}</span>
+    </span>
+  );
+}
+
+function PaginationBar({
+  theme,
+  page,
+  totalPages,
+  total,
+  pageStart,
+  pageEnd,
+  pageSize,
+  onPage,
+  onPageSize,
+}: {
+  theme: Theme;
+  page: number;
+  totalPages: number;
+  total: number;
+  pageStart: number;
+  pageEnd: number;
+  pageSize: number;
+  onPage: (p: number) => void;
+  onPageSize: (n: number) => void;
+}) {
+  const dark = theme === 'dark';
+  const pages = computePageList(page, totalPages);
+  const btnBase = 'inline-flex items-center justify-center h-7 min-w-7 px-2 rounded-md text-[12px] tabular-nums transition-colors';
+  const btnIdle = dark
+    ? 'text-slate-400 hover:text-slate-100 hover:bg-white/[0.06] border border-white/[0.06]'
+    : 'text-stone-600 hover:text-stone-900 hover:bg-stone-100 border border-stone-300/50';
+  const btnActive = dark
+    ? 'bg-amber-400/15 text-amber-200 border border-amber-400/30'
+    : 'bg-amber-100 text-amber-800 border border-amber-300/60';
+  const btnDisabled = dark
+    ? 'text-slate-600 border border-white/[0.04] cursor-not-allowed'
+    : 'text-stone-300 border border-stone-200/60 cursor-not-allowed';
+
+  return (
+    <div
+      className={`flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-t text-[12px] ${
+        dark ? 'border-white/[0.06] text-slate-400' : 'border-stone-300/40 text-stone-600'
+      }`}
+    >
+      <div className="tabular-nums">
+        Показано{' '}
+        <span className={dark ? 'text-slate-200' : 'text-stone-800'}>
+          {pageStart + 1}–{pageEnd}
+        </span>{' '}
+        з <span className={dark ? 'text-slate-200' : 'text-stone-800'}>{total}</span>
+      </div>
+      <div className="flex items-center gap-3">
+        <label className="flex items-center gap-2">
+          <span>На сторінці:</span>
+          <select
+            value={pageSize}
+            onChange={(e) => onPageSize(Number(e.target.value))}
+            className={`h-7 px-2 rounded-md text-[12px] outline-none ${
+              dark
+                ? 'bg-white/[0.04] border border-white/[0.08] text-slate-200'
+                : 'bg-white/80 border border-stone-300/60 text-stone-800'
+            }`}
+          >
+            {[25, 50, 100, 200].map((n) => (
+              <option key={n} value={n} className={dark ? 'bg-[#0b0d12]' : ''}>
+                {n}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => onPage(Math.max(1, page - 1))}
+            disabled={page <= 1}
+            className={`${btnBase} ${page <= 1 ? btnDisabled : btnIdle}`}
+            aria-label="Попередня сторінка"
+          >
+            <HiOutlineChevronLeft className="text-sm" />
+          </button>
+          {pages.map((p, i) =>
+            p === '…' ? (
+              <span key={`dots-${i}`} className={`${btnBase} ${dark ? 'text-slate-600' : 'text-stone-400'}`}>
+                …
+              </span>
+            ) : (
+              <button
+                key={p}
+                type="button"
+                onClick={() => onPage(p)}
+                className={`${btnBase} ${p === page ? btnActive : btnIdle}`}
+                aria-current={p === page ? 'page' : undefined}
+              >
+                {p}
+              </button>
+            ),
+          )}
+          <button
+            type="button"
+            onClick={() => onPage(Math.min(totalPages, page + 1))}
+            disabled={page >= totalPages}
+            className={`${btnBase} ${page >= totalPages ? btnDisabled : btnIdle}`}
+            aria-label="Наступна сторінка"
+          >
+            <HiOutlineChevronRight className="text-sm" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function computePageList(current: number, total: number): (number | '…')[] {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+  const pages: (number | '…')[] = [1];
+  if (current > 3) pages.push('…');
+  for (let p = Math.max(2, current - 1); p <= Math.min(total - 1, current + 1); p++) pages.push(p);
+  if (current < total - 2) pages.push('…');
+  pages.push(total);
+  return pages;
 }

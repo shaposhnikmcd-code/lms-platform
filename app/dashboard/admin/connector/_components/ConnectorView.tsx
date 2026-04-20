@@ -51,6 +51,16 @@ export interface SummaryData {
   standardPrice: number;
 }
 
+// Тип доставки не зберігається в БД — детектимо з postOffice. Синхронно з Manager/Modal.
+function detectDeliveryType(postOffice: string): 'warehouse' | 'courier' {
+  const s = (postOffice ?? '').trim();
+  if (!s) return 'warehouse';
+  if (/(\s|^)(буд\.|корп\.|кв\.)/i.test(s)) return 'courier';
+  if (/^Відділення|^Поштомат|Parcel Shop|Pick[-\s]?up|Nova Post/i.test(s)) return 'warehouse';
+  if (/^(вул\.|просп\.|бул\.|пл\.|пр-т|пров\.)/i.test(s)) return 'courier';
+  return 'warehouse';
+}
+
 const ORDER_STATUS_OPTIONS: { value: 'ALL' | OrderStatus; label: string }[] = [
   { value: 'ALL', label: 'Усі' },
   { value: 'NEW', label: 'Нові' },
@@ -211,7 +221,7 @@ export default function ConnectorView({
                 <Th theme={theme}>Дата</Th>
                 <Th theme={theme}>Клієнт</Th>
                 <Th theme={theme}>Телефон</Th>
-                <Th theme={theme}>Доставка</Th>
+                <Th theme={theme} align="center">Тип доставки</Th>
                 <Th theme={theme} align="right">Сума</Th>
                 <Th theme={theme} align="center">Оплата</Th>
                 <Th theme={theme} align="center">Статус</Th>
@@ -276,11 +286,26 @@ function RowBlock({ r, theme }: { r: Row; theme: Theme }) {
           {r.phone}
         </span>
       </Td>
-      <Td theme={theme}>
-        <div className="flex flex-col leading-tight max-w-[260px]">
-          <span className="truncate">{r.city}</span>
-          <span className={`text-[11px] truncate ${dark ? 'text-slate-500' : 'text-stone-500'}`}>{r.postOffice}</span>
-        </div>
+      <Td theme={theme} align="center">
+        {(() => {
+          const isCourier = detectDeliveryType(r.postOffice) === 'courier';
+          return (
+            <span
+              title={`${r.city}, ${r.postOffice}`}
+              className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium border whitespace-nowrap ${
+                isCourier
+                  ? dark
+                    ? 'bg-indigo-500/10 text-indigo-300 border-indigo-500/25'
+                    : 'bg-indigo-50 text-indigo-800 border-indigo-300/60'
+                  : dark
+                    ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/25'
+                    : 'bg-emerald-50 text-emerald-800 border-emerald-300/60'
+              }`}
+            >
+              {isCourier ? "🚗 Кур'єром за адресою" : '📦 До відділення НП'}
+            </span>
+          );
+        })()}
       </Td>
       <Td theme={theme} align="right">
         <span className={`tabular-nums font-medium ${r.isNonStandard ? (dark ? 'text-rose-300' : 'text-rose-700') : ''}`}>
