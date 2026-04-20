@@ -189,6 +189,10 @@ model Payment {
   /// Якщо платіж є частиною підписки річної програми — лінк сюди.
   /// Один Payment = один щомісячний charge; для YEARLY plan створюється один Payment на рік.
   yearlyProgramSubscriptionId String?
+  /// Джерело продажу (UIMP за замовчуванням, TETYANA — з персонального сайту Тетяни)
+  source                      SaleSource                 @default(UIMP)
+  /// orderReference з зовнішньої системи (для продажів з інших сайтів, напр. tetyana-website)
+  externalRef                 String?
   yearlyProgramSubscription   YearlyProgramSubscription? @relation("YearlyProgramPayments", fields: [yearlyProgramSubscriptionId], references: [id])
   user                        User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
   course                      Course?                    @relation(fields: [courseId], references: [id])
@@ -201,6 +205,7 @@ model Payment {
   @@index([bundleId])
   @@index([courseId])
   @@index([createdAt])
+  @@index([source])
 }
 
 model Certificate {
@@ -252,10 +257,15 @@ model ConnectorOrder {
   trackingSetByRole  String?
   managerNote        String?
   callMe             Boolean                     @default(false)
+  /// Джерело продажу (UIMP за замовчуванням, TETYANA — з персонального сайту Тетяни)
+  source             SaleSource                  @default(UIMP)
+  /// orderReference з зовнішньої системи
+  externalRef        String?
   trackingHistory    ConnectorOrderTrackingLog[]
 
   @@index([paymentStatus])
   @@index([orderStatus])
+  @@index([source])
 }
 
 model ConnectorOrderTrackingLog {
@@ -345,6 +355,11 @@ enum OrderStatus {
   SHIPPED
   DELIVERED
   CANCELLED
+}
+
+enum SaleSource {
+  UIMP
+  TETYANA
 }
 
 enum SubscriptionPlan {

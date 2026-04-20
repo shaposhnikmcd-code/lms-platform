@@ -5,10 +5,13 @@ import { useRouter } from 'next/navigation';
 import { HiOutlineFunnel, HiOutlineBanknotes, HiOutlineCheckCircle, HiOutlineClock, HiOutlineCreditCard, HiOutlineChevronLeft, HiOutlineChevronRight } from 'react-icons/hi2';
 import { useAdminTheme, type Theme } from '../../_components/adminTheme';
 import { AdminShell, AdminPanel } from '../../_components/AdminShell';
+import SourceBadge, { type SaleSource } from '../../_components/SourceBadge';
 
 export type Row = {
   id: string;
   source: 'course' | 'bundle' | 'connector' | 'yearly';
+  /// Джерело продажу (UIMP | TETYANA). UIMP — не показується в UI, TETYANA — маркер-печатка біля імені.
+  saleSource: SaleSource;
   createdAt: string;
   clientName: string;
   clientEmail: string;
@@ -207,8 +210,13 @@ export default function PaymentsView({ rows }: { rows: Row[] }) {
                             </p>
                           </td>
                           <td className="px-5 py-3">
-                            <p className={`text-[13px] font-medium ${dark ? 'text-slate-100' : 'text-stone-900'}`}>{row.clientName}</p>
-                            <p className={`text-[11px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>{row.clientEmail}</p>
+                            <div className="flex items-center gap-2">
+                              <SourceBadge source={row.saleSource} />
+                              <div>
+                                <p className={`text-[13px] font-medium ${dark ? 'text-slate-100' : 'text-stone-900'}`}>{row.clientName}</p>
+                                <p className={`text-[11px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>{row.clientEmail}</p>
+                              </div>
+                            </div>
                           </td>
                           <td className="px-5 py-3 text-center">
                             <TypePill theme={theme} source={row.source} />

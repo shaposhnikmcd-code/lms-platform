@@ -11,6 +11,7 @@ import {
 } from 'react-icons/hi2';
 import { useAdminTheme, type Theme } from '../../_components/adminTheme';
 import { AdminShell, AdminPanel } from '../../_components/AdminShell';
+import SourceBadge, { type SaleSource } from '../../_components/SourceBadge';
 
 export interface LogRow {
   id: string;
@@ -31,6 +32,7 @@ export interface LogRow {
   skipReason: string | null;
   sendpulseSlugs: string | null;
   orderReference: string | null;
+  saleSource: SaleSource;
 }
 
 export interface PaymentLogsData {
@@ -169,17 +171,20 @@ export default function PaymentLogsView({ data }: { data: PaymentLogsData }) {
                         {fmtKyivDateTime(dt)}
                       </td>
                       <td
-                        className="px-4 py-2.5 max-w-[200px]"
+                        className="px-4 py-2.5 max-w-[220px]"
                         title={[log.clientName, log.clientEmail].filter(Boolean).join(' · ')}
                       >
                         {log.clientName || log.clientEmail ? (
-                          <div className="flex flex-col gap-0.5 min-w-0">
-                            <span className={`text-[12px] font-medium truncate ${dark ? 'text-slate-200' : 'text-stone-800'}`}>
-                              {log.clientName ?? '—'}
-                            </span>
-                            <span className={`text-[10px] truncate ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
-                              {log.clientEmail ?? ''}
-                            </span>
+                          <div className="flex items-center gap-2 min-w-0">
+                            <SourceBadge source={log.saleSource} size={16} />
+                            <div className="flex flex-col gap-0.5 min-w-0">
+                              <span className={`text-[12px] font-medium truncate ${dark ? 'text-slate-200' : 'text-stone-800'}`}>
+                                {log.clientName ?? '—'}
+                              </span>
+                              <span className={`text-[10px] truncate ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+                                {log.clientEmail ?? ''}
+                              </span>
+                            </div>
                           </div>
                         ) : (
                           <span className={`text-[11px] ${dark ? 'text-slate-600' : 'text-stone-400'}`}>—</span>

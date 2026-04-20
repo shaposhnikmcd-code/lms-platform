@@ -9,6 +9,7 @@ import {
 } from 'react-icons/hi2';
 import { useAdminTheme, type Theme, type Tone } from '../../_components/adminTheme';
 import { AdminShell, AdminPanel } from '../../_components/AdminShell';
+import SourceBadge from '../../_components/SourceBadge';
 
 export interface AnalyticsData {
   totalUsers: number;
@@ -25,6 +26,12 @@ export interface AnalyticsData {
   topFreeChoices: Array<{ slug: string; title: string; count: number }>;
   totalBundleSales: number;
   totalBundleRevenue: number;
+  tetyana: {
+    courseRevenue: number;
+    courseCount: number;
+    connectorRevenue: number;
+    connectorCount: number;
+  };
 }
 
 export default function AdminAnalyticsView({ data }: { data: AnalyticsData }) {
@@ -52,6 +59,8 @@ export default function AdminAnalyticsView({ data }: { data: AnalyticsData }) {
         <Kpi theme={theme} icon={HiOutlineBanknotes} label="Дохід · всього" value={`${data.totalRevenue.toLocaleString()} ₴`} glow />
         <Kpi theme={theme} icon={HiOutlineChartBar} label="Дохід · 30д" value={`${data.monthRevenue.toLocaleString()} ₴`} />
       </div>
+
+      <TetyanaStrip theme={theme} tetyana={data.tetyana} />
 
       {/* Row 1: Users + Sales */}
       <div className="grid md:grid-cols-2 gap-5 mb-6">
@@ -278,6 +287,67 @@ export default function AdminAnalyticsView({ data }: { data: AnalyticsData }) {
         )}
       </AdminPanel>
     </AdminShell>
+  );
+}
+
+function TetyanaStrip({
+  theme,
+  tetyana,
+}: {
+  theme: Theme;
+  tetyana: AnalyticsData['tetyana'];
+}) {
+  const totalRevenue = tetyana.courseRevenue + tetyana.connectorRevenue;
+  const totalCount = tetyana.courseCount + tetyana.connectorCount;
+  if (totalCount === 0) return null;
+
+  const dark = theme === 'dark';
+  const parts: string[] = [];
+  if (tetyana.courseCount > 0) {
+    parts.push(
+      `${tetyana.courseCount} ${pluralize(tetyana.courseCount, ['курс', 'курси', 'курсів'])}`,
+    );
+  }
+  if (tetyana.connectorCount > 0) {
+    parts.push(
+      `${tetyana.connectorCount} ${pluralize(tetyana.connectorCount, ['гра', 'гри', 'ігор'])}`,
+    );
+  }
+
+  return (
+    <div
+      className={`mb-6 rounded-xl px-4 py-3 border flex items-center gap-3 flex-wrap ${
+        dark
+          ? 'bg-amber-500/[0.05] border-amber-500/20'
+          : 'bg-amber-50/70 border-amber-300/40'
+      }`}
+    >
+      <SourceBadge source="TETYANA" size={24} />
+      <div className="flex-1 min-w-0">
+        <div
+          className={`text-[11px] uppercase tracking-[0.16em] font-medium mb-0.5 ${
+            dark ? 'text-amber-300/70' : 'text-amber-800/80'
+          }`}
+        >
+          З персонального сайту Тетяни Шапошник
+        </div>
+        <div className="flex items-baseline gap-2 flex-wrap">
+          <span
+            className={`text-[17px] font-semibold tabular-nums ${
+              dark ? 'text-amber-100' : 'text-amber-900'
+            }`}
+          >
+            {totalRevenue.toLocaleString()} ₴
+          </span>
+          <span
+            className={`text-[12px] ${dark ? 'text-slate-400' : 'text-stone-600'}`}
+          >
+            · {totalCount} {pluralize(totalCount, ['замовлення', 'замовлення', 'замовлень'])}
+            {parts.length > 0 && ` (${parts.join(' · ')})`}
+          </span>
+        </div>
+      </div>
+    </div>
   );
 }
 

@@ -19,6 +19,8 @@ export default async function AdminAnalytics() {
     courseStats,
     bundlePayments,
     allBundles,
+    tetyanaPayments,
+    tetyanaConnectorOrders,
   ] = await Promise.all([
     prisma.user.count(),
     prisma.user.count({ where: { createdAt: { gte: thirtyDaysAgo } } }),
@@ -39,6 +41,16 @@ export default async function AdminAnalytics() {
     }),
     prisma.bundle.findMany({
       select: { id: true, title: true, type: true, paidCount: true, freeCount: true },
+    }),
+    prisma.payment.aggregate({
+      where: { status: 'PAID', source: 'TETYANA' },
+      _sum: { amount: true },
+      _count: { _all: true },
+    }),
+    prisma.connectorOrder.aggregate({
+      where: { paymentStatus: 'PAID', source: 'TETYANA' },
+      _sum: { amount: true },
+      _count: { _all: true },
     }),
   ]);
 
@@ -114,6 +126,12 @@ export default async function AdminAnalytics() {
     topFreeChoices,
     totalBundleSales: bundlePayments.length,
     totalBundleRevenue: bundlePayments.reduce((s, p) => s + p.amount, 0),
+    tetyana: {
+      courseRevenue: tetyanaPayments._sum.amount ?? 0,
+      courseCount: tetyanaPayments._count._all,
+      connectorRevenue: tetyanaConnectorOrders._sum.amount ?? 0,
+      connectorCount: tetyanaConnectorOrders._count._all,
+    },
   };
 
   return <AdminAnalyticsView data={data} />;

@@ -29,6 +29,7 @@ export default async function AdminConnectorPage() {
         managerNote: true,
         callMe: true,
         orderReference: true,
+        source: true,
       },
     }),
     prisma.connectorOrder.count(),
@@ -62,6 +63,7 @@ export default async function AdminConnectorPage() {
     managerNote: o.managerNote,
     callMe: o.callMe,
     orderReference: o.orderReference,
+    saleSource: o.source,
     isNonStandard:
       o.paymentStatus === 'PAID' &&
       (o.gamePrice ?? CONNECTOR_STANDARD_PRICE) !== CONNECTOR_STANDARD_PRICE &&

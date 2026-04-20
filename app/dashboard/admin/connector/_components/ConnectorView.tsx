@@ -15,6 +15,7 @@ import {
 } from 'react-icons/hi2';
 import { useAdminTheme, type Theme, type Tone } from '../../_components/adminTheme';
 import { AdminShell, AdminPanel } from '../../_components/AdminShell';
+import SourceBadge, { type SaleSource } from '../../_components/SourceBadge';
 
 export type PaymentStatus = 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED';
 export type OrderStatus = 'NEW' | 'PROCESSING' | 'SHIPPED' | 'DELIVERED' | 'CANCELLED';
@@ -39,6 +40,7 @@ export interface Row {
   callMe: boolean;
   orderReference: string;
   isNonStandard: boolean;
+  saleSource: SaleSource;
 }
 
 export interface SummaryData {
@@ -270,9 +272,12 @@ function RowBlock({ r, theme }: { r: Row; theme: Theme }) {
         <span className="tabular-nums whitespace-nowrap">{dateStr}</span>
       </Td>
       <Td theme={theme}>
-        <div className="flex flex-col leading-tight">
-          <span className={`font-medium ${dark ? 'text-slate-100' : 'text-stone-900'}`}>{r.fullName}</span>
-          <span className={`text-[11px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>{r.email}</span>
+        <div className="flex items-center gap-2">
+          <SourceBadge source={r.saleSource} />
+          <div className="flex flex-col leading-tight">
+            <span className={`font-medium ${dark ? 'text-slate-100' : 'text-stone-900'}`}>{r.fullName}</span>
+            <span className={`text-[11px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>{r.email}</span>
+          </div>
         </div>
       </Td>
       <Td theme={theme}>

@@ -21,6 +21,7 @@ import {
 import OrderDetailsModal from './OrderDetailsModal';
 import { useAdminTheme, type Theme, type Tone } from '../../admin/_components/adminTheme';
 import { AdminShell, AdminPanel } from '../../admin/_components/AdminShell';
+import SourceBadge, { type SaleSource } from '../../admin/_components/SourceBadge';
 
 type OrderStatus = 'NEW' | 'PROCESSING' | 'SHIPPED' | 'DELIVERED' | 'CANCELLED';
 type PaymentStatus = 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED';
@@ -37,6 +38,7 @@ interface Order {
   amount: number;
   paymentStatus: PaymentStatus;
   orderStatus: OrderStatus;
+  source: SaleSource;
   gamePrice?: number | null;
   shippingCost?: number | null;
   actualShippingCost?: number | null;
@@ -549,7 +551,7 @@ export default function ManagerDashboardClient() {
                 <col style={{ width: '72px' }} />
                 <col style={{ width: '82px' }} />
                 <col style={{ width: '110px' }} />
-                <col style={{ width: '150px' }} />
+                <col style={{ width: '175px' }} />
                 <col style={{ width: '190px' }} />
                 <col style={{ width: '74px' }} />
                 <col style={{ width: '170px' }} />
@@ -808,10 +810,15 @@ function OrderRow({
 
       {/* Клієнт */}
       <td className={`${cellBase} min-w-0`}>
-        <div className={`font-medium truncate ${dark ? 'text-slate-100' : 'text-stone-900'}`} title={order.fullName}>
-          {order.fullName}
+        <div className="flex items-center gap-2 min-w-0">
+          <SourceBadge source={order.source} />
+          <div className="min-w-0">
+            <div className={`font-medium truncate ${dark ? 'text-slate-100' : 'text-stone-900'}`} title={order.fullName}>
+              {order.fullName}
+            </div>
+            <div className={`text-[11px] tabular-nums ${dark ? 'text-slate-500' : 'text-stone-500'}`}>{order.phone}</div>
+          </div>
         </div>
-        <div className={`text-[11px] tabular-nums ${dark ? 'text-slate-500' : 'text-stone-500'}`}>{order.phone}</div>
       </td>
 
       {/* Тип доставки */}

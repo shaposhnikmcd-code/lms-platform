@@ -77,6 +77,27 @@ export default async function PaymentLogsPage({
       .map((p) => [p.orderReference, p.yearlyProgramSubscription!.autoRenew]),
   );
 
+  // Для маркера source=TETYANA/UIMP підтягуємо source з Payment або ConnectorOrder
+  // по orderReference з логу. Батчимо в 2 запити замість N+1.
+  const allOrderRefs = Array.from(
+    new Set(logs.map((l) => l.orderReference).filter((r): r is string => !!r)),
+  );
+  const [paymentSources, connectorSources] = allOrderRefs.length
+    ? await Promise.all([
+        prisma.payment.findMany({
+          where: { orderReference: { in: allOrderRefs } },
+          select: { orderReference: true, source: true },
+        }),
+        prisma.connectorOrder.findMany({
+          where: { orderReference: { in: allOrderRefs } },
+          select: { orderReference: true, source: true },
+        }),
+      ])
+    : [[], []];
+  const sourceByOrderRef = new Map<string, 'UIMP' | 'TETYANA'>();
+  for (const p of paymentSources) sourceByOrderRef.set(p.orderReference, p.source);
+  for (const c of connectorSources) sourceByOrderRef.set(c.orderReference, c.source);
+
   const data: PaymentLogsData = {
     logs: logs.map((l) => ({
       id: l.id,
@@ -95,6 +116,7 @@ export default async function PaymentLogsPage({
       skipReason: l.skipReason,
       sendpulseSlugs: l.sendpulseSlugs,
       orderReference: l.orderReference,
+      saleSource: (l.orderReference && sourceByOrderRef.get(l.orderReference)) || 'UIMP',
     })),
     total,
     approvedCount,

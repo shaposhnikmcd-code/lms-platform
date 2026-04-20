@@ -16,6 +16,7 @@ export default async function AdminPayments() {
         amount: true,
         status: true,
         orderReference: true,
+        source: true,
         user: { select: { name: true, email: true } },
         course: { select: { title: true } },
         bundle: { select: { title: true } },
@@ -33,6 +34,7 @@ export default async function AdminPayments() {
         amount: true,
         paymentStatus: true,
         orderReference: true,
+        source: true,
       },
     }),
   ]);
@@ -50,6 +52,7 @@ export default async function AdminPayments() {
       return {
         id: `pay_${p.id}`,
         source: 'yearly' as const,
+        saleSource: p.source,
         createdAt: p.createdAt.toISOString(),
         clientName: p.user?.name || '—',
         clientEmail: p.user?.email || '',
@@ -62,6 +65,7 @@ export default async function AdminPayments() {
     return {
       id: `pay_${p.id}`,
       source: p.bundle ? 'bundle' as const : 'course' as const,
+      saleSource: p.source,
       createdAt: p.createdAt.toISOString(),
       clientName: p.user?.name || '—',
       clientEmail: p.user?.email || '',
@@ -75,6 +79,7 @@ export default async function AdminPayments() {
   const connectorRows: Row[] = connectorOrders.map((o) => ({
     id: `conn_${o.id}`,
     source: 'connector',
+    saleSource: o.source,
     createdAt: o.createdAt.toISOString(),
     clientName: o.fullName,
     clientEmail: o.email,
