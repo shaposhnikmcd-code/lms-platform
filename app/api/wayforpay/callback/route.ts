@@ -587,7 +587,9 @@ async function handleYearlyProgramCallback(args: {
     // і WFP надсилає callback лише за платіж, який він сам обробив. Email — лише
     // metadata для audit-trail, не блокуємо.
     if (clientEmail && payment.user?.email && clientEmail.toLowerCase() !== payment.user.email.toLowerCase()) {
-      actions.push(`warn:email_diff:${clientEmail.toLowerCase()}≠${payment.user.email.toLowerCase()}`);
+      // PII hygiene: raw email diff є в `clientEmail` колонці і в Payment.user.email;
+      // тут — лише прапорець. Адмін побачить обидва через деталі Payment.
+      actions.push('warn:email_diff');
     }
   }
 
@@ -663,7 +665,6 @@ async function handleYearlyProgramCallback(args: {
           ...(recToken ? { recToken } : {}),
           // Reset reminders — щоб наступний цикл знову їх відправив.
           reminderSent3d: false,
-          reminderSent1d: false,
           reminderSentExpired: false,
         },
       });

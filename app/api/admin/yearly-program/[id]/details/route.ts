@@ -58,7 +58,6 @@ export async function GET(
     sendpulseAccessOpenedAt: sub.sendpulseAccessOpenedAt?.toISOString() ?? null,
     sendpulseAccessClosedAt: sub.sendpulseAccessClosedAt?.toISOString() ?? null,
     reminderSent3d: sub.reminderSent3d,
-    reminderSent1d: sub.reminderSent1d,
     reminderSentExpired: sub.reminderSentExpired,
     createdAt: sub.createdAt.toISOString(),
     updatedAt: sub.updatedAt.toISOString(),

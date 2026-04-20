@@ -15,11 +15,21 @@ import {
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 const FROM = 'UIMP <onboarding@resend.dev>';
+const CONCURRENCY = 5;
 
 interface StepResult {
   step: string;
   processed: number;
   errors: string[];
+}
+
+async function processInParallel<T>(
+  items: T[],
+  handler: (item: T) => Promise<void>,
+): Promise<void> {
+  for (let i = 0; i < items.length; i += CONCURRENCY) {
+    await Promise.all(items.slice(i, i + CONCURRENCY).map(handler));
+  }
 }
 
 /// Щоденний cron Річної програми.
@@ -57,7 +67,7 @@ async function transitionActiveToGrace(): Promise<StepResult> {
     select: { id: true, userId: true, plan: true, expiresAt: true },
   });
 
-  for (const s of subs) {
+  await processInParallel(subs, async (s) => {
     try {
       // Ставимо graceStartedAt=now і gracePeriodEndsAt=now+graceDays, щоб
       // expireGraceSubscriptions експайрав саме через graceDays після переходу,
@@ -80,7 +90,7 @@ async function transitionActiveToGrace(): Promise<StepResult> {
     } catch (e) {
       errors.push(`${s.id}: ${(e as Error).message}`);
     }
-  }
+  });
 
   return { step: 'active_to_grace', processed: subs.length, errors };
 }
@@ -105,7 +115,7 @@ async function expireGraceSubscriptions(): Promise<StepResult> {
     include: { user: true },
   });
 
-  for (const sub of subs) {
+  await processInParallel(subs, async (sub) => {
     try {
       // Закриваємо доступ у SendPulse (якщо можемо — є studentId і courseId).
       const courseId = YEARLY_PROGRAM_CONFIG.sendpulseCourseId;
@@ -146,7 +156,7 @@ async function expireGraceSubscriptions(): Promise<StepResult> {
         } catch (e) {
           errors.push(`${sub.id} close: ${(e as Error).message}`);
           // Не скидаємо на EXPIRED якщо не змогли закрити — спробуємо знову завтра.
-          continue;
+          return;
         }
       } else {
         // Без courseId/studentId — позначаємо EXPIRED локально, але з поміткою.
@@ -184,7 +194,7 @@ async function expireGraceSubscriptions(): Promise<StepResult> {
     } catch (e) {
       errors.push(`${sub.id}: ${(e as Error).message}`);
     }
-  }
+  });
 
   return { step: 'expire_grace', processed: subs.length, errors };
 }
@@ -208,9 +218,9 @@ async function sendManualBeforeExpiryReminders(): Promise<StepResult> {
   });
 
   let processed = 0;
-  for (const sub of subs) {
+  await processInParallel(subs, async (sub) => {
     try {
-      if (!sub.user?.email || !sub.expiresAt) continue;
+      if (!sub.user?.email || !sub.expiresAt) return;
       const { subject, html } = manualBeforeExpiry({ name: sub.user.name, expiresAt: sub.expiresAt });
       await resend.emails.send({ from: FROM, to: sub.user.email, subject, html });
       await prisma.yearlyProgramSubscription.update({
@@ -228,7 +238,7 @@ async function sendManualBeforeExpiryReminders(): Promise<StepResult> {
     } catch (e) {
       errors.push(`${sub.id}: ${(e as Error).message}`);
     }
-  }
+  });
 
   return { step: 'manual_before_expiry', processed, errors };
 }
@@ -253,9 +263,9 @@ async function sendManualOnExpiryReminders(): Promise<StepResult> {
   });
 
   let processed = 0;
-  for (const sub of subs) {
+  await processInParallel(subs, async (sub) => {
     try {
-      if (!sub.user?.email) continue;
+      if (!sub.user?.email) return;
       const { subject, html } = manualOnExpiry({ name: sub.user.name });
       await resend.emails.send({ from: FROM, to: sub.user.email, subject, html });
       await prisma.yearlyProgramSubscription.update({
@@ -273,7 +283,7 @@ async function sendManualOnExpiryReminders(): Promise<StepResult> {
     } catch (e) {
       errors.push(`${sub.id}: ${(e as Error).message}`);
     }
-  }
+  });
 
   return { step: 'manual_on_expiry', processed, errors };
 }
@@ -294,13 +304,13 @@ async function sendGraceStartReminders(): Promise<StepResult> {
   });
 
   let processed = 0;
-  for (const sub of subs) {
+  await processInParallel(subs, async (sub) => {
     try {
-      if (!sub.user?.email || !sub.gracePeriodEndsAt) continue;
+      if (!sub.user?.email || !sub.gracePeriodEndsAt) return;
       // Для cyclical — шлемо тільки якщо були failed charge attempts.
       // Для manual — шлемо завжди (grace стартував).
       const isManual = !sub.recToken;
-      if (!isManual && (sub.failedChargeCount ?? 0) === 0) continue;
+      if (!isManual && (sub.failedChargeCount ?? 0) === 0) return;
 
       const { subject, html } = isManual
         ? manualGraceStart({ name: sub.user.name, gracePeriodEndsAt: sub.gracePeriodEndsAt })
@@ -321,7 +331,7 @@ async function sendGraceStartReminders(): Promise<StepResult> {
     } catch (e) {
       errors.push(`${sub.id}: ${(e as Error).message}`);
     }
-  }
+  });
 
   return { step: 'grace_start', processed, errors };
 }
@@ -345,9 +355,9 @@ async function sendCyclicalGraceMidReminders(): Promise<StepResult> {
   });
 
   let processed = 0;
-  for (const sub of subs) {
+  await processInParallel(subs, async (sub) => {
     try {
-      if (!sub.user?.email || !sub.gracePeriodEndsAt) continue;
+      if (!sub.user?.email || !sub.gracePeriodEndsAt) return;
       const { subject, html } = cyclicalChargeFailed3({ name: sub.user.name, gracePeriodEndsAt: sub.gracePeriodEndsAt });
       await resend.emails.send({ from: FROM, to: sub.user.email, subject, html });
       await prisma.yearlyProgramSubscription.update({
@@ -365,7 +375,7 @@ async function sendCyclicalGraceMidReminders(): Promise<StepResult> {
     } catch (e) {
       errors.push(`${sub.id}: ${(e as Error).message}`);
     }
-  }
+  });
 
   return { step: 'cyclical_grace_mid', processed, errors };
 }

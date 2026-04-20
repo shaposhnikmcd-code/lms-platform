@@ -521,8 +521,7 @@ model YearlyProgramSubscription {
   /// Нагадування про закінчення / grace.
   /// MANUAL flow: manualBeforeExpiry (3д до) → manualOnExpiry (день 0) → manualGraceStart (день +1) → accessClosed (день +7)
   /// CYCLICAL flow (тільки при charge failure): cyclicalChargeFailed1 (день +1) → cyclicalChargeFailed3 (день +3) → accessClosed (день +7)
-  reminderSent3d         Boolean @default(false) /// legacy: manual "за 3 дні"
-  reminderSent1d         Boolean @default(false) /// legacy, не використовується новою логікою
+  reminderSent3d         Boolean @default(false) /// manual: 3 дні до закінчення
   reminderSentExpired    Boolean @default(false) /// spіvlynyi: accessClosed на день +7
   reminderSentOnExpiry   Boolean @default(false) /// manual: у день закінчення
   reminderSentGraceStart Boolean @default(false) /// manual: день +1 (grace стартував) АБО cyclical: charge failed

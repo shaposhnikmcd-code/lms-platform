@@ -73,7 +73,6 @@ interface SubscriptionDetails {
   sendpulseAccessOpenedAt: string | null;
   sendpulseAccessClosedAt: string | null;
   reminderSent3d: boolean;
-  reminderSent1d: boolean;
   reminderSentExpired: boolean;
   payments: Array<{
     id: string;
@@ -635,9 +634,9 @@ function ExpandedRowContent({
           if (details.lastChargeError) {
             items.push(['last error', details.lastChargeError]);
           }
-          const anyReminder = details.reminderSent3d || details.reminderSent1d || details.reminderSentExpired;
+          const anyReminder = details.reminderSent3d || details.reminderSentExpired;
           if (anyReminder) {
-            items.push(['reminders', `3д:${details.reminderSent3d ? '✓' : '–'} · 1д:${details.reminderSent1d ? '✓' : '–'} · exp:${details.reminderSentExpired ? '✓' : '–'}`]);
+            items.push(['reminders', `3д:${details.reminderSent3d ? '✓' : '–'} · exp:${details.reminderSentExpired ? '✓' : '–'}`]);
           }
           if (items.length === 0) return null;
           return (
