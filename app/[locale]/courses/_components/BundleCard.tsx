@@ -285,16 +285,11 @@ export default function BundleCard({
     </div>
   );
 
-  const [tuned, setTuned] = useState(false);
   useEffect(() => {
     const root = rootRef.current;
     if (!root) return;
     let raf = 0;
-    const run = () => {
-      autoTuneBundle(root);
-      setTuned(true);
-    };
-    raf = requestAnimationFrame(run);
+    raf = requestAnimationFrame(() => autoTuneBundle(root));
     // Resize listener потрібен і для miniature (scale не змінюється але viewport може).
     const onResize = () => {
       if (raf) cancelAnimationFrame(raf);
@@ -306,6 +301,23 @@ export default function BundleCard({
       window.removeEventListener('resize', onResize);
     };
   }, [miniature]);
+
+  // SSR-defaults для --tuned-paid-card-h (CSS var що autoTuner перераховує).
+  // Раніше був fallback 345px, але autoTuner типово ставить 242-272 залежно
+  // від paid.length — був "стрибок" −80px коли client-side tuner спрацьовував.
+  // Ставимо тип-специфічний default що дуже близький до фінального значення →
+  // максимальний зсув висоти ~5px, візуально плавний через CSS transition.
+  // SSR-defaults виведені з фактичних значень autoTuner (заміряно Playwright-ом
+  // на /uk/courses 2026-04-20). Максимальний зсув після client-side tuning — ≤5px,
+  // що невідчутно і згладжується CSS transition height 0.35s.
+  const paidCardDefaultH =
+    courses.length === 1 ? '244px'                                          // solo hero (CHOICE 1+3)
+    : courses.length === 2 ? '248px'                                        // DISCOUNT 2 / FIXED 2+2 / CHOICE 2+N
+    : courses.length === 3
+      ? (!hasFreeRow ? '272px'                                              // DISCOUNT 3 (ширші)
+         : freeCourses.length === 1 ? '267px'                               // FIXED 3+1 (інший лейаут з inline CTA)
+         : '246px')                                                         // CHOICE 3+N (вужчі)
+    : '246px';                                                              // 4+, 5+ paid
 
   return (
     <div
@@ -326,12 +338,14 @@ export default function BundleCard({
         boxShadow: hovered
           ? '0 14px 36px rgba(28,58,46,0.12), 0 0 0 1px rgba(212,168,67,0.2)'
           : '0 4px 14px rgba(28,58,46,0.06), inset 0 1px 0 rgba(255,255,255,0.4)',
-        transition: 'box-shadow 0.4s ease, transform 0.4s ease, opacity 0.25s ease',
+        transition: 'box-shadow 0.4s ease, transform 0.4s ease',
         transform: hovered ? 'translateY(-2px)' : 'translateY(0)',
-        opacity: tuned ? 1 : 0,
         height: forcedHeight ?? unifiedHeight,
         overflow: forcedHeight !== undefined || unifiedHeight !== undefined ? 'hidden' : undefined,
-      }}
+        // CSS var що autoTuner перераховує на клієнті — префіксуємо розумним
+        // SSR-дефолтом щоб paid cards не стрибали на 80px коли tuner запускається.
+        ['--tuned-paid-card-h' as string]: paidCardDefaultH,
+      } as React.CSSProperties}
     >
       {/* Bundle-specific keyframes, selected seal, shimmer і mobile overrides
           винесено в app/globals.css (секція "BundleCard: shimmer + selected-seal").
@@ -428,7 +442,8 @@ export default function BundleCard({
                 overflow: 'hidden',
                 boxShadow: isHovered ? '0 16px 40px rgba(0,0,0,0.25)' : '0 2px 10px rgba(0,0,0,0.1)',
                 transform: isHovered ? 'translateY(-3px) scale(1.01)' : 'translateY(0) scale(1)',
-                transition: 'box-shadow 0.3s cubic-bezier(0.16,1,0.3,1), transform 0.3s cubic-bezier(0.16,1,0.3,1), background 0.3s cubic-bezier(0.16,1,0.3,1)',
+                // height transition згладжує корекцію від autoTuner (typical ±5-15px)
+                transition: 'box-shadow 0.3s cubic-bezier(0.16,1,0.3,1), transform 0.3s cubic-bezier(0.16,1,0.3,1), background 0.3s cubic-bezier(0.16,1,0.3,1), height 0.35s cubic-bezier(0.16,1,0.3,1)',
                 display: 'flex',
                 flexDirection: 'column',
                 width: courses.length === 1 ? (layout === 'compact' ? '64%' : '58%') : undefined,
