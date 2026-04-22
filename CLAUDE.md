@@ -30,6 +30,7 @@
 - `npm run db:deploy` — `prisma migrate deploy` (застосовує існуючі)
 - `npm run db:studio` — Prisma Studio
 - `npm run db:push` — `prisma db push`
+- `npm run db:seed` — `prisma db seed` (виконує [prisma/seed.ts](prisma/seed.ts) через `tsx`)
 
 **Команди для скриптів:** `node scripts/xxx.mjs` — просто запускай, `_db.mjs` розрулює env автоматично.
 
