@@ -146,7 +146,8 @@ export default function PaymentLogsView({ data }: { data: PaymentLogsData }) {
               <tr>
                 <Th theme={theme}>Час</Th>
                 <Th theme={theme}>Клієнт</Th>
-                <Th theme={theme} align="center">Підписка</Th>
+                <Th theme={theme} align="center">Тип</Th>
+                <Th theme={theme} align="center">Покупка/Підписка</Th>
                 <Th theme={theme}>Статус</Th>
                 <Th theme={theme}>Сума</Th>
                 <Th theme={theme}>IP</Th>
@@ -158,7 +159,7 @@ export default function PaymentLogsView({ data }: { data: PaymentLogsData }) {
             <tbody className={dark ? 'divide-y divide-white/[0.04]' : 'divide-y divide-stone-200/60'}>
               {data.logs.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className={`px-4 py-14 text-center text-sm ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+                  <td colSpan={10} className={`px-4 py-14 text-center text-sm ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
                     Логів немає
                   </td>
                 </tr>
@@ -189,6 +190,9 @@ export default function PaymentLogsView({ data }: { data: PaymentLogsData }) {
                         ) : (
                           <span className={`text-[11px] ${dark ? 'text-slate-600' : 'text-stone-400'}`}>—</span>
                         )}
+                      </td>
+                      <td className="px-4 py-2.5 text-center">
+                        <TypePill theme={theme} kind={log.kind} />
                       </td>
                       <td className="px-4 py-2.5 text-center">
                         <KindBadge theme={theme} kind={log.kind} autoRenew={log.autoRenew} />
@@ -313,6 +317,24 @@ function Th({
     >
       {children}
     </th>
+  );
+}
+
+function TypePill({ kind, theme }: { kind: string; theme: Theme }) {
+  const dark = theme === 'dark';
+  const map: Record<string, { label: string; dark: string; light: string }> = {
+    course:    { label: 'Курс',           dark: 'bg-sky-500/15 text-sky-300 border-sky-500/20',            light: 'bg-sky-500/10 text-sky-800 border-sky-500/25' },
+    bundle:    { label: 'Пакет',          dark: 'bg-violet-500/15 text-violet-300 border-violet-500/20',   light: 'bg-violet-500/10 text-violet-800 border-violet-500/25' },
+    yearly:    { label: 'Річна програма', dark: 'bg-amber-500/15 text-amber-300 border-amber-500/20',      light: 'bg-amber-500/10 text-amber-800 border-amber-500/25' },
+    monthly:   { label: 'Місячна',        dark: 'bg-indigo-500/15 text-indigo-300 border-indigo-500/20',   light: 'bg-indigo-500/10 text-indigo-800 border-indigo-500/25' },
+    connector: { label: 'Коннектор',      dark: 'bg-orange-500/15 text-orange-300 border-orange-500/20',   light: 'bg-orange-500/10 text-orange-800 border-orange-500/25' },
+    unknown:   { label: '?',              dark: 'bg-slate-500/20 text-slate-400 border-slate-500/20',      light: 'bg-stone-200/70 text-stone-600 border-stone-300/70' },
+  };
+  const m = map[kind] ?? map.unknown;
+  return (
+    <span className={`inline-flex px-2 py-0.5 rounded-md text-[10px] font-semibold border ${dark ? m.dark : m.light}`}>
+      {m.label}
+    </span>
   );
 }
 

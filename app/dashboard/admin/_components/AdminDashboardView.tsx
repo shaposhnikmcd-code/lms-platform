@@ -90,10 +90,10 @@ export default function AdminDashboardView({ data }: { data: AdminDashboardData 
     { href: '/dashboard/admin/connector', label: 'Конектор', desc: 'Замовлення гри', icon: HiOutlineCubeTransparent },
     { href: '/dashboard/admin/specialists', label: 'Спеціалісти', desc: 'Ціни та запис', icon: HiOutlineUsers },
     { href: '/dashboard/admin/news', label: 'Новини', desc: 'Публікації', icon: HiOutlineNewspaper },
-    { href: '/dashboard/admin/analytics', label: 'Аналітика', desc: 'Метрики та звіти', icon: HiOutlineChartBar },
     { href: '/dashboard/admin/payments', label: 'Платежі', desc: 'Транзакції', icon: HiOutlineCreditCard },
     { href: '/dashboard/admin/payment-logs', label: 'Логи', desc: 'WayForPay callback-и', icon: HiOutlineClock },
     { href: '/dashboard/admin/users', label: 'Користувачі', desc: 'Акаунти та ролі', icon: HiOutlineUserGroup },
+    { href: '/dashboard/admin/analytics', label: 'Аналітика', desc: 'Метрики та звіти', icon: HiOutlineChartBar },
   ];
 
   return (

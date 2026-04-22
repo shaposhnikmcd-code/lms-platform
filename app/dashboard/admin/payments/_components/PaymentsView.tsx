@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { HiOutlineFunnel, HiOutlineBanknotes, HiOutlineCheckCircle, HiOutlineClock, HiOutlineCreditCard, HiOutlineChevronLeft, HiOutlineChevronRight } from 'react-icons/hi2';
 import { useAdminTheme, type Theme } from '../../_components/adminTheme';
@@ -171,7 +172,7 @@ export default function PaymentsView({ rows }: { rows: Row[] }) {
                       <FilterHeader theme={theme} label="Тип" value={typeFilter} options={TYPE_OPTIONS} onChange={setTypeFilter} />
                     </Th>
                     <Th theme={theme} align="center">
-                      <FilterHeader theme={theme} label="Підписка" value={productFilter} options={productOptions} onChange={setProductFilter} />
+                      <FilterHeader theme={theme} label="Покупка/Підписка" value={productFilter} options={productOptions} onChange={setProductFilter} />
                     </Th>
                     <Th theme={theme}>Сума</Th>
                     <Th theme={theme}>
@@ -230,8 +231,8 @@ export default function PaymentsView({ rows }: { rows: Row[] }) {
                           <td className="px-5 py-3">
                             <StatusPill theme={theme} status={row.status} />
                           </td>
-                          <td className={`px-5 py-3 text-[11px] font-mono ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
-                            {row.orderReference}
+                          <td className="px-5 py-3">
+                            <TruncatedRef theme={theme} value={row.orderReference} />
                           </td>
                         </tr>
                       );
@@ -342,20 +343,28 @@ function ProductCell({ row, theme }: { row: Row; theme: Theme }) {
   const dark = theme === 'dark';
   if (row.source === 'bundle') {
     return (
-      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium border ${
-        dark ? 'bg-violet-500/10 text-violet-300 border-violet-500/20' : 'bg-violet-500/10 text-violet-800 border-violet-500/25'
-      }`}>
-        📦 <span className="truncate max-w-[260px]">{row.productLabel}</span>
-      </span>
+      <TruncatedPill
+        theme={theme}
+        label={row.productLabel}
+        icon="📦"
+        tone={{
+          dark: 'bg-violet-500/10 text-violet-300 border-violet-500/20',
+          light: 'bg-violet-500/10 text-violet-800 border-violet-500/25',
+        }}
+      />
     );
   }
   if (row.source === 'connector') {
     return (
-      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium border ${
-        dark ? 'bg-orange-500/10 text-orange-300 border-orange-500/20' : 'bg-orange-500/10 text-orange-800 border-orange-500/25'
-      }`}>
-        🧩 <span className="truncate max-w-[260px]">{row.productLabel}</span>
-      </span>
+      <TruncatedPill
+        theme={theme}
+        label={row.productLabel}
+        icon="🧩"
+        tone={{
+          dark: 'bg-orange-500/10 text-orange-300 border-orange-500/20',
+          light: 'bg-orange-500/10 text-orange-800 border-orange-500/25',
+        }}
+      />
     );
   }
   if (row.source === 'yearly') {
@@ -376,6 +385,132 @@ function ProductCell({ row, theme }: { row: Row; theme: Theme }) {
     );
   }
   return <span className={`text-[13px] ${dark ? 'text-slate-300' : 'text-stone-700'}`}>{row.productLabel}</span>;
+}
+
+function useTruncationTooltip<T extends HTMLElement>() {
+  const textRef = useRef<T>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [tipPos, setTipPos] = useState<{ top: number; left: number } | null>(null);
+
+  const show = (e: React.MouseEvent<HTMLElement>) => {
+    const textEl = textRef.current;
+    if (!textEl) return;
+    // Показуємо тільки якщо текст реально обрізаний
+    if (textEl.scrollWidth <= textEl.clientWidth + 1) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const pos = { top: rect.top, left: rect.left + rect.width / 2 };
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => setTipPos(pos), 500);
+  };
+  const hide = () => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    setTipPos(null);
+  };
+
+  useEffect(() => () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+  }, []);
+
+  useEffect(() => {
+    if (!tipPos) return;
+    const onScroll = () => setTipPos(null);
+    window.addEventListener('scroll', onScroll, true);
+    return () => window.removeEventListener('scroll', onScroll, true);
+  }, [tipPos]);
+
+  return { textRef, tipPos, show, hide };
+}
+
+function TooltipBubble({
+  theme,
+  label,
+  pos,
+  mono = false,
+}: {
+  theme: Theme;
+  label: string;
+  pos: { top: number; left: number };
+  mono?: boolean;
+}) {
+  const dark = theme === 'dark';
+  if (typeof document === 'undefined') return null;
+  return createPortal(
+    <div
+      role="tooltip"
+      style={{ top: pos.top - 10, left: pos.left, transform: 'translate(-50%, -100%)' }}
+      className={`pointer-events-none fixed z-[80] px-3 py-2 rounded-lg text-[12px] leading-snug text-left whitespace-normal break-words max-w-[420px] backdrop-blur-md animate-in fade-in zoom-in-95 duration-100 ${
+        mono ? 'font-mono text-[11px]' : 'font-medium'
+      } ${
+        dark
+          ? 'bg-[#111317]/95 text-slate-100 border border-white/[0.08] shadow-[0_12px_32px_rgba(0,0,0,0.5)]'
+          : 'bg-stone-900/95 text-stone-50 shadow-[0_12px_32px_rgba(68,64,60,0.28)]'
+      }`}
+    >
+      {label}
+      <span
+        aria-hidden
+        style={{ transform: 'translateX(-50%) rotate(45deg)' }}
+        className={`absolute left-1/2 bottom-0 -mb-1 w-2.5 h-2.5 ${
+          dark
+            ? 'bg-[#111317]/95 border-r border-b border-white/[0.08]'
+            : 'bg-stone-900/95'
+        }`}
+      />
+    </div>,
+    document.body,
+  );
+}
+
+function TruncatedPill({
+  theme,
+  label,
+  icon,
+  tone,
+}: {
+  theme: Theme;
+  label: string;
+  icon: string;
+  tone: { dark: string; light: string };
+}) {
+  const dark = theme === 'dark';
+  const { textRef, tipPos, show, hide } = useTruncationTooltip<HTMLSpanElement>();
+
+  return (
+    <>
+      <span
+        onMouseEnter={show}
+        onMouseLeave={hide}
+        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium border align-middle max-w-full ${
+          dark ? tone.dark : tone.light
+        }`}
+      >
+        <span className="shrink-0">{icon}</span>
+        <span ref={textRef} className="truncate max-w-[340px]">{label}</span>
+      </span>
+      {tipPos && <TooltipBubble theme={theme} label={label} pos={tipPos} />}
+    </>
+  );
+}
+
+function TruncatedRef({ theme, value }: { theme: Theme; value: string }) {
+  const dark = theme === 'dark';
+  const { textRef, tipPos, show, hide } = useTruncationTooltip<HTMLSpanElement>();
+  return (
+    <>
+      <span
+        ref={textRef}
+        onMouseEnter={show}
+        onMouseLeave={hide}
+        className={`block truncate max-w-[220px] text-[11px] font-mono ${dark ? 'text-slate-500' : 'text-stone-500'}`}
+      >
+        {value}
+      </span>
+      {tipPos && <TooltipBubble theme={theme} label={value} pos={tipPos} mono />}
+    </>
+  );
 }
 
 function StatusPill({ status, theme }: { status: string; theme: Theme }) {
