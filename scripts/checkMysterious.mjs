@@ -1,5 +1,4 @@
-import { PrismaClient } from '@prisma/client';
-const prisma = new PrismaClient();
+import prisma from './_db.mjs';
 
 console.log('\n=== Всі Payment-и з email shaposhnik.mcd, всі статуси ===');
 const p = await prisma.payment.findMany({

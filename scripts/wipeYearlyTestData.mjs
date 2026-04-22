@@ -1,6 +1,5 @@
-import { PrismaClient } from '@prisma/client';
+import prisma from './_db.mjs';
 
-const prisma = new PrismaClient();
 const EXECUTE = process.argv.includes('--execute');
 
 try {

@@ -16,9 +16,8 @@
 ///   node scripts/wipeAllPaymentData.mjs --execute        # реально видаляє
 ///   node scripts/wipeAllPaymentData.mjs --execute --with-enrollments   # ще й Enrollments
 
-import { PrismaClient } from '@prisma/client';
+import prisma from './_db.mjs';
 
-const prisma = new PrismaClient();
 const EXECUTE = process.argv.includes('--execute');
 const WITH_ENROLLMENTS = process.argv.includes('--with-enrollments');
 

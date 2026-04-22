@@ -1,5 +1,4 @@
-import { PrismaClient } from '@prisma/client';
-const prisma = new PrismaClient();
+import prisma from './_db.mjs';
 try {
   const rows = await prisma.$queryRaw`SELECT COUNT(*)::int AS c FROM "PaymentCallbackLog"`;
   console.log('✅ Таблиця PaymentCallbackLog існує. Записів:', rows[0].c);

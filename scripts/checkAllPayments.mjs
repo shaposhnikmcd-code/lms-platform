@@ -1,6 +1,4 @@
-import { PrismaClient } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import prisma from './_db.mjs';
 
 const allPaid = await prisma.payment.findMany({
   where: { status: 'PAID' },

@@ -1,18 +1,7 @@
 // One-shot backfill: translate every existing news row that is missing
 // EN/PL fields. Run with: node scripts/backfillNewsTranslations.mjs
-import { readFileSync } from 'node:fs';
-for (const f of ['.env.local', '.env']) {
-  try {
-    const txt = readFileSync(new URL(`../${f}`, import.meta.url), 'utf8');
-    for (const line of txt.split('\n')) {
-      const m = line.match(/^([A-Z_][A-Z0-9_]*)=(.*)$/);
-      if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
-    }
-  } catch {}
-}
-import { PrismaClient } from '@prisma/client';
+import prisma from './_db.mjs';
 
-const prisma = new PrismaClient();
 const DEEPL_API_URL = 'https://api-free.deepl.com/v2/translate';
 
 async function translateBatch(texts, targetLang, html = false) {

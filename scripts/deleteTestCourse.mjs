@@ -1,6 +1,4 @@
-import { PrismaClient } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import prisma from './_db.mjs';
 
 try {
   const course = await prisma.course.findFirst({

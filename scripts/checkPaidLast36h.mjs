@@ -1,6 +1,4 @@
-import { PrismaClient } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import prisma from './_db.mjs';
 
 const since = new Date(Date.now() - 36 * 60 * 60 * 1000);
 

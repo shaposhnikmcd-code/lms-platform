@@ -1,5 +1,4 @@
-import { PrismaClient } from '@prisma/client';
-const prisma = new PrismaClient();
+import prisma from './_db.mjs';
 
 try {
   const total = await prisma.paymentCallbackLog.count();
