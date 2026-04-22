@@ -2,28 +2,57 @@
 
 ## Local dev workflow — ЗАВЖДИ
 
-Локальна розробка йде на ізольованій Neon-гілці `dev`, щоб експерименти не торкали живий сайт.
+Локальна розробка йде на ізольованій Neon-гілці `dev`, щоб експерименти не торкали живий сайт. Впроваджено 2026-04-22.
 
-**Шари:**
-- `next dev` (localhost) → Neon branch **`dev`** (`ep-sparkling-wave-alq11hyy`) — з `.env.local`.
+**DB шари:**
+- `next dev` (localhost) → Neon branch **`dev`** (`ep-sparkling-wave-alq11hyy`), креди в `.env.local` (gitignored).
 - Гілка `pre-production` → Vercel preview на pre.uimp.com.ua → **прод Neon** (`ep-odd-night-alip82dn`).
 - Гілка `main` → Vercel prod на uimp.com.ua → **прод Neon**.
 
 **Git flow (обов'язковий):**
-1. Зміни → тест локально (`npm run dev`).
-2. Коли ок → коміт → `git push origin pre-production` → фінальний тест на pre.uimp.com.ua з реальними даними.
-3. Merge `pre-production → main` → push → деплой на uimp.com.ua.
+1. Зміни → тест локально (`npm run dev`, працює з dev-branch даних).
+2. Коли ок → коміт → `git push origin main:pre-production` → фінальний тест на pre.uimp.com.ua з реальними прод-даними.
+3. `git push origin main` → деплой на uimp.com.ua.
 
-**Prisma CLI:** читає тільки `.env`, не `.env.local`. Використовуй npm-скрипти (через dotenv-cli):
-- `npm run db:status` — статус міграцій на dev-branch
-- `npm run db:migrate` — `prisma migrate dev` на dev-branch
-- `npm run db:deploy` — `prisma migrate deploy` на dev-branch
-- `npm run db:studio` — Prisma Studio на dev-branch
-- `npm run db:push` — `prisma db push` (schema без міграції)
+### Env loading — три entry point-и
 
-**Коли використати прод-БД локально:** тимчасово закоментувати `DATABASE_URL`/`DIRECT_URL` у `.env.local` (fallback на `.env`). Робити тільки для readonly-перевірок, НЕ мутувати.
+Будь-який код, що читає `DATABASE_URL`, проходить через один із трьох шляхів:
 
-**Reset dev branch:** Neon console → Branches → `dev` → "Reset from parent" (синхронізує з prod).
+| Entry point | Що читає env | Як сконфігуровано |
+|---|---|---|
+| `next dev` / runtime | Next.js framework auto-load: `.env.local > .env` | вбудовано, нічого не робити |
+| Prisma CLI (`migrate`, `studio`, `db push`) | Тільки `.env` за замовчуванням | обгорнуто в `npm run db:*` через `dotenv-cli` |
+| Standalone `.mjs` скрипти в [scripts/](scripts/) | Через [scripts/_db.mjs](scripts/_db.mjs) singleton | всі 10 скриптів імпортують `prisma` звідти |
+
+**Команди для Prisma CLI** (ЗАВЖДИ через `npm run db:*`, не напряму `npx prisma`):
+- `npm run db:status` — статус міграцій
+- `npm run db:migrate` — `prisma migrate dev` (створює нову міграцію)
+- `npm run db:deploy` — `prisma migrate deploy` (застосовує існуючі)
+- `npm run db:studio` — Prisma Studio
+- `npm run db:push` — `prisma db push`
+
+**Команди для скриптів:** `node scripts/xxx.mjs` — просто запускай, `_db.mjs` розрулює env автоматично.
+
+### Scripts architecture
+
+Всі `.mjs` скрипти в [scripts/](scripts/) мають імпортувати prisma із shared helper, а НЕ створювати `new PrismaClient()`:
+
+```js
+import prisma from './_db.mjs';
+// ...
+```
+
+**Чому `_db.mjs` робить `config({ override: true })`:** `@prisma/client` має власний `dotenv` auto-load на import-time (читає `.env` → встановлює prod-URL у `process.env`). Оскільки ES-імпорти hoisted, це відбувається **до** того як `_db.mjs` викликає свій `config()`. Без `override: true` dotenv не перезапише prod-URL і скрипти б'ють у прод. НЕ ПРИБИРАЙ `override: true` з `_db.mjs` — це не косметика, а load-order-фікс.
+
+**`lib/prisma.ts`** (для Next.js runtime) `override` НЕ потрібен, бо Next.js вантажить env **до** імпорту Prisma.
+
+### Коли треба проти прода локально (рідко, для діагностики)
+
+Тимчасово закоментувати `DATABASE_URL`/`DIRECT_URL` у `.env.local` (fallback на `.env`). Тільки readonly-перевірки, НЕ мутувати. Після — розкоментувати.
+
+### Reset dev-branch
+
+Neon console → Branches → `dev` → "Reset from parent" (синхронізує з прод-даними). Корисно коли на dev-branch накопичилось тестове сміття.
 
 ## Frozen bundle designs — DO NOT modify without explicit request
 
