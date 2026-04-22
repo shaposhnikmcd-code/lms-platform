@@ -10,7 +10,12 @@
     "build": "prisma migrate deploy && prisma generate && next build",
     "start": "next start",
     "lint": "next lint",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "db:status": "dotenv -e .env.local -- prisma migrate status",
+    "db:migrate": "dotenv -e .env.local -- prisma migrate dev",
+    "db:deploy": "dotenv -e .env.local -- prisma migrate deploy",
+    "db:studio": "dotenv -e .env.local -- prisma studio",
+    "db:push": "dotenv -e .env.local -- prisma db push"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -52,6 +57,7 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "19",
     "autoprefixer": "10",
+    "dotenv-cli": "^11.0.0",
     "eslint": "9.39.4",
     "eslint-config-next": "15.2.1",
     "postcss": "8",

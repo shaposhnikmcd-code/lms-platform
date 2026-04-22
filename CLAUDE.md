@@ -1,5 +1,30 @@
 # LMS Platform — rules for Claude
 
+## Local dev workflow — ЗАВЖДИ
+
+Локальна розробка йде на ізольованій Neon-гілці `dev`, щоб експерименти не торкали живий сайт.
+
+**Шари:**
+- `next dev` (localhost) → Neon branch **`dev`** (`ep-sparkling-wave-alq11hyy`) — з `.env.local`.
+- Гілка `pre-production` → Vercel preview на pre.uimp.com.ua → **прод Neon** (`ep-odd-night-alip82dn`).
+- Гілка `main` → Vercel prod на uimp.com.ua → **прод Neon**.
+
+**Git flow (обов'язковий):**
+1. Зміни → тест локально (`npm run dev`).
+2. Коли ок → коміт → `git push origin pre-production` → фінальний тест на pre.uimp.com.ua з реальними даними.
+3. Merge `pre-production → main` → push → деплой на uimp.com.ua.
+
+**Prisma CLI:** читає тільки `.env`, не `.env.local`. Використовуй npm-скрипти (через dotenv-cli):
+- `npm run db:status` — статус міграцій на dev-branch
+- `npm run db:migrate` — `prisma migrate dev` на dev-branch
+- `npm run db:deploy` — `prisma migrate deploy` на dev-branch
+- `npm run db:studio` — Prisma Studio на dev-branch
+- `npm run db:push` — `prisma db push` (schema без міграції)
+
+**Коли використати прод-БД локально:** тимчасово закоментувати `DATABASE_URL`/`DIRECT_URL` у `.env.local` (fallback на `.env`). Робити тільки для readonly-перевірок, НЕ мутувати.
+
+**Reset dev branch:** Neon console → Branches → `dev` → "Reset from parent" (синхронізує з prod).
+
 ## Frozen bundle designs — DO NOT modify without explicit request
 
 Ці дизайни пакетів затверджені користувачем. НЕ міняти розміри/пропорції/CSS без явного прохання.
