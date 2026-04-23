@@ -84,7 +84,7 @@ export default async function AdminDashboard({
     }),
     prisma.course.count({ where: { published: true } }),
     prisma.news.count({ where: { published: true } }),
-    prisma.user.count(),
+    prisma.user.count({ where: { deletedAt: null } }),
     prisma.yearlyProgramSubscription.count({
       where: { status: { in: ['ACTIVE', 'GRACE'] } },
     }),

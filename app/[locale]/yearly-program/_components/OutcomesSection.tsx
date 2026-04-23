@@ -8,7 +8,12 @@ type Props = {
 
 export default function OutcomesSection({ label, title, items }: Props) {
   return (
-    <section className="bg-[#FDF2EB] py-24">
+    <section
+      className="py-24"
+      style={{
+        background: 'linear-gradient(to bottom, rgba(255,255,255,0) 0%, rgba(255,255,255,0) 82%, #ffffff 100%), radial-gradient(ellipse 90% 90% at center, #E8DBBC 0%, #F0E6CF 20%, #FAF6F0 50%, #ffffff 100%)',
+      }}
+    >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center mb-16">
           <span className="text-[#D4A017] font-semibold text-sm uppercase tracking-wider">{label}</span>

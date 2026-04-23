@@ -50,7 +50,7 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
       });
       const data = await response.json();
       if (!response.ok) { alert(data.error || t('registerError')); setLoading(false); return; }
-      await signIn('credentials', { email, password, callbackUrl: '/', redirect: true });
+      await signIn('credentials', { email, password, callbackUrl: window.location.href, redirect: true });
       closeModal();
     } catch { alert(t('registerFail')); setLoading(false); }
   };
@@ -59,7 +59,7 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
     if (!email || !password) { alert(t('fillFields')); return; }
     setLoading(true);
     try {
-      await signIn('credentials', { email, password, callbackUrl: '/', redirect: true });
+      await signIn('credentials', { email, password, callbackUrl: window.location.href, redirect: true });
     } catch { alert(t('loginFail')); setLoading(false); }
   };
 
@@ -99,7 +99,7 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
             <>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <button
-                  onClick={() => signIn('google', { callbackUrl: '/' })}
+                  onClick={() => signIn('google', { callbackUrl: window.location.href })}
                   disabled={loading}
                   className="w-full flex items-center justify-center gap-3 bg-white border border-[#dadce0] hover:bg-[#f8f9fa] text-[#3c4043] font-medium py-3 px-4 rounded-xl transition-all disabled:opacity-50"
                   style={{ boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}
@@ -114,7 +114,7 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
                 </button>
 
                 <button
-                  onClick={() => signIn('facebook', { callbackUrl: '/' })}
+                  onClick={() => signIn('facebook', { callbackUrl: window.location.href })}
                   disabled={loading}
                   className="w-full flex items-center justify-center gap-3 bg-[#1877F2] text-white font-medium py-3 px-4 rounded-xl hover:bg-[#1669d9] transition-all disabled:opacity-50"
                 >

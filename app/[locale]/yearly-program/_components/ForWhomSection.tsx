@@ -8,7 +8,12 @@ type Props = {
 
 export default function ForWhomSection({ title, items, label }: Props) {
   return (
-    <section style={{ background: '#FAF6F0' }} className="py-12 sm:py-[72px] px-4 sm:px-12">
+    <section
+      style={{
+        background: 'linear-gradient(to bottom, rgba(255,255,255,0) 0%, rgba(255,255,255,0) 82%, #ffffff 100%), radial-gradient(ellipse 90% 90% at center, #E8DBBC 0%, #F0E6CF 20%, #FAF6F0 50%, #ffffff 100%)',
+      }}
+      className="py-12 sm:py-[72px] px-4 sm:px-12"
+    >
       <div style={{ maxWidth: '860px', margin: '0 auto' }}>
 
         <div style={{ marginBottom: '40px' }}>
