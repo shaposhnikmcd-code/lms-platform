@@ -780,11 +780,19 @@ function OrderRow({
   const cellBase = `px-4 py-2 align-middle text-[13px] border-b ${
     dark ? 'border-white/[0.04] text-slate-300' : 'border-stone-200/60 text-stone-700'
   }`;
-  const hoverCls = hovered
-    ? dark
-      ? 'bg-white/[0.03]'
-      : 'bg-stone-50/80'
-    : '';
+
+  // "Клікабельна зона" — перших 7 колонок (Час ... Оплата). Візуально виділяємо їх
+  // як один суцільний pill: тонкий бордер з 4 сторін + легкий фон. На hover — підсвічується.
+  // Фарбування на рівні td (не <tr>) — щоб rounded-corners чітко клацали форму
+  // pill-а і bg не витікав за контур у сусідні неклікабельні колонки.
+  const clickableBorder = dark ? 'border-white/[0.14]' : 'border-stone-400/40';
+  const clickableBgIdle = dark ? 'bg-white/[0.02]' : 'bg-stone-50/60';
+  const clickableBgHover = dark ? 'bg-white/[0.05]' : 'bg-amber-50/60';
+  const clickableCellBase = `px-4 py-2 align-middle text-[13px] border-y ${clickableBorder} transition-colors ${
+    dark ? 'text-slate-300' : 'text-stone-700'
+  } ${hovered ? clickableBgHover : clickableBgIdle}`;
+  const clickableFirst = `${clickableCellBase} border-l ${clickableBorder} rounded-l-lg`;
+  const clickableLast = `${clickableCellBase} border-r ${clickableBorder} rounded-r-lg`;
 
   const inputCls = `w-full px-2 py-1 text-center text-[13px] tabular-nums rounded-md border outline-none transition-all leading-none ${
     dark
@@ -801,15 +809,15 @@ function OrderRow({
         if (target.closest('input, select, button, a, textarea, [data-note-popup]')) return;
         onOpen();
       }}
-      className={`cursor-pointer transition-colors ${hoverCls}`}
+      className="cursor-pointer"
     >
-      {/* Час */}
-      <td className={`${cellBase} text-center tabular-nums whitespace-nowrap`}>
+      {/* Час (перша клікабельна комірка — rounded-l + left border) */}
+      <td className={`${clickableFirst} text-center tabular-nums whitespace-nowrap`}>
         {new Date(order.createdAt).toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' })}
       </td>
 
       {/* Клієнт */}
-      <td className={`${cellBase} min-w-0`}>
+      <td className={`${clickableCellBase} min-w-0`}>
         <div className="flex items-center gap-2 min-w-0">
           <SourceBadge source={order.source} />
           <div className="min-w-0">
@@ -822,7 +830,7 @@ function OrderRow({
       </td>
 
       {/* Тип доставки */}
-      <td className={`${cellBase} text-center`} title={`${order.city}, ${order.postOffice}`}>
+      <td className={`${clickableCellBase} text-center`} title={`${order.city}, ${order.postOffice}`}>
         {(() => {
           const dt = detectDeliveryType(order.postOffice);
           const isCourier = dt === 'courier';
@@ -845,7 +853,7 @@ function OrderRow({
       </td>
 
       {/* Дзвінок */}
-      <td className={`${cellBase} text-center`}>
+      <td className={`${clickableCellBase} text-center`}>
         {order.callMe ? (
           <span
             title="Клієнт просить передзвонити"
@@ -864,17 +872,17 @@ function OrderRow({
       </td>
 
       {/* Гра */}
-      <td className={`${cellBase} text-center tabular-nums whitespace-nowrap`}>
+      <td className={`${clickableCellBase} text-center tabular-nums whitespace-nowrap`}>
         {getGamePrice(order).toLocaleString()}
       </td>
 
       {/* Доставка */}
-      <td className={`${cellBase} text-center tabular-nums whitespace-nowrap`}>
+      <td className={`${clickableCellBase} text-center tabular-nums whitespace-nowrap`}>
         {getShippingCost(order).toLocaleString()}
       </td>
 
-      {/* Оплата */}
-      <td className={cellBase}>
+      {/* Оплата (остання клікабельна комірка — rounded-r + right border) */}
+      <td className={clickableLast}>
         <span className="inline-flex items-center gap-1.5">
           <span
             className={`w-1.5 h-1.5 rounded-full ${
@@ -1015,10 +1023,10 @@ function OrderRow({
         })()}
       </td>
 
-      {/* Нотатки — 3 рядки ідл, на focus розгортається ВГОРУ як overlay */}
+      {/* Нотатки — 2 рядки ідл, на focus розгортається ВГОРУ як overlay */}
       <td className={`${cellBase} min-w-0`} onClick={(e) => e.stopPropagation()}>
         {(() => {
-          const NOTE_IDLE_MAX_PX = 60; // ~3 рядки при 13px / leading-tight
+          const NOTE_IDLE_MAX_PX = 42; // ~2 рядки при 13px / leading-tight + py-1
           const NOTE_EXPANDED_MAX_PX = 320; // cap розгорнутої висоти, далі — scroll
           const fitIdle = (t: HTMLTextAreaElement) => {
             t.style.height = 'auto';
@@ -1069,7 +1077,10 @@ function OrderRow({
                 }}
                 onKeyDown={(e) => {
                   if (e.key === 'Escape') (e.target as HTMLTextAreaElement).blur();
-                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) (e.target as HTMLTextAreaElement).blur();
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    (e.target as HTMLTextAreaElement).blur();
+                  }
                 }}
                 className={`[grid-area:1/1] block w-full px-2 py-1 text-[13px] leading-tight rounded-md border resize-none overflow-hidden outline-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${
                   dark
