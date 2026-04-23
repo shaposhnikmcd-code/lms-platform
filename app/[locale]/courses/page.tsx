@@ -230,9 +230,13 @@ export default async function CoursesPage({ params }: { params: Promise<{ locale
                   arr.push(b);
                   byGroup.set(rg, arr);
                 }
+                // Ідентично до admin builder (BundlesView.tsx `buildInitialSlots`):
+                // ungrouped бандли (щойно створені, rowGroup=null, sortOrder=min−1) —
+                // СПОЧАТКУ, кожен у своєму ряду; далі — збережені групи за rowGroup asc.
+                // `ungrouped` вже відсортований по sortOrder asc (наймолодший перший).
+                for (const b of ungrouped) rows.push([b]);
                 const sortedKeys = Array.from(byGroup.keys()).sort((a, b) => a - b);
                 for (const k of sortedKeys) rows.push(byGroup.get(k)!);
-                for (const b of ungrouped) rows.push([b]);
               } else {
                 // Fallback у тому ж форматі, що й builder's buildInitialSlots:
                 // displayMode='solo' → завжди один у ряду; інакше пара якщо widthA+widthB ≤ 1536.

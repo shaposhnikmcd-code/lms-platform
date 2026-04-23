@@ -10,11 +10,13 @@ import {
   DndContext,
   DragOverlay,
   closestCenter,
+  pointerWithin,
   PointerSensor,
   KeyboardSensor,
   useSensor,
   useSensors,
   useDroppable,
+  type CollisionDetection,
   type DragEndEvent,
   type DragStartEvent,
 } from '@dnd-kit/core';
@@ -1123,6 +1125,22 @@ function RowsView({
     setActiveId(String(e.active.id));
   };
 
+  // Custom collision strategy: при драгу бандла, якщо pointer у межах empty-slot зони —
+  // сигналимо саме її (не дає сусіднім високим miniature бандлам "красти" drop target
+  // через closestCenter). Для slot-reorder використовуємо дефолт closestCenter.
+  const collisionDetection: CollisionDetection = (args) => {
+    const data = args.active.data.current as { kind?: 'slot' | 'bundle' } | undefined;
+    if (data?.kind === 'bundle') {
+      const pointerHits = pointerWithin(args);
+      const emptySlotHit = pointerHits.find((c) =>
+        typeof c.id === 'string' && c.id.startsWith('empty-slot-'),
+      );
+      if (emptySlotHit) return [emptySlotHit];
+      if (pointerHits.length > 0) return pointerHits;
+    }
+    return closestCenter(args);
+  };
+
   const handleDragEnd = (e: DragEndEvent) => {
     const { active, over } = e;
     setDragKind(null);
@@ -1215,20 +1233,32 @@ function RowsView({
           return next;
         });
       } else if (overData?.kind === 'empty-slot' && overData.insertAt !== undefined) {
-        // Drop на empty-slot зону — винести бандл у новий окремий ряд на позицію insertAt
+        // Drop на empty-slot зону:
+        //  - з пари → extract бандл у новий окремий ряд на позицію insertAt;
+        //  - з соло → просто переміщення цього ряду на позицію insertAt
+        //    (щоб можна було драгом самого пакета пересунути соло-ряд повз інші).
         setSlots((prev) => {
           const fromSlotIdx = prev.findIndex((s) => s.some((b) => b.id === bundleId));
           if (fromSlotIdx === -1) return prev;
           const fromSlot = prev[fromSlotIdx];
-          // Якщо бандл вже соло — немає сенсу виносити в новий ряд (він і так сам)
-          if (fromSlot.length === 1) return prev;
           const bundle = fromSlot.find((b) => b.id === bundleId)!;
           const insertAt = overData.insertAt!;
+
+          if (fromSlot.length === 1) {
+            // No-op: drop біля власної позиції
+            if (insertAt === fromSlotIdx || insertAt === fromSlotIdx + 1) return prev;
+            const next = [...prev];
+            const [moved] = next.splice(fromSlotIdx, 1);
+            // Після видалення індекси ≥ fromSlotIdx зсуваються на -1
+            const adjustedInsertAt = insertAt > fromSlotIdx ? insertAt - 1 : insertAt;
+            next.splice(adjustedInsertAt, 0, moved);
+            pendingUserNextRef.current = next;
+            return next;
+          }
+
+          // Extract з пари — старий slot залишається (ще має другого), insertAt не зсувається.
           const next = [...prev];
-          // Видаляємо бандл зі старого слота (там лишається інший)
           next[fromSlotIdx] = fromSlot.filter((b) => b.id !== bundleId);
-          // Вставляємо новий slot з одним бандлом на позицію insertAt.
-          // Старий slot не видаляємо (він ще має другого) → insertAt не зсувається.
           next.splice(insertAt, 0, [bundle]);
           pendingUserNextRef.current = next;
           return next;
@@ -1242,7 +1272,7 @@ function RowsView({
       <div className={`mb-4 rounded-lg border px-4 py-2.5 text-[11px] ${dark ? 'bg-white/[0.03] border-white/[0.08] text-slate-400' : 'bg-white/70 border-stone-300/50 text-stone-600'}`}>
         <span className="font-semibold">Як користуватись:</span> перетягни pill «Ряд N» у шапці щоб змінити порядок; перетягни пакет на solo-сторінку — стане в пару; кинь у зону «Винести в новий ряд» — створить окремий ряд.
       </div>
-      <DndContext id="bundles-rows-dnd" sensors={sensors} collisionDetection={closestCenter} autoScroll={false} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+      <DndContext id="bundles-rows-dnd" sensors={sensors} collisionDetection={collisionDetection} autoScroll={false} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
         <SortableContext
           items={slots.map((slot, idx) => `slot-${idx}`)}
           strategy={rectSortingStrategy}
