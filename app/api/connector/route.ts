@@ -6,10 +6,10 @@ import prisma from '@/lib/prisma';
 
 const CONNECTOR_ORDER_STATUSES = ['NEW', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED'] as const;
 
-async function requireAdmin() {
+async function requireStaff() {
   const session = await getServerSession(authOptions);
   const role = (session?.user as { role?: string } | undefined)?.role;
-  return role === 'ADMIN' ? session : null;
+  return role === 'ADMIN' || role === 'MANAGER' ? session : null;
 }
 
 export async function POST(req: NextRequest) {
@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
 
 export async function GET(req: NextRequest) {
   try {
-    if (!(await requireAdmin())) {
+    if (!(await requireStaff())) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -78,7 +78,7 @@ export async function GET(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   try {
-    if (!(await requireAdmin())) {
+    if (!(await requireStaff())) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
