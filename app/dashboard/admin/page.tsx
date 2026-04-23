@@ -43,6 +43,8 @@ export default async function AdminDashboard({
         paymentStatus: true,
         orderStatus: true,
         createdAt: true,
+        updatedAt: true,
+        paidAt: true,
       },
     }),
     prisma.connectorOrder.count({
@@ -92,6 +94,18 @@ export default async function AdminDashboard({
   const connectorAwaitingManager = connectorOrders.filter(
     o => o.orderStatus === 'NEW' && o.paymentStatus === 'PAID',
   ).length;
+  const now = Date.now();
+  const STUCK_NEW_MS = 12 * 60 * 60 * 1000;
+  const STUCK_PROCESSING_MS = 24 * 60 * 60 * 1000;
+  const connectorStuckNew = connectorOrders.filter(o => {
+    if (o.orderStatus !== 'NEW' || o.paymentStatus !== 'PAID') return false;
+    const since = (o.paidAt ?? o.createdAt).getTime();
+    return now - since > STUCK_NEW_MS;
+  }).length;
+  const connectorStuckProcessing = connectorOrders.filter(o => {
+    if (o.orderStatus !== 'PROCESSING') return false;
+    return now - o.updatedAt.getTime() > STUCK_PROCESSING_MS;
+  }).length;
   const connectorNonStandard = connectorOrders.filter(o => {
     if (o.paymentStatus !== 'PAID') return false;
     if (o.createdAt < periodCutoff) return false;
@@ -173,6 +187,8 @@ export default async function AdminDashboard({
         connectorAwaitingManager,
         connectorPendingPayment,
         connectorNonStandard,
+        connectorStuckNew,
+        connectorStuckProcessing,
         bundleSuspended,
         connectorStandardPrice: CONNECTOR_STANDARD_PRICE,
         periodOptions: PERIOD_OPTIONS.map(({ value, label }) => ({ value, label })),

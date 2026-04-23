@@ -10,6 +10,8 @@ import {
   HiOutlineTruck,
   HiOutlineBanknotes,
   HiOutlineSparkles,
+  HiOutlineCheckCircle,
+  HiOutlineXCircle,
   HiOutlineChevronLeft,
   HiOutlineChevronRight,
   HiOutlineChevronDown,
@@ -133,6 +135,8 @@ function computeStats(orders: Order[]) {
     new: orders.filter((o) => o.orderStatus === 'NEW' && o.paymentStatus === 'PAID').length,
     processing: orders.filter((o) => o.orderStatus === 'PROCESSING').length,
     shipped: orders.filter((o) => o.orderStatus === 'SHIPPED').length,
+    delivered: orders.filter((o) => o.orderStatus === 'DELIVERED').length,
+    cancelled: orders.filter((o) => o.orderStatus === 'CANCELLED').length,
     revenue: orders.filter((o) => o.paymentStatus === 'PAID').reduce((sum, o) => sum + o.amount, 0),
   };
 }
@@ -399,7 +403,7 @@ export default function ManagerDashboardClient() {
     >
       {/* KPI strip */}
       <div
-        className={`mb-5 rounded-2xl grid grid-cols-2 lg:grid-cols-5 overflow-hidden backdrop-blur-sm border divide-y lg:divide-y-0 lg:divide-x ${
+        className={`mb-5 rounded-2xl grid grid-cols-2 lg:grid-cols-7 overflow-hidden backdrop-blur-sm border divide-y lg:divide-y-0 lg:divide-x ${
           dark
             ? 'bg-white/[0.03] border-white/[0.06] divide-white/[0.06]'
             : 'bg-white/55 border-stone-300/50 divide-stone-300/40 shadow-[0_1px_2px_rgba(68,64,60,0.04)]'
@@ -421,6 +425,20 @@ export default function ManagerDashboardClient() {
           tone={stats.processing > 0 ? 'warning' : 'neutral'}
         />
         <Kpi theme={theme} icon={HiOutlineTruck} label="Відправлено" value={stats.shipped.toLocaleString()} />
+        <Kpi
+          theme={theme}
+          icon={HiOutlineCheckCircle}
+          label="Доставлено"
+          value={stats.delivered.toLocaleString()}
+          tone={stats.delivered > 0 ? 'success' : 'neutral'}
+        />
+        <Kpi
+          theme={theme}
+          icon={HiOutlineXCircle}
+          label="Скасовано"
+          value={stats.cancelled.toLocaleString()}
+          tone={stats.cancelled > 0 ? 'danger' : 'neutral'}
+        />
         <Kpi theme={theme} icon={HiOutlineBanknotes} label="Дохід" value={`${stats.revenue.toLocaleString()} ₴`} tone="success" glow />
       </div>
 
@@ -508,27 +526,8 @@ export default function ManagerDashboardClient() {
         </div>
       </AdminPanel>
 
-      {/* Status legend */}
-      <AdminPanel theme={theme} padding="px-4 py-3" className="mb-5">
-        <div className="flex items-center gap-x-4 gap-y-2 flex-wrap">
-          <span className={`text-[10px] uppercase tracking-[0.18em] font-medium ${dark ? 'text-slate-600' : 'text-stone-500'}`}>
-            Статуси
-          </span>
-          {(['NEW', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED'] as OrderStatus[]).map((s) => (
-            <StatusLabel
-              key={s}
-              theme={theme}
-              label={STATUS_LABELS[s]}
-              value={orders.filter((o) => o.orderStatus === s).length}
-              dot={STATUS_DOT[s]}
-              muted={s === 'CANCELLED'}
-            />
-          ))}
-        </div>
-      </AdminPanel>
-
       {/* Table */}
-      <AdminPanel theme={theme} padding="p-0">
+      <AdminPanel theme={theme} padding="p-0" className="overflow-hidden">
         {pageOrders.length === 0 ? (
           <div className={`p-16 text-center ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
             <div
@@ -1195,30 +1194,6 @@ function FilterGroup({
         })}
       </div>
     </div>
-  );
-}
-
-function StatusLabel({
-  label,
-  value,
-  dot,
-  muted = false,
-  theme,
-}: {
-  label: string;
-  value: number;
-  dot: keyof typeof DOT_COLORS;
-  muted?: boolean;
-  theme: Theme;
-}) {
-  const dark = theme === 'dark';
-  const dotClass = dark ? DOT_COLORS[dot].dark : DOT_COLORS[dot].light;
-  return (
-    <span className={`inline-flex items-center gap-1.5 text-[11px] tabular-nums ${muted ? 'opacity-60' : ''}`}>
-      <span className={`w-1 h-1 rounded-full ${dotClass}`} />
-      <span className={dark ? 'text-slate-500' : 'text-stone-500'}>{label}</span>
-      <span className={`font-semibold ${dark ? 'text-slate-200' : 'text-stone-800'}`}>{value}</span>
-    </span>
   );
 }
 

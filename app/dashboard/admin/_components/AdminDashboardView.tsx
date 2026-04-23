@@ -36,6 +36,8 @@ export type AdminDashboardData = {
   connectorAwaitingManager: number;
   connectorPendingPayment: number;
   connectorNonStandard: number;
+  connectorStuckNew: number;
+  connectorStuckProcessing: number;
   bundleSuspended: number;
   connectorStandardPrice: number;
   periodOptions: { value: string; label: string }[];
@@ -62,6 +64,22 @@ export default function AdminDashboardView({ data }: { data: AdminDashboardData 
       count: data.connectorAwaitingManager,
       href: '/dashboard/manager',
       tone: 'warning',
+    });
+  }
+  if (data.connectorStuckNew > 0) {
+    attentionItems.push({
+      label: 'Коннектор «Нове» > 12 год',
+      count: data.connectorStuckNew,
+      href: '/dashboard/manager',
+      tone: 'danger',
+    });
+  }
+  if (data.connectorStuckProcessing > 0) {
+    attentionItems.push({
+      label: 'Коннектор «В обробці» > 24 год',
+      count: data.connectorStuckProcessing,
+      href: '/dashboard/manager',
+      tone: 'danger',
     });
   }
   if (data.connectorPendingPayment > 0) {

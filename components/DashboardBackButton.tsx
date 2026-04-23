@@ -1,24 +1,41 @@
 "use client";
 
 import { useRouter, usePathname } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { HiArrowUturnLeft } from "react-icons/hi2";
 
 /**
  * Floating back button for /dashboard/* (uk-only).
- * Uses router.back() to return to the previous page. On the dashboard root
- * falls back to "/" since there is nothing meaningful to go back to.
  * Visual twin of components/BackButton.tsx.
  */
+const ROLE_HOME: Record<string, string> = {
+  ADMIN: "/dashboard/admin",
+  MANAGER: "/dashboard/manager",
+  TEACHER: "/dashboard/teacher",
+  STUDENT: "/dashboard/student",
+};
+
 export default function DashboardBackButton() {
   const router = useRouter();
   const pathname = usePathname();
+  const { data: session } = useSession();
+  const role = session?.user?.role;
+  const roleHome = role ? ROLE_HOME[role] : null;
 
   const ROLE_ROOTS = ["/dashboard", "/dashboard/admin", "/dashboard/manager", "/dashboard/teacher", "/dashboard/student"];
   const normalized = pathname.replace(/\/$/, "");
   const isRoot = ROLE_ROOTS.includes(normalized);
+  /// Юзер стоїть на "чужому" role-кабінеті (напр. ADMIN на /dashboard/manager) —
+  /// повертаємо його до власного кабінету, а не на головну сайту.
+  const onForeignRoleRoot =
+    isRoot && !!roleHome && normalized !== "/dashboard" && normalized !== roleHome;
 
   const handleClick = () => {
     if (isRoot) {
+      if (onForeignRoleRoot) {
+        router.push(roleHome!);
+        return;
+      }
       router.push("/");
       return;
     }
@@ -33,7 +50,13 @@ export default function DashboardBackButton() {
     router.push(parentPath);
   };
 
-  const label = isRoot ? "На головну" : "Назад";
+  const label = isRoot
+    ? onForeignRoleRoot
+      ? role === "ADMIN"
+        ? "До адмінки"
+        : "До кабінету"
+      : "На головну"
+    : "Назад";
 
   return (
     <button
