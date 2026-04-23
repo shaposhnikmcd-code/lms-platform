@@ -10,8 +10,11 @@ export default function AuthButtons() {
   const { data: session, status } = useSession();
   const t = useTranslations('Auth');
 
+  // Під час loading нічого не рендеримо — для гостя (більшість reload-ів)
+  // порожній стан стабільний, а для залогіненого — мінімальний layout-shift
+  // краще за "привид" пульсуючого кружка, який показувався на кожному refresh-і.
   if (status === 'loading') {
-    return <div className="w-8 h-8 bg-gray-200 animate-pulse rounded-full" />;
+    return null;
   }
 
   if (session?.user) {
