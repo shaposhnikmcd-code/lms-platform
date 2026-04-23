@@ -30,6 +30,7 @@ model User {
   yearlyProgramSubscriptions YearlyProgramSubscription[]
   courseTeachers             CourseTeacher[]
   news                       News[]
+  passwordResetTokens        PasswordResetToken[]
   deletedAt                  DateTime?
   deletedById                String?
   deletedByName              String?
@@ -71,6 +72,30 @@ model VerificationToken {
   expires    DateTime
 
   @@unique([identifier, token])
+}
+
+/// Токен для встановлення/скидання пароля. Покриває два сценарії:
+/// - INVITE: адмін створив юзера → лінк "встановіть свій пароль" (TTL 7 днів)
+/// - RESET: юзер сам забув пароль → лінк "створіть новий пароль" (TTL 1 година)
+/// tokenHash — SHA-256 сирого токена, сирий токен живе лише в листі.
+/// usedAt — single-use guard.
+model PasswordResetToken {
+  id        String                    @id @default(cuid())
+  userId    String
+  tokenHash String                    @unique
+  purpose   PasswordResetTokenPurpose @default(RESET)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime                  @default(now())
+  user      User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+enum PasswordResetTokenPurpose {
+  INVITE
+  RESET
 }
 
 model Course {
@@ -280,6 +305,37 @@ model ConnectorOrderTrackingLog {
   changedByRole  String?
 
   @@index([orderId])
+}
+
+/// Shared-DB: належить tetyana-website (LMS таблицю не використовує).
+/// Оголошена тут лише для того, щоб LMS-міграції не видалили її як drift.
+model BookingOrder {
+  id               String        @id @default(cuid())
+  orderReference   String        @unique
+  service          String
+  method           String
+  status           PaymentStatus @default(PENDING)
+  amount           Int
+  currency         String
+  originalAmount   Int
+  originalCurrency String
+  promoCode        String?
+  promoAmount      Int?
+  promoCurrency    String?
+  clientEmail      String?
+  clientName       String?
+  clientPhone      String?
+  isAdminTest      Boolean       @default(false)
+  stripeSessionId  String?
+  createdAt        DateTime      @default(now())
+  paidAt           DateTime?
+  failedAt         DateTime?
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([service])
+  @@index([method])
+  @@index([status, createdAt])
 }
 
 model News {

@@ -37,7 +37,40 @@
     "fillFields": "Proszę wypełnić wszystkie pola",
     "registerError": "Błąd rejestracji",
     "registerFail": "Błąd podczas rejestracji",
-    "loginFail": "Błąd podczas logowania"
+    "loginFail": "Błąd podczas logowania",
+    "forgotPassword": "Nie pamiętasz hasła?"
+  },
+  "ForgotPassword": {
+    "title": "Reset hasła",
+    "subtitle": "Podaj adres e-mail, którym się zarejestrowałeś. Wyślemy Ci link do utworzenia nowego hasła.",
+    "emailLabel": "E-mail",
+    "submit": "Wyślij link",
+    "sending": "Wysyłanie...",
+    "successMessage": "Jeśli konto z tym adresem istnieje — wysłaliśmy instrukcje. Sprawdź skrzynkę (również spam).",
+    "backToLogin": "← Powrót do logowania",
+    "errorGeneric": "Coś poszło nie tak. Spróbuj ponownie."
+  },
+  "ResetPassword": {
+    "resetTitle": "Nowe hasło",
+    "resetSubtitle": "Utwórz nowe hasło, aby się zalogować.",
+    "inviteTitle": "Ustaw swoje hasło",
+    "inviteSubtitle": "Witamy w UIMP! Utwórz hasło, aby uzyskać dostęp do konta.",
+    "invalidTitle": "Link jest nieprawidłowy",
+    "invalidMessage": "Wygląda na to, że link wygasł lub został już użyty. Poproś o nowy.",
+    "requestNew": "Poproś o nowy link",
+    "emailLabel": "E-mail",
+    "emailOptional": "opcjonalnie",
+    "emailHint": "Jeśli podasz — zalogujemy Cię automatycznie po zapisaniu.",
+    "newPasswordLabel": "Nowe hasło",
+    "passwordHint": "Minimum 8 znaków. Nie używaj hasła, które wyciekło w znanych wyciekach.",
+    "confirmLabel": "Potwierdź hasło",
+    "submitReset": "Zapisz hasło",
+    "submitInvite": "Utwórz hasło i zaloguj się",
+    "saving": "Zapisywanie...",
+    "successMessage": "Hasło zapisane! Przekierowywanie do logowania...",
+    "passwordTooShort": "Hasło musi mieć co najmniej 8 znaków",
+    "passwordsMismatch": "Hasła się nie zgadzają",
+    "errorGeneric": "Coś poszło nie tak. Spróbuj ponownie."
   },
   "Footer": {
     "description": "Ukraiński Instytut Psychoterapii i Duszpasterstwa",

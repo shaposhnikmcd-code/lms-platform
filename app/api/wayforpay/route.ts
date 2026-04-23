@@ -51,10 +51,11 @@ export async function POST(req: NextRequest) {
       basePrice: resolved.basePrice,
     });
 
-    // Admin test: дозволяємо символічну ціну 1/2 ₴ для перевірки callback-флоу. Адмін перевіряється
-    // через session, клієнт не може підробити.
+    // Admin/Manager test: дозволяємо символічну ціну 1/2 ₴ для перевірки callback-флоу.
+    // Роль перевіряється через session, клієнт не може підробити.
     const session = await getServerSession(authOptions);
-    const isAdmin = (session?.user as { role?: string } | undefined)?.role === 'ADMIN';
+    const sessionRole = (session?.user as { role?: string } | undefined)?.role;
+    const isAdmin = sessionRole === 'ADMIN' || sessionRole === 'MANAGER';
     const adminTestPrice = yearlyKind === 'yearly' ? 2 : 1;
     const finalAmount = isAdmin ? adminTestPrice : promoFinalPrice;
 

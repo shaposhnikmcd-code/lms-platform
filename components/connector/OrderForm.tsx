@@ -138,7 +138,8 @@ const defaultLabels: FormLabels = {
 export default function OrderForm({ isOpen, onClose, labels }: OrderFormProps) {
   const l = labels ?? defaultLabels;
   const { data: session } = useSession();
-  const isAdmin = (session?.user as any)?.role === 'ADMIN';
+  const sessionRole = (session?.user as any)?.role;
+  const isAdmin = sessionRole === 'ADMIN' || sessionRole === 'MANAGER';
 
   const [formData, setFormData] = useState({
     email: '', fullName: '', phone: '',

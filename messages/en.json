@@ -37,7 +37,40 @@
     "fillFields": "Please fill in all fields",
     "registerError": "Registration error",
     "registerFail": "Error during registration",
-    "loginFail": "Error during sign in"
+    "loginFail": "Error during sign in",
+    "forgotPassword": "Forgot your password?"
+  },
+  "ForgotPassword": {
+    "title": "Reset password",
+    "subtitle": "Enter the email you registered with. We'll send you a link to create a new password.",
+    "emailLabel": "Email",
+    "submit": "Send link",
+    "sending": "Sending...",
+    "successMessage": "If an account with that email exists, we've sent instructions. Check your inbox (and spam folder).",
+    "backToLogin": "← Back to sign in",
+    "errorGeneric": "Something went wrong. Please try again."
+  },
+  "ResetPassword": {
+    "resetTitle": "New password",
+    "resetSubtitle": "Create a new password to sign in.",
+    "inviteTitle": "Set your password",
+    "inviteSubtitle": "Welcome to UIMP! Create a password to access your account.",
+    "invalidTitle": "Link is invalid",
+    "invalidMessage": "It looks like this link has expired or was already used. Request a new one.",
+    "requestNew": "Request new link",
+    "emailLabel": "Email",
+    "emailOptional": "optional",
+    "emailHint": "If you provide it, we'll sign you in automatically after saving.",
+    "newPasswordLabel": "New password",
+    "passwordHint": "At least 8 characters. Do not use a password that has been leaked in breaches.",
+    "confirmLabel": "Confirm password",
+    "submitReset": "Save password",
+    "submitInvite": "Create password and sign in",
+    "saving": "Saving...",
+    "successMessage": "Password saved! Redirecting to sign in...",
+    "passwordTooShort": "Password must be at least 8 characters",
+    "passwordsMismatch": "Passwords don't match",
+    "errorGeneric": "Something went wrong. Please try again."
   },
   "Footer": {
     "description": "Ukrainian Institute of Ministry and Psychotherapy",

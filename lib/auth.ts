@@ -6,6 +6,7 @@ import type { NextAuthOptions } from "next-auth";
 import bcrypt from "bcryptjs";
 import prisma from "@/lib/prisma";
 import { checkRateLimitRaw } from "@/lib/ratelimit";
+import { validatePasswordFull } from "@/lib/passwordPolicy";
 
 const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || "").split(",").map(e => e.trim()).filter(Boolean);
 
@@ -87,7 +88,35 @@ export const authOptions: NextAuthOptions = {
 
         try {
           const user = await prisma.user.findUnique({ where: { email: credentials.email } });
-          if (!user || !user.password) return null;
+          if (!user) return null;
+          if (user.deletedAt) return null;
+
+          // First-login password claim — спрацьовує ТІЛЬКИ якщо акаунт щойно створений
+          // адміном і ніхто ще нічим його не торкався:
+          //   - password === null (не було самореєстрації через /register)
+          //   - lastLoginAt === null (не заходив ні через Credentials, ні через OAuth —
+          //     OAuth-флоу в signIn-callback завжди ставить lastLoginAt)
+          // Перший успішний логін фіксує введений пароль як постійний. Атомарно
+          // через updateMany(where: { password: null, lastLoginAt: null }) — якщо
+          // паралельний запит встигне раніше, у нас count=0 і ми відмовляємо.
+          if (!user.password && !user.lastLoginAt) {
+            const policy = await validatePasswordFull(credentials.password);
+            if (!policy.ok) return null;
+
+            const hashed = await bcrypt.hash(credentials.password, 12);
+            const claimed = await prisma.user.updateMany({
+              where: { id: user.id, password: null, lastLoginAt: null, deletedAt: null },
+              data: { password: hashed, lastLoginAt: new Date() },
+            });
+            if (claimed.count !== 1) return null;
+
+            return { id: user.id, email: user.email, name: user.name, image: user.image, role: user.role };
+          }
+
+          // Звичайний флоу: OAuth-only юзер (password=null, але lastLoginAt є) —
+          // credentials-логін недоступний. Потрібно `/forgot-password` щоб додати пароль.
+          if (!user.password) return null;
+
           const isValid = await bcrypt.compare(credentials.password, user.password);
           if (!isValid) return null;
           await prisma.user.update({

@@ -45,6 +45,10 @@ export const limiters = {
   contact: makeLimiter(5, '1 h', 'contact'),
   /// Nova Poshta delivery cost — захист NP API quota. 30 / 5 хв / IP.
   novaPoshta: makeLimiter(30, '5 m', 'nova-poshta'),
+  /// Запит на скидання пароля. 5 / годину / email — обмежує спам-лістами і email enumeration.
+  forgotPassword: makeLimiter(5, '1 h', 'forgot-password'),
+  /// Підтвердження reset-токена (встановлення нового пароля). 10 / 10 хв / IP.
+  resetPassword: makeLimiter(10, '10 m', 'reset-password'),
 };
 
 /// Отримати реальний IP з заголовків. Vercel/Cloudflare/Nginx — x-forwarded-for.

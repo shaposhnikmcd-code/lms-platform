@@ -189,6 +189,12 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
               )}
 
               <div className="flex flex-col gap-2">
+                {!registerMode && (
+                  <Link href="/forgot-password"
+                    className="text-center text-[#D4A017] hover:text-[#b88913] transition-all text-sm">
+                    {t('forgotPassword')}
+                  </Link>
+                )}
                 <button onClick={() => setRegisterMode(!registerMode)} disabled={loading}
                   className="text-center text-[#D4A017] hover:text-[#b88913] transition-all text-sm disabled:opacity-50">
                   {registerMode ? t('hasAccount') : t('noAccount')}

@@ -17,7 +17,8 @@ export async function POST(req: NextRequest) {
     const { email, fullName, phone, city, postOffice, gamePrice, shippingCost, callMe } = await req.json();
 
     const session = await getServerSession(authOptions);
-    const isAdmin = (session?.user as { role?: string } | undefined)?.role === 'ADMIN';
+    const sessionRole = (session?.user as { role?: string } | undefined)?.role;
+    const isAdmin = sessionRole === 'ADMIN' || sessionRole === 'MANAGER';
     const finalGamePrice = isAdmin ? 1 : (typeof gamePrice === 'number' ? gamePrice : 1099);
     const finalShippingCost = isAdmin ? 0 : (typeof shippingCost === 'number' ? shippingCost : 0);
     const finalAmount = finalGamePrice + finalShippingCost;

@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
 import bcrypt from 'bcryptjs';
+import { validatePasswordFull } from '@/lib/passwordPolicy';
 
 export async function PATCH(req: NextRequest) {
   try {
@@ -26,6 +27,12 @@ export async function PATCH(req: NextRequest) {
 
     if (!isValid) {
       return NextResponse.json({ error: 'Поточний пароль невірний' }, { status: 400 });
+    }
+
+    // Єдина політика пароля (min 8 + HIBP). Див. lib/passwordPolicy.ts.
+    const policy = await validatePasswordFull(newPassword);
+    if (!policy.ok) {
+      return NextResponse.json({ error: policy.message }, { status: 400 });
     }
 
     const hashedPassword = await bcrypt.hash(newPassword, 12);
