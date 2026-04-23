@@ -15,7 +15,7 @@ const MODAL_CSS = `
 const visionUrl = "https://www.vision.edu/web/";
 
 const certMeta = [
-  { src: '/yearly-program/Vision_International_Certificate.pdf', preview: '/yearly-program/vision_cert-v3.png', link: visionUrl },
+  { src: '/yearly-program/vision_cert-v4.jpg', preview: '/yearly-program/vision_cert-v4.jpg', link: visionUrl },
   { src: '/yearly-program/UIMP_Practical_Certificate.pdf', preview: '/yearly-program/uimp_cert-1.webp', link: null as string | null },
 ];
 
@@ -69,7 +69,7 @@ export default function CertificatesSection({ t }: Props) {
 
   return (
     <>
-      <section className="py-12 bg-[#FDF2EB]">
+      <section className="py-12 bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
 
           <div className="flex items-center gap-4 mb-3">
