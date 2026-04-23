@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
@@ -52,18 +52,41 @@ export default function SpecialistRow({
 }) {
   const router = useRouter();
   const dark = theme === 'dark';
-  const initial = useMemo(() => overrideToForm(row.override, row.defaults), [row.override, row.defaults]);
-  const [form, setForm] = useState(initial);
+  const [form, setForm] = useState(() => overrideToForm(row.override, row.defaults));
+  /// Локальний baseline — точка відліку для `dirty`. Оновлюється синхронно
+  /// в успіху handleSave/handleReset. Без цього dirty залежав би від
+  /// `row.override` (пропси), який оновлюється тільки ПІСЛЯ router.refresh() —
+  /// тому між setSaving(false) і приходом нових пропсів кнопка мигала enabled→disabled.
+  const [baseline, setBaseline] = useState(() => overrideToForm(row.override, row.defaults));
   const [saving, setSaving] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
 
+  /// Якщо пропси оновились ззовні (зокрема після router.refresh) і юзер не має
+  /// незбережених змін (form === baseline), підтягуємо form+baseline до нових
+  /// пропсів. Якщо є незбережені зміни — form лишаємо, оновлюємо лише baseline,
+  /// щоб dirty лишився true.
+  useEffect(() => {
+    const incoming = overrideToForm(row.override, row.defaults);
+    setForm(curr => {
+      const pristine =
+        curr.price === baseline.price &&
+        curr.duration === baseline.duration &&
+        curr.btnLabel === baseline.btnLabel &&
+        curr.btnUrl === baseline.btnUrl &&
+        curr.hidden === baseline.hidden;
+      return pristine ? incoming : curr;
+    });
+    setBaseline(incoming);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [row.override, row.defaults]);
+
   const dirty =
-    form.price !== initial.price ||
-    form.duration !== initial.duration ||
-    form.btnLabel !== initial.btnLabel ||
-    form.btnUrl !== initial.btnUrl ||
-    form.hidden !== initial.hidden;
+    form.price !== baseline.price ||
+    form.duration !== baseline.duration ||
+    form.btnLabel !== baseline.btnLabel ||
+    form.btnUrl !== baseline.btnUrl ||
+    form.hidden !== baseline.hidden;
 
   const hasAnyOverride =
     !!row.override &&
@@ -74,6 +97,8 @@ export default function SpecialistRow({
       row.override.hidden === true);
 
   async function handleSave() {
+    /// Guard проти повторного натискання (подвійний клік / race при миготінні)
+    if (!dirty || saving) return;
     setSaving(true);
     const diff = (current: string, def: string) =>
       current.trim() === def.trim() ? '' : current.trim();
@@ -95,6 +120,9 @@ export default function SpecialistRow({
         alert(data?.error || 'Не вдалося зберегти');
         return;
       }
+      /// Синхронно фіксуємо новий baseline — dirty стане false негайно,
+      /// ще до того як router.refresh() оновить пропси. Це прибирає мигання.
+      setBaseline(form);
       router.refresh();
     } catch (err) {
       alert(`Помилка: ${err}`);
@@ -112,10 +140,12 @@ export default function SpecialistRow({
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        alert(data?.error || 'Не вдалося скинути');
+        alert(data?.error || 'Не вдалося повернути');
         return;
       }
-      setForm(overrideToForm(null, row.defaults));
+      const reset = overrideToForm(null, row.defaults);
+      setForm(reset);
+      setBaseline(reset);
       router.refresh();
     } catch (err) {
       alert(`Помилка: ${err}`);
@@ -213,7 +243,7 @@ export default function SpecialistRow({
         className={resetBtnCls}
       >
         <FaRotateLeft className="text-[10px]" />
-        Скинути
+        Повернути
       </button>
 
       {showResetModal && (
@@ -395,7 +425,7 @@ function ResetModal({
         }`}
         onClick={e => e.stopPropagation()}
       >
-        <h3 className="text-lg font-semibold mb-1">Скинути всі зміни?</h3>
+        <h3 className="text-lg font-semibold mb-1">Повернути всі зміни?</h3>
         <p className={`text-sm mb-5 ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
           Поля для{' '}
           <span className={`font-semibold ${dark ? 'text-slate-100' : 'text-stone-900'}`}>«{name}»</span>{' '}
@@ -421,7 +451,7 @@ function ResetModal({
                 : 'bg-rose-600 text-white hover:bg-rose-700 shadow-sm'
             }`}
           >
-            {resetting ? '...' : 'Скинути'}
+            {resetting ? '...' : 'Повернути'}
           </button>
         </div>
       </div>

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Resend } from 'resend';
 import prisma from '@/lib/prisma';
-import { YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
+import { YEARLY_PROGRAM_CONFIG, getYearlyGraceDays } from '@/lib/yearlyProgramConfig';
 import { closeAccessInCourse, lookupStudentIdByEmail } from '@/lib/sendpulse';
 import { verifyBearer } from '@/lib/authTiming';
 import {
@@ -58,7 +58,8 @@ export async function GET(req: NextRequest) {
 async function transitionActiveToGrace(): Promise<StepResult> {
   const now = new Date();
   const errors: string[] = [];
-  const gracePeriodEndsAt = new Date(now.getTime() + YEARLY_PROGRAM_CONFIG.graceDays * 24 * 60 * 60 * 1000);
+  const graceDays = await getYearlyGraceDays(prisma);
+  const gracePeriodEndsAt = new Date(now.getTime() + graceDays * 24 * 60 * 60 * 1000);
   const subs = await prisma.yearlyProgramSubscription.findMany({
     where: {
       status: 'ACTIVE',

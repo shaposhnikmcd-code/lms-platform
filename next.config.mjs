@@ -15,7 +15,7 @@ const cspDirectives = [
   "img-src 'self' data: blob: https://res.cloudinary.com https://lh3.googleusercontent.com https://www.googletagmanager.com https://www.google-analytics.com https://flagcdn.com",
   "font-src 'self' data:",
   "connect-src 'self' https://www.google-analytics.com https://analytics.google.com https://www.googletagmanager.com",
-  "frame-ancestors 'none'",
+  "frame-ancestors 'self'",
   "form-action 'self' https://secure.wayforpay.com",
   "base-uri 'self'",
   "object-src 'none'",

@@ -38,3 +38,26 @@ export function isYearlyProgramOrderRef(orderReference: string): 'yearly' | 'mon
   if (orderReference.startsWith(`${YEARLY_PROGRAM_CONFIG.yearlyOrderPrefix}_`)) return 'yearly';
   return null;
 }
+
+/// Ключ у `AppSetting` для runtime-конфігурованого grace-періоду (у днях).
+/// Зміна з адмінки впливає тільки на нові переходи ACTIVE→GRACE —
+/// існуючі GRACE-записи мають `gracePeriodEndsAt` зафіксованим.
+export const YEARLY_GRACE_SETTING_KEY = 'yearlyGraceDays';
+export const YEARLY_GRACE_MIN_DAYS = 1;
+export const YEARLY_GRACE_MAX_DAYS = 90;
+
+/// Читає актуальне значення graceDays з БД. Fallback на константу з config —
+/// означає «ніхто ще не змінював із UI» (рядок у AppSetting не створено).
+export async function getYearlyGraceDays(
+  prismaClient: { appSetting: { findUnique: (args: { where: { key: string } }) => Promise<{ value: number } | null> } },
+): Promise<number> {
+  try {
+    const row = await prismaClient.appSetting.findUnique({
+      where: { key: YEARLY_GRACE_SETTING_KEY },
+    });
+    return row?.value ?? YEARLY_PROGRAM_CONFIG.graceDays;
+  } catch {
+    /// Якщо таблиця ще не мігрована (rare race перед deploy) — безпечний fallback.
+    return YEARLY_PROGRAM_CONFIG.graceDays;
+  }
+}

@@ -615,3 +615,12 @@ model CoursePriceOverride {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+/// Generic key-value store для app-рівневих налаштувань, які треба змінювати
+/// runtime без redeploy. Перший споживач — `yearlyGraceDays` (тривалість grace
+/// періоду Річної програми у днях). Fallback на дефолт із коду, якщо запис відсутній.
+model AppSetting {
+  key       String   @id
+  value     Int
+  updatedAt DateTime @updatedAt
+}

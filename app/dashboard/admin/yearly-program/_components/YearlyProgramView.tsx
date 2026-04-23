@@ -113,9 +113,11 @@ const STATUS_OPTIONS: { value: 'ALL' | SubStatus; label: string }[] = [
 export default function YearlyProgramView({
   rows,
   summary,
+  graceDays,
 }: {
   rows: Row[];
   summary: SummaryData;
+  graceDays: number;
 }) {
   const { theme, setTheme } = useAdminTheme();
   const dark = theme === 'dark';
@@ -130,6 +132,7 @@ export default function YearlyProgramView({
   const [pageSize, setPageSize] = useState<number>(25);
   const [page, setPage] = useState<number>(1);
   const [emailModalOpen, setEmailModalOpen] = useState(false);
+  const [graceModalOpen, setGraceModalOpen] = useState(false);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -220,7 +223,7 @@ export default function YearlyProgramView({
       >
         <Kpi theme={theme} icon={HiOutlineUserGroup} label="Всього підписок" value={summary.total.toLocaleString()} />
         <Kpi theme={theme} icon={HiOutlineCheckCircle} label="Активних" value={summary.active.toLocaleString()} tone="success" />
-        <Kpi theme={theme} icon={HiOutlineClock} label="Grace (7 днів)" value={summary.grace.toLocaleString()} tone="warning" />
+        <Kpi theme={theme} icon={HiOutlineClock} label={`Grace (${graceDays} ${graceDays === 1 ? 'день' : graceDays >= 2 && graceDays <= 4 ? 'дні' : 'днів'})`} value={summary.grace.toLocaleString()} tone="warning" />
         <Kpi theme={theme} icon={HiOutlineXCircle} label="Прострочено / скасовано" value={(summary.expired + summary.cancelled).toLocaleString()} />
         <Kpi
           theme={theme}
@@ -270,9 +273,29 @@ export default function YearlyProgramView({
             <HiOutlineEnvelope className="text-base" />
             Нагадування по Email
           </button>
+          <button
+            type="button"
+            onClick={() => setGraceModalOpen(true)}
+            title="Налаштувати тривалість grace-періоду"
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[12px] font-medium transition-colors ${
+              dark
+                ? 'bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.08] hover:text-white hover:border-amber-400/40'
+                : 'bg-white/80 border-stone-300/60 text-stone-700 hover:bg-stone-100 hover:border-amber-600/50'
+            }`}
+          >
+            <HiOutlineClock className="text-base" />
+            GRACE · {graceDays}д
+          </button>
         </div>
       </AdminPanel>
       {emailModalOpen && <EmailRemindersModal theme={theme} onClose={() => setEmailModalOpen(false)} />}
+      {graceModalOpen && (
+        <GraceSettingsModal
+          theme={theme}
+          initialDays={graceDays}
+          onClose={() => setGraceModalOpen(false)}
+        />
+      )}
 
       <AdminPanel theme={theme} padding="p-0">
         <div className="overflow-x-auto">
@@ -1027,6 +1050,142 @@ function HelpModal({ theme, onClose }: { theme: Theme; onClose: () => void }) {
               ))}
             </div>
           </section>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+function GraceSettingsModal({
+  theme,
+  initialDays,
+  onClose,
+}: {
+  theme: Theme;
+  initialDays: number;
+  onClose: () => void;
+}) {
+  const router = useRouter();
+  const dark = theme === 'dark';
+  const [mounted, setMounted] = useState(false);
+  const [days, setDays] = useState<string>(String(initialDays));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const MIN = 1;
+  const MAX = 90;
+
+  useEffect(() => { setMounted(true); }, []);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    document.body.style.overflow = 'hidden';
+    return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = ''; };
+  }, [onClose]);
+
+  const parsed = Number(days);
+  const valid = Number.isInteger(parsed) && parsed >= MIN && parsed <= MAX;
+  const dirty = valid && parsed !== initialDays;
+
+  async function save() {
+    if (!dirty || saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/admin/yearly-program/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ graceDays: parsed }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data?.error || 'Не вдалося зберегти');
+        return;
+      }
+      router.refresh();
+      onClose();
+    } catch (e) {
+      setError(`Помилка: ${(e as Error).message}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!mounted) return null;
+  return createPortal(
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4" role="dialog" aria-modal="true">
+      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
+      <div className={`relative max-w-md w-full rounded-2xl shadow-2xl ${
+        dark ? 'bg-zinc-900 border border-white/10 text-slate-200' : 'bg-white border border-stone-200 text-stone-800'
+      }`}>
+        <div className={`flex items-center justify-between px-5 py-3 border-b ${dark ? 'border-white/10' : 'border-stone-200'}`}>
+          <h3 className="text-base font-bold">Grace — тривалість пільгового періоду</h3>
+          <button onClick={onClose} aria-label="Закрити" className={`w-7 h-7 rounded-full flex items-center justify-center ${dark ? 'hover:bg-white/10' : 'hover:bg-stone-100'}`}>✕</button>
+        </div>
+
+        <div className="px-5 py-4 space-y-4">
+          <p className={`text-[12px] leading-snug ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
+            Скільки днів після <strong>дати закінчення</strong> оплаченого періоду
+            залишати доступ відкритим, поки користувач не оформить нову оплату.
+            Значення застосовується <strong>до всіх нових переходів</strong> ACTIVE → GRACE у Річній програмі.
+            Уже активні GRACE-записи не перераховуються (у них дата закриття зафіксована у момент переходу).
+          </p>
+
+          <div>
+            <label className={`block text-[11px] uppercase tracking-wider font-semibold mb-1.5 ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
+              Кількість днів
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min={MIN}
+                max={MAX}
+                value={days}
+                onChange={(e) => { setDays(e.target.value); setError(null); }}
+                className={`w-28 px-3 py-2 rounded-lg border text-[14px] tabular-nums outline-none transition-colors ${
+                  dark
+                    ? 'bg-white/[0.04] border-white/[0.1] text-slate-100 focus:border-amber-400/50'
+                    : 'bg-white border-stone-300 text-stone-900 focus:border-amber-600/60'
+                }`}
+              />
+              <span className={`text-[12px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+                днів (від {MIN} до {MAX})
+              </span>
+            </div>
+            {!valid && days !== '' && (
+              <p className={`mt-1.5 text-[11px] ${dark ? 'text-rose-400' : 'text-rose-700'}`}>
+                Введіть ціле число від {MIN} до {MAX}
+              </p>
+            )}
+            {error && (
+              <p className={`mt-1.5 text-[11px] ${dark ? 'text-rose-400' : 'text-rose-700'}`}>{error}</p>
+            )}
+          </div>
+        </div>
+
+        <div className={`flex justify-end gap-2 px-5 py-3 border-t ${dark ? 'border-white/10' : 'border-stone-200'}`}>
+          <button
+            onClick={onClose}
+            className={`px-3 py-1.5 rounded-lg border text-[12px] font-medium transition-colors ${
+              dark
+                ? 'bg-white/[0.04] border-white/[0.1] text-slate-300 hover:bg-white/[0.08]'
+                : 'bg-white border-stone-300 text-stone-700 hover:bg-stone-50'
+            }`}
+          >
+            Скасувати
+          </button>
+          <button
+            onClick={save}
+            disabled={!dirty || saving}
+            className={`px-4 py-1.5 rounded-lg text-[12px] font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+              dark
+                ? 'bg-amber-400/90 text-stone-900 hover:bg-amber-300'
+                : 'bg-stone-900 text-amber-100 hover:bg-stone-800'
+            }`}
+          >
+            {saving ? '...' : 'Зберегти'}
+          </button>
         </div>
       </div>
     </div>,
