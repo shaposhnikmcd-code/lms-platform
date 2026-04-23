@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useState, useEffect, useRef } from 'react';
 import {
   HiOutlineClipboardDocumentList,
   HiOutlineCheckCircle,
@@ -8,6 +9,8 @@ import {
   HiOutlineShieldExclamation,
   HiOutlineChevronLeft,
   HiOutlineChevronRight,
+  HiOutlineClipboard,
+  HiCheck,
 } from 'react-icons/hi2';
 import { useAdminTheme, type Theme } from '../../_components/adminTheme';
 import { AdminShell, AdminPanel } from '../../_components/AdminShell';
@@ -32,6 +35,9 @@ export interface LogRow {
   skipReason: string | null;
   sendpulseSlugs: string | null;
   orderReference: string | null;
+  /// Резолвиться серверно: назва курсу/пакета, тип підписки, або "Гра Конектор".
+  /// null — якщо не вдалось знайти (orphan log, видалений Payment тощо).
+  productName: string | null;
   saleSource: SaleSource;
 }
 
@@ -147,7 +153,7 @@ export default function PaymentLogsView({ data }: { data: PaymentLogsData }) {
                 <Th theme={theme}>Час</Th>
                 <Th theme={theme}>Клієнт</Th>
                 <Th theme={theme} align="center">Тип</Th>
-                <Th theme={theme} align="center">Покупка/Підписка</Th>
+                <Th theme={theme}>Вид</Th>
                 <Th theme={theme}>Статус</Th>
                 <Th theme={theme}>Сума</Th>
                 <Th theme={theme}>IP</Th>
@@ -194,8 +200,17 @@ export default function PaymentLogsView({ data }: { data: PaymentLogsData }) {
                       <td className="px-4 py-2.5 text-center">
                         <TypePill theme={theme} kind={log.kind} />
                       </td>
-                      <td className="px-4 py-2.5 text-center">
-                        <KindBadge theme={theme} kind={log.kind} autoRenew={log.autoRenew} />
+                      <td className="px-4 py-2.5 w-[200px] max-w-[200px]">
+                        {log.productName ? (
+                          <CopyableCell
+                            theme={theme}
+                            text={log.productName}
+                            showCopy={false}
+                            textClassName={`text-[11px] font-semibold tracking-[-0.005em] rounded-md border px-2 py-0.5 ${kindPillClasses(log.kind, dark)}`}
+                          />
+                        ) : (
+                          <span className={`text-[11px] ${dark ? 'text-slate-600' : 'text-stone-400'}`}>—</span>
+                        )}
                       </td>
                       <td className="px-4 py-2.5">
                         <StatusBadge
@@ -211,33 +226,53 @@ export default function PaymentLogsView({ data }: { data: PaymentLogsData }) {
                       <td className={`px-4 py-2.5 text-[11px] tabular-nums ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
                         {log.ip ?? '—'}
                       </td>
-                      <td className={`px-4 py-2.5 text-[11px] max-w-[280px] ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
+                      <td className="px-4 py-2.5 w-[100px] max-w-[100px]">
                         {log.actionsTaken || log.skipReason ? (
-                          <div className="flex flex-col gap-1">
+                          <div className="flex flex-col gap-1 min-w-0">
                             {log.skipReason && (
-                              <span className={`font-mono text-[10px] font-semibold ${dark ? 'text-amber-300' : 'text-amber-700'}`}>
-                                skip:{log.skipReason}
-                              </span>
+                              <CopyableCell
+                                theme={theme}
+                                text={`skip:${log.skipReason}`}
+                                showCopy={false}
+                                textClassName={`text-[12px] font-medium tracking-[-0.005em] ${dark ? 'text-slate-100' : 'text-stone-900'}`}
+                              />
                             )}
                             {log.actionsTaken && (
-                              <span className="font-mono text-[10px] break-all">{log.actionsTaken}</span>
+                              <CopyableCell
+                                theme={theme}
+                                text={log.actionsTaken}
+                                showCopy={false}
+                                textClassName={`text-[12px] font-medium tracking-[-0.005em] ${dark ? 'text-slate-100' : 'text-stone-900'}`}
+                              />
                             )}
                           </div>
                         ) : (
-                          <span className={dark ? 'text-slate-600' : 'text-stone-400'}>—</span>
+                          <span className={`text-[11px] ${dark ? 'text-slate-600' : 'text-stone-400'}`}>—</span>
                         )}
                       </td>
-                      <td className="px-4 py-2.5 text-[11px] max-w-[200px]">
+                      <td className="px-4 py-2.5 w-[100px] max-w-[100px]">
                         {log.sendpulseSlugs ? (
-                          <span className={`font-mono text-[10px] break-all ${dark ? 'text-emerald-300' : 'text-emerald-700'}`}>
-                            {log.sendpulseSlugs}
-                          </span>
+                          <CopyableCell
+                            theme={theme}
+                            text={log.sendpulseSlugs}
+                            showCopy={false}
+                            textClassName={`text-[12px] font-medium tracking-[-0.005em] ${dark ? 'text-slate-100' : 'text-stone-900'}`}
+                          />
                         ) : (
-                          <span className={dark ? 'text-slate-600' : 'text-stone-400'}>—</span>
+                          <span className={`text-[11px] ${dark ? 'text-slate-600' : 'text-stone-400'}`}>—</span>
                         )}
                       </td>
-                      <td className={`px-4 py-2.5 text-[10px] font-mono break-all max-w-[220px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
-                        {log.orderReference ?? '—'}
+                      <td className="px-4 py-2.5 w-[100px] max-w-[100px]">
+                        {log.orderReference ? (
+                          <CopyableCell
+                            theme={theme}
+                            text={log.orderReference}
+                            showCopy={false}
+                            textClassName={`text-[12px] font-medium tracking-[-0.005em] ${dark ? 'text-slate-100' : 'text-stone-900'}`}
+                          />
+                        ) : (
+                          <span className={`text-[11px] ${dark ? 'text-slate-600' : 'text-stone-400'}`}>—</span>
+                        )}
                       </td>
                     </tr>
                   );
@@ -259,6 +294,123 @@ export default function PaymentLogsView({ data }: { data: PaymentLogsData }) {
         )}
       </AdminPanel>
     </AdminShell>
+  );
+}
+
+/// Комірка з двома діями:
+/// - Клік по тексту → розгорнути (текст переноситься, можна виділяти). Клік поза
+///   коміркою згортає.
+/// - Клік по іконці кліпборду → копіює в буфер, на 1.5с показує зелений check
+///   + маленький "Скопійовано" toast над коміркою.
+/// Hover-ефекту з повним текстом немає — повний текст видно після розгортання кліком.
+function CopyableCell({
+  text,
+  textClassName,
+  theme,
+  showCopy = true,
+}: {
+  text: string;
+  textClassName?: string;
+  theme: Theme;
+  /// За замовчуванням поряд з текстом є іконка "скопіювати". Для колонок типу
+  /// "Вид" (назва курсу/пакета) копіювання не має сенсу — можна вимкнути.
+  showCopy?: boolean;
+}) {
+  const dark = theme === 'dark';
+  const [copied, setCopied] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const wrapperRef = useRef<HTMLSpanElement>(null);
+
+  // Клік поза коміркою → згортаємо.
+  useEffect(() => {
+    if (!expanded) return;
+    const onDown = (e: MouseEvent) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
+        setExpanded(false);
+      }
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [expanded]);
+
+  const handleToggleExpand = () => {
+    // Під час активного виділення не перемикаємо стан — юзер виділяє текст.
+    const sel = window.getSelection?.();
+    if (sel && sel.toString().length > 0) return;
+    setExpanded(prev => !prev);
+  };
+
+  const handleCopy = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // clipboard недоступний — fallback: юзер виділить і скопіює руками
+    }
+  };
+
+  const containerBg = expanded
+    ? dark ? 'bg-white/[0.05] ring-1 ring-white/10' : 'bg-stone-900/[0.04] ring-1 ring-stone-900/10'
+    : dark ? 'hover:bg-white/[0.05]' : 'hover:bg-stone-900/[0.04]';
+  const focusRing = dark ? 'focus-visible:ring-amber-400/40' : 'focus-visible:ring-amber-600/40';
+
+  return (
+    <span ref={wrapperRef} className="group/copy relative inline-flex w-full max-w-full">
+      <span
+        className={`inline-flex items-start gap-1.5 w-full max-w-full rounded-md px-1.5 py-0.5 -mx-1.5 -my-0.5 transition-colors ${containerBg}`}
+      >
+        <button
+          type="button"
+          onClick={handleToggleExpand}
+          aria-label={expanded ? 'Згорнути поле' : 'Розгорнути поле повністю'}
+          aria-expanded={expanded}
+          className={`text-left min-w-0 flex-1 cursor-pointer select-text outline-none focus-visible:ring-2 ${focusRing} rounded-sm`}
+        >
+          <span
+            className={`block ${expanded ? 'whitespace-normal break-all' : 'truncate'} ${textClassName ?? ''}`}
+          >
+            {text}
+          </span>
+        </button>
+        {showCopy && (
+          <button
+            type="button"
+            onClick={handleCopy}
+            aria-label={copied ? 'Скопійовано' : 'Скопіювати в буфер'}
+            className={`flex-shrink-0 inline-flex items-center justify-center w-4 h-4 mt-[1px] rounded transition-all outline-none focus-visible:ring-2 cursor-pointer ${focusRing} ${
+              copied
+                ? dark ? 'text-emerald-300' : 'text-emerald-600'
+                : dark
+                  ? 'text-slate-500 opacity-40 group-hover/copy:opacity-100 hover:text-slate-200'
+                  : 'text-stone-500 opacity-40 group-hover/copy:opacity-100 hover:text-stone-900'
+            }`}
+          >
+            {copied ? <HiCheck className="w-3.5 h-3.5" /> : <HiOutlineClipboard className="w-3.5 h-3.5" />}
+          </button>
+        )}
+      </span>
+
+      {copied && (
+        <span
+          role="status"
+          aria-live="polite"
+          className={`pointer-events-none absolute bottom-full left-0 mb-1.5 z-20 inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-semibold shadow-lg border whitespace-nowrap ${
+            dark
+              ? 'bg-slate-900 border-emerald-500/30 text-emerald-300 shadow-black/40'
+              : 'bg-stone-900 border-emerald-400/40 text-emerald-300 shadow-stone-900/30'
+          }`}
+        >
+          <HiCheck className="w-3 h-3" /> Скопійовано
+          <span
+            className={`absolute top-full left-3 w-0 h-0 border-l-[5px] border-r-[5px] border-t-[5px] border-l-transparent border-r-transparent ${
+              dark ? 'border-t-slate-900' : 'border-t-stone-900'
+            }`}
+          />
+        </span>
+      )}
+    </span>
   );
 }
 
@@ -320,47 +472,34 @@ function Th({
   );
 }
 
+/// Пілл-стилі (bg+text+border) по kind — синхронізовано з TypePill.
+/// Переюзається для колонки "Вид" щоб текст мав такий же кольоровий фон як Тип.
+function kindPillClasses(kind: string, dark: boolean): string {
+  switch (kind) {
+    case 'course':    return dark ? 'bg-sky-500/15 text-sky-300 border-sky-500/20'          : 'bg-sky-500/10 text-sky-800 border-sky-500/25';
+    case 'bundle':    return dark ? 'bg-violet-500/15 text-violet-300 border-violet-500/20' : 'bg-violet-500/10 text-violet-800 border-violet-500/25';
+    case 'yearly':
+    case 'monthly':   return dark ? 'bg-amber-500/15 text-amber-300 border-amber-500/20'    : 'bg-amber-500/10 text-amber-800 border-amber-500/25';
+    case 'connector': return dark ? 'bg-orange-500/15 text-orange-300 border-orange-500/20' : 'bg-orange-500/10 text-orange-800 border-orange-500/25';
+    default:          return dark ? 'bg-slate-500/20 text-slate-400 border-slate-500/20'    : 'bg-stone-200/70 text-stone-600 border-stone-300/70';
+  }
+}
+
 function TypePill({ kind, theme }: { kind: string; theme: Theme }) {
   const dark = theme === 'dark';
+  // Тип = широка категорія. monthly і yearly — одна програма, один пілл.
+  // Вид (поруч) деталізує: "Річна підписка" / "Місячна Автоплатіж" / "Місячна на 1 міс.".
   const map: Record<string, { label: string; dark: string; light: string }> = {
     course:    { label: 'Курс',           dark: 'bg-sky-500/15 text-sky-300 border-sky-500/20',            light: 'bg-sky-500/10 text-sky-800 border-sky-500/25' },
     bundle:    { label: 'Пакет',          dark: 'bg-violet-500/15 text-violet-300 border-violet-500/20',   light: 'bg-violet-500/10 text-violet-800 border-violet-500/25' },
     yearly:    { label: 'Річна програма', dark: 'bg-amber-500/15 text-amber-300 border-amber-500/20',      light: 'bg-amber-500/10 text-amber-800 border-amber-500/25' },
-    monthly:   { label: 'Місячна',        dark: 'bg-indigo-500/15 text-indigo-300 border-indigo-500/20',   light: 'bg-indigo-500/10 text-indigo-800 border-indigo-500/25' },
-    connector: { label: 'Коннектор',      dark: 'bg-orange-500/15 text-orange-300 border-orange-500/20',   light: 'bg-orange-500/10 text-orange-800 border-orange-500/25' },
+    monthly:   { label: 'Річна програма', dark: 'bg-amber-500/15 text-amber-300 border-amber-500/20',      light: 'bg-amber-500/10 text-amber-800 border-amber-500/25' },
+    connector: { label: 'Гра',            dark: 'bg-orange-500/15 text-orange-300 border-orange-500/20',   light: 'bg-orange-500/10 text-orange-800 border-orange-500/25' },
     unknown:   { label: '?',              dark: 'bg-slate-500/20 text-slate-400 border-slate-500/20',      light: 'bg-stone-200/70 text-stone-600 border-stone-300/70' },
   };
   const m = map[kind] ?? map.unknown;
   return (
     <span className={`inline-flex px-2 py-0.5 rounded-md text-[10px] font-semibold border ${dark ? m.dark : m.light}`}>
-      {m.label}
-    </span>
-  );
-}
-
-function KindBadge({ kind, autoRenew, theme }: { kind: string; autoRenew?: boolean | null; theme: Theme }) {
-  const dark = theme === 'dark';
-  const effectiveKind =
-    kind === 'monthly'
-      ? autoRenew === true
-        ? 'monthly_auto'
-        : autoRenew === false
-          ? 'monthly_once'
-          : 'monthly'
-      : kind;
-  const map: Record<string, { label: string; dark: string; light: string }> = {
-    course:        { label: 'Курс',                  dark: 'bg-sky-500/15 text-sky-300 border-sky-500/20',              light: 'bg-sky-500/10 text-sky-800 border-sky-500/25' },
-    bundle:        { label: 'Пакет',                 dark: 'bg-violet-500/15 text-violet-300 border-violet-500/20',    light: 'bg-violet-500/10 text-violet-800 border-violet-500/25' },
-    yearly:        { label: 'Річна',                 dark: 'bg-amber-500/15 text-amber-300 border-amber-500/20',        light: 'bg-amber-500/10 text-amber-800 border-amber-500/25' },
-    monthly_auto:  { label: 'Місячна Автоплатіж',    dark: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/20', light: 'bg-emerald-500/10 text-emerald-800 border-emerald-500/25' },
-    monthly_once:  { label: 'Місячна на 1 міс.',     dark: 'bg-sky-500/15 text-sky-300 border-sky-500/20',              light: 'bg-sky-500/10 text-sky-800 border-sky-500/25' },
-    monthly:       { label: 'Місячна',               dark: 'bg-indigo-500/15 text-indigo-300 border-indigo-500/20',    light: 'bg-indigo-500/10 text-indigo-800 border-indigo-500/25' },
-    connector: { label: 'Коннектор', dark: 'bg-orange-500/15 text-orange-300 border-orange-500/20',    light: 'bg-orange-500/10 text-orange-800 border-orange-500/25' },
-    unknown:   { label: '?',         dark: 'bg-slate-500/20 text-slate-400 border-slate-500/20',       light: 'bg-stone-200/70 text-stone-600 border-stone-300/70' },
-  };
-  const m = map[effectiveKind] ?? map.unknown;
-  return (
-    <span className={`inline-flex items-center px-2 py-0.5 text-[10px] font-semibold rounded-md border ${dark ? m.dark : m.light}`}>
       {m.label}
     </span>
   );

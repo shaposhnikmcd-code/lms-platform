@@ -4,7 +4,8 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { FaPlus, FaEye, FaEyeSlash, FaPause, FaGripVertical } from 'react-icons/fa';
-import { HiOutlineBookOpen, HiOutlineGift } from 'react-icons/hi2';
+import { HiOutlineBookOpen, HiOutlineGift, HiPencil, HiTrash } from 'react-icons/hi2';
+import { createPortal } from 'react-dom';
 import {
   DndContext,
   DragOverlay,
@@ -1025,10 +1026,12 @@ function buildInitialSlots(bundles: BundleRowData[]): BundleRowData[][] {
       arr.push(b);
       byGroup.set(b.rowGroup, arr);
     }
+    // Бандли без rowGroup (щойно створені з API — sortOrder=min−1, тобто зверху
+    // по даним) — кожен у своєму слоті, НА ПОЧАТОК списку. Зберігаємо порядок
+    // `ungrouped` — він вже відсортований по sortOrder asc (наймолодший перший).
+    for (const b of ungrouped) slots.push([b]);
     const sortedKeys = Array.from(byGroup.keys()).sort((a, b) => a - b);
     for (const k of sortedKeys) slots.push(byGroup.get(k)!);
-    // Бандли без rowGroup (щойно створені) — кожен у своєму слоті, у кінець.
-    for (const b of ungrouped) slots.push([b]);
     return slots;
   }
   // Fallback: pack-by-2 за displayMode + шириною.
@@ -1631,6 +1634,31 @@ function BundleMiniature({
   slotSize?: number;
   slotPos?: number;
 }) {
+  const router = useRouter();
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/admin/bundles/${bundle.id}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        alert(data?.error || 'Не вдалося видалити');
+        return;
+      }
+      router.refresh();
+    } catch (err) {
+      alert(`Помилка видалення: ${err}`);
+    } finally {
+      setDeleting(false);
+      setShowDeleteModal(false);
+    }
+  };
+
   const model = getBundleModel(bundle);
   const scaledW = Math.round(model.widthPx * MINIATURE_SCALE);
   const scaledH = Math.round(model.heightPx * MINIATURE_SCALE);
@@ -1684,19 +1712,28 @@ function BundleMiniature({
         </span>
         <span>{isPair ? 'Пара' : 'Соло'}</span>
       </div>
-      {/* Hover overlay з actions */}
+      {/* Hover overlay з actions (Редагувати + Видалити, стек вертикально).
+          Напівпрозорі floating-кнопки з backdrop-blur — фросед-glass ефект. */}
       <div
-        className={`absolute inset-0 z-20 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none group-hover:pointer-events-auto flex items-start justify-end p-2 gap-1`}
+        className={`absolute inset-0 z-20 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none group-hover:pointer-events-auto flex flex-col items-end p-2 gap-1.5`}
       >
         <Link
           href={`/dashboard/admin/bundles/${bundle.id}`}
           title="Редагувати"
-          className={`w-8 h-8 rounded-md flex items-center justify-center text-[12px] font-semibold shadow-md ${
-            dark ? 'bg-amber-400/90 text-stone-900 hover:bg-amber-300' : 'bg-stone-900 text-amber-100 hover:bg-stone-800'
-          }`}
+          className="w-8 h-8 rounded-lg flex items-center justify-center text-white bg-amber-400/25 hover:bg-amber-400/50 ring-1 ring-white/30 shadow-md backdrop-blur-sm transition-all drop-shadow-[0_1px_1px_rgba(0,0,0,0.35)]"
         >
-          ✎
+          <HiPencil className="text-[14px]" />
         </Link>
+        <button
+          type="button"
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowDeleteModal(true); }}
+          onPointerDown={(e) => e.stopPropagation()}
+          title="Видалити пакет"
+          aria-label="Видалити пакет"
+          className="w-8 h-8 rounded-lg flex items-center justify-center text-white bg-rose-500/25 hover:bg-rose-500/50 ring-1 ring-white/30 shadow-md backdrop-blur-sm transition-all drop-shadow-[0_1px_1px_rgba(0,0,0,0.35)]"
+        >
+          <HiTrash className="text-[14px]" />
+        </button>
       </div>
       {/* Scaled BundleCard wrapper — amber-рамка + drop shadow. Висота = model.heightPx * scale. */}
       <div
@@ -1758,6 +1795,58 @@ function BundleMiniature({
           );
         })()}
       </div>
+
+      {showDeleteModal && typeof document !== "undefined" && createPortal(
+        <div
+          className={`fixed inset-0 flex items-center justify-center z-[100] backdrop-blur-sm ${
+            dark ? 'bg-black/60' : 'bg-stone-900/30'
+          }`}
+          onClick={() => !deleting && setShowDeleteModal(false)}
+        >
+          <div
+            className={`rounded-2xl p-6 w-full max-w-sm mx-4 border shadow-2xl ${
+              dark ? 'bg-[#14161d] border-white/[0.08]' : 'bg-[#fbf7ec] border-stone-300/60'
+            }`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className={`text-lg font-semibold mb-1 ${dark ? 'text-slate-100' : 'text-stone-900'}`}>
+              Видалити пакет?
+            </h3>
+            <p className={`text-sm mb-5 ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
+              Пакет{' '}
+              <span className={`font-semibold ${dark ? 'text-slate-100' : 'text-stone-900'}`}>
+                «{bundle.title}»
+              </span>{' '}
+              буде видалено назавжди. Цю дію не можна відмінити.
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowDeleteModal(false)}
+                disabled={deleting}
+                className={`flex-1 px-4 py-2.5 text-sm font-medium rounded-xl border transition-colors disabled:opacity-50 ${
+                  dark
+                    ? 'bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.08]'
+                    : 'bg-white/70 border-stone-300/60 text-stone-700 hover:bg-white'
+                }`}
+              >
+                Скасувати
+              </button>
+              <button
+                onClick={handleDelete}
+                disabled={deleting}
+                className={`flex-1 px-4 py-2.5 text-sm font-medium rounded-xl transition-colors disabled:opacity-50 ${
+                  dark
+                    ? 'bg-rose-500/90 text-white hover:bg-rose-500 shadow-[0_0_20px_-4px_rgba(244,63,94,0.5)]'
+                    : 'bg-rose-600 text-white hover:bg-rose-700 shadow-sm'
+                }`}
+              >
+                {deleting ? '...' : 'Видалити'}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
     </div>
   );
 }

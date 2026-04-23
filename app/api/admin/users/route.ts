@@ -4,6 +4,13 @@ import { getToken } from 'next-auth/jwt';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
 
+/// Захищені акаунти: критичні адміни, яких не можна видалити ні через UI,
+/// ні через прямий API-виклик (defense in depth).
+const PROTECTED_ACCOUNTS = new Set([
+  'shaposhnik.mcd@gmail.com',
+  'saposniktana878@gmail.com',
+]);
+
 type AdminActor = { id?: string; name?: string | null; email?: string | null };
 
 async function requireAdmin(req: NextRequest): Promise<
@@ -64,13 +71,28 @@ export async function PATCH(req: NextRequest) {
     const guard = await requireAdmin(req);
     if ('error' in guard) return guard.error;
 
-    const { userId, newRole, restore } = await req.json();
+    const body = await req.json();
+    const { userId, newRole, newName, restore } = body;
     if (!userId) return NextResponse.json({ error: 'userId обовязковий' }, { status: 400 });
 
     if (restore) {
       const updated = await prisma.user.update({
         where: { id: userId },
         data: { deletedAt: null, deletedById: null, deletedByName: null, deletedByEmail: null },
+      });
+      return NextResponse.json({ success: true, user: updated });
+    }
+
+    // Оновлення імені. `newName` може бути undefined (не передали) — тоді не чіпаємо;
+    // null / порожній рядок → скидаємо імʼя в null; непорожній → trim + max 200.
+    if ('newName' in body) {
+      const raw = typeof newName === 'string' ? newName.trim() : '';
+      if (raw.length > 200) {
+        return NextResponse.json({ error: 'Імʼя занадто довге (максимум 200 символів)' }, { status: 400 });
+      }
+      const updated = await prisma.user.update({
+        where: { id: userId },
+        data: { name: raw || null },
       });
       return NextResponse.json({ success: true, user: updated });
     }
@@ -125,6 +147,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Користувач з таким email вже існує' }, { status: 409 });
     }
 
+    // Юзер створюється без пароля. Перший логін зафіксує введений пароль
+    // як постійний (first-login-claim, див. lib/auth.ts). Адмін просто каже
+    // новому користувачеві email → той йде на /login → вводить пароль.
     const user = await prisma.user.create({
       data: {
         name: name || null,
@@ -158,8 +183,15 @@ export async function DELETE(req: NextRequest) {
     // спершу PATCH { newRole: 'STUDENT' }, потім DELETE.
     const target = await prisma.user.findUnique({
       where: { id: userId },
-      select: { role: true },
+      select: { role: true, email: true },
     });
+    // Критичні акаунти — повна заборона видалення.
+    if (target?.email && PROTECTED_ACCOUNTS.has(target.email.toLowerCase())) {
+      return NextResponse.json(
+        { error: 'Цей акаунт захищений і не може бути видалений.' },
+        { status: 403 }
+      );
+    }
     if (target?.role === 'ADMIN') {
       return NextResponse.json(
         { error: 'Не можна видалити іншого адміна. Спершу зніміть роль ADMIN.' },

@@ -11,6 +11,8 @@ import {
   HiOutlineCheckCircle,
   HiOutlineSparkles,
   HiOutlineReceiptPercent,
+  HiOutlineExclamationTriangle,
+  HiOutlineXMark,
 } from "react-icons/hi2";
 
 export type BundleType = "DISCOUNT" | "FIXED_FREE" | "CHOICE_FREE";
@@ -163,6 +165,14 @@ export default function BundleForm({
     if (typeof document === "undefined") return;
     setToastSlot(document.getElementById("bundle-toast-slot"));
   }, []);
+
+  // Авто-дисміс error-тоста через 6с. Скидається якщо юзер клікає × або повідомлення
+  // змінюється на нове (тоді таймер перестартує).
+  useEffect(() => {
+    if (!message) return;
+    const t = setTimeout(() => setMessage(""), 6000);
+    return () => clearTimeout(t);
+  }, [message]);
   const [coursesTab, setCoursesTab] = useState<"paid" | "free">("paid");
   const [discount, setDiscount] = useState(0);
   const [rounding, setRounding] = useState(false);
@@ -462,11 +472,40 @@ export default function BundleForm({
 
   return (
     <div className="space-y-8">
-      {message && (
-        <div className="flex items-start gap-3 px-4 py-3 bg-rose-50/70 border border-rose-200/60 rounded-xl">
-          <HiOutlineInformationCircle className="text-rose-500 text-lg flex-shrink-0 mt-0.5" />
-          <p className="text-sm text-rose-800">{message}</p>
-        </div>
+      {/* Error toast — portal у document.body. Зовнішній wrapper — full-width
+          fixed smuga, внутрішній flex центрує toast надійно (не залежно від
+          можливих transform-ancestors, які б зламали left-1/2 + translate). */}
+      {typeof document !== "undefined" && message && createPortal(
+        <div
+          className="fixed inset-x-0 top-24 z-[9999] flex justify-center px-4 pointer-events-none"
+        >
+          <div
+            role="alert"
+            aria-live="assertive"
+            key={message}
+            className="pointer-events-auto w-full max-w-[460px] bg-white rounded-2xl shadow-[0_20px_50px_rgba(190,18,60,0.18)] ring-1 ring-rose-200 overflow-hidden animate-fadeIn"
+          >
+            <div className="flex items-start gap-3 pl-4 pr-2 py-3.5">
+              <span className="flex-shrink-0 w-9 h-9 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center">
+                <HiOutlineExclamationTriangle className="text-lg" />
+              </span>
+              <div className="min-w-0 flex-1 py-0.5">
+                <p className="text-[14px] font-semibold text-rose-800 leading-tight">Не вдалось зберегти</p>
+                <p className="text-[13px] text-slate-700 leading-snug mt-1 break-words">{message}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMessage("")}
+                aria-label="Закрити"
+                className="flex-shrink-0 text-slate-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-slate-50 transition-colors"
+              >
+                <HiOutlineXMark className="text-lg" />
+              </button>
+            </div>
+            <span aria-hidden className="block h-[2px] bg-rose-400/70 origin-left animate-[shrinkX_6s_linear]" />
+          </div>
+        </div>,
+        document.body,
       )}
 
       {toastSlot && draftRestored && createPortal(

@@ -2,11 +2,10 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   HiOutlineUsers,
   HiOutlineUserPlus,
-  HiOutlineMagnifyingGlass,
   HiOutlineTrash,
   HiOutlineArchiveBoxXMark,
   HiOutlineXMark,
@@ -14,6 +13,7 @@ import {
   HiOutlineBriefcase,
   HiOutlineAcademicCap,
   HiOutlineUserCircle,
+  HiOutlineLockClosed,
 } from 'react-icons/hi2';
 import { useAdminTheme, type Theme } from '../_components/adminTheme';
 import { AdminShell, AdminPanel } from '../_components/AdminShell';
@@ -39,6 +39,13 @@ const ROLE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = 
   STUDENT: HiOutlineUserCircle,
 };
 
+/// Захищені акаунти: кошик і розумна зміна ролі заборонені. Порядок у мапі
+/// задає фіксовані позиції в таблиці (1 — зверху, 2 — другий рядок...).
+const PROTECTED_ACCOUNTS: Record<string, number> = {
+  'shaposhnik.mcd@gmail.com': 1,
+  'saposniktana878@gmail.com': 2,
+};
+
 interface User {
   id: string;
   name: string | null;
@@ -57,12 +64,16 @@ export default function AdminUsersPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
-  const [search, setSearch] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState('');
   const [newUser, setNewUser] = useState({ name: '', email: '', role: 'STUDENT' });
   const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
+  const [editingNameId, setEditingNameId] = useState<string | null>(null);
+  const [editingNameValue, setEditingNameValue] = useState('');
+  /// Відокремлює "Escape → скасувати" від "blur → зберегти" — інакше після Escape
+  /// onBlur все одно пробує зберегти. Ref, бо не повинен тригерити ре-рендер.
+  const nameCancelRef = useRef(false);
 
   useEffect(() => {
     if (!toast) return;
@@ -123,10 +134,61 @@ export default function AdminUsersPage() {
       setUsers(prev => [data.user, ...prev]);
       setShowCreateModal(false);
       setNewUser({ name: '', email: '', role: 'STUDENT' });
+      setToast({
+        message: 'Користувача створено. Передайте йому email — перший пароль він задасть сам при вході.',
+        type: 'success',
+      });
     } catch {
       setCreateError('Помилка запиту');
     } finally {
       setCreating(false);
+    }
+  };
+
+  const startEditName = (user: User) => {
+    setEditingNameId(user.id);
+    setEditingNameValue(user.name || '');
+    nameCancelRef.current = false;
+  };
+
+  const cancelEditName = () => {
+    nameCancelRef.current = true;
+    setEditingNameId(null);
+    setEditingNameValue('');
+  };
+
+  const saveName = async (userId: string) => {
+    if (nameCancelRef.current) {
+      nameCancelRef.current = false;
+      return;
+    }
+    const trimmed = editingNameValue.trim();
+    const current = users.find(u => u.id === userId)?.name || '';
+    // Нічого не змінилось — просто закриваємо редагування без API-виклику.
+    if (trimmed === current.trim()) {
+      setEditingNameId(null);
+      return;
+    }
+    setUpdatingId(userId);
+    try {
+      const res = await fetch('/api/admin/users', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, newName: trimmed }),
+      });
+      if (res.ok) {
+        const finalName = trimmed || null;
+        setUsers(users.map(u => u.id === userId ? { ...u, name: finalName } : u));
+        setToast({ message: 'Імʼя оновлено', type: 'success' });
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setToast({ message: data.error || 'Не вдалося оновити імʼя', type: 'error' });
+      }
+    } catch {
+      setToast({ message: 'Помилка запиту', type: 'error' });
+    } finally {
+      setEditingNameId(null);
+      setUpdatingId(null);
     }
   };
 
@@ -152,20 +214,22 @@ export default function AdminUsersPage() {
     }
   };
 
-  const filteredAndSorted = useMemo(() => {
-    const q = search.toLowerCase();
-    return users
-      .filter(u =>
-        (u.name?.toLowerCase().includes(q) || false) ||
-        u.email.toLowerCase().includes(q)
-      )
-      .sort((a, b) => {
-        const roleA = ROLE_ORDER[a.role] ?? 99;
-        const roleB = ROLE_ORDER[b.role] ?? 99;
-        if (roleA !== roleB) return roleA - roleB;
-        return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-      });
-  }, [users, search]);
+  const sortedUsers = useMemo(() => {
+    return [...users].sort((a, b) => {
+      // 1) Захищені акаунти завжди йдуть першими, у фіксованому порядку.
+      const pa = PROTECTED_ACCOUNTS[a.email.toLowerCase()] ?? 0;
+      const pb = PROTECTED_ACCOUNTS[b.email.toLowerCase()] ?? 0;
+      if (pa && pb) return pa - pb;
+      if (pa) return -1;
+      if (pb) return 1;
+      // 2) Решта — за рівнем ролі.
+      const roleA = ROLE_ORDER[a.role] ?? 99;
+      const roleB = ROLE_ORDER[b.role] ?? 99;
+      if (roleA !== roleB) return roleA - roleB;
+      // 3) Усередині ролі — за датою реєстрації (старіші перші).
+      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    });
+  }, [users]);
 
   const roleCounts = useMemo(() => {
     const counts: Record<string, number> = { ADMIN: 0, MANAGER: 0, TEACHER: 0, STUDENT: 0 };
@@ -246,22 +310,6 @@ export default function AdminUsersPage() {
         <Kpi theme={theme} icon={HiOutlineUserCircle} label="Студентів" value={roleCounts.STUDENT.toLocaleString()} tone="success" />
       </div>
 
-      {/* Search */}
-      <div className="mb-5 relative">
-        <HiOutlineMagnifyingGlass className={`absolute left-4 top-1/2 -translate-y-1/2 text-[16px] ${dark ? 'text-slate-500' : 'text-stone-500'}`} />
-        <input
-          type="text"
-          placeholder="Пошук за імʼям або email…"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          className={`w-full pl-11 pr-4 py-2.5 rounded-xl text-[13px] border backdrop-blur-sm transition-all outline-none ${
-            dark
-              ? 'bg-white/[0.04] border-white/[0.08] text-slate-200 placeholder:text-slate-500 focus:bg-white/[0.06] focus:border-amber-500/40'
-              : 'bg-white/70 border-stone-300/50 text-stone-800 placeholder:text-stone-500 focus:bg-white focus:border-amber-500/50'
-          }`}
-        />
-      </div>
-
       {/* Table */}
       <AdminPanel theme={theme} padding="p-0">
         {loading ? (
@@ -276,7 +324,6 @@ export default function AdminUsersPage() {
                   <Th theme={theme}>Користувач</Th>
                   <Th theme={theme}>Email</Th>
                   <Th theme={theme}>Роль</Th>
-                  <Th theme={theme}>Курсів</Th>
                   <Th theme={theme}>Реєстрація</Th>
                   <Th theme={theme}>Останній логін</Th>
                   <Th theme={theme}>Змінити</Th>
@@ -284,7 +331,7 @@ export default function AdminUsersPage() {
                 </tr>
               </thead>
               <tbody className={dark ? 'divide-y divide-white/[0.04]' : 'divide-y divide-stone-200/60'}>
-                {filteredAndSorted.map(user => (
+                {sortedUsers.map(user => (
                   <tr key={user.id} className={dark ? 'hover:bg-white/[0.02]' : 'hover:bg-stone-50/60'}>
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-3">
@@ -301,17 +348,45 @@ export default function AdminUsersPage() {
                             (user.name?.[0] || user.email?.[0] || '?').toUpperCase()
                           )}
                         </div>
-                        <span className={`text-[13px] font-medium ${dark ? 'text-slate-100' : 'text-stone-900'}`}>
-                          {user.name || '—'}
-                        </span>
+                        {editingNameId === user.id ? (
+                          <input
+                            autoFocus
+                            type="text"
+                            value={editingNameValue}
+                            onChange={e => setEditingNameValue(e.target.value)}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLInputElement).blur(); }
+                              else if (e.key === 'Escape') { e.preventDefault(); cancelEditName(); }
+                            }}
+                            onBlur={() => saveName(user.id)}
+                            maxLength={200}
+                            disabled={updatingId === user.id}
+                            placeholder="Прізвище Імʼя"
+                            className={`text-[13px] font-medium px-2 py-1 rounded-md border outline-none min-w-0 w-48 ${
+                              dark
+                                ? 'bg-white/[0.06] border-amber-500/40 text-slate-100 placeholder:text-slate-500'
+                                : 'bg-white border-amber-500/50 text-stone-900 placeholder:text-stone-400'
+                            }`}
+                          />
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => startEditName(user)}
+                            title="Клацніть щоб перейменувати"
+                            className={`text-[13px] font-medium text-left px-0.5 -mx-0.5 rounded transition-colors ${
+                              dark
+                                ? 'text-slate-100 hover:bg-white/[0.05] hover:text-amber-200'
+                                : 'text-stone-900 hover:bg-stone-200/50 hover:text-amber-800'
+                            }`}
+                          >
+                            {user.name || <span className={dark ? 'text-slate-500 italic' : 'text-stone-400 italic'}>додати імʼя</span>}
+                          </button>
+                        )}
                       </div>
                     </td>
                     <td className={`px-5 py-3 text-[12px] ${dark ? 'text-slate-400' : 'text-stone-600'}`}>{user.email}</td>
                     <td className="px-5 py-3">
                       <RolePill theme={theme} role={user.role} />
-                    </td>
-                    <td className={`px-5 py-3 text-[12px] tabular-nums ${dark ? 'text-slate-300' : 'text-stone-700'}`}>
-                      {user._count.enrollments}
                     </td>
                     <td className={`px-5 py-3 text-[12px] ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
                       {new Date(user.createdAt).toLocaleDateString('uk-UA')}
@@ -336,24 +411,35 @@ export default function AdminUsersPage() {
                       </select>
                     </td>
                     <td className="px-5 py-3">
-                      <button
-                        onClick={() => deleteUser(user.id, user.name || user.email)}
-                        disabled={updatingId === user.id}
-                        title="Видалити користувача"
-                        className={`p-2 rounded-lg transition-colors disabled:opacity-50 ${
-                          dark
-                            ? 'text-slate-500 hover:text-rose-300 hover:bg-rose-500/10'
-                            : 'text-stone-500 hover:text-rose-700 hover:bg-rose-500/10'
-                        }`}
-                      >
-                        <HiOutlineTrash className="text-[15px]" />
-                      </button>
+                      {PROTECTED_ACCOUNTS[user.email.toLowerCase()] ? (
+                        <span
+                          title="Захищений акаунт — видалення заборонено"
+                          className={`p-2 rounded-lg inline-flex items-center ${
+                            dark ? 'text-slate-700' : 'text-stone-300'
+                          }`}
+                        >
+                          <HiOutlineLockClosed className="text-[15px]" />
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => deleteUser(user.id, user.name || user.email)}
+                          disabled={updatingId === user.id}
+                          title="Видалити користувача"
+                          className={`p-2 rounded-lg transition-colors disabled:opacity-50 ${
+                            dark
+                              ? 'text-slate-500 hover:text-rose-300 hover:bg-rose-500/10'
+                              : 'text-stone-500 hover:text-rose-700 hover:bg-rose-500/10'
+                          }`}
+                        >
+                          <HiOutlineTrash className="text-[15px]" />
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
-                {filteredAndSorted.length === 0 && (
+                {sortedUsers.length === 0 && (
                   <tr>
-                    <td colSpan={8} className={`px-5 py-12 text-center text-[13px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+                    <td colSpan={7} className={`px-5 py-12 text-center text-[13px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
                       Користувачів не знайдено
                     </td>
                   </tr>
@@ -427,6 +513,14 @@ export default function AdminUsersPage() {
                     ))}
                   </select>
                 </ModalField>
+
+                <div className={`text-[11px] leading-relaxed px-3 py-2 rounded-lg border ${
+                  dark
+                    ? 'bg-amber-500/[0.06] border-amber-500/20 text-amber-200/80'
+                    : 'bg-amber-500/[0.08] border-amber-500/25 text-amber-900/80'
+                }`}>
+                  Передайте користувачу тільки email. Пароль він задасть сам при першому вході — введений пароль автоматично стане постійним.
+                </div>
               </div>
 
               <div className="mt-6 flex gap-3">
