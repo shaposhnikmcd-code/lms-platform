@@ -18,6 +18,8 @@ interface Props {
   price: string;
   currency: string;
   btnOrder: string;
+  deliveryBadgeMain?: string;
+  deliveryBadgeNote?: string;
   onOrder: () => void;
 }
 
@@ -189,7 +191,7 @@ const imageStyle: React.CSSProperties = {
   borderRadius: '12px',
 };
 
-export default function GamesHero({ pageTitle, gameTitle, gameSubtitle, cards, price, currency, btnOrder, onOrder }: Props) {
+export default function GamesHero({ pageTitle, gameTitle, gameSubtitle, cards, price, currency, btnOrder, deliveryBadgeMain = '📦 Доставка Нова пошта', deliveryBadgeNote = '(оплачується додатково)', onOrder }: Props) {
   return (
     <section style={heroBgStyle}>
       <div style={heroInnerStyle} className="games-hero-grid">
@@ -215,8 +217,8 @@ export default function GamesHero({ pageTitle, gameTitle, gameSubtitle, cards, p
               </div>
             </div>
             <div style={deliveryBadgeStyle}>
-              <span>{"📦 Доставка Нова пошта"}</span>
-              <span>{"(оплачується додатково)"}</span>
+              <span>{deliveryBadgeMain}</span>
+              <span>{deliveryBadgeNote}</span>
             </div>
           </div>
           <button style={btnOrderStyle} onClick={onOrder}>

@@ -179,7 +179,12 @@
     "bundlePriceLabel": "bundle price",
     "bundleSave": "You save",
     "bundleBadge": "Bundle",
-    "bundleBuy": "Buy bundle"
+    "bundleBuy": "Buy bundle",
+    "bundleFreeBadge": "+{count} FREE",
+    "bundleYourGift": "🎁 Your gift",
+    "bundleChooseCourses": "{count, plural, one {Choose # course} other {Choose # courses}}",
+    "bundleFreeCoursesCount": "{count, plural, one {# course free} other {# courses free}}",
+    "bundleGiftStrip": "AS A GIFT"
   },
   "HomePage": {
     "supportLabel": "UIMP Support",
@@ -310,7 +315,19 @@
     "alertPhone": "Please provide a phone number",
     "errorPayment": "Payment creation error",
     "errorPaymentRetry": "Payment error. Please try again.",
-    "alertLogin": "Please sign in before paying"
+    "alertLogin": "Please sign in before paying",
+    "payTypeLabel": "Payment type",
+    "alertPayType": "Choose a payment type",
+    "payOneTimeKicker": "ONE-TIME",
+    "payOneTimeUnit": "one-time",
+    "payOneTimeHint": "30 days of access · no auto-charges",
+    "payRecurringKicker": "AUTO-CHARGE · 9 MO.",
+    "payRecurringUnit": "/mo · 9 times",
+    "payRecurringHint": "Card auto-charge · total {total} UAH",
+    "payCurrency": "UAH",
+    "recurringNotice": "The card will be charged automatically {price} UAH per month, 9 times. After the 9th payment, charges stop. You can cancel anytime by contacting our tech support. Contact info is on the About page.",
+    "testModeBadge": "🔧 Test mode: {price} UAH",
+    "testModePromo": "In test mode, the promo code is not applied — the price is already {price} UAH."
   },
   "ConsultationLink": {
     "badge": "Personal consultation",

@@ -179,7 +179,12 @@
     "bundlePriceLabel": "cena pakietu",
     "bundleSave": "Oszczędzasz",
     "bundleBadge": "Pakiet",
-    "bundleBuy": "Kup pakiet"
+    "bundleBuy": "Kup pakiet",
+    "bundleFreeBadge": "+{count} DARMOWE",
+    "bundleYourGift": "🎁 Twój prezent",
+    "bundleChooseCourses": "{count, plural, one {Wybierz # kurs} few {Wybierz # kursy} many {Wybierz # kursów} other {Wybierz # kursów}}",
+    "bundleFreeCoursesCount": "{count, plural, one {# kurs za darmo} few {# kursy za darmo} many {# kursów za darmo} other {# kursów za darmo}}",
+    "bundleGiftStrip": "W PREZENCIE"
   },
   "HomePage": {
     "supportLabel": "Obsługa UIMP",
@@ -310,7 +315,19 @@
     "alertPhone": "Podaj numer telefonu",
     "errorPayment": "Błąd tworzenia płatności",
     "errorPaymentRetry": "Błąd płatności. Spróbuj ponownie.",
-    "alertLogin": "Zaloguj się przed dokonaniem płatności"
+    "alertLogin": "Zaloguj się przed dokonaniem płatności",
+    "payTypeLabel": "Rodzaj płatności",
+    "alertPayType": "Wybierz rodzaj płatności",
+    "payOneTimeKicker": "JEDNORAZOWA",
+    "payOneTimeUnit": "jednorazowo",
+    "payOneTimeHint": "30 dni dostępu · bez automatycznych obciążeń",
+    "payRecurringKicker": "AUTOPŁATNOŚĆ · 9 MIES.",
+    "payRecurringUnit": "/mies · 9 razy",
+    "payRecurringHint": "Automatyczne obciążenie karty · razem {total} UAH",
+    "payCurrency": "UAH",
+    "recurringNotice": "Karta będzie obciążana automatycznie {price} UAH miesięcznie, 9 razy. Po 9. płatności obciążanie się zakończy. Można anulować w każdej chwili, pisząc do naszego wsparcia technicznego. Kontakt znajdziesz na stronie O nas.",
+    "testModeBadge": "🔧 Tryb testowy: {price} UAH",
+    "testModePromo": "W trybie testowym promokod nie jest stosowany — cena już wynosi {price} UAH."
   },
   "ConsultationLink": {
     "badge": "Osobista konsultacja",

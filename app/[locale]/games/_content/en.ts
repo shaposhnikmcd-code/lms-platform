@@ -14,6 +14,8 @@ export const gamesContent = {
   price: "1099",
   deliveryNote: "Please note: the cost of delivery according to Nova Poshta tariffs is paid by the customer. In the case of address delivery, you additionally pay the cost of delivery to our card, and we then pay the carrier — these are the conditions of Nova Poshta.",
   btnOrder: "Order",
+  deliveryBadgeMain: "📦 Nova Poshta delivery",
+  deliveryBadgeNote: "(charged separately)",
   comingSoon: "We are already working on new games",
   form: {
     title: "Place an Order",

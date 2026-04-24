@@ -186,7 +186,12 @@
     "bundlePriceLabel": "ціна пакету",
     "bundleSave": "Економія",
     "bundleBadge": "Пакет",
-    "bundleBuy": "Купити пакет"
+    "bundleBuy": "Купити пакет",
+    "bundleFreeBadge": "+{count} БЕЗКОШТОВНО",
+    "bundleYourGift": "🎁 Ваш подарунок",
+    "bundleChooseCourses": "{count, plural, one {Оберіть один курс} few {Оберіть # курси} other {Оберіть # курсів}}",
+    "bundleFreeCoursesCount": "{count, plural, one {# курс безкоштовно} few {# курси безкоштовно} other {# курсів безкоштовно}}",
+    "bundleGiftStrip": "У ПОДАРУНОК"
   },
   "Common": {
     "underConstruction": "Сторінка в розробці",
@@ -263,7 +268,19 @@
     "alertPhone": "Вкажіть телефон",
     "errorPayment": "Помилка створення платежу",
     "errorPaymentRetry": "Помилка при створенні платежу. Спробуйте ще раз.",
-    "alertLogin": "Будь ласка, увійдіть в акаунт перед оплатою"
+    "alertLogin": "Будь ласка, увійдіть в акаунт перед оплатою",
+    "payTypeLabel": "Тип оплати",
+    "alertPayType": "Оберіть тип оплати",
+    "payOneTimeKicker": "РАЗОВА",
+    "payOneTimeUnit": "одноразово",
+    "payOneTimeHint": "30 днів доступу · без автосписань",
+    "payRecurringKicker": "АВТОПЛАТІЖ · 9 МІС.",
+    "payRecurringUnit": "/міс · 9 разів",
+    "payRecurringHint": "Автосписання з картки · разом {total} грн",
+    "payCurrency": "грн",
+    "recurringNotice": "Картка списуватиметься автоматично {price} грн щомісяця, 9 разів. Після 9-го платежу списання припиняється. Скасувати можна будь-коли написавши нам в Тех. підтримку. Контакти можна знайти на сторінці Про нас",
+    "testModeBadge": "🔧 Тестовий режим: {price} грн",
+    "testModePromo": "У тестовому режимі промо не застосовується — ціна вже {price} грн."
   },
   "ConsultationLink": {
     "badge": "Особиста консультація",

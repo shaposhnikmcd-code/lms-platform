@@ -91,7 +91,7 @@ export default function CoursePurchaseDialog({
     if (!promoCode.trim()) return;
     if (isAdmin) {
       // У тестовому режимі промокод не потрібен — ціна вже 1 ₴.
-      setPromoError(`У тестовому режимі промо не застосовується — ціна вже ${adminTestPrice} ₴.`);
+      setPromoError(t('testModePromo', { price: adminTestPrice }));
       return;
     }
     setPromoLoading(true);
@@ -132,7 +132,7 @@ export default function CoursePurchaseDialog({
     if (!firstName.trim()) next.firstName = t('alertFirstName');
     if (!lastName.trim()) next.lastName = t('alertLastName');
     if (!phone.trim()) next.phone = t('alertPhone');
-    if (allowRecurringChoice && isRecurring === null) next.payType = 'Оберіть тип оплати';
+    if (allowRecurringChoice && isRecurring === null) next.payType = t('alertPayType');
     if (Object.keys(next).length > 0) {
       setErrors(next);
       return;
@@ -230,7 +230,7 @@ export default function CoursePurchaseDialog({
             <h2 className="text-xl sm:text-2xl font-bold text-gray-900 pr-10">{courseName}</h2>
             {isAdmin && (
               <div className="mt-2 inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-amber-100 text-amber-800 text-xs font-semibold border border-amber-300/50">
-                🔧 Тестовий режим: {adminTestPrice} ₴
+                {t('testModeBadge', { price: adminTestPrice })}
               </div>
             )}
           </div>
@@ -313,15 +313,15 @@ export default function CoursePurchaseDialog({
             {allowRecurringChoice && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Тип оплати <span className="text-red-500">*</span>
+                  {t('payTypeLabel')} <span className="text-red-500">*</span>
                 </label>
                 <div className="grid grid-cols-2 gap-3">
                   {([
                     {
                       value: false as const,
-                      kicker: 'РАЗОВА',
-                      unit: 'одноразово',
-                      hint: '30 днів доступу · без автосписань',
+                      kicker: t('payOneTimeKicker'),
+                      unit: t('payOneTimeUnit'),
+                      hint: t('payOneTimeHint'),
                       icon: (
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
                           <rect x="3" y="6" width="18" height="13" rx="2" />
@@ -332,9 +332,9 @@ export default function CoursePurchaseDialog({
                     },
                     {
                       value: true as const,
-                      kicker: 'АВТОПЛАТІЖ · 9 МІС.',
-                      unit: '/міс · 9 разів',
-                      hint: `Автосписання з картки · разом ${(price * 9).toLocaleString('uk-UA')} ₴`,
+                      kicker: t('payRecurringKicker'),
+                      unit: t('payRecurringUnit'),
+                      hint: t('payRecurringHint', { total: (price * 9).toLocaleString('uk-UA') }),
                       icon: (
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
                           <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
@@ -399,7 +399,7 @@ export default function CoursePurchaseDialog({
                           >
                             {price.toLocaleString('uk-UA')}
                           </span>
-                          <span className="text-[11px] font-bold text-[#1C3A2E]">₴</span>
+                          <span className="text-[11px] font-bold text-[#1C3A2E]">{t('payCurrency')}</span>
                           <span
                             className={`text-[10px] font-medium ${
                               selected ? 'text-[#1C3A2E]/70' : 'text-[#1C3A2E]/60'
@@ -428,7 +428,7 @@ export default function CoursePurchaseDialog({
                       <path d="M7 11V8a5 5 0 0 1 10 0v3" />
                     </svg>
                     <span>
-                      Картка списуватиметься автоматично <b>{price.toLocaleString('uk-UA')} ₴ щомісяця, 9 разів</b>. Після 9-го платежу списання припиняється. Скасувати можна будь-коли написавши нам в Тех. підтримку. Контакти можна знайти на сторінці Про нас
+                      {t('recurringNotice', { price: price.toLocaleString('uk-UA') })}
                     </span>
                   </div>
                 )}

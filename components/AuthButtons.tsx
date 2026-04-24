@@ -4,7 +4,7 @@ import Image from "next/image";
 import { useSession, signOut } from "next-auth/react";
 import { FaUser } from 'react-icons/fa';
 import { useTranslations } from 'next-intl';
-import { Link } from '@/i18n/navigation';
+import Link from 'next/link';
 
 export default function AuthButtons() {
   const { data: session, status } = useSession();

@@ -86,6 +86,8 @@ interface Content {
   price: string;
   deliveryNote: string;
   btnOrder: string;
+  deliveryBadgeMain?: string;
+  deliveryBadgeNote?: string;
   comingSoon: string;
   form: FormLabels;
 }
@@ -108,6 +110,8 @@ export default function GamesPageClient({ content, currency }: Props) {
         price={content.price}
         currency={currency}
         btnOrder={content.btnOrder}
+        deliveryBadgeMain={content.deliveryBadgeMain}
+        deliveryBadgeNote={content.deliveryBadgeNote}
         onOrder={() => setShowOrderForm(true)}
       />
       <GamesAbout desc1={content.desc1} desc2={content.desc2} desc3={content.desc3} />

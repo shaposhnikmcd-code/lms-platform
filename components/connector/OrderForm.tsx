@@ -452,6 +452,7 @@ export default function OrderForm({ isOpen, onClose, labels }: OrderFormProps) {
                 label={l.countryLabel}
                 selectedCode={formData.country}
                 onSelect={handleCountrySelect}
+                countries={l.countries}
               />
 
               <DeliveryTypeSelector

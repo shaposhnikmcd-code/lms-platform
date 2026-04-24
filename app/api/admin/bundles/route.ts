@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { isAdmin } from "@/lib/adminAuth";
 import { revalidateLocalized } from "@/lib/revalidatePaths";
+import { translateBundleTitle } from "@/lib/translateBundle";
 import type { BundleType } from "@prisma/client";
 
 interface BundleCourseInput {
@@ -128,9 +129,12 @@ export async function POST(req: NextRequest) {
   const minSort = await prisma.bundle.aggregate({ _min: { sortOrder: true } });
   const newSortOrder = (minSort._min.sortOrder ?? 0) - 1;
 
+  const translations = await translateBundleTitle(title);
+
   const bundle = await prisma.bundle.create({
     data: {
       title,
+      ...translations,
       slug,
       price: finalPrice,
       imageUrl: imageUrl || null,

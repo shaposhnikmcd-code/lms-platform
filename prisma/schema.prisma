@@ -440,6 +440,8 @@ enum VideoProvider {
 model Bundle {
   id          String         @id @default(cuid())
   title       String
+  titleEn     String?
+  titlePl     String?
   description String?
   slug        String         @unique
   price       Int

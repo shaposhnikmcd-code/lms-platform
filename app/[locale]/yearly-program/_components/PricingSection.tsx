@@ -4,15 +4,21 @@ import { YEARLY_PROGRAM } from '../config';
 type Props = {
   t: {
     title: string;
+    subtitle?: string;
     badge: string;
     yearTitle: string;
     yearSubtitle: string;
     currency: string;
+    yearOneTime?: string;
+    yearBenefit1?: string;
+    yearBenefitSavings?: string;
     btnYear: string;
     courseNameYear: string;
     monthTitle: string;
     monthSubtitle: string;
+    monthInstallment?: string;
     currencyMonth: string;
+    monthCalc?: string;
     monthsCalc: string;
     promoText: string;
     btnMonth: string;
@@ -46,7 +52,7 @@ export default function PricingSection({ t }: Props) {
     <section id="price" className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-14">
       <div className="text-center mb-8">
         <h2 className="text-2xl md:text-3xl font-bold text-[#1C3A2E]">{t.title}</h2>
-        <p className="text-sm text-gray-500 mt-2">Оберіть зручний варіант оплати — одноразово на рік або автосписання щомісяця</p>
+        <p className="text-sm text-gray-500 mt-2">{t.subtitle ?? 'Оберіть зручний варіант оплати — одноразово на рік або автосписання щомісяця'}</p>
       </div>
 
       <div className="grid md:grid-cols-2 gap-5">
@@ -65,7 +71,7 @@ export default function PricingSection({ t }: Props) {
                 <span className="text-5xl font-black text-white tracking-tight">{YEARLY_PROGRAM.price}</span>
                 <span className="text-white/50 text-sm font-medium">{t.currency}</span>
               </div>
-              <p className="text-white/60 text-xs mb-5">Одноразовий платіж · Доступ на весь час програми</p>
+              <p className="text-white/60 text-xs mb-5">{t.yearOneTime ?? 'Одноразовий платіж · Доступ на весь час програми'}</p>
 
               <div className="w-16 h-px bg-gradient-to-r from-transparent via-[#D4A017]/40 to-transparent mx-auto mb-5" />
 
@@ -73,11 +79,11 @@ export default function PricingSection({ t }: Props) {
               <ul className="text-left text-white/80 text-[13px] space-y-2 mb-6 max-w-[280px] mx-auto">
                 <li className="flex items-start gap-2">
                   <span className="text-[#D4A017] mt-0.5">✓</span>
-                  <span>Одна оплата — весь курс на 9 місяців</span>
+                  <span>{t.yearBenefit1 ?? 'Одна оплата — весь курс на 9 місяців'}</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-[#D4A017] mt-0.5">✓</span>
-                  <span>Економія {premium.toLocaleString('uk-UA')} ₴</span>
+                  <span>{(t.yearBenefitSavings ?? 'Економія {amount} грн').replace('{amount}', premium.toLocaleString('uk-UA'))}</span>
                 </li>
               </ul>
 
@@ -101,14 +107,17 @@ export default function PricingSection({ t }: Props) {
         <div className="relative rounded-2xl border border-[#1C3A2E]/10 bg-white overflow-hidden h-full">
           <div className="px-6 py-8 text-center flex flex-col h-full">
             <h3 className="text-lg font-bold text-[#1C3A2E] mb-1 mt-4">{t.monthTitle}</h3>
-            <p className="text-gray-400 text-sm mb-5">Розсрочка на 9 місяців програми</p>
+            <p className="text-gray-400 text-sm mb-5">{t.monthInstallment ?? 'Розсрочка на 9 місяців програми'}</p>
 
             <div className="flex items-baseline justify-center gap-1.5 mb-2">
               <span className="text-5xl font-black text-[#1C3A2E] tracking-tight">{YEARLY_PROGRAM.monthlyPrice}</span>
               <span className="text-gray-400 text-sm font-medium">{t.currencyMonth}</span>
             </div>
             <p className="text-gray-400 text-xs mb-5">
-              {TOTAL_MONTHLY_PAYMENTS} платежів × {YEARLY_PROGRAM.monthlyPrice} ₴ = {totalMonthly.toLocaleString('uk-UA')} ₴
+              {(t.monthCalc ?? '{count} платежів × {price} грн = {total} грн')
+                .replace('{count}', String(TOTAL_MONTHLY_PAYMENTS))
+                .replace('{price}', String(YEARLY_PROGRAM.monthlyPrice))
+                .replace('{total}', totalMonthly.toLocaleString('uk-UA'))}
             </p>
 
             <div className="w-16 h-px bg-gray-200 mx-auto mb-5" />

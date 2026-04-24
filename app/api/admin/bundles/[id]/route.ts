@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { isAdmin } from "@/lib/adminAuth";
 import { revalidateLocalized } from "@/lib/revalidatePaths";
+import { translateBundleTitle } from "@/lib/translateBundle";
 import type { BundleType } from "@prisma/client";
 
 interface BundleCourseInput {
@@ -138,7 +139,16 @@ export async function PATCH(
   }
 
   const updateData: Record<string, unknown> = {};
-  if (title !== undefined) updateData.title = title;
+  if (title !== undefined) {
+    updateData.title = title;
+    // Re-translate EN/PL тільки коли заголовок реально змінили (щоб не палити DeepL квоту на toggle-патчах).
+    const current = await prisma.bundle.findUnique({ where: { id }, select: { title: true } });
+    if (!current || current.title !== title) {
+      const translations = await translateBundleTitle(title);
+      updateData.titleEn = translations.titleEn;
+      updateData.titlePl = translations.titlePl;
+    }
+  }
   if (slug !== undefined) updateData.slug = slug;
   if (imageUrl !== undefined) updateData.imageUrl = imageUrl;
   if (published !== undefined) updateData.published = published;

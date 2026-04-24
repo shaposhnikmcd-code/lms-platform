@@ -9,11 +9,17 @@ interface Props {
   label: string;
   selectedCode: string;
   onSelect: (code: string) => void;
+  /** Локалізовані назви країн. Ключ — код (UA/PL/EN), значення — назва цією мовою.
+   *  Список країн беремо з ALL_COUNTRIES (канонічний deliverable-список), а тільки
+   *  назви замінюємо на переклад. Якщо перекладу немає — fallback на назву з constants. */
+  countries?: { code: string; name: string }[];
 }
 
-export default function CountrySelector({ label, selectedCode, onSelect }: Props) {
+export default function CountrySelector({ label, selectedCode, onSelect, countries }: Props) {
   const [showDropdown, setShowDropdown] = useState(false);
-  const selected = ALL_COUNTRIES.find(c => c.code === selectedCode);
+  const nameByCode = new Map((countries ?? []).map(c => [c.code, c.name]));
+  const localized = ALL_COUNTRIES.map(c => ({ code: c.code, name: nameByCode.get(c.code) ?? c.name }));
+  const selected = localized.find(c => c.code === selectedCode);
 
   return (
     <div>
@@ -33,7 +39,7 @@ export default function CountrySelector({ label, selectedCode, onSelect }: Props
         </button>
         {showDropdown && (
           <div className="absolute z-50 top-full left-0 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
-            {ALL_COUNTRIES.map(c => (
+            {localized.map(c => (
               <button
                 key={c.code}
                 type="button"

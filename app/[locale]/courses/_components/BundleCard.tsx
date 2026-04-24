@@ -39,6 +39,12 @@ type Props = {
   slug: string;
   buyLabel: string;
   benefits: Benefit[];
+  /** Локалізовані підписи. Передаються із серверного page.tsx через t(). */
+  freeBadgeLabel?: string;
+  yourGiftLabel?: string;
+  chooseCoursesLabel?: string;
+  freeCoursesCountLabel?: string;
+  giftStripLabel?: string;
   layout?: 'full' | 'compact';
   /** Міні-режим для адмінки: пропускає autoTuner/hover/drag, статичний рендер.
    * Використовується для Row View в /dashboard/admin/bundles. */
@@ -56,10 +62,16 @@ export default function BundleCard({
   freeCount = 0,
   currency,
   priceLabel,
+  bundleLabel = 'ПАКЕТ',
   saveLabel,
   slug,
   buyLabel,
   benefits,
+  freeBadgeLabel,
+  yourGiftLabel = '🎁 Ваш подарунок',
+  chooseCoursesLabel,
+  freeCoursesCountLabel,
+  giftStripLabel = 'У ПОДАРУНОК',
   layout = 'full',
   miniature = false,
   forcedHeight,
@@ -359,7 +371,7 @@ export default function BundleCard({
           }}>
             <span style={{ fontSize: 12 }}>📦</span>
             <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.28em', textTransform: 'uppercase' as const, color: '#D4A843', fontFamily: sysFont }}>
-              ПАКЕТ
+              {bundleLabel}
             </span>
           </div>
           {bundleType === 'DISCOUNT' && savings > 0 && (
@@ -378,7 +390,7 @@ export default function BundleCard({
               background: '#059669', borderRadius: 100, padding: '4px 12px',
             }}>
               <span style={{ fontSize: 10, fontWeight: 700, color: 'white', fontFamily: sysFont }}>
-                +{freeCount} БЕЗКОШТОВНО
+                {freeBadgeLabel ?? `+${freeCount} БЕЗКОШТОВНО`}
               </span>
             </div>
           )}
@@ -618,13 +630,13 @@ export default function BundleCard({
                 fontSize: 8, fontWeight: 700, letterSpacing: '0.26em',
                 textTransform: 'uppercase' as const, color: 'rgba(70,48,10,0.55)', fontFamily: sysFont,
               }}>
-                🎁 Ваш подарунок
+                {yourGiftLabel}
               </span>
               <span style={{
                 fontSize: 13, fontWeight: 800, letterSpacing: '-0.01em',
                 color: '#3A2608', fontFamily: sysFont,
               }}>
-                {(() => {
+                {freeCoursesCountLabel ?? (() => {
                   const n = freeCourses.length;
                   const word = n === 1 ? 'курс' : (n >= 2 && n <= 4) ? 'курси' : 'курсів';
                   return `${n} ${word} безкоштовно`;
@@ -645,7 +657,7 @@ export default function BundleCard({
                 } : {}),
               }}
             >
-              <FreeCourseMini course={freeCourses[0]} currency={currency} layout={layout} benefits={benefits} equalPair />
+              <FreeCourseMini course={freeCourses[0]} currency={currency} layout={layout} benefits={benefits} equalPair giftStripLabel={giftStripLabel} />
               {renderInlineCtaCard()}
             </div>
           ) : (
@@ -654,7 +666,7 @@ export default function BundleCard({
               style={{ gap: layout === 'compact' ? 8 : 14 }}
             >
               {freeCourses.map((c) => (
-                <FreeCourseMini key={c.slug} course={c} currency={currency} layout={layout} benefits={benefits} slim={freeCourses.length === 4} equalPair={isPairLayout} />
+                <FreeCourseMini key={c.slug} course={c} currency={currency} layout={layout} benefits={benefits} slim={freeCourses.length === 4} equalPair={isPairLayout} giftStripLabel={giftStripLabel} />
               ))}
             </div>
           )}
@@ -689,13 +701,13 @@ export default function BundleCard({
                 fontSize: 8, fontWeight: 700, letterSpacing: '0.26em',
                 textTransform: 'uppercase' as const, color: 'rgba(70,48,10,0.55)', fontFamily: sysFont,
               }}>
-                🎁 Ваш подарунок
+                {yourGiftLabel}
               </span>
               <span style={{
                 fontSize: 13, fontWeight: 800, letterSpacing: '-0.01em',
                 color: '#3A2608', fontFamily: sysFont,
               }}>
-                {freeCount > 1 ? `Оберіть ${freeCount} курси` : 'Оберіть один курс'}
+                {chooseCoursesLabel ?? (freeCount > 1 ? `Оберіть ${freeCount} курси` : 'Оберіть один курс')}
               </span>
             </div>
 
@@ -756,6 +768,7 @@ export default function BundleCard({
                     isSelected={isSelected}
                     slim={freeCourses.length === 4}
                     equalPair={isPairLayout}
+                    giftStripLabel={giftStripLabel}
                   />
                 </button>
               );
@@ -915,6 +928,7 @@ function FreeCourseMini({
   isSelected = false,
   slim = false,
   equalPair = false,
+  giftStripLabel = 'У ПОДАРУНОК',
 }: {
   course: BundleCourse;
   currency: string;
@@ -927,6 +941,7 @@ function FreeCourseMini({
   isSelected?: boolean;
   slim?: boolean;
   equalPair?: boolean;
+  giftStripLabel?: string;
 }) {
   const tagColor = '#D4A843';
   const showShimmer = !dimmed && !isSelected;
@@ -1028,7 +1043,7 @@ function FreeCourseMini({
           color: 'rgba(255,255,255,0.7)',
           lineHeight: 1,
         }}>
-          У ПОДАРУНОК
+          {giftStripLabel}
         </span>
         <span aria-hidden style={{
           width: 3, height: 3, borderRadius: '50%',

@@ -268,6 +268,12 @@ export default async function CoursesPage({ params }: { params: Promise<{ locale
                 }
               }
 
+              const pickBundleTitle = (b: typeof bundles[number]): string => {
+                if (locale === 'en' && b.titleEn) return b.titleEn;
+                if (locale === 'pl' && b.titlePl) return b.titlePl;
+                return b.title;
+              };
+
               const renderBundle = (bundle: typeof bundles[number]) => {
                 const mapCourse = (bc: typeof bundle.courses[number]) => {
                   const info = COURSE_INFO[bc.courseSlug];
@@ -288,7 +294,7 @@ export default async function CoursesPage({ params }: { params: Promise<{ locale
                 return (
                   <BundleCard
                     key={bundle.id}
-                    title={bundle.title}
+                    title={pickBundleTitle(bundle)}
                     price={bundle.price}
                     slug={bundle.slug}
                     layout={layout}
@@ -302,6 +308,11 @@ export default async function CoursesPage({ params }: { params: Promise<{ locale
                     bundleLabel={t("bundleBadge")}
                     saveLabel={t("bundleSave")}
                     buyLabel={t("bundleBuy")}
+                    freeBadgeLabel={t("bundleFreeBadge", { count: bundle.freeCount })}
+                    yourGiftLabel={t("bundleYourGift")}
+                    chooseCoursesLabel={t("bundleChooseCourses", { count: bundle.freeCount || 1 })}
+                    freeCoursesCountLabel={t("bundleFreeCoursesCount", { count: freeCourses.length })}
+                    giftStripLabel={t("bundleGiftStrip")}
                   />
                 );
               };
