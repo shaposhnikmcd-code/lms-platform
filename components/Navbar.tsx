@@ -2,7 +2,6 @@
 
 import { usePathname } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { useSession } from "next-auth/react";
 import { Link } from "@/i18n/navigation";
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
@@ -12,16 +11,13 @@ import LanguageSwitcher from "@/components/LanguageSwitcher";
 
 export default function Navbar() {
   const pathname = usePathname();
-  const { status } = useSession();
   const [menuOpen, setMenuOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef<HTMLDivElement | null>(null);
+  const linksContainerRef = useRef<HTMLDivElement | null>(null);
+  const measureRef = useRef<HTMLDivElement | null>(null);
+  const [overflowCount, setOverflowCount] = useState(0);
   const t = useTranslations("Navigation");
-
-  // "Ще ▾" dropdown потрібен тільки коли юзер залогінений — тоді праворуч
-  // сидить аватар + "Вийти" (~220px), і 10 inline-посилань не влазять при
-  // 110%+ зумі. Для гостей місця достатньо — показуємо всі лінки inline.
-  const useMoreDropdown = status === "authenticated";
 
   const isActivePath = (path: string) => {
     const clean = pathname.replace(/^\/(uk|pl|en)/, '') || '/';
@@ -41,8 +37,8 @@ export default function Navbar() {
   // на кожен візит (було до 15 _rsc= на сторінку).
   type NavLink = { href: string; label: string; prefetch?: false };
 
-  // Основні посилання — завжди inline на desktop
-  const primaryLinks: NavLink[] = [
+  // Порядок від найважливішого до найменш — overflow тікає у "Ще" з кінця.
+  const allLinks: NavLink[] = [
     { href: "/", label: t("home") },
     { href: "/courses", label: t("courses") },
     { href: "/yearly-program", label: t("yearly-program") },
@@ -50,23 +46,62 @@ export default function Navbar() {
     { href: "/games", label: t("games") },
     { href: "/news", label: t("news") },
     { href: "/contacts", label: t("contacts") },
-  ];
-
-  // Другорядні — у dropdown "Ще ▾" на desktop, щоб навбар гарантовано
-  // влазив при будь-якому зумі на xl+ viewport (0 overflow).
-  const secondaryLinks: NavLink[] = [
     { href: "/charity", label: t("charity"), prefetch: false },
     { href: "/partners", label: t("partners"), prefetch: false },
     { href: "/additional-materials", label: t("additionalMaterials"), prefetch: false },
   ];
 
-  const allLinks: NavLink[] = [...primaryLinks, ...secondaryLinks];
-  const isMoreActive = secondaryLinks.some((l) => isActivePath(l.href));
   const isActive = (path: string) => isActivePath(path);
 
-  // Посилання для inline-рендеру на desktop. Для гостя — всі 10 inline.
-  // Для залогіненого — тільки primary (решта — у dropdown "Ще").
-  const desktopInlineLinks: NavLink[] = useMoreDropdown ? primaryLinks : allLinks;
+  const inlineCount = allLinks.length - overflowCount;
+  const inlineLinks = allLinks.slice(0, inlineCount);
+  const dropdownLinks = allLinks.slice(inlineCount);
+  const showMore = dropdownLinks.length > 0;
+  const isMoreActive = dropdownLinks.some((l) => isActivePath(l.href));
+
+  // Динамічний overflow: вимірюємо ширину кожного посилання + кнопки "Ще"
+  // у прихованому контейнері, рахуємо скільки вліземо в доступну ширину.
+  // ResizeObserver на реальному контейнері викликає перерахунок при resize/zoom.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const compute = () => {
+      const container = linksContainerRef.current;
+      const measure = measureRef.current;
+      if (!container || !measure) return;
+      const available = container.clientWidth;
+      const children = Array.from(measure.children) as HTMLElement[];
+      const linkWidths = children.slice(0, allLinks.length).map((el) => el.getBoundingClientRect().width);
+      const moreWidth = children[allLinks.length]?.getBoundingClientRect().width ?? 0;
+      const gap = 4; // gap-1 = 0.25rem
+
+      const fullTotal = linkWidths.reduce((s, x) => s + x, 0) + gap * Math.max(0, linkWidths.length - 1);
+      // -1 px tolerance проти sub-pixel округлень
+      if (fullTotal <= available + 1) {
+        setOverflowCount(0);
+        return;
+      }
+      // Не вміщається все — потрібна кнопка "Ще". Знаходимо максимальне k.
+      let kept = 0;
+      let acc = moreWidth;
+      for (let i = 0; i < linkWidths.length; i++) {
+        const nextAcc = acc + linkWidths[i] + gap;
+        if (nextAcc > available + 1) break;
+        acc = nextAcc;
+        kept = i + 1;
+      }
+      setOverflowCount(linkWidths.length - kept);
+    };
+
+    compute();
+    const ro = new ResizeObserver(compute);
+    if (linksContainerRef.current) ro.observe(linksContainerRef.current);
+    window.addEventListener("resize", compute);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", compute);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allLinks.length, t]);
 
   // Закриваємо dropdown при кліку поза ним або Escape
   useEffect(() => {
@@ -104,9 +139,12 @@ export default function Navbar() {
                 <Image src="/logo.jpg" alt="UIMP" width={40} height={40} className="rounded-full" />
               </div>
             </Link>
-            <div className="flex-1" />
-            <div className="flex items-center gap-1 flex-shrink-0" style={{ fontSize: 'clamp(10px, 1vw, 14px)' }}>
-              {desktopInlineLinks.map((link) => (
+            <div
+              ref={linksContainerRef}
+              className="flex-1 min-w-0 flex items-center justify-end gap-1"
+              style={{ fontSize: 'clamp(10px, 1vw, 14px)' }}
+            >
+              {inlineLinks.map((link) => (
                 <Link
                   key={link.href}
                   href={link.href}
@@ -116,7 +154,7 @@ export default function Navbar() {
                   {link.label}
                 </Link>
               ))}
-              {useMoreDropdown && (
+              {showMore && (
                 <div className="relative" ref={moreRef}>
                   <button
                     type="button"
@@ -140,7 +178,7 @@ export default function Navbar() {
                       role="menu"
                       className="absolute right-0 top-full mt-2 min-w-[200px] bg-white rounded-lg shadow-lg border border-black/5 py-1 z-50"
                     >
-                      {secondaryLinks.map((link) => (
+                      {dropdownLinks.map((link) => (
                         <Link
                           key={link.href}
                           href={link.href}
@@ -164,6 +202,34 @@ export default function Navbar() {
             <div className="flex items-center gap-2 flex-shrink-0">
               <LanguageSwitcher />
               <AuthButtons />
+            </div>
+            {/* Прихований контейнер для вимірювання ширини посилань.
+                Той самий fontSize/padding/whiteSpace — тому getBoundingClientRect
+                повертає точну ширину inline-варіанту. */}
+            <div
+              ref={measureRef}
+              aria-hidden="true"
+              style={{
+                position: 'absolute',
+                visibility: 'hidden',
+                pointerEvents: 'none',
+                left: -99999,
+                top: 0,
+                display: 'flex',
+                gap: 4,
+                fontSize: 'clamp(10px, 1vw, 14px)',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {allLinks.map((link) => (
+                <span key={link.href} className="px-2 py-1 rounded-md whitespace-nowrap">
+                  {link.label}
+                </span>
+              ))}
+              <span className="px-2 py-1 rounded-md inline-flex items-center gap-1 whitespace-nowrap">
+                {t("more")}
+                <FaChevronDown size={10} />
+              </span>
             </div>
           </div>
 

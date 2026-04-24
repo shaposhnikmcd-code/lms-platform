@@ -352,8 +352,12 @@ export default function BundleCard({
           : '0 4px 14px rgba(28,58,46,0.06), inset 0 1px 0 rgba(255,255,255,0.4)',
         transition: 'box-shadow 0.4s ease, transform 0.4s ease',
         transform: hovered ? 'translateY(-2px)' : 'translateY(0)',
-        height: forcedHeight ?? unifiedHeight,
-        overflow: forcedHeight !== undefined || unifiedHeight !== undefined ? 'hidden' : undefined,
+        // Rule #42: bundle адаптивний. forcedHeight (miniature preview) — фіксована висота
+        // з overflow:hidden щоб скейл не ламав. У нормі — minHeight (unifiedHeight як baseline);
+        // тюнер expandBundleIfNeeded() піднімає minHeight до naturalNeeded → описи ніколи не клiпаються.
+        height: forcedHeight,
+        minHeight: forcedHeight === undefined ? unifiedHeight : undefined,
+        overflow: forcedHeight !== undefined ? 'hidden' : undefined,
         // CSS var що autoTuner перераховує на клієнті — префіксуємо розумним
         // SSR-дефолтом щоб paid cards не стрибали на 80px коли tuner запускається.
         ['--tuned-paid-card-h' as string]: paidCardDefaultH,

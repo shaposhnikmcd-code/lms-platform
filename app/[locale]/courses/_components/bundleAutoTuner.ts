@@ -290,6 +290,26 @@
 //     диспропорції коли adjuster "роздуває" відступи у коротшого для fit-у в unifiedHeight.
 //     Не зачіпає CTA (rule #19/14) і не зачіпає free-cards (можна розширити за потреби).
 //     Реалізація: `syncBundleRow()` у кінці `autoTuneBundle()`.
+// 42. Адаптивна висота бандлу — картки НІКОЛИ не клiпаються; бандл росте під контент.
+//     Перекриває попередню "fixed unifiedHeight з overflow:hidden" модель де при довгому h3 +
+//     довгих описах cap стискав картки і desc обрізалось пів-літери benefits-стрипом.
+//     a) `computeCardHeightCaps` ДЕПРЕКЕЙТНО — cap скасований. Тюнер не передає cap у
+//        `equalizeAndGetMaxHeight` (paidCap=null, freeCap=null) → картки завжди беруть naturalMax.
+//     b) JSX root: `height` → `minHeight: unifiedHeight` (BundleCard.tsx:355). Бандл росте якщо
+//        sum(content) > unifiedHeight. `overflow:hidden` прибрано з root (картки залишають своє).
+//     c) Нова функція `expandBundleIfNeeded(root, cta)` запускається ПІСЛЯ STABILIZE_PASSES і
+//        ПЕРЕД adjuster: міряє padT+padB+sum(children offsetH + child.mb) з тимчасово знятим
+//        cta.marginTop:auto, виставляє `root.style.minHeight = needed` якщо needed > clientHeight.
+//        Idempotent: orig minHeight зберігається в `dataset.tunerOrigMinH`, скидається на
+//        кожному запуску. Skip для `forcedHeight` (miniature) — там фіксована висота важлива.
+//     d) `syncBundleRow` розширений: окрім paid-card висоти синхронізує також bundle minHeight
+//        серед mate-ів (same type/paid/free/top Y) до max(naturals). Сусідні бандли в ряду
+//        вирівнюються знизу автоматично; коротші отримують slack → adjuster (rule #39) рівномірно
+//        розподіляє по слотах.
+//     e) WebkitLineClamp:4 у JSX лишається як safety net (тексти 5+ рядків отримають ellipsis,
+//        але висота резервується точно під 4 рядки → клiпається тільки реально надлишковий 5+ рядок).
+//     Сумісність: bundles де naturalMax < unifiedHeight (короткі h3+descs) поведінкою не змінюються
+//     (cap=null повертає natural; bundle.minHeight = unifiedHeight як раніше).
 // 40. CAP calc враховує margin ОСТАННЬОГО grid-контейнера → CTA. У `computeCardHeightCaps`
 //     до `gapsTotal` додається `lastContainer.marginBottom` (lastContainer = freeContainer
 //     якщо є, інакше paidContainer). Раніше враховувався лише paid→free (коли обидва
@@ -537,9 +557,12 @@ export function autoTuneBundle(root: HTMLElement) {
   equalizeH4(freeCards, '[data-bundle-free-h4]');
   void root.offsetHeight;
 
-  const caps = computeCardHeightCaps(root, paidCards, freeCards, cta);
-  const paidCap = caps.paid;
-  const freeCap = caps.free;
+  // Rule #42: cap скасований. Картки завжди беруть naturalMax (`equalizeAndGetMaxHeight` з cap=null
+  // повертає naturalMax безумовно). Замість того щоб стискати картки до cap і клiпати desc через
+  // overflow:hidden — `expandBundleIfNeeded` нижче піднімає bundle.minHeight до needed.
+  // computeCardHeightCaps лишається як deprecated історична функція (не викликається).
+  const paidCap = null;
+  const freeCap = null;
 
   // Кілька passes для стабілізації (flex/grid з minHeight можуть міняти розміри між ітераціями)
   for (let pass = 0; pass < STABILIZE_PASSES; pass++) {
@@ -563,6 +586,11 @@ export function autoTuneBundle(root: HTMLElement) {
     const icon = parent?.querySelector<HTMLElement>('[data-bundle-benefit-icon]') ?? null;
     tuneBenefit(ben, icon);
   }
+
+  // Правило 42: Bundle expand — піднімає bundle.minHeight до naturalNeeded (sum content +
+  // paddings) якщо unifiedHeight закороткий. Картки вже на naturalMax (cap=null), тому потрібна
+  // висота = sum усіх direct children + margin-bottom + padT/B. Skip для miniature (forcedHeight).
+  expandBundleIfNeeded(root, cta);
 
   // Правило 39: Spacing Adjuster — розподіляє залишок вертикальної висоти рівномірно
   // між усіма слотами відступів (top padding, inter-block gaps, bottom padding).
@@ -664,6 +692,62 @@ function adjustBundleSpacing(root: HTMLElement, cta: HTMLElement | null) {
   // Не суперечить Rule #14 (marginTop auto) — adjuster явно вирішує куди розподілити.
 }
 
+// Правило 42: піднімає bundle.minHeight до natural-required якщо unifiedHeight (baseline)
+// закороткий для контенту. Без cap (rule #42a) картки беруть naturalMax і можуть виходити
+// за межі бандлу. Ця функція рахує точну потрібну висоту і дозволяє бандлу вирости.
+// Idempotent: orig minHeight зберігається в dataset, скидається на кожному запуску.
+// Skip для miniature (forcedHeight) — там фіксована висота важлива для preview масштабу.
+function expandBundleIfNeeded(root: HTMLElement, cta: HTMLElement | null) {
+  // Skip для miniature: forcedHeight вшитий через `style.height`. Якщо є — не торкаємось.
+  if (root.style.height) return;
+
+  // 1) Reset попереднього експансу (для точного виміру)
+  if (root.dataset.tunerOrigMinH !== undefined) {
+    root.style.minHeight = root.dataset.tunerOrigMinH;
+    delete root.dataset.tunerOrigMinH;
+  }
+
+  const children = Array.from(root.children).filter((c) => {
+    if (c.tagName === 'STYLE') return false;
+    return getComputedStyle(c as HTMLElement).position !== 'absolute';
+  }) as HTMLElement[];
+  if (children.length === 0) return;
+
+  // 2) Тимчасово знімаємо cta.marginTop:auto щоб виміряти точну суму контенту
+  // (margin:auto у flex column поглинає вільне місце і збиває розрахунок).
+  let origMt: string | null = null;
+  if (cta) {
+    origMt = cta.style.marginTop;
+    cta.style.marginTop = '0';
+  }
+  void root.offsetHeight;
+
+  // 3) Сума: padT + padB + всі children offsetH + margin-bottom між sibling-ами
+  const rootCs = getComputedStyle(root);
+  const padT = parseFloat(rootCs.paddingTop) || 0;
+  const padB = parseFloat(rootCs.paddingBottom) || 0;
+  let contentH = 0;
+  children.forEach((c, i) => {
+    contentH += c.offsetHeight;
+    if (i < children.length - 1) {
+      contentH += parseFloat(getComputedStyle(c).marginBottom) || 0;
+    }
+  });
+  const needed = padT + padB + contentH;
+  const currentH = root.clientHeight;
+
+  // 4) Якщо контент не вміщається — піднімаємо minHeight. +1 tolerance для sub-pixel.
+  if (needed > currentH + 1) {
+    root.dataset.tunerOrigMinH = root.style.minHeight || '';
+    root.style.minHeight = `${needed}px`;
+  }
+
+  // 5) Restore CTA marginTop (adjuster нижче все одно своє виставить)
+  if (cta && origMt !== null) {
+    cta.style.marginTop = origMt;
+  }
+}
+
 // Правило 41: синхронізує paid-card висоту серед однотипних сусідів у тому ж ряду.
 // Кожен бандл зберігає свій naturalMax у dataset під час tune. Sync знаходить mate-ів
 // (same type/paid/free, top Y в межах 10px), виводить max(naturals), та застосовує
@@ -712,4 +796,34 @@ function syncBundleRow(root: HTMLElement) {
     const ct = r.querySelector<HTMLElement>('[data-bundle-cta]');
     adjustBundleSpacing(r, ct);
   });
+
+  // Rule #42d: cross-bundle bundle-height sync. Після того як `expandBundleIfNeeded` встановив
+  // кожному mate його natural minHeight — синхронізуємо до max серед mate-ів. Сусіди в ряду
+  // вирівнюються знизу; коротші отримують slack → adjuster розподіляє по слотах.
+  // Skip для miniature (forcedHeight через style.height).
+  const heightMates = mates.filter((r) => !r.style.height);
+  if (heightMates.length >= 2) {
+    const heightNaturals = heightMates.map((r) => {
+      // clientHeight = поточна visible висота (border-box без border). Включає padding + content.
+      // expandBundleIfNeeded вже міг підняти minHeight → r.clientHeight ≈ max(unifiedHeight, needed).
+      return r.clientHeight;
+    });
+    const rowMaxH = Math.max(...heightNaturals);
+    const changedH: HTMLElement[] = [];
+    heightMates.forEach((r) => {
+      if (r.clientHeight + 1 < rowMaxH) {
+        // Зберегти orig для idempotent reset (якщо ще не збережено expand-ом)
+        if (r.dataset.tunerOrigMinH === undefined) {
+          r.dataset.tunerOrigMinH = r.style.minHeight || '';
+        }
+        r.style.minHeight = `${rowMaxH}px`;
+        changedH.push(r);
+      }
+    });
+    // Adjuster перерозподілить новий slack по слотах
+    changedH.forEach((r) => {
+      const ct = r.querySelector<HTMLElement>('[data-bundle-cta]');
+      adjustBundleSpacing(r, ct);
+    });
+  }
 }

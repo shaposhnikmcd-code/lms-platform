@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { FaTimes, FaCertificate, FaExternalLinkAlt, FaSearchPlus } from 'react-icons/fa';
+import { FaTimes, FaCertificate, FaExternalLinkAlt } from 'react-icons/fa';
 import Image from 'next/image';
 
 const MODAL_CSS = `
@@ -96,7 +96,7 @@ export default function CertificatesSection({ t }: Props) {
               <div key={i} className="flex flex-col">
                 <button
                   onClick={() => open(cert)}
-                  className="group relative w-full overflow-hidden text-left rounded-2xl aspect-[7/5] outline-none focus:outline-none focus-visible:outline-none ring-0"
+                  className="group relative w-full overflow-hidden text-left aspect-[7/5] outline-none focus:outline-none focus-visible:outline-none ring-0"
                   style={{ WebkitTapHighlightColor: 'transparent' }}
                 >
                   <Image
@@ -106,12 +106,6 @@ export default function CertificatesSection({ t }: Props) {
                     className="object-contain transition-transform duration-300 group-hover:scale-105"
                     sizes="(max-width: 768px) 100vw, 50vw"
                   />
-                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all duration-300 flex items-center justify-center">
-                    <div className="opacity-0 group-hover:opacity-100 transition-opacity bg-white/90 text-[#1C3A2E] text-xs font-bold px-4 py-2 rounded-full flex items-center gap-2">
-                      <FaSearchPlus size={12} />
-                      {t.view}
-                    </div>
-                  </div>
                 </button>
                 <div className="pt-3 flex flex-col gap-1">
                   <p className="font-bold text-[#1C3A2E] text-sm">{cert.title}</p>
@@ -187,7 +181,6 @@ export default function CertificatesSection({ t }: Props) {
                     height: 'auto',
                     display: 'block',
                     flexShrink: 0,
-                    borderRadius: 16,
                     transition: 'all 0.15s ease',
                   }}
                 />
