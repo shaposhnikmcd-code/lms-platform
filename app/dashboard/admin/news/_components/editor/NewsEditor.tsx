@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { HiOutlineCheckCircle } from "react-icons/hi2";
 import { Block, NewsMeta, blocksToJson, jsonToBlocks } from "./types";
 import EditorCanvas from "./EditorCanvas";
@@ -30,6 +30,42 @@ export default function NewsEditor({
   const [blocks, setBlocks] = useState<Block[]>(() => jsonToBlocks(initialContent || ""));
   const [message, setMessage] = useState("");
   const [uploading, setUploading] = useState(false);
+
+  // Page zoom через Ctrl+колесо. Браузер за замовчуванням на Ctrl+wheel робить
+  // власний UI-zoom (всю сторінку разом з шапкою браузера), що тут небажано —
+  // потрібно зумити саме контент editor-а. Тому ловимо wheel non-passive і
+  // preventDefault, далі скейлимо обгортку через CSS `zoom` (на відміну від
+  // transform: scale, він коректно перераховує scroll-area).
+  const [zoom, setZoom] = useState(1);
+  const editorRootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = editorRootRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      const step = e.deltaY > 0 ? -0.1 : 0.1;
+      setZoom(z => Math.max(0.5, Math.min(2, +(z + step).toFixed(2))));
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
+
+  // Ctrl+0 — скинути zoom до 100%.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      if (e.key === "0") {
+        const t = e.target as HTMLElement | null;
+        if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+        e.preventDefault();
+        setZoom(1);
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
 
   useEffect(() => {
     if (initialContent) {
@@ -77,7 +113,7 @@ export default function NewsEditor({
   };
 
   return (
-    <div className="min-h-screen bg-slate-100">
+    <div ref={editorRootRef} className="min-h-screen bg-slate-100" style={{ zoom }}>
       <div className="max-w-[1480px] mx-auto px-6 py-10">
         {/* Top header — eyebrow + title + buttons (статичні, скролляться разом зі сторінкою) */}
         <div className="mb-6">

@@ -138,6 +138,39 @@ export const authOptions: NextAuthOptions = {
   jwt: {
     maxAge: 30 * 24 * 60 * 60,
   },
+  // Унікальні назви cookie з префіксом `uimp.` — щоб на localhost не конфліктувати
+  // з іншими NextAuth-проєктами (tetyana-website:3001, cleartax). Браузер ділить
+  // cookies між портами одного хоста; з дефолтним `next-auth.session-token` сусідні
+  // проєкти не могли розшифрувати наш JWT своїм секретом і видаляли cookie як
+  // invalid → нас викидало з admin-кабінету після переходу на ті сайти.
+  cookies: {
+    sessionToken: {
+      name: process.env.NODE_ENV === "production" ? "__Secure-uimp.session-token" : "uimp.session-token",
+      options: {
+        httpOnly: true,
+        sameSite: "lax",
+        path: "/",
+        secure: process.env.NODE_ENV === "production",
+      },
+    },
+    callbackUrl: {
+      name: process.env.NODE_ENV === "production" ? "__Secure-uimp.callback-url" : "uimp.callback-url",
+      options: {
+        sameSite: "lax",
+        path: "/",
+        secure: process.env.NODE_ENV === "production",
+      },
+    },
+    csrfToken: {
+      name: process.env.NODE_ENV === "production" ? "__Host-uimp.csrf-token" : "uimp.csrf-token",
+      options: {
+        httpOnly: true,
+        sameSite: "lax",
+        path: "/",
+        secure: process.env.NODE_ENV === "production",
+      },
+    },
+  },
   callbacks: {
     async jwt({ token, user, trigger, session }) {
       if (user) {
