@@ -1,4 +1,5 @@
 /// GET /api/admin/certificates/[id] — деталі сертифіката + повний event log.
+/// DELETE /api/admin/certificates/[id] — hard-delete для тестування (тільки dev).
 
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
@@ -21,4 +22,21 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   if (!cert) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
   return NextResponse.json({ certificate: cert });
+}
+
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  if (process.env.NODE_ENV === 'production') {
+    return NextResponse.json({ error: 'Hard delete заборонено в production. Використовуй revoke.' }, { status: 403 });
+  }
+  const guard = await requireAdmin(req);
+  if (!guard.ok) return guard.response;
+
+  const { id } = await params;
+  try {
+    await prisma.certificate.delete({ where: { id } });
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Unknown error';
+    return NextResponse.json({ error: msg }, { status: 400 });
+  }
 }
