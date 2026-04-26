@@ -13,6 +13,7 @@ export const BLOCK_PREVIEW_HEIGHTS: Record<BlockType, number> = {
   divider: 40 + 28 + 18,
   image:   40 + 28 + 160,
   youtube: 40 + 28 + 52,
+  card:    40 + 28 + 200,
 };
 
 export const BLOCK_ICONS: Record<BlockType, string> = {
@@ -22,6 +23,7 @@ export const BLOCK_ICONS: Record<BlockType, string> = {
   divider: "—",
   image:   "🖼",
   youtube: "▶",
+  card:    "▭",
 };
 
 export const BLOCK_LABELS: Record<BlockType, string> = {
@@ -31,6 +33,7 @@ export const BLOCK_LABELS: Record<BlockType, string> = {
   divider: "Лінія",
   image:   "Фото",
   youtube: "YouTube",
+  card:    "Картка",
 };
 
 interface Props {

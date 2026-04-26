@@ -48,9 +48,10 @@ export type BaseTemplateAssets = {
   fonts: Record<FontKey, PDFFont>;
   signaturePng: PDFImage;
   logoPng: PDFImage;
-  /// Опційно — gold-tinted версія логотипа для course-cert sidebar medallion.
-  /// Якщо не передано, sidebar medallion малює fallback (UIMP caps).
+  /// Опційно — gold-tinted версія логотипа (legacy, для yearly-cert).
   logoGoldPng?: PDFImage;
+  /// Растерізований медальйон-куля для course-cert sidebar.
+  medallionSpherePng?: PDFImage;
 };
 
 export async function drawBaseTemplate(
@@ -67,6 +68,7 @@ export async function drawBaseTemplate(
       fonts: assets.fonts,
       signaturePng: assets.signaturePng,
       logoGoldPng: assets.logoGoldPng,
+      medallionSpherePng: assets.medallionSpherePng,
     }, {
       courseName: opts.courseName,
       year: opts.year,

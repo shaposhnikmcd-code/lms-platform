@@ -25,87 +25,49 @@ export const SIDEBAR_GREEN_LIT = { r: 28, g: 56, b: 46 };
 /* ======================================================================= */
 
 /// Великий медальйон у центрі sidebar-у — благородна золота куля з теплим
-/// градієнтом, drop shadow у бронзовому тоні і темно-зеленим UIMP по центру.
-/// Дизайн розроблений у `/Certificates/medallion-playground.html`.
+/// градієнтом і темно-зеленим UIMP. Embedається як rasterized PNG з
+/// `public/Certificates/element-medallion-sphere.png` (бо pdf-lib не підтримує
+/// radial gradient). Дизайн розроблений у `/Certificates/medallion-playground.html`,
+/// PNG генерується через `node scripts/render-medallion-sphere-png.mjs`.
 ///
-/// @param cx, cy       центр у pt
-/// @param r            зовнішній радіус кулі
-/// @param logoGoldPng  ігнорується (UIMP — текстом, не логотипом)
+/// @param medallionSpherePng  растерізований SVG медальйона (1024×1024 PNG)
+/// @param cx, cy              центр у pt
+/// @param r                   зовнішній радіус кулі (з тінню)
 export function drawSidebarMedallion(
   page: PDFPage,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   fonts: Record<FontKey, PDFFont>,
   cx: number,
   cy: number,
   r: number,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  logoGoldPng?: PDFImage,
+  medallionSpherePng?: PDFImage,
 ) {
-  /// Палітра sphere — refined в playground (з warmer shadow + 6-stop gradient)
-  const SP_LIGHT      = { r: 232, g: 194, b: 119 }; // #e8c277
-  const SP_LIGHT_MID  = { r: 213, g: 172, b: 85  }; // mix(light, mid, .55)
-  const SP_MID        = { r: 198, g: 154, b: 58  }; // #c69a3a
-  const SP_MID_DARK   = { r: 150, g: 113, b: 38  }; // mix(mid, dark, .55)
-  const SP_DARK       = { r: 110, g: 79,  b: 21  }; // #6e4f15
-  const SP_BRIGHT     = { r: 240, g: 212, b: 136 }; // shade(light, +3)
-  const SP_SHADOW     = { r: 61,  g: 42,  b: 8   }; // #3d2a08 (warm bronze)
-
-  /// 1. Тепла бронзова drop shadow — 6 шарів імітують Gaussian blur з warm tint
-  for (let i = 0; i < 6; i++) {
-    page.drawCircle({
-      x: cx, y: cy - r * 0.018 * (i + 1),
-      size: r + r * 0.045 - i * (r * 0.0075),
-      color: c(SP_SHADOW), borderWidth: 0,
-      opacity: 0.10,
+  if (medallionSpherePng) {
+    /// SVG viewBox = 400×400, диск має радіус 180 (= 0.9 × bbox/2). Drop-shadow
+    /// + bevel виходять за межі диска ~20pt у SVG, тому PNG-embed розтягуємо
+    /// на bbox = 2*r/0.9, центруючи на (cx, cy).
+    const size = (r / 0.9) * 2;
+    page.drawImage(medallionSpherePng, {
+      x: cx - size / 2,
+      y: cy - size / 2,
+      width: size,
+      height: size,
     });
+    return;
   }
 
-  /// 2. Концентричні кола симулюють radial gradient (origin зміщений вгору-ліворуч).
-  /// Найбільше коло — найтемніше; кожне менше зміщене ближче до highlight-точки
-  /// і має світліший тон. Sphere effect виходить з накладання.
-  const hlX = -r * 0.24; // ліворуч від центру
-  const hlY = +r * 0.30; // вгору в pdf-lib coords (y up)
-
-  page.drawCircle({ x: cx,                     y: cy,                     size: r,         color: c(SP_DARK),      borderWidth: 0 });
-  page.drawCircle({ x: cx + hlX * 0.15,        y: cy + hlY * 0.15,        size: r * 0.94,  color: c(SP_MID_DARK),  borderWidth: 0 });
-  page.drawCircle({ x: cx + hlX * 0.32,        y: cy + hlY * 0.32,        size: r * 0.82,  color: c(SP_MID),       borderWidth: 0 });
-  page.drawCircle({ x: cx + hlX * 0.52,        y: cy + hlY * 0.52,        size: r * 0.64,  color: c(SP_LIGHT_MID), borderWidth: 0 });
-  page.drawCircle({ x: cx + hlX * 0.74,        y: cy + hlY * 0.74,        size: r * 0.42,  color: c(SP_LIGHT),     borderWidth: 0 });
-  page.drawCircle({ x: cx + hlX * 0.92,        y: cy + hlY * 0.92,        size: r * 0.20,  color: c(SP_BRIGHT),    borderWidth: 0, opacity: 0.7 });
-
-  /// 3. Inner shadow rim — тонке темно-бронзове кільце по краю даs обʼєм.
+  /// Fallback — простий cream диск з тонким gold ring (на випадок якщо PNG
+  /// не загружено, наприклад у dev до запуску render-medallion-sphere-png).
   page.drawCircle({
-    x: cx, y: cy, size: r - 0.5,
-    borderColor: c(SP_SHADOW), borderWidth: r * 0.018,
-    color: c(SP_DARK), opacity: 0,
+    x: cx, y: cy, size: r,
+    color: c(CREAM),
+    borderColor: c(GOLD), borderWidth: 1.8,
   });
-
-  /// 4. Top bevel highlight (тонкий світлий півмісяць по верху) і
-  ///    bottom shadow (по низу) — імітують rim-light на кулі.
   page.drawCircle({
-    x: cx, y: cy + r * 0.02, size: r,
-    borderColor: c({ r: 255, g: 241, b: 196 }), borderWidth: 0.6,
-    color: c(SP_DARK), opacity: 0,
+    x: cx, y: cy, size: r - r * 0.07,
+    borderColor: c(GOLD_DEEP), borderWidth: 0.5,
+    color: c(CREAM),
   });
-
-  /// 5. UIMP — темно-зеленим cormorant regular з letter-spacing
-  const text = 'UIMP';
-  const font = fonts.cormorantRegular;
-  const size = r * 0.44;
-  const tracking = r * 0.05;
-  const widths: number[] = [];
-  let totalW = 0;
-  for (const ch of text) {
-    const w = font.widthOfTextAtSize(ch, size);
-    widths.push(w);
-    totalW += w + tracking;
-  }
-  totalW -= tracking;
-  const baseY = cy - size * 0.32;
-  let x = cx - totalW / 2;
-  for (let i = 0; i < text.length; i++) {
-    page.drawText(text[i], { x, y: baseY, size, font, color: c(SIDEBAR_GREEN) });
-    x += widths[i] + tracking;
-  }
 }
 
 /* ======================================================================= */

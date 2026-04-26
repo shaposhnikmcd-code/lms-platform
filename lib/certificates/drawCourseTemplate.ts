@@ -32,9 +32,11 @@ const SIDEBAR_FRAC = 0.250;     // 320pt при W=1280
 export type CourseTemplateAssets = {
   fonts: Record<FontKey, PDFFont>;
   signaturePng: PDFImage;
-  /// Gold-tinted UIMP лого для sidebar medallion (опційно — якщо не передано,
-  /// medallion малює fallback UIMP caps).
+  /// Gold-tinted UIMP лого (legacy — більше не використовується для sidebar medallion).
   logoGoldPng?: PDFImage;
+  /// Растерізований медальйон-куля для sidebar (1024×1024 PNG з градієнтом).
+  /// Генерується через `node scripts/render-medallion-sphere-png.mjs`.
+  medallionSpherePng?: PDFImage;
 };
 
 export function drawCourseTemplate(
@@ -46,7 +48,7 @@ export function drawCourseTemplate(
   const H = page.getHeight();
   const sidebarW = W * SIDEBAR_FRAC;
 
-  drawSidebar(page, sidebarW, H, assets.fonts, assets.logoGoldPng);
+  drawSidebar(page, sidebarW, H, assets.fonts, assets.medallionSpherePng);
   drawMainPanel(page, sidebarW, W - sidebarW, H, assets, opts);
 }
 
@@ -59,7 +61,7 @@ function drawSidebar(
   sidebarW: number,
   H: number,
   fonts: Record<FontKey, PDFFont>,
-  logoGoldPng?: PDFImage,
+  medallionSpherePng?: PDFImage,
 ) {
   /// Базовий фон — solid dark green
   page.drawRectangle({
@@ -79,7 +81,7 @@ function drawSidebar(
   /// Великий медальйон зверху (приблизно у верхньому третині sidebar-у)
   const medR = sidebarW * 0.31;
   const medCY = H * 0.685;
-  drawSidebarMedallion(page, fonts, cx, medCY, medR, logoGoldPng);
+  drawSidebarMedallion(page, fonts, cx, medCY, medR, medallionSpherePng);
 
   /// "UIMP" — gold caps під медальйоном
   const uimpSize = sidebarW * 0.085;

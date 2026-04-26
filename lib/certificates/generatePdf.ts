@@ -74,6 +74,9 @@ export async function generateCertificatePdf(input: CertGenerationInput): Promis
   const signaturePng = await doc.embedPng(loadPublicAsset('signature.png'));
   const logoPng = await doc.embedPng(loadPublicAsset('logo-transparent.png'));
   const logoGoldPng = await doc.embedPng(loadPublicAsset('logo-gold.png'));
+  const medallionSpherePng = await doc.embedPng(
+    loadPublicAsset('Certificates/element-medallion-sphere.png'),
+  );
 
   /// Малюємо весь статичний шар (фон → рамка → орнаменти → heading → body → seal → signature)
   const categoryLabel = input.category ? CATEGORY_LABELS[input.category] : undefined;
@@ -82,6 +85,7 @@ export async function generateCertificatePdf(input: CertGenerationInput): Promis
     signaturePng,
     logoPng,
     logoGoldPng,
+    medallionSpherePng,
   }, {
     courseName: input.courseName,
     categoryLabel,

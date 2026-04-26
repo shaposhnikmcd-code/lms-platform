@@ -66,4 +66,6 @@ public/courses/psychology-basics/uimp_temp.bmp
 /bottomseal-variants.pdf
 
 # certificate test artefacts (PDFs + PNG previews from render scripts)
-/public/Certificates/
+/public/Certificates/*
+# виняток: цей PNG використовується runtime в generatePdf.ts (medallion sphere)
+!/public/Certificates/element-medallion-sphere.png
