@@ -107,6 +107,10 @@ model Course {
   createdAt      DateTime         @default(now())
   imageUrl       String?
   slug           String?          @unique
+  /// ID курсу в SendPulse (Education API). Заповнюємо з URL курсу в кабінеті SP.
+  /// Потрібно для auto-видачі сертифікатів через cron: без цього курс пропускається
+  /// (сертифікат можна видати вручну з адмінки).
+  sendpulseCourseId Int?
   enrollments    Enrollment[]
   modules        Module[]
   progress       CourseProgress[]
@@ -233,17 +237,116 @@ model Payment {
   @@index([source])
 }
 
+/// Сертифікати UIMP — два типи:
+/// 1) COURSE — видається автоматично після завершення конкретного курсу на SendPulse.
+/// 2) YEARLY_PROGRAM — видається вручну адміном після завершення річної програми,
+///    з категорією LISTENER (Слухач) або PRACTICAL (Практична участь).
+///
+/// Всі ключові поля друкуються на PDF зі snapshot-ів (recipientName, courseName,
+/// issueYear), щоб перейменування курсу чи зміна імені юзера не впливали на
+/// вже виданий документ. PDF регенерується з БД on-demand за verificationToken.
 model Certificate {
-  id             String   @id @default(cuid())
-  userId         String
-  courseId       String
-  issuedAt       DateTime @default(now())
-  certificateUrl String?
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  course         Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  id                 String                      @id @default(cuid())
+  /// Людино-читабельний номер для друку: UIMP-COURSE-2026-00042 / UIMP-YEAR-2026-00007
+  certNumber         String                      @unique
+  /// Непередбачуваний token для публічної верифікації /certificate/{token}. 32 символи nanoid.
+  verificationToken  String                      @unique
+  type               CertificateType
+  /// Тільки для YEARLY_PROGRAM: LISTENER або PRACTICAL. null для COURSE.
+  category           CertCategory?
 
-  @@unique([userId, courseId])
-  @@index([userId])
+  userId             String
+  user               User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Для COURSE: id курсу в нашій БД. Для YEARLY — null.
+  courseId           String?
+  course             Course?                     @relation(fields: [courseId], references: [id])
+
+  /// Для YEARLY_PROGRAM: лінк на підписку, за якою виданий серт.
+  subscriptionId     String?
+  subscription       YearlyProgramSubscription?  @relation(fields: [subscriptionId], references: [id])
+
+  /// Snapshot recipient name (що буде надруковано) — editable у білдері перед видачею.
+  recipientName      String
+  recipientEmail     String
+  /// Snapshot назви курсу на момент видачі (для COURSE типу).
+  courseName         String?
+  /// Рік видачі — друкується на сертифікаті (замість baked-in "2026" в JPG).
+  issueYear          Int
+
+  issuedAt           DateTime                    @default(now())
+  /// null = згенеровано системою (cron); заповнене = видано вручну адміном.
+  issuedByUserId     String?
+  issuedByName       String?
+  issuedByEmail      String?
+  /// true = видано через білдер адміном; false = автовидача з крона.
+  issuedManually     Boolean                     @default(false)
+
+  /// SHA-256 згенерованого PDF — для integrity checks (audit).
+  pdfHash            String?
+
+  emailStatus        CertEmailStatus             @default(PENDING)
+  emailSentAt        DateTime?
+  emailMessageId     String?
+  emailError         String?
+
+  revoked            Boolean                     @default(false)
+  revokedAt          DateTime?
+  revokedByUserId    String?
+  revokedByName      String?
+  revokedReason      String?
+
+  events             CertificateEvent[]
+
+  createdAt          DateTime                    @default(now())
+  updatedAt          DateTime                    @updatedAt
+
+  /// Запобігає дублям по курсах (для YEARLY поле null → Postgres дозволяє кілька null-ів;
+  /// додаткова валідація YEARLY-унікальності робиться на рівні application code).
+  @@unique([userId, type, courseId])
+  @@index([type, issuedAt])
+  @@index([subscriptionId])
+  @@index([issuedByUserId])
+  @@index([emailStatus])
+  @@index([revoked])
+}
+
+/// Append-only аудит лог дій над сертифікатами — видно в адмінці ("Історія").
+model CertificateEvent {
+  id             String      @id @default(cuid())
+  certificateId  String
+  certificate    Certificate @relation(fields: [certificateId], references: [id], onDelete: Cascade)
+  /// Хто ініціював подію: adminId, або null якщо system (cron / auto).
+  actorId        String?
+  actorName      String?
+  actorEmail     String?
+  /// GENERATED | SENT | RESENT | REVOKED | DOWNLOADED | VIEWED | EMAIL_FAILED
+  action         String
+  message        String?
+  metadata       Json?
+  createdAt      DateTime    @default(now())
+
+  @@index([certificateId, createdAt])
+  @@index([actorId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+enum CertificateType {
+  COURSE
+  YEARLY_PROGRAM
+}
+
+enum CertCategory {
+  LISTENER // Слухач — нижча категорія
+  PRACTICAL // Практична участь — вища категорія
+}
+
+enum CertEmailStatus {
+  PENDING
+  SENT
+  FAILED
+  BOUNCED
 }
 
 model Subscription {
@@ -351,6 +454,8 @@ model News {
   contentEn   String?
   contentPl   String?
   imageUrl    String?
+  /// Колір фону внутрішньої "сторінки новини" (білий контейнер з блоками). null = дефолтний білий.
+  pageBgColor String?
   category    NewsCategory @default(NEWS)
   published   Boolean      @default(false)
   /// Коли задано — новина схована з вітрини. Використовується і для "паузи", і для відкладеної публікації (coupled з resumeAt).
@@ -603,8 +708,9 @@ model YearlyProgramSubscription {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  payments Payment[]                        @relation("YearlyProgramPayments")
-  events   YearlyProgramSubscriptionEvent[]
+  payments     Payment[]                        @relation("YearlyProgramPayments")
+  events       YearlyProgramSubscriptionEvent[]
+  certificates Certificate[]
 
   @@index([userId])
   @@index([status])

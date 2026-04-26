@@ -49,6 +49,8 @@ export const limiters = {
   forgotPassword: makeLimiter(5, '1 h', 'forgot-password'),
   /// Підтвердження reset-токена (встановлення нового пароля). 10 / 10 хв / IP.
   resetPassword: makeLimiter(10, '10 m', 'reset-password'),
+  /// Публічна верифікація сертифіката. 60 / 5 хв / IP — защищає від перебору токенів.
+  certVerify: makeLimiter(60, '5 m', 'cert-verify'),
 };
 
 /// Отримати реальний IP з заголовків. Vercel/Cloudflare/Nginx — x-forwarded-for.

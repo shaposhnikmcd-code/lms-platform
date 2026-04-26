@@ -84,12 +84,17 @@ export async function POST(req: NextRequest) {
           },
         });
 
-        // Якщо курс завершено — видаємо сертифікат
+        // Якщо курс завершено — видаємо повноцінний брендований сертифікат
+        // (PDF + email через issueCourseCertificate; ідемпотентно по (userId, courseId)).
         if (progressPercent === 100) {
-          await prisma.certificate.upsert({
-            where: { userId_courseId: { userId, courseId } },
-            create: { userId, courseId },
-            update: {},
+          const { issueCourseCertificate } = await import('@/lib/certificates/service');
+          await issueCourseCertificate({
+            userId,
+            courseId,
+            actor: null,
+            issuedManually: false,
+          }).catch((err) => {
+            console.error('[lesson-progress] cert auto-issue failed:', err);
           });
         }
       }

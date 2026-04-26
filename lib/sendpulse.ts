@@ -63,6 +63,75 @@ async function authedFetch(path: string, init?: RequestInit, base: string = EDU_
   });
 }
 
+/// Повертає список студентів курсу, які повністю завершили навчання (прогрес 100%).
+/// Використовується cron-ом `/api/cron/course-certificates` для авто-видачі сертифікатів.
+///
+/// ВАЖЛИВО: точна форма відповіді SendPulse Edu API для прогресу не задокументована
+/// публічно — приймаємо декілька можливих варіантів у структурі (progress / progressPercent /
+/// percentage / lessons_completed_percent) і беремо максимум. Якщо відповідь не містить жодного
+/// прогрес-поля — функція повертає пустий масив (cron пропустить без видачі; можна буде
+/// видати ручно з адмінки). Після перевірки реальної відповіді SP — можна звузити мапінг.
+export type CompletedStudent = {
+  studentId: number;
+  email: string;
+  progressPercent: number;
+};
+
+export async function fetchCompletedStudentsForCourse(
+  courseId: number,
+  completionThreshold = 100,
+): Promise<CompletedStudent[]> {
+  const results: CompletedStudent[] = [];
+  let offset = 0;
+  const limit = 100;
+
+  for (let safety = 0; safety < 200; safety++) {
+    const res = await authedFetch(`/students/by-course/${courseId}`, {
+      method: 'POST',
+      body: JSON.stringify({ offset, limit }),
+    });
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`SendPulse fetchCompletedStudents failed: ${res.status} ${text}`);
+    }
+
+    const data = (await res.json()) as {
+      data?: Array<
+        {
+          id: number;
+          email?: string | null;
+          progress?: number | null;
+          progressPercent?: number | null;
+          percentage?: number | null;
+          lessons_completed_percent?: number | null;
+          status?: string | null;
+        } & Record<string, unknown>
+      >;
+    };
+
+    const list = data.data ?? [];
+    if (list.length === 0) break;
+
+    for (const s of list) {
+      const progress =
+        s.progress ?? s.progressPercent ?? s.percentage ?? s.lessons_completed_percent ?? null;
+      const email = (s.email ?? '').trim().toLowerCase();
+      if (!email || progress == null) continue;
+      const pct = Number(progress);
+      if (!Number.isFinite(pct)) continue;
+      if (pct >= completionThreshold) {
+        results.push({ studentId: s.id, email, progressPercent: pct });
+      }
+    }
+
+    if (list.length < limit) break;
+    offset += limit;
+  }
+
+  return results;
+}
+
 /// Знаходить студента на курсі за email. Повертає studentId (int) або null.
 /// Використовує POST /students/by-course/{courseId} з пагінацією.
 export async function lookupStudentIdByEmail(

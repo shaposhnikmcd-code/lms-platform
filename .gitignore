@@ -62,3 +62,8 @@ public/courses/psychology-basics/uimp_temp.bmp
 /uniform-*.png
 /current-*.png
 /cta-*.png
+/news-*.png
+/bottomseal-variants.pdf
+
+# certificate test artefacts (PDFs + PNG previews from render scripts)
+/public/Certificates/

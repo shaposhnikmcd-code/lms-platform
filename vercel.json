@@ -8,6 +8,10 @@
     {
       "path": "/api/cron/yearly-subscriptions",
       "schedule": "0 4 * * *"
+    },
+    {
+      "path": "/api/cron/course-certificates",
+      "schedule": "30 4 * * *"
     }
   ]
 }

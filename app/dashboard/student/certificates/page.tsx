@@ -15,7 +15,7 @@ export default async function CertificatesPage() {
   const userId = (session.user as any).id;
 
   const certificates = userId === 'test-student-1' ? [] : await prisma.certificate.findMany({
-    where: { userId },
+    where: { userId, revoked: false },
     include: { course: true },
     orderBy: { issuedAt: 'desc' },
   });
@@ -53,11 +53,18 @@ export default async function CertificatesPage() {
                   {new Date(cert.issuedAt).toLocaleDateString('uk-UA')}
                 </span>
               </div>
-              <h3 className="font-bold text-lg text-[#1C3A2E] mb-1">{cert.course.title}</h3>
-              <p className="text-sm text-gray-500 mb-6">Курс успішно завершено</p>
+              <h3 className="font-bold text-lg text-[#1C3A2E] mb-1">
+                {cert.courseName ?? cert.course?.title ?? (cert.type === 'YEARLY_PROGRAM' ? 'Річна програма' : 'Курс UIMP')}
+              </h3>
+              <p className="text-sm text-gray-500 mb-6">
+                {cert.type === 'YEARLY_PROGRAM'
+                  ? cert.category === 'LISTENER' ? 'Слухач Річної програми' : 'Практична участь у Річній програмі'
+                  : 'Курс успішно завершено'}
+              </p>
               <a
-                href={`/api/certificate?courseId=${cert.courseId}`}
-                download
+                href={`/api/certificate/${cert.verificationToken}/pdf`}
+                target="_blank"
+                rel="noreferrer"
                 className="flex items-center justify-center gap-2 w-full bg-[#1C3A2E] text-white font-medium py-2 px-4 rounded-lg hover:bg-[#2a5242] transition-colors text-sm"
               >
                 <FaDownload />
