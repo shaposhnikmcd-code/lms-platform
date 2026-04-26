@@ -1,7 +1,8 @@
 "use client";
 
-import { useRef, useState } from "react";
-import ReactCrop, { type Crop, type PixelCrop, centerCrop, makeAspectCrop } from "react-image-crop";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import ReactCrop, { type Crop, type PixelCrop } from "react-image-crop";
 import "react-image-crop/dist/ReactCrop.css";
 import { cropImageToBlob } from "./cropImage";
 
@@ -9,51 +10,49 @@ const ff = "-apple-system, BlinkMacSystemFont, sans-serif";
 
 interface Props {
   imageUrl: string;
-  /** Якщо передано — стартова рамка з цим співвідношенням; у режимі «Вільно» поведінка вільна. */
-  initialAspect?: number;
+  initialAspect?: number; // більше не використовується; залишено щоб не ламати call sites
   onCancel: () => void;
   onCropDone: (blob: Blob, aspect: number) => Promise<void> | void;
 }
 
-const ASPECTS: { label: string; value: number | undefined }[] = [
-  { label: "Вільно", value: undefined },
-  { label: "1:1",   value: 1 },
-  { label: "4:3",   value: 4 / 3 },
-  { label: "3:2",   value: 3 / 2 },
-  { label: "16:9",  value: 16 / 9 },
-  { label: "3:4",   value: 3 / 4 },
-];
-
-// Початкова центрована рамка ~80% від картинки.
-function buildInitialCrop(imgW: number, imgH: number, aspect?: number): Crop {
-  if (aspect) {
-    return centerCrop(
-      makeAspectCrop({ unit: "%", width: 80 }, aspect, imgW, imgH),
-      imgW, imgH,
-    );
-  }
-  return { unit: "%", x: 10, y: 10, width: 80, height: 80 };
-}
-
-export default function CropModal({ imageUrl, initialAspect, onCancel, onCropDone }: Props) {
+export default function CropModal({ imageUrl, onCancel, onCropDone }: Props) {
   const imgRef = useRef<HTMLImageElement | null>(null);
-  const [aspect, setAspect] = useState<number | undefined>(initialAspect);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
   const [crop, setCrop] = useState<Crop>();
   const [completedCrop, setCompletedCrop] = useState<PixelCrop | null>(null);
+  const [zoom, setZoom] = useState(1); // multiplier для displayed image width
+  const [naturalSize, setNaturalSize] = useState<{ w: number; h: number } | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape" && !saving) onCancel(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onCancel, saving]);
+
+  // Ctrl+wheel = zoom усередині модалки. React onWheel створює passive listener — preventDefault
+  // не працює. Тому навішую native addEventListener з { passive: false }.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return; // звичайний скрол — не чіпати
+      e.preventDefault();
+      const direction = e.deltaY > 0 ? -1 : 1;
+      const step = 0.1;
+      setZoom((z) => Math.max(0.25, Math.min(4, z + direction * step)));
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [mounted]);
 
   const onImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
-    const { width, height } = e.currentTarget;
-    setCrop(buildInitialCrop(width, height, aspect));
-  };
-
-  const handleAspectChange = (newAspect: number | undefined) => {
-    setAspect(newAspect);
-    if (imgRef.current) {
-      const { width, height } = imgRef.current;
-      setCrop(buildInitialCrop(width, height, newAspect));
-    }
+    const { naturalWidth, naturalHeight } = e.currentTarget;
+    setNaturalSize({ w: naturalWidth, h: naturalHeight });
+    // Без default crop — користувач сам малює прямокутник перетягуванням мишки.
   };
 
   const handleSave = async () => {
@@ -61,8 +60,6 @@ export default function CropModal({ imageUrl, initialAspect, onCancel, onCropDon
     setSaving(true);
     setError("");
     try {
-      // completedCrop у px ВІДНОСНО ВІДОБРАЖЕНОЇ картинки. Треба перевести в px
-      // натуральних розмірів (скаляр scale = naturalWidth / displayWidth).
       const img = imgRef.current;
       const scaleX = img.naturalWidth / img.width;
       const scaleY = img.naturalHeight / img.height;
@@ -81,28 +78,26 @@ export default function CropModal({ imageUrl, initialAspect, onCancel, onCropDon
     }
   };
 
-  return (
+  if (!mounted) return null;
+
+  // Базова displayed-ширина — fit by container, потім multiplier через zoom.
+  // Реалізую через CSS width на самому <img> (а не transform), щоб ReactCrop координати були в displayed px.
+  const containerWidth = 1100; // приблизно скільки є в модалці після padding
+  const baseDisplayedWidth = naturalSize ? Math.min(naturalSize.w, containerWidth) : containerWidth;
+  const imgStyleWidth = baseDisplayedWidth * zoom;
+
+  return createPortal((
     <div
-      onMouseDown={e => { if (e.target === e.currentTarget) onCancel(); }}
       style={{
         position: "fixed", inset: 0, zIndex: 1000,
-        background: "rgba(28,58,46,0.55)",
-        backdropFilter: "blur(4px)",
-        display: "flex", alignItems: "center", justifyContent: "center",
-        padding: "24px",
+        background: "#fff",
+        display: "flex", flexDirection: "column",
         fontFamily: ff,
       }}
     >
-      <div style={{
-        background: "#fff", borderRadius: "16px",
-        width: "min(900px, 100%)", maxHeight: "90vh",
-        display: "flex", flexDirection: "column",
-        boxShadow: "0 24px 64px rgba(0,0,0,0.3)",
-        overflow: "hidden",
-      }}>
         {/* Header */}
         <div style={{
-          padding: "16px 20px",
+          padding: "14px 20px",
           borderBottom: "1px solid #E8D5B7",
           display: "flex", alignItems: "center", justifyContent: "space-between",
           background: "#FAF6F0",
@@ -113,23 +108,22 @@ export default function CropModal({ imageUrl, initialAspect, onCancel, onCropDon
           <button
             onClick={onCancel}
             disabled={saving}
-            style={{ background: "none", border: "none", cursor: "pointer", color: "#9CA3AF", fontSize: "18px", padding: "4px 8px", fontWeight: 600 }}
+            style={{ background: "none", border: "none", cursor: "pointer", color: "#9CA3AF", fontSize: "20px", padding: "4px 8px", fontWeight: 600 }}
           >✕</button>
         </div>
 
-        {/* Crop area */}
-        <div style={{
-          flex: 1, minHeight: "300px", maxHeight: "65vh",
-          overflow: "auto", padding: "20px",
+        {/* Crop area — scrollable. Ctrl+wheel = zoom (через native wheel listener у useEffect). */}
+        <div ref={scrollRef} style={{
+          flex: 1, overflow: "auto",
           background: "#1a1a1a",
-          display: "flex", alignItems: "center", justifyContent: "center",
+          padding: "16px",
+          display: "flex", justifyContent: "center", alignItems: "flex-start",
         }}>
           <ReactCrop
             crop={crop}
             onChange={(_, percentCrop) => setCrop(percentCrop)}
             onComplete={(c) => setCompletedCrop(c)}
-            aspect={aspect}
-            keepSelection
+            ruleOfThirds
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
@@ -138,40 +132,53 @@ export default function CropModal({ imageUrl, initialAspect, onCancel, onCropDon
               alt="crop source"
               crossOrigin="anonymous"
               onLoad={onImageLoad}
-              style={{ maxWidth: "100%", maxHeight: "60vh", display: "block" }}
+              style={{
+                display: "block",
+                width: naturalSize ? `${imgStyleWidth}px` : "auto",
+                maxWidth: "none",
+                height: "auto",
+              }}
             />
           </ReactCrop>
         </div>
 
-        {/* Aspect presets */}
+        {/* Toolbar: zoom + aspect */}
         <div style={{
           padding: "12px 20px",
           borderTop: "1px solid #E8D5B7",
-          display: "flex", flexWrap: "wrap", gap: "6px", alignItems: "center",
+          display: "flex", flexWrap: "wrap", gap: "16px", alignItems: "center",
+          background: "#fff",
         }}>
-          <span style={{ fontSize: "11px", fontWeight: 600, color: "#9CA3AF", letterSpacing: "0.08em", textTransform: "uppercase", marginRight: "4px" }}>
-            Пропорції:
-          </span>
-          {ASPECTS.map(a => {
-            const active = aspect === a.value;
-            return (
-              <button
-                key={a.label}
-                onClick={() => handleAspectChange(a.value)}
-                style={{
-                  padding: "5px 12px", borderRadius: "6px",
-                  border: `1.5px solid ${active ? "#D4A843" : "#E8D5B7"}`,
-                  background: active ? "#1C3A2E" : "#fff",
-                  color: active ? "#D4A843" : "#1C3A2E",
-                  fontSize: "12px", fontWeight: 600, cursor: "pointer",
-                  fontFamily: ff,
-                  transition: "all 0.12s",
-                }}
-              >
-                {a.label}
-              </button>
-            );
-          })}
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: "260px" }}>
+            <span style={{ fontSize: "11px", fontWeight: 600, color: "#9CA3AF", letterSpacing: "0.06em", textTransform: "uppercase" }}>
+              Масштаб
+            </span>
+            <input
+              type="range"
+              min={0.25}
+              max={4}
+              step={0.05}
+              value={zoom}
+              onChange={(e) => {
+                const newZoom = Number(e.target.value);
+                setZoom(newZoom);
+              }}
+              style={{ flex: 1, accentColor: "#D4A843" }}
+            />
+            <span style={{ fontSize: "12px", fontWeight: 600, color: "#1C3A2E", minWidth: "44px", textAlign: "right" }}>
+              {(zoom * 100).toFixed(0)}%
+            </span>
+            <button
+              onClick={() => setZoom(1)}
+              title="Скинути масштаб"
+              style={{
+                padding: "5px 10px", borderRadius: "6px", border: "1.5px solid #E8D5B7",
+                background: "#fff", color: "#1C3A2E", fontSize: "11px", fontWeight: 600,
+                cursor: "pointer", fontFamily: ff,
+              }}
+            >100%</button>
+          </div>
+
         </div>
 
         {/* Footer */}
@@ -184,7 +191,7 @@ export default function CropModal({ imageUrl, initialAspect, onCancel, onCropDon
           {error
             ? <div style={{ fontSize: "12px", color: "#EF4444", fontWeight: 500 }}>{error}</div>
             : <div style={{ fontSize: "11px", color: "#9CA3AF" }}>
-                Тягни кути або краї рамки, щоб змінити обріз
+                Натисни і протягни мишею щоб виділити область. Кути рамки — змінити розмір. Ctrl + колесо = масштаб. Esc = закрити.
               </div>}
           <div style={{ display: "flex", gap: "8px" }}>
             <button
@@ -212,7 +219,6 @@ export default function CropModal({ imageUrl, initialAspect, onCancel, onCropDon
             >{saving ? "Зберігаю…" : "Зберегти"}</button>
           </div>
         </div>
-      </div>
     </div>
-  );
+  ), document.body);
 }

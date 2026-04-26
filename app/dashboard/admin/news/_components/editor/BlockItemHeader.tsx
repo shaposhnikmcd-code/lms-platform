@@ -5,15 +5,24 @@ import { BlockAlign, UIMP_COLORS } from "./types";
 
 const ff = "-apple-system, BlinkMacSystemFont, sans-serif";
 
-function TBtn({ active, onClick, children, title }: { active?: boolean; onClick: () => void; children: React.ReactNode; title?: string }) {
+function TBtn({ active, onClick, children, title, disabled }: { active?: boolean; onClick: () => void; children: React.ReactNode; title?: string; disabled?: boolean }) {
   const [hov, setHov] = useState(false);
   return (
     <button
       title={title}
-      onMouseDown={e => { e.preventDefault(); onClick(); }}
+      disabled={disabled}
+      onMouseDown={e => { e.preventDefault(); if (!disabled) onClick(); }}
       onMouseEnter={() => setHov(true)}
       onMouseLeave={() => setHov(false)}
-      style={{ padding: "3px 8px", borderRadius: "5px", border: "none", cursor: "pointer", fontSize: "11px", fontWeight: 700, fontFamily: ff, background: active ? "#1C3A2E" : hov ? "#E8F5E0" : "#EEEAE2", color: active ? "#D4A843" : "#1C3A2E", transition: "all 0.12s", minWidth: "24px" }}
+      style={{
+        padding: "3px 8px", borderRadius: "5px", border: "none",
+        cursor: disabled ? "not-allowed" : "pointer",
+        fontSize: "11px", fontWeight: 700, fontFamily: ff,
+        background: disabled ? "rgba(0,0,0,0.04)" : active ? "#1C3A2E" : hov ? "#E8F5E0" : "#EEEAE2",
+        color: disabled ? "#C8C0B4" : active ? "#D4A843" : "#1C3A2E",
+        transition: "all 0.12s", minWidth: "24px",
+        opacity: disabled ? 0.5 : 1,
+      }}
     >{children}</button>
   );
 }
@@ -29,37 +38,62 @@ interface Props {
   blockBgColor: string;
   displayPct: number;
   hov: boolean;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
   dragAttributes: React.HTMLAttributes<HTMLElement>;
   dragListeners: React.HTMLAttributes<HTMLElement> | undefined;
   onSetAlign: (id: string, a: BlockAlign) => void;
   onSetBg: (id: string, c: string) => void;
-  onDelete: (id: string) => void;
+  onMoveUp: (id: string) => void;
+  onMoveDown: (id: string) => void;
+  onDuplicate: (id: string) => void;
 }
 
-const LABELS: Record<string, string> = { text: "Текст", heading: "Заголовок", image: "Фото", youtube: "YouTube", quote: "Цитата", divider: "Роздільник" };
-const ICONS: Record<string, string> = { text: "¶", heading: "H", image: "🖼", youtube: "▶", quote: "❝", divider: "—" };
+const LABELS: Record<string, string> = { text: "Текст", heading: "Заголовок", image: "Фото", youtube: "YouTube", quote: "Цитата", divider: "Роздільник", card: "Картка" };
+const ICONS: Record<string, string> = { text: "¶", heading: "H", image: "🖼", youtube: "▶", quote: "❝", divider: "—", card: "▦" };
 
 export default function BlockItemHeader({
-  blockId, blockType, blockAlign, blockBgColor, displayPct, hov,
-  dragAttributes, dragListeners, onSetAlign, onSetBg, onDelete,
+  blockId, blockType, blockAlign, blockBgColor, displayPct, hov, canMoveUp, canMoveDown,
+  dragAttributes, dragListeners, onSetAlign, onSetBg, onMoveUp, onMoveDown, onDuplicate,
 }: Props) {
   const [showBg, setShowBg] = useState(false);
 
   return (
-    <div style={{
-      display: "flex", alignItems: "center", gap: "5px", padding: "7px 10px",
-      background: hov ? "#1C3A2E" : "#F7F4EE",
-      borderBottomWidth: "1px", borderBottomStyle: "solid",
-      borderBottomColor: hov ? "rgba(212,168,67,0.3)" : "#E8D5B7",
-      borderRadius: "12px 12px 0 0",
-      transition: "all 0.15s", flexWrap: "wrap", rowGap: "4px",
-    }}>
-      {/* Drag handle */}
-      <span
-        {...dragAttributes}
-        {...dragListeners}
-        style={{ cursor: "grab", fontSize: "14px", color: hov ? "rgba(255,255,255,0.5)" : "#9CA3AF", padding: "0 2px", userSelect: "none" }}
-      >{"⠿"}</span>
+    <div
+      {...dragAttributes}
+      {...dragListeners}
+      title="Тягніть за хедер, щоб перемістити блок"
+      style={{
+        display: "flex", alignItems: "center", gap: "5px", padding: "7px 10px 7px 6px",
+        background: hov ? "#1C3A2E" : "#F7F4EE",
+        borderBottomWidth: "1px", borderBottomStyle: "solid",
+        borderBottomColor: hov ? "rgba(212,168,67,0.3)" : "#E8D5B7",
+        borderRadius: "12px 12px 0 0",
+        transition: "all 0.15s", flexWrap: "wrap", rowGap: "4px",
+        cursor: "grab",
+        userSelect: "none", touchAction: "none",
+      }}
+    >
+      {/* Візуальний grip-хінт (не окремий handle — весь хедер draggable) */}
+      <div
+        style={{
+          display: "inline-flex", alignItems: "center", gap: "4px",
+          padding: "3px 6px", borderRadius: "5px",
+          background: hov ? "rgba(212,168,67,0.18)" : "rgba(28,58,46,0.06)",
+          color: hov ? "#D4A843" : "#1C3A2E",
+          pointerEvents: "none",
+          transition: "background 0.15s",
+        }}
+      >
+        <svg width="10" height="14" viewBox="0 0 10 14" fill="none" style={{ flexShrink: 0 }}>
+          <circle cx="2.5" cy="2" r="1.3" fill="currentColor" />
+          <circle cx="7.5" cy="2" r="1.3" fill="currentColor" />
+          <circle cx="2.5" cy="7" r="1.3" fill="currentColor" />
+          <circle cx="7.5" cy="7" r="1.3" fill="currentColor" />
+          <circle cx="2.5" cy="12" r="1.3" fill="currentColor" />
+          <circle cx="7.5" cy="12" r="1.3" fill="currentColor" />
+        </svg>
+      </div>
 
       {/* Block label */}
       <span style={{ fontSize: "10px", fontWeight: 700, color: hov ? "#D4A843" : "#1C3A2E", letterSpacing: "0.08em", textTransform: "uppercase", fontFamily: ff }}>
@@ -166,11 +200,13 @@ export default function BlockItemHeader({
         {displayPct}%
       </div>
 
-      {/* Delete */}
+      {/* Duplicate */}
       <button
-        onClick={() => onDelete(blockId)}
-        style={{ background: "none", border: "none", cursor: "pointer", color: "#F87171", fontSize: "13px", padding: "2px 4px", fontWeight: 700 }}
-      >{"✕"}</button>
+        onClick={() => onDuplicate(blockId)}
+        title="Дублювати блок"
+        style={{ background: "none", border: "none", cursor: "pointer", color: hov ? "rgba(255,255,255,0.6)" : "#6B7280", fontSize: "13px", padding: "2px 4px", fontWeight: 700 }}
+      >{"⎘"}</button>
+
     </div>
   );
 }

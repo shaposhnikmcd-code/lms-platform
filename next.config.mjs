@@ -10,11 +10,13 @@ const isDev = process.env.NODE_ENV !== "production";
 // будує form і POST-ить на secure.wayforpay.com/pay.
 const cspDirectives = [
   "default-src 'self'",
-  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""} https://www.googletagmanager.com https://www.google-analytics.com`,
+  `script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob:${isDev ? " 'unsafe-eval'" : ""} https://www.googletagmanager.com https://www.google-analytics.com`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https://res.cloudinary.com https://lh3.googleusercontent.com https://www.googletagmanager.com https://www.google-analytics.com https://flagcdn.com",
   "font-src 'self' data:",
-  "connect-src 'self' https://www.google-analytics.com https://analytics.google.com https://www.googletagmanager.com",
+  "connect-src 'self' blob: data: https://www.google-analytics.com https://analytics.google.com https://www.googletagmanager.com https://res.cloudinary.com https://staticimgly.com",
+  "worker-src 'self' blob:",
+  "child-src 'self' blob:",
   "frame-ancestors 'self'",
   "form-action 'self' https://secure.wayforpay.com",
   "base-uri 'self'",
@@ -24,6 +26,8 @@ const cspDirectives = [
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   poweredByHeader: false,
+  // Playwright — node-only пакет з нативними binaries (Chromium); НЕ бандлити webpack-ом.
+  serverExternalPackages: ["playwright", "playwright-core"],
   images: {
     // AVIF дає додаткові −20-30% до WebP. Next сам обирає кращий формат,
     // підтримуваний браузером.

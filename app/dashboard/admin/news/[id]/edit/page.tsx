@@ -37,6 +37,7 @@ export default function EditNewsPage() {
           excerpt: d.excerpt || "",
           category: d.category || "NEWS",
           imageUrl: d.imageUrl || "",
+          pageBgColor: d.pageBgColor || "",
           published: d.published || false,
         });
         setInitialContent(d.content || "");

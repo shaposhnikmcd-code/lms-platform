@@ -6,7 +6,16 @@
    Єдиний шрифт для всього сайту: ui-sans-serif (системний)
    Tailwind використовує його за замовчуванням через font-sans
    НЕ використовувати Georgia, НЕ підключати Google Fonts
+   Виняток: локальні TTF з /public/fonts/ для декоративних overlay-ів
+   у редакторі новин (вибір шрифта менеджером).
 ========================== */
+@font-face { font-family: "Inter"; src: url("/fonts/Inter-Regular.ttf") format("truetype"); font-display: swap; }
+@font-face { font-family: "BebasNeue"; src: url("/fonts/BebasNeue-Regular.ttf") format("truetype"); font-display: swap; }
+@font-face { font-family: "BowlbyOne"; src: url("/fonts/BowlbyOne-Regular.ttf") format("truetype"); font-display: swap; }
+@font-face { font-family: "Cinzel"; src: url("/fonts/Cinzel-Regular.ttf") format("truetype"); font-display: swap; }
+@font-face { font-family: "CormorantGaramond"; src: url("/fonts/CormorantGaramond-Regular.ttf") format("truetype"); font-display: swap; }
+@font-face { font-family: "CormorantGaramond"; src: url("/fonts/CormorantGaramond-Italic.ttf") format("truetype"); font-style: italic; font-display: swap; }
+@font-face { font-family: "RussoOne"; src: url("/fonts/RussoOne-Regular.ttf") format("truetype"); font-display: swap; }
 
 @keyframes fadeIn {
   from {

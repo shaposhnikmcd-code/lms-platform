@@ -12,7 +12,7 @@ export function EmptyDropZone({ isOver, draggingType }: { isOver: boolean; dragg
 
   if (draggingType && isOver) {
     return (
-      <div ref={setNodeRef} style={{ padding: "20px 32px 0" }}>
+      <div ref={setNodeRef} style={{ padding: "0" }}>
         <GhostBlock type={draggingType} isOver={isOver} />
       </div>
     );
@@ -21,7 +21,7 @@ export function EmptyDropZone({ isOver, draggingType }: { isOver: boolean; dragg
   return (
     <div
       ref={setNodeRef}
-      style={{ padding: "20px 32px 0", display: "flex", alignItems: "flex-start", justifyContent: "center" }}
+      style={{ padding: "0", display: "flex", alignItems: "flex-start", justifyContent: "center" }}
     >
       <div style={{
         width: "100%",
@@ -82,7 +82,7 @@ export function FilledDropZone({
       <div
         ref={setNodeRef}
         style={{
-          padding: "0 32px",
+          padding: "0",
           borderRadius: "12px",
           borderWidth: "2px",
           borderStyle: "dashed",
@@ -96,7 +96,7 @@ export function FilledDropZone({
           flexWrap: "wrap",
           gap: `${gap}px`,
           alignItems: "flex-start",
-          paddingBottom: "300px",
+          paddingBottom: "200px",
         }}>
           {children}
 

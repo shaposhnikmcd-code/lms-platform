@@ -53,18 +53,8 @@ export default function OverlayItem({ activeId, isOverCanvas, paletteBlock }: Pr
     );
   }
 
-  if (activeId) {
-    return (
-      <div style={{
-        padding: "10px 20px", borderRadius: "10px",
-        background: "rgba(28,58,46,0.92)",
-        borderWidth: "1px", borderStyle: "solid", borderColor: "#D4A843",
-        boxShadow: "0 8px 32px rgba(0,0,0,0.25)",
-        fontSize: "13px", fontWeight: 700, color: "#D4A843", fontFamily: ff,
-        cursor: "grabbing",
-      }}>{"⠿ Переміщення"}</div>
-    );
-  }
-
+  // Для existing-block drag не показуємо overlay-chip — сам блок вже рухається за курсором.
+  // Було: "⠿ Переміщення" chip → створювало візуальний хаос з 3+ елементів на курсорі.
+  void activeId;
   return null;
 }

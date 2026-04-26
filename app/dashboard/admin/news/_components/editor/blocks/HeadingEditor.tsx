@@ -41,7 +41,7 @@ export default function HeadingEditor({ block, onChange }: Props) {
         ))}
       </div>
       <input
-        style={{ ...inputStyle, fontSize: level === "1" ? "22px" : level === "2" ? "18px" : "15px", fontWeight: 700 }}
+        style={{ ...inputStyle, fontSize: level === "1" ? "22px" : level === "2" ? "18px" : "15px", fontWeight: 700, textAlign: block.align }}
         placeholder={`Заголовок ${level} рівня`}
         value={block.data.text || ""}
         onChange={e => onChange({ ...block.data, text: e.target.value })}

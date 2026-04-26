@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useRef, useState } from "react";
-import { NewsMeta } from "./types";
+import { NewsMeta, UIMP_COLORS } from "./types";
 
 const ff = "-apple-system, BlinkMacSystemFont, sans-serif";
 
@@ -125,6 +125,54 @@ export default function MetaSidebar({ meta, onChange, onUpload }: Props) {
               <option value="ARTICLE">{"Стаття"}</option>
               <option value="EVENT">{"Подія"}</option>
             </select>
+          </div>
+        </div>
+      </div>
+
+      <div style={cardStyle}>
+        <div style={cardHeaderStyle}>{"Фон сторінки новини"}</div>
+        <div style={cardBodyStyle}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}>
+            {/* Дефолтний (білий) */}
+            <button
+              type="button"
+              title="Білий (за замовчуванням)"
+              onClick={() => onChange({ ...meta, pageBgColor: "" })}
+              style={{
+                width: "26px", height: "26px", borderRadius: "6px",
+                border: `1.5px solid ${!meta.pageBgColor ? "#D4A843" : "#E8D5B7"}`,
+                background: "#FFFFFF",
+                cursor: "pointer", padding: 0,
+                boxShadow: !meta.pageBgColor ? "0 0 0 2px rgba(212,168,67,0.3)" : "none",
+              }}
+            />
+            {UIMP_COLORS.filter(c => c.value && c.value !== "#FFFFFF").map(c => {
+              const active = (meta.pageBgColor || "").toUpperCase() === c.value.toUpperCase();
+              return (
+                <button
+                  key={c.value}
+                  type="button"
+                  title={c.label}
+                  onClick={() => onChange({ ...meta, pageBgColor: c.value })}
+                  style={{
+                    width: "26px", height: "26px", borderRadius: "6px",
+                    border: `1.5px solid ${active ? "#D4A843" : "#E8D5B7"}`,
+                    background: c.value, cursor: "pointer", padding: 0,
+                    boxShadow: active ? "0 0 0 2px rgba(212,168,67,0.3)" : "none",
+                  }}
+                />
+              );
+            })}
+            <input
+              type="color"
+              value={meta.pageBgColor || "#FFFFFF"}
+              onChange={(e) => onChange({ ...meta, pageBgColor: e.target.value })}
+              title="Свій колір"
+              style={{ width: "30px", height: "26px", border: "1.5px solid #E8D5B7", borderRadius: "6px", padding: 0, background: "none", cursor: "pointer" }}
+            />
+          </div>
+          <div style={{ fontSize: "10px", color: "#9CA3AF", lineHeight: 1.4, fontFamily: ff }}>
+            {"Колір білого контейнера, в якому розміщено блоки новини."}
           </div>
         </div>
       </div>

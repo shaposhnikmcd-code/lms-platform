@@ -6,6 +6,7 @@ import {
   useSensors,
   DragStartEvent,
   DragMoveEvent,
+  DragOverEvent,
   DragEndEvent,
 } from "@dnd-kit/core";
 import { sortableKeyboardCoordinates, arrayMove } from "@dnd-kit/sortable";
@@ -22,6 +23,7 @@ interface Options {
 
 export function useEditorDnd({ blocks, onBlocksChange, onLastAdded, onClearPreview, canvasLeftRef }: Options) {
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [overId, setOverId] = useState<string | null>(null);
   const [isOverCanvas, setIsOverCanvas] = useState(false);
   const dropWasSuccessRef = useRef(false);
   const activePaletteBlockRef = useRef<typeof PALETTE_BLOCKS[0] | null>(null);
@@ -34,6 +36,7 @@ export function useEditorDnd({ blocks, onBlocksChange, onLastAdded, onClearPrevi
   const handleDragStart = useCallback((event: DragStartEvent) => {
     const idStr = String(event.active.id);
     setActiveId(idStr);
+    setOverId(null);
     setIsOverCanvas(false);
     dropWasSuccessRef.current = false;
     if (idStr.startsWith("palette:")) {
@@ -55,6 +58,13 @@ export function useEditorDnd({ blocks, onBlocksChange, onLastAdded, onClearPrevi
     setIsOverCanvas(over);
   }, [canvasLeftRef]);
 
+  const handleDragOver = useCallback((event: DragOverEvent) => {
+    const { over } = event;
+    if (!over) { setOverId(null); return; }
+    const id = String(over.id);
+    setOverId(id === "canvas-drop" ? null : id);
+  }, []);
+
   const handleDragEnd = useCallback((event: DragEndEvent) => {
     const { active, over } = event;
     const activeStr = String(active.id);
@@ -64,6 +74,7 @@ export function useEditorDnd({ blocks, onBlocksChange, onLastAdded, onClearPrevi
     dropWasSuccessRef.current = isPaletteDrop && isOverCanvas;
 
     setActiveId(null);
+    setOverId(null);
     setIsOverCanvas(false);
 
     // Для palette drop перевіряємо isOverCanvas (не over від dnd-kit)
@@ -100,11 +111,13 @@ export function useEditorDnd({ blocks, onBlocksChange, onLastAdded, onClearPrevi
   return {
     sensors,
     activeId,
+    overId,
     isOverCanvas,
     dropWasSuccessRef,
     paletteBlock,
     handleDragStart,
     handleDragMove,
+    handleDragOver,
     handleDragEnd,
   };
 }

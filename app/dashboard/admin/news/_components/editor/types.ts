@@ -1,4 +1,4 @@
-export type BlockType = "text" | "heading" | "image" | "youtube" | "quote" | "divider";
+export type BlockType = "text" | "heading" | "image" | "youtube" | "quote" | "divider" | "card";
 // BlockWidth — рядок з числом відсотків (1..100). Тримаємо як string для сумісності
 // зі старими записами та з JSON-серіалізацією. Крок resize — 1%.
 export type BlockWidth = string;
@@ -8,10 +8,17 @@ export interface Block {
   id: string;
   type: BlockType;
   data: Record<string, string>;
-  width: BlockWidth;
+  width: BlockWidth;          // % ширини канваса (1..100)
   align: BlockAlign;
   bgColor: string;
+  x?: number;                 // % від лівого краю канваса (0..100-width)
+  y?: number;                 // px від верху канваса
+  height?: number;            // px (опційно — для image/youtube/фіксованих блоків)
 }
+
+// Ширина канваса у пікселях — має збігатись з PAGE_WIDTH в EditorCanvas і
+// max-w-4xl padding md:p-12 на public сторінці. Не ламай без узгодження з обома.
+export const CANVAS_WIDTH = 832;
 
 export interface NewsMeta {
   title: string;
@@ -20,26 +27,57 @@ export interface NewsMeta {
   category: "NEWS" | "ANNOUNCEMENT" | "ARTICLE" | "EVENT";
   imageUrl: string;
   published: boolean;
+  pageBgColor?: string; // колір фону внутрішньої сторінки новини, "" або undefined = білий
 }
 
 export function blocksToJson(blocks: Block[]): string {
   return JSON.stringify(blocks);
 }
 
+// Висота за типом (груба оцінка для авто-розкладки легасі-блоків)
+const LEGACY_HEIGHT: Record<BlockType, number> = {
+  heading: 80, text: 180, image: 300, youtube: 360, quote: 120, divider: 40, card: 280,
+};
+
+// Авто-розкладка блоків, у яких відсутні x/y — відтворює стару flex-wrap поведінку:
+// тримає ряди по 100% ширини, заповнюючи блоки зліва направо.
+function autoLayout(blocks: Block[]): Block[] {
+  let rowY = 0, rowX = 0, rowH = 0;
+  return blocks.map(b => {
+    const hasXY = typeof b.x === "number" && typeof b.y === "number";
+    if (hasXY) return b;
+    const w = Math.max(1, Math.min(100, Number(b.width) || 100));
+    if (rowX + w > 100.5) {
+      rowY += rowH + 16;
+      rowX = 0;
+      rowH = 0;
+    }
+    const h = b.height ?? LEGACY_HEIGHT[b.type];
+    const out: Block = { ...b, x: rowX, y: rowY };
+    rowX += w;
+    rowH = Math.max(rowH, h);
+    if (rowX >= 99.5) { rowY += rowH + 16; rowX = 0; rowH = 0; }
+    return out;
+  });
+}
+
 export function jsonToBlocks(content: string): Block[] {
   if (!content) return [];
   try {
     const parsed = JSON.parse(content);
-    if (Array.isArray(parsed)) return parsed.map(b => ({
-      width: "100" as BlockWidth,
-      align: "left" as BlockAlign,
-      bgColor: "",
-      ...b,
-    }));
+    if (Array.isArray(parsed)) {
+      const normalized: Block[] = parsed.map(b => ({
+        width: "100" as BlockWidth,
+        align: "left" as BlockAlign,
+        bgColor: "",
+        ...b,
+      }));
+      return autoLayout(normalized);
+    }
     return [];
   } catch {
     if (content.trim().startsWith("<")) {
-      return [{ id: crypto.randomUUID(), type: "text" as BlockType, data: { html: content }, width: "100" as BlockWidth, align: "left" as BlockAlign, bgColor: "" }];
+      return [{ id: crypto.randomUUID(), type: "text" as BlockType, data: { html: content }, width: "100" as BlockWidth, align: "left" as BlockAlign, bgColor: "", x: 0, y: 0 }];
     }
     return [];
   }
@@ -57,6 +95,13 @@ export function blocksToHtml(blocks: Block[]): string {
       }
       case "quote": return `<blockquote>${b.data.text || ""}</blockquote>`;
       case "divider": return `<hr />`;
+      case "card": {
+        const t = b.data.title || "";
+        const s = b.data.subtitle || "";
+        const bl = b.data.buttonLabel || "";
+        const bh = b.data.buttonHref || "";
+        return `<div>${t ? `<h3>${t}</h3>` : ""}${s ? `<p>${s}</p>` : ""}${bl && bh ? `<a href="${bh}">${bl}</a>` : ""}</div>`;
+      }
       default: return "";
     }
   }).join("\n");

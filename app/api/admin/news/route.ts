@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Немає доступу" }, { status: 403 });
   }
 
-  const { title, slug, content, excerpt, imageUrl, category, published } = await req.json();
+  const { title, slug, content, excerpt, imageUrl, category, published, pageBgColor } = await req.json();
 
   if (!title || !slug || !content) {
     return NextResponse.json({ error: "Невірні дані" }, { status: 400 });
@@ -41,6 +41,7 @@ export async function POST(req: NextRequest) {
       content,
       excerpt: excerpt || null,
       imageUrl: imageUrl || null,
+      pageBgColor: pageBgColor || null,
       category: category || "NEWS",
       published: published || false,
       authorId: user?.id || null,

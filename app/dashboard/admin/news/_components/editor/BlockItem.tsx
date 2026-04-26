@@ -1,22 +1,28 @@
 "use client";
 
 import React, { useState } from "react";
-import { useSortable } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
 import { Block, BlockAlign, BlockWidth } from "./types";
 import TextEditor from "./blocks/TextEditor";
 import HeadingEditor from "./blocks/HeadingEditor";
 import ImageEditor from "./blocks/ImageEditor";
 import YoutubeEditor from "./blocks/YoutubeEditor";
 import QuoteEditor from "./blocks/QuoteEditor";
+import CardEditor from "./blocks/CardEditor";
 import BlockItemHeader from "./BlockItemHeader";
 import BlockItemSnapGuide from "./BlockItemSnapGuide";
 import { useBlockResize } from "./hooks/useBlockResize";
 
 interface Props {
   block: Block;
+  index: number;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
+  dragAttributes: React.HTMLAttributes<HTMLElement>;
+  dragListeners: React.HTMLAttributes<HTMLElement> | undefined;
   onChange: (id: string, data: Record<string, string>) => void;
-  onDelete: (id: string) => void;
+  onMoveUp: (id: string) => void;
+  onMoveDown: (id: string) => void;
+  onDuplicate: (id: string) => void;
   onSetWidth: (id: string, w: BlockWidth) => void;
   onSetWidthAndData: (id: string, w: BlockWidth, data: Record<string, string>) => void;
   onSetAlign: (id: string, a: BlockAlign) => void;
@@ -34,14 +40,16 @@ interface Props {
 }
 
 export default function BlockItem({
-  block, onChange, onDelete, onSetWidth, onSetWidthAndData, onSetAlign, onSetBg,
+  block, index, canMoveUp, canMoveDown,
+  dragAttributes, dragListeners,
+  onChange, onMoveUp, onMoveDown, onDuplicate,
+  onSetWidth, onSetWidthAndData, onSetAlign, onSetBg,
   onUpload, containerWidthPx, onPreviewWidth, onClearPreview,
   onPreviewHeight, onClearPreviewHeight, previewHeight,
   onReportHeight, getSameRowHeights, snapThreshold,
 }: Props) {
+  void index;
   const [hov, setHov] = useState(false);
-
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: block.id });
 
   const {
     blockRef, resizingW, resizingH, resizingD,
@@ -68,7 +76,6 @@ export default function BlockItem({
   const isSnapping = snapGuideH !== null;
   const textColor = (block.bgColor === "#1C3A2E" || block.bgColor === "#1a1a1a") ? "#FAF6F0" : "#1C3A2E";
   const isImage = block.type === "image";
-  // Червоний контур коли пропорції фото зламані (тільки для image-блоків з відомим aspect)
   const aspectBroken = isImage && hasAspect && aspectMatched === false;
   const aspectOk = isImage && hasAspect && aspectMatched === true && minHeight > 0;
   const borderColor = aspectBroken
@@ -84,14 +91,8 @@ export default function BlockItem({
 
   return (
     <div
-      style={{
-        transform: CSS.Transform.toString(transform),
-        transition: resizingW || resizingH ? "none" : transition,
-        opacity: isDragging ? 0.25 : 1,
-        width: "100%",
-        position: "relative",
-      }}
-      ref={node => { setNodeRef(node); blockRef.current = node; }}
+      style={{ width: "100%", position: "relative" }}
+      ref={node => { blockRef.current = node; }}
     >
       <div
         onMouseEnter={() => setHov(true)}
@@ -119,11 +120,15 @@ export default function BlockItem({
           blockBgColor={block.bgColor}
           displayPct={displayPct}
           hov={hov}
-          dragAttributes={attributes}
-          dragListeners={listeners}
+          canMoveUp={canMoveUp}
+          canMoveDown={canMoveDown}
+          dragAttributes={dragAttributes}
+          dragListeners={dragListeners}
           onSetAlign={onSetAlign}
           onSetBg={onSetBg}
-          onDelete={onDelete}
+          onMoveUp={onMoveUp}
+          onMoveDown={onMoveDown}
+          onDuplicate={onDuplicate}
         />
 
         {/* Body */}
@@ -133,6 +138,7 @@ export default function BlockItem({
           {block.type === "image"   && <ImageEditor   block={block} onChange={d => onChange(block.id, d)} onUpload={onUpload} previewHeight={previewHeight} />}
           {block.type === "youtube" && <YoutubeEditor block={block} onChange={d => onChange(block.id, d)} />}
           {block.type === "quote"   && <QuoteEditor   block={block} onChange={d => onChange(block.id, d)} />}
+          {block.type === "card"    && <CardEditor    block={block} onChange={d => onChange(block.id, d)} onUpload={onUpload} />}
           {block.type === "divider" && <hr style={{ border: "none", borderTopWidth: "2px", borderTopStyle: "solid", borderTopColor: "#D4A843", margin: "8px 0" }} />}
         </div>
       </div>
@@ -153,7 +159,7 @@ export default function BlockItem({
         <div style={{ height: "4px", width: "40px", borderRadius: "4px", background: resizingH || isSnapping ? "#D4A843" : "#1C3A2E", transition: "background 0.15s" }} />
       </div>
 
-      {/* Diagonal resize handle (всі блоки — пропорційний resize) */}
+      {/* Diagonal resize handle */}
       <div
         onMouseDown={startResizeDiagonal}
         title={isImage && hasAspect ? "Пропорційний resize (aspect фото)" : "Пропорційний resize"}
