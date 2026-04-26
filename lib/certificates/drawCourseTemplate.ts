@@ -18,7 +18,7 @@ import type { FontKey } from './fonts';
 import { GREEN, GOLD, GOLD_LIGHT, GOLD_DEEP, GOLD_PALE, CREAM, CREAM_DEEP, c } from './elements';
 import {
   SIDEBAR_GREEN, SIDEBAR_GREEN_DEEP, SIDEBAR_GREEN_LIT,
-  drawSidebarMedallion, drawSmallSeal, drawDiamondDivider, drawTopRule,
+  drawSidebarMedallion, drawSmallSeal, drawSphereSeal, drawDiamondDivider, drawTopRule,
   drawSidebarStripe, drawCenteredTracked,
 } from './courseElements';
 
@@ -27,7 +27,7 @@ const GREY_LIGHT = { r: 140, g: 140, b: 130 };
 
 /// Геометричні константи layout-у. Всі відсотки беруть базою всю сторінку
 /// (W=1280, H=906) — sidebar займає від 0 до SIDEBAR_W.
-const SIDEBAR_FRAC = 0.250;     // 320pt при W=1280
+const SIDEBAR_FRAC = 0.290;     // 371pt при W=1280 (cream area 909pt = 71%)
 
 export type CourseTemplateAssets = {
   fonts: Record<FontKey, PDFFont>;
@@ -42,13 +42,13 @@ export type CourseTemplateAssets = {
 export function drawCourseTemplate(
   page: PDFPage,
   assets: CourseTemplateAssets,
-  opts: { courseName?: string; year?: number },
+  opts: { courseName?: string; year?: number; recipientName?: string },
 ) {
   const W = page.getWidth();
   const H = page.getHeight();
   const sidebarW = W * SIDEBAR_FRAC;
 
-  drawSidebar(page, sidebarW, H, assets.fonts, assets.medallionSpherePng);
+  drawSidebar(page, sidebarW, H, assets.fonts, assets.logoGoldPng);
   drawMainPanel(page, sidebarW, W - sidebarW, H, assets, opts);
 }
 
@@ -61,7 +61,7 @@ function drawSidebar(
   sidebarW: number,
   H: number,
   fonts: Record<FontKey, PDFFont>,
-  medallionSpherePng?: PDFImage,
+  logoGoldPng?: PDFImage,
 ) {
   /// Базовий фон — solid dark green
   page.drawRectangle({
@@ -79,19 +79,19 @@ function drawSidebar(
   const cx = sidebarW / 2;
 
   /// Великий медальйон зверху (приблизно у верхньому третині sidebar-у)
-  const medR = sidebarW * 0.31;
+  const medR = sidebarW * 0.16;
   const medCY = H * 0.685;
-  drawSidebarMedallion(page, fonts, cx, medCY, medR, medallionSpherePng);
+  drawSidebarMedallion(page, fonts, cx, medCY, medR, logoGoldPng);
 
   /// "UIMP" — gold caps під медальйоном
-  const uimpSize = sidebarW * 0.085;
+  const uimpSize = sidebarW * 0.130;
   drawCenteredTracked(
     page, 'UIMP', cx, medCY - medR - uimpSize * 1.55,
     uimpSize, 4.2, fonts.cormorantRegular, c(GOLD),
   );
 
   /// "INSTITUTE" — tracked caps small, gold deep
-  const instSize = sidebarW * 0.034;
+  const instSize = sidebarW * 0.044;
   drawCenteredTracked(
     page, 'INSTITUTE', cx, medCY - medR - uimpSize * 1.55 - instSize * 2.3,
     instSize, 3.0, fonts.interMedium, c(GOLD_DEEP),
@@ -132,7 +132,7 @@ function drawMainPanel(
   panelW: number,
   H: number,
   assets: CourseTemplateAssets,
-  opts: { courseName?: string; year?: number },
+  opts: { courseName?: string; year?: number; recipientName?: string },
 ) {
   const cx = panelX + panelW / 2;
 
@@ -203,9 +203,18 @@ function drawMainPanel(
   );
 
   /// === Recipient name — overlay field малюється у generatePdf через TEMPLATES.COURSE ===
-  /// Тут малюємо лише underline під ім'я (статичний)
+  /// Underline під ім'я — піджимаємо до ширини імені (з урахуванням auto-shrink
+  /// на maxWidthPct=0.55 з templateConfig). Якщо recipientName не передано —
+  /// fallback на 32% ширини панелі.
   const nameLineY = H * 0.355;
-  const nameLineSpan = panelW * 0.32;
+  let nameLineSpan = panelW * 0.32;
+  if (opts.recipientName) {
+    const pageW = panelX + panelW;
+    const naturalW = assets.fonts.cormorantItalic.widthOfTextAtSize(opts.recipientName, 46);
+    const maxW = pageW * 0.55;
+    const displayedW = Math.min(naturalW, maxW);
+    nameLineSpan = displayedW / 2 + 24;
+  }
   page.drawLine({
     start: { x: cx - nameLineSpan, y: nameLineY },
     end: { x: cx + nameLineSpan, y: nameLineY },
@@ -221,7 +230,7 @@ function drawMainPanel(
     cx, H * 0.290, bodySize, 0.5, bodyFont, bodyColor,
   );
   drawCenteredTracked(
-    page, 'в Українському інституті душеопіки та психотерапії',
+    page, 'з душеопіки та психотерапії в Українському інституті UIMP',
     cx, H * 0.260, bodySize, 0.5, bodyFont, bodyColor,
   );
 
@@ -288,30 +297,34 @@ function drawBottomRow(
     width: sigW, height: sigH,
   });
   /// "Тетяна Шапошник" — italic під підписом
-  const nameSize = H * 0.020;
+  const nameSize = Math.min(panelW, H) * 0.030;
   const nameFont = assets.fonts.cormorantItalic;
   const nameText = 'Тетяна Шапошник';
   const nameW = nameFont.widthOfTextAtSize(nameText, nameSize);
   page.drawText(nameText, {
-    x: sigCX - nameW / 2, y: rowY - 6,
+    x: sigCX - nameW / 2, y: rowY - 10,
     size: nameSize, font: nameFont, color: c(SIDEBAR_GREEN),
   });
-  /// Underline під ім'я
-  const sigLineSpan = panelW * 0.105;
+  /// Underline під ім'я — піджимаємо до ширини контенту (name + sig PNG).
+  const sigLineHalf = Math.max(nameW, sigW) / 2 + 8;
   page.drawLine({
-    start: { x: sigCX - sigLineSpan, y: rowY - 12 },
-    end: { x: sigCX + sigLineSpan, y: rowY - 12 },
+    start: { x: sigCX - sigLineHalf, y: rowY - 16 },
+    end: { x: sigCX + sigLineHalf, y: rowY - 16 },
     thickness: 0.4, color: c(GREY_LIGHT),
   });
   /// "ПРЕЗИДЕНТКА UIMP" tracked caps
   drawCenteredTracked(
-    page, 'ПРЕЗИДЕНТКА UIMP', sigCX, rowY - 26,
+    page, 'ПРЕЗИДЕНТКА UIMP', sigCX, rowY - 32,
     H * 0.0115, 2.4, assets.fonts.interMedium, c(GREY),
   );
 
-  /// === CENTER: small seal (2.5x bigger) ===
-  const sealR = H * 0.085;
-  drawSmallSeal(page, assets.fonts, cx, rowY, sealR);
+  /// === CENTER: sphere seal (растерізований медальйон-куля) ===
+  const sealR = H * 0.072;
+  if (assets.medallionSpherePng) {
+    drawSphereSeal(page, assets.medallionSpherePng, cx, rowY, sealR);
+  } else {
+    drawSmallSeal(page, assets.fonts, cx, rowY, sealR);
+  }
 
   /// === RIGHT: year + line + "РІК ВИДАЧІ" ===
   const yearCX = cx + colOffset;
@@ -325,11 +338,13 @@ function drawBottomRow(
       size: yearSize, font: yearFont, color: c(SIDEBAR_GREEN),
     });
   }
-  /// Underline під роком
-  const yrLineSpan = panelW * 0.105;
+  /// Underline під роком — піджимаємо до ширини "2026" + невелике padding.
+  const yearTextSize = H * 0.034;
+  const yearMeasureW = assets.fonts.cormorantItalic.widthOfTextAtSize('2026', yearTextSize);
+  const yrLineHalf = yearMeasureW / 2 + 12;
   page.drawLine({
-    start: { x: yearCX - yrLineSpan, y: rowY - 4 },
-    end: { x: yearCX + yrLineSpan, y: rowY - 4 },
+    start: { x: yearCX - yrLineHalf, y: rowY - 4 },
+    end: { x: yearCX + yrLineHalf, y: rowY - 4 },
     thickness: 0.5, color: c(GREY_LIGHT),
   });
   /// "РІК ВИДАЧІ" tracked caps

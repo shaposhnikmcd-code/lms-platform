@@ -59,7 +59,7 @@ export async function drawBaseTemplate(
   page: PDFPage,
   templateKey: TemplateKey,
   assets: BaseTemplateAssets,
-  opts: { courseName?: string; categoryLabel?: string; year?: number } = {},
+  opts: { courseName?: string; categoryLabel?: string; year?: number; recipientName?: string } = {},
 ) {
   /// COURSE-сертифікат має кардинально інший layout (двопанельний sidebar +
   /// main panel) — делегуємо у dedicated renderer.
@@ -72,6 +72,7 @@ export async function drawBaseTemplate(
     }, {
       courseName: opts.courseName,
       year: opts.year,
+      recipientName: opts.recipientName,
     });
     return;
   }
@@ -81,16 +82,16 @@ export async function drawBaseTemplate(
 
   drawBackground(page, W, H);
   drawFrame(page, W, H);
-  drawCornerOrnaments(page, W, H);
+  // drawCornerOrnaments — видалено для yearly за просьбою користувача (2026-04-26)
   drawMedallion(page, W, H, assets.fonts, assets.logoPng);
   drawBrandLockup(page, W, H, assets.fonts);
   drawDivider(page, W, H);
   drawHeading(page, W, H, assets.fonts);
   drawCategoryLine(page, W, H, templateKey, assets.fonts.interSemiBold, opts.categoryLabel);
-  drawBody(page, W, H, templateKey, assets.fonts, opts.courseName);
+  drawBody(page, W, H, templateKey, assets.fonts, opts.courseName, opts.recipientName);
   drawSignatureBlock(page, W, H, assets);
   drawSeal(page, W, H, assets.fonts, assets.logoPng, opts.year);
-  drawYearLabel(page, W, H, assets.fonts.interMedium);
+  drawYearLabel(page, W, H, assets.fonts.interMedium, assets.fonts.cormorantItalic);
 }
 
 /* ----------------------------------------------------------------------- */
@@ -342,6 +343,7 @@ function drawBody(
   templateKey: TemplateKey,
   fonts: Record<FontKey, PDFFont>,
   courseName?: string,
+  recipientName?: string,
 ) {
   const cx = W / 2;
   const greyCol = c(GREY);
@@ -351,8 +353,16 @@ function drawBody(
   const awardSize = Math.min(W, H) * 0.0145;
   drawCenteredTracked(page, awardText, cx, H * 0.447, awardSize, 2.4, fonts.interMedium, greyCol);
 
-  /// Underline під іменем
-  const lineW = W * 0.30;
+  /// Underline під іменем — піджимаємо до ширини фактичного імені (з урахуванням
+  /// auto-shrink на maxWidthPct=0.55 з templateConfig). Якщо recipientName не
+  /// передано (рендер preview) — fallback на 30% ширини сторінки.
+  let lineW = W * 0.30;
+  if (recipientName) {
+    const naturalW = fonts.cormorantItalic.widthOfTextAtSize(recipientName, 46);
+    const maxW = W * 0.55;
+    const displayedW = Math.min(naturalW, maxW);
+    lineW = displayedW + 40;  // невелике padding по краях
+  }
   page.drawLine({
     start: { x: cx - lineW / 2, y: H * 0.350 },
     end: { x: cx + lineW / 2, y: H * 0.350 },
@@ -401,17 +411,18 @@ function drawSignatureBlock(
   });
 
   const lineY = H * 0.148;
-  const lineStart = sigX;
-  const lineEnd = sigX + sigTargetW;
+  const nameSize = Math.min(W, H) * 0.030;
+  const nameW = assets.fonts.cormorantItalic.widthOfTextAtSize('Тетяна Шапошник', nameSize);
+  /// Underline = max(name, signature) width + невелике padding — щоб лінія не
+  /// була набагато ширшою за контент над нею.
+  const lineHalfW = Math.max(nameW, sigTargetW * 0.55) / 2 + 8;
+  const nameX = sigX + sigTargetW / 2;
   page.drawLine({
-    start: { x: lineStart, y: lineY },
-    end: { x: lineEnd, y: lineY },
+    start: { x: nameX - lineHalfW, y: lineY },
+    end: { x: nameX + lineHalfW, y: lineY },
     thickness: 0.6,
     color: c(GREY),
   });
-
-  const nameSize = Math.min(W, H) * 0.019;
-  const nameX = sigX + sigTargetW / 2;
   drawCenteredText(
     page, 'Тетяна Шапошник',
     nameX, lineY - nameSize * 1.15,
@@ -429,16 +440,20 @@ function drawSignatureBlock(
 /// Золота печатка — дизайн у elements.ts. Тут лише позиція в шаблоні.
 function drawSeal(page: PDFPage, W: number, H: number, fonts: Record<FontKey, PDFFont>, logoPng: PDFImage, year?: number) {
   const cx = W / 2;
-  const cy = H * 0.165;
+  const cy = H * 0.145;
   const rOuter = Math.min(W, H) * 0.075;
   drawSealEl(page, fonts, logoPng, cx, cy, rOuter, year);
 }
 
 /// "РІК ВИДАЧІ" label + underline (сам рік рендериться у generatePdf).
-function drawYearLabel(page: PDFPage, W: number, H: number, interMedium: PDFFont) {
+function drawYearLabel(page: PDFPage, W: number, H: number, interMedium: PDFFont, italicFont: PDFFont) {
   const cx = W * 0.795;
   const yLine = H * 0.175;
-  const lineW = W * 0.090;
+  /// Line width = year text width + padding (рендериться 4-значне число "2026"
+  /// у cormorantItalic at H*0.034 — синхронно з overlay у generatePdf)
+  const yearSize = H * 0.034;
+  const yearW = italicFont.widthOfTextAtSize('2026', yearSize);
+  const lineW = yearW + 24;
 
   page.drawLine({
     start: { x: cx - lineW / 2, y: yLine },

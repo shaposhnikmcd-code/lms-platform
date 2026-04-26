@@ -54,15 +54,16 @@ const YEARLY_TEMPLATE: TemplateConfig = {
       xPct: 0.795, yPct: 0.195, slot: 'issueYear',
       size: 26, font: 'cormorantItalic', color: UIMP_GREEN, align: 'center',
     },
-    /// Cert number — tiny знизу-праворуч (під QR)
+    /// Cert number — tiny у нижньому-правому куті, прижатий до нижньої лінії inset.
     {
-      xPct: 0.950, yPct: 0.045, slot: 'certNumber',
+      xPct: 0.965, yPct: 0.050, slot: 'certNumber',
       size: 7, font: 'interRegular', color: UIMP_GREY, align: 'right',
       letterSpacing: 0.4, uppercase: true,
     },
   ],
-  /// QR — правий нижній кут, в межах inner frame, достатньо великий для сканування
-  qr: { xPct: 0.897, yPct: 0.095, sizePct: 0.042 },
+  /// QR — правий нижній кут. ~32pt margin до правої та нижньої лінії inset
+  /// frame (симетрично).
+  qr: { xPct: 0.892, yPct: 0.072, sizePct: 0.055 },
 };
 
 /// Шаблон COURSE — двопанельний layout (green sidebar + cream main panel).
@@ -73,23 +74,24 @@ const YEARLY_TEMPLATE: TemplateConfig = {
 const COURSE_TEMPLATE: TemplateConfig = {
   fields: [
     /// Ім'я отримувача — italic Cormorant, центр main-panel,
-    /// сидить трохи вище underline (який drawCourseTemplate малює на y=0.355*H)
+    /// сидить трохи вище underline (який drawCourseTemplate малює на y=0.355*H).
+    /// xPct=0.645 = центр main-panel при SIDEBAR_FRAC=0.290 (sidebar=29% + 35.5%).
     {
-      xPct: 0.625, yPct: 0.367, slot: 'recipientName',
+      xPct: 0.645, yPct: 0.367, slot: 'recipientName',
       size: 46, font: 'cormorantItalic',
       color: { r: 16, g: 40, b: 32 },     // SIDEBAR_GREEN — глибокий dark green
       align: 'center', maxWidthPct: 0.55,
     },
-    /// Cert number — tiny у нижньому-лівому куті main panel (всередині inset-рамки)
+    /// Cert number — tiny у нижньому-правому куті, прижатий до нижньої лінії inset.
     {
-      xPct: 0.275, yPct: 0.048, slot: 'certNumber',
+      xPct: 0.965, yPct: 0.055, slot: 'certNumber',
       size: 7, font: 'interRegular',
       color: { r: 140, g: 140, b: 130 },  // GREY_LIGHT
-      align: 'left', letterSpacing: 0.4, uppercase: true,
+      align: 'right', letterSpacing: 0.4, uppercase: true,
     },
   ],
-  /// QR — нижній правий кут main-panel, всередині inset-рамки, нижче bottom row
-  qr: { xPct: 0.928, yPct: 0.060, sizePct: 0.038 },
+  /// QR — уніфікована позиція з YEARLY templates
+  qr: { xPct: 0.918, yPct: 0.075, sizePct: 0.040 },
 };
 
 export const TEMPLATES: Record<TemplateKey, TemplateConfig> = {

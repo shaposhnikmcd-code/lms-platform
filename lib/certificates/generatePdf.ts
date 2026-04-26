@@ -31,9 +31,16 @@ export type CertGenerationInput = {
   category?: 'LISTENER' | 'PRACTICAL';
 };
 
-/// Фіксований розмір сторінки в pt. Vector-незалежний від DPI — crisp на будь-якому зумі.
-const PAGE_W = 1280;
-const PAGE_H = 906;
+/// Розміри сторінки в pt — per-template, бо course-cert (з sidebar) і yearly-cert
+/// мають різну логіку landscape пропорцій:
+///   - COURSE  1280×640 (2:1) — широкий landscape, sidebar+main panel читаються
+///     як два окремих блоки
+///   - YEARLY  1280×906 (~1.41:1, A3-ish) — класичний A4 landscape
+const PAGE_SIZES: Record<string, { w: number; h: number }> = {
+  COURSE: { w: 1280, h: 760 },
+  YEARLY_PRACTICAL: { w: 1280, h: 960 },
+  YEARLY_LISTENER: { w: 1280, h: 960 },
+};
 
 export async function generateCertificatePdf(input: CertGenerationInput): Promise<Uint8Array> {
   const config = TEMPLATES[input.templateKey];
@@ -42,7 +49,8 @@ export async function generateCertificatePdf(input: CertGenerationInput): Promis
   const doc = await PDFDocument.create();
   doc.registerFontkit(fontkit);
 
-  const page = doc.addPage([PAGE_W, PAGE_H]);
+  const pageSize = PAGE_SIZES[input.templateKey] ?? { w: 1280, h: 906 };
+  const page = doc.addPage([pageSize.w, pageSize.h]);
 
   /// Ембед шрифтів з кешем. Тепер використовуємо static TTFs (не variable),
   /// тому `subset: true` працює коректно — pdf-lib включає тільки потрібні гліфи,
@@ -93,6 +101,7 @@ export async function generateCertificatePdf(input: CertGenerationInput): Promis
     courseName: input.courseName,
     categoryLabel,
     year: input.issueYear,
+    recipientName: input.recipientName,
   });
 
   /// Overlay динамічних полів (ім'я, рік, cert#)
@@ -107,7 +116,7 @@ export async function generateCertificatePdf(input: CertGenerationInput): Promis
   for (const field of config.fields) {
     const raw = slotValues[field.slot] ?? '';
     if (!raw) continue;
-    await drawField(page, field, raw, PAGE_W, PAGE_H, fontsAll);
+    await drawField(page, field, raw, pageSize.w, pageSize.h, fontsAll);
   }
 
   /// QR → PNG (512×512) → embed. Кольори у брендовій палітрі (green на cream).
@@ -127,10 +136,10 @@ export async function generateCertificatePdf(input: CertGenerationInput): Promis
   const qrBase64 = qrDataUrl.split(',')[1];
   const qrBytes = Uint8Array.from(Buffer.from(qrBase64, 'base64'));
   const qrImg = await doc.embedPng(qrBytes);
-  const qrSize = config.qr.sizePct * PAGE_W;
+  const qrSize = config.qr.sizePct * pageSize.w;
   page.drawImage(qrImg, {
-    x: config.qr.xPct * PAGE_W,
-    y: config.qr.yPct * PAGE_H,
+    x: config.qr.xPct * pageSize.w,
+    y: config.qr.yPct * pageSize.h,
     width: qrSize,
     height: qrSize,
   });

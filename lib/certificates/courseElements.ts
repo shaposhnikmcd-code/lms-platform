@@ -24,40 +24,23 @@ export const SIDEBAR_GREEN_LIT = { r: 28, g: 56, b: 46 };
 /*                       SIDEBAR MEDALLION                                 */
 /* ======================================================================= */
 
-/// Великий медальйон у центрі sidebar-у — благородна золота куля з теплим
-/// градієнтом і темно-зеленим UIMP. Embedається як rasterized PNG з
-/// `public/Certificates/element-medallion-sphere.png` (бо pdf-lib не підтримує
-/// radial gradient). Дизайн розроблений у `/Certificates/medallion-playground.html`,
-/// PNG генерується через `node scripts/render-medallion-sphere-png.mjs`.
+/// Великий медальйон у центрі sidebar-у — minimalist CS4 "Outline Only":
+/// cream диск + тонке gold-кільце + gold-tinted UIMP логотип центром.
 ///
-/// @param medallionSpherePng  растерізований SVG медальйона (1024×1024 PNG)
-/// @param cx, cy              центр у pt
-/// @param r                   зовнішній радіус кулі (з тінню)
+/// @param cx, cy       центр у pt
+/// @param r            зовнішній радіус (overall size)
+/// @param logoGoldPng  опційно — gold-tinted PNG логотипа (якщо не передано,
+///                     fallback на UIMP caps текстом)
 export function drawSidebarMedallion(
   page: PDFPage,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   fonts: Record<FontKey, PDFFont>,
   cx: number,
   cy: number,
   r: number,
-  medallionSpherePng?: PDFImage,
+  logoGoldPng?: PDFImage,
 ) {
-  if (medallionSpherePng) {
-    /// SVG viewBox = 400×400, диск має радіус 180 (= 0.9 × bbox/2). Drop-shadow
-    /// + bevel виходять за межі диска ~20pt у SVG, тому PNG-embed розтягуємо
-    /// на bbox = 2*r/0.9, центруючи на (cx, cy).
-    const size = (r / 0.9) * 2;
-    page.drawImage(medallionSpherePng, {
-      x: cx - size / 2,
-      y: cy - size / 2,
-      width: size,
-      height: size,
-    });
-    return;
-  }
-
-  /// Fallback — простий cream диск з тонким gold ring (на випадок якщо PNG
-  /// не загружено, наприклад у dev до запуску render-medallion-sphere-png).
+  /// CS4 "Inner Hairline" — cream + crisp gold stroke + друга тонша concentric
+  /// лінія всередині (engraved double-frame).
   page.drawCircle({
     x: cx, y: cy, size: r,
     color: c(CREAM),
@@ -68,11 +51,62 @@ export function drawSidebarMedallion(
     borderColor: c(GOLD_DEEP), borderWidth: 0.5,
     color: c(CREAM),
   });
+
+  if (logoGoldPng) {
+    /// Gold UIMP лого центром (трохи менше — лишає room для inner hairline)
+    const targetW = r * 1.10;
+    const aspect = logoGoldPng.height / logoGoldPng.width;
+    page.drawImage(logoGoldPng, {
+      x: cx - targetW / 2,
+      y: cy - (targetW * aspect) / 2,
+      width: targetW, height: targetW * aspect,
+    });
+  } else {
+    /// Fallback — UIMP tracked caps gold
+    const text = 'UIMP';
+    const font = fonts.cormorantRegular;
+    const size = r * 0.42;
+    const tracking = r * 0.04;
+    const widths: number[] = [];
+    let totalW = 0;
+    for (const ch of text) {
+      const w = font.widthOfTextAtSize(ch, size);
+      widths.push(w);
+      totalW += w + tracking;
+    }
+    totalW -= tracking;
+    const baseY = cy - size * 0.30;
+    let x = cx - totalW / 2;
+    for (let i = 0; i < text.length; i++) {
+      page.drawText(text[i], { x, y: baseY, size, font, color: c(GOLD) });
+      x += widths[i] + tracking;
+    }
+  }
 }
 
 /* ======================================================================= */
 /*                       SMALL SEAL (footer)                               */
 /* ======================================================================= */
+
+/// Sphere seal — embedає растерізований SVG медальйон (золота куля з градієнтом
+/// + UIMP темно-зеленим). PNG генерується скриптом `render-medallion-sphere-png.mjs`.
+/// SVG bbox = 400×400, disc радіус = 180, тому реальний размір медальйона
+/// = 90% від bbox. Drop-shadow виходить за межі диска ~5%.
+export function drawSphereSeal(
+  page: PDFPage,
+  medallionSpherePng: PDFImage,
+  cx: number,
+  cy: number,
+  r: number,
+) {
+  const size = (r / 0.9) * 2;
+  page.drawImage(medallionSpherePng, {
+    x: cx - size / 2,
+    y: cy - size / 2,
+    width: size,
+    height: size,
+  });
+}
 
 /// Маленька gold печатка з "UIMP" caps усередині. Положення — у нижньому
 /// центральному блоці сертифіката, між підписом і роком видачі.
