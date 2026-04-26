@@ -20,7 +20,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   ARTICLE: "bg-green-100 text-green-700",
 };
 
-type BlockType = "text" | "heading" | "image" | "youtube" | "quote" | "divider";
+type BlockType = "text" | "heading" | "image" | "youtube" | "quote" | "divider" | "card";
 interface Block {
   id: string;
   type: BlockType;
@@ -83,10 +83,14 @@ function BlockInner({ block }: { block: Block }) {
         const parsed = JSON.parse(block.data.overlays || "[]");
         if (Array.isArray(parsed)) overlays = parsed;
       } catch { /* ignore */ }
+      // Якщо в блоці задана висота → обʼєкт-фіт fill (як у білдері): картинка
+      // повністю заповнює блок, без обрізки країв. Без явної висоти → contain.
+      const hasExplicitHeight = typeof block.height === "number" && block.height > 0;
+      const objectFit: "fill" | "contain" = hasExplicitHeight ? "fill" : "contain";
       return (
         <div style={{ position: "relative", width: "100%", height: "100%", borderRadius: "8px", overflow: "hidden" }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={block.data.url} alt={block.data.alt || ""} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+          <img src={block.data.url} alt={block.data.alt || ""} style={{ width: "100%", height: "100%", objectFit, display: "block" }} />
           {overlays.map(ov => {
             const r = ov.radius ?? (ov.bgColor ? 4 : 0);
             const radiusCss = r >= 999 ? "9999px" : `${r}px`;
@@ -211,6 +215,15 @@ function BlockInner({ block }: { block: Block }) {
   }
 }
 
+// Chrome у білдері (BlockItem header+padding+border) з'їдає з висоти/ширини
+// видимої області блока. Щоб public render дзеркалив білдер 1-в-1, додаємо
+// такі ж відступи у внутрішнього контейнера. Тоді image area має ідентичні
+// розміри і AR не "плющиться".
+const BUILDER_HEADER_H = 32;
+const BUILDER_PAD_X = 16;
+const BUILDER_PAD_Y = 14;
+const BUILDER_BORDER = 1.5;
+
 function AbsoluteBlockRender({ block }: { block: Block }) {
   const w = Number(block.width) || 100;
   const x = block.x ?? 0;
@@ -227,12 +240,14 @@ function AbsoluteBlockRender({ block }: { block: Block }) {
         height: h ? `${h}px` : "auto",
         background: block.bgColor || "transparent",
         borderRadius: block.bgColor ? "8px" : 0,
-        padding: block.bgColor ? "10px 14px" : 0,
         boxSizing: "border-box",
         overflow: "hidden",
+        padding: `${BUILDER_HEADER_H + BUILDER_PAD_Y + BUILDER_BORDER}px ${BUILDER_PAD_X + BUILDER_BORDER}px ${BUILDER_PAD_Y + BUILDER_BORDER}px`,
       }}
     >
-      <BlockInner block={block} />
+      <div style={{ width: "100%", height: "100%", position: "relative" }}>
+        <BlockInner block={block} />
+      </div>
     </div>
   );
 }
