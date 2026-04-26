@@ -853,8 +853,6 @@ export default function EditorCanvas({ blocks, onBlocksChange, onUpload, pageBgC
                 position: "relative",
               }}
             >
-              <PageCorners />
-
               <div
                 ref={canvasRef}
                 className="canvas-grid"
@@ -863,6 +861,11 @@ export default function EditorCanvas({ blocks, onBlocksChange, onUpload, pageBgC
                   width: "100%",
                   minHeight: `${canvasHeight}px`,
                   height: `${canvasHeight}px`,
+                  // Рамка прямо на canvas-області — там, де реально живуть блоки.
+                  // Блок з x=0, y=0 торкається рамки впритул (це і є "впритул вліво/вгору").
+                  outline: "2px dashed #D4A843",
+                  outlineOffset: "0px",
+                  borderRadius: "4px",
                   transition: activeId ? "none" : "height 0.2s",
                 }}
                 onDragOver={e => e.preventDefault()}
@@ -929,7 +932,7 @@ export default function EditorCanvas({ blocks, onBlocksChange, onUpload, pageBgC
                       }}
                       isActive={activeId === block.id}
                       selected={selectedBlockId === block.id}
-                      onSelect={setSelectedBlockId}
+                      onSelect={(id) => setSelectedBlockId(prev => prev === id ? null : id)}
                     />
                   );
                 })}
@@ -1040,9 +1043,9 @@ function DropGhost({ x, y, widthPct, height, paletteColor }: { x: number; y: num
 }
 
 function PageCorners() {
-  const c = "#E5E7EB";
-  const size = 12;
-  const off = 8;
+  const c = "#D4A843";
+  const size = 18;
+  const off = 6;
   const base: React.CSSProperties = {
     position: "absolute", width: `${size}px`, height: `${size}px`, pointerEvents: "none",
   };
@@ -1107,6 +1110,9 @@ function AbsoluteBlock(props: {
         left: `${x}%`,
         top: `${y}px`,
         width: `${widthPct}%`,
+        // Висота = block.height (як на public). Це важливо щоб snap edge / drop slot
+        // обчислювались за фактичним розміром блока, а не за висотою auto-content.
+        height: block.height ? `${block.height}px` : undefined,
         transform: translate,
         zIndex: isActive || isDragging ? 30 : 1,
         opacity: isDragging ? 0.65 : 1,
@@ -1119,6 +1125,7 @@ function AbsoluteBlock(props: {
       <BlockItem
         block={block}
         index={0}
+        selected={selected}
         canMoveUp={false}
         canMoveDown={false}
         dragAttributes={attributes}

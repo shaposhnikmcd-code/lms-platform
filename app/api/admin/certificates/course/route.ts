@@ -23,18 +23,28 @@ export async function GET(req: NextRequest) {
     orderBy: { createdAt: 'desc' },
     include: {
       user: { select: { id: true, name: true, email: true, deletedAt: true } },
-      course: { select: { id: true, title: true, price: true } },
+      course: { select: { id: true, title: true, price: true, sendpulseCourseId: true } },
     },
   });
+  // Поля spProgressPercent / spProgressCheckedAt беруться напряму з кожного `e`
+  // (Prisma їх повертає за замовчуванням після регенерації клієнта).
 
   const issued = await prisma.certificate.findMany({
     where: {
       type: 'COURSE',
       userId: { in: enrollments.map((e) => e.userId) },
       courseId: { in: enrollments.map((e) => e.courseId) },
-      revoked: false,
     },
-    select: { userId: true, courseId: true, certNumber: true, emailStatus: true },
+    select: {
+      id: true,
+      userId: true,
+      courseId: true,
+      certNumber: true,
+      emailStatus: true,
+      issuedAt: true,
+      issuedManually: true,
+      revoked: true,
+    },
   });
   const issuedKey = new Map(issued.map((c) => [`${c.userId}_${c.courseId}`, c]));
 
@@ -48,8 +58,20 @@ export async function GET(req: NextRequest) {
         userEmail: e.user.email,
         courseId: e.courseId,
         courseTitle: e.course.title,
+        sendpulseCourseId: e.course.sendpulseCourseId,
         enrolledAt: e.createdAt,
-        certificate: cert ? { certNumber: cert.certNumber, emailStatus: cert.emailStatus } : null,
+        spProgressPercent: e.spProgressPercent,
+        spProgressCheckedAt: e.spProgressCheckedAt,
+        certificate: cert
+          ? {
+              id: cert.id,
+              certNumber: cert.certNumber,
+              emailStatus: cert.emailStatus,
+              issuedAt: cert.issuedAt,
+              issuedManually: cert.issuedManually,
+              revoked: cert.revoked,
+            }
+          : null,
       };
     });
 

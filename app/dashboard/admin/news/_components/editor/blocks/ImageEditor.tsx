@@ -13,30 +13,6 @@ const inputStyle: React.CSSProperties = {
   fontFamily: ff, outline: "none", boxSizing: "border-box",
 };
 
-// Fallback коли `fetch(url)` блокується CORS: завантажуємо через <img crossorigin>,
-// малюємо на canvas і повертаємо dataURL.
-async function urlToDataUrl(src: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const img = new window.Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => {
-      try {
-        const canvas = document.createElement("canvas");
-        canvas.width = img.naturalWidth;
-        canvas.height = img.naturalHeight;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) { reject(new Error("Canvas not supported")); return; }
-        ctx.drawImage(img, 0, 0);
-        resolve(canvas.toDataURL("image/png"));
-      } catch (e) {
-        reject(e);
-      }
-    };
-    img.onerror = () => reject(new Error("Не вдалось завантажити фото через <img crossorigin>. CORS налаштування CDN блокує доступ."));
-    img.src = src;
-  });
-}
-
 interface Props {
   block: Block;
   onChange: (data: Record<string, string>) => void;
@@ -107,8 +83,6 @@ function serializeOverlays(arr: ImageOverlay[]): string {
 export default function ImageEditor({ block, onChange, onUpload, previewHeight }: Props) {
   const ref = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
-  const [bgRemoving, setBgRemoving] = useState(false);
-  const [bgError, setBgError] = useState<string>("");
   const [cropOpen, setCropOpen] = useState(false);
   const [emptyMode, setEmptyMode] = useState<"file" | "url">("file");
   const [urlInput, setUrlInput] = useState("");
@@ -251,60 +225,6 @@ export default function ImageEditor({ block, onChange, onUpload, previewHeight }
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   };
 
-  const handleRemoveBg = async () => {
-    if (!block.data.url || bgRemoving) return;
-    setBgRemoving(true);
-    setBgError("");
-    // originalUrl фіксує фото ДО першого AI — щоб ⟲ Оригінал працював навіть після кількох ітерацій
-    const sourceUrl = block.data.url;
-    const originalUrl = block.data.originalUrl || sourceUrl;
-    try {
-      const { removeBackground } = await import("@imgly/background-removal");
-
-      let input: Blob | string;
-      try {
-        const resp = await fetch(sourceUrl, { mode: "cors" });
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        input = await resp.blob();
-      } catch (fetchErr) {
-        console.warn("[removeBg] fetch failed, trying canvas fallback:", fetchErr);
-        input = await urlToDataUrl(sourceUrl);
-      }
-
-      const outputBlob = await removeBackground(input, {
-        progress: (key, current, total) => {
-          // eslint-disable-next-line no-console
-          console.log(`[removeBg] ${key}: ${current}/${total}`);
-        },
-      });
-
-      const file = new File([outputBlob], "bg-removed.png", { type: "image/png" });
-      const url = await onUpload(file);
-      if (url) {
-        const img = new window.Image();
-        img.onload = () => {
-          onChange({
-            ...block.data,
-            url,
-            originalUrl,
-            aspectRatio: String(img.naturalWidth / img.naturalHeight),
-          });
-        };
-        img.onerror = () => onChange({ ...block.data, url, originalUrl });
-        img.src = url;
-      } else {
-        setBgError("Не вдалось завантажити оброблене фото на сервер");
-      }
-    } catch (e) {
-      // eslint-disable-next-line no-console
-      console.error("[removeBg] failed:", e);
-      const msg = e instanceof Error ? e.message : String(e);
-      setBgError(`Помилка: ${msg}. Дивись консоль (F12) для деталей.`);
-    } finally {
-      setBgRemoving(false);
-    }
-  };
-
   const applyUrlChange = (url: string, mutate?: (next: Record<string, string>) => void) => {
     const img = new window.Image();
     img.onload = () => {
@@ -326,10 +246,16 @@ export default function ImageEditor({ block, onChange, onUpload, previewHeight }
     img.src = url;
   };
 
-  const handleRevertOriginal = () => {
-    if (!block.data.originalUrl) return;
-    applyUrlChange(block.data.originalUrl, (next) => { delete next.originalUrl; });
-  };
+  // Слухаємо custom event 'news-block-crop' від floating header-а блока — щоб
+  // кнопка "Обрізати" в bar-і над блоком могла відкрити CropModal без prop drilling.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<string>).detail;
+      if (detail === block.id && block.data.url) setCropOpen(true);
+    };
+    window.addEventListener("news-block-crop", handler as EventListener);
+    return () => window.removeEventListener("news-block-crop", handler as EventListener);
+  }, [block.id, block.data.url]);
 
   // Escape / Delete / Backspace: якщо є вибраний overlay (і не в режимі редагування) — видалити його.
   // Якщо в editing режимі — Escape вже обробляється onKeyDown в input (вихід з editing).
@@ -419,11 +345,11 @@ export default function ImageEditor({ block, onChange, onUpload, previewHeight }
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "10px", height: "100%" }}>
       {block.data.url ? (
-        <div style={{ position: "relative" }}>
+        <div style={{ position: "relative", flex: 1, minHeight: 0 }}>
           {(() => {
-            const effectiveH = previewHeight ?? (block.data.minHeight ? Number(block.data.minHeight) : 0);
+            const previewH = previewHeight ?? 0;
             return (
               <div
                 ref={imgWrapRef}
@@ -433,7 +359,7 @@ export default function ImageEditor({ block, onChange, onUpload, previewHeight }
                 style={{
                   position: "relative",
                   width: "100%",
-                  height: effectiveH > 0 ? `${effectiveH}px` : "auto",
+                  height: previewH > 0 ? `${previewH}px` : "100%",
                   borderRadius: "8px",
                   overflow: "hidden",
                 }}
@@ -443,8 +369,8 @@ export default function ImageEditor({ block, onChange, onUpload, previewHeight }
                   alt={block.data.alt || ""}
                   style={{
                     width: "100%",
-                    height: effectiveH > 0 ? `${effectiveH}px` : "auto",
-                    objectFit: effectiveH > 0 ? "fill" : "contain",
+                    height: "100%",
+                    objectFit: "fill",
                     display: "block",
                     pointerEvents: "none",
                   }}
@@ -577,54 +503,6 @@ export default function ImageEditor({ block, onChange, onUpload, previewHeight }
               </div>
             );
           })()}
-          <div style={{ position: "absolute", top: "8px", right: "8px", display: "flex", gap: "6px" }}>
-            <button
-              onClick={() => setCropOpen(true)}
-              title="Обрізати фото"
-              style={{
-                background: "rgba(28,58,46,0.85)", color: "#D4A843",
-                border: "none", borderRadius: "6px",
-                padding: "4px 10px", cursor: "pointer", fontSize: "12px",
-                fontWeight: 600, backdropFilter: "blur(4px)",
-              }}
-            >{"✂️ Обрізати"}</button>
-            <button
-              onClick={handleRemoveBg}
-              disabled={bgRemoving}
-              title={bgRemoving ? "Обробка… модель завантажується" : "Видалити фон AI (краще для фото з людьми)"}
-              style={{
-                background: bgRemoving ? "rgba(124,58,237,0.65)" : "rgba(124,58,237,0.88)",
-                color: "#fff", border: "none", borderRadius: "6px",
-                padding: "4px 10px",
-                cursor: bgRemoving ? "wait" : "pointer",
-                fontSize: "12px", fontWeight: 600,
-                backdropFilter: "blur(4px)",
-                display: "inline-flex", alignItems: "center", gap: "4px",
-              }}
-            >
-              {bgRemoving ? (<>
-                <span className="animate-spin" style={{ display: "inline-block", width: "10px", height: "10px", border: "2px solid #fff", borderTopColor: "transparent", borderRadius: "50%" }} />
-                Обробка…
-              </>) : "🪄 Прибрати фон"}
-            </button>
-            {block.data.originalUrl && (
-              <button
-                onClick={handleRevertOriginal}
-                title="Повернути оригінальне фото (відкотити AI видалення фону)"
-                style={{
-                  background: "rgba(75,85,99,0.85)",
-                  color: "#fff", border: "none", borderRadius: "6px",
-                  padding: "4px 10px", cursor: "pointer", fontSize: "12px",
-                  fontWeight: 600, backdropFilter: "blur(4px)",
-                }}
-              >{"⟲ Оригінал"}</button>
-            )}
-          </div>
-          {bgError && (
-            <div style={{ position: "absolute", bottom: "8px", left: "8px", right: "8px", background: "rgba(239,68,68,0.92)", color: "#fff", padding: "6px 10px", borderRadius: "6px", fontSize: "11px", fontFamily: ff }}>
-              {bgError}
-            </div>
-          )}
         </div>
       ) : (
         <div style={{ borderWidth: "2px", borderStyle: "dashed", borderColor: "#D4A843", borderRadius: "10px", padding: "16px", background: "#FAF6F0", fontFamily: ff }}>

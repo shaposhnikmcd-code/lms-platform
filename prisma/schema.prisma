@@ -184,6 +184,11 @@ model Enrollment {
   course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  /// Прогрес з SendPulse Education API (0-100). Оновлюється щоденним cron-ом
+  /// `/api/cron/course-certificates`. NULL = ще не перевіряли або курс без sendpulseCourseId.
+  spProgressPercent   Int?
+  spProgressCheckedAt DateTime?
+
   @@unique([userId, courseId])
 }
 
@@ -687,6 +692,11 @@ model YearlyProgramSubscription {
   sendpulseStudentId      Int?
   sendpulseAccessOpenedAt DateTime?
   sendpulseAccessClosedAt DateTime?
+
+  /// Прогрес у курсі "Річна програма" (SENDPULSE_YEARLY_COURSE_ID).
+  /// Оновлюється щоденним cron-ом `/api/cron/yearly-subscriptions`.
+  spProgressPercent   Int?
+  spProgressCheckedAt DateTime?
 
   /// Момент переходу ACTIVE→GRACE + розрахована межа закінчення grace-періоду.
   /// expiresAt + graceDays НЕ використовуємо як фільтр expireGraceSubscriptions, бо при

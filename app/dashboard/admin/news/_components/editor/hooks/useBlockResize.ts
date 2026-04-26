@@ -20,7 +20,7 @@ interface Options {
   blockWidth: string;
   containerWidthPx: number;
   onSetWidth: (id: string, w: BlockWidth) => void;
-  onSetWidthAndData: (id: string, w: BlockWidth, data: Record<string, string>) => void;
+  onSetWidthAndData: (id: string, w: BlockWidth, data: Record<string, string>, height?: number) => void;
   onPreviewWidth: (id: string, pct: number) => void;
   onClearPreview: (id: string) => void;
   onPreviewHeight: (id: string, h: number) => void;
@@ -111,7 +111,7 @@ export function useBlockResize({
     const onUp = () => {
       const finalW = snapWidth(currentSnappedPct);
       if (isImage) {
-        onSetWidthAndData(blockId, finalW, { ...blockData, minHeight: String(currentH) });
+        onSetWidthAndData(blockId, finalW, { ...blockData, minHeight: String(currentH) }, currentH);
         onClearPreviewHeight(blockId);
       } else {
         onSetWidth(blockId, finalW);
@@ -191,16 +191,17 @@ export function useBlockResize({
         // Повертаємо обгортці її inline minHeight (React переоновить на наступному рендері).
         if (innerEl) innerEl.style.minHeight = savedInnerMinHeight;
       }
-      // Коміт даних. React відрендерить <img> з новим style.height — рівним нашому drag-значенню,
-      // тому inline style на DOM лишається корректним без миготіння.
-      onChange(blockId, { ...blockData, minHeight: String(Math.round(finalH)) });
+      // Коміт даних + top-level block.height (щоб обгортка блока теж стиснулась
+      // разом з картинкою). Зберігаємо minHeight у data для backward-compat.
+      const fh = Math.round(finalH);
+      onSetWidthAndData(blockId, blockWidth, { ...blockData, minHeight: String(fh) }, fh);
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
     };
 
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
-  }, [aspectRatio, blockId, blockData, onChange, getSameRowHeights, snapThreshold]);
+  }, [aspectRatio, blockId, blockData, blockWidth, onSetWidthAndData, getSameRowHeights, snapThreshold]);
 
   const startResizeDiagonal = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -263,10 +264,12 @@ export function useBlockResize({
     };
 
     const onUp = () => {
+      // Атомарно: width, data (з minHeight для backward-compat), і top-level
+      // block.height — щоб wrapper блока і фото були синхронізовані.
       onSetWidthAndData(blockId, snapWidth(currentSnappedPct), {
         ...blockData,
         minHeight: String(currentH),
-      });
+      }, currentH);
       onClearPreviewHeight(blockId);
       setResizingD(false);
       window.removeEventListener("mousemove", onMove);

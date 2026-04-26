@@ -12,11 +12,15 @@ export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;
   const action = sp.get('action');
   const actorId = sp.get('actorId');
+  const certType = sp.get('certType'); // 'COURSE' | 'YEARLY_PROGRAM'
   const limit = Math.min(Number(sp.get('limit')) || 300, 1000);
 
   const where: Prisma.CertificateEventWhereInput = {};
   if (action) where.action = action;
   if (actorId) where.actorId = actorId;
+  if (certType === 'COURSE' || certType === 'YEARLY_PROGRAM') {
+    where.certificate = { type: certType };
+  }
 
   const events = await prisma.certificateEvent.findMany({
     where,

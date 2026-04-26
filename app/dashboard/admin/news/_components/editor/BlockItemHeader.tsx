@@ -69,7 +69,7 @@ export default function BlockItemHeader({
         borderBottomWidth: "1px", borderBottomStyle: "solid",
         borderBottomColor: hov ? "rgba(212,168,67,0.3)" : "#E8D5B7",
         borderRadius: "12px 12px 0 0",
-        transition: "all 0.15s", flexWrap: "wrap", rowGap: "4px",
+        transition: "all 0.15s", flexWrap: "nowrap", whiteSpace: "nowrap",
         cursor: "grab",
         userSelect: "none", touchAction: "none",
       }}
@@ -199,6 +199,23 @@ export default function BlockItemHeader({
       <div style={{ marginLeft: "auto", fontSize: "10px", fontWeight: 700, color: hov ? "rgba(255,255,255,0.5)" : "#9CA3AF", fontFamily: ff, minWidth: "32px", textAlign: "right" }}>
         {displayPct}%
       </div>
+
+      {/* Crop — тільки для image */}
+      {blockType === "image" && (
+        <button
+          onClick={() => window.dispatchEvent(new CustomEvent("news-block-crop", { detail: blockId }))}
+          title="Обрізати фото"
+          style={{
+            display: "inline-flex", alignItems: "center", gap: "4px",
+            padding: "3px 8px", borderRadius: "5px",
+            border: "none", cursor: "pointer",
+            fontSize: "11px", fontWeight: 700, fontFamily: ff,
+            background: hov ? "rgba(212,168,67,0.18)" : "#EEEAE2",
+            color: hov ? "#D4A843" : "#1C3A2E",
+            transition: "all 0.12s",
+          }}
+        >{"✂️ Обрізати"}</button>
+      )}
 
       {/* Duplicate */}
       <button

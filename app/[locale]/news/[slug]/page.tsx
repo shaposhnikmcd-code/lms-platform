@@ -83,14 +83,12 @@ function BlockInner({ block }: { block: Block }) {
         const parsed = JSON.parse(block.data.overlays || "[]");
         if (Array.isArray(parsed)) overlays = parsed;
       } catch { /* ignore */ }
-      // Дзеркалимо рендер з ImageEditor.tsx: image area = block.data.minHeight
-      // (виміряна в редакторі під час resize). Якщо minHeight нема → auto + contain.
-      const minH = Number(block.data.minHeight) || 0;
-      const objectFit: "fill" | "contain" = minH > 0 ? "fill" : "contain";
+      // Image заповнює весь блок (як у білдері). Без minHeight — block.height
+      // це і є висота картинки.
       return (
-        <div style={{ position: "relative", width: "100%", height: minH > 0 ? `${minH}px` : "auto", borderRadius: "8px", overflow: "hidden" }}>
+        <div style={{ position: "relative", width: "100%", height: "100%", borderRadius: "8px", overflow: "hidden" }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={block.data.url} alt={block.data.alt || ""} style={{ width: "100%", height: minH > 0 ? `${minH}px` : "auto", objectFit, display: "block" }} />
+          <img src={block.data.url} alt={block.data.alt || ""} style={{ width: "100%", height: "100%", objectFit: "fill", display: "block" }} />
           {overlays.map(ov => {
             const r = ov.radius ?? (ov.bgColor ? 4 : 0);
             const radiusCss = r >= 999 ? "9999px" : `${r}px`;
@@ -215,6 +213,10 @@ function BlockInner({ block }: { block: Block }) {
   }
 }
 
+// IDENTICAL до wrapper-а в editor BlockItem.tsx:
+//   - тільки horizontal padding 16px (header у білдері плаває absolute поза блоком)
+//   - НЕ використовує border (тільки outline у білдері — поза розмірами)
+// Це гарантує, що content area тут = content area в білдері.
 function AbsoluteBlockRender({ block }: { block: Block }) {
   const w = Number(block.width) || 100;
   const x = block.x ?? 0;
@@ -231,7 +233,7 @@ function AbsoluteBlockRender({ block }: { block: Block }) {
         height: h ? `${h}px` : "auto",
         background: block.bgColor || "transparent",
         borderRadius: block.bgColor ? "8px" : 0,
-        padding: block.bgColor ? "10px 14px" : 0,
+        padding: "0 16px",
         boxSizing: "border-box",
         overflow: "hidden",
       }}

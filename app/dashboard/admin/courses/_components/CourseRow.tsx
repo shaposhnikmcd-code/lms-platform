@@ -15,6 +15,7 @@ export interface CourseRowData {
   defaultOldPrice: number | null;
   overridePrice: number | null;
   overrideOldPrice: number | null;
+  sendpulseCourseId: number | null;
 }
 
 function parsePriceInput(value: string): { ok: boolean; num: number | null } {
@@ -46,6 +47,10 @@ export default function CourseRow({
   const [oldPriceStr, setOldPriceStr] = useState(
     initialOldPrice !== null ? String(initialOldPrice) : '',
   );
+  const [spIdStr, setSpIdStr] = useState(
+    row.sendpulseCourseId !== null ? String(row.sendpulseCourseId) : '',
+  );
+  const [savingSp, setSavingSp] = useState(false);
   const [saving, setSaving] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
@@ -87,6 +92,39 @@ export default function CourseRow({
       alert(`Помилка: ${err}`);
     } finally {
       setSaving(false);
+    }
+  }
+
+  const spIdParsed = (() => {
+    const t = spIdStr.trim();
+    if (t === '') return { ok: true, num: null as number | null };
+    const n = Number(t);
+    if (!Number.isFinite(n) || !Number.isInteger(n) || n <= 0) return { ok: false, num: null };
+    return { ok: true, num: n };
+  })();
+  const spDirty =
+    spIdParsed.ok && (spIdParsed.num ?? null) !== (row.sendpulseCourseId ?? null);
+
+  async function handleSaveSpId() {
+    if (!spIdParsed.ok) return;
+    setSavingSp(true);
+    try {
+      const res = await fetch(`/api/admin/courses/${row.slug}`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sendpulseCourseId: spIdParsed.num }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        alert(data?.error || 'Не вдалося зберегти SP ID');
+        return;
+      }
+      router.refresh();
+    } catch (err) {
+      alert(`Помилка: ${err}`);
+    } finally {
+      setSavingSp(false);
     }
   }
 
@@ -181,6 +219,34 @@ export default function CourseRow({
     </div>
   );
 
+  const spIdCls = `${inputBase} ${spIdParsed.ok ? inputOk : inputBad}`;
+  const spIdCell = (
+    <div className="flex items-center gap-1.5">
+      <input
+        type="text"
+        inputMode="numeric"
+        placeholder="—"
+        className={spIdCls}
+        value={spIdStr}
+        onChange={e => setSpIdStr(e.target.value)}
+        title="ID курсу в SendPulse Education. Без нього cron не видасть сертифікат автоматично."
+      />
+      <button
+        type="button"
+        onClick={handleSaveSpId}
+        disabled={!spDirty || savingSp || !spIdParsed.ok}
+        title="Зберегти SP ID"
+        className={`flex-shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
+          dark
+            ? 'bg-amber-400/90 text-stone-900 hover:bg-amber-300 disabled:bg-white/[0.06] disabled:text-slate-500'
+            : 'bg-stone-900 text-amber-100 hover:bg-stone-800 disabled:bg-stone-200 disabled:text-stone-400'
+        }`}
+      >
+        <FaCheck className="text-[10px]" />
+      </button>
+    </div>
+  );
+
   const defaultCell = (
     <div className={`text-[12px] tabular-nums leading-relaxed ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
       <div>{row.defaultPrice.toLocaleString()} ₴</div>
@@ -249,6 +315,12 @@ export default function CourseRow({
             {oldPriceCell}
           </div>
         </div>
+        <div>
+          <div className={`text-[10px] uppercase tracking-[0.18em] font-medium mb-1 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+            SendPulse course ID
+          </div>
+          {spIdCell}
+        </div>
         <div className="flex items-center justify-between gap-3">
           <div>
             <div className={`text-[10px] uppercase tracking-[0.18em] font-medium mb-1 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
@@ -267,6 +339,7 @@ export default function CourseRow({
       <td className="px-4 py-3 align-middle">{titleCell}</td>
       <td className="px-3 py-3 align-middle">{priceCell}</td>
       <td className="px-3 py-3 align-middle">{oldPriceCell}</td>
+      <td className="px-3 py-3 align-middle">{spIdCell}</td>
       <td className="px-3 py-3 align-middle">{defaultCell}</td>
       <td className="px-3 py-3 align-middle">{actionsCell}</td>
     </tr>

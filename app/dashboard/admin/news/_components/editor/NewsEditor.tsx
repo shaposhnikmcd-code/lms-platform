@@ -199,19 +199,15 @@ export default function NewsEditor({
       if (!cmd) return;
       const key = e.key.toLowerCase();
       if (key !== "z" && key !== "y") return;
-
-      // У текстових полях / contentEditable віддаємо пріоритет нативному undo
-      const t = e.target as HTMLElement | null;
-      if (t) {
-        const tag = t.tagName;
-        if (tag === "INPUT" || tag === "TEXTAREA" || t.isContentEditable) return;
-      }
-
-      if (key === "z" && !e.shiftKey) { e.preventDefault(); undo(); }
-      else if ((key === "z" && e.shiftKey) || key === "y") { e.preventDefault(); redo(); }
+      // Документо-рівневий undo завжди — щоб Ctrl+Z скасовував будь-яку дію
+      // в білдері (додавання/видалення блока, drag, resize, edit), як це
+      // працює в Notion / Figma / Google Docs.
+      e.preventDefault();
+      if (key === "z" && !e.shiftKey) undo();
+      else redo();
     };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    document.addEventListener("keydown", onKey, { capture: true });
+    return () => document.removeEventListener("keydown", onKey, { capture: true });
   }, [undo, redo]);
 
   const canUndo = pointerRef.current > 0;

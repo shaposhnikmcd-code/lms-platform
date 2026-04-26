@@ -2,7 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Resend } from 'resend';
 import prisma from '@/lib/prisma';
 import { YEARLY_PROGRAM_CONFIG, getYearlyGraceDays } from '@/lib/yearlyProgramConfig';
-import { closeAccessInCourse, lookupStudentIdByEmail } from '@/lib/sendpulse';
+import {
+  closeAccessInCourse,
+  lookupStudentIdByEmail,
+} from '@/lib/sendpulse';
+import { syncYearlyProgress } from '@/lib/certificates/syncYearlyProgress';
 import { verifyBearer } from '@/lib/authTiming';
 import {
   manualBeforeExpiry,
@@ -51,6 +55,7 @@ export async function GET(req: NextRequest) {
   results.push(await sendManualOnExpiryReminders());
   results.push(await sendGraceStartReminders());
   results.push(await sendCyclicalGraceMidReminders());
+  results.push(await syncYearlyCourseProgress());
 
   return NextResponse.json({ ok: true, results, timestamp: new Date().toISOString() });
 }
@@ -379,4 +384,11 @@ async function sendCyclicalGraceMidReminders(): Promise<StepResult> {
   });
 
   return { step: 'cyclical_grace_mid', processed, errors };
+}
+
+/// Тонкий враппер навколо shared `syncYearlyProgress` (lib/certificates/syncYearlyProgress.ts).
+/// Логіка винесена щоб шарити її з manual-trigger ендпойнтом адмінки.
+async function syncYearlyCourseProgress(): Promise<StepResult> {
+  const result = await syncYearlyProgress();
+  return { step: 'sync_progress', processed: result.processed, errors: result.errors };
 }

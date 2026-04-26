@@ -15,6 +15,7 @@ import { useBlockResize } from "./hooks/useBlockResize";
 interface Props {
   block: Block;
   index: number;
+  selected?: boolean;
   canMoveUp: boolean;
   canMoveDown: boolean;
   dragAttributes: React.HTMLAttributes<HTMLElement>;
@@ -40,7 +41,7 @@ interface Props {
 }
 
 export default function BlockItem({
-  block, index, canMoveUp, canMoveDown,
+  block, index, selected = false, canMoveUp, canMoveDown,
   dragAttributes, dragListeners,
   onChange, onMoveUp, onMoveDown, onDuplicate,
   onSetWidth, onSetWidthAndData, onSetAlign, onSetBg,
@@ -50,6 +51,19 @@ export default function BlockItem({
 }: Props) {
   void index;
   const [hov, setHov] = useState(false);
+  const hovOffTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const setHoverWithDelay = (next: boolean) => {
+    if (next) {
+      if (hovOffTimerRef.current) { clearTimeout(hovOffTimerRef.current); hovOffTimerRef.current = null; }
+      setHov(true);
+    } else {
+      // Невелика затримка перед приховуванням, щоб користувач встиг дотягтись
+      // до floating header-а над блоком (інакше при mouse-up до header блок
+      // "тікає" і header зникає).
+      if (hovOffTimerRef.current) clearTimeout(hovOffTimerRef.current);
+      hovOffTimerRef.current = setTimeout(() => setHov(false), 250);
+    }
+  };
 
   const {
     blockRef, resizingW, resizingH, resizingD,
@@ -78,73 +92,118 @@ export default function BlockItem({
   const isImage = block.type === "image";
   const aspectBroken = isImage && hasAspect && aspectMatched === false;
   const aspectOk = isImage && hasAspect && aspectMatched === true && minHeight > 0;
-  const borderColor = aspectBroken
+  const outlineColor = aspectBroken
     ? "#EF4444"
     : (isSnapping || resizingW || resizingH || resizingD || aspectOk)
       ? "#D4A843"
-      : hov ? "#D4A843" : "#E8D5B7";
-  const shadow = aspectBroken
-    ? "0 0 0 3px rgba(239,68,68,0.2)"
-    : isSnapping
-      ? "0 0 0 3px rgba(212,168,67,0.2)"
-      : hov ? "0 4px 20px rgba(28,58,46,0.1)" : "0 1px 4px rgba(0,0,0,0.04)";
+      : hov ? "#D4A843" : "rgba(232,213,183,0.6)";  // тонка рамка завжди видна
+
+  // Принципово: контент тепер ЗАЙМАЄ всю площу wrapper-а. Жодних border/padding у потоці —
+  // тільки outline (поза розмірами) та плаваючий header (absolute поверх wrapper-а зі від'ємним top).
+  // Це гарантує, що block.width × block.height у білдері = блок на public з тими самими розмірами.
+
+  // Drag-від-будь-куди: оборачуємо dragListeners, щоб НЕ перехоплювати pointer-down коли
+  // юзер взаємодіє з input / textarea / button / contenteditable / resize handle —
+  // інакше зламаємо редагування тексту, кнопки тулбару, ресайзи.
+  const wrappedDragListeners: React.HTMLAttributes<HTMLElement> = React.useMemo(() => {
+    if (!dragListeners) return {};
+    const out: Record<string, (e: React.SyntheticEvent) => void> = {};
+    for (const k in dragListeners) {
+      const fn = (dragListeners as unknown as Record<string, (e: React.SyntheticEvent) => void>)[k];
+      out[k] = (e) => {
+        const t = e.target as HTMLElement;
+        if (t.closest("input, textarea, select, button, [contenteditable=\"true\"], [data-no-block-drag]")) return;
+        fn(e);
+      };
+    }
+    return out as React.HTMLAttributes<HTMLElement>;
+  }, [dragListeners]);
 
   return (
     <div
-      style={{ width: "100%", position: "relative" }}
+      style={{ width: "100%", height: "100%", position: "relative", cursor: hov ? "grab" : "default" }}
       ref={node => { blockRef.current = node; }}
+      onMouseEnter={() => setHoverWithDelay(true)}
+      onMouseLeave={() => setHoverWithDelay(false)}
+      {...dragAttributes}
+      {...wrappedDragListeners}
     >
+      {/* Floating header — над блоком, не впливає на розміри.
+          paddingBottom: 8 створює "hover bridge" вниз до блока — щоб курсор
+          у проміжку не покидав hover-зону. Має свої mouseEnter/Leave. */}
+      {(hov || selected) && (
+        <div
+          onMouseEnter={() => setHoverWithDelay(true)}
+          onMouseLeave={() => setHoverWithDelay(false)}
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            bottom: "100%",
+            paddingBottom: "8px",
+            zIndex: 20,
+            pointerEvents: "auto",
+          }}
+        >
+          <BlockItemHeader
+            blockId={block.id}
+            blockType={block.type}
+            blockAlign={block.align}
+            blockBgColor={block.bgColor}
+            displayPct={displayPct}
+            hov={true}
+            canMoveUp={canMoveUp}
+            canMoveDown={canMoveDown}
+            dragAttributes={dragAttributes}
+            dragListeners={dragListeners}
+            onSetAlign={onSetAlign}
+            onSetBg={onSetBg}
+            onMoveUp={onMoveUp}
+            onMoveDown={onMoveDown}
+            onDuplicate={onDuplicate}
+          />
+        </div>
+      )}
+
+      {/* Wrapper.
+          - background: bgColor (як на public)
+          - outline: golden коли hover/snap (поза розмірами, не впливає на layout)
+          - padding 0 16px → залишаємо тільки horizontal "поле", щоб контент не торкався країв
+            (на public ТАКИЙ САМИЙ padding — тоді content area однакова)
+          - position relative для абсолютних дітей */}
       <div
-        onMouseEnter={() => setHov(true)}
-        onMouseLeave={() => setHov(false)}
         style={{
-          borderRadius: "12px",
-          borderWidth: "1.5px", borderStyle: "solid",
-          borderColor,
-          background: block.bgColor || "#fff",
-          boxShadow: shadow,
-          transition: resizingW || resizingH || resizingD ? "none" : "all 0.15s",
+          background: block.bgColor || "transparent",
+          color: textColor,
+          textAlign: block.align,
+          outline: `1.5px solid ${outlineColor}`,
+          outlineOffset: "0px",
+          borderRadius: "8px",
           minHeight: minHeight > 0 ? `${minHeight}px` : undefined,
-          overflow: "visible",
+          height: "100%", // заповнює AbsoluteBlock — щоб візуальні межі блока = block.height
+          padding: "0 16px",
+          boxSizing: "border-box",
+          overflow: "hidden",
           position: "relative",
+          transition: resizingW || resizingH || resizingD ? "none" : "outline-color 0.15s",
         }}
       >
         {isSnapping && snapGuideH !== null && (
           <BlockItemSnapGuide snapGuideH={snapGuideH} />
         )}
 
-        <BlockItemHeader
-          blockId={block.id}
-          blockType={block.type}
-          blockAlign={block.align}
-          blockBgColor={block.bgColor}
-          displayPct={displayPct}
-          hov={hov}
-          canMoveUp={canMoveUp}
-          canMoveDown={canMoveDown}
-          dragAttributes={dragAttributes}
-          dragListeners={dragListeners}
-          onSetAlign={onSetAlign}
-          onSetBg={onSetBg}
-          onMoveUp={onMoveUp}
-          onMoveDown={onMoveDown}
-          onDuplicate={onDuplicate}
-        />
-
-        {/* Body */}
-        <div style={{ padding: "14px 16px", textAlign: block.align, color: textColor }}>
-          {block.type === "text"    && <TextEditor    block={block} onChange={d => onChange(block.id, d)} />}
-          {block.type === "heading" && <HeadingEditor block={block} onChange={d => onChange(block.id, d)} />}
-          {block.type === "image"   && <ImageEditor   block={block} onChange={d => onChange(block.id, d)} onUpload={onUpload} previewHeight={previewHeight} />}
-          {block.type === "youtube" && <YoutubeEditor block={block} onChange={d => onChange(block.id, d)} />}
-          {block.type === "quote"   && <QuoteEditor   block={block} onChange={d => onChange(block.id, d)} />}
-          {block.type === "card"    && <CardEditor    block={block} onChange={d => onChange(block.id, d)} onUpload={onUpload} />}
-          {block.type === "divider" && <hr style={{ border: "none", borderTopWidth: "2px", borderTopStyle: "solid", borderTopColor: "#D4A843", margin: "8px 0" }} />}
-        </div>
+        {block.type === "text"    && <TextEditor    block={block} onChange={d => onChange(block.id, d)} />}
+        {block.type === "heading" && <HeadingEditor block={block} onChange={d => onChange(block.id, d)} />}
+        {block.type === "image"   && <ImageEditor   block={block} onChange={d => onChange(block.id, d)} onUpload={onUpload} previewHeight={previewHeight} />}
+        {block.type === "youtube" && <YoutubeEditor block={block} onChange={d => onChange(block.id, d)} />}
+        {block.type === "quote"   && <QuoteEditor   block={block} onChange={d => onChange(block.id, d)} />}
+        {block.type === "card"    && <CardEditor    block={block} onChange={d => onChange(block.id, d)} onUpload={onUpload} />}
+        {block.type === "divider" && <hr style={{ border: "none", borderTopWidth: "2px", borderTopStyle: "solid", borderTopColor: "#D4A843", margin: "8px 0" }} />}
       </div>
 
       {/* Right resize handle */}
       <div
+        data-no-block-drag
         onMouseDown={startResizeWidth}
         style={{ position: "absolute", right: "-6px", top: "20%", bottom: "20%", width: "12px", cursor: "ew-resize", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 10, opacity: hov || resizingW ? 1 : 0, transition: "opacity 0.15s" }}
       >
@@ -153,6 +212,7 @@ export default function BlockItem({
 
       {/* Bottom resize handle */}
       <div
+        data-no-block-drag
         onMouseDown={startResizeHeight}
         style={{ position: "absolute", bottom: "-6px", left: "20%", right: "20%", height: "12px", cursor: "ns-resize", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 10, opacity: hov || resizingH ? 1 : 0, transition: "opacity 0.15s" }}
       >
@@ -161,6 +221,7 @@ export default function BlockItem({
 
       {/* Diagonal resize handle */}
       <div
+        data-no-block-drag
         onMouseDown={startResizeDiagonal}
         title={isImage && hasAspect ? "Пропорційний resize (aspect фото)" : "Пропорційний resize"}
         style={{

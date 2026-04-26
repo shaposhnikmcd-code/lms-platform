@@ -45,11 +45,14 @@ export function useBlockManager(initial: Block[], onChange: (blocks: Block[]) =>
     onChange(initial.map(b => b.id === id ? { ...b, width: w } : b));
   }, [initial, onChange]);
 
-  // Атомарний апдейт: одночасно ширина + data. Використовується для діагонального resize,
-  // щоб уникнути stale-closure overlap між setWidth і updateBlock при послідовних викликах.
-  const setWidthAndData = useCallback((id: string, w: BlockWidth, data: Record<string, string>) => {
+  // Атомарний апдейт: одночасно ширина + data + (опційно) висота блока.
+  // Використовується для діагонального resize щоб уникнути stale-closure overlap.
+  const setWidthAndData = useCallback((id: string, w: BlockWidth, data: Record<string, string>, height?: number) => {
     setPreviewWidths(prev => { const n = { ...prev }; delete n[id]; return n; });
-    onChange(initial.map(b => b.id === id ? { ...b, width: w, data } : b));
+    onChange(initial.map(b => b.id === id
+      ? { ...b, width: w, data, ...(height !== undefined ? { height } : {}) }
+      : b
+    ));
   }, [initial, onChange]);
 
   const setAlign = useCallback((id: string, a: BlockAlign) =>

@@ -49,6 +49,8 @@ export async function GET(req: NextRequest) {
         paidCount,
         expectedPayments,
         paymentHealth,
+        spProgressPercent: s.spProgressPercent,
+        spProgressCheckedAt: s.spProgressCheckedAt,
         certificate: s.certificates[0] ?? null,
       };
     });

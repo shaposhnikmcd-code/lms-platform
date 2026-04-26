@@ -77,9 +77,11 @@ export type CompletedStudent = {
   progressPercent: number;
 };
 
-export async function fetchCompletedStudentsForCourse(
+/// Тягне ВСІХ студентів курсу разом з % прогресу. Без фільтра по threshold.
+/// Використовується щоденними cron-ами для оновлення Enrollment.spProgressPercent
+/// та YearlyProgramSubscription.spProgressPercent (для колонки "Курс завершено" в адмінці).
+export async function fetchAllStudentsProgressForCourse(
   courseId: number,
-  completionThreshold = 100,
 ): Promise<CompletedStudent[]> {
   const results: CompletedStudent[] = [];
   let offset = 0;
@@ -93,7 +95,7 @@ export async function fetchCompletedStudentsForCourse(
 
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`SendPulse fetchCompletedStudents failed: ${res.status} ${text}`);
+      throw new Error(`SendPulse fetchAllStudentsProgress failed: ${res.status} ${text}`);
     }
 
     const data = (await res.json()) as {
@@ -120,9 +122,7 @@ export async function fetchCompletedStudentsForCourse(
       if (!email || progress == null) continue;
       const pct = Number(progress);
       if (!Number.isFinite(pct)) continue;
-      if (pct >= completionThreshold) {
-        results.push({ studentId: s.id, email, progressPercent: pct });
-      }
+      results.push({ studentId: s.id, email, progressPercent: pct });
     }
 
     if (list.length < limit) break;
@@ -130,6 +130,14 @@ export async function fetchCompletedStudentsForCourse(
   }
 
   return results;
+}
+
+export async function fetchCompletedStudentsForCourse(
+  courseId: number,
+  completionThreshold = 100,
+): Promise<CompletedStudent[]> {
+  const all = await fetchAllStudentsProgressForCourse(courseId);
+  return all.filter((s) => s.progressPercent >= completionThreshold);
 }
 
 /// Знаходить студента на курсі за email. Повертає studentId (int) або null.

@@ -53,10 +53,11 @@ export default function CoursesView({ rows }: { rows: CourseRowData[] }) {
             >
               <tr>
                 <Th theme={theme} width={280}>Курс</Th>
-                <Th theme={theme} width={160}>Ціна, ₴</Th>
-                <Th theme={theme} width={180}>Стара ціна</Th>
-                <Th theme={theme} width={130}>Дефолт</Th>
-                <Th theme={theme} width={170} align="center">Дії</Th>
+                <Th theme={theme} width={140}>Ціна, ₴</Th>
+                <Th theme={theme} width={160}>Стара ціна</Th>
+                <Th theme={theme} width={150}>SP course ID</Th>
+                <Th theme={theme} width={120}>Дефолт</Th>
+                <Th theme={theme} width={160} align="center">Дії</Th>
               </tr>
             </thead>
             <tbody className={`divide-y ${dark ? 'divide-white/[0.05]' : 'divide-stone-200/70'}`}>
@@ -91,6 +92,7 @@ export default function CoursesView({ rows }: { rows: CourseRowData[] }) {
           <li>«Стара ціна» — якщо заповнена, на сторінці курсу зʼявиться перекреслена. На «Освітніх проєктах» — лише актуальна.</li>
           <li>«Дефолт» — оригінальна ціна з коду. Збігається — override не зберігається.</li>
           <li>«Скинути» — повертає і ціну, і стару ціну до дефолтних.</li>
+          <li>«SP course ID» — числовий ID курсу в SendPulse Education (Автоматизація → Онлайн-курси → URL). Без нього cron не видаватиме сертифікати автоматично — лише ручна видача через розділ «Сертифікати».</li>
           <li>Зміна ціни курсу НЕ перераховує пакети автоматично — редагуй в розділі «Пакети».</li>
         </ul>
       </div>

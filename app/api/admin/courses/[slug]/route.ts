@@ -31,6 +31,27 @@ export async function PATCH(
     return num;
   };
 
+  /// SendPulse course ID — окреме поле на Course (не в override-таблиці).
+  /// Якщо передано (включно з null для очищення), оновлюємо ОКРЕМО і повертаємось.
+  if (Object.prototype.hasOwnProperty.call(body ?? {}, "sendpulseCourseId")) {
+    const raw = body.sendpulseCourseId;
+    let spId: number | null;
+    if (raw === null || raw === "" || raw === undefined) {
+      spId = null;
+    } else {
+      const num = typeof raw === "number" ? raw : Number(String(raw).trim());
+      if (!Number.isFinite(num) || num <= 0 || !Number.isInteger(num)) {
+        return NextResponse.json(
+          { error: "SendPulse course ID має бути цілим числом > 0" },
+          { status: 400 },
+        );
+      }
+      spId = num;
+    }
+    await prisma.course.update({ where: { id: slug }, data: { sendpulseCourseId: spId } });
+    return NextResponse.json({ ok: true, sendpulseCourseId: spId });
+  }
+
   const price = parsePrice(body?.price);
   const oldPrice = parsePrice(body?.oldPrice);
 
