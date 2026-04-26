@@ -67,6 +67,9 @@ export async function generateCertificatePdf(input: CertGenerationInput): Promis
     interSemiBold: await getFont('interSemiBold'),
     interMedium: await getFont('interMedium'),
     russoOne: await getFont('russoOne'),
+    cinzel: await getFont('cinzel'),
+    bebasNeue: await getFont('bebasNeue'),
+    bowlbyOne: await getFont('bowlbyOne'),
   };
 
   /// Embed PNG assets — підпис президентки + UIMP лого (transparent для yearly,
