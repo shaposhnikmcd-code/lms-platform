@@ -29,12 +29,15 @@ export async function GET(req: NextRequest) {
   // Поля spProgressPercent / spProgressCheckedAt беруться напряму з кожного `e`
   // (Prisma їх повертає за замовчуванням після регенерації клієнта).
 
+  // Сортуємо так, щоб для дубльованих (userId,courseId) пари в Map потрапив
+  // НЕ-відкликаний (бо може бути 1 відкликаний + 1 новий) і свіжіший.
   const issued = await prisma.certificate.findMany({
     where: {
       type: 'COURSE',
       userId: { in: enrollments.map((e) => e.userId) },
       courseId: { in: enrollments.map((e) => e.courseId) },
     },
+    orderBy: [{ revoked: 'asc' }, { issuedAt: 'desc' }],
     select: {
       id: true,
       userId: true,
@@ -46,7 +49,11 @@ export async function GET(req: NextRequest) {
       revoked: true,
     },
   });
-  const issuedKey = new Map(issued.map((c) => [`${c.userId}_${c.courseId}`, c]));
+  const issuedKey = new Map<string, (typeof issued)[number]>();
+  for (const c of issued) {
+    const key = `${c.userId}_${c.courseId}`;
+    if (!issuedKey.has(key)) issuedKey.set(key, c);
+  }
 
   const candidates = enrollments
     .filter((e) => !e.user.deletedAt && e.course.price > 0)

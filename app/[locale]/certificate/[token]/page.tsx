@@ -10,6 +10,9 @@ import { notFound } from 'next/navigation';
 import prisma from '@/lib/prisma';
 import { appBaseUrl } from '@/lib/mailer';
 import { headers } from 'next/headers';
+import { certificateFilename } from '@/lib/certificates/filename';
+import { DownloadButton } from './DownloadButton';
+import { CertificatePreview } from './CertificatePreview';
 
 export const dynamic = 'force-dynamic';
 
@@ -81,13 +84,24 @@ export default async function CertificateVerifyPage({ params }: Props) {
               UIMP · Верифікований сертифікат
             </span>
           </div>
-          <h1 className="mt-6 text-3xl sm:text-4xl font-semibold text-stone-900 tracking-tight">
+          <h1 className="mt-6 text-2xl sm:text-3xl font-medium text-stone-600 tracking-tight">
             {typeLabel}
           </h1>
-          <p className="mt-2 text-sm text-stone-500">
-            {cert.recipientName}
-            {categoryLabel ? ` — ${categoryLabel}` : ''}
-          </p>
+          <div className="mt-3 flex items-center justify-center gap-3 sm:gap-4">
+            <span className="h-px flex-1 max-w-[80px] sm:max-w-[120px] bg-gradient-to-r from-transparent to-amber-600/60" />
+            <p
+              className="text-4xl sm:text-5xl italic text-stone-900 leading-none"
+              style={{ fontFamily: "'CormorantGaramond', Georgia, serif" }}
+            >
+              {cert.recipientName}
+            </p>
+            <span className="h-px flex-1 max-w-[80px] sm:max-w-[120px] bg-gradient-to-l from-transparent to-amber-600/60" />
+          </div>
+          {categoryLabel && (
+            <p className="mt-3 text-[11px] font-semibold text-amber-700 uppercase tracking-[0.22em]">
+              {categoryLabel}
+            </p>
+          )}
         </div>
 
         {cert.revoked && (
@@ -107,25 +121,11 @@ export default async function CertificateVerifyPage({ params }: Props) {
         )}
 
         <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-6">
-          <div className="rounded-2xl border border-stone-200 bg-white shadow-md overflow-hidden">
-            <object
-              data={pdfUrl}
-              type="application/pdf"
-              className="w-full h-[640px] block"
-            >
-              <div className="p-8 text-center">
-                <p className="text-stone-600 mb-4">
-                  Ваш браузер не підтримує попередній перегляд PDF.
-                </p>
-                <a
-                  href={pdfUrl}
-                  className="inline-block px-5 py-2.5 rounded-lg bg-amber-600 text-white font-medium"
-                >
-                  Завантажити PDF
-                </a>
-              </div>
-            </object>
-          </div>
+          <CertificatePreview
+            pdfUrl={pdfUrl}
+            certNumber={cert.certNumber}
+            fallbackUrl={pdfUrl}
+          />
 
           <aside className="space-y-4">
             <div className="rounded-2xl border border-stone-200 bg-white/80 backdrop-blur p-5">
@@ -139,10 +139,17 @@ export default async function CertificateVerifyPage({ params }: Props) {
             <div className="flex flex-col gap-2.5">
               <a
                 href={pdfUrl}
+                target="_blank"
+                rel="noreferrer"
                 className="block text-center px-4 py-3 rounded-xl bg-gradient-to-br from-amber-500 to-amber-600 text-white font-semibold shadow-md hover:shadow-lg transition-shadow"
               >
-                Завантажити PDF
+                Відкрити PDF
               </a>
+              <DownloadButton
+                pdfUrl={pdfUrl}
+                filename={certificateFilename(cert)}
+              />
+
               {linkUrl && (
                 <a
                   href={linkUrl}

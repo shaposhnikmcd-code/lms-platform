@@ -34,6 +34,24 @@ export type TextField = {
 
 export type TemplateKey = 'COURSE' | 'YEARLY_PRACTICAL' | 'YEARLY_LISTENER';
 
+/// Розміри PDF-сторінки для кожного шаблону. Використовується і генератором
+/// (`generatePdf`), і публічною сторінкою верифікації (для aspect-ratio iframe).
+/// Якщо додаєш новий шаблон — додай йому запис ТУТ, і фронт автоматично підстроїться.
+export const PAGE_SIZES: Record<TemplateKey, { w: number; h: number }> = {
+  COURSE: { w: 1280, h: 760 },
+  YEARLY_PRACTICAL: { w: 1280, h: 960 },
+  YEARLY_LISTENER: { w: 1280, h: 960 },
+};
+
+/// Маппінг (type, category) → TemplateKey. Не дублюй цю логіку — імпортуй сюди.
+export function templateKeyFor(
+  type: 'COURSE' | 'YEARLY_PROGRAM',
+  category: 'LISTENER' | 'PRACTICAL' | null | undefined,
+): TemplateKey {
+  if (type === 'COURSE') return 'COURSE';
+  return category === 'LISTENER' ? 'YEARLY_LISTENER' : 'YEARLY_PRACTICAL';
+}
+
 export type TemplateConfig = {
   fields: TextField[];
   qr: { xPct: number; yPct: number; sizePct: number };

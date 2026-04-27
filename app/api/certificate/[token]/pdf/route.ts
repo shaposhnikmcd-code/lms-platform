@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { checkRateLimit } from '@/lib/ratelimit';
 import { regeneratePdfBytes } from '@/lib/certificates/service';
+import { certificateContentDisposition } from '@/lib/certificates/filename';
 
 export const runtime = 'nodejs';
 
@@ -18,6 +19,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ toke
 
   const bytes = await regeneratePdfBytes(cert);
 
+  // `?download=1` — форсує завантаження (Content-Disposition: attachment),
+  // інакше PDF відкривається в браузерному вьюері (inline).
+  const forceDownload = req.nextUrl.searchParams.get('download') === '1';
+
   prisma.certificateEvent
     .create({
       data: {
@@ -25,6 +30,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ toke
         action: 'DOWNLOADED',
         metadata: {
           ip: req.headers.get('x-forwarded-for')?.split(',')[0].trim() ?? null,
+          mode: forceDownload ? 'attachment' : 'inline',
         } as object,
       },
     })
@@ -34,7 +40,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ toke
     status: 200,
     headers: {
       'Content-Type': 'application/pdf',
-      'Content-Disposition': `inline; filename="certificate-${cert.certNumber}.pdf"`,
+      'Content-Disposition': certificateContentDisposition(
+        cert,
+        forceDownload ? 'attachment' : 'inline',
+      ),
       'Cache-Control': 'public, max-age=300',
     },
   });

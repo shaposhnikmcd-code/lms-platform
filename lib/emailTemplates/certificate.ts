@@ -61,8 +61,8 @@ export function certificateEmailHtml(args: CertificateEmailArgs): string {
 
       <p style="margin: 28px 0 24px; text-align: center;">
         <a href="${args.verificationUrl}"
-           style="display: inline-block; background: linear-gradient(135deg, #D4A017 0%, #B88B3C 100%); color: #fff; padding: 14px 34px; border-radius: 12px; text-decoration: none; font-weight: 600; font-size: 15px; box-shadow: 0 6px 20px -8px rgba(212,160,23,0.6);">
-          Переглянути онлайн
+           style="display: inline-block; background-color: #B88B3C; background-image: linear-gradient(135deg, #D4A017 0%, #B88B3C 100%); color: #ffffff !important; padding: 14px 34px; border-radius: 12px; text-decoration: none; font-weight: 600; font-size: 15px; mso-padding-alt: 0; box-shadow: 0 6px 20px -8px rgba(212,160,23,0.6); border: 1px solid #B88B3C;">
+          <!--[if mso]>&nbsp;&nbsp;&nbsp;<![endif]--><span style="color: #ffffff;">Переглянути онлайн</span><!--[if mso]>&nbsp;&nbsp;&nbsp;<![endif]-->
         </a>
       </p>
 

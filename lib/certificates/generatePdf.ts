@@ -16,6 +16,7 @@ import { drawBaseTemplate } from './drawTemplate';
 import {
   TEMPLATES,
   CATEGORY_LABELS,
+  PAGE_SIZES,
   type TemplateKey,
   type TextField,
   type ColorRgb,
@@ -29,17 +30,6 @@ export type CertGenerationInput = {
   verificationUrl: string;
   courseName?: string;
   category?: 'LISTENER' | 'PRACTICAL';
-};
-
-/// Розміри сторінки в pt — per-template, бо course-cert (з sidebar) і yearly-cert
-/// мають різну логіку landscape пропорцій:
-///   - COURSE  1280×640 (2:1) — широкий landscape, sidebar+main panel читаються
-///     як два окремих блоки
-///   - YEARLY  1280×906 (~1.41:1, A3-ish) — класичний A4 landscape
-const PAGE_SIZES: Record<string, { w: number; h: number }> = {
-  COURSE: { w: 1280, h: 760 },
-  YEARLY_PRACTICAL: { w: 1280, h: 960 },
-  YEARLY_LISTENER: { w: 1280, h: 960 },
 };
 
 export async function generateCertificatePdf(input: CertGenerationInput): Promise<Uint8Array> {

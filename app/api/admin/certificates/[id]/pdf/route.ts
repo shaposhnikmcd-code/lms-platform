@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { requireAdmin } from '@/lib/certificates/adminAuth';
 import { regeneratePdfBytes } from '@/lib/certificates/service';
+import { certificateContentDisposition } from '@/lib/certificates/filename';
 
 export const runtime = 'nodejs';
 
@@ -20,7 +21,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     status: 200,
     headers: {
       'Content-Type': 'application/pdf',
-      'Content-Disposition': `inline; filename="certificate-${cert.certNumber}.pdf"`,
+      'Content-Disposition': certificateContentDisposition(cert, 'inline'),
       'Cache-Control': 'private, no-store',
     },
   });

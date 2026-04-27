@@ -7,8 +7,9 @@ import { sendEmail, appBaseUrl } from '@/lib/mailer';
 import { certificateEmailHtml, certificateEmailSubject } from '@/lib/emailTemplates/certificate';
 import { generateCertificatePdf } from './generatePdf';
 import { generateCertNumber, newVerificationToken, hashPdfBytes } from './identifiers';
-import type { TemplateKey } from './templateConfig';
-import type { CertCategory, CertificateType, Certificate } from '@prisma/client';
+import { certificateFilenameAscii } from './filename';
+import { templateKeyFor } from './templateConfig';
+import type { CertCategory, Certificate } from '@prisma/client';
 
 type Actor = {
   id?: string | null;
@@ -19,11 +20,6 @@ type Actor = {
 /// Публічний URL сертифіката (QR веде сюди; відповідна публічна сторінка під `/[locale]/certificate/{token}`).
 export function verificationUrl(token: string): string {
   return `${appBaseUrl()}/uk/certificate/${token}`;
-}
-
-function templateKeyFor(type: CertificateType, category: CertCategory | null | undefined): TemplateKey {
-  if (type === 'COURSE') return 'COURSE';
-  return category === 'LISTENER' ? 'YEARLY_LISTENER' : 'YEARLY_PRACTICAL';
 }
 
 async function logEvent(
@@ -206,7 +202,9 @@ async function sendCertificateEmail(cert: Certificate, actor: Actor, isResend: b
       replyTo: 'edu@uimp.com.ua',
       attachments: [
         {
-          filename: `certificate-${cert.certNumber}.pdf`,
+          // ASCII-only щоб iPhone Mail / Outlook коректно показували назву аттача.
+          // Кирилиця у MIME-headers подекуди не декодується клієнтами.
+          filename: certificateFilenameAscii(cert),
           content: Buffer.from(pdfBytes),
           contentType: 'application/pdf',
         },

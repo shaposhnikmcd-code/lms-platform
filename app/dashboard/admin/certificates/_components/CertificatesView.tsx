@@ -806,30 +806,42 @@ function CoursesTab({
                           href={`/api/admin/certificates/${cert.id}/pdf`}
                           target="_blank"
                           rel="noreferrer"
-                          title="Переглянути PDF"
+                          title={cert.revoked ? 'PDF відкликаного' : 'Переглянути PDF'}
                           className={`inline-flex items-center justify-center w-8 h-8 rounded-md ${dark ? 'bg-white/[0.05] text-slate-200 hover:bg-white/[0.1]' : 'bg-stone-100 text-stone-700 hover:bg-stone-200'}`}
                         >
                           <HiOutlineEye />
                         </a>
-                        <button
-                          type="button"
-                          disabled={busy || cert.revoked}
-                          onClick={() => handleResend(cert.id, key)}
-                          title={cert.revoked ? 'Не можна перевідправити — відкликано' : 'Перевідправити'}
-                          className={`inline-flex items-center justify-center w-8 h-8 rounded-md disabled:opacity-40 ${dark ? 'bg-white/[0.05] text-slate-200 hover:bg-white/[0.1]' : 'bg-stone-100 text-stone-700 hover:bg-stone-200'}`}
-                        >
-                          <HiOutlinePaperAirplane />
-                        </button>
-                        {!cert.revoked && (
+                        {cert.revoked ? (
                           <button
                             type="button"
                             disabled={busy}
-                            onClick={() => handleRevoke(cert.id, key)}
-                            title="Відкликати"
-                            className={`inline-flex items-center justify-center w-8 h-8 rounded-md disabled:opacity-40 ${dark ? 'bg-red-500/10 text-red-300 hover:bg-red-500/20' : 'bg-red-50 text-red-700 hover:bg-red-100'}`}
+                            onClick={() => { setIssueFor(c); setShowIssue(true); }}
+                            title="Видати новий сертифікат замість відкликаного"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-amber-500 text-white text-[12px] font-semibold hover:bg-amber-600 disabled:opacity-40"
                           >
-                            <HiOutlineXCircle />
+                            <HiOutlinePlus /> Видати знову
                           </button>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => handleResend(cert.id, key)}
+                              title="Перевідправити"
+                              className={`inline-flex items-center justify-center w-8 h-8 rounded-md disabled:opacity-40 ${dark ? 'bg-white/[0.05] text-slate-200 hover:bg-white/[0.1]' : 'bg-stone-100 text-stone-700 hover:bg-stone-200'}`}
+                            >
+                              <HiOutlinePaperAirplane />
+                            </button>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => handleRevoke(cert.id, key)}
+                              title="Відкликати"
+                              className={`inline-flex items-center justify-center w-8 h-8 rounded-md disabled:opacity-40 ${dark ? 'bg-red-500/10 text-red-300 hover:bg-red-500/20' : 'bg-red-50 text-red-700 hover:bg-red-100'}`}
+                            >
+                              <HiOutlineXCircle />
+                            </button>
+                          </>
                         )}
                       </div>
                     ) : (

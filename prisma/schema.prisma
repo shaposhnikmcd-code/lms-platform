@@ -306,9 +306,11 @@ model Certificate {
   createdAt          DateTime                    @default(now())
   updatedAt          DateTime                    @updatedAt
 
-  /// Запобігає дублям по курсах (для YEARLY поле null → Postgres дозволяє кілька null-ів;
-  /// додаткова валідація YEARLY-унікальності робиться на рівні application code).
-  @@unique([userId, type, courseId])
+  /// Унікальність "активного" сертифіката — реалізована як **partial unique index** на рівні
+  /// Postgres (`WHERE revoked = false`) — див. міграцію `20260427120000_cert_partial_unique`.
+  /// Це дозволяє існувати кільком записам на (userId,type,courseId) якщо всі окрім одного
+  /// відкликані (потрібно для перевидачі сертифіката після відклику). Prisma 5 не підтримує
+  /// partial unique у DSL, тому `@@unique` тут НЕ ставимо — enforcement лишається в БД.
   @@index([type, issuedAt])
   @@index([subscriptionId])
   @@index([issuedByUserId])
