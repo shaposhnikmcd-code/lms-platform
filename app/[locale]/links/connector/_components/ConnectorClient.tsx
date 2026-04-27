@@ -46,6 +46,7 @@ interface FormLabels {
   novaPoshtaDelivery: string;
   plusDelivery: string;
   euPickupNote: string;
+  currency?: string;
   courierAddressTitle: string;
   streetLabel: string;
   houseLabel: string;

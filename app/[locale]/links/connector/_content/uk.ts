@@ -56,6 +56,7 @@ export const connectorContent = {
     novaPoshtaDelivery: "Доставка Нова Пошта",
     plusDelivery: "+ доставка",
     euPickupNote: "Вартість доставки оплачується окремо при отриманні у відділенні Nova Post.",
+    currency: "грн",
     courierAddressTitle: "Адреса доставки кур'єром",
     streetLabel: "Вулиця",
     houseLabel: "Будинок",

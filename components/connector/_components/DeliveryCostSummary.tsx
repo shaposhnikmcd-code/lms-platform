@@ -15,22 +15,24 @@ interface Props {
     novaPoshtaDelivery: string;
     plusDelivery: string;
     euPickupNote: string;
+    currency?: string;
   };
 }
 
 export default function DeliveryCostSummary({ isUkraine, deliveryCost, loadingDeliveryCost, citySelected, gamePrice, labels }: Props) {
   const totalAmount = deliveryCost ? gamePrice + deliveryCost : gamePrice;
+  const cur = labels.currency ?? 'грн';
 
   if (!isUkraine) {
     return (
       <div className="bg-gray-50 rounded-xl p-4 space-y-2">
         <div className="flex justify-between text-sm text-gray-600">
           <span>{labels.gameLabel}</span>
-          <span>{`${gamePrice} грн`}</span>
+          <span>{`${gamePrice} ${cur}`}</span>
         </div>
         <div className="border-t border-gray-200 pt-2 flex justify-between font-bold text-[#1C3A2E]">
           <span>{labels.total}</span>
-          <span className="text-[#D4A017]">{`${gamePrice} грн`}</span>
+          <span className="text-[#D4A017]">{`${gamePrice} ${cur}`}</span>
         </div>
         <p className="text-xs text-gray-400 pt-1">
           {labels.euPickupNote}
@@ -41,7 +43,7 @@ export default function DeliveryCostSummary({ isUkraine, deliveryCost, loadingDe
 
   const renderDeliveryValue = () => {
     if (loadingDeliveryCost) return <span className="text-gray-400">{labels.calculating}</span>;
-    if (deliveryCost) return <span>{`${deliveryCost} грн`}</span>;
+    if (deliveryCost) return <span>{`${deliveryCost} ${cur}`}</span>;
     if (!citySelected) return <span className="text-gray-400">{labels.selectCity}</span>;
     return <span className="text-gray-400">{labels.selectBranch}</span>;
   };
@@ -50,7 +52,7 @@ export default function DeliveryCostSummary({ isUkraine, deliveryCost, loadingDe
     <div className="bg-gray-50 rounded-xl p-4 space-y-2">
       <div className="flex justify-between text-sm text-gray-600">
         <span>{labels.gameLabel}</span>
-        <span>{`${gamePrice} грн`}</span>
+        <span>{`${gamePrice} ${cur}`}</span>
       </div>
       <div className="flex justify-between text-sm text-gray-600">
         <span>{labels.novaPoshtaDelivery}</span>
@@ -59,7 +61,7 @@ export default function DeliveryCostSummary({ isUkraine, deliveryCost, loadingDe
       <div className="border-t border-gray-200 pt-2 flex justify-between font-bold text-[#1C3A2E]">
         <span>{labels.total}</span>
         <span className="text-[#D4A017]">
-          {deliveryCost ? `${totalAmount} грн` : `${gamePrice} грн ${labels.plusDelivery}`}
+          {deliveryCost ? `${totalAmount} ${cur}` : `${gamePrice} ${cur} ${labels.plusDelivery}`}
         </span>
       </div>
     </div>

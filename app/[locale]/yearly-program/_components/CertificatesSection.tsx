@@ -15,8 +15,16 @@ const MODAL_CSS = `
 const visionUrl = "https://www.vision.edu/web/";
 
 const certMeta = [
-  { src: '/yearly-program/vision_cert-v5.jpg', preview: '/yearly-program/vision_cert-v5.jpg', link: visionUrl },
-  { src: '/yearly-program/UIMP_Practical_Certificate.pdf', preview: '/yearly-program/uimp_cert-1.webp', link: null as string | null },
+  { src: '/yearly-program/vision_cert-v5.jpg', preview: '/yearly-program/vision_cert-v5.jpg', link: visionUrl, gallery: null as string[] | null },
+  {
+    src: '/Certificates/test-yearly-practical-hi-p1.png',
+    preview: '/Certificates/test-yearly-practical-hi-p1.png',
+    link: null as string | null,
+    gallery: [
+      '/Certificates/test-yearly-practical-hi-p1.png',
+      '/Certificates/test-yearly-listener-hi-p1.png',
+    ] as string[] | null,
+  },
 ];
 
 type CertItem = { title: string; subtitle: string };
@@ -166,24 +174,29 @@ export default function CertificatesSection({ t }: Props) {
                 style={{
                   overflow: 'auto',
                   display: 'flex',
+                  flexDirection: 'column',
                   alignItems: zoom > 1 ? 'flex-start' : 'center',
                   justifyContent: zoom > 1 ? 'flex-start' : 'center',
+                  gap: 16,
                   maxHeight: '80vh',
                 }}
               >
-                <img
-                  src={active.preview}
-                  alt={active.title}
-                  style={{
-                    maxHeight: `calc(${zoom} * 78vh)`,
-                    maxWidth: `calc(${zoom} * 88vw)`,
-                    width: 'auto',
-                    height: 'auto',
-                    display: 'block',
-                    flexShrink: 0,
-                    transition: 'all 0.15s ease',
-                  }}
-                />
+                {(active.gallery ?? [active.preview]).map((src, idx) => (
+                  <img
+                    key={idx}
+                    src={src}
+                    alt={active.title}
+                    style={{
+                      maxHeight: `calc(${zoom} * 78vh)`,
+                      maxWidth: `calc(${zoom} * 88vw)`,
+                      width: 'auto',
+                      height: 'auto',
+                      display: 'block',
+                      flexShrink: 0,
+                      transition: 'all 0.15s ease',
+                    }}
+                  />
+                ))}
               </div>
 
               <div style={{ textAlign: 'center', marginTop: 16 }}>

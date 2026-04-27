@@ -93,6 +93,7 @@ export default function PricingSection({ t }: Props) {
                     courseName={t.courseNameYear}
                     price={Number(YEARLY_PROGRAM.price)}
                     courseId={YEARLY_PROGRAM.courseId}
+                    currency={t.currency}
                     buttonLabel={t.btnYear}
                   />
                 ) : (
@@ -128,6 +129,7 @@ export default function PricingSection({ t }: Props) {
                   courseName={t.courseNameMonth}
                   price={monthlyPrice}
                   courseId={YEARLY_PROGRAM.monthlyCourseId}
+                  currency={t.currency}
                   buttonLabel={t.btnMonth}
                   allowRecurringChoice
                 />

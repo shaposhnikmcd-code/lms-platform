@@ -4,6 +4,7 @@ const sysFont = '-apple-system, BlinkMacSystemFont, sans-serif';
 
 interface Props {
   quote: string;
+  quoteAuthor?: string;
   comingSoon: string;
 }
 
@@ -18,7 +19,7 @@ const authorStyle: React.CSSProperties = { color: '#4d7a66', fontSize: '0.65rem'
 const comingSoonSectionStyle: React.CSSProperties = { background: '#FAF6F0', borderTop: '1px solid rgba(28,58,46,0.08)', padding: '2.5rem 2rem', textAlign: 'center' as const };
 const comingSoonTextStyle: React.CSSProperties = { color: '#8aaa96', fontSize: '0.68rem', letterSpacing: '0.28em', textTransform: 'uppercase' as const, fontFamily: sysFont };
 
-export default function GamesQuote({ quote, comingSoon }: Props) {
+export default function GamesQuote({ quote, quoteAuthor, comingSoon }: Props) {
   return (
     <>
       <section style={quoteSectionStyle}>
@@ -28,7 +29,7 @@ export default function GamesQuote({ quote, comingSoon }: Props) {
           <span style={openingMarkStyle}>{"\u201C"}</span>
           <p style={quoteTextStyle}>{quote}</p>
           <div style={dividerStyle} />
-          <span style={authorStyle}>{"Тетяна Шапошник · Засновниця UIMP"}</span>
+          <span style={authorStyle}>{quoteAuthor ?? "Тетяна Шапошник · Засновниця UIMP"}</span>
         </div>
       </section>
       <section style={comingSoonSectionStyle}>

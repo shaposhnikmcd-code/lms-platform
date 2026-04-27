@@ -55,6 +55,7 @@ interface FormLabels {
   novaPoshtaDelivery: string;
   plusDelivery: string;
   euPickupNote: string;
+  currency?: string;
   courierAddressTitle: string;
   streetLabel: string;
   houseLabel: string;
@@ -83,6 +84,7 @@ interface Content {
   desc2: string;
   desc3: string;
   quote: string;
+  quoteAuthor?: string;
   price: string;
   deliveryNote: string;
   btnOrder: string;
@@ -115,7 +117,7 @@ export default function GamesPageClient({ content, currency }: Props) {
         onOrder={() => setShowOrderForm(true)}
       />
       <GamesAbout desc1={content.desc1} desc2={content.desc2} desc3={content.desc3} />
-      <GamesQuote quote={content.quote} comingSoon={content.comingSoon} />
+      <GamesQuote quote={content.quote} quoteAuthor={content.quoteAuthor} comingSoon={content.comingSoon} />
       {/* Умовний рендер: OrderForm JS завантажується лише після першого "Замовити" */}
       {showOrderForm && (
         <OrderForm isOpen={showOrderForm} onClose={() => setShowOrderForm(false)} labels={content.form} />
