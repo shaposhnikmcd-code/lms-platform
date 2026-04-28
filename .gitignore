@@ -69,3 +69,5 @@ public/courses/psychology-basics/uimp_temp.bmp
 /public/Certificates/*
 # виняток: цей PNG використовується runtime в generatePdf.ts (medallion sphere)
 !/public/Certificates/element-medallion-sphere.png
+# виняток: показується на /yearly-program (CertificatesSection — UIMP cert)
+!/public/Certificates/test-yearly-practical-hi-p1.png
