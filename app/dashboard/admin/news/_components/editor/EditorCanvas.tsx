@@ -9,6 +9,9 @@ import BlockPalette, { PALETTE_BLOCKS } from "./BlockPalette";
 import OverlayItem from "./OverlayItem";
 import GhostBlock from "./GhostBlock";
 import { useBlockManager } from "./hooks/useBlockManager";
+// ⚠️ Реекспорт LEGACY_H із lib/news/render — щоб білдер і public автоматично мали ОДНАКОВІ
+// fallback-висоти. Без цього блок без явної .height виглядає по-різному в білдері та на сайті.
+import { LEGACY_H as TYPE_HEIGHT } from "@/lib/news/render";
 
 const PAGE_WIDTH = CANVAS_WIDTH;
 const PAGE_PAD_X = 32;
@@ -16,34 +19,77 @@ const PAGE_PAD_Y = 32;
 const SNAP = 8;         // px — вертикальний і горизонтальний grid
 const MIN_CANVAS_H = 500;
 
-// Type-based дефолт для ще не виміряного блока (fallback, коли DOM offsetHeight ще недоступний).
-const TYPE_HEIGHT: Record<BlockType, number> = {
-  heading: 80, text: 180, image: 300, youtube: 360, quote: 120, divider: 40, card: 280,
-};
+// (TYPE_HEIGHT тепер імпортується з @/lib/news/render — див. шапку файла.)
 
 interface Props {
   blocks: Block[];
   onBlocksChange: (blocks: Block[]) => void;
   onUpload: (file: File) => Promise<string>;
   pageBgColor?: string;
+  // Selection піднято в parent (NewsEditor) — щоб floating settings panel могла
+  // слідкувати за позицією вибраного блока поза EditorCanvas.
+  selectedBlockId: string | null;
+  onSelectBlock: (id: string | null) => void;
 }
 
-export default function EditorCanvas({ blocks, onBlocksChange, onUpload, pageBgColor }: Props) {
+export default function EditorCanvas({ blocks, onBlocksChange, onUpload, pageBgColor, selectedBlockId, onSelectBlock }: Props) {
   const [lastAddedId, setLastAddedId] = useState<string | null>(null);
-  const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
+  const setSelectedBlockId = (next: string | null | ((prev: string | null) => string | null)) => {
+    if (typeof next === "function") {
+      onSelectBlock(next(selectedBlockId));
+    } else {
+      onSelectBlock(next);
+    }
+  };
   const canvasRef = useRef<HTMLDivElement>(null);
   const canvasRectRef = useRef<DOMRect | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [isOverCanvas, setIsOverCanvas] = useState(false);
   const dropPreviewRef = useRef<{ x: number; y: number; width: number } | null>(null);
   const [dropPreview, setDropPreview] = useState<{ x: number; y: number; width: number } | null>(null);
-  // Edge-snap: масив — дозволяє одночасно snap по X і Y (наприклад, у куті),
-  // показуючи відразу обидва glow.
-  type SnapEdge = { blockId: string; edge: "left" | "right" | "top" | "bottom" };
-  const [snapTargets, setSnapTargets] = useState<SnapEdge[]>([]);
+  // Alignment guides — Figma-style лінії що тягнуться від блока який тягнемо
+  // до тих, з ким він вирівнюється (left-left, right-right, top-top, bottom-bottom,
+  // center-center). Дають миттєвий візуальний зв'язок: "А вирівняна з Б".
+  type AlignGuide = {
+    axis: "x" | "y";          // x — вертикальна лінія, y — горизонтальна
+    pos: number;              // xPct (для axis=x) або yPx (для axis=y)
+    start: number;            // початок діапазону на ортогональній осі (yPx або xPct)
+    end: number;              // кінець діапазону
+    kind: "edge" | "center";  // солідна (edge) чи пунктирна (center)
+  };
+  const [alignGuides, setAlignGuides] = useState<AlignGuide[]>([]);
+  type SizeMatch = { blockId: string; dim: "h" | "w" };
+  const [sizeMatches, setSizeMatches] = useState<SizeMatch[]>([]);
   const activePaletteRef = useRef<typeof PALETTE_BLOCKS[0] | null>(null);
   const blockHeightsRef = useRef<Record<string, number>>({});
   const [, forceTick] = useState(0);
+
+  // Який блок зараз резайзять по ширині (через handlePreviewWidth/handleClearPreview).
+  // Тригер рендеру ResizeRuler — тонкої "лінійки" над блоком зі snap-марками і % бейджем.
+  // Не плутати з drag-ом блока: drag-overrides пишуть напряму в setPreview, не через handlePreviewWidth.
+  const [resizingBlockId, setResizingBlockId] = useState<string | null>(null);
+
+  // Scroll-компенсація для drag-у. dnd-kit's `transform` рахується з ClientX/Y курсора
+  // і НЕ оновлюється коли юзер скролить колесом без руху мишки — тоді блок візуально
+  // "тікає" з viewport бо сторінка зміщується а transform залишається старим.
+  // Зберігаємо initial scrollY на drag start, на scroll рахуємо delta і додаємо її
+  // до translate.y у AbsoluteBlock. dropPreview не чіпаємо — там event.delta scroll-aware.
+  const [scrollCompensation, setScrollCompensation] = useState(0);
+  const dragStartScrollRef = useRef(0);
+
+  useEffect(() => {
+    if (!activeId || activeId.startsWith("palette:")) return;
+    dragStartScrollRef.current = window.scrollY;
+    setScrollCompensation(0);
+    const onScroll = () => {
+      setScrollCompensation(window.scrollY - dragStartScrollRef.current);
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      setScrollCompensation(0);
+    };
+  }, [activeId]);
 
   const updateCanvasRect = useCallback(() => {
     if (canvasRef.current) canvasRectRef.current = canvasRef.current.getBoundingClientRect();
@@ -109,9 +155,13 @@ export default function EditorCanvas({ blocks, onBlocksChange, onUpload, pageBgC
     if (measured && measured > 20) return measured;
     return TYPE_HEIGHT[b.type] ?? 100;
   }
+  // BOTTOM_SLACK — вільний простір під найнижчим блоком, щоб юзер міг легко
+  // drop-нути новий блок нижче (без BOTTOM_SLACK канвас закінчується ВПРИТУЛ
+  // до останнього блока — нікуди кинути). 240px ≈ висота 1-2 типових блоків.
+  const BOTTOM_SLACK = 240;
   const canvasHeight = Math.max(
     MIN_CANVAS_H,
-    ...blocks.map(b => (b.y ?? 0) + measureBlockHeight(b) + 40),
+    ...blocks.map(b => (b.y ?? 0) + measureBlockHeight(b) + BOTTOM_SLACK),
     // НЕ розтягувати canvas під dropPreview — це провокує feedback loop:
     // canvas росте → browser скролить → rect.top негативніший → cursorY - rectTop росте
     // → preview Y росте → canvas ще більший. Блок летить у нескінченність.
@@ -150,6 +200,42 @@ export default function EditorCanvas({ blocks, onBlocksChange, onUpload, pageBgC
 
   const MIN_NEIGHBOR_WIDTH = 10;
 
+  // Округлення ширини блока до 0.1% — узгоджено з snapWidth у useBlockResize.
+  // Без цього на release після resize ширина "стрибала" через round-to-int.
+  const roundW = (n: number) => Math.round(n * 10) / 10;
+
+  // Розрахунок як ріс блок з урахуванням gap + сусіда.
+  // Спочатку growth поглинається gap-ом між self.right і neighbor.left, потім
+  // сусід штовхається вправо (доки є місце до канвас-edge), потім стискається.
+  // Без врахування gap зростання self відразу штовхало сусіда — навіть коли між
+  // ними був вільний простір — і це виглядало як "стискає праве фото попри відстань".
+  function computeGrowthWithNeighbor(
+    blockX: number, oldW: number, newW: number,
+    neighborX: number, neighborW: number,
+  ): { appliedW: number; neighborX: number; neighborW: number } {
+    const delta = newW - oldW;
+    if (delta <= 0) {
+      return { appliedW: newW, neighborX, neighborW };
+    }
+    const oldRight = blockX + oldW;
+    const gap = Math.max(0, neighborX - oldRight);
+    // delta повністю влазить у gap → сусід не зачіпається
+    if (delta <= gap) {
+      return { appliedW: newW, neighborX, neighborW };
+    }
+    const overflow = delta - gap;
+    const roomToShift = Math.max(0, 100 - (neighborX + neighborW));
+    const shiftDelta = Math.min(overflow, roomToShift);
+    const remaining = overflow - shiftDelta;
+    const maxShrink = Math.max(0, neighborW - MIN_NEIGHBOR_WIDTH);
+    const shrinkDelta = Math.min(remaining, maxShrink);
+    return {
+      appliedW: oldW + gap + shiftDelta + shrinkDelta,
+      neighborX: neighborX + shiftDelta,
+      neighborW: neighborW - shrinkDelta,
+    };
+  }
+
   // Neighbor-aware ширина (commit). Якщо сусід праворуч — спочатку ЗСУВАЄМО його вправо
   // (доки є місце до правого краю канвасу), і тільки потім починаємо звужувати.
   const handleSetWidth = useCallback((id: string, w: BlockWidth) => {
@@ -162,21 +248,16 @@ export default function EditorCanvas({ blocks, onBlocksChange, onUpload, pageBgC
     if (delta > 0) {
       const neighbor = findRightNeighbor(id);
       if (neighbor) {
-        const nx = neighbor.x ?? 0;
-        const nw = Number(neighbor.width) || 100;
-        const roomToShift = Math.max(0, 100 - (nx + nw));
-        const shiftDelta = Math.min(delta, roomToShift);
-        const remaining = delta - shiftDelta;
-        const maxShrink = Math.max(0, nw - MIN_NEIGHBOR_WIDTH);
-        const shrinkDelta = Math.min(remaining, maxShrink);
-        const actualDelta = shiftDelta + shrinkDelta;
-        const appliedW = oldW + actualDelta;
+        const result = computeGrowthWithNeighbor(
+          b.x ?? 0, oldW, newW,
+          neighbor.x ?? 0, Number(neighbor.width) || 100,
+        );
         onBlocksChange(blocks.map(o => {
-          if (o.id === id) return { ...o, width: String(Math.round(appliedW)) };
+          if (o.id === id) return { ...o, width: String(roundW(result.appliedW)) };
           if (o.id === neighbor.id) return {
             ...o,
-            x: nx + actualDelta,
-            width: String(Math.round(nw - shrinkDelta)),
+            x: result.neighborX,
+            width: String(roundW(result.neighborW)),
           };
           return o;
         }));
@@ -189,21 +270,29 @@ export default function EditorCanvas({ blocks, onBlocksChange, onUpload, pageBgC
     // Немає сусіда ПРАВОРУЧ — звичайний setWidth, але clamp'емо щоб не вилізти за канвас.
     const bx = b.x ?? 0;
     const clampedW = Math.max(MIN_NEIGHBOR_WIDTH, Math.min(100 - bx, newW));
-    setWidth(id, String(Math.round(clampedW)));
+    setWidth(id, String(roundW(clampedW)));
   }, [blocks, onBlocksChange, setWidth, clearPreview, clearPreviewX]);
 
-  const handleSetWidthAndData = useCallback((id: string, w: BlockWidth, data: Record<string, string>) => {
-    // Image/diagonal resize: new height приходить у data.minHeight. Після neighbor-shrink
-    // перевіряємо чи нові межі блока (включно з висотою) не налазять на блоки НИЖЧЕ —
-    // якщо так, викликаємо displaceBlocksAround щоб їх акуратно посунути.
+  const handleSetWidthAndData = useCallback((id: string, w: BlockWidth, data: Record<string, string>, height?: number) => {
+    // Image/diagonal resize: new height приходить як 4-й параметр `height` від
+    // useBlockResize (resize-хук). Раніше функція ігнорувала 4-й аргумент → block.height
+    // не оновлювався → при resize ширини фото висота "відскакувала" до старої.
+    // Якщо height не задано — fallback на data.minHeight (legacy) або поточну висоту.
     const b = blocks.find(x => x.id === id);
-    if (!b) { setWidthAndData(id, w, data); return; }
+    if (!b) { setWidthAndData(id, w, data, height); return; }
     const newW = Number(w);
     const oldW = Number(b.width) || 100;
     const delta = newW - oldW;
     const bx = b.x ?? 0;
     const by = b.y ?? 0;
-    const newH = Number(data.minHeight) || measureBlockHeight(b);
+    const newH = height ?? (Number(data.minHeight) || measureBlockHeight(b));
+
+    // Helper: оновлюємо block з новою width + data + опційно height (якщо передане).
+    const applyUpdate = (o: Block, newWidth: number): Block => {
+      const updated: Block = { ...o, width: String(roundW(newWidth)), data };
+      if (typeof height === "number") updated.height = height;
+      return updated;
+    };
 
     // Крок 1: будуємо новий стан з neighbor-shrink (якщо сусід є і блок росте)
     let appliedW = newW;
@@ -213,27 +302,23 @@ export default function EditorCanvas({ blocks, onBlocksChange, onUpload, pageBgC
       const neighbor = findRightNeighbor(id);
       if (neighbor) {
         neighborId = neighbor.id;
-        const nx = neighbor.x ?? 0;
-        const nw = Number(neighbor.width) || 100;
-        const roomToShift = Math.max(0, 100 - (nx + nw));
-        const shiftDelta = Math.min(delta, roomToShift);
-        const remaining = delta - shiftDelta;
-        const maxShrink = Math.max(0, nw - MIN_NEIGHBOR_WIDTH);
-        const shrinkDelta = Math.min(remaining, maxShrink);
-        const actualDelta = shiftDelta + shrinkDelta;
-        appliedW = oldW + actualDelta;
+        const result = computeGrowthWithNeighbor(
+          bx, oldW, newW,
+          neighbor.x ?? 0, Number(neighbor.width) || 100,
+        );
+        appliedW = result.appliedW;
         next = blocks.map(o => {
-          if (o.id === id) return { ...o, width: String(Math.round(appliedW)), data };
-          if (o.id === neighbor.id) return { ...o, x: nx + actualDelta, width: String(Math.round(nw - shrinkDelta)) };
+          if (o.id === id) return applyUpdate(o, appliedW);
+          if (o.id === neighbor.id) return { ...o, x: result.neighborX, width: String(roundW(result.neighborW)) };
           return o;
         });
       } else {
         appliedW = Math.max(MIN_NEIGHBOR_WIDTH, Math.min(100 - bx, newW));
-        next = blocks.map(o => o.id === id ? { ...o, width: String(Math.round(appliedW)), data } : o);
+        next = blocks.map(o => o.id === id ? applyUpdate(o, appliedW) : o);
       }
     } else {
       appliedW = Math.max(MIN_NEIGHBOR_WIDTH, Math.min(100 - bx, newW));
-      next = blocks.map(o => o.id === id ? { ...o, width: String(Math.round(appliedW)), data } : o);
+      next = blocks.map(o => o.id === id ? applyUpdate(o, appliedW) : o);
     }
 
     // Крок 2: displacement — якщо нові межі блока (x, y, appliedW, newH) перетинаються з іншими
@@ -263,36 +348,124 @@ export default function EditorCanvas({ blocks, onBlocksChange, onUpload, pageBgC
     onBlocksChange(next);
   }, [blocks, onBlocksChange, setWidthAndData, clearPreview, clearPreviewX]);
 
+  // Детектор alignment-guides — викликається з drag-move І resize (preview width/height).
+  // Перевіряє всі alignments (left-left, right-right, top-top, bottom-bottom, center-center)
+  // і виставляє guide-лінії + size-match badges. Допуски TIGHT_X/Y використовуються
+  // для постфактумної детекції — блок вже мав би бути на цій позиції після snap-у.
+  const detectAlignmentsAt = useCallback((selfId: string, ax: number, ay: number, aw: number, ah: number) => {
+    const TIGHT_X = 0.5;
+    const TIGHT_Y = 2;
+    const SIZE_MATCH_PX = 4;
+    const SIZE_MATCH_PCT = 0.6;
+    // Proximity для size-match: показуємо "= H" / "= W" лише коли блоки в одному
+    // рядку/колонці, інакше badge стає шумним (показує match для далеких блоків).
+    const SIZE_PROX_Y_PX = 14;
+    const SIZE_PROX_X_PCT = 2;
+
+    const guideMap = new Map<string, AlignGuide>();
+    const addGuide = (g: AlignGuide) => {
+      const key = `${g.axis}|${g.pos.toFixed(2)}|${g.kind}`;
+      const existing = guideMap.get(key);
+      if (existing) {
+        existing.start = Math.min(existing.start, g.start);
+        existing.end = Math.max(existing.end, g.end);
+      } else {
+        guideMap.set(key, { ...g });
+      }
+    };
+
+    const aLeft = ax, aRight = ax + aw, aCenterX = ax + aw / 2;
+    const aTop = ay, aBottom = ay + ah, aCenterY = ay + ah / 2;
+    const matches: SizeMatch[] = [];
+
+    for (const o of blocks) {
+      if (o.id === selfId) continue;
+      const ox = o.x ?? 0;
+      const oy = o.y ?? 0;
+      const ow = Number(o.width) || 100;
+      const oh = measureBlockHeight(o);
+      const oRight = ox + ow;
+      const oCenterX = ox + ow / 2;
+      const oBottom = oy + oh;
+      const oCenterY = oy + oh / 2;
+
+      // Guides не мають proximity-фільтра — Figma показує лінію між будь-якими
+      // блоками з однаковим краєм/центром, навіть якщо вони далеко. Лінія сама
+      // тягнеться між ними, "пробігаючи" через gap.
+      // X-axis (вертикальні лінії)
+      const yMin = Math.min(aTop, oy);
+      const yMax = Math.max(aBottom, oBottom);
+      if (Math.abs(aLeft - ox) < TIGHT_X)         addGuide({ axis: "x", pos: ox, start: yMin, end: yMax, kind: "edge" });
+      if (Math.abs(aLeft - oRight) < TIGHT_X)     addGuide({ axis: "x", pos: oRight, start: yMin, end: yMax, kind: "edge" });
+      if (Math.abs(aRight - ox) < TIGHT_X)        addGuide({ axis: "x", pos: ox, start: yMin, end: yMax, kind: "edge" });
+      if (Math.abs(aRight - oRight) < TIGHT_X)    addGuide({ axis: "x", pos: oRight, start: yMin, end: yMax, kind: "edge" });
+      if (Math.abs(aCenterX - oCenterX) < TIGHT_X) addGuide({ axis: "x", pos: oCenterX, start: yMin, end: yMax, kind: "center" });
+
+      // Y-axis (горизонтальні лінії)
+      const xMin = Math.min(aLeft, ox);
+      const xMax = Math.max(aRight, oRight);
+      if (Math.abs(aTop - oy) < TIGHT_Y)            addGuide({ axis: "y", pos: oy, start: xMin, end: xMax, kind: "edge" });
+      if (Math.abs(aTop - oBottom) < TIGHT_Y)       addGuide({ axis: "y", pos: oBottom, start: xMin, end: xMax, kind: "edge" });
+      if (Math.abs(aBottom - oy) < TIGHT_Y)         addGuide({ axis: "y", pos: oy, start: xMin, end: xMax, kind: "edge" });
+      if (Math.abs(aBottom - oBottom) < TIGHT_Y)    addGuide({ axis: "y", pos: oBottom, start: xMin, end: xMax, kind: "edge" });
+      if (Math.abs(aCenterY - oCenterY) < TIGHT_Y)  addGuide({ axis: "y", pos: oCenterY, start: xMin, end: xMax, kind: "center" });
+
+      // Size match — все ж з proximity, щоб badge не стрибав між далекими блоками.
+      const yNear = ay < oBottom + SIZE_PROX_Y_PX && ay + ah > oy - SIZE_PROX_Y_PX;
+      const xNear = ax < oRight + SIZE_PROX_X_PCT && ax + aw > ox - SIZE_PROX_X_PCT;
+      if (yNear && Math.abs(ah - oh) <= SIZE_MATCH_PX) matches.push({ blockId: o.id, dim: "h" });
+      if (xNear && Math.abs(aw - ow) <= SIZE_MATCH_PCT) matches.push({ blockId: o.id, dim: "w" });
+    }
+
+    setAlignGuides(Array.from(guideMap.values()));
+    setSizeMatches(matches);
+  }, [blocks]);
+
+  const clearAlignmentGuides = useCallback(() => {
+    setAlignGuides([]);
+    setSizeMatches([]);
+  }, []);
+
   // Live preview — пушимо в previewWidths і previewXs, щоб сусід рухався плавно під час drag.
   const handlePreviewWidth = useCallback((id: string, pct: number) => {
+    setResizingBlockId(id);
     const b = blocks.find(x => x.id === id);
     if (!b) { setPreview(id, pct); return; }
     const oldW = Number(b.width) || 100;
     const delta = pct - oldW;
 
+    let appliedW = pct;
     if (delta > 0) {
       const neighbor = findRightNeighbor(id);
       if (neighbor) {
-        const nx = neighbor.x ?? 0;
-        const nw = Number(neighbor.width) || 100;
-        const roomToShift = Math.max(0, 100 - (nx + nw));
-        const shiftDelta = Math.min(delta, roomToShift);
-        const remaining = delta - shiftDelta;
-        const maxShrink = Math.max(0, nw - MIN_NEIGHBOR_WIDTH);
-        const shrinkDelta = Math.min(remaining, maxShrink);
-        const actualDelta = shiftDelta + shrinkDelta;
-        setPreview(id, oldW + actualDelta);
-        setPreviewX(neighbor.id, nx + actualDelta);
-        setPreview(neighbor.id, nw - shrinkDelta);
-        return;
+        const result = computeGrowthWithNeighbor(
+          b.x ?? 0, oldW, pct,
+          neighbor.x ?? 0, Number(neighbor.width) || 100,
+        );
+        setPreview(id, result.appliedW);
+        setPreviewX(neighbor.id, result.neighborX);
+        setPreview(neighbor.id, result.neighborW);
+        appliedW = result.appliedW;
+      } else {
+        const bx = b.x ?? 0;
+        appliedW = Math.max(MIN_NEIGHBOR_WIDTH, Math.min(100 - bx, pct));
+        setPreview(id, appliedW);
       }
+    } else {
+      const bx = b.x ?? 0;
+      appliedW = Math.max(MIN_NEIGHBOR_WIDTH, Math.min(100 - bx, pct));
+      setPreview(id, appliedW);
     }
+
+    // Alignment guides під час resize: поточна позиція + нова ширина.
     const bx = b.x ?? 0;
-    const clampedW = Math.max(MIN_NEIGHBOR_WIDTH, Math.min(100 - bx, pct));
-    setPreview(id, clampedW);
-  }, [blocks, setPreview, setPreviewX]);
+    const by = b.y ?? 0;
+    const bh = Number(b.height) || measureBlockHeight(b);
+    detectAlignmentsAt(id, bx, by, appliedW, bh);
+  }, [blocks, setPreview, setPreviewX, detectAlignmentsAt]);
 
   const handleClearPreview = useCallback((id: string) => {
+    setResizingBlockId(prev => prev === id ? null : prev);
     clearPreview(id);
     // Якщо превʼювали сусіда — чистимо і його
     const neighbor = findRightNeighbor(id);
@@ -300,7 +473,24 @@ export default function EditorCanvas({ blocks, onBlocksChange, onUpload, pageBgC
       clearPreview(neighbor.id);
       clearPreviewX(neighbor.id);
     }
-  }, [clearPreview, clearPreviewX, blocks]);
+    clearAlignmentGuides();
+  }, [clearPreview, clearPreviewX, blocks, clearAlignmentGuides]);
+
+  // Wrapper над setPreviewHeight — додає alignment-detection під час resize-у висоти.
+  const handlePreviewHeight = useCallback((id: string, h: number) => {
+    setPreviewHeight(id, h);
+    const b = blocks.find(x => x.id === id);
+    if (!b) return;
+    const bx = b.x ?? 0;
+    const by = b.y ?? 0;
+    const w = previewWidths[id] ?? (Number(b.width) || 100);
+    detectAlignmentsAt(id, bx, by, w, h);
+  }, [blocks, previewWidths, setPreviewHeight, detectAlignmentsAt]);
+
+  const handleClearPreviewHeight = useCallback((id: string) => {
+    clearPreviewHeight(id);
+    clearAlignmentGuides();
+  }, [clearPreviewHeight, clearAlignmentGuides]);
 
   // Wrapped updateBlock: якщо data.minHeight збільшилось (bottom resize у зображення) —
   // перевіряємо чи нові межі не налазять на нижні блоки і витискаємо їх.
@@ -454,7 +644,7 @@ export default function EditorCanvas({ blocks, onBlocksChange, onUpload, pageBgC
         // Стискаємо до MIN_W без додаткових ratio-обмежень — користувач контролює drag-ом.
         const leftFitW = hit.x - bx;
         if (leftFitW >= MIN_W && bx < hit.x) {
-          result[i] = { ...b, width: String(Math.round(leftFitW)) };
+          result[i] = { ...b, width: String(roundW(leftFitW)) };
           upsertReserved({ x: bx, y: by, w: leftFitW, h: bh, id: b.id });
           changed = true;
           continue;
@@ -463,7 +653,7 @@ export default function EditorCanvas({ blocks, onBlocksChange, onUpload, pageBgC
         const rightStart = hit.x + hit.w;
         const rightFitW = (bx + bw) - rightStart;
         if (rightFitW >= MIN_W && bx + bw > rightStart) {
-          result[i] = { ...b, x: rightStart, width: String(Math.round(rightFitW)) };
+          result[i] = { ...b, x: rightStart, width: String(roundW(rightFitW)) };
           upsertReserved({ x: rightStart, y: by, w: rightFitW, h: bh, id: b.id });
           changed = true;
           continue;
@@ -489,7 +679,8 @@ export default function EditorCanvas({ blocks, onBlocksChange, onUpload, pageBgC
     setIsOverCanvas(false);
     dropPreviewRef.current = null;
     setDropPreview(null);
-    setSnapTargets([]);
+    setAlignGuides([]);
+    setSizeMatches([]);
     if (idStr.startsWith("palette:")) {
       if (idStr === "palette:image-overlay") {
         activePaletteRef.current = {
@@ -541,26 +732,25 @@ export default function EditorCanvas({ blocks, onBlocksChange, onUpload, pageBgC
         const rawY = snapPx(currentY + deltaYPx);
         let { x, y } = clampXY(rawX, rawY, wPct);
 
-        // === Edge snap (magnetic alignment) ===
-        const SNAP_X_PCT = 3;
-        const SNAP_Y_PX = 10;
-        const Y_PROX_PX = 12;
-        const X_PROX_PCT = 1.5;
-        // Canvas-edge snap — ширший поріг, щоб легко було "примагнітити" блок впритул
-        // до лівого/правого/верхнього краю канваса без акуратного прицілу.
+        // === Snap + Alignment guides (Figma-style) ===
+        // Снап до countra: краї блоків, центри, та краї канваса. Після снапу
+        // генеруємо guide-лінії що показують З ким саме A вирівнялась.
+        const SNAP_TOL_X = 1.8;     // pct — толеранс снапу по X
+        const SNAP_TOL_Y = 8;        // px — толеранс снапу по Y
+        const Y_PROX_PX = 14;        // вертикальна "близькість" — лише блоки в межах рахуємо
+        const X_PROX_PCT = 2;
         const CANVAS_EDGE_PCT = 4;
         const CANVAS_EDGE_PX = 14;
         const bh = measureBlockHeight(b);
-        const snaps: SnapEdge[] = [];
 
-        // 1) Canvas-edge snap — перевіряємо першим, він має пріоритет над block-edge
+        // 1) Canvas-edge snap — пріоритет над block-edge
         let lockedX = false;
         let lockedY = false;
         if (x + wPct >= 100 - CANVAS_EDGE_PCT) {
-          x = Math.max(0, 100 - wPct); // правий край
+          x = Math.max(0, 100 - wPct);
           lockedX = true;
         } else if (x <= CANVAS_EDGE_PCT) {
-          x = 0; // лівий край
+          x = 0;
           lockedX = true;
         }
         if (y <= CANVAS_EDGE_PX) {
@@ -568,6 +758,11 @@ export default function EditorCanvas({ blocks, onBlocksChange, onUpload, pageBgC
           lockedY = true;
         }
 
+        // 2) Збираємо ВСІ кандидати на snap (по 5 для кожної осі):
+        //    edges (4 кейси) + center (1 кейс) на блок. Беремо найближчий.
+        type Cand = { newPos: number; dist: number };
+        const xCands: Cand[] = [];
+        const yCands: Cand[] = [];
         for (const o of blocks) {
           if (o.id === b.id) continue;
           const ox = o.x ?? 0;
@@ -575,46 +770,50 @@ export default function EditorCanvas({ blocks, onBlocksChange, onUpload, pageBgC
           const ow = Number(o.width) || 100;
           const oh = measureBlockHeight(o);
           const oRight = ox + ow;
+          const oCenterX = ox + ow / 2;
           const oBottom = oy + oh;
+          const oCenterY = oy + oh / 2;
 
-          // Y-proximity: A вертикально перетинається з B (із буфером)
           const yNear = y < oBottom + Y_PROX_PX && y + bh > oy - Y_PROX_PX;
-          // X-proximity: A горизонтально перетинається з B (із буфером)
           const xNear = x < oRight + X_PROX_PCT && x + wPct > ox - X_PROX_PCT;
 
-          // === X-snap (потрібна Y-proximity, і тільки якщо ще не locked на край канваса) ===
           if (yNear && !lockedX) {
-            if (Math.abs(x - oRight) <= SNAP_X_PCT) {
-              x = oRight;
-              snaps.push({ blockId: o.id, edge: "right" });
-            } else if (Math.abs((x + wPct) - ox) <= SNAP_X_PCT) {
-              x = Math.max(0, ox - wPct);
-              snaps.push({ blockId: o.id, edge: "left" });
-            } else if (Math.abs(x - ox) <= SNAP_X_PCT) {
-              x = ox;
-              snaps.push({ blockId: o.id, edge: "left" });
-            } else if (Math.abs((x + wPct) - oRight) <= SNAP_X_PCT) {
-              x = Math.max(0, oRight - wPct);
-              snaps.push({ blockId: o.id, edge: "right" });
-            }
+            // edge snaps
+            const lr = Math.abs(x - oRight);                  // a.left ↔ o.right (touch)
+            if (lr <= SNAP_TOL_X) xCands.push({ newPos: oRight, dist: lr });
+            const rl = Math.abs((x + wPct) - ox);             // a.right ↔ o.left (touch)
+            if (rl <= SNAP_TOL_X) xCands.push({ newPos: Math.max(0, ox - wPct), dist: rl });
+            const ll = Math.abs(x - ox);                      // a.left ↔ o.left
+            if (ll <= SNAP_TOL_X) xCands.push({ newPos: ox, dist: ll });
+            const rr = Math.abs((x + wPct) - oRight);         // a.right ↔ o.right
+            if (rr <= SNAP_TOL_X) xCands.push({ newPos: Math.max(0, oRight - wPct), dist: rr });
+            const cc = Math.abs((x + wPct / 2) - oCenterX);   // center ↔ center
+            if (cc <= SNAP_TOL_X) xCands.push({ newPos: Math.max(0, oCenterX - wPct / 2), dist: cc });
           }
-
-          // === Y-snap (потрібна X-proximity, і тільки якщо ще не locked на край канваса) ===
           if (xNear && !lockedY) {
-            if (Math.abs(y - oBottom) <= SNAP_Y_PX) {
-              y = oBottom;
-              snaps.push({ blockId: o.id, edge: "bottom" });
-            } else if (Math.abs((y + bh) - oy) <= SNAP_Y_PX) {
-              y = Math.max(0, oy - bh);
-              snaps.push({ blockId: o.id, edge: "top" });
-            } else if (Math.abs(y - oy) <= SNAP_Y_PX) {
-              y = oy;
-              snaps.push({ blockId: o.id, edge: "top" });
-            }
+            const tb = Math.abs(y - oBottom);                 // a.top ↔ o.bottom
+            if (tb <= SNAP_TOL_Y) yCands.push({ newPos: oBottom, dist: tb });
+            const bt = Math.abs((y + bh) - oy);               // a.bottom ↔ o.top
+            if (bt <= SNAP_TOL_Y) yCands.push({ newPos: Math.max(0, oy - bh), dist: bt });
+            const tt = Math.abs(y - oy);                      // a.top ↔ o.top
+            if (tt <= SNAP_TOL_Y) yCands.push({ newPos: oy, dist: tt });
+            const bb = Math.abs((y + bh) - oBottom);          // a.bottom ↔ o.bottom
+            if (bb <= SNAP_TOL_Y) yCands.push({ newPos: Math.max(0, oBottom - bh), dist: bb });
+            const cy = Math.abs((y + bh / 2) - oCenterY);     // center ↔ center
+            if (cy <= SNAP_TOL_Y) yCands.push({ newPos: Math.max(0, oCenterY - bh / 2), dist: cy });
           }
         }
+        if (!lockedX && xCands.length > 0) {
+          xCands.sort((a, b) => a.dist - b.dist);
+          x = xCands[0].newPos;
+        }
+        if (!lockedY && yCands.length > 0) {
+          yCands.sort((a, b) => a.dist - b.dist);
+          y = yCands[0].newPos;
+        }
 
-        setSnapTargets(snaps);
+        // 3) Після снапу — детектимо ВСІ alignments через спільний helper.
+        detectAlignmentsAt(b.id, x, y, wPct, bh);
         dropPreviewRef.current = { x, y, width: wPct };
         setDropPreview({ x, y, width: wPct });
 
@@ -650,7 +849,7 @@ export default function EditorCanvas({ blocks, onBlocksChange, onUpload, pageBgC
         }
       }
     }
-  }, [blocks, canvasWidthPx, setPreview, setPreviewX, clearPreview, clearPreviewX]);
+  }, [blocks, canvasWidthPx, setPreview, setPreviewX, clearPreview, clearPreviewX, detectAlignmentsAt]);
 
   // Перевіряє чи позиція x/y/width+height перекриває якийсь блок (крім excludeId).
   function hasCollision(x: number, y: number, width: number, height: number, excludeId: string | null): boolean {
@@ -677,7 +876,8 @@ export default function EditorCanvas({ blocks, onBlocksChange, onUpload, pageBgC
     setIsOverCanvas(false);
     dropPreviewRef.current = null;
     setDropPreview(null);
-    setSnapTargets([]);
+    setAlignGuides([]);
+    setSizeMatches([]);
 
     if (isPalette) {
       if (!rect) return;
@@ -742,8 +942,13 @@ export default function EditorCanvas({ blocks, onBlocksChange, onUpload, pageBgC
 
       const newBlock: Block = {
         id: newId, type, data: {},
-        width: String(Math.round(width)), align: "left", bgColor: "",
+        width: String(roundW(width)), align: "left", bgColor: "",
         x: clamped.x, y: clamped.y,
+        // ⚠️ Явна height ОБОВ'ЯЗКОВА: інакше wrapper стає auto, content всередині
+        // (наприклад YouTube iframe) рендериться, але block-чи canvasHeight рахується
+        // ДО того як content підвантажився → блок вилазить за canvas.
+        // Для divider/text/heading/quote — TYPE_HEIGHT теж дає sane default.
+        height: estH,
       };
       onBlocksChange([...finalBlocks, newBlock]);
       setLastAddedId(newId);
@@ -805,9 +1010,22 @@ export default function EditorCanvas({ blocks, onBlocksChange, onUpload, pageBgC
         onDragStart={handleDragStart}
         onDragMove={handleDragMove}
         onDragEnd={handleDragEnd}
+        // Агресивніший auto-scroll: трешхолд 25% від краю viewport (було 20%
+        // дефолт) і прискорення 25 (дефолт 10). Без цього довгий drag угору
+        // "обганяв" auto-scroll і блок зникав за верх viewport-а.
+        autoScroll={{
+          threshold: { x: 0, y: 0.25 },
+          acceleration: 25,
+        }}
       >
-        <div style={{ display: "flex", gap: "20px", alignItems: "flex-start" }}>
-          <BlockPalette onAddImageOverlay={() => {
+        <div style={{ display: "flex", gap: "20px", alignItems: "stretch" }}>
+          <BlockPalette
+            selectedBlockY={(() => {
+              if (!selectedBlockId) return null;
+              const sel = blocks.find(b => b.id === selectedBlockId);
+              return sel?.y ?? null;
+            })()}
+            onAddImageOverlay={() => {
             // Знаходимо ОСТАННІЙ image-блок з url. Якщо нема — нічого не робимо.
             const targets = blocks.filter(b => b.type === "image" && b.data.url);
             if (targets.length === 0) {
@@ -861,9 +1079,8 @@ export default function EditorCanvas({ blocks, onBlocksChange, onUpload, pageBgC
                   width: "100%",
                   minHeight: `${canvasHeight}px`,
                   height: `${canvasHeight}px`,
-                  // Рамка прямо на canvas-області — там, де реально живуть блоки.
-                  // Блок з x=0, y=0 торкається рамки впритул (це і є "впритул вліво/вгору").
-                  outline: "2px dashed #D4A843",
+                  // Канвас — субтильна рамка (це область сторінки, не блок).
+                  outline: "1px dashed rgba(28,58,46,0.18)",
                   outlineOffset: "0px",
                   borderRadius: "4px",
                   transition: activeId ? "none" : "height 0.2s",
@@ -874,6 +1091,35 @@ export default function EditorCanvas({ blocks, onBlocksChange, onUpload, pageBgC
                 {blocks.length === 0 && !activeId && (
                   <EmptyHint />
                 )}
+
+                {/* Page-width ruler — фіксована "лінійка" зверху канвасу, показує
+                    ширину і позицію активного блока в % від сторінки. Зʼявляється
+                    при resize ширини АБО переміщенні блока (не для палітри).
+                    Зникає коли користувач не взаємодіє з блоком. */}
+                {(() => {
+                  // Активний блок: пріоритет resize, fallback — drag-існуючий.
+                  const dragId = activeId && !activeId.startsWith("palette:") ? activeId : null;
+                  const activeBlockId = resizingBlockId ?? dragId;
+                  if (!activeBlockId) return null;
+                  const b = blocks.find(x => x.id === activeBlockId);
+                  if (!b) return null;
+                  // Live x і width — пріоритет previews. Під час drag dropPreview
+                  // містить актуальну x для тягнутого блока (width не змінюється
+                  // в drag, тільки в resize). Під час resize previewWidths/Xs.
+                  let liveX = previewXs[activeBlockId] ?? b.x ?? 0;
+                  let liveW = previewWidths[activeBlockId] ?? (Number(b.width) || 100);
+                  if (dragId === activeBlockId && dropPreview) {
+                    liveX = dropPreview.x;
+                    liveW = dropPreview.width;
+                  }
+                  return (
+                    <ResizeRuler
+                      blockX={liveX}
+                      blockWidthPct={liveW}
+                      pxPerPct={canvasWidthPx / 100}
+                    />
+                  );
+                })()}
 
                 {/* Ghost — показуємо ТІЛЬКИ при drag з палітри (для existing-block drag достатньо самого блока + snap-glow) */}
                 {activeId && activeId.startsWith("palette:") && dropPreview && isOverCanvas && (
@@ -886,15 +1132,22 @@ export default function EditorCanvas({ blocks, onBlocksChange, onUpload, pageBgC
                   />
                 )}
 
-                {/* Snap edge overlays — один на кожне прилипання (X і Y можуть бути одночасно) */}
-                {snapTargets.map((s, i) => {
-                  const t = blocks.find(b => b.id === s.blockId);
+                {/* Alignment guides — Figma-style лінії під час drag-у. Edge-snap
+                    показується solid, center-alignment — dashed. */}
+                {alignGuides.map((g, i) => (
+                  <AlignmentGuideLine key={`g-${i}`} guide={g} />
+                ))}
+
+                {/* Size match badges — мала позначка "= H" / "= W" біля блока з
+                    тією ж висотою/шириною, що й перетягуваний. */}
+                {sizeMatches.map((m, i) => {
+                  const t = blocks.find(b => b.id === m.blockId);
                   if (!t) return null;
                   const tx = t.x ?? 0;
                   const ty = t.y ?? 0;
                   const tw = Number(t.width) || 100;
                   const th = measureBlockHeight(t);
-                  return <SnapEdgeOverlay key={`${s.blockId}-${s.edge}-${i}`} x={tx} y={ty} width={tw} height={th} edge={s.edge} />;
+                  return <SizeMatchBadge key={`sm-${i}-${m.dim}`} x={tx} y={ty} width={tw} height={th} dim={m.dim} />;
                 })}
 
                 {blocks.map(block => {
@@ -923,8 +1176,8 @@ export default function EditorCanvas({ blocks, onBlocksChange, onUpload, pageBgC
                       onUpload={onUpload}
                       onPreviewWidth={handlePreviewWidth}
                       onClearPreview={handleClearPreview}
-                      onPreviewHeight={setPreviewHeight}
-                      onClearPreviewHeight={clearPreviewHeight}
+                      onPreviewHeight={handlePreviewHeight}
+                      onClearPreviewHeight={handleClearPreviewHeight}
                       onReportHeight={(id, h) => {
                         blockHeightsRef.current[id] = h;
                         reportHeight(id, h);
@@ -933,6 +1186,7 @@ export default function EditorCanvas({ blocks, onBlocksChange, onUpload, pageBgC
                       isActive={activeId === block.id}
                       selected={selectedBlockId === block.id}
                       onSelect={(id) => setSelectedBlockId(prev => prev === id ? null : id)}
+                      scrollCompensation={activeId === block.id ? scrollCompensation : 0}
                     />
                   );
                 })}
@@ -990,36 +1244,103 @@ function EmptyHint() {
   );
 }
 
-// Snap edge overlay — абсолютно позиціонується на канвасі, zIndex 100, тому glow завжди
-// видно поверх dragging-блока. Координати приходять від target-блока (x, y — %, px), і ми
-// рендеримо smug 4px на потрібному краю.
-function SnapEdgeOverlay({ x, y, width, height, edge }: {
-  x: number; y: number; width: number; height: number;
-  edge: "left" | "right" | "top" | "bottom";
+// AlignmentGuideLine — Figma-style вирівнювання. Тонка лінія pink/magenta що тягнеться
+// від перетягуваного блока до того, з ким він вирівнявся. Solid для краю, dashed для центру.
+// pos: для axis="x" — xPct (0..100); для axis="y" — yPx.
+// start/end: діапазон на ортогональній осі (yPx або xPct відповідно).
+function AlignmentGuideLine({ guide }: {
+  guide: { axis: "x" | "y"; pos: number; start: number; end: number; kind: "edge" | "center" };
 }) {
-  const thick = 4;
-  const glow = "0 0 12px 2px rgba(212,168,67,0.95), 0 0 28px 6px rgba(212,168,67,0.55)";
-  const base: React.CSSProperties = {
+  const COLOR = guide.kind === "center" ? "#A855F7" : "#EC4899"; // фіолетовий — центр, рожевий — край
+  const dotShadow = `0 0 0 2px ${COLOR}33, 0 0 6px ${COLOR}66`;
+  const dotStyle: React.CSSProperties = {
     position: "absolute",
-    background: "#D4A843",
-    borderRadius: "3px",
-    boxShadow: glow,
+    width: "6px", height: "6px", borderRadius: "50%",
+    background: "#FFFFFF",
+    boxShadow: `0 0 0 1.5px ${COLOR}, ${dotShadow}`,
     pointerEvents: "none",
-    zIndex: 100,
-    animation: "snap-edge-pulse 0.5s ease-in-out infinite alternate",
+    zIndex: 51,
   };
-  // Обмежуємо довжину glow — центруємо по краю, максимум 140px (щоб на високих блоках
-  // не світилась смуга на весь екран)
-  const MAX_SIDE = 140;
-  if (edge === "left" || edge === "right") {
-    const glowH = Math.min(MAX_SIDE, height - 8);
-    const glowTop = y + (height - glowH) / 2;
-    const leftPx = edge === "left" ? `calc(${x}% - ${thick / 2}px)` : `calc(${x + width}% - ${thick / 2}px)`;
-    return <div style={{ ...base, left: leftPx, top: `${glowTop}px`, width: `${thick}px`, height: `${glowH}px` }} />;
+
+  if (guide.axis === "x") {
+    const lineStyle: React.CSSProperties = {
+      position: "absolute",
+      left: `calc(${guide.pos}% - 0.5px)`,
+      top: `${guide.start}px`,
+      width: "1px",
+      height: `${Math.max(0, guide.end - guide.start)}px`,
+      pointerEvents: "none",
+      zIndex: 50,
+      ...(guide.kind === "center"
+        ? { background: `repeating-linear-gradient(to bottom, ${COLOR} 0 4px, transparent 4px 8px)` }
+        : { background: COLOR, boxShadow: `0 0 4px ${COLOR}88` }),
+    };
+    return (
+      <>
+        <div style={lineStyle} />
+        <div style={{ ...dotStyle, left: `calc(${guide.pos}% - 3px)`, top: `${guide.start - 3}px` }} />
+        <div style={{ ...dotStyle, left: `calc(${guide.pos}% - 3px)`, top: `${guide.end - 3}px` }} />
+      </>
+    );
   }
-  // top / bottom — горизонтальна смужка. Беремо всю ширину блока, але розмір у % → це OK.
-  const topPx = edge === "top" ? y - thick / 2 : y + height - thick / 2;
-  return <div style={{ ...base, left: `calc(${x}% + 4px)`, top: `${topPx}px`, width: `calc(${width}% - 8px)`, height: `${thick}px` }} />;
+  // axis === "y"
+  const lineStyle: React.CSSProperties = {
+    position: "absolute",
+    left: `${guide.start}%`,
+    top: `${guide.pos - 0.5}px`,
+    width: `${Math.max(0, guide.end - guide.start)}%`,
+    height: "1px",
+    pointerEvents: "none",
+    zIndex: 50,
+    ...(guide.kind === "center"
+      ? { background: `repeating-linear-gradient(to right, ${COLOR} 0 4px, transparent 4px 8px)` }
+      : { background: COLOR, boxShadow: `0 0 4px ${COLOR}88` }),
+  };
+  return (
+    <>
+      <div style={lineStyle} />
+      <div style={{ ...dotStyle, left: `calc(${guide.start}% - 3px)`, top: `${guide.pos - 3}px` }} />
+      <div style={{ ...dotStyle, left: `calc(${guide.end}% - 3px)`, top: `${guide.pos - 3}px` }} />
+    </>
+  );
+}
+
+// SizeMatchBadge — позначка "= H" / "= W" поряд з блоком, що має ту саму
+// висоту/ширину що й перетягуваний.
+function SizeMatchBadge({ x, y, width, height, dim }: {
+  x: number; y: number; width: number; height: number; dim: "h" | "w";
+}) {
+  const COLOR = "#EC4899";
+  const label = dim === "h" ? "= H" : "= W";
+  // H — позначка справа від блока, посередині. W — згори, посередині.
+  const style: React.CSSProperties = dim === "h"
+    ? {
+        position: "absolute",
+        left: `calc(${x + width}% + 8px)`,
+        top: `${y + height / 2 - 10}px`,
+      }
+    : {
+        position: "absolute",
+        left: `calc(${x + width / 2}% - 16px)`,
+        top: `${y - 24}px`,
+      };
+  return (
+    <div style={{
+      ...style,
+      background: COLOR,
+      color: "#FFFFFF",
+      fontSize: "10px",
+      fontWeight: 700,
+      fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
+      padding: "3px 6px",
+      borderRadius: "4px",
+      pointerEvents: "none",
+      zIndex: 52,
+      letterSpacing: "0.04em",
+      boxShadow: `0 2px 6px ${COLOR}66`,
+      whiteSpace: "nowrap",
+    }}>{label}</div>
+  );
 }
 
 function DropGhost({ x, y, widthPct, height, paletteColor }: { x: number; y: number; widthPct: number; height: number; paletteColor?: string }) {
@@ -1072,7 +1393,7 @@ function AbsoluteBlock(props: {
   onMoveDown: (id: string) => void;
   onDuplicate: (id: string) => void;
   onSetWidth: (id: string, w: string) => void;
-  onSetWidthAndData: (id: string, w: string, data: Record<string, string>) => void;
+  onSetWidthAndData: (id: string, w: string, data: Record<string, string>, height?: number) => void;
   onSetAlign: (id: string, a: "left" | "center" | "right") => void;
   onSetBg: (id: string, c: string) => void;
   onUpload: (file: File) => Promise<string>;
@@ -1083,18 +1404,49 @@ function AbsoluteBlock(props: {
   onReportHeight: (id: string, h: number) => void;
   selected: boolean;
   onSelect: (id: string) => void;
+  /** Пікс. компенсація скролу під час drag — додається до transform.y щоб блок
+   *  залишався під курсором коли юзер скролить колесом без руху мишки. */
+  scrollCompensation?: number;
 }) {
-  const { block, x, y, widthPct, lastAddedId, previewHeight, isActive, canvasWidthPx, selected } = props;
+  const { block, x, y, widthPct, lastAddedId, previewHeight, isActive, canvasWidthPx, selected, scrollCompensation = 0 } = props;
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: block.id });
 
-  const translate = transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined;
+  const tx = transform?.x ?? 0;
+  const ty = (transform?.y ?? 0) + (isDragging ? scrollCompensation : 0);
+  const translate = (transform || isDragging) ? `translate3d(${tx}px, ${ty}px, 0)` : undefined;
+
+  // Whole-block drag: drag-listeners на wrapper, але pointerdown ігнорується якщо
+  // користувач почав клік на інтерактивному елементі (resize handles, contenteditable,
+  // input, button, overlay тощо). Так weet drag активується ТІЛЬКИ при кліку на
+  // "порожніх" зонах блока, не заважаючи редагуванню тексту чи resize-у.
+  const NO_DRAG_SELECTOR =
+    "[contenteditable=\"true\"], input, textarea, select, button, a, [data-no-block-drag]";
+  const wrapperListeners: React.HTMLAttributes<HTMLElement> = listeners ? {
+    ...listeners,
+    onPointerDown: (e: React.PointerEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.closest(NO_DRAG_SELECTOR)) return;
+      (listeners as { onPointerDown?: (e: React.PointerEvent) => void }).onPointerDown?.(e);
+    },
+  } : {};
 
   return (
     <div
       ref={setNodeRef}
       data-block-id={block.id}
+      {...attributes}
+      {...wrapperListeners}
       onClick={(e) => {
         e.stopPropagation();
+        // КРИТИЧНО: settings-панель блока (BlockItemHeader, OverlayToolbar, TipTap)
+        // портал-иться у slot палітри. Кліки там bubble-ять через React-дерево
+        // сюди, хоча в DOM event ціль зовсім в іншому місці. Без цієї перевірки
+        // toggle-логіка onSelect (prev===id ? null : id) deselect-ить блок при
+        // КОЖНОМУ кліку на settings-кнопку, і панель закривається.
+        const wrapper = e.currentTarget as HTMLElement;
+        const target = e.target as Node;
+        if (!wrapper.contains(target)) return;
+
         // Якщо клік не по input/textarea/contentEditable/button — знімаємо focus з
         // активного інпута, щоб Delete видаляв блок, а не символи.
         const t = e.target as HTMLElement;
@@ -1110,9 +1462,9 @@ function AbsoluteBlock(props: {
         left: `${x}%`,
         top: `${y}px`,
         width: `${widthPct}%`,
-        // Висота = block.height (як на public). Це важливо щоб snap edge / drop slot
-        // обчислювались за фактичним розміром блока, а не за висотою auto-content.
-        height: block.height ? `${block.height}px` : undefined,
+        height: (previewHeight && previewHeight > 0)
+          ? `${previewHeight}px`
+          : (block.height ? `${block.height}px` : undefined),
         transform: translate,
         zIndex: isActive || isDragging ? 30 : 1,
         opacity: isDragging ? 0.65 : 1,
@@ -1120,6 +1472,10 @@ function AbsoluteBlock(props: {
         outline: selected ? "2px solid #D4A843" : "none",
         outlineOffset: "2px",
         borderRadius: selected ? "12px" : 0,
+        // Cursor "grab" як affordance що блок можна тягати з будь-якого місця.
+        // Дочірні contenteditable/input/button мають свої cursors → не перекривається.
+        cursor: isDragging ? "grabbing" : "grab",
+        touchAction: "none",
       }}
     >
       <BlockItem
@@ -1148,7 +1504,144 @@ function AbsoluteBlock(props: {
         onReportHeight={props.onReportHeight}
         getSameRowHeights={() => []}
         snapThreshold={8}
+        onSelectBlock={props.onSelect}
       />
+    </div>
+  );
+}
+
+// ResizeRuler — Figma-style лінійка по ширині сторінки. Фіксована позиція ВГОРІ
+// канвасу. Зʼявляється коли блок resize-иться по ширині або переміщується drag-ом.
+// Snap-марки на 25/33/50/66/75% — для "цілитись" у круглі значення.
+// Pill-бейдж по центру амбер span-а показує live %, px та left%.
+function ResizeRuler({
+  blockX, blockWidthPct, pxPerPct,
+}: {
+  blockX: number;
+  blockWidthPct: number;
+  pxPerPct: number;
+}) {
+  const ff = "-apple-system, BlinkMacSystemFont, sans-serif";
+  const SNAPS = [25, 33.33, 50, 66.67, 75];
+  const widthPx = Math.round(blockWidthPct * pxPerPct);
+  const centerPct = blockX + blockWidthPct / 2;
+  const rightPct = blockX + blockWidthPct;
+  // Бейдж розміщуємо горизонтально по центру span, але якщо span дуже близько
+  // до краю — підтискаємо до краю canvas, щоб не вилазив (clamp 8..92%).
+  const badgeOffsetPct = Math.max(8, Math.min(92, centerPct));
+
+  return (
+    <div
+      style={{
+        position: "absolute",
+        // Фіксована позиція над канвасом — як справжня лінійка. blockY більше не
+        // використовується: лінійка не прив'язана до Y активного блока.
+        top: -38,
+        left: 0,
+        right: 0,
+        height: 32,
+        pointerEvents: "none",
+        zIndex: 50,
+        animation: "ruler-fade-in 140ms ease",
+      }}
+    >
+      <style>{`
+        @keyframes ruler-fade-in {
+          from { opacity: 0; transform: translateY(2px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+      `}</style>
+
+      {/* Базова лінія — тонка subtle track */}
+      <div style={{
+        position: "absolute",
+        top: 22,
+        left: 0,
+        right: 0,
+        height: 2,
+        background: "rgba(28,58,46,0.10)",
+        borderRadius: 2,
+      }} />
+
+      {/* Snap tick marks (25, 33, 50, 66, 75) */}
+      {SNAPS.map(s => (
+        <div key={s} style={{
+          position: "absolute",
+          top: 18,
+          left: `${s}%`,
+          transform: "translateX(-50%)",
+          width: 1,
+          height: 10,
+          background: "rgba(28,58,46,0.25)",
+        }} />
+      ))}
+      {/* Endpoints 0% / 100% — товстіші */}
+      <div style={{ position: "absolute", top: 16, left: 0, width: 2, height: 14, background: "rgba(28,58,46,0.45)", borderRadius: 1 }} />
+      <div style={{ position: "absolute", top: 16, right: 0, width: 2, height: 14, background: "rgba(28,58,46,0.45)", borderRadius: 1 }} />
+
+      {/* Highlighted span — амбер-бар, що показує block.x → block.x+width */}
+      <div style={{
+        position: "absolute",
+        top: 19,
+        left: `${blockX}%`,
+        width: `${blockWidthPct}%`,
+        height: 8,
+        background: "linear-gradient(90deg, #D4A843 0%, #E8C266 50%, #D4A843 100%)",
+        borderRadius: 4,
+        boxShadow: "0 2px 10px rgba(212,168,67,0.45), 0 0 0 1.5px rgba(28,58,46,0.18)",
+      }} />
+
+      {/* Edge end-caps — вертикальні риски на лівому і правому краю блока */}
+      <div style={{
+        position: "absolute",
+        top: 11,
+        left: `${blockX}%`,
+        transform: "translateX(-1px)",
+        width: 2,
+        height: 24,
+        background: "#1C3A2E",
+        borderRadius: 1,
+        boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+      }} />
+      <div style={{
+        position: "absolute",
+        top: 11,
+        left: `${rightPct}%`,
+        transform: "translateX(-1px)",
+        width: 2,
+        height: 24,
+        background: "#1C3A2E",
+        borderRadius: 1,
+        boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+      }} />
+
+      {/* Live pill — ширина (% і px) + позиція (left %) поверх центру span-а */}
+      <div style={{
+        position: "absolute",
+        top: -8,
+        left: `${badgeOffsetPct}%`,
+        transform: "translateX(-50%)",
+        background: "#1C3A2E",
+        color: "#D4A843",
+        padding: "5px 11px",
+        borderRadius: 8,
+        fontSize: 12,
+        fontWeight: 800,
+        letterSpacing: "0.04em",
+        fontFamily: ff,
+        boxShadow: "0 6px 16px rgba(28,58,46,0.32), 0 0 0 1.5px #D4A843",
+        whiteSpace: "nowrap",
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+      }}>
+        <span style={{ opacity: 0.6, fontWeight: 600, fontSize: 10 }}>↔</span>
+        <span>{blockWidthPct.toFixed(1)}%</span>
+        <span style={{ opacity: 0.4, fontWeight: 600, fontSize: 11 }}>·</span>
+        <span style={{ opacity: 0.85, fontWeight: 600, fontSize: 11 }}>{widthPx}px</span>
+        <span style={{ opacity: 0.4, fontWeight: 600, fontSize: 11, marginLeft: 2 }}>·</span>
+        <span style={{ opacity: 0.7, fontWeight: 600, fontSize: 10 }}>↦ {blockX.toFixed(1)}%</span>
+      </div>
     </div>
   );
 }

@@ -16,9 +16,11 @@ export interface Block {
   height?: number;            // px (опційно — для image/youtube/фіксованих блоків)
 }
 
-// Ширина канваса у пікселях — має збігатись з PAGE_WIDTH в EditorCanvas і
-// max-w-4xl padding md:p-12 на public сторінці. Не ламай без узгодження з обома.
-export const CANVAS_WIDTH = 832;
+// CANVAS_WIDTH і LEGACY_HEIGHT тепер живуть у lib/news/render — єдиному джерелі
+// правди для всіх трьох поверхонь рендера (білдер, адмін-превью, public).
+// Тут лише реекспорт + використання у autoLayout.
+import { CANVAS_WIDTH as _SHARED_CW, LEGACY_H as _SHARED_LH } from "@/lib/news/render";
+export const CANVAS_WIDTH = _SHARED_CW;
 
 export interface NewsMeta {
   title: string;
@@ -34,11 +36,6 @@ export function blocksToJson(blocks: Block[]): string {
   return JSON.stringify(blocks);
 }
 
-// Висота за типом (груба оцінка для авто-розкладки легасі-блоків)
-const LEGACY_HEIGHT: Record<BlockType, number> = {
-  heading: 80, text: 180, image: 300, youtube: 360, quote: 120, divider: 40, card: 280,
-};
-
 // Авто-розкладка блоків, у яких відсутні x/y — відтворює стару flex-wrap поведінку:
 // тримає ряди по 100% ширини, заповнюючи блоки зліва направо.
 function autoLayout(blocks: Block[]): Block[] {
@@ -52,7 +49,7 @@ function autoLayout(blocks: Block[]): Block[] {
       rowX = 0;
       rowH = 0;
     }
-    const h = b.height ?? LEGACY_HEIGHT[b.type];
+    const h = b.height ?? _SHARED_LH[b.type];
     const out: Block = { ...b, x: rowX, y: rowY };
     rowX += w;
     rowH = Math.max(rowH, h);

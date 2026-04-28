@@ -6,6 +6,9 @@ import { Block, NewsMeta, blocksToJson, jsonToBlocks } from "./types";
 import EditorCanvas from "./EditorCanvas";
 import MetaSidebar from "./MetaSidebar";
 
+// Settings slot тепер живе ВСЕРЕДИНІ BlockPalette (внизу палітри) — щоб усе ліве меню
+// було в одному компоненті, без floating overlay.
+
 function saveDraft(meta: NewsMeta, blocks: Block[], newsId?: string) {
   try { localStorage.setItem(`uimp_draft_${newsId || "new"}`, JSON.stringify({ meta, blocks, savedAt: Date.now() })); } catch {}
 }
@@ -55,9 +58,9 @@ export default function NewsEditor({
   );
   const [message, setMessage] = useState("");
   const [uploading, setUploading] = useState(false);
-  const [draftToast, setDraftToast] = useState<{ savedAt?: number } | null>(
-    initialDraft ? { savedAt: initialDraft.savedAt } : null
-  );
+  // Selection піднято з EditorCanvas сюди — щоб FloatingBlockSettings (фіксована
+  // panel зліва, що слідкує за вибраним блоком) могла читати selection.
+  const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
 
   // Page zoom через Ctrl+колесо. Браузер за замовчуванням на Ctrl+wheel робить
   // власний UI-zoom (всю сторінку разом з шапкою браузера), що тут небажано —
@@ -95,13 +98,6 @@ export default function NewsEditor({
     return () => document.removeEventListener("keydown", onKey);
   }, []);
 
-  // Toast-повідомлення що чернетку відновлено — ховаємо через 7 сек.
-  useEffect(() => {
-    if (!draftToast) return;
-    const t = setTimeout(() => setDraftToast(null), 7000);
-    return () => clearTimeout(t);
-  }, [draftToast]);
-
   // ── Undo/Redo (Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y) ────────────────────────────
   const historyRef = useRef<HistorySnap[]>([]);
   const pointerRef = useRef(-1);
@@ -109,31 +105,30 @@ export default function NewsEditor({
   const pushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [historyTick, setHistoryTick] = useState(0); // тригер ре-рендеру для disabled-стану кнопок
 
-  const discardDraft = useCallback(() => {
-    clearDraft(newsId);
+  // Відстежуємо попередній initialContent щоб НЕ перезаписувати state при
+  // повторних викликах useEffect-у з тим самим значенням (React 18 strict-mode
+  // double-mount, parent re-render тощо). Стейт скидається ТІЛЬКИ якщо parent
+  // реально передав НОВИЙ initialContent (наприклад, юзер перейшов на іншу новину).
+  const prevInitialContentRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    // Перший запуск — нічого не робимо: useState lazy-init вже виставив state
+    // (з draft або initialContent). Просто запам'ятовуємо значення.
+    if (prevInitialContentRef.current === undefined) {
+      prevInitialContentRef.current = initialContent;
+      return;
+    }
+    // Те саме значення → strict-mode чи інший no-op re-render → не чіпаємо state.
+    if (prevInitialContentRef.current === initialContent) return;
+    // Реальна зміна → застосовуємо нову DB-версію.
     setMeta({ ...def, ...initialMeta });
     setBlocks(jsonToBlocks(initialContent || ""));
-    historyRef.current = [];
-    pointerRef.current = -1;
-    skipPushRef.current = false;
-    setDraftToast(null);
-    setHistoryTick(t => t + 1);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [newsId, initialContent]);
-
-  useEffect(() => {
-    if (initialContent && !draftRestoredRef.current) {
-      setMeta({ ...def, ...initialMeta });
-      setBlocks(jsonToBlocks(initialContent));
-    }
-    // Після першого запуску прапорець скидається — якщо initialContent зміниться ще раз,
-    // це вже буде явна зміна DB-версії (не restore), і ми її застосуємо.
-    draftRestoredRef.current = false;
+    prevInitialContentRef.current = initialContent;
     historyRef.current = [];
     pointerRef.current = -1;
     skipPushRef.current = false;
     if (pushTimerRef.current) { clearTimeout(pushTimerRef.current); pushTimerRef.current = null; }
     setHistoryTick(t => t + 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialContent]);
 
   useEffect(() => {
@@ -219,9 +214,32 @@ export default function NewsEditor({
   }, [meta, blocks, newsId]);
 
   useEffect(() => {
-    const t = setTimeout(autoSave, 1500);
+    // Швидший debounce — щоб якщо юзер натисне F5 одразу після зміни,
+    // чернетка вже встигла потрапити у localStorage.
+    const t = setTimeout(autoSave, 300);
     return () => clearTimeout(t);
   }, [meta, blocks]);
+
+  // Flush на refresh/close: коли вкладка ховається або сторінка закривається —
+  // ОДРАЗУ синхронно зберігаємо чернетку у localStorage, не чекаючи debounce.
+  // Без цього дрібні зміни (зроблені за <300мс до F5) гублять.
+  const flushRef = useRef({ meta, blocks, newsId });
+  useEffect(() => { flushRef.current = { meta, blocks, newsId }; }, [meta, blocks, newsId]);
+  useEffect(() => {
+    const flush = () => {
+      const s = flushRef.current;
+      saveDraft(s.meta, s.blocks, s.newsId);
+    };
+    const onVis = () => { if (document.visibilityState === "hidden") flush(); };
+    window.addEventListener("beforeunload", flush);
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      window.removeEventListener("beforeunload", flush);
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, []);
 
   const uploadFile = async (file: File): Promise<string> => {
     setUploading(true);
@@ -258,73 +276,40 @@ export default function NewsEditor({
     });
     const content = blocksToJson(baked);
     const imageUrl = meta.imageUrl || baked.find(b => b.type === "image")?.data.url || "";
-    await onSave({ ...meta, published }, content, imageUrl);
-    clearDraft(newsId);
+    try {
+      await onSave({ ...meta, published }, content, imageUrl);
+      clearDraft(newsId);
+    } catch (e) {
+      // Помилку (наприклад, дублікат slug, мережа, 500) показуємо юзеру явно
+      // замість silent fail — інакше кнопка просто повертається з "Збереження…"
+      // і нічого не відбувається, як було раніше.
+      const msg = e instanceof Error ? e.message : "Невідома помилка збереження";
+      setMessage(msg);
+    }
   };
 
   return (
     <div ref={editorRootRef} className="min-h-screen bg-slate-100" style={{ zoom }}>
-      <div className="max-w-[1480px] mx-auto px-6 py-10">
-        {/* Top header — eyebrow + title + buttons (статичні, скролляться разом зі сторінкою) */}
+      <div className="max-w-[1520px] mx-auto px-6 py-10">
+        {/* Top header — eyebrow + title. Дії (Save / Undo / Redo / Чернетка) винесені:
+            - Save → floating-кнопка зліва від back-стрілки (внизу файлу)
+            - Undo/Redo → доступні гарячими клавішами Ctrl+Z / Ctrl+Shift+Z
+            - "Чернетка" окремо тут не потрібна: localStorage сам автозберігає
+              кожні 300мс + при закритті вкладки. */}
         <div className="mb-6">
           <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-violet-600 mb-1.5">
             Admin · Новини
           </p>
-          <div className="flex items-center justify-between gap-4 pr-32">
-            <h1 className="text-3xl font-bold text-slate-900 tracking-tight flex items-center gap-3 min-w-0">
-              <span
-                className={`inline-block w-2.5 h-2.5 rounded-full flex-shrink-0 ${
-                  meta.published
-                    ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]"
-                    : "bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.5)]"
-                }`}
-              />
-              <span className="truncate">{pageTitle}</span>
-            </h1>
-
-            <div className="flex items-center gap-2.5 flex-shrink-0">
-              <div className="flex items-center gap-1 mr-1">
-                <button
-                  type="button"
-                  onClick={undo}
-                  disabled={!canUndo}
-                  title="Скасувати (Ctrl+Z)"
-                  className="w-10 h-10 flex items-center justify-center text-[18px] font-semibold text-slate-600 bg-white ring-1 ring-slate-200 rounded-lg shadow-sm hover:bg-slate-50 hover:ring-slate-300 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  ↶
-                </button>
-                <button
-                  type="button"
-                  onClick={redo}
-                  disabled={!canRedo}
-                  title="Повторити (Ctrl+Shift+Z)"
-                  className="w-10 h-10 flex items-center justify-center text-[18px] font-semibold text-slate-600 bg-white ring-1 ring-slate-200 rounded-lg shadow-sm hover:bg-slate-50 hover:ring-slate-300 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  ↷
-                </button>
-              </div>
-              <button
-                type="button"
-                onClick={() => handleSave(false)}
-                disabled={saving}
-                className="px-7 h-12 text-[15px] font-semibold text-slate-700 bg-white ring-1 ring-slate-200 rounded-xl shadow-sm hover:bg-slate-50 hover:ring-slate-300 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Чернетка
-              </button>
-              <button
-                type="button"
-                onClick={() => handleSave(true)}
-                disabled={saving}
-                className="group relative inline-flex items-center justify-center gap-2 px-7 h-12 text-[15px] font-semibold text-white bg-gradient-to-br from-violet-600 to-violet-700 rounded-xl shadow-sm hover:shadow-lg hover:shadow-violet-500/25 hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:shadow-none overflow-hidden"
-              >
-                <span className="absolute inset-0 -translate-x-full group-hover:translate-x-full transition-transform duration-700 bg-gradient-to-r from-transparent via-white/20 to-transparent pointer-events-none" />
-                <span className="relative inline-flex items-center gap-2">
-                  <HiOutlineCheckCircle className="text-lg" />
-                  {saving ? "Збереження…" : "Зберегти"}
-                </span>
-              </button>
-            </div>
-          </div>
+          <h1 className="text-3xl font-bold text-slate-900 tracking-tight flex items-center gap-3 min-w-0">
+            <span
+              className={`inline-block w-2.5 h-2.5 rounded-full flex-shrink-0 ${
+                meta.published
+                  ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]"
+                  : "bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.5)]"
+              }`}
+            />
+            <span className="truncate">{pageTitle}</span>
+          </h1>
           {(message || uploading) && (
             <p className="mt-2 text-[12px] font-medium">
               {message && <span className="text-rose-600">{message}</span>}
@@ -333,43 +318,19 @@ export default function NewsEditor({
           )}
         </div>
 
-        {/* Toast — відновлено чернетку з localStorage */}
-        {draftToast && (
-          <div
-            className="fixed top-36 right-5 z-30 flex items-center gap-3 px-4 py-3 bg-white shadow-lg rounded-xl ring-1 ring-amber-200"
-            style={{ animation: "toast-in 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)" }}
-          >
-            <span className="text-[18px]">♻️</span>
-            <div className="flex flex-col gap-0.5">
-              <span className="text-[12px] font-semibold text-slate-800">Відновлено чернетку</span>
-              <span className="text-[10px] text-slate-500">
-                {draftToast.savedAt
-                  ? `Збережено ${new Date(draftToast.savedAt).toLocaleTimeString("uk-UA", { hour: "2-digit", minute: "2-digit" })}`
-                  : "Ваші незбережені зміни підхоплено"}
-              </span>
-            </div>
-            <button
-              onClick={discardDraft}
-              className="ml-2 px-3 py-1.5 text-[11px] font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 rounded-md transition-colors"
-              title="Очистити чернетку і почати спочатку"
-            >
-              Очистити
-            </button>
-            <button
-              onClick={() => setDraftToast(null)}
-              className="text-slate-400 hover:text-slate-600 text-[16px] px-1"
-              title="Закрити"
-            >
-              ✕
-            </button>
-          </div>
-        )}
-        <style>{`@keyframes toast-in { 0% { opacity: 0; transform: translateY(-8px); } 100% { opacity: 1; transform: translateY(0); } }`}</style>
-
-        {/* Editor row — Palette | Canvas | Sidebar, всі стартують на одному Y */}
-        <div className="flex flex-col lg:flex-row gap-10 items-start">
+        {/* Editor row — Palette | Canvas | Sidebar, всі стартують на одному Y.
+            gap-5 (20px) синхронізовано з внутрішнім gap між BlockPalette і canvas
+            у EditorCanvas — щоб page була візуально по центру між обома барами. */}
+        <div className="flex flex-col lg:flex-row gap-5 items-start">
           <div className="flex-1 min-w-0 w-full">
-            <EditorCanvas blocks={blocks} onBlocksChange={setBlocks} onUpload={uploadFile} pageBgColor={meta.pageBgColor || ""} />
+            <EditorCanvas
+              blocks={blocks}
+              onBlocksChange={setBlocks}
+              onUpload={uploadFile}
+              pageBgColor={meta.pageBgColor || ""}
+              selectedBlockId={selectedBlockId}
+              onSelectBlock={setSelectedBlockId}
+            />
           </div>
 
           <div className="w-full lg:w-auto lg:sticky lg:top-24 lg:self-start">
@@ -377,6 +338,34 @@ export default function NewsEditor({
           </div>
         </div>
       </div>
+
+      {/* Settings slot тепер живе всередині BlockPalette — як темна card-секція палітри. */}
+
+      {/* Floating Save — закріплена fixed зліва від back-стрілки (DashboardBackButton:
+          fixed top-20 right-5 w-14). Зміщення right: 5+14+3 = 22 (Tailwind units).
+          Щоб користувач міг зберегти з будь-якої точки сторінки без прокрутки нагору. */}
+      <button
+        type="button"
+        onClick={() => handleSave(true)}
+        disabled={saving}
+        title={saving ? "Збереження…" : "Зберегти"}
+        aria-label="Зберегти"
+        className="fixed top-20 right-[88px] z-40 group flex items-center justify-center gap-2 h-14 px-6 rounded-full text-[14px] font-semibold text-white shadow-lg transition-all duration-300 ease-out hover:scale-[1.04] active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:scale-100"
+        style={{
+          backgroundImage:
+            "linear-gradient(135deg, #6D28D9 0%, #7C3AED 40%, #D4A017 100%)",
+          backgroundSize: "200% 200%",
+          boxShadow: [
+            "0 6px 20px rgba(109, 40, 217, 0.35)",
+            "0 2px 6px rgba(0, 0, 0, 0.12)",
+            "0 0 0 1px rgba(255, 255, 255, 0.18)",
+            "inset 0 1px 0 rgba(255, 255, 255, 0.22)",
+          ].join(", "),
+        }}
+      >
+        <HiOutlineCheckCircle className="text-[20px]" />
+        <span>{saving ? "Збереження…" : "Зберегти"}</span>
+      </button>
     </div>
   );
 }

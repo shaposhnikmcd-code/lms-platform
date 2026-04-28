@@ -48,13 +48,22 @@ export default function EditNewsPage() {
 
   const handleSave = async (meta: NewsMeta, content: string, imageUrl: string) => {
     setSaving(true);
-    const res = await fetch("/api/admin/news/" + id, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...meta, content, imageUrl }),
-    });
-    if (res.ok) { router.push("/dashboard/admin/news"); }
-    else { setSaving(false); }
+    try {
+      const res = await fetch("/api/admin/news/" + id, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...meta, content, imageUrl }),
+      });
+      if (res.ok) {
+        router.push("/dashboard/admin/news");
+        return;
+      }
+      const body = await res.json().catch(() => ({}));
+      const reason = body?.error || `Помилка збереження (HTTP ${res.status})`;
+      throw new Error(reason);
+    } finally {
+      setSaving(false);
+    }
   };
 
   if (loading) return (

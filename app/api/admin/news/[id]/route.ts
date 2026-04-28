@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import { translateNewsAllLocales } from "@/lib/translateNews";
 import { isAdmin } from "@/lib/adminAuth";
@@ -62,12 +63,36 @@ export async function PATCH(
     patchData.resumeAt = data.resumeAt ? new Date(data.resumeAt) : null;
   }
 
-  const item = await prisma.news.update({
-    where: { id },
-    data: patchData,
-  });
-
-  return NextResponse.json(item);
+  try {
+    const item = await prisma.news.update({
+      where: { id },
+      data: patchData,
+    });
+    return NextResponse.json(item);
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+      const targets = (e.meta?.target as string[] | undefined) || [];
+      if (targets.includes("slug") && typeof data.slug === "string") {
+        const existing = await prisma.news.findFirst({
+          where: { slug: data.slug, id: { not: id } },
+          select: { title: true, id: true },
+        });
+        const ref = existing
+          ? `Slug "${data.slug}" уже використовується новиною «${existing.title}». Змініть slug.`
+          : `Slug "${data.slug}" уже зайнятий. Змініть slug.`;
+        return NextResponse.json({ error: ref }, { status: 409 });
+      }
+      return NextResponse.json(
+        { error: `Новина з таким значенням уже існує (${targets.join(", ") || "поле"}).` },
+        { status: 409 }
+      );
+    }
+    console.error("[PATCH /api/admin/news/" + id + "] failed:", e);
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : "Помилка збереження" },
+      { status: 500 }
+    );
+  }
 }
 
 export async function DELETE(

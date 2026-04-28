@@ -8,6 +8,15 @@ import { getTranslatedContent } from "@/lib/translate";
 import { newsContent } from "../_content/uk";
 import { sanitizeHtml } from "@/lib/sanitizeHtml";
 import AbsoluteCanvas from "./components/AbsoluteCanvas";
+import {
+  AbsoluteBlockRender,
+  CANVAS_WIDTH,
+  canvasHeight,
+  hasCoords,
+  parseBlocks,
+  repairBlocks,
+  SequentialBlockRender,
+} from "@/lib/news/render";
 
 const getContent = getTranslatedContent(newsContent, "news-page", {
   en: () => import("../_content/en").then(m => m.default),
@@ -19,263 +28,6 @@ const CATEGORY_COLORS: Record<string, string> = {
   ANNOUNCEMENT: "bg-yellow-100 text-yellow-700",
   ARTICLE: "bg-green-100 text-green-700",
 };
-
-type BlockType = "text" | "heading" | "image" | "youtube" | "quote" | "divider" | "card";
-interface Block {
-  id: string;
-  type: BlockType;
-  data: Record<string, string>;
-  width?: string;
-  x?: number;
-  y?: number;
-  height?: number;
-  align?: "left" | "center" | "right";
-  bgColor?: string;
-}
-
-const CANVAS_WIDTH = 832;
-
-function renderBlocks(content: string): { isJson: boolean; blocks: Block[] } {
-  if (!content) return { isJson: false, blocks: [] };
-  try {
-    const parsed = JSON.parse(content);
-    if (Array.isArray(parsed)) return { isJson: true, blocks: parsed };
-  } catch {}
-  return { isJson: false, blocks: [] };
-}
-
-function hasCoords(blocks: Block[]): boolean {
-  return blocks.some(b => typeof b.x === "number" && typeof b.y === "number");
-}
-
-function canvasHeight(blocks: Block[]): number {
-  const LEGACY_H: Record<string, number> = { heading: 80, text: 180, image: 600, youtube: 360, quote: 120, divider: 40, card: 320 };
-  return Math.max(
-    400,
-    ...blocks.map(b => {
-      let h = b.height;
-      // Якщо це image без записаної висоти — обчислимо з aspectRatio (точна висота в pixels)
-      if (!h && b.type === "image" && b.data?.aspectRatio) {
-        const ar = parseFloat(b.data.aspectRatio);
-        const wPct = Math.max(1, Number(b.width) || 100);
-        if (ar > 0) h = Math.round((CANVAS_WIDTH * wPct / 100) / ar);
-      }
-      if (!h || h <= 0) h = LEGACY_H[b.type] ?? 200;
-      return (b.y ?? 0) + h + 60;
-    })
-  );
-}
-
-function BlockInner({ block }: { block: Block }) {
-  const align = block.align || "left";
-  const textColor = (block.bgColor === "#1C3A2E" || block.bgColor === "#1a1a1a") ? "#FAF6F0" : "#1C3A2E";
-  switch (block.type) {
-    case "text":
-      return <div style={{ textAlign: align, color: textColor }} dangerouslySetInnerHTML={{ __html: sanitizeHtml(block.data.html || "") }} />;
-    case "heading": {
-      const Tag = `h${block.data.level || "2"}` as "h1" | "h2" | "h3";
-      return <Tag style={{ color: textColor, fontWeight: 700, margin: "0.3em 0", textAlign: align }}>{block.data.text}</Tag>;
-    }
-    case "image": {
-      if (!block.data.url) return null;
-      let overlays: Array<{ id: string; text: string; x: number; y: number; w?: number; h?: number; fontSize: number; color: string; bgColor?: string; weight: number; radius?: number; shadow?: boolean; fontFamily?: string; italic?: boolean; underline?: boolean; align?: "left" | "center" | "right"; letterSpacing?: number; lineHeight?: number; href?: string }> = [];
-      try {
-        const parsed = JSON.parse(block.data.overlays || "[]");
-        if (Array.isArray(parsed)) overlays = parsed;
-      } catch { /* ignore */ }
-      // Image заповнює весь блок (як у білдері). Без minHeight — block.height
-      // це і є висота картинки.
-      return (
-        <div style={{ position: "relative", width: "100%", height: "100%", borderRadius: "8px", overflow: "hidden" }}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={block.data.url} alt={block.data.alt || ""} style={{ width: "100%", height: "100%", objectFit: "fill", display: "block" }} />
-          {overlays.map(ov => {
-            const r = ov.radius ?? (ov.bgColor ? 4 : 0);
-            const radiusCss = r >= 999 ? "9999px" : `${r}px`;
-            const padX = ov.bgColor ? Math.max(10, Math.round(ov.fontSize * 0.5)) : 6;
-            const padY = ov.bgColor ? Math.max(4, Math.round(ov.fontSize * 0.2)) : 2;
-            const hasSize = typeof ov.w === "number" && typeof ov.h === "number";
-            const safeHref = ov.href && /^(https?:\/\/|\/|mailto:|tel:)/i.test(ov.href) ? ov.href : "";
-            const external = /^https?:\/\//i.test(safeHref);
-            const commonStyle: React.CSSProperties = {
-              position: "absolute",
-              left: `${ov.x}%`,
-              top: `${ov.y}%`,
-              width: hasSize ? `${ov.w}%` : "auto",
-              height: hasSize ? `${ov.h}%` : "auto",
-              color: ov.color,
-              background: ov.bgColor || "transparent",
-              fontSize: `${ov.fontSize}px`,
-              fontWeight: ov.weight,
-              fontFamily: ov.fontFamily || undefined,
-              fontStyle: ov.italic ? "italic" : "normal",
-              textDecoration: ov.underline ? "underline" : "none",
-              letterSpacing: ov.letterSpacing ? `${ov.letterSpacing}px` : "normal",
-              lineHeight: ov.lineHeight || 1.2,
-              textAlign: ov.align || "center",
-              textShadow: ov.bgColor ? "none" : "0 2px 8px rgba(0,0,0,0.5)",
-              whiteSpace: "pre-wrap",
-              padding: `${padY}px ${padX}px`,
-              borderRadius: radiusCss,
-              boxShadow: ov.shadow ? "0 4px 16px rgba(0,0,0,0.35)" : "none",
-              display: hasSize ? "flex" : "inline-block",
-              alignItems: hasSize ? "center" : undefined,
-              justifyContent: hasSize ? (ov.align === "left" ? "flex-start" : ov.align === "right" ? "flex-end" : "center") : undefined,
-              boxSizing: "border-box",
-              overflow: "hidden",
-              pointerEvents: safeHref ? "auto" : "none",
-              cursor: safeHref ? "pointer" : "default",
-            };
-            if (safeHref) {
-              return (
-                <a
-                  key={ov.id}
-                  href={safeHref}
-                  {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
-                  style={commonStyle}
-                >{ov.text}</a>
-              );
-            }
-            return <span key={ov.id} style={commonStyle}>{ov.text}</span>;
-          })}
-        </div>
-      );
-    }
-    case "youtube": {
-      const embed = getEmbedUrl(block.data.url || "");
-      return embed ? (
-        <iframe src={embed} style={{ width: "100%", height: "100%", minHeight: "200px", borderRadius: "8px", border: "none", display: "block" }} allowFullScreen />
-      ) : null;
-    }
-    case "quote":
-      return (
-        <blockquote style={{ borderLeft: "4px solid #D4A843", margin: 0, padding: "0.5em 1em", background: "#E8F5E0", borderRadius: "0 6px 6px 0", color: textColor, textAlign: align, height: "100%", boxSizing: "border-box" }}>
-          {block.data.text}
-        </blockquote>
-      );
-    case "divider":
-      return <hr style={{ border: "none", borderTop: "2px solid #D4A843", margin: "0.8em 0" }} />;
-    case "card": {
-      const title = block.data.title || "";
-      const subtitle = block.data.subtitle || "";
-      const buttonLabel = block.data.buttonLabel || "";
-      const buttonHref = block.data.buttonHref || "";
-      const cardBg = block.data.bgColor || "#1C3A2E";
-      const cardImg = block.data.bgImage || "";
-      const cardTextColor = block.data.textColor || "#FAF6F0";
-      const buttonBg = block.data.buttonBg || "#D4A843";
-      const buttonColor = block.data.buttonColor || "#1C3A2E";
-      const radius = Number(block.data.radius || "16");
-      const cardAlign = (block.data.cardAlign || "center") as "left" | "center" | "right";
-      const itemAlign = cardAlign === "center" ? "center" : cardAlign === "right" ? "flex-end" : "flex-start";
-      return (
-        <div style={{
-          position: "relative",
-          width: "100%", height: "100%",
-          borderRadius: `${radius}px`,
-          overflow: "hidden",
-          background: cardImg ? "transparent" : cardBg,
-          padding: "32px 24px",
-          display: "flex", flexDirection: "column", justifyContent: "center",
-          textAlign: cardAlign,
-          boxSizing: "border-box",
-        }}>
-          {cardImg && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={cardImg} alt="" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", zIndex: 0 }} />
-          )}
-          {cardImg && <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.35)", zIndex: 1 }} />}
-          <div style={{ position: "relative", zIndex: 2, display: "flex", flexDirection: "column", gap: "12px", alignItems: itemAlign }}>
-            {title && <h3 style={{ color: cardTextColor, fontSize: "26px", fontWeight: 700, lineHeight: 1.2, margin: 0 }}>{title}</h3>}
-            {subtitle && <p style={{ color: cardTextColor, fontSize: "14px", lineHeight: 1.5, margin: 0, opacity: 0.9 }}>{subtitle}</p>}
-            {buttonLabel && buttonHref && (() => {
-              const safe = /^(https?:\/\/|\/|mailto:|tel:)/i.test(buttonHref) ? buttonHref : "#";
-              const external = /^https?:\/\//i.test(safe);
-              return (
-                <a
-                  href={safe}
-                  {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
-                  style={{
-                    display: "inline-block", padding: "12px 28px", borderRadius: "8px",
-                    background: buttonBg, color: buttonColor,
-                    fontSize: "14px", fontWeight: 700, textDecoration: "none",
-                    letterSpacing: "0.04em",
-                  }}
-                >{buttonLabel}</a>
-              );
-            })()}
-          </div>
-        </div>
-      );
-    }
-    default:
-      return null;
-  }
-}
-
-// IDENTICAL до wrapper-а в editor BlockItem.tsx:
-//   - тільки horizontal padding 16px (header у білдері плаває absolute поза блоком)
-//   - НЕ використовує border (тільки outline у білдері — поза розмірами)
-// Це гарантує, що content area тут = content area в білдері.
-function AbsoluteBlockRender({ block }: { block: Block }) {
-  const w = Number(block.width) || 100;
-  const x = block.x ?? 0;
-  const y = block.y ?? 0;
-  const h = block.height;
-  return (
-    <div
-      data-news-block
-      style={{
-        position: "absolute",
-        left: `${x}%`,
-        top: `${y}px`,
-        width: `${w}%`,
-        height: h ? `${h}px` : "auto",
-        background: block.bgColor || "transparent",
-        borderRadius: block.bgColor ? "8px" : 0,
-        padding: "0 16px",
-        boxSizing: "border-box",
-        overflow: "hidden",
-      }}
-    >
-      <BlockInner block={block} />
-    </div>
-  );
-}
-
-function SequentialBlockRender({ block }: { block: Block }) {
-  return (
-    <div
-      style={{
-        margin: "0.8em 0",
-        background: block.bgColor || "transparent",
-        borderRadius: block.bgColor ? "8px" : 0,
-        padding: block.bgColor ? "10px 14px" : 0,
-      }}
-    >
-      <BlockInner block={block} />
-    </div>
-  );
-}
-
-// Repair localized blocks against the UK original by index. DeepL может
-// зіпсувати або викинути URL у image/youtube блоках, тож тягнемо їх з UK.
-function repairBlocks(localized: Block[], original: Block[]): Block[] {
-  if (!original.length) return localized;
-  return localized.map((b, i) => {
-    const orig = original[i];
-    if (!orig || orig.type !== b.type) return b;
-    if (b.type === 'image' || b.type === 'youtube') {
-      return { ...b, data: { ...b.data, url: orig.data.url || b.data.url } };
-    }
-    return b;
-  });
-}
-
-function getEmbedUrl(url: string): string {
-  const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/))([a-zA-Z0-9_-]{11})/);
-  return match ? `https://www.youtube.com/embed/${match[1]}` : "";
-}
 
 type Props = { params: Promise<{ slug: string; locale: string }> };
 
@@ -317,17 +69,17 @@ export default async function NewsItemPage({ params }: Props) {
     : locale === "pl" ? (item.contentPl ?? item.content)
     : item.content;
 
-  let { isJson, blocks } = renderBlocks(localizedContent);
+  let { isJson, blocks } = parseBlocks(localizedContent);
   // Якщо локалізована версія взагалі зламана — падаємо на UK-оригінал
   if (locale !== 'uk' && !isJson) {
-    const ukParsed = renderBlocks(item.content);
+    const ukParsed = parseBlocks(item.content);
     if (ukParsed.isJson) {
       isJson = true;
       blocks = ukParsed.blocks;
     }
   } else if (locale !== 'uk' && isJson) {
     // Виправляємо image/youtube URLs з UK-оригіналу
-    const ukParsed = renderBlocks(item.content);
+    const ukParsed = parseBlocks(item.content);
     if (ukParsed.isJson) {
       blocks = repairBlocks(blocks, ukParsed.blocks);
     }

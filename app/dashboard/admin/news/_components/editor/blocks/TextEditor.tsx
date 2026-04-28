@@ -11,6 +11,7 @@ import Highlight from "@tiptap/extension-highlight";
 import Link from "@tiptap/extension-link";
 import FontFamily from "@tiptap/extension-font-family";
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Block } from "../types";
 
 const ff = "-apple-system, BlinkMacSystemFont, sans-serif";
@@ -157,9 +158,12 @@ const selectStyle: React.CSSProperties = {
 interface Props {
   block: Block;
   onChange: (data: Record<string, string>) => void;
+  /** Чи блок selected — toolbar форматування показується ТІЛЬКИ тоді,
+   *  у portal-слоті лівої sidebar (#news-block-settings-slot). */
+  selected?: boolean;
 }
 
-export default function TextEditor({ block, onChange }: Props) {
+export default function TextEditor({ block, onChange, selected = false }: Props) {
   const [colorOpen, setColorOpen] = useState(false);
   const [hlOpen, setHlOpen] = useState(false);
 
@@ -199,11 +203,15 @@ export default function TextEditor({ block, onChange }: Props) {
   const currentSize = (editor.getAttributes("textStyle").fontSize as string | undefined) || "";
   const currentFont = (editor.getAttributes("textStyle").fontFamily as string | undefined) || "";
 
-  return (
-    <>
+  // Portal target — слот у лівому sidebar. Toolbar render-имо туди ТІЛЬКИ коли selected.
+  const settingsSlot = typeof document !== "undefined" && selected
+    ? document.getElementById("news-block-settings-slot")
+    : null;
+
+  const toolbarNode = (
       <div style={{
-        display: "flex", gap: "3px", marginBottom: "10px", flexWrap: "wrap",
-        padding: "6px 8px", background: "rgba(0,0,0,0.03)", borderRadius: "7px",
+        display: "flex", gap: "3px", flexWrap: "wrap",
+        padding: "8px 12px", background: "#FFFFFF",
         alignItems: "center",
       }}>
         <StyleSelect editor={editor} />
@@ -301,7 +309,11 @@ export default function TextEditor({ block, onChange }: Props) {
         <TBtn title="Посилання" active={editor.isActive("link")} onClick={askLink}>🔗</TBtn>
         <TBtn title="Очистити форматування" onClick={() => editor.chain().focus().unsetAllMarks().clearNodes().run()}>⌫</TBtn>
       </div>
+  );
 
+  return (
+    <>
+      {settingsSlot && createPortal(toolbarNode, settingsSlot)}
       <EditorContent editor={editor} />
       <style>{`
         .ProseMirror{outline:none;min-height:80px;font-size:15px;line-height:1.7;color:#1C3A2E;font-family:${ff}}

@@ -9,12 +9,14 @@ import {
   FaImage,
   FaChevronDown,
 } from 'react-icons/fa';
-import { useAdminTheme, type Theme } from '../_components/adminTheme';
+import { useAdminTheme } from '../_components/adminTheme';
 import { AdminShell, AdminPanel } from '../_components/AdminShell';
 import NewsPublishButton from './_components/NewsPublishButton';
 import CategoryPicker from './_components/CategoryPicker';
 import StatusPicker from './_components/StatusPicker';
 import { sanitizeHtml } from '@/lib/sanitizeHtml';
+import { parseBlocks } from '@/lib/news/render';
+import ScaledNewsPreview from '@/lib/news/ScaledNewsPreview';
 
 interface NewsItem {
   id: string;
@@ -82,157 +84,10 @@ function parseContentPreview(content: string): { text: string; firstImage: strin
   return { text: textParts.join(' ').slice(0, 500), firstImage };
 }
 
-function getEmbedUrl(url: string): string | null {
-  const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/))([a-zA-Z0-9_-]{11})/);
-  return match ? `https://www.youtube.com/embed/${match[1]}` : null;
-}
-
-function renderBlock(block: ContentBlock, theme: Theme) {
-  const dark = theme === 'dark';
-  if (!block.data) return null;
-  switch (block.type) {
-    case 'heading': {
-      const Tag = `h${block.data.level || '2'}` as 'h1' | 'h2' | 'h3';
-      return (
-        <Tag
-          key={block.id}
-          className={`font-bold ${dark ? 'text-slate-100' : 'text-stone-900'}`}
-          style={{
-            fontSize: Tag === 'h1' ? '1.5rem' : Tag === 'h2' ? '1.25rem' : '1.1rem',
-            margin: '0.8em 0 0.4em',
-          }}
-        >
-          {block.data.text}
-        </Tag>
-      );
-    }
-    case 'text':
-      return block.data.html ? (
-        <div
-          key={block.id}
-          className="news-preview-content"
-          dangerouslySetInnerHTML={{ __html: sanitizeHtml(block.data.html) }}
-        />
-      ) : block.data.text ? (
-        <p
-          key={block.id}
-          className={`text-sm leading-relaxed my-1 ${dark ? 'text-slate-300' : 'text-stone-700'}`}
-        >
-          {block.data.text}
-        </p>
-      ) : null;
-    case 'hero':
-      return block.data.text ? (
-        <p
-          key={block.id}
-          className={`text-base font-medium my-2 ${dark ? 'text-slate-200' : 'text-stone-800'}`}
-        >
-          {block.data.text}
-        </p>
-      ) : null;
-    case 'image':
-      return block.data.url ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          key={block.id}
-          src={block.data.url}
-          alt={block.data.alt || ''}
-          className="w-full rounded-lg my-3"
-          style={{ maxHeight: '400px', objectFit: 'cover' }}
-        />
-      ) : null;
-    case 'gallery':
-      return block.data.images?.length ? (
-        <div key={block.id} className="grid grid-cols-2 gap-2 my-3">
-          {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-          {block.data.images.map((img: any, i: number) => (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              key={i}
-              src={typeof img === 'string' ? img : img.url}
-              alt=""
-              className="w-full rounded-lg object-cover"
-              style={{ maxHeight: '200px' }}
-            />
-          ))}
-        </div>
-      ) : null;
-    case 'youtube': {
-      const embedUrl = getEmbedUrl(block.data.url || '');
-      return embedUrl ? (
-        <iframe
-          key={block.id}
-          src={embedUrl}
-          className="w-full rounded-lg my-3 border-0"
-          style={{ height: '300px' }}
-          allowFullScreen
-        />
-      ) : null;
-    }
-    case 'video': {
-      const embedUrl = getEmbedUrl(block.data.url || '');
-      return embedUrl ? (
-        <iframe
-          key={block.id}
-          src={embedUrl}
-          className="w-full rounded-lg my-3 border-0"
-          style={{ height: '300px' }}
-          allowFullScreen
-        />
-      ) : null;
-    }
-    case 'quote':
-      return (
-        <blockquote
-          key={block.id}
-          className={`border-l-4 rounded-r-md pl-4 py-2 my-3 text-sm italic ${
-            dark
-              ? 'border-amber-400/60 bg-emerald-500/5 text-slate-300'
-              : 'border-amber-500 bg-emerald-100/40 text-stone-700'
-          }`}
-        >
-          {block.data.text}
-        </blockquote>
-      );
-    case 'divider':
-      return (
-        <hr
-          key={block.id}
-          className={`my-4 border-t-2 ${dark ? 'border-amber-400/30' : 'border-amber-400/60'}`}
-        />
-      );
-    case 'list':
-      return block.data.items?.length ? (
-        <ul
-          key={block.id}
-          className={`list-disc pl-5 my-2 text-sm space-y-1 ${
-            dark ? 'text-slate-300' : 'text-stone-700'
-          }`}
-        >
-          {block.data.items.map((li: string, i: number) => (
-            <li key={i}>{stripHtml(li)}</li>
-          ))}
-        </ul>
-      ) : null;
-    case 'cta':
-      return (
-        <div
-          key={block.id}
-          className={`my-3 p-4 rounded-lg text-center border ${
-            dark
-              ? 'bg-amber-500/10 border-amber-400/25 text-amber-200'
-              : 'bg-amber-200/30 border-amber-500/30 text-amber-900'
-          }`}
-        >
-          <p className="text-sm font-medium">
-            {block.data.text || block.data.label || 'CTA'}
-          </p>
-        </div>
-      );
-    default:
-      return null;
-  }
-}
+// Експанд-превью новини в адмін-списку рендериться через <ScaledNewsPreview/>
+// (lib/news/ScaledNewsPreview.tsx) — це точна копія public-рендера, масштабована
+// під доступну ширину картки. НЕ повертай сюди локальний рендер — він drift-итиме
+// від builder/public. Рендер блоків — у lib/news/render.tsx.
 
 export default function AdminNewsPage() {
   const { theme, setTheme } = useAdminTheme();
@@ -547,22 +402,33 @@ export default function AdminNewsPage() {
                       )}
 
                       {(() => {
-                        const blocks = flattenBlocks(item.content);
-                        if (blocks.length > 0) {
+                        const { isJson, blocks } = parseBlocks(item.content);
+                        if (isJson && blocks.length > 0) {
+                          // Expanded preview = масштабована точна копія публічної сторінки.
+                          // Рендериться через спільний модуль з public — drift неможливий.
+                          // Білий фон обгортає preview, щоб блоки на прозорому BG читались
+                          // незалежно від dark/light режиму адмінки.
                           return (
                             <>
-                              <div className="news-preview-content">
-                                {blocks.map(b => renderBlock(b, theme))}
+                              <div
+                                className="rounded-lg overflow-hidden"
+                                style={{ background: '#FFFFFF', padding: '20px' }}
+                              >
+                                <ScaledNewsPreview blocks={blocks} />
                               </div>
                               <style>{`
-                                .news-preview-content { font-size: 14px; line-height: 1.7; color: ${dark ? '#cbd5e1' : '#44403c'}; }
-                                .news-preview-content p { margin: 0.5em 0; }
-                                .news-preview-content ul { list-style: disc; padding-left: 1.5em; margin: 0.5em 0; }
-                                .news-preview-content ol { list-style: decimal; padding-left: 1.5em; margin: 0.5em 0; }
-                                .news-preview-content strong { font-weight: 700; color: ${dark ? '#f1f5f9' : '#1c1917'}; }
-                                .news-preview-content em { font-style: italic; }
-                                .news-preview-content img { max-width: 100%; border-radius: 8px; margin: 0.75em 0; }
-                                .news-preview-content a { color: ${dark ? '#fbbf24' : '#b45309'}; text-decoration: underline; }
+                                .news-content { font-family: -apple-system, BlinkMacSystemFont, sans-serif; color: #1C3A2E; line-height: 1.7; font-size: 16px; }
+                                .news-content h1 { font-size: 2rem; font-weight: 700; margin: 1.2em 0 0.5em; }
+                                .news-content h2 { font-size: 1.5rem; font-weight: 700; margin: 1.1em 0 0.5em; }
+                                .news-content h3 { font-size: 1.2rem; font-weight: 600; margin: 1em 0 0.4em; }
+                                .news-content p { margin: 0.6em 0; }
+                                .news-content ul { list-style: disc; padding-left: 1.5em; margin: 0.6em 0; }
+                                .news-content ol { list-style: decimal; padding-left: 1.5em; margin: 0.6em 0; }
+                                .news-content strong { font-weight: 700; }
+                                .news-content em { font-style: italic; }
+                                .news-content blockquote { border-left: 4px solid #D4A843; margin: 1em 0; padding: 0.5em 1em; background: #E8F5E0; border-radius: 0 6px 6px 0; }
+                                .news-content hr { border: none; border-top: 2px solid #D4A843; margin: 1.5em 0; }
+                                .news-content img { max-width: 100%; border-radius: 8px; margin: 1em 0; }
                               `}</style>
                             </>
                           );

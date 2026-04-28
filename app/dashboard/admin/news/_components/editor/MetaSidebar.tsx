@@ -91,7 +91,7 @@ export default function MetaSidebar({ meta, onChange, onUpload }: Props) {
   };
 
   return (
-    <div style={{ width: "260px", minWidth: "260px", display: "flex", flexDirection: "column", gap: "16px" }}>
+    <div style={{ width: "200px", minWidth: "200px", display: "flex", flexDirection: "column", gap: "16px" }}>
 
       <div style={cardStyle}>
         <div style={cardHeaderStyle}>{"Публікація"}</div>

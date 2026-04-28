@@ -19,7 +19,9 @@ export const PALETTE_BLOCKS: {
   { type: "divider", label: "Лінія",      icon: "—",  desc: "Роздільник",    color: "#8B9EB0", colorDim: "rgba(139,158,176,0.18)", bg: "rgba(139,158,176,0.07)" },
   { type: "image",   label: "Фото",       icon: "🖼", desc: "Зображення",    color: "#A8C97A", colorDim: "rgba(168,201,122,0.18)", bg: "rgba(168,201,122,0.07)" },
   { type: "youtube", label: "YouTube",    icon: "▶",  desc: "Відео",         color: "#E07B6A", colorDim: "rgba(224,123,106,0.18)", bg: "rgba(224,123,106,0.07)" },
-  { type: "card",    label: "Картка",     icon: "▦",  desc: "Заголовок + кнопка", color: "#9B7EBF", colorDim: "rgba(155,126,191,0.18)", bg: "rgba(155,126,191,0.07)" },
+  // "Картка" (card) прибрана з палітри 2026-04-28 — користувач не хоче її як
+  // окремий блок. Тип лишається в системі для backward-compat: старі новини з
+  // card-блоками все ще рендеряться через BlockInner.case "card" у render.tsx.
 ];
 
 function PaletteItem({ type, label, icon, desc, color, colorDim, bg }: typeof PALETTE_BLOCKS[0]) {
@@ -123,6 +125,9 @@ function PaletteItem({ type, label, icon, desc, color, colorDim, bg }: typeof PA
 
 interface PaletteProps {
   onAddImageOverlay?: () => void;
+  /** Y-координата вибраного блока (px відносно canvas-top). Settings-секція
+   *  vertically вирівнюється сюди — щоб "відкривалась" поряд з блоком. */
+  selectedBlockY?: number | null;
 }
 
 // Draggable handle для overlay-tool — drop на image-блок створює overlay у точці drop.
@@ -231,22 +236,77 @@ function ImageOverlayPaletteItem({ onAddImageOverlay }: { onAddImageOverlay: () 
   );
 }
 
-export default function BlockPalette({ onAddImageOverlay }: PaletteProps = {}) {
+export default function BlockPalette({ onAddImageOverlay, selectedBlockY }: PaletteProps = {}) {
+  // selectedBlockY більше не потрібний для геометрії — settings завжди на верху palette
+  // (стандартний Figma/Webflow паттерн). Зберігаємо параметр для майбутньої сумісності.
+  void selectedBlockY;
+  const isSelected = selectedBlockY !== null && selectedBlockY !== undefined;
+
   return (
-    <div style={{
-      width: "230px",
-      minWidth: "230px",
+    <div className="news-palette-scroll" style={{
+      width: "200px",
+      minWidth: "200px",
       background: "linear-gradient(180deg, #162C25 0%, #0F2019 100%)",
       borderRadius: "16px",
       padding: "20px 14px",
       display: "flex",
       flexDirection: "column",
-      gap: "5px",
+      // Sticky-палітра — фіксована у viewport, внутрішній скрол. Без цього palette
+      // ріс/стискався разом з canvas і провокував вертикальний стрибок сторінки
+      // при зміні selection.
       position: "sticky",
-      top: "76px",
+      top: "80px",
       alignSelf: "flex-start",
+      maxHeight: "calc(100vh - 100px)",
+      overflowY: "auto",
+      // scrollbarWidth/-ms-overflow-style/-webkit-scrollbar — приховуємо візуальну
+      // смугу прокрутки, але scroll-функція залишається (на колесі / трекпаді).
+      scrollbarWidth: "none",
+      msOverflowStyle: "none",
       boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.06), 0 8px 40px rgba(0,0,0,0.2)",
     }}>
+      {/* Налаштування вибраного блока — flex-item з marginTop=blockY+offset.
+          Стає vertically напроти блока на канвасі. Коли блок вибраний, цей секція
+          "штовхає" статичні блоки нижче (вони flexible слайдять вниз).
+          BlockItem/TextEditor/ImageEditor portal-ять контролі через createPortal
+          у #news-block-settings-slot. */}
+      <div className="news-settings-wrapper" style={{ marginBottom: "20px" }}>
+        <div className="news-settings-title" style={{
+          fontSize: "9px",
+          fontWeight: 800,
+          color: "#D4A843",
+          letterSpacing: "0.2em",
+          textTransform: "uppercase",
+          fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
+          paddingLeft: "4px",
+          marginBottom: "8px",
+        }}>{"Налаштування блока"}</div>
+        <div
+          id="news-block-settings-slot"
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            background: "#FFFFFF",
+            borderRadius: "10px",
+            boxShadow: "inset 0 0 0 1px rgba(212,168,67,0.18), 0 4px 14px rgba(0,0,0,0.08)",
+            overflow: "hidden",
+          }}
+        />
+        {/* Видимість керується через :empty: коли slot не має портал-дітей,
+            ховаємо весь wrapper. Так overlay-toolbar (без selected парент-блока)
+            теж стане видимим, бо ImageEditor портал-ить туди свою панель і :empty
+            перестає матчитись. */}
+        <style>{`
+          .news-palette-scroll::-webkit-scrollbar { display: none; }
+          #news-block-settings-slot > * + * {
+            border-top: 1px solid #EEEAE2;
+          }
+          .news-settings-wrapper:has(#news-block-settings-slot:empty) {
+            display: none;
+          }
+        `}</style>
+      </div>
+
       <div style={{
         fontSize: "9px",
         fontWeight: 800,
@@ -267,29 +327,31 @@ export default function BlockPalette({ onAddImageOverlay }: PaletteProps = {}) {
         lineHeight: 1.5,
       }}>{"Перетягніть блок у робочу область"}</div>
 
-      {PALETTE_BLOCKS.map(b => <PaletteItem key={b.type} {...b} />)}
+      <div style={{ display: "flex", flexDirection: "column", gap: "5px" }}>
+        {PALETTE_BLOCKS.map(b => <PaletteItem key={b.type} {...b} />)}
 
-      {/* Subgroup — інструменти для існуючого блоку Фото (не самостійні блоки) */}
-      {onAddImageOverlay && (
-        <>
-          <div style={{
-            height: "1px",
-            background: "rgba(255,255,255,0.08)",
-            margin: "10px 4px 8px",
-          }} />
-          <div style={{
-            fontSize: "9px",
-            fontWeight: 700,
-            color: "rgba(212,168,67,0.6)",
-            letterSpacing: "0.18em",
-            textTransform: "uppercase",
-            fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
-            paddingLeft: "4px",
-            marginBottom: "6px",
-          }}>{"Поверх фото"}</div>
-          <ImageOverlayPaletteItem onAddImageOverlay={onAddImageOverlay} />
-        </>
-      )}
+        {/* Subgroup — інструменти для існуючого блоку Фото (не самостійні блоки) */}
+        {onAddImageOverlay && (
+          <>
+            <div style={{
+              height: "1px",
+              background: "rgba(255,255,255,0.08)",
+              margin: "10px 4px 8px",
+            }} />
+            <div style={{
+              fontSize: "9px",
+              fontWeight: 700,
+              color: "rgba(212,168,67,0.6)",
+              letterSpacing: "0.18em",
+              textTransform: "uppercase",
+              fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
+              paddingLeft: "4px",
+              marginBottom: "6px",
+            }}>{"Поверх фото"}</div>
+            <ImageOverlayPaletteItem onAddImageOverlay={onAddImageOverlay} />
+          </>
+        )}
+      </div>
     </div>
   );
 }

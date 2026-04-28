@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Block, UIMP_COLORS } from "../types";
-import CropModal from "./CropModal";
+import ImageStudioModal, { buildCornerRadiusCss } from "./ImageStudioModal";
 
 const ff = "-apple-system, BlinkMacSystemFont, sans-serif";
 
@@ -18,6 +19,18 @@ interface Props {
   onChange: (data: Record<string, string>) => void;
   onUpload: (file: File) => Promise<string>;
   previewHeight?: number;
+  /** Чи цей блок зараз виділений. Overlay-toolbar портал-иться у slot ТІЛЬКИ
+   *  коли selected=true — інакше при кліках по overlay-ах різних image-блоків
+   *  у slot стекалося б кілька toolbar-ів (один на блок). */
+  selected?: boolean;
+  /** Прокидається з BlockItem → AbsoluteBlock.onSelect — щоб клік по overlay
+   *  автоматично виділяв батьківський image-блок (інакше slot з налаштуваннями
+   *  не відкривається, бо BlockItemHeader портал-иться лише коли parent selected). */
+  onSelectBlock?: (id: string) => void;
+  /** Сповіщає батька (BlockItem) чи зараз обраний якийсь overlay. Коли так,
+   *  BlockItem НЕ портал-ить BlockItemHeader — у slot видно лише налаштування
+   *  overlay-тексту (без батьківського редактора блока). */
+  onOverlayActiveChange?: (active: boolean) => void;
 }
 
 // Overlay = текст поверх фото. x/y у відсотках (0..100) щоб резистити resize.
@@ -56,6 +69,13 @@ export const OVERLAY_FONTS: { label: string; value: string }[] = [
 
 const FONT_SIZE_PRESETS = [12, 14, 16, 18, 24, 32, 40, 48, 64, 80, 96, 120];
 
+// Реєстр crop-обробників — кожен ImageEditor реєструє свій setCropOpen для свого
+// blockId. BlockItemHeader викликає requestCrop(blockId) напряму, без window-event.
+const cropHandlers = new Map<string, () => void>();
+export function requestCrop(blockId: string) {
+  cropHandlers.get(blockId)?.();
+}
+
 type ResizeMode = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
 
 const RADIUS_PRESETS: { label: string; value: number }[] = [
@@ -65,6 +85,7 @@ const RADIUS_PRESETS: { label: string; value: number }[] = [
   { label: "▢", value: 24 },    // дуже округлі
   { label: "⬭", value: 999 },   // pill
 ];
+
 
 function parseOverlays(raw: string | undefined): ImageOverlay[] {
   if (!raw) return [];
@@ -80,10 +101,13 @@ function serializeOverlays(arr: ImageOverlay[]): string {
   return JSON.stringify(arr);
 }
 
-export default function ImageEditor({ block, onChange, onUpload, previewHeight }: Props) {
+export default function ImageEditor({ block, onChange, onUpload, previewHeight, selected = false, onSelectBlock, onOverlayActiveChange }: Props) {
   const ref = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
-  const [cropOpen, setCropOpen] = useState(false);
+  // Студія тепер єдина точка входу для crop/radius/chroma. cropOpen ліквідовано.
+  const [studioOpen, setStudioOpen] = useState(false);
+  // Якщо студія відкривається через ✂ кнопку BlockItemHeader-а — стартуємо одразу в crop mode.
+  const [studioInitialCropMode, setStudioInitialCropMode] = useState(false);
   const [emptyMode, setEmptyMode] = useState<"file" | "url">("file");
   const [urlInput, setUrlInput] = useState("");
   const [generating, setGenerating] = useState(false);
@@ -134,6 +158,9 @@ export default function ImageEditor({ block, onChange, onUpload, previewHeight }
     e.stopPropagation();
     e.preventDefault();
     setSelectedOverlayId(id);
+    // Авто-виділення батьківського блоку — щоб slot з налаштуваннями відкрився
+    // (preventDefault блокує bubbling click event який зазвичай це робить).
+    onSelectBlock?.(block.id);
     const wrap = imgWrapRef.current;
     if (!wrap) return;
     const rect = wrap.getBoundingClientRect();
@@ -246,15 +273,16 @@ export default function ImageEditor({ block, onChange, onUpload, previewHeight }
     img.src = url;
   };
 
-  // Слухаємо custom event 'news-block-crop' від floating header-а блока — щоб
-  // кнопка "Обрізати" в bar-і над блоком могла відкрити CropModal без prop drilling.
+  // Реєструємо обробник crop у module-level Map — щоб BlockItemHeader міг
+  // викликати його напряму. Тепер crop виконується всередині ImageStudioModal,
+  // тому requestCrop відкриває студію одразу в crop-режимі.
   useEffect(() => {
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent<string>).detail;
-      if (detail === block.id && block.data.url) setCropOpen(true);
-    };
-    window.addEventListener("news-block-crop", handler as EventListener);
-    return () => window.removeEventListener("news-block-crop", handler as EventListener);
+    if (!block.data.url) return;
+    cropHandlers.set(block.id, () => {
+      setStudioInitialCropMode(true);
+      setStudioOpen(true);
+    });
+    return () => { cropHandlers.delete(block.id); };
   }, [block.id, block.data.url]);
 
   // Escape / Delete / Backspace: якщо є вибраний overlay (і не в режимі редагування) — видалити його.
@@ -273,6 +301,21 @@ export default function ImageEditor({ block, onChange, onUpload, previewHeight }
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [selectedOverlayId, editingOverlayId, overlays]);
+
+  // Сповіщаємо батьківський BlockItem чи активний зараз overlay — щоб він
+  // приховав свій BlockItemHeader коли користувач редагує overlay-текст
+  // (у slot буде лише панель overlay, без батьківського редактора блока).
+  useEffect(() => {
+    onOverlayActiveChange?.(selectedOverlayId !== null && selected);
+  }, [selectedOverlayId, selected, onOverlayActiveChange]);
+
+  // При втраті виділення блока — скидаємо overlay (інакше при наступному кліку
+  // на цей же блок одразу відкриється стара overlay-панель замість блок-панелі).
+  useEffect(() => {
+    if (!selected && selectedOverlayId !== null) {
+      setSelectedOverlayId(null);
+    }
+  }, [selected, selectedOverlayId]);
 
   // Підтягнути aspectRatio для старих фото без поля
   useEffect(() => {
@@ -350,6 +393,8 @@ export default function ImageEditor({ block, onChange, onUpload, previewHeight }
         <div style={{ position: "relative", flex: 1, minHeight: 0 }}>
           {(() => {
             const previewH = previewHeight ?? 0;
+            const imgRadius = Number(block.data.imgRadius) || 0;
+            const radiusCss = buildCornerRadiusCss(imgRadius, block.data.imgRadiusCorners);
             return (
               <div
                 ref={imgWrapRef}
@@ -360,7 +405,7 @@ export default function ImageEditor({ block, onChange, onUpload, previewHeight }
                   position: "relative",
                   width: "100%",
                   height: previewH > 0 ? `${previewH}px` : "100%",
-                  borderRadius: "8px",
+                  borderRadius: radiusCss,
                   overflow: "hidden",
                 }}
               >
@@ -578,297 +623,415 @@ export default function ImageEditor({ block, onChange, onUpload, previewHeight }
       )}
       <input ref={ref} type="file" accept="image/*" style={{ display: "none" }} onChange={handleFile} />
       {(() => {
+        // Гейт на selected: тільки виділений image-блок портал-ить свій overlay-toolbar.
+        // Без цього два image-блоки з обраними overlay-ами стекали б два toolbar-и.
+        if (!selected) return null;
         const ov = overlays.find(o => o.id === selectedOverlayId);
         if (!ov) return null;
-        return (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", alignItems: "center", padding: "10px 12px", background: "#FAF6F0", border: "1.5px solid #E8D5B7", borderRadius: "8px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-              <span style={{ fontSize: "10px", color: "#6B7280" }}>Текст</span>
-              <div style={{ display: "inline-flex", gap: "3px" }}>
-                {UIMP_COLORS.filter(c => c.value).map(c => {
-                  const active = ov.color.toUpperCase() === c.value.toUpperCase();
-                  return (
-                    <button
-                      key={c.value}
-                      title={c.label}
-                      onClick={() => updateOverlay(ov.id, { color: c.value })}
-                      style={{
-                        width: "22px", height: "22px", borderRadius: "5px",
-                        border: `1.5px solid ${active ? "#D4A843" : "#E8D5B7"}`,
-                        background: c.value, cursor: "pointer", padding: 0,
-                        boxShadow: active ? "0 0 0 2px rgba(212,168,67,0.3)" : "none",
-                      }}
-                    />
-                  );
-                })}
-              </div>
-              <input
-                type="color" value={ov.color}
-                onChange={(e) => updateOverlay(ov.id, { color: e.target.value })}
-                title="Свій колір тексту"
-                style={{ width: "26px", height: "22px", border: "1.5px solid #E8D5B7", borderRadius: "5px", padding: 0, background: "none", cursor: "pointer" }}
-              />
-            </div>
-
-            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-              <span style={{ fontSize: "10px", color: "#6B7280" }}>Фон</span>
-              <div style={{ display: "inline-flex", gap: "3px" }}>
-                {/* "Без фону" = пустий рядок (прозорий) */}
-                <button
-                  title="Без фону"
-                  onClick={() => updateOverlay(ov.id, { bgColor: "" })}
-                  style={{
-                    width: "22px", height: "22px", borderRadius: "5px",
-                    border: `1.5px solid ${!ov.bgColor ? "#D4A843" : "#E8D5B7"}`,
-                    background: "repeating-conic-gradient(#ddd 0% 25%, #fff 0% 50%) 50% / 8px 8px",
-                    cursor: "pointer", padding: 0,
-                    boxShadow: !ov.bgColor ? "0 0 0 2px rgba(212,168,67,0.3)" : "none",
-                  }}
-                />
-                {UIMP_COLORS.filter(c => c.value).map(c => {
-                  const active = (ov.bgColor || "").toUpperCase() === c.value.toUpperCase();
-                  return (
-                    <button
-                      key={c.value}
-                      title={c.label}
-                      onClick={() => updateOverlay(ov.id, { bgColor: c.value })}
-                      style={{
-                        width: "22px", height: "22px", borderRadius: "5px",
-                        border: `1.5px solid ${active ? "#D4A843" : "#E8D5B7"}`,
-                        background: c.value, cursor: "pointer", padding: 0,
-                        boxShadow: active ? "0 0 0 2px rgba(212,168,67,0.3)" : "none",
-                      }}
-                    />
-                  );
-                })}
-              </div>
-              <input
-                type="color" value={ov.bgColor || "#000000"}
-                onChange={(e) => updateOverlay(ov.id, { bgColor: e.target.value })}
-                title="Свій колір фону"
-                style={{ width: "26px", height: "22px", border: "1.5px solid #E8D5B7", borderRadius: "5px", padding: 0, background: "none", cursor: "pointer" }}
-              />
-            </div>
-
-            {/* Шрифт */}
-            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-              <span style={{ fontSize: "10px", color: "#6B7280" }}>Шрифт</span>
-              <select
-                value={ov.fontFamily || ""}
-                onChange={(e) => updateOverlay(ov.id, { fontFamily: e.target.value })}
-                style={{
-                  padding: "4px 6px", borderRadius: "6px",
-                  border: "1.5px solid #E8D5B7", background: "#fff",
-                  color: "#1C3A2E", fontSize: "12px", cursor: "pointer",
-                  fontFamily: ov.fontFamily || ff,
-                }}
-              >
-                {OVERLAY_FONTS.map(f => (
-                  <option key={f.label} value={f.value} style={{ fontFamily: f.value || ff }}>{f.label}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* Розмір */}
-            <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-              <span style={{ fontSize: "10px", color: "#6B7280" }}>Розмір</span>
-              <button
-                onClick={() => updateOverlay(ov.id, { fontSize: Math.max(8, ov.fontSize - 1) })}
-                title="Менше"
-                style={{ width: "24px", height: "26px", borderRadius: "5px", border: "1.5px solid #E8D5B7", background: "#fff", color: "#1C3A2E", fontSize: "14px", fontWeight: 700, cursor: "pointer", padding: 0 }}
-              >−</button>
-              <input
-                type="text"
-                inputMode="numeric"
-                value={ov.fontSize}
-                onChange={(e) => {
-                  const v = e.target.value.replace(/[^0-9]/g, "");
-                  if (v === "") return;
-                  const n = Number(v);
-                  if (Number.isFinite(n) && n >= 8 && n <= 400) updateOverlay(ov.id, { fontSize: n });
-                }}
-                style={{ width: "40px", padding: "3px 4px", borderRadius: "5px", border: "1.5px solid #E8D5B7", background: "#fff", color: "#1C3A2E", fontSize: "13px", textAlign: "center", outline: "none" }}
-              />
-              <button
-                onClick={() => updateOverlay(ov.id, { fontSize: Math.min(400, ov.fontSize + 1) })}
-                title="Більше"
-                style={{ width: "24px", height: "26px", borderRadius: "5px", border: "1.5px solid #E8D5B7", background: "#fff", color: "#1C3A2E", fontSize: "14px", fontWeight: 700, cursor: "pointer", padding: 0 }}
-              >+</button>
-            </div>
-
-            {/* B / I / U */}
-            <div style={{ display: "inline-flex", gap: "3px" }}>
-              <button
-                onClick={() => updateOverlay(ov.id, { weight: ov.weight === 700 ? 400 : 700 })}
-                title="Жирний"
-                style={{
-                  width: "28px", height: "26px", borderRadius: "6px",
-                  border: `1.5px solid ${ov.weight === 700 ? "#D4A843" : "#E8D5B7"}`,
-                  background: ov.weight === 700 ? "#1C3A2E" : "#fff",
-                  color: ov.weight === 700 ? "#D4A843" : "#1C3A2E",
-                  fontSize: "13px", fontWeight: 700, cursor: "pointer", padding: 0,
-                }}
-              >B</button>
-              <button
-                onClick={() => updateOverlay(ov.id, { italic: !ov.italic })}
-                title="Курсив"
-                style={{
-                  width: "28px", height: "26px", borderRadius: "6px",
-                  border: `1.5px solid ${ov.italic ? "#D4A843" : "#E8D5B7"}`,
-                  background: ov.italic ? "#1C3A2E" : "#fff",
-                  color: ov.italic ? "#D4A843" : "#1C3A2E",
-                  fontSize: "13px", fontStyle: "italic", fontWeight: 600, cursor: "pointer", padding: 0,
-                }}
-              >I</button>
-              <button
-                onClick={() => updateOverlay(ov.id, { underline: !ov.underline })}
-                title="Підкреслений"
-                style={{
-                  width: "28px", height: "26px", borderRadius: "6px",
-                  border: `1.5px solid ${ov.underline ? "#D4A843" : "#E8D5B7"}`,
-                  background: ov.underline ? "#1C3A2E" : "#fff",
-                  color: ov.underline ? "#D4A843" : "#1C3A2E",
-                  fontSize: "13px", fontWeight: 600, textDecoration: "underline", cursor: "pointer", padding: 0,
-                }}
-              >U</button>
-            </div>
-
-            {/* Вирівнювання */}
-            <div style={{ display: "inline-flex", gap: "3px" }}>
-              {([
-                { v: "left",   l: "⬅" },
-                { v: "center", l: "⬌" },
-                { v: "right",  l: "➡" },
-              ] as const).map(a => {
-                const active = (ov.align || "center") === a.v;
-                return (
-                  <button
-                    key={a.v}
-                    onClick={() => updateOverlay(ov.id, { align: a.v })}
-                    title={`Вирівняти ${a.v === "left" ? "ліворуч" : a.v === "right" ? "праворуч" : "по центру"}`}
-                    style={{
-                      width: "28px", height: "26px", borderRadius: "6px",
-                      border: `1.5px solid ${active ? "#D4A843" : "#E8D5B7"}`,
-                      background: active ? "#1C3A2E" : "#fff",
-                      color: active ? "#D4A843" : "#1C3A2E",
-                      fontSize: "12px", cursor: "pointer", padding: 0,
-                    }}
-                  >{a.l}</button>
-                );
-              })}
-            </div>
-
-            <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-              <span style={{ fontSize: "10px", color: "#6B7280" }}>Форма</span>
-              {RADIUS_PRESETS.map((p, i) => {
-                const cur = ov.radius ?? (ov.bgColor ? 4 : 0);
-                const active = cur === p.value;
-                const previewRadius = p.value >= 999 ? "9999px" : `${Math.min(p.value, 12)}px`;
-                return (
-                  <button
-                    key={i}
-                    title={p.value >= 999 ? "Pill" : `Радіус ${p.value}px`}
-                    onClick={() => updateOverlay(ov.id, { radius: p.value })}
-                    style={{
-                      width: "28px", height: "22px",
-                      border: `1.5px solid ${active ? "#D4A843" : "#E8D5B7"}`,
-                      background: active ? "#1C3A2E" : "#FAF6F0",
-                      borderRadius: previewRadius,
-                      cursor: "pointer", padding: 0,
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                      fontSize: "11px", color: active ? "#D4A843" : "#1C3A2E",
-                    }}
-                  >{p.label}</button>
-                );
-              })}
-            </div>
-
-            <button
-              onClick={() => updateOverlay(ov.id, { shadow: !ov.shadow })}
-              title="Тінь під підкладкою"
-              style={{
-                padding: "5px 10px", borderRadius: "6px",
-                border: `1.5px solid ${ov.shadow ? "#D4A843" : "#E8D5B7"}`,
-                background: ov.shadow ? "#1C3A2E" : "#fff",
-                color: ov.shadow ? "#D4A843" : "#1C3A2E",
-                fontSize: "11px", fontWeight: 600, cursor: "pointer",
-              }}
-            >☁ Тінь</button>
-
-            <button
-              onClick={() => setEditingOverlayId(ov.id)}
-              style={{
-                padding: "5px 10px", borderRadius: "6px",
-                border: "1.5px solid #E8D5B7", background: "#fff", color: "#1C3A2E",
-                fontSize: "11px", fontWeight: 600, cursor: "pointer",
-              }}
-            >✎ Редагувати</button>
-
-            {/* URL — робить overlay клікабельним посиланням */}
-            <div style={{ display: "flex", alignItems: "center", gap: "6px", flex: "1 1 220px", minWidth: "200px" }}>
-              <span style={{ fontSize: "10px", color: "#6B7280" }} title="Якщо заповнено — overlay стає клікабельним посиланням">🔗 URL</span>
-              <input
-                type="text"
-                value={ov.href || ""}
-                onChange={(e) => updateOverlay(ov.id, { href: e.target.value })}
-                placeholder="https://t.me/... або https://..."
-                style={{ flex: 1, padding: "4px 8px", borderRadius: "5px", border: "1.5px solid #E8D5B7", background: "#fff", color: "#1C3A2E", fontSize: "12px", outline: "none", fontFamily: ff }}
-              />
-              {ov.href && (
-                <button
-                  onClick={() => updateOverlay(ov.id, { href: "" })}
-                  title="Прибрати посилання"
-                  style={{ padding: "3px 6px", borderRadius: "5px", border: "1.5px solid #E8D5B7", background: "#fff", color: "#6B7280", fontSize: "11px", cursor: "pointer" }}
-                >✕</button>
-              )}
-            </div>
-          </div>
+        const slot = typeof document !== "undefined"
+          ? document.getElementById("news-block-settings-slot")
+          : null;
+        if (!slot) return null;
+        const toolbarNode = <OverlayToolbar ov={ov} updateOverlay={updateOverlay} setEditingOverlayId={setEditingOverlayId} removeOverlay={removeOverlay} />;
+        return createPortal(toolbarNode, slot);
+      })()}
+      {(() => {
+        // Image-specific trigger (відкрити повноекранний редактор фото).
+        // Портал у slot ПІСЛЯ BlockItemHeader. Не показуємо якщо вибрано overlay
+        // або фото ще не завантажено.
+        if (!selected) return null;
+        if (selectedOverlayId !== null) return null;
+        if (!block.data.url) return null;
+        const slot = typeof document !== "undefined"
+          ? document.getElementById("news-block-settings-slot")
+          : null;
+        if (!slot) return null;
+        return createPortal(
+          <ImageBlockSettings onOpenStudio={() => { setStudioInitialCropMode(false); setStudioOpen(true); }} />,
+          slot,
         );
       })()}
-      {(showAlt || block.data.alt) ? (
-        <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
-          <input
-            style={inputStyle}
-            placeholder="Alt текст (для SEO та доступності)"
-            autoFocus={showAlt && !block.data.alt}
-            value={block.data.alt || ""}
-            onChange={e => onChange({ ...block.data, alt: e.target.value })}
-          />
-          <button
-            type="button"
-            onClick={() => { onChange({ ...block.data, alt: "" }); setShowAlt(false); }}
-            title="Прибрати alt текст"
-            style={{ padding: "6px 10px", borderRadius: "6px", border: "1.5px solid #E8D5B7", background: "#fff", color: "#6B7280", fontSize: "12px", cursor: "pointer", flexShrink: 0 }}
-          >✕</button>
-        </div>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setShowAlt(true)}
-          style={{ alignSelf: "flex-start", padding: "5px 10px", borderRadius: "6px", border: "1.5px dashed #E8D5B7", background: "transparent", color: "#9CA3AF", fontSize: "11px", cursor: "pointer", fontFamily: ff }}
-        >+ Alt текст</button>
+      {/* Alt текст для SEO/доступності — викликається через prompt() з невидимої кнопки.
+          Якщо потрібно ввести/змінити alt, юзер може зробити це через спец-команду пізніше.
+          UI-плашка прибрана: вилазила за блок або, з overflow:hidden, обрізалась —
+          в обох випадках псувала вигляд canvas. data.alt у БД залишається як є. */}
+      {showAlt && (
+        <input
+          style={{ position: "absolute", left: 16, right: 16, bottom: 8, ...inputStyle, zIndex: 5 }}
+          placeholder="Alt текст (для SEO)"
+          autoFocus
+          value={block.data.alt || ""}
+          onChange={e => onChange({ ...block.data, alt: e.target.value })}
+          onBlur={() => setShowAlt(false)}
+        />
       )}
-      {cropOpen && block.data.url && (
-        <CropModal
+      {studioOpen && block.data.url && (
+        <ImageStudioModal
           imageUrl={block.data.url}
-          initialAspect={Number(block.data.aspectRatio) || undefined}
-          onCancel={() => setCropOpen(false)}
-          onCropDone={async (blob, newAspect) => {
-            const file = new File([blob], "cropped.jpg", { type: blob.type });
-            const url = await onUpload(file);
-            if (url) {
-              const next: Record<string, string> = {
-                ...block.data,
-                url,
-                aspectRatio: String(newAspect),
-              };
-              delete next.minHeight;
-              onChange(next);
+          initialRadius={Number(block.data.imgRadius) || 0}
+          initialTolerance={Number(block.data.bgRemoveTolerance) || 0}
+          initialCorners={block.data.imgRadiusCorners}
+          initialCropMode={studioInitialCropMode}
+          onCancel={() => setStudioOpen(false)}
+          onSave={async ({ imgRadius, tolerance, corners, blob, newAspect }) => {
+            const next: Record<string, string> = {
+              ...block.data,
+              imgRadius: String(imgRadius),
+              bgRemoveTolerance: String(tolerance),
+              imgRadiusCorners: corners,
+            };
+            if (blob) {
+              const ext = blob.type === "image/png" ? "png" : "jpg";
+              const file = new File([blob], `edited.${ext}`, { type: blob.type });
+              const url = await onUpload(file);
+              if (url) {
+                next.url = url;
+                if (newAspect && Number.isFinite(newAspect)) {
+                  next.aspectRatio = String(newAspect);
+                }
+                // Скидаємо minHeight — нові пропорції перерахують висоту блока
+                delete next.minHeight;
+              }
             }
-            setCropOpen(false);
+            onChange(next);
+            setStudioOpen(false);
           }}
         />
       )}
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// OverlayToolbar — sectioned vertical panel для редагування тексту-на-фото.
+// Render-иться у #news-block-settings-slot як одна з секцій спільної settings-картки.
+// ────────────────────────────────────────────────────────────────────────────
+
+const SectionLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <div style={{
+    fontSize: "9px",
+    fontWeight: 800,
+    color: "#9B7C45",
+    letterSpacing: "0.14em",
+    textTransform: "uppercase",
+    fontFamily: ff,
+    marginBottom: "4px",
+  }}>{children}</div>
+);
+
+const Section: React.FC<{ children: React.ReactNode; padTop?: number }> = ({ children, padTop = 6 }) => (
+  <div style={{ padding: `${padTop}px 10px 6px`, background: "#FFFFFF" }}>{children}</div>
+);
+
+function ColorSwatchRow({
+  current, onChange, includeTransparent,
+}: { current: string; onChange: (c: string) => void; includeTransparent?: boolean }) {
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
+      {includeTransparent && (
+        <button
+          type="button"
+          title="Без фону"
+          onClick={() => onChange("")}
+          style={{
+            width: "18px", height: "18px", borderRadius: "5px",
+            border: `2px solid ${!current ? "#D4A843" : "#E8D5B7"}`,
+            background: "repeating-conic-gradient(#ddd 0% 25%, #fff 0% 50%) 50% / 6px 6px",
+            cursor: "pointer", padding: 0,
+            boxShadow: !current ? "0 0 0 2px rgba(212,168,67,0.25)" : "none",
+          }}
+        />
+      )}
+      {UIMP_COLORS.filter(c => c.value).map(c => {
+        const active = (current || "").toUpperCase() === c.value.toUpperCase();
+        return (
+          <button
+            key={c.value}
+            type="button"
+            title={c.label}
+            onClick={() => onChange(c.value)}
+            style={{
+              width: "18px", height: "18px", borderRadius: "5px",
+              border: `2px solid ${active ? "#D4A843" : "#E8D5B7"}`,
+              background: c.value, cursor: "pointer", padding: 0,
+              boxShadow: active ? "0 0 0 2px rgba(212,168,67,0.25)" : "none",
+            }}
+          />
+        );
+      })}
+      <input
+        type="color"
+        value={current || "#000000"}
+        onChange={(e) => onChange(e.target.value)}
+        title="Свій колір"
+        style={{
+          width: "22px", height: "18px",
+          border: "2px solid #E8D5B7",
+          borderRadius: "5px", padding: 0,
+          background: "none", cursor: "pointer",
+        }}
+      />
+    </div>
+  );
+}
+
+function ToggleBtn({
+  active, onClick, title, children, flex,
+}: { active: boolean; onClick: () => void; title: string; children: React.ReactNode; flex?: boolean }) {
+  return (
+    <button
+      type="button"
+      title={title}
+      onClick={onClick}
+      style={{
+        ...(flex ? { flex: 1 } : { width: "28px" }),
+        height: "26px",
+        borderRadius: "6px",
+        border: `1px solid ${active ? "#D4A843" : "#E8D5B7"}`,
+        background: active ? "#1C3A2E" : "#FFFFFF",
+        color: active ? "#D4A843" : "#1C3A2E",
+        cursor: "pointer", padding: 0,
+        display: "inline-flex", alignItems: "center", justifyContent: "center",
+        fontSize: "12px", fontFamily: ff, fontWeight: 600,
+      }}
+    >{children}</button>
+  );
+}
+
+function OverlayToolbar({
+  ov, updateOverlay, setEditingOverlayId, removeOverlay,
+}: {
+  ov: ImageOverlay;
+  updateOverlay: (id: string, patch: Partial<ImageOverlay>) => void;
+  setEditingOverlayId: (id: string | null) => void;
+  removeOverlay: (id: string) => void;
+}) {
+  const inputBase: React.CSSProperties = {
+    height: "26px",
+    borderRadius: "6px",
+    border: "1px solid #E8D5B7",
+    background: "#FFFFFF",
+    color: "#1C3A2E",
+    fontSize: "12px",
+    fontFamily: ff,
+    outline: "none",
+    boxSizing: "border-box",
+  };
+
+  return (
+    <div style={{ background: "#FFFFFF", fontFamily: ff }}>
+      {/* Header strip — видно що редагуємо overlay-текст */}
+      <div style={{
+        display: "flex", alignItems: "center", gap: "8px",
+        padding: "7px 12px", background: "#FAF6F0",
+      }}>
+        <div style={{
+          width: "22px", height: "22px", borderRadius: "6px",
+          background: "#D4A843", color: "#1C3A2E",
+          display: "inline-flex", alignItems: "center", justifyContent: "center",
+          fontSize: "11px", fontWeight: 800, flexShrink: 0,
+        }}>T</div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: "11px", fontWeight: 700, color: "#1C3A2E", lineHeight: 1.1 }}>{"Текст на фото"}</div>
+          <div style={{
+            fontSize: "10px", color: "#9CA3AF", marginTop: "2px", lineHeight: 1,
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+          }}>{ov.text || "(порожньо)"}</div>
+        </div>
+        <button
+          type="button"
+          title="Видалити"
+          onClick={() => removeOverlay(ov.id)}
+          style={{
+            width: "22px", height: "22px", borderRadius: "5px",
+            border: "1px solid transparent",
+            background: "transparent", color: "#B91C1C",
+            cursor: "pointer", padding: 0, fontSize: "12px",
+          }}
+        >🗑</button>
+      </div>
+
+      <Section>
+        <SectionLabel>Колір тексту</SectionLabel>
+        <ColorSwatchRow current={ov.color} onChange={(c) => updateOverlay(ov.id, { color: c })} />
+      </Section>
+
+      <Section padTop={0}>
+        <SectionLabel>Колір фону</SectionLabel>
+        <ColorSwatchRow current={ov.bgColor || ""} onChange={(c) => updateOverlay(ov.id, { bgColor: c })} includeTransparent />
+      </Section>
+
+      <Section padTop={0}>
+        <SectionLabel>Шрифт та розмір</SectionLabel>
+        <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+          <select
+            value={ov.fontFamily || ""}
+            onChange={(e) => updateOverlay(ov.id, { fontFamily: e.target.value })}
+            style={{ ...inputBase, padding: "0 6px", fontFamily: ov.fontFamily || ff, cursor: "pointer", width: "100%" }}
+          >
+            {OVERLAY_FONTS.map(f => (
+              <option key={f.label} value={f.value} style={{ fontFamily: f.value || ff }}>{f.label}</option>
+            ))}
+          </select>
+          <div style={{ display: "inline-flex", gap: "5px", alignItems: "center" }}>
+            <button
+              type="button"
+              onClick={() => updateOverlay(ov.id, { fontSize: Math.max(8, ov.fontSize - 1) })}
+              title="Менше"
+              style={{ ...inputBase, width: "26px", fontSize: "14px", fontWeight: 700, cursor: "pointer" }}
+            >−</button>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={ov.fontSize}
+              onChange={(e) => {
+                const v = e.target.value.replace(/[^0-9]/g, "");
+                if (v === "") return;
+                const n = Number(v);
+                if (Number.isFinite(n) && n >= 8 && n <= 400) updateOverlay(ov.id, { fontSize: n });
+              }}
+              style={{ ...inputBase, width: "44px", textAlign: "center", padding: "0 4px" }}
+            />
+            <button
+              type="button"
+              onClick={() => updateOverlay(ov.id, { fontSize: Math.min(400, ov.fontSize + 1) })}
+              title="Більше"
+              style={{ ...inputBase, width: "26px", fontSize: "14px", fontWeight: 700, cursor: "pointer" }}
+            >+</button>
+            <span style={{ fontSize: "10px", color: "#9CA3AF" }}>px</span>
+          </div>
+        </div>
+      </Section>
+
+      <Section padTop={0}>
+        <SectionLabel>Стиль</SectionLabel>
+        <div style={{ display: "flex", gap: "5px" }}>
+          <ToggleBtn flex active={ov.weight === 700} onClick={() => updateOverlay(ov.id, { weight: ov.weight === 700 ? 400 : 700 })} title="Жирний">
+            <span style={{ fontWeight: 700 }}>B</span>
+          </ToggleBtn>
+          <ToggleBtn flex active={!!ov.italic} onClick={() => updateOverlay(ov.id, { italic: !ov.italic })} title="Курсив">
+            <span style={{ fontStyle: "italic", fontWeight: 600 }}>I</span>
+          </ToggleBtn>
+          <ToggleBtn flex active={!!ov.underline} onClick={() => updateOverlay(ov.id, { underline: !ov.underline })} title="Підкреслений">
+            <span style={{ textDecoration: "underline", fontWeight: 600 }}>U</span>
+          </ToggleBtn>
+        </div>
+      </Section>
+
+      <Section padTop={0}>
+        <SectionLabel>Вирівнювання тексту</SectionLabel>
+        <div style={{ display: "flex", gap: "5px" }}>
+          {(["left", "center", "right"] as const).map(a => {
+            const active = (ov.align || "center") === a;
+            return (
+              <ToggleBtn key={a} flex active={active} onClick={() => updateOverlay(ov.id, { align: a })} title={a === "left" ? "Ліворуч" : a === "right" ? "Праворуч" : "По центру"}>
+                {a === "left" ? "⯇" : a === "right" ? "⯈" : "≡"}
+              </ToggleBtn>
+            );
+          })}
+        </div>
+      </Section>
+
+      <Section padTop={0}>
+        <SectionLabel>Форма підкладки</SectionLabel>
+        <div style={{ display: "flex", gap: "5px" }}>
+          {RADIUS_PRESETS.map((p, i) => {
+            const cur = ov.radius ?? (ov.bgColor ? 4 : 0);
+            const active = cur === p.value;
+            const previewRadius = p.value >= 999 ? "9999px" : `${Math.min(p.value, 12)}px`;
+            return (
+              <button
+                key={i}
+                type="button"
+                title={p.value >= 999 ? "Pill" : `Радіус ${p.value}px`}
+                onClick={() => updateOverlay(ov.id, { radius: p.value })}
+                style={{
+                  flex: 1, height: "26px",
+                  border: `1px solid ${active ? "#D4A843" : "#E8D5B7"}`,
+                  background: active ? "#1C3A2E" : "#FFFFFF",
+                  borderRadius: previewRadius,
+                  cursor: "pointer", padding: 0,
+                  display: "inline-flex", alignItems: "center", justifyContent: "center",
+                  fontSize: "11px", color: active ? "#D4A843" : "#1C3A2E",
+                  transition: "all 0.12s",
+                }}
+              >{p.label}</button>
+            );
+          })}
+        </div>
+      </Section>
+
+      <Section padTop={0}>
+        <SectionLabel>Ефекти</SectionLabel>
+        <div style={{ display: "flex", gap: "5px" }}>
+          <ToggleBtn flex active={!!ov.shadow} onClick={() => updateOverlay(ov.id, { shadow: !ov.shadow })} title="Тінь під підкладкою">
+            <span style={{ fontSize: "11px", fontWeight: 600 }}>{ov.shadow ? "☁ Тінь увімк" : "☁ Тінь"}</span>
+          </ToggleBtn>
+          <ToggleBtn flex active={false} onClick={() => setEditingOverlayId(ov.id)} title="Редагувати текст напису">
+            <span style={{ fontSize: "11px", fontWeight: 600 }}>{"✎ Текст"}</span>
+          </ToggleBtn>
+        </div>
+      </Section>
+
+      <Section padTop={0}>
+        <SectionLabel>Посилання</SectionLabel>
+        <div style={{ display: "flex", gap: "5px" }}>
+          <input
+            type="text"
+            value={ov.href || ""}
+            onChange={(e) => updateOverlay(ov.id, { href: e.target.value })}
+            placeholder="https://..."
+            style={{ ...inputBase, flex: 1, padding: "0 8px" }}
+          />
+          {ov.href && (
+            <button
+              type="button"
+              onClick={() => updateOverlay(ov.id, { href: "" })}
+              title="Прибрати посилання"
+              style={{ ...inputBase, width: "32px", color: "#6B7280", cursor: "pointer" }}
+            >✕</button>
+          )}
+        </div>
+      </Section>
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// ImageBlockSettings — image-specific панель (заокруглення кутів + chroma-key).
+// Портал-иться у #news-block-settings-slot ПІСЛЯ BlockItemHeader.
+// ────────────────────────────────────────────────────────────────────────────
+
+function ImageBlockSettings({
+  onOpenStudio,
+}: {
+  onOpenStudio: () => void;
+}) {
+  return (
+    <div style={{ background: "#FFFFFF", fontFamily: ff, borderTop: "1px solid #F0E6D2" }}>
+      <Section>
+        <SectionLabel>Редактор фото</SectionLabel>
+        <button
+          type="button"
+          onClick={onOpenStudio}
+          style={{
+            width: "100%", height: "34px",
+            borderRadius: "6px",
+            border: "1px solid #D4A843",
+            background: "#1C3A2E",
+            color: "#D4A843",
+            fontSize: "12px",
+            fontWeight: 700,
+            cursor: "pointer",
+            fontFamily: ff,
+            display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "8px",
+            letterSpacing: "0.04em",
+          }}
+        >🖼 Відкрити на весь екран</button>
+        <div style={{ fontSize: "10px", color: "#9CA3AF", lineHeight: 1.5, marginTop: "6px" }}>
+          Заокруглення кутів фото та видалення білого фону — у повноекранному редакторі з live-превью.
+        </div>
+      </Section>
     </div>
   );
 }

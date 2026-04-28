@@ -2,33 +2,24 @@
 
 import React, { useState } from "react";
 import { BlockAlign, UIMP_COLORS } from "./types";
+import { requestCrop } from "./blocks/ImageEditor";
 
 const ff = "-apple-system, BlinkMacSystemFont, sans-serif";
 
-function TBtn({ active, onClick, children, title, disabled }: { active?: boolean; onClick: () => void; children: React.ReactNode; title?: string; disabled?: boolean }) {
-  const [hov, setHov] = useState(false);
-  return (
-    <button
-      title={title}
-      disabled={disabled}
-      onMouseDown={e => { e.preventDefault(); if (!disabled) onClick(); }}
-      onMouseEnter={() => setHov(true)}
-      onMouseLeave={() => setHov(false)}
-      style={{
-        padding: "3px 8px", borderRadius: "5px", border: "none",
-        cursor: disabled ? "not-allowed" : "pointer",
-        fontSize: "11px", fontWeight: 700, fontFamily: ff,
-        background: disabled ? "rgba(0,0,0,0.04)" : active ? "#1C3A2E" : hov ? "#E8F5E0" : "#EEEAE2",
-        color: disabled ? "#C8C0B4" : active ? "#D4A843" : "#1C3A2E",
-        transition: "all 0.12s", minWidth: "24px",
-        opacity: disabled ? 0.5 : 1,
-      }}
-    >{children}</button>
-  );
-}
+const SectionLabel = ({ children }: { children: React.ReactNode }) => (
+  <div style={{
+    fontSize: "9px",
+    fontWeight: 800,
+    color: "#9B7C45",
+    letterSpacing: "0.14em",
+    textTransform: "uppercase",
+    fontFamily: ff,
+    marginBottom: "4px",
+  }}>{children}</div>
+);
 
-const Sep = ({ hov }: { hov: boolean }) => (
-  <div style={{ width: "1px", height: "14px", background: hov ? "rgba(255,255,255,0.12)" : "#E8D5B7", margin: "0 2px" }} />
+const Section: React.FC<{ children: React.ReactNode; padTop?: number }> = ({ children, padTop = 6 }) => (
+  <div style={{ padding: `${padTop}px 10px 6px` }}>{children}</div>
 );
 
 interface Props {
@@ -52,178 +43,195 @@ interface Props {
 const LABELS: Record<string, string> = { text: "Текст", heading: "Заголовок", image: "Фото", youtube: "YouTube", quote: "Цитата", divider: "Роздільник", card: "Картка" };
 const ICONS: Record<string, string> = { text: "¶", heading: "H", image: "🖼", youtube: "▶", quote: "❝", divider: "—", card: "▦" };
 
+const ALIGN_GLYPHS: Record<BlockAlign, React.ReactElement> = {
+  left: (
+    <svg width="14" height="10" viewBox="0 0 14 10" fill="none">
+      <rect x="0" y="0" width="14" height="1.6" rx="0.8" fill="currentColor" />
+      <rect x="0" y="4.2" width="9" height="1.6" rx="0.8" fill="currentColor" />
+      <rect x="0" y="8.4" width="11" height="1.6" rx="0.8" fill="currentColor" />
+    </svg>
+  ),
+  center: (
+    <svg width="14" height="10" viewBox="0 0 14 10" fill="none">
+      <rect x="0" y="0" width="14" height="1.6" rx="0.8" fill="currentColor" />
+      <rect x="2.5" y="4.2" width="9" height="1.6" rx="0.8" fill="currentColor" />
+      <rect x="1.5" y="8.4" width="11" height="1.6" rx="0.8" fill="currentColor" />
+    </svg>
+  ),
+  right: (
+    <svg width="14" height="10" viewBox="0 0 14 10" fill="none">
+      <rect x="0" y="0" width="14" height="1.6" rx="0.8" fill="currentColor" />
+      <rect x="5" y="4.2" width="9" height="1.6" rx="0.8" fill="currentColor" />
+      <rect x="3" y="8.4" width="11" height="1.6" rx="0.8" fill="currentColor" />
+    </svg>
+  ),
+};
+
+function AlignBtn({ a, active, onClick }: { a: BlockAlign; active: boolean; onClick: () => void }) {
+  const [hov, setHov] = useState(false);
+  return (
+    <button
+      type="button"
+      title={a === "left" ? "Ліворуч" : a === "right" ? "Праворуч" : "По центру"}
+      onClick={onClick}
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => setHov(false)}
+      style={{
+        flex: 1,
+        height: "22px",
+        borderRadius: "5px",
+        border: `1px solid ${active ? "#D4A843" : "#E8D5B7"}`,
+        background: active ? "#1C3A2E" : hov ? "#FAF6F0" : "#FFFFFF",
+        color: active ? "#D4A843" : "#1C3A2E",
+        cursor: "pointer",
+        padding: 0,
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        transition: "all 0.12s",
+      }}
+    >{ALIGN_GLYPHS[a]}</button>
+  );
+}
+
+function ActionBtn({ title, onClick, children }: { title: string; onClick: () => void; children: React.ReactNode }) {
+  const [hov, setHov] = useState(false);
+  return (
+    <button
+      type="button"
+      title={title}
+      onClick={onClick}
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => setHov(false)}
+      style={{
+        width: "22px",
+        height: "22px",
+        borderRadius: "5px",
+        border: `1px solid ${hov ? "#D4A843" : "transparent"}`,
+        background: hov ? "rgba(212,168,67,0.10)" : "transparent",
+        color: hov ? "#9B7C45" : "#6B7280",
+        cursor: "pointer",
+        padding: 0,
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontSize: "12px",
+        transition: "all 0.12s",
+      }}
+    >{children}</button>
+  );
+}
+
 export default function BlockItemHeader({
-  blockId, blockType, blockAlign, blockBgColor, displayPct, hov, canMoveUp, canMoveDown,
-  dragAttributes, dragListeners, onSetAlign, onSetBg, onMoveUp, onMoveDown, onDuplicate,
+  blockId, blockType, blockAlign, blockBgColor, displayPct,
+  onSetAlign, onSetBg, onDuplicate,
 }: Props) {
-  const [showBg, setShowBg] = useState(false);
+  // Прозорий "Без фону" варіант + UIMP кольори. Для divider align не має сенсу — приховаємо.
+  const showAlign = blockType !== "divider";
+  const showBg = blockType !== "divider";
 
   return (
-    <div
-      {...dragAttributes}
-      {...dragListeners}
-      title="Тягніть за хедер, щоб перемістити блок"
-      style={{
-        display: "flex", alignItems: "center", gap: "5px", padding: "7px 10px 7px 6px",
-        background: hov ? "#1C3A2E" : "#F7F4EE",
-        borderBottomWidth: "1px", borderBottomStyle: "solid",
-        borderBottomColor: hov ? "rgba(212,168,67,0.3)" : "#E8D5B7",
-        borderRadius: "12px 12px 0 0",
-        transition: "all 0.15s", flexWrap: "nowrap", whiteSpace: "nowrap",
-        cursor: "grab",
-        userSelect: "none", touchAction: "none",
-      }}
-    >
-      {/* Візуальний grip-хінт (не окремий handle — весь хедер draggable) */}
-      <div
-        style={{
-          display: "inline-flex", alignItems: "center", gap: "4px",
-          padding: "3px 6px", borderRadius: "5px",
-          background: hov ? "rgba(212,168,67,0.18)" : "rgba(28,58,46,0.06)",
-          color: hov ? "#D4A843" : "#1C3A2E",
-          pointerEvents: "none",
-          transition: "background 0.15s",
-        }}
-      >
-        <svg width="10" height="14" viewBox="0 0 10 14" fill="none" style={{ flexShrink: 0 }}>
-          <circle cx="2.5" cy="2" r="1.3" fill="currentColor" />
-          <circle cx="7.5" cy="2" r="1.3" fill="currentColor" />
-          <circle cx="2.5" cy="7" r="1.3" fill="currentColor" />
-          <circle cx="7.5" cy="7" r="1.3" fill="currentColor" />
-          <circle cx="2.5" cy="12" r="1.3" fill="currentColor" />
-          <circle cx="7.5" cy="12" r="1.3" fill="currentColor" />
-        </svg>
-      </div>
+    <div style={{ background: "#FFFFFF", fontFamily: ff }}>
+      {/* Block info strip — компактний рядок з типом блока, шириною та діями */}
+      <div style={{
+        display: "flex",
+        alignItems: "center",
+        gap: "7px",
+        padding: "5px 10px",
+        background: "#FAF6F0",
+      }}>
+        <div style={{
+          width: "20px",
+          height: "20px",
+          borderRadius: "5px",
+          background: "#1C3A2E",
+          color: "#D4A843",
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: blockType === "image" ? "10px" : "11px",
+          fontWeight: 700,
+          flexShrink: 0,
+        }}>{ICONS[blockType]}</div>
 
-      {/* Block label */}
-      <span style={{ fontSize: "10px", fontWeight: 700, color: hov ? "#D4A843" : "#1C3A2E", letterSpacing: "0.08em", textTransform: "uppercase", fontFamily: ff }}>
-        {ICONS[blockType]} {LABELS[blockType]}
-      </span>
-
-      <Sep hov={hov} />
-
-      {/* Align */}
-      <div style={{ display: "flex", gap: "2px" }}>
-        {(["left", "center", "right"] as BlockAlign[]).map((a, i) => (
-          <TBtn key={a} active={blockAlign === a} onClick={() => onSetAlign(blockId, a)} title={a}>
-            {["←", "↔", "→"][i]}
-          </TBtn>
-        ))}
-      </div>
-
-      <Sep hov={hov} />
-
-      {/* Background color */}
-      <div style={{ position: "relative" }}>
-        <button
-          onClick={() => setShowBg(v => !v)}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "5px",
-            padding: "3px 8px",
-            borderRadius: "5px",
-            borderWidth: "1px",
-            borderStyle: "solid",
-            borderColor: hov ? "rgba(255,255,255,0.2)" : "#E8D5B7",
-            background: hov ? "rgba(255,255,255,0.08)" : "#EEEAE2",
-            cursor: "pointer",
-            fontFamily: ff,
+        <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "baseline", gap: "6px" }}>
+          <span style={{
+            fontSize: "11px",
+            fontWeight: 700,
+            color: "#1C3A2E",
+            lineHeight: 1.1,
+          }}>{LABELS[blockType]}</span>
+          <span style={{
             fontSize: "10px",
-            fontWeight: 600,
-            color: hov ? "#FAF6F0" : "#1C3A2E",
-            transition: "all 0.12s",
-          }}
-        >
-          <div style={{
-            width: "12px",
-            height: "12px",
-            borderRadius: "3px",
-            background: blockBgColor || "#fff",
-            borderWidth: "1px",
-            borderStyle: "solid",
-            borderColor: "#D4A843",
-            flexShrink: 0,
-          }} />
-          {"Фон"}
-        </button>
+            color: "#9CA3AF",
+            lineHeight: 1,
+          }}>{`${displayPct}%`}</span>
+        </div>
 
-        {showBg && (
-          <div style={{
-            position: "absolute",
-            top: "30px",
-            left: 0,
-            zIndex: 999,
-            background: "#fff",
-            borderRadius: "12px",
-            padding: "12px",
-            boxShadow: "0 8px 32px rgba(0,0,0,0.15)",
-            borderWidth: "1px",
-            borderStyle: "solid",
-            borderColor: "#E8D5B7",
-            minWidth: "200px",
-          }}>
-            <div style={{ fontSize: "10px", fontWeight: 700, color: "#9CA3AF", letterSpacing: "0.08em", textTransform: "uppercase", fontFamily: ff, marginBottom: "10px" }}>
-              {"Колір фону блоку"}
-            </div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
-              {UIMP_COLORS.map(c => (
-                <div key={c.value} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "3px" }}>
-                  <button
-                    title={c.label}
-                    onClick={() => { onSetBg(blockId, c.value); setShowBg(false); }}
-                    style={{
-                      width: "28px",
-                      height: "28px",
-                      borderRadius: "7px",
-                      borderWidth: "2px",
-                      borderStyle: "solid",
-                      borderColor: blockBgColor === c.value ? "#D4A843" : "#E8D5B7",
-                      background: c.value || "#F9F9F9",
-                      cursor: "pointer",
-                      boxShadow: blockBgColor === c.value ? "0 0 0 2px rgba(212,168,67,0.3)" : "none",
-                      transition: "all 0.12s",
-                    }}
-                  />
-                  <span style={{ fontSize: "8px", color: "#9CA3AF", fontFamily: ff, textAlign: "center", maxWidth: "36px", lineHeight: 1.2 }}>
-                    {c.label.split(" ")[0]}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
+        {blockType === "image" && (
+          <ActionBtn
+            title="Обрізати фото"
+            onClick={() => requestCrop(blockId)}
+          >✂</ActionBtn>
         )}
+        <ActionBtn title="Дублювати блок" onClick={() => onDuplicate(blockId)}>⎘</ActionBtn>
       </div>
 
-      {/* Width % */}
-      <div style={{ marginLeft: "auto", fontSize: "10px", fontWeight: 700, color: hov ? "rgba(255,255,255,0.5)" : "#9CA3AF", fontFamily: ff, minWidth: "32px", textAlign: "right" }}>
-        {displayPct}%
-      </div>
-
-      {/* Crop — тільки для image */}
-      {blockType === "image" && (
-        <button
-          onClick={() => window.dispatchEvent(new CustomEvent("news-block-crop", { detail: blockId }))}
-          title="Обрізати фото"
-          style={{
-            display: "inline-flex", alignItems: "center", gap: "4px",
-            padding: "3px 8px", borderRadius: "5px",
-            border: "none", cursor: "pointer",
-            fontSize: "11px", fontWeight: 700, fontFamily: ff,
-            background: hov ? "rgba(212,168,67,0.18)" : "#EEEAE2",
-            color: hov ? "#D4A843" : "#1C3A2E",
-            transition: "all 0.12s",
-          }}
-        >{"✂️ Обрізати"}</button>
+      {showAlign && (
+        <Section>
+          <SectionLabel>Вирівнювання</SectionLabel>
+          <div style={{ display: "flex", gap: "5px" }}>
+            {(["left", "center", "right"] as BlockAlign[]).map(a => (
+              <AlignBtn key={a} a={a} active={blockAlign === a} onClick={() => onSetAlign(blockId, a)} />
+            ))}
+          </div>
+        </Section>
       )}
 
-      {/* Duplicate */}
-      <button
-        onClick={() => onDuplicate(blockId)}
-        title="Дублювати блок"
-        style={{ background: "none", border: "none", cursor: "pointer", color: hov ? "rgba(255,255,255,0.6)" : "#6B7280", fontSize: "13px", padding: "2px 4px", fontWeight: 700 }}
-      >{"⎘"}</button>
-
+      {showBg && (
+        <Section padTop={0}>
+          <SectionLabel>Фон блока</SectionLabel>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}>
+            <button
+              type="button"
+              title="Без фону"
+              onClick={() => onSetBg(blockId, "")}
+              style={{
+                width: "20px",
+                height: "20px",
+                borderRadius: "5px",
+                border: `2px solid ${!blockBgColor ? "#D4A843" : "#E8D5B7"}`,
+                background: "repeating-conic-gradient(#ddd 0% 25%, #fff 0% 50%) 50% / 6px 6px",
+                cursor: "pointer",
+                padding: 0,
+                boxShadow: !blockBgColor ? "0 0 0 2px rgba(212,168,67,0.25)" : "none",
+              }}
+            />
+            {UIMP_COLORS.map(c => {
+              if (!c.value) return null;
+              const active = (blockBgColor || "").toUpperCase() === c.value.toUpperCase();
+              return (
+                <button
+                  key={c.value}
+                  type="button"
+                  title={c.label}
+                  onClick={() => onSetBg(blockId, c.value)}
+                  style={{
+                    width: "20px",
+                    height: "20px",
+                    borderRadius: "5px",
+                    border: `2px solid ${active ? "#D4A843" : "#E8D5B7"}`,
+                    background: c.value,
+                    cursor: "pointer",
+                    padding: 0,
+                    boxShadow: active ? "0 0 0 2px rgba(212,168,67,0.25)" : "none",
+                  }}
+                />
+              );
+            })}
+          </div>
+        </Section>
+      )}
     </div>
   );
 }

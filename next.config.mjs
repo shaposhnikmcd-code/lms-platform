@@ -17,6 +17,9 @@ const cspDirectives = [
   "connect-src 'self' blob: data: https://www.google-analytics.com https://analytics.google.com https://www.googletagmanager.com https://res.cloudinary.com https://staticimgly.com",
   "worker-src 'self' blob:",
   "child-src 'self' blob:",
+  // frame-src: дозволяємо YouTube embed (single video, playlist, shorts) у новинах.
+  // Якщо frame-src не вказати — браузер фолбекається на child-src, де YouTube заблокований.
+  "frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com https://youtube.com",
   "frame-ancestors 'self'",
   "form-action 'self' https://secure.wayforpay.com",
   "base-uri 'self'",

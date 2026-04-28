@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BlockWidth, WIDTH_SNAP_PRESETS } from "../types";
 
-// Крок resize — 1%. Плюс soft-snap до стандартних пресетів (25/33/50/66/75/100) у межах ±0.8%.
+// Крок resize — 0.1% (≈0.8px на канвасі 832px), безперервне відчуття.
+// Soft-snap до пресетів (25/33/50/66/75/100) у вузькому вікні ±0.3% — магнітить
+// коли цілишся повільно, не "липне" коли просто проходиш повз.
 function snapWidth(pct: number): BlockWidth {
   const clamped = Math.max(20, Math.min(100, pct));
   for (const preset of WIDTH_SNAP_PRESETS) {
-    if (Math.abs(clamped - preset) <= 0.8) return String(preset);
+    if (Math.abs(clamped - preset) <= 0.3) return String(preset);
   }
-  return String(Math.round(clamped));
+  return String(Math.round(clamped * 10) / 10);
 }
 
 // Ширина «внутрішнього» контента image-блоку (img width) — обгортка блока мінус padding/border.
@@ -96,12 +98,15 @@ export function useBlockResize({
     };
 
     const onMove = (ev: MouseEvent) => {
+      const freeMode = ev.shiftKey;
       const pct = ((startPx + ev.clientX - startX) / containerWidthPx) * 100;
       const snapped = Number(snapWidth(pct));
       currentSnappedPct = snapped;
       setLivePct(snapped);
       onPreviewWidth(blockId, snapped);
-      if (isImage) {
+      // Auto-aspect для фото: висота йде за шириною. Shift = вільний (юзер сам обрізає
+      // пропорції — корисно якщо треба вписати фото в нестандартний слот).
+      if (isImage && !freeMode) {
         const newH = computeImageH(snapped);
         currentH = newH;
         onPreviewHeight(blockId, newH);
@@ -111,7 +116,11 @@ export function useBlockResize({
     const onUp = () => {
       const finalW = snapWidth(currentSnappedPct);
       if (isImage) {
-        onSetWidthAndData(blockId, finalW, { ...blockData, minHeight: String(currentH) }, currentH);
+        // НЕ зберігаємо minHeight у data — block.height тепер канонічне джерело,
+        // stale minHeight ламає геометрію wrapper-а. Див. startResizeHeight.onUp.
+        const cleanData = { ...blockData };
+        delete cleanData.minHeight;
+        onSetWidthAndData(blockId, finalW, cleanData, currentH);
         onClearPreviewHeight(blockId);
       } else {
         onSetWidth(blockId, finalW);
@@ -141,7 +150,17 @@ export function useBlockResize({
       ? (imgEl.getBoundingClientRect().height || imgEl.offsetHeight || 100)
       : (blockRef.current?.offsetHeight ?? 100);
 
+    // Aspect для image — пріоритет natural із blockData; fallback — рендерені розміри.
+    let effectiveAspect = aspectRatio;
+    if (isImage && effectiveAspect <= 0 && imgEl) {
+      const w = imgEl.naturalWidth || imgEl.offsetWidth;
+      const h = imgEl.naturalHeight || imgEl.offsetHeight;
+      if (w > 0 && h > 0) effectiveAspect = w / h;
+    }
+    const hasImageAspect = isImage && effectiveAspect > 0;
+
     let currentH = startH;
+    let currentSnappedPct = Number(blockWidth);
     let savedInnerMinHeight = "";
 
     if (isImage && innerEl) {
@@ -150,20 +169,47 @@ export function useBlockResize({
       innerEl.style.minHeight = "0px";
     }
 
+    // Для image-aspect-режиму ставимо resizingW (а не resizingH) — це переключить
+    // displayPct на livePct, щоб у хедері відображався preview ширини під час drag-у.
     if (!isImage) {
-      // Для non-image використовуємо стейт-підхід (як раніше працювало).
       setResizingH(true);
       setSnapGuideH(null);
+    } else if (hasImageAspect) {
+      setResizingW(true);
     }
 
     const onMove = (ev: MouseEvent) => {
       const rawH = Math.max(60, startH + ev.clientY - startY);
+      const freeMode = ev.shiftKey;
+
       if (isImage && imgEl) {
-        imgEl.style.height = `${rawH}px`;
-        imgEl.style.objectFit = "fill";
-        // Подвійна гарантія для обгортки — на випадок якщо щось перезапише.
-        if (innerEl) innerEl.style.minHeight = "0px";
-        currentH = rawH;
+        if (hasImageAspect && !freeMode) {
+          // Auto-aspect: курсор задає висоту → обчислюємо ширину блока пропорційно.
+          // Спочатку згрубляємо нову width у %, snap-имо до пресетів,
+          // потім перерахунок точної висоти від snapped width — щоб aspect лишився чистим.
+          const newImgW = Math.max(60, Math.round(rawH * effectiveAspect));
+          const newBlockPxW = newImgW + IMAGE_INNER_DELTA;
+          const pctRaw = (newBlockPxW / containerWidthPx) * 100;
+          const snapped = Number(snapWidth(pctRaw));
+          currentSnappedPct = snapped;
+          const snappedPxW = (snapped / 100) * containerWidthPx;
+          const finalImgW = Math.max(60, snappedPxW - IMAGE_INNER_DELTA);
+          const finalH = Math.max(60, Math.round(finalImgW / effectiveAspect));
+          imgEl.style.height = `${finalH}px`;
+          imgEl.style.objectFit = "fill";
+          if (innerEl) innerEl.style.minHeight = "0px";
+          currentH = finalH;
+          setLivePct(snapped);
+          onPreviewWidth(blockId, snapped);
+          onPreviewHeight(blockId, finalH);
+        } else {
+          // Free mode (Shift) або фото без aspect-даних — стара поведінка: тільки висота.
+          imgEl.style.height = `${rawH}px`;
+          imgEl.style.objectFit = "fill";
+          if (innerEl) innerEl.style.minHeight = "0px";
+          currentH = rawH;
+          onPreviewHeight(blockId, rawH);
+        }
         return;
       }
       const rowHeights = getSameRowHeights();
@@ -175,6 +221,13 @@ export function useBlockResize({
       currentH = snapped;
       setMinHeight(snapped);
       setSnapGuideH(guideH);
+      // КРИТИЧНО: text-блок (і non-image взагалі) живе всередині AbsoluteBlock-а,
+      // який бере висоту з `previewHeight` коли вона задана, інакше з `block.height`.
+      // Без цього виклику AbsoluteBlock тримає стару висоту весь час drag-у —
+      // юзер тягне ручку, але блок не реагує, тільки на mouseup стрибає у фінальну
+      // позицію. setMinHeight оновлює лише внутрішню обгортку, що не видно бо
+      // AbsoluteBlock зверху обмежує висоту своєю фіксованою.
+      onPreviewHeight(blockId, snapped);
     };
 
     const onUp = () => {
@@ -190,18 +243,35 @@ export function useBlockResize({
       } else {
         // Повертаємо обгортці її inline minHeight (React переоновить на наступному рендері).
         if (innerEl) innerEl.style.minHeight = savedInnerMinHeight;
+        // КРИТИЧНО: знімаємо inline style з img, інакше залишається жорстко зафіксована
+        // висота і фото вилазить за межі wrapper-а навіть після того, як block.height
+        // зменшено. React не бачить імперативну DOM-мутацію — мусимо очистити вручну.
+        if (imgEl) {
+          imgEl.style.height = "";
+          imgEl.style.objectFit = "";
+        }
+        if (hasImageAspect) setResizingW(false);
       }
-      // Коміт даних + top-level block.height (щоб обгортка блока теж стиснулась
-      // разом з картинкою). Зберігаємо minHeight у data для backward-compat.
       const fh = Math.round(finalH);
-      onSetWidthAndData(blockId, blockWidth, { ...blockData, minHeight: String(fh) }, fh);
+      // Коміт. minHeight БІЛЬШЕ НЕ зберігаємо в data — block.height тепер канонічне джерело
+      // висоти, а stale minHeight у data перевищує block.height і ламає геометрію wrapper-а.
+      const cleanData = { ...blockData };
+      delete cleanData.minHeight;
+      if (isImage && hasImageAspect) {
+        const finalW = snapWidth(currentSnappedPct);
+        onSetWidthAndData(blockId, finalW, cleanData, fh);
+        onClearPreview(blockId);
+      } else {
+        onSetWidthAndData(blockId, blockWidth, cleanData, fh);
+      }
+      onClearPreviewHeight(blockId);
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
     };
 
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
-  }, [aspectRatio, blockId, blockData, blockWidth, onSetWidthAndData, getSameRowHeights, snapThreshold]);
+  }, [aspectRatio, blockId, blockData, blockWidth, containerWidthPx, onSetWidthAndData, onPreviewWidth, onClearPreview, onPreviewHeight, onClearPreviewHeight, getSameRowHeights, snapThreshold]);
 
   const startResizeDiagonal = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -232,13 +302,15 @@ export function useBlockResize({
     const onMove = (ev: MouseEvent) => {
       const dx = ev.clientX - startX;
       const dy = ev.clientY - startY;
+      const freeMode = ev.shiftKey;
       // Діагональна ручка має реагувати і на вертикальний, і на горизонтальний рух.
       // Конвертуємо dy в «еквівалентну ширину» через aspect (image або block) і беремо
       // того delta, в якого більший модуль — це найкраще зчитує намір користувача,
       // навіть якщо він тягне переважно вниз/вгору.
       const aspectForProjection = isImage ? (effectiveAspect > 0 ? effectiveAspect : blockAspect) : blockAspect;
       const dxFromDy = dy * aspectForProjection;
-      const effectiveDx = Math.abs(dx) >= Math.abs(dxFromDy) ? dx : dxFromDy;
+      // У free-режимі (Shift) — width лише від dx, висоту візьмемо з dy окремо.
+      const effectiveDx = freeMode ? dx : (Math.abs(dx) >= Math.abs(dxFromDy) ? dx : dxFromDy);
       const newPxW = Math.max(80, startPxW + effectiveDx);
       const pct = (newPxW / containerWidthPx) * 100;
       const snapped = Number(snapWidth(pct));
@@ -248,14 +320,16 @@ export function useBlockResize({
       const snappedPxW = (snapped / 100) * containerWidthPx;
 
       let newH: number;
-      if (isImage) {
-        // Висота <img> з aspect (natural або fallback з рендерених розмірів).
+      if (isImage && !freeMode) {
+        // Auto-aspect: висота <img> прорахована з natural aspect.
         const aspectForH = effectiveAspect > 0 ? effectiveAspect : blockAspect;
         const imgWidth = Math.max(60, snappedPxW - IMAGE_INNER_DELTA);
         newH = Math.max(60, Math.round(imgWidth / aspectForH));
-        // Не чіпаємо block minHeight — щоб не псувати висоту блока-обгортки
+      } else if (isImage && freeMode) {
+        // Shift: вільний resize — висота лише від dy (можна обрізати пропорції).
+        newH = Math.max(60, startPxH + dy);
       } else {
-        // Висота блока = проскейлена за поточним аспектом блока
+        // Non-image: висота за aspect блока.
         newH = Math.max(60, Math.round(snappedPxW / blockAspect));
         setMinHeight(newH);
       }
@@ -264,12 +338,11 @@ export function useBlockResize({
     };
 
     const onUp = () => {
-      // Атомарно: width, data (з minHeight для backward-compat), і top-level
-      // block.height — щоб wrapper блока і фото були синхронізовані.
-      onSetWidthAndData(blockId, snapWidth(currentSnappedPct), {
-        ...blockData,
-        minHeight: String(currentH),
-      }, currentH);
+      // Атомарно: width + top-level block.height. minHeight у data НЕ зберігаємо —
+      // воно перевизначає wrapper висоту і ламає геометрію (фото вилазить за блок).
+      const cleanData = { ...blockData };
+      delete cleanData.minHeight;
+      onSetWidthAndData(blockId, snapWidth(currentSnappedPct), cleanData, currentH);
       onClearPreviewHeight(blockId);
       setResizingD(false);
       window.removeEventListener("mousemove", onMove);
@@ -280,7 +353,9 @@ export function useBlockResize({
     window.addEventListener("mouseup", onUp);
   }, [aspectRatio, blockId, blockData, blockWidth, containerWidthPx, onSetWidthAndData, onPreviewWidth, onPreviewHeight, onClearPreviewHeight]);
 
-  const displayPct = resizingW || resizingD ? livePct : Number(blockWidth);
+  // displayPct показує live preview ширини під час будь-якого resize.
+  // Включаємо resizingH, бо image-aspect-режим bottom-handle теж змінює ширину.
+  const displayPct = (resizingW || resizingD || resizingH) ? livePct : Number(blockWidth);
 
   // Check if current width/height ratio matches the natural image aspect ratio
   let aspectMatched: boolean | null = null;

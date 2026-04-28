@@ -54,7 +54,6 @@ export default function OverlayItem({ activeId, isOverCanvas, paletteBlock }: Pr
   }
 
   // Для existing-block drag не показуємо overlay-chip — сам блок вже рухається за курсором.
-  // Було: "⠿ Переміщення" chip → створювало візуальний хаос з 3+ елементів на курсорі.
   void activeId;
   return null;
 }
