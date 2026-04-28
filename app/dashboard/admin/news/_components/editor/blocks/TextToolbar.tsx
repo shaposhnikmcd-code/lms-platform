@@ -27,6 +27,17 @@ export default function SectionedTextToolbar({ editor }: { editor: Editor }) {
   const currentSize = (editor.getAttributes("textStyle").fontSize as string | undefined) || "";
   const currentFont = (editor.getAttributes("textStyle").fontFamily as string | undefined) || "";
 
+  // Реальний обчислений розмір тексту в редакторі (підставляється у "Авто"-опцію
+  // селекту, щоб користувач бачив фактичний px замість абстрактного "Авто").
+  // Читається на кожному рендері toolbar-у — TipTap ре-рендерить при зміні
+  // курсору/стану, тож значення оновлюється коли курсор переходить на h2/h3.
+  let effectiveSize: number | null = null;
+  if (typeof window !== "undefined" && editor.view?.dom) {
+    const cs = window.getComputedStyle(editor.view.dom);
+    const px = parseFloat(cs.fontSize);
+    if (Number.isFinite(px)) effectiveSize = Math.round(px);
+  }
+
   return (
     <div style={{ fontFamily: ff }}>
       <GroupHeader>Типографіка</GroupHeader>
@@ -54,7 +65,7 @@ export default function SectionedTextToolbar({ editor }: { editor: Editor }) {
             style={{ ...inputBase, padding: "0 6px", cursor: "pointer", flex: 1, minWidth: 0 }}
             title="Розмір шрифту"
           >
-            <option value="">Авто</option>
+            <option value="">{effectiveSize ? `Авто (${effectiveSize})` : "Авто"}</option>
             {FONT_SIZE_PRESETS.map(s => (
               <option key={s} value={s}>{s.replace("px", "")}</option>
             ))}
