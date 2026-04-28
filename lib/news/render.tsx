@@ -168,16 +168,27 @@ export function BlockInner({ block }: { block: Block }) {
 
     case "heading": {
       const Tag = `h${block.data.level || "2"}` as "h1" | "h2" | "h3";
+      // Новий формат: data.html (TipTap-rich). Fallback — data.text + старі
+      // data.fontFamily/fontSize/color (legacy form-mode заголовки).
+      const html = block.data.html;
+      const customColor = block.data.color || "";
+      const customFamily = block.data.fontFamily || "";
+      const customSize = Number(block.data.fontSize) || 0;
       return (
         <Tag
           style={{
-            color: textColor,
+            color: customColor || textColor,
             fontWeight: 700,
             margin: "0.3em 0",
             textAlign: align,
+            fontFamily: customFamily || undefined,
+            fontSize: customSize > 0 ? `${customSize}px` : undefined,
           }}
+          {...(html
+            ? { dangerouslySetInnerHTML: { __html: sanitizeHtml(html) } }
+            : {})}
         >
-          {block.data.text}
+          {!html ? block.data.text : null}
         </Tag>
       );
     }
@@ -318,7 +329,10 @@ export function BlockInner({ block }: { block: Block }) {
       ) : null;
     }
 
-    case "quote":
+    case "quote": {
+      // Новий формат: data.html (rich text з модалки). Fallback — data.text
+      // (legacy plain). Якщо html-немає — рендер як було раніше (звичайний текст).
+      const html = block.data.html;
       return (
         <blockquote
           style={{
@@ -331,11 +345,16 @@ export function BlockInner({ block }: { block: Block }) {
             textAlign: align,
             height: "100%",
             boxSizing: "border-box",
+            fontStyle: "italic",
           }}
+          {...(html
+            ? { dangerouslySetInnerHTML: { __html: sanitizeHtml(html) } }
+            : {})}
         >
-          {block.data.text}
+          {!html ? block.data.text : null}
         </blockquote>
       );
+    }
 
     case "divider":
       return (

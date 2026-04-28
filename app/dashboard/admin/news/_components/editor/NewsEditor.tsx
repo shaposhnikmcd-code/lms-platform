@@ -194,9 +194,19 @@ export default function NewsEditor({
       if (!cmd) return;
       const key = e.key.toLowerCase();
       if (key !== "z" && key !== "y") return;
-      // Документо-рівневий undo завжди — щоб Ctrl+Z скасовував будь-яку дію
-      // в білдері (додавання/видалення блока, drag, resize, edit), як це
-      // працює в Notion / Figma / Google Docs.
+
+      // Якщо фокус всередині input/textarea/contenteditable (TipTap ProseMirror) —
+      // не перехоплюємо: хай нативний/TipTap undo обробить редагування тексту.
+      // Документо-рівневий undo спрацює лише коли користувач не друкує/редагує.
+      const target = e.target as HTMLElement | null;
+      if (target) {
+        const tag = target.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA") return;
+        if (target.isContentEditable) return;
+      }
+
+      // Документо-рівневий undo — для дій над блоками (додавання/видалення,
+      // drag, resize), як у Notion / Figma / Google Docs.
       e.preventDefault();
       if (key === "z" && !e.shiftKey) undo();
       else redo();

@@ -1,51 +1,163 @@
 "use client";
 
-import { useState } from "react";
+import { useEditor, EditorContent } from "@tiptap/react";
+import StarterKit from "@tiptap/starter-kit";
+import Underline from "@tiptap/extension-underline";
+import Placeholder from "@tiptap/extension-placeholder";
+import TextAlign from "@tiptap/extension-text-align";
+import { TextStyle, FontSize } from "@tiptap/extension-text-style";
+import Color from "@tiptap/extension-color";
+import Highlight from "@tiptap/extension-highlight";
+import FontFamily from "@tiptap/extension-font-family";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { Block } from "../types";
+import {
+  ff,
+  Section,
+  SectionLabel,
+  ToggleBtn,
+} from "./_settingsPrimitives";
+import TextStudioModal from "./TextStudioModal";
 
-const ff = "-apple-system, BlinkMacSystemFont, sans-serif";
-
-const inputStyle: React.CSSProperties = {
-  width: "100%", padding: "9px 12px", borderRadius: "8px",
-  borderWidth: "1.5px", borderStyle: "solid", borderColor: "#E8D5B7",
-  background: "#FAF6F0", color: "#1C3A2E", fontFamily: ff,
-  outline: "none", boxSizing: "border-box",
-};
+// Інлайн-редактор Заголовок: TipTap для базового набору без панелі форматування.
+// Повноцінне форматування (шрифт/розмір/кольори/B/I/U) — у TextStudioModal.
+// data.html зберігає plain-rich text, data.level — H1/H2/H3 тег для public render.
+//
+// Backward compat: старі заголовки в data.text → конвертуються в HTML на init.
 
 interface Props {
   block: Block;
   onChange: (data: Record<string, string>) => void;
+  selected?: boolean;
 }
 
-export default function HeadingEditor({ block, onChange }: Props) {
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function headingInitialHtml(data: Record<string, string>): string {
+  if (data.html) return data.html;
+  const t = data.text || "";
+  return t ? `<p>${escapeHtml(t)}</p>` : "";
+}
+
+export default function HeadingEditor({ block, onChange, selected = false }: Props) {
+  const [studioOpen, setStudioOpen] = useState(false);
   const level = block.data.level || "2";
-  const [hov, setHov] = useState<string | null>(null);
+
+  const editor = useEditor({
+    immediatelyRender: false,
+    extensions: [
+      StarterKit,
+      Underline,
+      Placeholder.configure({ placeholder: `Заголовок ${level}-го рівня...` }),
+      TextAlign.configure({ types: ["heading", "paragraph"] }),
+      TextStyle,
+      Color,
+      FontFamily,
+      FontSize,
+      Highlight.configure({ multicolor: true }),
+    ],
+    content: headingInitialHtml(block.data),
+    onUpdate: ({ editor }) => {
+      onChange({ ...block.data, html: editor.getHTML() });
+    },
+  });
+
+  useEffect(() => {
+    if (!editor) return;
+    const external = headingInitialHtml(block.data);
+    if (editor.getHTML() === external) return;
+    editor.commands.setContent(external, { emitUpdate: false });
+  }, [block.data, editor]);
+
+  if (!editor) return null;
+
+  const settingsSlot = typeof document !== "undefined" && selected
+    ? document.getElementById("news-block-settings-slot")
+    : null;
+
+  // Дефолтний розмір заголовка за рівнем — застосовується через CSS .heading-inline-{level}
+  // у style-теге нижче. У public render render.tsx робить те саме через <h{level}>.
+  const inlineLevelClass = `heading-inline-h${level}`;
+
+  const sidebarPanel = (
+    <div style={{ background: "#FFFFFF", fontFamily: ff }}>
+      <Section>
+        <SectionLabel>Рівень</SectionLabel>
+        <div style={{ display: "flex", gap: "5px" }}>
+          {(["1", "2", "3"] as const).map(l => (
+            <ToggleBtn
+              key={l}
+              flex
+              active={level === l}
+              onClick={() => onChange({ ...block.data, level: l })}
+              title={`Заголовок ${l}-го рівня`}
+            >
+              <span style={{ fontWeight: 700 }}>{`H${l}`}</span>
+            </ToggleBtn>
+          ))}
+        </div>
+      </Section>
+
+      <Section padTop={0}>
+        <SectionLabel>Редактор заголовка</SectionLabel>
+        <button
+          type="button"
+          onClick={() => setStudioOpen(true)}
+          style={{
+            width: "100%", height: "34px",
+            borderRadius: "6px",
+            border: "1px solid #D4A843",
+            background: "#1C3A2E",
+            color: "#D4A843",
+            fontSize: "12px",
+            fontWeight: 700,
+            cursor: "pointer",
+            fontFamily: ff,
+            display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "8px",
+            letterSpacing: "0.04em",
+          }}
+        >✎ Відкрити на весь екран</button>
+        <div style={{ fontSize: "10px", color: "#9CA3AF", lineHeight: 1.5, marginTop: "6px" }}>
+          Шрифти, кольори, стилі — у повноекранному редакторі.
+        </div>
+      </Section>
+    </div>
+  );
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-      <div style={{ display: "flex", gap: "4px" }}>
-        {["1", "2", "3"].map(l => (
-          <button
-            key={l}
-            onClick={() => onChange({ ...block.data, level: l })}
-            onMouseEnter={() => setHov(l)}
-            onMouseLeave={() => setHov(null)}
-            style={{
-              padding: "3px 10px", borderRadius: "5px", border: "none", cursor: "pointer",
-              fontSize: "11px", fontWeight: 700, fontFamily: ff,
-              background: level === l ? "#1C3A2E" : hov === l ? "#E8F5E0" : "#EEEAE2",
-              color: level === l ? "#D4A843" : "#1C3A2E",
-              transition: "all 0.12s",
-            }}
-          >{`H${l}`}</button>
-        ))}
+    <>
+      {settingsSlot && createPortal(sidebarPanel, settingsSlot)}
+      <div className={inlineLevelClass} style={{ width: "100%" }}>
+        <EditorContent editor={editor} />
       </div>
-      <input
-        style={{ ...inputStyle, fontSize: level === "1" ? "22px" : level === "2" ? "18px" : "15px", fontWeight: 700, textAlign: block.align }}
-        placeholder={`Заголовок ${level} рівня`}
-        value={block.data.text || ""}
-        onChange={e => onChange({ ...block.data, text: e.target.value })}
-      />
-    </div>
+      {studioOpen && (
+        <TextStudioModal
+          title="Редактор заголовка"
+          icon="H"
+          initialHtml={headingInitialHtml(block.data)}
+          onCancel={() => setStudioOpen(false)}
+          onSave={(html) => {
+            onChange({ ...block.data, html });
+            setStudioOpen(false);
+          }}
+        />
+      )}
+      <style>{`
+        .heading-inline-h1 .ProseMirror{outline:none;font-size:30px;line-height:1.2;color:#1C3A2E;font-family:${ff};font-weight:700}
+        .heading-inline-h2 .ProseMirror{outline:none;font-size:24px;line-height:1.2;color:#1C3A2E;font-family:${ff};font-weight:700}
+        .heading-inline-h3 .ProseMirror{outline:none;font-size:20px;line-height:1.2;color:#1C3A2E;font-family:${ff};font-weight:700}
+        .heading-inline-h1 .ProseMirror p,
+        .heading-inline-h2 .ProseMirror p,
+        .heading-inline-h3 .ProseMirror p{margin:0}
+        .heading-inline-h1 .ProseMirror p.is-editor-empty:first-child::before,
+        .heading-inline-h2 .ProseMirror p.is-editor-empty:first-child::before,
+        .heading-inline-h3 .ProseMirror p.is-editor-empty:first-child::before{
+          color:#9CA3AF;content:attr(data-placeholder);float:left;height:0;pointer-events:none;font-weight:400
+        }
+      `}</style>
+    </>
   );
 }

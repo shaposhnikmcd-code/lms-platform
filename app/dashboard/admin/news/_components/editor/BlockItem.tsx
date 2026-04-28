@@ -253,10 +253,10 @@ export default function BlockItem({
         )}
 
         {block.type === "text"    && <TextEditor    block={block} onChange={d => onChange(block.id, d)} selected={selected} />}
-        {block.type === "heading" && <HeadingEditor block={block} onChange={d => onChange(block.id, d)} />}
+        {block.type === "heading" && <HeadingEditor block={block} onChange={d => onChange(block.id, d)} selected={selected} />}
         {block.type === "image"   && <ImageEditor   block={block} onChange={d => onChange(block.id, d)} onUpload={onUpload} previewHeight={previewHeight} selected={selected} onSelectBlock={onSelectBlock} onOverlayActiveChange={setOverlayActive} />}
-        {block.type === "youtube" && <YoutubeEditor block={block} onChange={d => onChange(block.id, d)} />}
-        {block.type === "quote"   && <QuoteEditor   block={block} onChange={d => onChange(block.id, d)} />}
+        {block.type === "youtube" && <YoutubeEditor block={block} onChange={d => onChange(block.id, d)} selected={selected} />}
+        {block.type === "quote"   && <QuoteEditor   block={block} onChange={d => onChange(block.id, d)} selected={selected} />}
         {block.type === "card"    && <CardEditor    block={block} onChange={d => onChange(block.id, d)} onUpload={onUpload} />}
         {block.type === "divider" && <hr style={{ border: "none", borderTopWidth: "2px", borderTopStyle: "solid", borderTopColor: "#D4A843", margin: "8px 0" }} />}
       </div>

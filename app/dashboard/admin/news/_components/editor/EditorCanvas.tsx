@@ -1092,31 +1092,32 @@ export default function EditorCanvas({ blocks, onBlocksChange, onUpload, pageBgC
                   <EmptyHint />
                 )}
 
-                {/* Page-width ruler — фіксована "лінійка" зверху канвасу, показує
-                    ширину і позицію активного блока в % від сторінки. Зʼявляється
-                    при resize ширини АБО переміщенні блока (не для палітри).
-                    Зникає коли користувач не взаємодіє з блоком. */}
+                {/* Page-width ruler — тонка лінійка зверху канвасу, показує
+                    ширину і позицію блока в % від сторінки. Показується для:
+                    1) активного resize/drag (блок який зараз пересувають) — режим "active"
+                    2) виділеного блока (selected) — режим "selected" (ще тонше)
+                    Не показується при hover і коли нічого не виділено. */}
                 {(() => {
-                  // Активний блок: пріоритет resize, fallback — drag-існуючий.
+                  // Пріоритет: resize > drag > selected.
                   const dragId = activeId && !activeId.startsWith("palette:") ? activeId : null;
-                  const activeBlockId = resizingBlockId ?? dragId;
-                  if (!activeBlockId) return null;
-                  const b = blocks.find(x => x.id === activeBlockId);
+                  const activeId_ = resizingBlockId ?? dragId;
+                  const targetId = activeId_ ?? selectedBlockId;
+                  if (!targetId) return null;
+                  const b = blocks.find(x => x.id === targetId);
                   if (!b) return null;
-                  // Live x і width — пріоритет previews. Під час drag dropPreview
-                  // містить актуальну x для тягнутого блока (width не змінюється
-                  // в drag, тільки в resize). Під час resize previewWidths/Xs.
-                  let liveX = previewXs[activeBlockId] ?? b.x ?? 0;
-                  let liveW = previewWidths[activeBlockId] ?? (Number(b.width) || 100);
-                  if (dragId === activeBlockId && dropPreview) {
+                  let liveX = previewXs[targetId] ?? b.x ?? 0;
+                  let liveW = previewWidths[targetId] ?? (Number(b.width) || 100);
+                  if (dragId === targetId && dropPreview) {
                     liveX = dropPreview.x;
                     liveW = dropPreview.width;
                   }
+                  const mode: "active" | "selected" = activeId_ ? "active" : "selected";
                   return (
                     <ResizeRuler
                       blockX={liveX}
                       blockWidthPct={liveW}
                       pxPerPct={canvasWidthPx / 100}
+                      mode={mode}
                     />
                   );
                 })()}
@@ -1512,137 +1513,127 @@ function AbsoluteBlock(props: {
   );
 }
 
-// ResizeRuler — Figma-style лінійка по ширині сторінки. Фіксована позиція ВГОРІ
-// канвасу. Зʼявляється коли блок resize-иться по ширині або переміщується drag-ом.
-// Snap-марки на 25/33/50/66/75% — для "цілитись" у круглі значення.
-// Pill-бейдж по центру амбер span-а показує live %, px та left%.
+// ResizeRuler — мінімалістична лінійка по ширині сторінки.
+// Дві моди:
+//   • "selected" — блок просто виділений. Тонка hairline-лінія + дискретний chip
+//     з розміром. Не відволікає увагу від контенту.
+//   • "active"   — блок зараз resize-иться або drag-иться. Та сама лінія,
+//     трохи насиченіший accent, chip живий (показує live %).
+// Дизайн натхненний Figma/Linear — hairline rules, типографічні цифри без
+// "паска" чи "браслета".
 function ResizeRuler({
-  blockX, blockWidthPct, pxPerPct,
+  blockX, blockWidthPct, pxPerPct, mode,
 }: {
   blockX: number;
   blockWidthPct: number;
   pxPerPct: number;
+  mode: "active" | "selected";
 }) {
   const ff = "-apple-system, BlinkMacSystemFont, sans-serif";
-  const SNAPS = [25, 33.33, 50, 66.67, 75];
   const widthPx = Math.round(blockWidthPct * pxPerPct);
   const centerPct = blockX + blockWidthPct / 2;
   const rightPct = blockX + blockWidthPct;
-  // Бейдж розміщуємо горизонтально по центру span, але якщо span дуже близько
-  // до краю — підтискаємо до краю canvas, щоб не вилазив (clamp 8..92%).
-  const badgeOffsetPct = Math.max(8, Math.min(92, centerPct));
+  // Chip залишаємо в межах [6%..94%] щоб не вилазив за canvas.
+  const chipOffsetPct = Math.max(6, Math.min(94, centerPct));
+
+  // Кольори для двох модів. selected — приглушений; active — насиченіший accent.
+  const isActive = mode === "active";
+  const accent = isActive ? "rgba(212,168,67,0.95)" : "rgba(212,168,67,0.55)";
+  const trackColor = "rgba(28,58,46,0.08)";
+  const tickColor = isActive ? "rgba(28,58,46,0.55)" : "rgba(28,58,46,0.35)";
 
   return (
     <div
       style={{
         position: "absolute",
-        // Фіксована позиція над канвасом — як справжня лінійка. blockY більше не
-        // використовується: лінійка не прив'язана до Y активного блока.
-        top: -38,
+        top: -22,
         left: 0,
         right: 0,
-        height: 32,
+        height: 16,
         pointerEvents: "none",
         zIndex: 50,
-        animation: "ruler-fade-in 140ms ease",
+        animation: "ruler-fade-in 120ms ease",
       }}
     >
       <style>{`
         @keyframes ruler-fade-in {
-          from { opacity: 0; transform: translateY(2px); }
+          from { opacity: 0; transform: translateY(1px); }
           to   { opacity: 1; transform: translateY(0); }
         }
       `}</style>
 
-      {/* Базова лінія — тонка subtle track */}
+      {/* Hairline track — 1px на всю ширину канвасу */}
       <div style={{
         position: "absolute",
-        top: 22,
+        top: 11,
         left: 0,
         right: 0,
-        height: 2,
-        background: "rgba(28,58,46,0.10)",
-        borderRadius: 2,
+        height: 1,
+        background: trackColor,
       }} />
 
-      {/* Snap tick marks (25, 33, 50, 66, 75) */}
-      {SNAPS.map(s => (
-        <div key={s} style={{
-          position: "absolute",
-          top: 18,
-          left: `${s}%`,
-          transform: "translateX(-50%)",
-          width: 1,
-          height: 10,
-          background: "rgba(28,58,46,0.25)",
-        }} />
-      ))}
-      {/* Endpoints 0% / 100% — товстіші */}
-      <div style={{ position: "absolute", top: 16, left: 0, width: 2, height: 14, background: "rgba(28,58,46,0.45)", borderRadius: 1 }} />
-      <div style={{ position: "absolute", top: 16, right: 0, width: 2, height: 14, background: "rgba(28,58,46,0.45)", borderRadius: 1 }} />
-
-      {/* Highlighted span — амбер-бар, що показує block.x → block.x+width */}
+      {/* Highlighted span — 1.5px hairline accent на ширину блока */}
       <div style={{
         position: "absolute",
-        top: 19,
+        top: 11,
         left: `${blockX}%`,
         width: `${blockWidthPct}%`,
-        height: 8,
-        background: "linear-gradient(90deg, #D4A843 0%, #E8C266 50%, #D4A843 100%)",
-        borderRadius: 4,
-        boxShadow: "0 2px 10px rgba(212,168,67,0.45), 0 0 0 1.5px rgba(28,58,46,0.18)",
+        height: isActive ? 2 : 1.5,
+        background: accent,
+        transform: isActive ? "translateY(-0.5px)" : "translateY(-0.25px)",
+        transition: "background 120ms ease, height 120ms ease",
       }} />
 
-      {/* Edge end-caps — вертикальні риски на лівому і правому краю блока */}
+      {/* Endpoints — короткі вертикальні tick-и на лівому і правому краю блока */}
       <div style={{
         position: "absolute",
-        top: 11,
+        top: 7,
         left: `${blockX}%`,
-        transform: "translateX(-1px)",
-        width: 2,
-        height: 24,
-        background: "#1C3A2E",
-        borderRadius: 1,
-        boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+        transform: "translateX(-0.5px)",
+        width: 1,
+        height: 9,
+        background: tickColor,
       }} />
       <div style={{
         position: "absolute",
-        top: 11,
+        top: 7,
         left: `${rightPct}%`,
-        transform: "translateX(-1px)",
-        width: 2,
-        height: 24,
-        background: "#1C3A2E",
-        borderRadius: 1,
-        boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+        transform: "translateX(-0.5px)",
+        width: 1,
+        height: 9,
+        background: tickColor,
       }} />
 
-      {/* Live pill — ширина (% і px) + позиція (left %) поверх центру span-а */}
+      {/* Compact chip — дискретний бейдж з шириною та позицією. Білий з тонкою
+          амбер-рамкою; в active-режимі — амбер background. Цифри tabular-nums
+          щоб не "стрибали" при resize. */}
       <div style={{
         position: "absolute",
-        top: -8,
-        left: `${badgeOffsetPct}%`,
+        top: -10,
+        left: `${chipOffsetPct}%`,
         transform: "translateX(-50%)",
-        background: "#1C3A2E",
-        color: "#D4A843",
-        padding: "5px 11px",
-        borderRadius: 8,
-        fontSize: 12,
-        fontWeight: 800,
-        letterSpacing: "0.04em",
+        background: isActive ? "#D4A843" : "#FFFFFF",
+        color: isActive ? "#1C3A2E" : "#5C4A1F",
+        padding: "3px 9px",
+        borderRadius: 999,
+        fontSize: 10.5,
+        fontWeight: 700,
+        letterSpacing: "0.02em",
         fontFamily: ff,
-        boxShadow: "0 6px 16px rgba(28,58,46,0.32), 0 0 0 1.5px #D4A843",
+        fontVariantNumeric: "tabular-nums",
+        border: `1px solid ${isActive ? "rgba(28,58,46,0.18)" : "rgba(212,168,67,0.50)"}`,
+        boxShadow: isActive
+          ? "0 2px 8px rgba(212,168,67,0.40)"
+          : "0 1px 3px rgba(28,58,46,0.10)",
         whiteSpace: "nowrap",
         display: "inline-flex",
         alignItems: "center",
         gap: 6,
+        transition: "background 120ms ease, color 120ms ease, box-shadow 120ms ease",
       }}>
-        <span style={{ opacity: 0.6, fontWeight: 600, fontSize: 10 }}>↔</span>
-        <span>{blockWidthPct.toFixed(1)}%</span>
-        <span style={{ opacity: 0.4, fontWeight: 600, fontSize: 11 }}>·</span>
-        <span style={{ opacity: 0.85, fontWeight: 600, fontSize: 11 }}>{widthPx}px</span>
-        <span style={{ opacity: 0.4, fontWeight: 600, fontSize: 11, marginLeft: 2 }}>·</span>
-        <span style={{ opacity: 0.7, fontWeight: 600, fontSize: 10 }}>↦ {blockX.toFixed(1)}%</span>
+        <span>{widthPx}<span style={{ opacity: 0.55, marginLeft: 1 }}>px</span></span>
+        <span style={{ opacity: 0.35 }}>·</span>
+        <span>{blockWidthPct.toFixed(0)}<span style={{ opacity: 0.55, marginLeft: 1 }}>%</span></span>
       </div>
     </div>
   );
