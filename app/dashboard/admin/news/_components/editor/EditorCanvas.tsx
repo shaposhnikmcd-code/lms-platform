@@ -1121,8 +1121,10 @@ export default function EditorCanvas({ blocks, onBlocksChange, onUpload, pageBgC
                   );
                 })()}
 
-                {/* Ghost — показуємо ТІЛЬКИ при drag з палітри (для existing-block drag достатньо самого блока + snap-glow) */}
-                {activeId && activeId.startsWith("palette:") && dropPreview && isOverCanvas && (
+                {/* Ghost — показуємо ТІЛЬКИ при drag з палітри (для existing-block drag достатньо самого блока + snap-glow).
+                    Виняток: palette:image-overlay не створює самостійний блок (drop йде оверлеєм на image),
+                    тому "вільний" ghost-слот у канвасі для нього не малюємо. */}
+                {activeId && activeId.startsWith("palette:") && activeId !== "palette:image-overlay" && dropPreview && isOverCanvas && (
                   <DropGhost
                     x={dropPreview.x}
                     y={dropPreview.y}
