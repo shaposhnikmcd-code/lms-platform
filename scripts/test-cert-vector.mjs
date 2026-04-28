@@ -16,7 +16,7 @@ const samples = [
     name: 'yearly-practical.pdf',
     input: {
       templateKey: 'YEARLY_PRACTICAL',
-      recipientName: 'Ihor Shaposhnyk',
+      recipientName: 'John Bunyan',
       issueYear: 2026,
       certNumber: 'UIMP-YEAR-2026-00042',
       verificationUrl: 'https://uimp.com.ua/uk/certificate/abc123',
@@ -27,7 +27,7 @@ const samples = [
     name: 'yearly-listener.pdf',
     input: {
       templateKey: 'YEARLY_LISTENER',
-      recipientName: 'Ihor Shaposhnyk',
+      recipientName: 'John Bunyan',
       issueYear: 2026,
       certNumber: 'UIMP-YEAR-2026-00043',
       verificationUrl: 'https://uimp.com.ua/uk/certificate/abc124',
@@ -38,7 +38,7 @@ const samples = [
     name: 'course.pdf',
     input: {
       templateKey: 'COURSE',
-      recipientName: 'Ihor Shaposhnyk',
+      recipientName: 'John Bunyan',
       issueYear: 2026,
       certNumber: 'UIMP-COURSE-2026-00044',
       verificationUrl: 'https://uimp.com.ua/uk/certificate/abc125',

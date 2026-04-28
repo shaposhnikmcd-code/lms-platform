@@ -14,15 +14,16 @@ const MODAL_CSS = `
 
 const visionUrl = "https://www.vision.edu/web/";
 
+const CERT_V = '?v=2';
 const certMeta = [
   { src: '/yearly-program/vision_cert-v5.jpg', preview: '/yearly-program/vision_cert-v5.jpg', link: visionUrl, gallery: null as string[] | null },
   {
-    src: '/Certificates/test-yearly-practical-hi-p1.png',
-    preview: '/Certificates/test-yearly-practical-hi-p1.png',
+    src: `/Certificates/test-yearly-practical-hi-p1.png${CERT_V}`,
+    preview: `/Certificates/test-yearly-practical-hi-p1.png${CERT_V}`,
     link: null as string | null,
     gallery: [
-      '/Certificates/test-yearly-practical-hi-p1.png',
-      '/Certificates/test-yearly-listener-hi-p1.png',
+      `/Certificates/test-yearly-practical-hi-p1.png${CERT_V}`,
+      `/Certificates/test-yearly-listener-hi-p1.png${CERT_V}`,
     ] as string[] | null,
   },
 ];
@@ -168,6 +169,10 @@ export default function CertificatesSection({ t }: Props) {
                 <FaTimes />
               </button>
 
+              {(() => {
+                const imgs = active.gallery ?? [active.preview];
+                const multi = imgs.length > 1;
+                return (
               <div
                 ref={imgWrapRef}
                 className="cert-img-wrap"
@@ -176,12 +181,12 @@ export default function CertificatesSection({ t }: Props) {
                   display: 'flex',
                   flexDirection: 'column',
                   alignItems: zoom > 1 ? 'flex-start' : 'center',
-                  justifyContent: zoom > 1 ? 'flex-start' : 'center',
+                  justifyContent: (zoom > 1 || multi) ? 'flex-start' : 'center',
                   gap: 16,
                   maxHeight: '80vh',
                 }}
               >
-                {(active.gallery ?? [active.preview]).map((src, idx) => (
+                {imgs.map((src, idx) => (
                   <img
                     key={idx}
                     src={src}
@@ -198,6 +203,8 @@ export default function CertificatesSection({ t }: Props) {
                   />
                 ))}
               </div>
+                );
+              })()}
 
               <div style={{ textAlign: 'center', marginTop: 16 }}>
                 <p style={{ color: 'white', fontWeight: 600, fontSize: '0.9rem', marginBottom: 4 }}>{active.title}</p>
