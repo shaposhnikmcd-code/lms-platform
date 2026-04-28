@@ -14,6 +14,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import SectionedTextToolbar from "./TextToolbar";
 import { ff } from "./_settingsPrimitives";
+import { NEWS_BLOCK_CSS } from "@/lib/news/render";
 
 interface Props {
   initialHtml: string;
@@ -191,7 +192,10 @@ export default function TextStudioModal({
         </div>
       </div>
 
-      <style>{`
+      {/* Модалка — портал у document.body, тому стилі з NewsEditor можуть не
+          застосуватись (залежить від dom-position). Дублюємо CSS тут — гарантує
+          що шрифти/italic/ul-bullets працюють у редакторі модалки. */}
+      <style>{NEWS_BLOCK_CSS + `
         [data-news-block-type] .ProseMirror{outline:none;min-height:200px;color:#1C3A2E}
         [data-news-block-type] .ProseMirror p.is-editor-empty:first-child::before{
           color:#9CA3AF;content:attr(data-placeholder);float:left;height:0;pointer-events:none;font-style:normal

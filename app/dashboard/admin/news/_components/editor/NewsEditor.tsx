@@ -5,6 +5,7 @@ import { HiOutlineCheckCircle } from "react-icons/hi2";
 import { Block, NewsMeta, blocksToJson, jsonToBlocks } from "./types";
 import EditorCanvas from "./EditorCanvas";
 import MetaSidebar from "./MetaSidebar";
+import { NEWS_BLOCK_CSS } from "@/lib/news/render";
 
 // Settings slot тепер живе ВСЕРЕДИНІ BlockPalette (внизу палітри) — щоб усе ліве меню
 // було в одному компоненті, без floating overlay.
@@ -300,6 +301,9 @@ export default function NewsEditor({
 
   return (
     <div ref={editorRootRef} className="min-h-screen bg-slate-100" style={{ zoom }}>
+      {/* Спільна типографіка блоків — щоб білдер відображав текст/заголовки/цитату
+          ідентично з public-сторінкою (font-size, italic-цитата, list-style ul/ol). */}
+      <style>{NEWS_BLOCK_CSS}</style>
       <div className="max-w-[1520px] mx-auto px-6 py-10">
         {/* Top header — eyebrow + title. Дії (Save / Undo / Redo / Чернетка) винесені:
             - Save → floating-кнопка зліва від back-стрілки (внизу файлу)
