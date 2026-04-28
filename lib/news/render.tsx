@@ -56,18 +56,25 @@ export const CANVAS_WIDTH = 920;
 // успадковується через cascade. Інакше переоб'являти доведеться у двох місцях.
 export const NEWS_BLOCK_FF = "-apple-system, BlinkMacSystemFont, sans-serif";
 
+// ВАЖЛИВО для consistency builder ↔ public:
+// Tailwind preflight у проєкті скидає margin для p/ul/ol/h*/blockquote до 0.
+// Builder (TipTap всередині nashok-builder layout) успадковує цей reset, тому
+// показує tight-параграфи. Якщо public CSS додасть 0.x em margin, public
+// розійдеться з builder. Тримаємо margin: 0 на всіх елементах контенту, а
+// візуальний "ритм" задає line-height. Для h1/h2/h3 у блоку Текст лишаємо
+// малий margin-bottom, щоб підзаголовок не "склеювався" з абзацом нижче.
 export const NEWS_BLOCK_CSS = `
   [data-news-block-type="text"] {
     font-family: ${NEWS_BLOCK_FF};
     font-size: 15px;
     line-height: 1.7;
   }
-  [data-news-block-type="text"] p { margin: 0.4em 0 }
-  [data-news-block-type="text"] h1 { font-size: 1.7em; font-weight: 700; margin: 0.6em 0 0.3em; line-height: 1.25 }
-  [data-news-block-type="text"] h2 { font-size: 1.35em; font-weight: 700; margin: 0.6em 0 0.3em; line-height: 1.25 }
-  [data-news-block-type="text"] h3 { font-size: 1.15em; font-weight: 700; margin: 0.6em 0 0.3em; line-height: 1.25 }
-  [data-news-block-type="text"] ul { list-style: disc; padding-left: 1.5em; margin: 0.4em 0 }
-  [data-news-block-type="text"] ol { list-style: decimal; padding-left: 1.5em; margin: 0.4em 0 }
+  [data-news-block-type="text"] p { margin: 0 }
+  [data-news-block-type="text"] h1 { font-size: 1.7em; font-weight: 700; line-height: 1.25; margin: 0.4em 0 0.2em }
+  [data-news-block-type="text"] h2 { font-size: 1.35em; font-weight: 700; line-height: 1.25; margin: 0.4em 0 0.2em }
+  [data-news-block-type="text"] h3 { font-size: 1.15em; font-weight: 700; line-height: 1.25; margin: 0.4em 0 0.2em }
+  [data-news-block-type="text"] ul { list-style: disc; padding-left: 1.5em; margin: 0 }
+  [data-news-block-type="text"] ol { list-style: decimal; padding-left: 1.5em; margin: 0 }
 
   [data-news-block-type="heading"] {
     font-family: ${NEWS_BLOCK_FF};
@@ -86,9 +93,9 @@ export const NEWS_BLOCK_CSS = `
     line-height: 1.6;
     font-style: italic;
   }
-  [data-news-block-type="quote"] p { margin: 0.3em 0 }
-  [data-news-block-type="quote"] ul { list-style: disc; padding-left: 1.5em; margin: 0.3em 0 }
-  [data-news-block-type="quote"] ol { list-style: decimal; padding-left: 1.5em; margin: 0.3em 0 }
+  [data-news-block-type="quote"] p { margin: 0 }
+  [data-news-block-type="quote"] ul { list-style: disc; padding-left: 1.5em; margin: 0 }
+  [data-news-block-type="quote"] ol { list-style: decimal; padding-left: 1.5em; margin: 0 }
 
   [data-news-block-type] strong { font-weight: 700 }
   [data-news-block-type] em { font-style: italic }
