@@ -78,10 +78,6 @@ export default function HeadingEditor({ block, onChange, selected = false }: Pro
     ? document.getElementById("news-block-settings-slot")
     : null;
 
-  // Дефолтний розмір заголовка за рівнем — застосовується через CSS .heading-inline-{level}
-  // у style-теге нижче. У public render render.tsx робить те саме через <h{level}>.
-  const inlineLevelClass = `heading-inline-h${level}`;
-
   const sidebarPanel = (
     <div style={{ background: "#FFFFFF", fontFamily: ff }}>
       <Section>
@@ -130,13 +126,16 @@ export default function HeadingEditor({ block, onChange, selected = false }: Pro
   return (
     <>
       {settingsSlot && createPortal(sidebarPanel, settingsSlot)}
-      <div className={inlineLevelClass} style={{ width: "100%" }}>
+      {/* data-news-block-type + data-level — застосовується NEWS_BLOCK_CSS,
+          щоб font-size H1/H2/H3 збігався з public. */}
+      <div data-news-block-type="heading" data-level={level} style={{ width: "100%" }}>
         <EditorContent editor={editor} />
       </div>
       {studioOpen && (
         <TextStudioModal
           title="Редактор заголовка"
           icon="H"
+          blockType="heading"
           initialHtml={headingInitialHtml(block.data)}
           onCancel={() => setStudioOpen(false)}
           onSave={(html) => {
@@ -146,15 +145,9 @@ export default function HeadingEditor({ block, onChange, selected = false }: Pro
         />
       )}
       <style>{`
-        .heading-inline-h1 .ProseMirror{outline:none;font-size:30px;line-height:1.2;color:#1C3A2E;font-family:${ff};font-weight:700}
-        .heading-inline-h2 .ProseMirror{outline:none;font-size:24px;line-height:1.2;color:#1C3A2E;font-family:${ff};font-weight:700}
-        .heading-inline-h3 .ProseMirror{outline:none;font-size:20px;line-height:1.2;color:#1C3A2E;font-family:${ff};font-weight:700}
-        .heading-inline-h1 .ProseMirror p,
-        .heading-inline-h2 .ProseMirror p,
-        .heading-inline-h3 .ProseMirror p{margin:0}
-        .heading-inline-h1 .ProseMirror p.is-editor-empty:first-child::before,
-        .heading-inline-h2 .ProseMirror p.is-editor-empty:first-child::before,
-        .heading-inline-h3 .ProseMirror p.is-editor-empty:first-child::before{
+        [data-news-block-type="heading"] .ProseMirror{outline:none;color:#1C3A2E;font-weight:700}
+        [data-news-block-type="heading"] .ProseMirror p{margin:0}
+        [data-news-block-type="heading"] .ProseMirror p.is-editor-empty:first-child::before{
           color:#9CA3AF;content:attr(data-placeholder);float:left;height:0;pointer-events:none;font-weight:400
         }
       `}</style>

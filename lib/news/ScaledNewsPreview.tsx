@@ -6,6 +6,7 @@ import {
   CANVAS_WIDTH,
   canvasHeight,
   hasCoords,
+  NEWS_BLOCK_CSS,
   SequentialBlockRender,
   type Block,
 } from "./render";
@@ -65,41 +66,47 @@ export default function ScaledNewsPreview({ blocks }: { blocks: Block[] }) {
   // Стек-режим (легасі-блоки без x/y). Виглядає як public mobile.
   if (!useAbsolute) {
     return (
-      <div className="news-content">
-        {blocks.map((b) => (
-          <SequentialBlockRender key={b.id} block={b} />
-        ))}
-      </div>
+      <>
+        <style>{NEWS_BLOCK_CSS}</style>
+        <div className="news-content">
+          {blocks.map((b) => (
+            <SequentialBlockRender key={b.id} block={b} />
+          ))}
+        </div>
+      </>
     );
   }
 
   return (
-    <div
-      ref={wrapRef}
-      className="news-content"
-      style={{
-        position: "relative",
-        width: "100%",
-        height: `${Math.round(innerH * scale)}px`,
-        overflow: "hidden",
-      }}
-    >
+    <>
+      <style>{NEWS_BLOCK_CSS}</style>
       <div
-        ref={innerRef}
+        ref={wrapRef}
+        className="news-content"
         style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          width: `${CANVAS_WIDTH}px`,
-          height: `${innerH}px`,
-          transform: `scale(${scale})`,
-          transformOrigin: "top left",
+          position: "relative",
+          width: "100%",
+          height: `${Math.round(innerH * scale)}px`,
+          overflow: "hidden",
         }}
       >
-        {blocks.map((b) => (
-          <AbsoluteBlockRender key={b.id} block={b} />
-        ))}
+        <div
+          ref={innerRef}
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            width: `${CANVAS_WIDTH}px`,
+            height: `${innerH}px`,
+            transform: `scale(${scale})`,
+            transformOrigin: "top left",
+          }}
+        >
+          {blocks.map((b) => (
+            <AbsoluteBlockRender key={b.id} block={b} />
+          ))}
+        </div>
       </div>
-    </div>
+    </>
   );
 }

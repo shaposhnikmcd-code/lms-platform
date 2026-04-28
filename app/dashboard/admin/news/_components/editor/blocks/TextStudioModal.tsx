@@ -19,19 +19,23 @@ interface Props {
   initialHtml: string;
   onCancel: () => void;
   onSave: (html: string) => void;
-  /** Назва модалки (за замовчуванням "Редактор тексту"). Реюзаємо для Цитати. */
+  /** Назва модалки (за замовчуванням "Редактор тексту"). Реюзаємо для Цитати/Заголовка. */
   title?: string;
   /** Іконка у top-bar (за замовчуванням "¶"). */
   icon?: string;
+  /** Тип блока для CSS-cascade — щоб NEWS_BLOCK_CSS показав текст у редакторі
+   *  у тих самих розмірах як public. "text" | "heading" | "quote". */
+  blockType?: "text" | "heading" | "quote";
 }
 
-// Fullscreen-редактор для блока Текст (та Цитати). Аналог ImageStudioModal —
-// sidebar-toolbar зліва, велика робоча область справа. Save → onSave(html),
-// Cancel/Esc → onCancel.
+// Fullscreen-редактор для блоків Текст / Заголовок / Цитата. Аналог
+// ImageStudioModal — sidebar-toolbar зліва, велика робоча область справа.
+// Save → onSave(html), Cancel/Esc → onCancel.
 export default function TextStudioModal({
   initialHtml, onCancel, onSave,
   title = "Редактор тексту",
   icon = "¶",
+  blockType = "text",
 }: Props) {
   const [mounted, setMounted] = useState(false);
 
@@ -161,7 +165,8 @@ export default function TextStudioModal({
             {editor && <SectionedTextToolbar editor={editor} />}
           </div>
 
-          {/* Editor area */}
+          {/* Editor area. data-news-block-type обгортка → cascade font-size/margins
+              з NEWS_BLOCK_CSS. Така сама геометрія як на public — true WYSIWYG. */}
           <div style={{
             flex: 1, minWidth: 0,
             background: "#F5EFE6",
@@ -178,23 +183,18 @@ export default function TextStudioModal({
               minHeight: "100%",
               boxSizing: "border-box",
             }}>
-              <EditorContent editor={editor} />
+              <div data-news-block-type={blockType} {...(blockType === "heading" ? { "data-level": "2" } : {})}>
+                <EditorContent editor={editor} />
+              </div>
             </div>
           </div>
         </div>
       </div>
 
       <style>{`
-        .ProseMirror{outline:none;min-height:200px;font-size:16px;line-height:1.7;color:#1C3A2E;font-family:${ff}}
-        .ProseMirror p{margin:0.6em 0}
-        .ProseMirror h2{font-size:1.5em;font-weight:700;margin:0.8em 0 0.4em}
-        .ProseMirror h3{font-size:1.25em;font-weight:700;margin:0.7em 0 0.4em}
-        .ProseMirror ul{list-style:disc;padding-left:1.5em}
-        .ProseMirror ol{list-style:decimal;padding-left:1.5em}
-        .ProseMirror a{color:#0EA5E9;text-decoration:underline;cursor:pointer}
-        .ProseMirror mark{padding:0 2px;border-radius:2px}
-        .ProseMirror p.is-editor-empty:first-child::before{
-          color:#9CA3AF;content:attr(data-placeholder);float:left;height:0;pointer-events:none
+        [data-news-block-type] .ProseMirror{outline:none;min-height:200px;color:#1C3A2E}
+        [data-news-block-type] .ProseMirror p.is-editor-empty:first-child::before{
+          color:#9CA3AF;content:attr(data-placeholder);float:left;height:0;pointer-events:none;font-style:normal
         }
       `}</style>
     </div>

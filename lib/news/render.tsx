@@ -42,6 +42,62 @@ export interface Block {
 // effect у BlockItem перерахує height під нову ширину).
 export const CANVAS_WIDTH = 920;
 
+// ── Спільна типографіка блоків (білдер + public) ──────────────────────────────
+// Білдер і публічна сторінка ОБОВ'ЯЗКОВО мають рендерити текст з однаковими
+// font-size / line-height / margin. Інакше блок з фіксованою висотою, заданою
+// в білдері, обрізає контент на public. Цей CSS injectиться:
+//   1) [slug]/page.tsx — для public absolute desktop AND mobile sequential.
+//   2) ScaledNewsPreview — для admin-preview списку новин.
+//   3) Кожен builder-editor (TextEditor / HeadingEditor / QuoteEditor) обгортає
+//      EditorContent у `<div data-news-block-type="...">` щоб ці селектори теж
+//      спрацювали на ProseMirror всередині.
+//
+// ВАЖЛИВО: не задавати font-size на .ProseMirror в builder-editor'ах — нехай
+// успадковується через cascade. Інакше переоб'являти доведеться у двох місцях.
+export const NEWS_BLOCK_FF = "-apple-system, BlinkMacSystemFont, sans-serif";
+
+export const NEWS_BLOCK_CSS = `
+  [data-news-block-type="text"] {
+    font-family: ${NEWS_BLOCK_FF};
+    font-size: 15px;
+    line-height: 1.7;
+  }
+  [data-news-block-type="text"] p { margin: 0.4em 0 }
+  [data-news-block-type="text"] h1 { font-size: 1.7em; font-weight: 700; margin: 0.6em 0 0.3em; line-height: 1.25 }
+  [data-news-block-type="text"] h2 { font-size: 1.35em; font-weight: 700; margin: 0.6em 0 0.3em; line-height: 1.25 }
+  [data-news-block-type="text"] h3 { font-size: 1.15em; font-weight: 700; margin: 0.6em 0 0.3em; line-height: 1.25 }
+  [data-news-block-type="text"] ul { list-style: disc; padding-left: 1.5em; margin: 0.4em 0 }
+  [data-news-block-type="text"] ol { list-style: decimal; padding-left: 1.5em; margin: 0.4em 0 }
+
+  [data-news-block-type="heading"] {
+    font-family: ${NEWS_BLOCK_FF};
+    font-weight: 700;
+    line-height: 1.2;
+    margin: 0;
+  }
+  [data-news-block-type="heading"][data-level="1"] { font-size: 30px }
+  [data-news-block-type="heading"][data-level="2"] { font-size: 24px }
+  [data-news-block-type="heading"][data-level="3"] { font-size: 20px }
+  [data-news-block-type="heading"] p { margin: 0 }
+
+  [data-news-block-type="quote"] {
+    font-family: ${NEWS_BLOCK_FF};
+    font-size: 14px;
+    line-height: 1.6;
+    font-style: italic;
+  }
+  [data-news-block-type="quote"] p { margin: 0.3em 0 }
+  [data-news-block-type="quote"] ul { list-style: disc; padding-left: 1.5em; margin: 0.3em 0 }
+  [data-news-block-type="quote"] ol { list-style: decimal; padding-left: 1.5em; margin: 0.3em 0 }
+
+  [data-news-block-type] strong { font-weight: 700 }
+  [data-news-block-type] em { font-style: italic }
+  [data-news-block-type] u { text-decoration: underline }
+  [data-news-block-type] s { text-decoration: line-through }
+  [data-news-block-type] a { color: #0EA5E9; text-decoration: underline }
+  [data-news-block-type] mark { padding: 0 2px; border-radius: 2px }
+`;
+
 // Fallback-висоти для блоків без явної .height і без aspectRatio.
 // Має ЗБІГАТИСЬ з LEGACY_HEIGHT у editor/types.ts. Інакше білдер і public
 // покажуть різну висоту для блоків без явно заданої висоти (особливо image).
@@ -161,13 +217,15 @@ export function BlockInner({ block }: { block: Block }) {
     case "text":
       return (
         <div
+          data-news-block-type="text"
           style={{ textAlign: align, color: textColor }}
           dangerouslySetInnerHTML={{ __html: sanitizeHtml(block.data.html || "") }}
         />
       );
 
     case "heading": {
-      const Tag = `h${block.data.level || "2"}` as "h1" | "h2" | "h3";
+      const level = block.data.level || "2";
+      const Tag = `h${level}` as "h1" | "h2" | "h3";
       // Новий формат: data.html (TipTap-rich). Fallback — data.text + старі
       // data.fontFamily/fontSize/color (legacy form-mode заголовки).
       const html = block.data.html;
@@ -176,12 +234,14 @@ export function BlockInner({ block }: { block: Block }) {
       const customSize = Number(block.data.fontSize) || 0;
       return (
         <Tag
+          data-news-block-type="heading"
+          data-level={level}
           style={{
             color: customColor || textColor,
-            fontWeight: 700,
-            margin: "0.3em 0",
             textAlign: align,
             fontFamily: customFamily || undefined,
+            // Custom size override через inline — інакше CSS rule бере дефолт
+            // за рівнем (h1=30, h2=24, h3=20).
             fontSize: customSize > 0 ? `${customSize}px` : undefined,
           }}
           {...(html
@@ -335,6 +395,7 @@ export function BlockInner({ block }: { block: Block }) {
       const html = block.data.html;
       return (
         <blockquote
+          data-news-block-type="quote"
           style={{
             borderLeft: "4px solid #D4A843",
             margin: 0,
@@ -345,7 +406,6 @@ export function BlockInner({ block }: { block: Block }) {
             textAlign: align,
             height: "100%",
             boxSizing: "border-box",
-            fontStyle: "italic",
           }}
           {...(html
             ? { dangerouslySetInnerHTML: { __html: sanitizeHtml(html) } }

@@ -114,17 +114,21 @@ export default function QuoteEditor({ block, onChange, selected = false }: Props
   return (
     <>
       {settingsSlot && createPortal(sidebarPanel, settingsSlot)}
-      <div style={{
-        borderLeftWidth: "4px", borderLeftStyle: "solid", borderLeftColor: "#D4A843",
-        borderRadius: "0 8px 8px 0", padding: "12px 16px", background: "#E8F5E0",
-        height: "100%", boxSizing: "border-box",
-      }}>
+      <div
+        data-news-block-type="quote"
+        style={{
+          borderLeftWidth: "4px", borderLeftStyle: "solid", borderLeftColor: "#D4A843",
+          borderRadius: "0 8px 8px 0", padding: "12px 16px", background: "#E8F5E0",
+          height: "100%", boxSizing: "border-box",
+        }}
+      >
         <EditorContent editor={editor} />
       </div>
       {studioOpen && (
         <TextStudioModal
           title="Редактор цитати"
           icon="❝"
+          blockType="quote"
           initialHtml={quoteInitialHtml(block.data)}
           onCancel={() => setStudioOpen(false)}
           onSave={(html) => {
@@ -134,10 +138,9 @@ export default function QuoteEditor({ block, onChange, selected = false }: Props
         />
       )}
       <style>{`
-        .ProseMirror{outline:none;min-height:60px;font-size:14px;line-height:1.6;color:#1C3A2E;font-family:${ff};font-style:italic}
-        .ProseMirror p{margin:0.3em 0}
-        .ProseMirror p.is-editor-empty:first-child::before{
-          color:#9CA3AF;content:attr(data-placeholder);float:left;height:0;pointer-events:none
+        [data-news-block-type="quote"] .ProseMirror{outline:none;min-height:60px;color:#1C3A2E}
+        [data-news-block-type="quote"] .ProseMirror p.is-editor-empty:first-child::before{
+          color:#9CA3AF;content:attr(data-placeholder);float:left;height:0;pointer-events:none;font-style:normal
         }
       `}</style>
     </>

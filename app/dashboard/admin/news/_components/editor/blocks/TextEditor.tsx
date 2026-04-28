@@ -102,7 +102,11 @@ export default function TextEditor({ block, onChange, selected = false }: Props)
   return (
     <>
       {settingsSlot && createPortal(sidebarPanel, settingsSlot)}
-      <EditorContent editor={editor} />
+      {/* data-news-block-type — щоб NEWS_BLOCK_CSS (lib/news/render.tsx) застосувавася
+          до ProseMirror всередині. Тоді builder і public показують текст ідентично. */}
+      <div data-news-block-type="text">
+        <EditorContent editor={editor} />
+      </div>
       {studioOpen && (
         <TextStudioModal
           initialHtml={block.data.html || ""}
@@ -114,15 +118,8 @@ export default function TextEditor({ block, onChange, selected = false }: Props)
         />
       )}
       <style>{`
-        .ProseMirror{outline:none;min-height:80px;font-size:15px;line-height:1.7;color:#1C3A2E;font-family:${ff}}
-        .ProseMirror p{margin:0.4em 0}
-        .ProseMirror h2{font-size:1.35em;font-weight:700;margin:0.6em 0 0.3em}
-        .ProseMirror h3{font-size:1.15em;font-weight:700;margin:0.6em 0 0.3em}
-        .ProseMirror ul{list-style:disc;padding-left:1.5em}
-        .ProseMirror ol{list-style:decimal;padding-left:1.5em}
-        .ProseMirror a{color:#0EA5E9;text-decoration:underline;cursor:pointer}
-        .ProseMirror mark{padding:0 2px;border-radius:2px}
-        .ProseMirror p.is-editor-empty:first-child::before{
+        [data-news-block-type="text"] .ProseMirror{outline:none;min-height:80px;color:#1C3A2E}
+        [data-news-block-type="text"] .ProseMirror p.is-editor-empty:first-child::before{
           color:#9CA3AF;content:attr(data-placeholder);float:left;height:0;pointer-events:none
         }
       `}</style>

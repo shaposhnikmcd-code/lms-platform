@@ -13,6 +13,7 @@ import {
   CANVAS_WIDTH,
   canvasHeight,
   hasCoords,
+  NEWS_BLOCK_CSS,
   parseBlocks,
   repairBlocks,
   SequentialBlockRender,
@@ -175,17 +176,10 @@ export default async function NewsItemPage({ params }: Props) {
         )}
       </div>
 
-      <style>{`
-        .news-content { font-family: -apple-system, BlinkMacSystemFont, sans-serif; color: #1C3A2E; line-height: 1.7; font-size: 16px; }
-        .news-content h1 { font-size: 2rem; font-weight: 700; margin: 1.2em 0 0.5em; }
-        .news-content h2 { font-size: 1.5rem; font-weight: 700; margin: 1.1em 0 0.5em; }
-        .news-content h3 { font-size: 1.2rem; font-weight: 600; margin: 1em 0 0.4em; }
-        .news-content p { margin: 0.6em 0; }
-        .news-content ul { list-style: disc; padding-left: 1.5em; margin: 0.6em 0; }
-        .news-content ol { list-style: decimal; padding-left: 1.5em; margin: 0.6em 0; }
-        .news-content strong { font-weight: 700; }
-        .news-content em { font-style: italic; }
-        .news-content blockquote { border-left: 4px solid #D4A843; margin: 1em 0; padding: 0.5em 1em; background: #E8F5E0; border-radius: 0 6px 6px 0; }
+      <style>{NEWS_BLOCK_CSS + `
+        /* Legacy: підтримка старих новин що зберегли HTML напряму у data.content
+           без блоків. Тільки для mobile sequential обгортки .news-content. */
+        .news-content { font-family: -apple-system, BlinkMacSystemFont, sans-serif; color: #1C3A2E; line-height: 1.7; font-size: 15px; }
         .news-content hr { border: none; border-top: 2px solid #D4A843; margin: 1.5em 0; }
         .news-content img { max-width: 100%; border-radius: 8px; margin: 1em 0; }
       `}</style>
