@@ -227,6 +227,16 @@ model Payment {
   source                      SaleSource                 @default(UIMP)
   /// orderReference з зовнішньої системи (для продажів з інших сайтів, напр. tetyana-website)
   externalRef                 String?
+  /// Provisioning tracking — для course/bundle:
+  /// `enrollmentsCompletedAt` set після того, як ВСІ очікувані Enrollment-и створені.
+  /// `sendpulseSentAt` set після того, як SendPulse event надіслано для всіх slug-ів.
+  /// `provisionError` — останнє повідомлення помилки якщо провіжинінг впав.
+  /// Reconciliation cron (`/api/cron/reconcile-payments`) знаходить PAID payments з
+  /// NULL у будь-якому з 2-х timestamps і догенеровує відсутнє. Сам callback ставить ці
+  /// поля у success-кейсі, а на помилці — лишає NULL і записує `provisionError`.
+  enrollmentsCompletedAt      DateTime?
+  sendpulseSentAt             DateTime?
+  provisionError              String?
   yearlyProgramSubscription   YearlyProgramSubscription? @relation("YearlyProgramPayments", fields: [yearlyProgramSubscriptionId], references: [id])
   user                        User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
   course                      Course?                    @relation(fields: [courseId], references: [id])
@@ -240,6 +250,7 @@ model Payment {
   @@index([courseId])
   @@index([createdAt])
   @@index([source])
+  @@index([status, enrollmentsCompletedAt, sendpulseSentAt])
 }
 
 /// Сертифікати UIMP — два типи:

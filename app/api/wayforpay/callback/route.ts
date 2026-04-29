@@ -5,6 +5,7 @@ import { isYearlyProgramOrderRef, YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProg
 import { lookupStudentIdByEmail, openAccessViaEvent } from '@/lib/sendpulse';
 import { timingSafeEqualStr } from '@/lib/authTiming';
 import { YEARLY_PROGRAM } from '@/app/[locale]/yearly-program/config';
+import { provisionPayment } from '@/lib/paymentProvisioning';
 
 function getClientIp(req: NextRequest): string {
   const xff = req.headers.get('x-forwarded-for');
@@ -129,7 +130,19 @@ export async function POST(req: NextRequest) {
         actions.push(...result.actions);
         sendpulseSlugs.push(...result.sendpulseSlugs);
       } else {
-        // course або bundle
+        // course або bundle — двофазна обробка:
+        //
+        // ФАЗА A (critical, must-succeed):
+        //   Атомарний flip Payment.status = PAID через claim-then-act updateMany.
+        //   Якщо БД-помилка — НЕ ack-аємо WFP (повернемо 500), він ретраїть, поки не пройде.
+        //   Це фінансово-критична частина — гарантує що PAID не загубиться.
+        //
+        // ФАЗА B (best-effort, idempotent):
+        //   Enrollment.upsert + SendPulse event для кожного slug-а (через provisionPayment helper).
+        //   Якщо щось падає — логуємо `provisionError`, **але WFP отримує `accept`**.
+        //   Reconciliation cron (`/api/cron/reconcile-payments`) щочверть години бачить
+        //   PAID payments із NULL у `enrollmentsCompletedAt`/`sendpulseSentAt` і догенеровує.
+        //   Це і є страховка від ситуації типу 28.04 (column missing → 12 retry-storm).
         const payment = await prisma.payment.findUnique({
           where: { orderReference: orderReference! },
         });
@@ -147,97 +160,39 @@ export async function POST(req: NextRequest) {
         } else {
           prevStatus = payment.status;
 
-          // Atomic: claim-then-act flip PAID + enrollment creation в одній транзакції.
-          // Захист від: (1) подвійного flip'у якщо 2 колбеки паралельно, (2) partial state
-          // коли Payment стає PAID але enrollment не створено — WFP retry побачить already_paid
-          // і не зможе додати enrollment. Rollback при падінні будь-якого кроку.
-          type CourseBundleFlipResult =
-            | { kind: 'already_paid' }
-            | { kind: 'ok'; courseSlugs: string[]; bundleActions: string[] };
-
-          const flipResult = await prisma.$transaction(async (tx): Promise<CourseBundleFlipResult> => {
-            const claim = await tx.payment.updateMany({
-              where: { orderReference: orderReference!, status: { not: 'PAID' } },
-              data: { status: 'PAID', paidAt: new Date() },
-            });
-            if (claim.count === 0) {
-              return { kind: 'already_paid' };
-            }
-
-            const bundleActions: string[] = [];
-            let slugs: string[] = [];
-            if (payment.bundleId) {
-              const bundle = await tx.bundle.findUnique({
-                where: { id: payment.bundleId },
-                include: { courses: true },
-              });
-              if (bundle) {
-                const paidSlugs = bundle.courses.filter((c) => !c.isFree).map((c) => c.courseSlug);
-                if (bundle.type === 'CHOICE_FREE') {
-                  slugs = [...paidSlugs, ...(payment.freeSlugs ?? [])];
-                } else {
-                  const freeSlugs = bundle.courses.filter((c) => c.isFree).map((c) => c.courseSlug);
-                  slugs = [...paidSlugs, ...freeSlugs];
-                }
-                slugs = [...new Set(slugs)];
-                bundleActions.push(`bundle:${bundle.type}(${bundle.courses.length})`);
-              }
-            } else if (payment.courseId) {
-              slugs = [payment.courseId];
-            }
-
-            for (const slug of slugs) {
-              await tx.enrollment.upsert({
-                where: { userId_courseId: { userId: payment.userId, courseId: slug } },
-                create: { userId: payment.userId, courseId: slug },
-                update: {},
-              });
-              bundleActions.push(`enrollment:${slug}`);
-            }
-
-            return { kind: 'ok', courseSlugs: slugs, bundleActions };
+          // === ФАЗА A: атомарний claim flip ===
+          const claim = await prisma.payment.updateMany({
+            where: { orderReference: orderReference!, status: { not: 'PAID' } },
+            data: { status: 'PAID', paidAt: new Date() },
           });
 
-          if (flipResult.kind === 'already_paid') {
+          if (claim.count === 0) {
             skipped = true;
             skipReason = 'already_paid';
             actions.push('skip:already_paid');
             console.log('ℹ️ Payment уже PAID (claim lost), пропускаю:', orderReference);
           } else {
             actions.push('payment:updated');
-            actions.push(...flipResult.bundleActions);
 
-            const user = await prisma.user.findUnique({ where: { id: payment.userId } });
-            const sendpulseEventUrl = process.env.SENDPULSE_EVENT_URL;
-            const courseSlugs = flipResult.courseSlugs;
-
-            if (user?.email && sendpulseEventUrl) {
-              for (const slug of courseSlugs) {
-                try {
-                  await fetch(sendpulseEventUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      email: user.email,
-                      phone: '',
-                      product_name: slug,
-                      product_id: 0,
-                      product_price: Number(payment.amount),
-                      order_date: new Date().toISOString().split('T')[0],
-                    }),
-                  });
-                  sendpulseSlugs.push(slug);
-                  console.log('✅ SendPulse event sent:', user.email, slug);
-                } catch (spError) {
-                  console.error('❌ SendPulse event error:', spError, slug);
-                  actions.push(`sendpulse-error:${slug}`);
-                }
+            // === ФАЗА B: best-effort провіжинінг (НЕ кидає, повертає errors) ===
+            const fresh = await prisma.payment.findUnique({
+              where: { id: payment.id },
+            });
+            if (fresh) {
+              const provision = await provisionPayment(fresh);
+              if (provision.enrollmentsCreated.length > 0) {
+                actions.push(`enrollments:${provision.enrollmentsCreated.join(',')}`);
               }
-              if (sendpulseSlugs.length) {
-                actions.push(`sendpulse:sent(${sendpulseSlugs.length})`);
+              if (provision.sendpulseSent.length > 0) {
+                sendpulseSlugs.push(...provision.sendpulseSent);
+                actions.push(`sendpulse:sent(${provision.sendpulseSent.length})`);
               }
-            } else if (!sendpulseEventUrl) {
-              actions.push('sendpulse:env-missing');
+              if (provision.errors.length > 0) {
+                actions.push(`provision-deferred:${provision.errors.length}_err`);
+                console.error('⚠️ Provision deferred to recon cron:', orderReference, provision.errors);
+                // Не виставляємо errorMsg — Payment вже PAID, recon догенерує. Помилки
+                // лежать у Payment.provisionError для діагностики.
+              }
             }
           }
         }
@@ -366,6 +321,26 @@ async function writeLog(args: LogArgs) {
           : null;
     const currency = (args.body.currency as string | undefined) || null;
     const clientEmail = (args.body.email as string | undefined) || null;
+
+    // Dedup: WFP ретраїть кожні 30с-1год коли callback повертає 500. Без дедупа це
+    // призводить до 12+ ідентичних рядків у БД (як було 27-28.04 із missing column).
+    // Skip створення нового рядка якщо за останню годину для того ж orderRef уже є
+    // запис із ТИМ САМИМ error. Console.log нижче зберігає per-invocation trace у Vercel runtime,
+    // тому аудит не втрачаємо повністю.
+    if (orderReference && args.errorMsg) {
+      const recent = await prisma.paymentCallbackLog.findFirst({
+        where: {
+          orderReference,
+          error: args.errorMsg,
+          createdAt: { gt: new Date(Date.now() - 60 * 60 * 1000) },
+        },
+        select: { id: true },
+      });
+      if (recent) {
+        console.log(`📋 Skipping duplicate WFP callback log (same error in last 1h): ${orderReference}`);
+        return;
+      }
+    }
 
     await prisma.paymentCallbackLog.create({
       data: {

@@ -12,6 +12,10 @@
     {
       "path": "/api/cron/course-certificates",
       "schedule": "30 4 * * *"
+    },
+    {
+      "path": "/api/cron/reconcile-payments",
+      "schedule": "*/15 * * * *"
     }
   ]
 }
