@@ -53,10 +53,6 @@ export default function LessonPage() {
 
         {/* Хлібні крихти */}
         <div className="flex items-center gap-2 text-sm text-gray-500 mb-6">
-          <Link href="/dashboard/student/my-courses" className="hover:text-[#1C3A2E] transition-colors">
-            {t("breadcrumbMyCourses")}
-          </Link>
-          <span>/</span>
           <Link href={`/courses/${courseId}`} className="hover:text-[#1C3A2E] transition-colors">
             {lesson.module.course.title}
           </Link>

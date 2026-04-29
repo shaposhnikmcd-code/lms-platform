@@ -6,22 +6,16 @@ import { useState } from 'react';
 const ROLE_LABELS: Record<string, string> = {
   ADMIN: 'Адмін',
   MANAGER: 'Менеджер',
-  TEACHER: 'Викладач',
-  STUDENT: 'Студент',
 };
 
 const ROLE_REDIRECTS: Record<string, string> = {
   ADMIN: '/dashboard/admin',
   MANAGER: '/dashboard/manager',
-  TEACHER: '/dashboard/teacher',
-  STUDENT: '/dashboard/student',
 };
 
 const ROLE_HIERARCHY: Record<string, string[]> = {
-  ADMIN: ['ADMIN', 'MANAGER', 'TEACHER', 'STUDENT'],
-  MANAGER: ['MANAGER', 'STUDENT'],
-  TEACHER: ['TEACHER', 'STUDENT'],
-  STUDENT: ['STUDENT'],
+  ADMIN: ['ADMIN', 'MANAGER'],
+  MANAGER: ['MANAGER'],
 };
 
 export default function RoleSwitcher() {
@@ -32,14 +26,13 @@ export default function RoleSwitcher() {
 
   const realRole = session.user.role;
   const activeRole = session.user.activeRole;
-  const allowedRoles = ROLE_HIERARCHY[realRole] ?? ['STUDENT'];
+  const allowedRoles = ROLE_HIERARCHY[realRole] ?? [];
 
   if (allowedRoles.length <= 1) return null;
 
   const handleSwitch = async (newRole: string) => {
     if (newRole === activeRole) return;
     setLoading(true);
-    // Hide page content immediately via DOM to prevent flash of old dashboard
     document.body.style.opacity = '0';
     document.body.style.transition = 'none';
     await update({ activeRole: newRole });

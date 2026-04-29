@@ -227,13 +227,27 @@ export const authOptions: NextAuthOptions = {
       try {
         const existingUser = await prisma.user.findUnique({ where: { email } });
         if (!existingUser) {
-          await prisma.user.create({
+          const created = await prisma.user.create({
             data: {
               email,
               name: user.name,
               image: user.image,
               role: allowedRole,
               lastLoginAt: new Date(),
+            },
+          });
+          // Системна подія: акаунт створено через OAuth (актора-адміна немає,
+          // юзер сам залогінився як whitelisted email).
+          await prisma.userAuditLog.create({
+            data: {
+              userId: created.id,
+              eventType: 'CREATED',
+              targetName: created.name,
+              targetEmail: created.email,
+              targetRole: created.role,
+              actorId: null,
+              actorName: 'System (OAuth первинний логін)',
+              actorEmail: null,
             },
           });
         } else {

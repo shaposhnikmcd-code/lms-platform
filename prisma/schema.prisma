@@ -31,6 +31,7 @@ model User {
   courseTeachers             CourseTeacher[]
   news                       News[]
   passwordResetTokens        PasswordResetToken[]
+  auditEvents                UserAuditLog[]              @relation("UserAuditTarget")
   deletedAt                  DateTime?
   deletedById                String?
   deletedByName              String?
@@ -38,6 +39,35 @@ model User {
 
   @@index([role])
   @@index([deletedAt])
+}
+
+/// Лог подій життєвого циклу акаунтів ADMIN/MANAGER (хто і кого додав/видалив/відновив).
+/// Сюди НЕ записуємо buyer-юзерів від платіжних webhook-ів. Подія = один рядок.
+model UserAuditLog {
+  id           String         @id @default(cuid())
+  userId       String
+  user         User           @relation("UserAuditTarget", fields: [userId], references: [id], onDelete: Cascade)
+  eventType    UserAuditEvent
+  /// Snapshot стану цільового юзера на момент події (щоб історія була читабельною
+  /// навіть якщо юзера потім перейменували / змінили роль).
+  targetName   String?
+  targetEmail  String
+  targetRole   UserRole
+  /// Хто виконав дію. actorId може бути null якщо подія системна (OAuth-первинний логін).
+  actorId      String?
+  actorName    String?
+  actorEmail   String?
+  createdAt    DateTime       @default(now())
+
+  @@index([createdAt])
+  @@index([userId])
+  @@index([eventType])
+}
+
+enum UserAuditEvent {
+  CREATED
+  DELETED
+  RESTORED
 }
 
 model Account {

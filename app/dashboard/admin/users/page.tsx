@@ -11,8 +11,6 @@ import {
   HiOutlineXMark,
   HiOutlineShieldCheck,
   HiOutlineBriefcase,
-  HiOutlineAcademicCap,
-  HiOutlineUserCircle,
   HiOutlineLockClosed,
 } from 'react-icons/hi2';
 import { useAdminTheme, type Theme } from '../_components/adminTheme';
@@ -21,22 +19,16 @@ import { AdminShell, AdminPanel } from '../_components/AdminShell';
 const ROLE_ORDER: Record<string, number> = {
   ADMIN: 1,
   MANAGER: 2,
-  TEACHER: 3,
-  STUDENT: 4,
 };
 
 const ROLE_LABELS: Record<string, string> = {
   ADMIN: 'Адмін',
   MANAGER: 'Менеджер',
-  TEACHER: 'Викладач',
-  STUDENT: 'Студент',
 };
 
 const ROLE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   ADMIN: HiOutlineShieldCheck,
   MANAGER: HiOutlineBriefcase,
-  TEACHER: HiOutlineAcademicCap,
-  STUDENT: HiOutlineUserCircle,
 };
 
 /// Захищені акаунти: кошик і розумна зміна ролі заборонені. Порядок у мапі
@@ -67,7 +59,7 @@ export default function AdminUsersPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState('');
-  const [newUser, setNewUser] = useState({ name: '', email: '', role: 'STUDENT' });
+  const [newUser, setNewUser] = useState({ name: '', email: '', role: 'MANAGER' });
   const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
   const [editingNameId, setEditingNameId] = useState<string | null>(null);
   const [editingNameValue, setEditingNameValue] = useState('');
@@ -133,7 +125,7 @@ export default function AdminUsersPage() {
       if (!res.ok) { setCreateError(data.error || 'Помилка створення'); return; }
       setUsers(prev => [data.user, ...prev]);
       setShowCreateModal(false);
-      setNewUser({ name: '', email: '', role: 'STUDENT' });
+      setNewUser({ name: '', email: '', role: 'MANAGER' });
       setToast({
         message: 'Користувача створено. Передайте йому email — перший пароль він задасть сам при вході.',
         type: 'success',
@@ -232,7 +224,7 @@ export default function AdminUsersPage() {
   }, [users]);
 
   const roleCounts = useMemo(() => {
-    const counts: Record<string, number> = { ADMIN: 0, MANAGER: 0, TEACHER: 0, STUDENT: 0 };
+    const counts: Record<string, number> = { ADMIN: 0, MANAGER: 0 };
     for (const u of users) counts[u.role] = (counts[u.role] ?? 0) + 1;
     return counts;
   }, [users]);
@@ -250,7 +242,7 @@ export default function AdminUsersPage() {
       eyebrow="Admin · Користувачі"
       title="Користувачі"
       subtitle="Акаунти, ролі та доступи."
-      maxWidth="max-w-7xl"
+      maxWidth="max-w-[1100px]"
       rightSlot={
         <>
           <button
@@ -265,7 +257,7 @@ export default function AdminUsersPage() {
             Додати
           </button>
           <Link
-            href="/dashboard/admin/users/deleted"
+            href="/dashboard/admin/users/history"
             className={`inline-flex items-center gap-1.5 px-3.5 py-2 text-[12px] font-medium rounded-full transition-all border ${
               dark
                 ? 'bg-white/[0.04] border-white/[0.1] text-slate-300 hover:bg-white/[0.08] hover:text-white'
@@ -273,7 +265,7 @@ export default function AdminUsersPage() {
             }`}
           >
             <HiOutlineArchiveBoxXMark className="text-sm" />
-            Видалені
+            Історія змін
           </Link>
         </>
       }
@@ -294,21 +286,6 @@ export default function AdminUsersPage() {
           {toast.message}
         </div>
       )}
-
-      {/* KPI strip */}
-      <div
-        className={`mb-6 rounded-2xl grid grid-cols-2 lg:grid-cols-5 overflow-hidden backdrop-blur-sm border divide-y lg:divide-y-0 lg:divide-x ${
-          dark
-            ? 'bg-white/[0.03] border-white/[0.06] divide-white/[0.06]'
-            : 'bg-white/55 border-stone-300/50 divide-stone-300/40 shadow-[0_1px_2px_rgba(68,64,60,0.04)]'
-        }`}
-      >
-        <Kpi theme={theme} icon={HiOutlineUsers} label="Всього" value={users.length.toLocaleString()} glow />
-        <Kpi theme={theme} icon={HiOutlineShieldCheck} label="Адмінів" value={roleCounts.ADMIN.toLocaleString()} tone="danger" />
-        <Kpi theme={theme} icon={HiOutlineBriefcase} label="Менеджерів" value={roleCounts.MANAGER.toLocaleString()} tone="indigo" />
-        <Kpi theme={theme} icon={HiOutlineAcademicCap} label="Викладачів" value={roleCounts.TEACHER.toLocaleString()} tone="sky" />
-        <Kpi theme={theme} icon={HiOutlineUserCircle} label="Студентів" value={roleCounts.STUDENT.toLocaleString()} tone="success" />
-      </div>
 
       {/* Table */}
       <AdminPanel theme={theme} padding="p-0">
@@ -616,8 +593,6 @@ function RolePill({ role, theme }: { role: string; theme: Theme }) {
   const map: Record<string, { dark: string; light: string }> = {
     ADMIN:   { dark: 'bg-rose-500/15 text-rose-300 border-rose-500/20',          light: 'bg-rose-500/10 text-rose-800 border-rose-500/25' },
     MANAGER: { dark: 'bg-indigo-500/15 text-indigo-300 border-indigo-500/20',    light: 'bg-indigo-500/10 text-indigo-800 border-indigo-500/25' },
-    TEACHER: { dark: 'bg-sky-500/15 text-sky-300 border-sky-500/20',              light: 'bg-sky-500/10 text-sky-800 border-sky-500/25' },
-    STUDENT: { dark: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/20', light: 'bg-emerald-500/10 text-emerald-800 border-emerald-500/25' },
   };
   const m = map[role] ?? { dark: 'bg-slate-500/20 text-slate-400 border-slate-500/20', light: 'bg-stone-200/70 text-stone-600 border-stone-300/70' };
   return (

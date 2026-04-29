@@ -14,10 +14,8 @@ interface AuthModalProps {
 
 export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
   const [emailMode, setEmailMode] = useState(false);
-  const [registerMode, setRegisterMode] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
   const [mounted, setMounted] = useState(false);
   const t = useTranslations('Auth');
@@ -32,29 +30,9 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
   const closeModal = () => {
     onClose();
     setEmailMode(false);
-    setRegisterMode(false);
     setEmail('');
     setPassword('');
-    setName('');
     setLoading(false);
-  };
-
-  const handleRegister = async () => {
-    if (!email || !password) { alert(t('fillFields')); return; }
-    setLoading(true);
-    try {
-      const response = await fetch('/api/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, email, password }),
-      });
-      const data = await response.json();
-      if (!response.ok) { alert(data.error || t('registerError')); setLoading(false); return; }
-      // callbackUrl=/dashboard щоб після signIn юзер одразу попав у кабінет,
-      // а не назад на /login де модалка мигає перед useEffect-редіректом.
-      await signIn('credentials', { email, password, callbackUrl: '/dashboard', redirect: true });
-      closeModal();
-    } catch { alert(t('registerFail')); setLoading(false); }
   };
 
   const handleLogin = async () => {
@@ -91,10 +69,10 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
           </button>
 
           <h2 style={{ fontSize: 24, fontWeight: 700, color: '#1C3A2E', marginBottom: 8 }}>
-            {registerMode ? t('registerTitle') : t('loginTitle')}
+            {t('loginTitle')}
           </h2>
           <p style={{ color: '#6b7280', fontSize: 14, marginBottom: 24 }}>
-            {registerMode ? t('registerSubtitle') : t('loginSubtitle')}
+            {t('loginSubtitle')}
           </p>
 
           {!emailMode ? (
@@ -133,34 +111,16 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
               </div>
 
               <button
-                onClick={() => { setEmailMode(true); setRegisterMode(false); }}
+                onClick={() => { setEmailMode(true); }}
                 disabled={loading}
                 className="w-full flex items-center justify-center gap-3 bg-[#1C3A2E] text-white font-medium py-3 px-4 rounded-xl hover:bg-[#2a4f3f] transition-all mb-3 disabled:opacity-50"
               >
                 <FaEnvelope className="text-xl" />
                 <span>{t('email')}</span>
               </button>
-
-              <button
-                onClick={() => { setEmailMode(true); setRegisterMode(true); }}
-                disabled={loading}
-                className="w-full text-center text-[#D4A017] hover:text-[#b88913] transition-all text-sm disabled:opacity-50"
-              >
-                {t('noAccount')}
-              </button>
             </>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              {registerMode && (
-                <input
-                  type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#D4A017] disabled:opacity-50"
-                  placeholder={t('namePlaceholder')}
-                  disabled={loading}
-                />
-              )}
               <input
                 type="email"
                 value={email}
@@ -178,30 +138,17 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
                 disabled={loading}
               />
 
-              {registerMode ? (
-                <button onClick={handleRegister} disabled={loading}
-                  className="w-full bg-[#D4A017] text-white font-medium py-3 px-4 rounded-xl hover:bg-[#b88913] transition-all disabled:opacity-50">
-                  {loading ? t('loading') : t('register')}
-                </button>
-              ) : (
-                <button onClick={handleLogin} disabled={loading}
-                  className="w-full bg-[#D4A017] text-white font-medium py-3 px-4 rounded-xl hover:bg-[#b88913] transition-all disabled:opacity-50">
-                  {loading ? t('loading') : t('login')}
-                </button>
-              )}
+              <button onClick={handleLogin} disabled={loading}
+                className="w-full bg-[#D4A017] text-white font-medium py-3 px-4 rounded-xl hover:bg-[#b88913] transition-all disabled:opacity-50">
+                {loading ? t('loading') : t('login')}
+              </button>
 
               <div className="flex flex-col gap-2">
-                {!registerMode && (
-                  <Link href="/forgot-password"
-                    className="text-center text-[#D4A017] hover:text-[#b88913] transition-all text-sm">
-                    {t('forgotPassword')}
-                  </Link>
-                )}
-                <button onClick={() => setRegisterMode(!registerMode)} disabled={loading}
-                  className="text-center text-[#D4A017] hover:text-[#b88913] transition-all text-sm disabled:opacity-50">
-                  {registerMode ? t('hasAccount') : t('noAccount')}
-                </button>
-                <button onClick={() => { setEmailMode(false); setRegisterMode(false); }} disabled={loading}
+                <Link href="/forgot-password"
+                  className="text-center text-[#D4A017] hover:text-[#b88913] transition-all text-sm">
+                  {t('forgotPassword')}
+                </Link>
+                <button onClick={() => { setEmailMode(false); }} disabled={loading}
                   style={{ background: 'none', border: 'none', cursor: loading ? 'not-allowed' : 'pointer', color: '#D4A017', fontSize: 14, opacity: loading ? 0.5 : 1 }}>
                   {t('backToSocial')}
                 </button>

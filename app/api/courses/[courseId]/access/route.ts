@@ -24,9 +24,9 @@ export async function GET(
       },
     });
 
-    // Адміни і викладачі мають доступ до всіх курсів
+    // Адміни мають доступ до всіх курсів
     const role = (session.user as any).role;
-    const hasAccess = !!enrollment || role === 'ADMIN' || role === 'TEACHER';
+    const hasAccess = !!enrollment || role === 'ADMIN';
 
     return NextResponse.json({ hasAccess });
   } catch (error) {

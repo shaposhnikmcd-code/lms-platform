@@ -25,14 +25,14 @@ export async function GET(
       return NextResponse.json({ error: 'Урок не знайдено' }, { status: 404 });
     }
 
-    // Paywall: безкоштовні уроки — відкриті. Для платних — потрібна сесія й (enrollment або ADMIN/TEACHER).
+    // Paywall: безкоштовні уроки — відкриті. Для платних — потрібна сесія й (enrollment або ADMIN).
     if (!lesson.isFree) {
       const session = await getServerSession(authOptions);
       const user = session?.user as { id?: string; role?: string } | undefined;
       if (!user?.id) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
       }
-      const isPrivileged = user.role === 'ADMIN' || user.role === 'TEACHER';
+      const isPrivileged = user.role === 'ADMIN';
       if (!isPrivileged) {
         const enrollment = await prisma.enrollment.findUnique({
           where: { userId_courseId: { userId: user.id, courseId: lesson.module.courseId } },

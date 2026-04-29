@@ -11,8 +11,6 @@ import { HiArrowUturnLeft } from "react-icons/hi2";
 const ROLE_HOME: Record<string, string> = {
   ADMIN: "/dashboard/admin",
   MANAGER: "/dashboard/manager",
-  TEACHER: "/dashboard/teacher",
-  STUDENT: "/dashboard/student",
 };
 
 export default function DashboardBackButton() {
@@ -22,7 +20,7 @@ export default function DashboardBackButton() {
   const role = session?.user?.role;
   const roleHome = role ? ROLE_HOME[role] : null;
 
-  const ROLE_ROOTS = ["/dashboard", "/dashboard/admin", "/dashboard/manager", "/dashboard/teacher", "/dashboard/student"];
+  const ROLE_ROOTS = ["/dashboard", "/dashboard/admin", "/dashboard/manager"];
   const normalized = pathname.replace(/\/$/, "");
   const isRoot = ROLE_ROOTS.includes(normalized);
   /// Юзер стоїть на "чужому" role-кабінеті (напр. ADMIN на /dashboard/manager) —

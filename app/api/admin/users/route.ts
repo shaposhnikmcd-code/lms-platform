@@ -42,7 +42,10 @@ export async function GET(req: NextRequest) {
     const MAX_USERS = 1000;
 
     const users = await prisma.user.findMany({
-      where: deleted ? { deletedAt: { not: null } } : { deletedAt: null },
+      where: {
+        role: { in: ['ADMIN', 'MANAGER'] },
+        ...(deleted ? { deletedAt: { not: null } } : { deletedAt: null }),
+      },
       orderBy: deleted ? { deletedAt: 'desc' } : { createdAt: 'desc' },
       take: MAX_USERS,
       select: {
@@ -80,6 +83,18 @@ export async function PATCH(req: NextRequest) {
         where: { id: userId },
         data: { deletedAt: null, deletedById: null, deletedByName: null, deletedByEmail: null },
       });
+      await prisma.userAuditLog.create({
+        data: {
+          userId: updated.id,
+          eventType: 'RESTORED',
+          targetName: updated.name,
+          targetEmail: updated.email,
+          targetRole: updated.role,
+          actorId: guard.actor.id ?? null,
+          actorName: guard.actor.name ?? null,
+          actorEmail: guard.actor.email ?? null,
+        },
+      });
       return NextResponse.json({ success: true, user: updated });
     }
 
@@ -99,7 +114,7 @@ export async function PATCH(req: NextRequest) {
 
     if (!newRole) return NextResponse.json({ error: 'newRole обовязковий' }, { status: 400 });
 
-    const validRoles = ['ADMIN', 'MANAGER', 'TEACHER', 'STUDENT'];
+    const validRoles = ['ADMIN', 'MANAGER'];
     if (!validRoles.includes(newRole)) {
       return NextResponse.json({ error: 'Невалідна роль' }, { status: 400 });
     }
@@ -124,8 +139,8 @@ export async function POST(req: NextRequest) {
     const { name, email, role } = await req.json();
     if (!email) return NextResponse.json({ error: 'Email обовʼязковий' }, { status: 400 });
 
-    const validRoles = ['ADMIN', 'MANAGER', 'TEACHER', 'STUDENT'];
-    const userRole = validRoles.includes(role) ? role : 'STUDENT';
+    const validRoles = ['ADMIN', 'MANAGER'];
+    const userRole = validRoles.includes(role) ? role : 'MANAGER';
 
     const existing = await prisma.user.findUnique({ where: { email } });
     if (existing) {
@@ -142,6 +157,18 @@ export async function POST(req: NextRequest) {
           },
           include: { _count: { select: { enrollments: true } } },
         });
+        await prisma.userAuditLog.create({
+          data: {
+            userId: restored.id,
+            eventType: 'RESTORED',
+            targetName: restored.name,
+            targetEmail: restored.email,
+            targetRole: restored.role,
+            actorId: guard.actor.id ?? null,
+            actorName: guard.actor.name ?? null,
+            actorEmail: guard.actor.email ?? null,
+          },
+        });
         return NextResponse.json({ success: true, user: restored, restored: true });
       }
       return NextResponse.json({ error: 'Користувач з таким email вже існує' }, { status: 409 });
@@ -157,6 +184,19 @@ export async function POST(req: NextRequest) {
         role: userRole,
       },
       include: { _count: { select: { enrollments: true } } },
+    });
+
+    await prisma.userAuditLog.create({
+      data: {
+        userId: user.id,
+        eventType: 'CREATED',
+        targetName: user.name,
+        targetEmail: user.email,
+        targetRole: user.role,
+        actorId: guard.actor.id ?? null,
+        actorName: guard.actor.name ?? null,
+        actorEmail: guard.actor.email ?? null,
+      },
     });
 
     return NextResponse.json({ success: true, user });
@@ -180,7 +220,7 @@ export async function DELETE(req: NextRequest) {
     }
 
     // Захист від lockout: ADMIN не може soft-delete іншого ADMIN. Якщо треба зняти права —
-    // спершу PATCH { newRole: 'STUDENT' }, потім DELETE.
+    // спершу PATCH { newRole: 'MANAGER' }, потім DELETE.
     const target = await prisma.user.findUnique({
       where: { id: userId },
       select: { role: true, email: true },
@@ -206,6 +246,19 @@ export async function DELETE(req: NextRequest) {
         deletedById: actor.id ?? null,
         deletedByName: actor.name ?? null,
         deletedByEmail: actor.email ?? null,
+      },
+    });
+
+    await prisma.userAuditLog.create({
+      data: {
+        userId: updated.id,
+        eventType: 'DELETED',
+        targetName: updated.name,
+        targetEmail: updated.email,
+        targetRole: updated.role,
+        actorId: actor.id ?? null,
+        actorName: actor.name ?? null,
+        actorEmail: actor.email ?? null,
       },
     });
 
