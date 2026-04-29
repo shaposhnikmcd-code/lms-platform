@@ -2,10 +2,11 @@ import prisma from '@/lib/prisma';
 import { getTranslations, getMessages } from 'next-intl/server';
 import { NextIntlClientProvider } from 'next-intl';
 import { COURSES_BY_SLUG } from '@/lib/coursesCatalog';
+import { getCoursePriceOverrides } from '@/lib/coursePrice';
 import BundlesView, { type BundleRowData, type BundleType, type MiniatureCourse } from './_components/BundlesView';
 
 export default async function AdminBundles() {
-  const [bundles, courses, t, messages] = await Promise.all([
+  const [bundles, courses, priceOverrides, t, messages] = await Promise.all([
     prisma.bundle.findMany({
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }],
       include: { courses: true },
@@ -13,6 +14,7 @@ export default async function AdminBundles() {
     prisma.course.findMany({
       select: { id: true, slug: true, title: true, price: true },
     }),
+    getCoursePriceOverrides(),
     getTranslations({ locale: 'uk', namespace: 'CoursesPage' }),
     getMessages({ locale: 'uk' }),
   ]);
@@ -22,11 +24,12 @@ export default async function AdminBundles() {
   for (const c of courses) {
     const key = c.slug ?? c.id;
     COURSE_TITLES[key] = c.title;
-    COURSE_PRICES[key] = c.price;
+    // Single source of truth: override (admin "Курси — ціни") → DB price (sync-нутий з catalog)
+    COURSE_PRICES[key] = priceOverrides.get(key) ?? c.price;
   }
 
   // Дані для міні-рендеру BundleCard (Row View в адмінці)
-  const toMiniature = (slug: string, overridePrice?: number): MiniatureCourse | null => {
+  const toMiniature = (slug: string): MiniatureCourse | null => {
     const info = COURSES_BY_SLUG[slug];
     if (!info) return null;
     let title = COURSE_TITLES[slug] || info.titleUk || slug;
@@ -40,7 +43,7 @@ export default async function AdminBundles() {
       title,
       description,
       tag,
-      price: overridePrice ?? info.price,
+      price: priceOverrides.get(slug) ?? info.price,
       icon: info.icon,
       accent: info.accent,
       accentRgb: info.accentRgb,

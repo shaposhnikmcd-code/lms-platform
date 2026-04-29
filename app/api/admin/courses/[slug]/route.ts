@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { isAdmin } from "@/lib/adminAuth";
 import { COURSES_BY_SLUG } from "@/lib/coursesCatalog";
+import { recalcAutoPricedBundlesForCourse } from "@/lib/coursePrice";
 import { revalidateLocalized } from "@/lib/revalidatePaths";
 
 function revalidateCoursesPages(slug: string) {
@@ -61,6 +62,7 @@ export async function PATCH(
 
   if (price === null && oldPrice === null) {
     await prisma.coursePriceOverride.deleteMany({ where: { slug } });
+    await recalcAutoPricedBundlesForCourse(slug);
     revalidateCoursesPages(slug);
     return NextResponse.json({ ok: true, cleared: true });
   }
@@ -71,6 +73,7 @@ export async function PATCH(
     update: { price, oldPrice },
   });
 
+  await recalcAutoPricedBundlesForCourse(slug);
   revalidateCoursesPages(slug);
   return NextResponse.json(override);
 }
@@ -89,6 +92,7 @@ export async function DELETE(
   }
 
   await prisma.coursePriceOverride.deleteMany({ where: { slug } });
+  await recalcAutoPricedBundlesForCourse(slug);
   revalidateCoursesPages(slug);
   return NextResponse.json({ ok: true });
 }

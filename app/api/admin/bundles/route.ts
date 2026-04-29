@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { isAdmin } from "@/lib/adminAuth";
 import { revalidateLocalized } from "@/lib/revalidatePaths";
 import { translateBundleTitle } from "@/lib/translateBundle";
+import { getCoursePriceOverrides } from "@/lib/coursePrice";
 import type { BundleType } from "@prisma/client";
 
 interface BundleCourseInput {
@@ -111,17 +112,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Пакет з таким slug вже існує" }, { status: 400 });
   }
 
-  // Для FIXED_FREE і CHOICE_FREE ціна пакету = сума цін платних курсів (безкоштовні = 0)
+  // Для FIXED_FREE і CHOICE_FREE ціна пакету = сума цін платних курсів (безкоштовні = 0).
+  // Враховуємо override (admin "Курси — ціни") як єдине джерело істини.
   let finalPrice = Number(price) || 0;
   if (bundleType === "FIXED_FREE" || bundleType === "CHOICE_FREE") {
     const paidSlugs = courses.filter((c) => !c.isFree).map((c) => c.courseSlug);
-    const paidCourses = await prisma.course.findMany({
-      where: { OR: [{ slug: { in: paidSlugs } }, { id: { in: paidSlugs } }] },
-      select: { slug: true, id: true, price: true },
-    });
+    const [paidCourses, overrides] = await Promise.all([
+      prisma.course.findMany({
+        where: { OR: [{ slug: { in: paidSlugs } }, { id: { in: paidSlugs } }] },
+        select: { slug: true, id: true, price: true },
+      }),
+      getCoursePriceOverrides(),
+    ]);
     finalPrice = paidSlugs.reduce((sum, slug) => {
       const c = paidCourses.find((p) => p.slug === slug || p.id === slug);
-      return sum + (c?.price ?? 0);
+      return sum + (overrides.get(slug) ?? c?.price ?? 0);
     }, 0);
   }
 
