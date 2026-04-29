@@ -61,7 +61,7 @@ export default function AdminDashboardView({ data }: { data: AdminDashboardData 
   const attentionItems: Array<{ label: string; count: number; href: string; tone: AttentionTone }> = [];
   if (data.connectorAwaitingManager > 0) {
     attentionItems.push({
-      label: 'Коннектор очікує менеджера',
+      label: 'Конектор очікує менеджера',
       count: data.connectorAwaitingManager,
       href: '/dashboard/manager',
       tone: 'warning',
@@ -69,7 +69,7 @@ export default function AdminDashboardView({ data }: { data: AdminDashboardData 
   }
   if (data.connectorStuckNew > 0) {
     attentionItems.push({
-      label: 'Коннектор «Нове» > 12 год',
+      label: 'Конектор «Нове» > 12 год',
       count: data.connectorStuckNew,
       href: '/dashboard/manager',
       tone: 'danger',
@@ -77,7 +77,7 @@ export default function AdminDashboardView({ data }: { data: AdminDashboardData 
   }
   if (data.connectorStuckProcessing > 0) {
     attentionItems.push({
-      label: 'Коннектор «В обробці» > 24 год',
+      label: 'Конектор «В обробці» > 24 год',
       count: data.connectorStuckProcessing,
       href: '/dashboard/manager',
       tone: 'danger',
@@ -85,7 +85,7 @@ export default function AdminDashboardView({ data }: { data: AdminDashboardData 
   }
   if (data.connectorPendingPayment > 0) {
     attentionItems.push({
-      label: 'Коннектор — очікують оплати',
+      label: 'Конектор — очікують оплати',
       count: data.connectorPendingPayment,
       href: '/dashboard/manager',
       tone: 'warning',

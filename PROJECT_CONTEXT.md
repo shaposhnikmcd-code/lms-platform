@@ -57,7 +57,7 @@ lms-platform/
 │   │   ├── delete-data/
 │   │   ├── games/              # Терапевтичні ігри
 │   │   ├── links/
-│   │   │   └── connector/      # Замовлення Коннектора
+│   │   │   └── connector/      # Замовлення Конектора
 │   │   ├── login/ register/
 │   │   ├── news/
 │   │   │   ├── page.tsx
@@ -89,14 +89,14 @@ lms-platform/
 │   │   ├── nova-poshta-eu/cities/
 │   │   ├── cron/sync-divisions/
 │   │   ├── contact/            # форма зв'язку (Resend)
-│   │   ├── connector/          # замовлення Коннектора
+│   │   ├── connector/          # замовлення Конектора
 │   │   └── upload/             # Cloudinary
 │   └── dashboard/
 │       ├── page.tsx            # Редирект по ролі
 │       ├── layout.tsx
 │       ├── student/            # my-courses, certificates, payments, messages, settings
 │       ├── teacher/            # courses, messages
-│       ├── manager/            # замовлення Коннектора
+│       ├── manager/            # замовлення Конектора
 │       └── admin/
 │           ├── analytics/
 │           ├── courses/
@@ -255,7 +255,7 @@ translateContentWithDeepL(obj, lang) → T        // raw escape hatch
 | `Certificate` | Сертифікат після завершення курсу |
 | `Subscription` | monthly / 6-month / yearly |
 | `News` | blocks (JSON), slug, category (NEWS/ANNOUNCEMENT/ARTICLE), published |
-| `ConnectorOrder` | Замовлення продукту "Коннектор" |
+| `ConnectorOrder` | Замовлення продукту "Конектор" |
 | `NovaPostDivision` | Відділення Нової Пошти (кешовані) |
 | `NovaPostSyncLog` | Логи синхронізації Нової Пошти |
 | `PaymentCallbackLog` | Лог усіх WayForPay callback-ів (course/bundle/connector) |
@@ -300,7 +300,7 @@ node -e "const p=require('@prisma/client');const c=new p.PrismaClient();c.paymen
 - News block editor (адмін) + BlockRenderer (публічна)
 - Генерація сертифікатів PDF (@react-pdf/renderer)
 - Nova Poshta API (Україна: міста/вулиці/будинки/відділення/вартість + ЄС)
-- Форма "Коннектор" з доставкою
+- Форма "Конектор" з доставкою
 - Повідомлення студент ↔ вчитель
 - Cloudinary upload
 - Cron: `/api/cron/sync-divisions` (Vercel cron)

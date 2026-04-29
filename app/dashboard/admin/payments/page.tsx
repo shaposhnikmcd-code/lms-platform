@@ -45,7 +45,7 @@ export default async function AdminPayments() {
       const { plan, autoRenew } = p.yearlyProgramSubscription;
       const productLabel =
         plan === 'YEARLY'
-          ? 'Річна'
+          ? 'Річна підписка'
           : autoRenew
             ? 'Місячна Автоплатіж'
             : 'Місячна на 1 міс.';
@@ -83,7 +83,7 @@ export default async function AdminPayments() {
     createdAt: o.createdAt.toISOString(),
     clientName: o.fullName,
     clientEmail: o.email,
-    productLabel: 'Гра «Коннектор»',
+    productLabel: 'Конектор',
     amount: o.amount,
     status: o.paymentStatus,
     orderReference: o.orderReference,

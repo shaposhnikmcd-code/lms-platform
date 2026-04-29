@@ -16,7 +16,7 @@ export type Row = {
   createdAt: string;
   clientName: string;
   clientEmail: string;
-  /// Для course/bundle/connector — назва продукту. Для yearly — "Річна" або "Місячна".
+  /// Для course/bundle/connector — назва продукту. Для yearly — "Річна підписка" або "Місячна на 1 міс." / "Місячна Автоплатіж".
   productLabel: string;
   amount: number;
   status: string;
@@ -35,7 +35,7 @@ const TYPE_OPTIONS = [
   { value: 'course', label: 'Курс' },
   { value: 'bundle', label: 'Пакет' },
   { value: 'yearly', label: 'Річна програма' },
-  { value: 'connector', label: 'Коннектор' },
+  { value: 'connector', label: 'Конектор' },
 ];
 
 const STATUS_OPTIONS = [
@@ -114,7 +114,7 @@ export default function PaymentsView({ rows }: { rows: Row[] }) {
       setTheme={setTheme}
       eyebrow="Admin · Платежі"
       title="Платежі"
-      subtitle="Транзакції за курси, пакети та замовлення Коннектора."
+      subtitle="Транзакції за курси, пакети та замовлення Конектора."
       maxWidth="max-w-7xl"
     >
       {/* KPI strip */}
@@ -328,7 +328,7 @@ function TypePill({ source, theme }: { source: Row['source']; theme: Theme }) {
   const dark = theme === 'dark';
   const map = {
     bundle:    { label: 'Пакет',          dark: 'bg-violet-500/15 text-violet-300 border-violet-500/20',   light: 'bg-violet-500/10 text-violet-800 border-violet-500/25' },
-    connector: { label: 'Коннектор',      dark: 'bg-orange-500/15 text-orange-300 border-orange-500/20',   light: 'bg-orange-500/10 text-orange-800 border-orange-500/25' },
+    connector: { label: 'Гра',            dark: 'bg-orange-500/15 text-orange-300 border-orange-500/20',   light: 'bg-orange-500/10 text-orange-800 border-orange-500/25' },
     course:    { label: 'Курс',           dark: 'bg-sky-500/15 text-sky-300 border-sky-500/20',             light: 'bg-sky-500/10 text-sky-800 border-sky-500/25' },
     yearly:    { label: 'Річна програма', dark: 'bg-amber-500/15 text-amber-300 border-amber-500/20',       light: 'bg-amber-500/10 text-amber-800 border-amber-500/25' },
   }[source];

@@ -59,7 +59,7 @@ const KIND_TABS: { value: PaymentLogsData['kind']; label: string }[] = [
   { value: 'bundle',    label: 'Пакети' },
   { value: 'yearly',    label: 'Річна' },
   { value: 'monthly',   label: 'Місячна' },
-  { value: 'connector', label: 'Коннектор' },
+  { value: 'connector', label: 'Конектор' },
   { value: 'unknown',   label: 'Невідомо' },
 ];
 
