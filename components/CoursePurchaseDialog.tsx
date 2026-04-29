@@ -105,7 +105,10 @@ export default function CoursePurchaseDialog({
       const data = await res.json();
       if (data.valid) {
         let newPrice = price;
-        if (data.discountType === 'PERCENTAGE') {
+        if (data.discountType === 'FIXED_PRICE') {
+          // Per-course override-промо: фіксована ціна, задана адміном для цього курсу
+          newPrice = Math.max(1, Number(data.fixedPrice));
+        } else if (data.discountType === 'PERCENTAGE') {
           newPrice = Math.max(1, Math.round(price * (1 - data.discountValue / 100)));
         } else {
           newPrice = Math.max(1, price - data.discountValue);

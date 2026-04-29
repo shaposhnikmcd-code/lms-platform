@@ -35,6 +35,10 @@ export default async function AdminCourses() {
       hasOverride: !!o,
       overridePrice: o?.price ?? null,
       overrideOldPrice: o?.oldPrice ?? null,
+      promo1Code: o?.promo1Code ?? null,
+      promo1Price: o?.promo1Price ?? null,
+      promo2Code: o?.promo2Code ?? null,
+      promo2Price: o?.promo2Price ?? null,
       sendpulseCourseId: db?.sendpulseCourseId ?? null,
     };
   });

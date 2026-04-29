@@ -796,12 +796,36 @@ model SpecialistOverride {
 /// `oldPrice` — стара ціна, що рендериться перекресленою поруч із новою (тільки на
 /// детальних сторінках курсів; у списку /courses завжди видно тільки актуальну ціну).
 model CoursePriceOverride {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  price       Int?
+  oldPrice    Int?
+  /// Per-course промокоди (до 2 на курс). `code` зберігається в UPPER-case.
+  /// На відміну від глобальної моделі `PromoCode`, тут код може повторюватись між курсами,
+  /// і ціна — фіксована (не percentage/fixed-discount).
+  promo1Code  String?
+  promo1Price Int?
+  promo2Code  String?
+  promo2Price Int?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+/// Лог змін на сторінці адмін → Курси (ціни + промокоди + SP course ID).
+/// Пишеться при кожному PATCH/DELETE в `/api/admin/courses/[slug]`.
+/// `changes` — JSON об'єкт `{ fieldName: { old, new } }` тільки для полів, що реально змінились.
+model CoursePriceAuditLog {
   id        String   @id @default(cuid())
-  slug      String   @unique
-  price     Int?
-  oldPrice  Int?
+  slug      String
+  userId    String?
+  userEmail String?
+  userName  String?
+  action    String   // "update" | "reset"
+  changes   Json
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+
+  @@index([slug, createdAt])
+  @@index([createdAt])
 }
 
 /// Generic key-value store для app-рівневих налаштувань, які треба змінювати

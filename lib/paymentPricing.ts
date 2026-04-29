@@ -117,6 +117,13 @@ export async function resolveServerPricing(args: {
 /// Застосовує promo код до базової ціни на сервері (без довіри до клієнта).
 /// Повертає { discountedPrice, promoId } — і потім саме ROUTE вирішує коли
 /// інкрементувати usedCount (has be after Payment is successfully created).
+///
+/// Спочатку перевіряємо per-course override-промо в `CoursePriceOverride`
+/// (керується з адмінки `/dashboard/admin/courses`). Той самий код може існувати
+/// на різних курсах із різними цінами. Якщо знайдено — повертаємо фіксовану ціну,
+/// без promoId (бо це не лічильник, без maxUses/expiry).
+///
+/// Якщо per-course не знайдено — fallback на глобальну `PromoCode` модель.
 export async function applyPromoServerSide(args: {
   promoCode: string | null | undefined;
   courseId: string | null | undefined;
@@ -124,9 +131,27 @@ export async function applyPromoServerSide(args: {
 }): Promise<{ finalPrice: number; promoId: string | null }> {
   const { promoCode, courseId, basePrice } = args;
   if (!promoCode) return { finalPrice: basePrice, promoId: null };
+  const code = promoCode.toUpperCase();
 
+  // 1) Per-course override-промо (тільки для звичайних курсів-каталогу)
+  if (courseId && COURSES_BY_SLUG[courseId]) {
+    const override = await prisma.coursePriceOverride.findUnique({
+      where: { slug: courseId },
+      select: { promo1Code: true, promo1Price: true, promo2Code: true, promo2Price: true },
+    });
+    if (override) {
+      if (override.promo1Code && override.promo1Code === code && override.promo1Price !== null) {
+        return { finalPrice: Math.max(1, override.promo1Price), promoId: null };
+      }
+      if (override.promo2Code && override.promo2Code === code && override.promo2Price !== null) {
+        return { finalPrice: Math.max(1, override.promo2Price), promoId: null };
+      }
+    }
+  }
+
+  // 2) Global PromoCode fallback
   const promo = await prisma.promoCode.findUnique({
-    where: { code: promoCode.toUpperCase() },
+    where: { code },
   });
   if (!promo || !promo.active) return { finalPrice: basePrice, promoId: null };
   if (promo.expiresAt && promo.expiresAt < new Date()) return { finalPrice: basePrice, promoId: null };

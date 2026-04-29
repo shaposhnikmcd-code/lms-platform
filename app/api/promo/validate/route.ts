@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { checkRateLimit } from '@/lib/ratelimit';
+import { COURSES_BY_SLUG } from '@/lib/coursesCatalog';
 
 export async function POST(req: NextRequest) {
   try {
@@ -13,8 +14,37 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ valid: false, message: 'Промокод не вказано' });
     }
 
+    const upper = String(code).toUpperCase();
+
+    // 1) Per-course override-промо: керується з /dashboard/admin/courses.
+    // Той самий код може існувати на різних курсах із різними цінами; перевіряємо
+    // тільки в межах поточного курсу.
+    if (courseId && typeof courseId === 'string' && COURSES_BY_SLUG[courseId]) {
+      const override = await prisma.coursePriceOverride.findUnique({
+        where: { slug: courseId },
+        select: { promo1Code: true, promo1Price: true, promo2Code: true, promo2Price: true },
+      });
+      if (override) {
+        if (override.promo1Code === upper && override.promo1Price !== null) {
+          return NextResponse.json({
+            valid: true,
+            discountType: 'FIXED_PRICE',
+            fixedPrice: Math.max(1, override.promo1Price),
+          });
+        }
+        if (override.promo2Code === upper && override.promo2Price !== null) {
+          return NextResponse.json({
+            valid: true,
+            discountType: 'FIXED_PRICE',
+            fixedPrice: Math.max(1, override.promo2Price),
+          });
+        }
+      }
+    }
+
+    // 2) Global PromoCode fallback
     const promo = await prisma.promoCode.findUnique({
-      where: { code: code.toUpperCase() },
+      where: { code: upper },
     });
 
     if (!promo) {

@@ -1,6 +1,7 @@
 'use client';
 
-import { HiOutlineBookOpen } from 'react-icons/hi2';
+import Link from 'next/link';
+import { HiOutlineBookOpen, HiOutlineClock } from 'react-icons/hi2';
 import { useAdminTheme } from '../../_components/adminTheme';
 import { AdminShell, AdminPanel } from '../../_components/AdminShell';
 import CourseRow, { type CourseRowData } from './CourseRow';
@@ -9,34 +10,38 @@ export default function CoursesView({ rows }: { rows: CourseRowData[] }) {
   const { theme, setTheme } = useAdminTheme();
   const dark = theme === 'dark';
 
-  const overridesCount = rows.filter(r => r.overridePrice !== null || r.overrideOldPrice !== null).length;
 
   return (
     <AdminShell
       theme={theme}
       setTheme={setTheme}
+      maxWidth="max-w-[1214px]"
       eyebrow="Admin · Курси"
       title="Курси — ціни"
       subtitle="Керуй цінами курсів. Зміни одразу зʼявляються на «Освітні проєкти» та на сторінках курсів."
       rightSlot={
-        <div
-          className={`hidden sm:inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-[11px] font-medium ${
-            dark
-              ? 'bg-white/[0.04] border-white/[0.08] text-slate-300'
-              : 'bg-white/70 border-stone-300/60 text-stone-700'
-          }`}
-        >
-          <HiOutlineBookOpen className="text-sm" />
-          <span className="tabular-nums">{rows.length} курсів</span>
-          {overridesCount > 0 && (
-            <span
-              className={`ml-1 tabular-nums ${
-                dark ? 'text-amber-300' : 'text-amber-700'
-              }`}
-            >
-              · {overridesCount} override
-            </span>
-          )}
+        <div className="hidden sm:inline-flex items-center gap-2">
+          <div
+            className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-[11px] font-medium ${
+              dark
+                ? 'bg-white/[0.04] border-white/[0.08] text-slate-300'
+                : 'bg-white/70 border-stone-300/60 text-stone-700'
+            }`}
+          >
+            <HiOutlineBookOpen className="text-sm" />
+            <span className="tabular-nums">{rows.length} курсів</span>
+          </div>
+          <Link
+            href="/dashboard/admin/courses/history"
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-[11px] font-medium transition-colors ${
+              dark
+                ? 'bg-white/[0.04] border-white/[0.08] text-slate-200 hover:bg-white/[0.08] hover:text-white'
+                : 'bg-white/70 border-stone-300/60 text-stone-800 hover:bg-white hover:text-stone-900'
+            }`}
+          >
+            <HiOutlineClock className="text-sm" />
+            Історія змін
+          </Link>
         </div>
       }
     >
@@ -52,12 +57,16 @@ export default function CoursesView({ rows }: { rows: CourseRowData[] }) {
               }`}
             >
               <tr>
-                <Th theme={theme} width={280}>Курс</Th>
-                <Th theme={theme} width={140}>Ціна, ₴</Th>
-                <Th theme={theme} width={160}>Стара ціна</Th>
-                <Th theme={theme} width={150}>SP course ID</Th>
-                <Th theme={theme} width={120}>Дефолт</Th>
-                <Th theme={theme} width={160} align="center">Дії</Th>
+                <Th theme={theme} width={208}>Курс</Th>
+                <Th theme={theme} width={78} align="center">Ціна, ₴</Th>
+                <Th theme={theme} width={78} align="center">Стара ціна</Th>
+                <Th theme={theme} width={94} align="center">SP ID</Th>
+                <Th theme={theme} width={86} align="center">Дефолт</Th>
+                <Th theme={theme} width={119} align="center">Промокод 1</Th>
+                <Th theme={theme} width={78} align="center">Ціна 1, ₴</Th>
+                <Th theme={theme} width={119} align="center">Промокод 2</Th>
+                <Th theme={theme} width={78} align="center">Ціна 2, ₴</Th>
+                <Th theme={theme} width={125} align="center">Дії</Th>
               </tr>
             </thead>
             <tbody className={`divide-y ${dark ? 'divide-white/[0.05]' : 'divide-stone-200/70'}`}>
@@ -91,9 +100,11 @@ export default function CoursesView({ rows }: { rows: CourseRowData[] }) {
           <li>«Ціна» — значення, яке зараз бачать відвідувачі сайту.</li>
           <li>«Стара ціна» — якщо заповнена, на сторінці курсу зʼявиться перекреслена. На «Освітніх проєктах» — лише актуальна.</li>
           <li>«Дефолт» — оригінальна ціна з коду. Збігається — override не зберігається.</li>
-          <li>«Скинути» — повертає і ціну, і стару ціну до дефолтних.</li>
+          <li>«Промокод 1/2» — до двох промокодів на курс. Якщо клієнт введе цей код у формі оплати — отримає вказану «Ціну 1/2» замість поточної. Один код можна використати на різних курсах: на кожному курсі ціна буде своя. Заповнюй пару «код + ціна» разом — або обидва, або жодного.</li>
+          <li>«Скинути» — повертає всі поля (ціну, стару ціну, обидва промокоди) до дефолтних.</li>
           <li>«SP course ID» — числовий ID курсу в SendPulse Education (Автоматизація → Онлайн-курси → URL). Без нього cron не видаватиме сертифікати автоматично — лише ручна видача через розділ «Сертифікати».</li>
           <li>Зміна ціни курсу НЕ перераховує пакети автоматично — редагуй в розділі «Пакети».</li>
+          <li>Усі зміни на цій сторінці записуються в журнал «Історія змін» (хто, коли, що змінив).</li>
         </ul>
       </div>
     </AdminShell>
@@ -114,7 +125,7 @@ function Th({
   const dark = theme === 'dark';
   return (
     <th
-      className={`text-[10px] uppercase tracking-[0.18em] font-semibold px-4 py-3 ${
+      className={`text-[10px] uppercase tracking-[0.14em] font-semibold px-2 py-3 ${
         align === 'center' ? 'text-center' : align === 'right' ? 'text-right' : 'text-left'
       } ${dark ? 'text-slate-500' : 'text-stone-500'}`}
       style={width ? { minWidth: width } : undefined}

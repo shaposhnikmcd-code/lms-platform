@@ -16,6 +16,10 @@ export interface CourseRowData {
   hasOverride: boolean;
   overridePrice: number | null;
   overrideOldPrice: number | null;
+  promo1Code: string | null;
+  promo1Price: number | null;
+  promo2Code: string | null;
+  promo2Price: number | null;
   sendpulseCourseId: number | null;
 }
 
@@ -27,6 +31,13 @@ function parsePriceInput(value: string): { ok: boolean; num: number | null } {
     return { ok: false, num: null };
   }
   return { ok: true, num };
+}
+
+function parsePromoInput(value: string): { ok: boolean; code: string | null } {
+  const trimmed = value.trim();
+  if (trimmed === '') return { ok: true, code: null };
+  if (!/^[A-Za-z0-9_-]{2,32}$/.test(trimmed)) return { ok: false, code: null };
+  return { ok: true, code: trimmed.toUpperCase() };
 }
 
 export default function CourseRow({
@@ -48,6 +59,14 @@ export default function CourseRow({
   const [oldPriceStr, setOldPriceStr] = useState(
     initialOldPrice !== null ? String(initialOldPrice) : '',
   );
+  const [promo1CodeStr, setPromo1CodeStr] = useState(row.promo1Code ?? '');
+  const [promo1PriceStr, setPromo1PriceStr] = useState(
+    row.promo1Price !== null ? String(row.promo1Price) : '',
+  );
+  const [promo2CodeStr, setPromo2CodeStr] = useState(row.promo2Code ?? '');
+  const [promo2PriceStr, setPromo2PriceStr] = useState(
+    row.promo2Price !== null ? String(row.promo2Price) : '',
+  );
   const [spIdStr, setSpIdStr] = useState(
     row.sendpulseCourseId !== null ? String(row.sendpulseCourseId) : '',
   );
@@ -58,14 +77,49 @@ export default function CourseRow({
 
   const priceParsed = parsePriceInput(priceStr);
   const oldPriceParsed = parsePriceInput(oldPriceStr);
-  const formValid = priceParsed.ok && oldPriceParsed.ok && priceParsed.num !== null;
+  const promo1CodeParsed = parsePromoInput(promo1CodeStr);
+  const promo1PriceParsed = parsePriceInput(promo1PriceStr);
+  const promo2CodeParsed = parsePromoInput(promo2CodeStr);
+  const promo2PriceParsed = parsePriceInput(promo2PriceStr);
+
+  // pair validation: для кожного промо — або обидва заповнені, або жодного
+  const promo1PairOk =
+    (promo1CodeParsed.code !== null) === (promo1PriceParsed.num !== null);
+  const promo2PairOk =
+    (promo2CodeParsed.code !== null) === (promo2PriceParsed.num !== null);
+  const promosNotDup =
+    !(promo1CodeParsed.code && promo2CodeParsed.code &&
+      promo1CodeParsed.code === promo2CodeParsed.code);
+
+  const formValid =
+    priceParsed.ok &&
+    oldPriceParsed.ok &&
+    priceParsed.num !== null &&
+    promo1CodeParsed.ok &&
+    promo1PriceParsed.ok &&
+    promo2CodeParsed.ok &&
+    promo2PriceParsed.ok &&
+    promo1PairOk &&
+    promo2PairOk &&
+    promosNotDup;
+
   const currentPrice = priceParsed.num;
   const currentOldPrice = oldPriceParsed.num;
 
   const dirty =
-    formValid && (currentPrice !== initialPrice || currentOldPrice !== initialOldPrice);
+    formValid && (
+      currentPrice !== initialPrice ||
+      currentOldPrice !== initialOldPrice ||
+      (promo1CodeParsed.code ?? null) !== (row.promo1Code ?? null) ||
+      (promo1PriceParsed.num ?? null) !== (row.promo1Price ?? null) ||
+      (promo2CodeParsed.code ?? null) !== (row.promo2Code ?? null) ||
+      (promo2PriceParsed.num ?? null) !== (row.promo2Price ?? null)
+    );
 
-  const hasAnyOverride = row.hasOverride;
+  const hasAnyOverride =
+    row.hasOverride ||
+    row.promo1Code !== null ||
+    row.promo2Code !== null;
 
   async function handleSave() {
     if (!formValid || currentPrice === null) return;
@@ -76,6 +130,10 @@ export default function CourseRow({
       const payload = {
         price: priceMatchesDefault ? null : currentPrice,
         oldPrice: oldPriceMatchesDefault ? null : currentOldPrice,
+        promo1Code: promo1CodeParsed.code,
+        promo1Price: promo1PriceParsed.num,
+        promo2Code: promo2CodeParsed.code,
+        promo2Price: promo2PriceParsed.num,
       };
       const res = await fetch(`/api/admin/courses/${row.slug}`, {
         method: 'PATCH',
@@ -143,6 +201,10 @@ export default function CourseRow({
       }
       setPriceStr(String(row.defaultPrice));
       setOldPriceStr(row.defaultOldPrice !== null ? String(row.defaultOldPrice) : '');
+      setPromo1CodeStr('');
+      setPromo1PriceStr('');
+      setPromo2CodeStr('');
+      setPromo2PriceStr('');
       router.refresh();
     } catch (err) {
       alert(`Помилка: ${err}`);
@@ -152,29 +214,25 @@ export default function CourseRow({
     }
   }
 
-  const inputBase = 'w-full px-2.5 py-1.5 text-sm rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-0 border tabular-nums transition-colors';
+  const inputBase = 'w-full px-2 py-1.5 text-[13px] rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-0 border tabular-nums transition-colors';
   const inputOk = dark
     ? 'bg-white/[0.04] border-white/[0.08] text-slate-100 focus:ring-amber-400/50 focus:border-amber-400/40 placeholder:text-slate-600'
     : 'bg-white/80 border-stone-300/60 text-stone-900 focus:ring-amber-500/40 focus:border-amber-500/50 placeholder:text-stone-400';
+  const inputOverride = dark
+    ? 'bg-amber-500/[0.08] border-amber-400/40 text-amber-100 focus:ring-amber-400/50 focus:border-amber-400/60 placeholder:text-amber-200/40'
+    : 'bg-amber-100/60 border-amber-500/50 text-amber-950 focus:ring-amber-500/40 focus:border-amber-600/60 placeholder:text-amber-700/50';
   const inputBad = dark
     ? 'bg-rose-500/10 border-rose-400/40 text-rose-200 focus:ring-rose-400/40'
     : 'bg-rose-100/60 border-rose-400/60 text-rose-900 focus:ring-rose-500/40';
 
-  const priceCls = `${inputBase} ${priceParsed.ok && priceParsed.num !== null ? inputOk : inputBad}`;
-  const oldPriceCls = `${inputBase} ${oldPriceParsed.ok ? inputOk : inputBad}`;
-
-  const overrideBadge = (
-    <span
-      className={`text-[10px] font-medium rounded-full px-2 py-0.5 whitespace-nowrap border ${
-        dark
-          ? 'text-amber-200 bg-amber-500/10 border-amber-500/25'
-          : 'text-amber-900 bg-amber-200/50 border-amber-500/40'
-      }`}
-      title="Значення override-не"
-    >
-      override
-    </span>
-  );
+  const priceTone = row.overridePrice !== null ? inputOverride : inputOk;
+  const oldPriceTone = row.overrideOldPrice !== null ? inputOverride : inputOk;
+  const priceCls = `${inputBase} text-center ${priceParsed.ok && priceParsed.num !== null ? priceTone : inputBad}`;
+  const oldPriceCls = `${inputBase} text-center ${oldPriceParsed.ok ? oldPriceTone : inputBad}`;
+  const promo1CodeCls = `${inputBase} text-center ${promo1CodeParsed.ok && promo1PairOk && promosNotDup ? inputOk : inputBad}`;
+  const promo1PriceCls = `${inputBase} text-center ${promo1PriceParsed.ok && promo1PairOk ? inputOk : inputBad}`;
+  const promo2CodeCls = `${inputBase} text-center ${promo2CodeParsed.ok && promo2PairOk && promosNotDup ? inputOk : inputBad}`;
+  const promo2PriceCls = `${inputBase} text-center ${promo2PriceParsed.ok && promo2PairOk ? inputOk : inputBad}`;
 
   const titleCell = (
     <div className="flex items-center gap-3">
@@ -194,35 +252,35 @@ export default function CourseRow({
   );
 
   const priceCell = (
-    <div className="flex items-center gap-2">
-      <input
-        type="text"
-        inputMode="numeric"
-        className={priceCls}
-        value={priceStr}
-        onChange={e => setPriceStr(e.target.value)}
-      />
-      {row.overridePrice !== null && overrideBadge}
-    </div>
+    <input
+      type="text"
+      inputMode="numeric"
+      className={priceCls}
+      value={priceStr}
+      onChange={e => setPriceStr(e.target.value)}
+      title={row.overridePrice !== null ? `Override (дефолт: ${row.defaultPrice} ₴)` : undefined}
+    />
   );
 
   const oldPriceCell = (
-    <div className="flex items-center gap-2">
-      <input
-        type="text"
-        inputMode="numeric"
-        placeholder="— не показувати"
-        className={oldPriceCls}
-        value={oldPriceStr}
-        onChange={e => setOldPriceStr(e.target.value)}
-      />
-      {row.overrideOldPrice !== null && overrideBadge}
-    </div>
+    <input
+      type="text"
+      inputMode="numeric"
+      placeholder="не показ."
+      className={oldPriceCls}
+      value={oldPriceStr}
+      onChange={e => setOldPriceStr(e.target.value)}
+      title={
+        row.overrideOldPrice !== null
+          ? `Override (дефолт: ${row.defaultOldPrice ?? '—'})`
+          : 'Порожньо — не показувати перекреслену ціну на сторінці курсу'
+      }
+    />
   );
 
-  const spIdCls = `${inputBase} ${spIdParsed.ok ? inputOk : inputBad}`;
+  const spIdCls = `${inputBase} text-center ${spIdParsed.ok ? inputOk : inputBad}`;
   const spIdCell = (
-    <div className="flex items-center gap-1.5">
+    <div className="flex items-center gap-1.5 justify-center">
       <input
         type="text"
         inputMode="numeric"
@@ -248,8 +306,49 @@ export default function CourseRow({
     </div>
   );
 
+  const promo1CodeCell = (
+    <input
+      type="text"
+      placeholder="—"
+      className={`${promo1CodeCls} uppercase`}
+      value={promo1CodeStr}
+      onChange={e => setPromo1CodeStr(e.target.value)}
+      title="2–32 символи: латиниця, цифри, дефіс, підкреслення"
+    />
+  );
+  const promo1PriceCell = (
+    <input
+      type="text"
+      inputMode="numeric"
+      placeholder="—"
+      className={promo1PriceCls}
+      value={promo1PriceStr}
+      onChange={e => setPromo1PriceStr(e.target.value)}
+    />
+  );
+  const promo2CodeCell = (
+    <input
+      type="text"
+      placeholder="—"
+      className={`${promo2CodeCls} uppercase`}
+      value={promo2CodeStr}
+      onChange={e => setPromo2CodeStr(e.target.value)}
+      title="2–32 символи: латиниця, цифри, дефіс, підкреслення"
+    />
+  );
+  const promo2PriceCell = (
+    <input
+      type="text"
+      inputMode="numeric"
+      placeholder="—"
+      className={promo2PriceCls}
+      value={promo2PriceStr}
+      onChange={e => setPromo2PriceStr(e.target.value)}
+    />
+  );
+
   const defaultCell = (
-    <div className={`text-[12px] tabular-nums leading-relaxed ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
+    <div className={`text-[12px] tabular-nums leading-relaxed text-center ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
       <div>{row.defaultPrice.toLocaleString()} ₴</div>
       {row.defaultOldPrice !== null && (
         <div className={dark ? 'text-slate-500' : 'text-stone-400'}>
@@ -322,6 +421,32 @@ export default function CourseRow({
           </div>
           {spIdCell}
         </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <div className={`text-[10px] uppercase tracking-[0.18em] font-medium mb-1 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+              Промокод 1
+            </div>
+            {promo1CodeCell}
+          </div>
+          <div>
+            <div className={`text-[10px] uppercase tracking-[0.18em] font-medium mb-1 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+              Ціна 1, ₴
+            </div>
+            {promo1PriceCell}
+          </div>
+          <div>
+            <div className={`text-[10px] uppercase tracking-[0.18em] font-medium mb-1 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+              Промокод 2
+            </div>
+            {promo2CodeCell}
+          </div>
+          <div>
+            <div className={`text-[10px] uppercase tracking-[0.18em] font-medium mb-1 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+              Ціна 2, ₴
+            </div>
+            {promo2PriceCell}
+          </div>
+        </div>
         <div className="flex items-center justify-between gap-3">
           <div>
             <div className={`text-[10px] uppercase tracking-[0.18em] font-medium mb-1 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
@@ -337,12 +462,16 @@ export default function CourseRow({
 
   return (
     <tr className={dark ? 'hover:bg-white/[0.02]' : 'hover:bg-stone-50/80'}>
-      <td className="px-4 py-3 align-middle">{titleCell}</td>
-      <td className="px-3 py-3 align-middle">{priceCell}</td>
-      <td className="px-3 py-3 align-middle">{oldPriceCell}</td>
-      <td className="px-3 py-3 align-middle">{spIdCell}</td>
-      <td className="px-3 py-3 align-middle">{defaultCell}</td>
-      <td className="px-3 py-3 align-middle">{actionsCell}</td>
+      <td className="px-3 py-3 align-middle">{titleCell}</td>
+      <td className="px-2 py-3 align-middle">{priceCell}</td>
+      <td className="px-2 py-3 align-middle">{oldPriceCell}</td>
+      <td className="px-2 py-3 align-middle">{spIdCell}</td>
+      <td className="px-2 py-3 align-middle">{defaultCell}</td>
+      <td className="px-2 py-3 align-middle">{promo1CodeCell}</td>
+      <td className="px-2 py-3 align-middle">{promo1PriceCell}</td>
+      <td className="px-2 py-3 align-middle">{promo2CodeCell}</td>
+      <td className="px-2 py-3 align-middle">{promo2PriceCell}</td>
+      <td className="px-2 py-3 align-middle">{actionsCell}</td>
     </tr>
   );
 }
@@ -391,7 +520,7 @@ function ResetModal({
       >
         <h3 className="text-lg font-semibold mb-1">Скинути ціни?</h3>
         <p className={`text-sm mb-5 ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
-          Ціна і стара ціна курсу{' '}
+          Ціна, стара ціна та обидва промокоди курсу{' '}
           <span className={`font-semibold ${dark ? 'text-slate-100' : 'text-stone-900'}`}>«{title}»</span>{' '}
           повернуться до дефолтних значень із коду.
         </p>
