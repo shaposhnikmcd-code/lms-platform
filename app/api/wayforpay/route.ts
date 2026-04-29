@@ -4,7 +4,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
 import { isYearlyProgramOrderRef, YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
-import { buildRegularPurchaseFlags } from '@/lib/wayforpay';
+import { buildRegularPurchaseFlags, removeRegularSchedule } from '@/lib/wayforpay';
 import { applyPromoServerSide, resolveServerPricing } from '@/lib/paymentPricing';
 import { checkRateLimit } from '@/lib/ratelimit';
 
@@ -154,6 +154,56 @@ export async function POST(req: NextRequest) {
         });
         if (existing) {
           yearlyProgramSubscriptionId = existing.id;
+          // Sync autoRenew з recurring у обидва боки. Без цього БД залишається "разова"
+          // навіть коли юзер апгрейдиться на АВТОПЛАТІЖ (callback пише monthly-once у логи).
+          const desiredAutoRenew = plan === 'MONTHLY' && recurring === true;
+          if (existing.autoRenew !== desiredAutoRenew) {
+            // Downgrade: знімаємо WFP regularApi на existing підписку перед UPDATE.
+            // Якщо REMOVE впаде — все одно мутимо БД, щоб уникнути неконсистентного стану;
+            // помилку логуємо в subscription event для діагностики.
+            let wfpRemoveError: string | null = null;
+            if (!desiredAutoRenew && existing.autoRenew) {
+              try {
+                const merchantPassword = process.env.WAYFORPAY_MERCHANT_PASSWORD;
+                if (!merchantPassword) {
+                  wfpRemoveError = 'WAYFORPAY_MERCHANT_PASSWORD не налаштовано';
+                } else {
+                  const firstPayment = await prisma.payment.findFirst({
+                    where: { yearlyProgramSubscriptionId: existing.id, status: 'PAID' },
+                    orderBy: { paidAt: 'asc' },
+                  });
+                  if (firstPayment) {
+                    const result = await removeRegularSchedule({
+                      merchantAccount: merchantLogin,
+                      merchantPassword,
+                      orderReference: firstPayment.orderReference,
+                    });
+                    if (!result.ok) wfpRemoveError = JSON.stringify(result.raw).slice(0, 300);
+                  }
+                }
+              } catch (e) {
+                wfpRemoveError = (e as Error).message;
+              }
+            }
+
+            await prisma.yearlyProgramSubscription.update({
+              where: { id: existing.id },
+              data: {
+                autoRenew: desiredAutoRenew,
+                ...(desiredAutoRenew ? {} : { recToken: null }),
+              },
+            });
+            await prisma.yearlyProgramSubscriptionEvent.create({
+              data: {
+                subscriptionId: existing.id,
+                type: desiredAutoRenew ? 'autorenew_upgraded' : 'autorenew_downgraded',
+                message: desiredAutoRenew
+                  ? 'Upgraded to АВТОПЛАТІЖ on new payment'
+                  : `Downgraded to РАЗОВА on new payment${wfpRemoveError ? ` · WFP remove error: ${wfpRemoveError}` : ' · WFP regular removed'}`,
+                metadata: wfpRemoveError ? { wfpRemoveError } : {},
+              },
+            });
+          }
         } else {
           const autoRenew = plan === 'MONTHLY' && recurring === true;
           const created = await prisma.yearlyProgramSubscription.create({
