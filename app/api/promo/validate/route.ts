@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { checkRateLimit } from '@/lib/ratelimit';
 import { COURSES_BY_SLUG } from '@/lib/coursesCatalog';
+import { YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
 
 export async function POST(req: NextRequest) {
   try {
@@ -39,6 +40,31 @@ export async function POST(req: NextRequest) {
             fixedPrice: Math.max(1, override.promo2Price),
           });
         }
+      }
+    }
+
+    // 1b) Категорійний промокод (bundle / connector / yearly / monthly) — один код на всю категорію.
+    const categoryKey: string | null =
+      typeof courseId === 'string' && courseId.startsWith('bundle_')
+        ? 'bundle'
+        : courseId === 'connector'
+        ? 'connector'
+        : courseId === YEARLY_PROGRAM_CONFIG.monthlyOrderPrefix
+        ? 'monthly'
+        : courseId === YEARLY_PROGRAM_CONFIG.yearlyOrderPrefix
+        ? 'yearly'
+        : null;
+    if (categoryKey) {
+      const cat = await prisma.categoryPromoOverride.findUnique({
+        where: { category: categoryKey },
+        select: { promo1Code: true, promo1Price: true },
+      });
+      if (cat?.promo1Code === upper && cat.promo1Price !== null) {
+        return NextResponse.json({
+          valid: true,
+          discountType: 'FIXED_PRICE',
+          fixedPrice: Math.max(1, cat.promo1Price),
+        });
       }
     }
 

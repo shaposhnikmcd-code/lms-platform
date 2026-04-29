@@ -1,12 +1,19 @@
 'use client';
 
 import Link from 'next/link';
-import { HiOutlineBookOpen, HiOutlineClock } from 'react-icons/hi2';
+import { HiOutlineClock } from 'react-icons/hi2';
 import { useAdminTheme } from '../../_components/adminTheme';
 import { AdminShell, AdminPanel } from '../../_components/AdminShell';
 import CourseRow, { type CourseRowData } from './CourseRow';
+import CategoryRow, { type CategoryRowData } from './CategoryRow';
 
-export default function CoursesView({ rows }: { rows: CourseRowData[] }) {
+export default function CoursesView({
+  rows,
+  categoryRows,
+}: {
+  rows: CourseRowData[];
+  categoryRows: CategoryRowData[];
+}) {
   const { theme, setTheme } = useAdminTheme();
   const dark = theme === 'dark';
 
@@ -15,22 +22,12 @@ export default function CoursesView({ rows }: { rows: CourseRowData[] }) {
     <AdminShell
       theme={theme}
       setTheme={setTheme}
-      maxWidth="max-w-[1214px]"
+      maxWidth="max-w-[1266px]"
       eyebrow="Admin · Курси"
       title="Курси — ціни"
       subtitle="Керуй цінами курсів. Зміни одразу зʼявляються на «Освітні проєкти» та на сторінках курсів."
       rightSlot={
         <div className="hidden sm:inline-flex items-center gap-2">
-          <div
-            className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-[11px] font-medium ${
-              dark
-                ? 'bg-white/[0.04] border-white/[0.08] text-slate-300'
-                : 'bg-white/70 border-stone-300/60 text-stone-700'
-            }`}
-          >
-            <HiOutlineBookOpen className="text-sm" />
-            <span className="tabular-nums">{rows.length} курсів</span>
-          </div>
           <Link
             href="/dashboard/admin/courses/history"
             className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-[11px] font-medium transition-colors ${
@@ -57,7 +54,7 @@ export default function CoursesView({ rows }: { rows: CourseRowData[] }) {
               }`}
             >
               <tr>
-                <Th theme={theme} width={208}>Курс</Th>
+                <Th theme={theme} width={260}>Курс</Th>
                 <Th theme={theme} width={78} align="center">Ціна, ₴</Th>
                 <Th theme={theme} width={78} align="center">Стара ціна</Th>
                 <Th theme={theme} width={94} align="center">SP ID</Th>
@@ -73,6 +70,9 @@ export default function CoursesView({ rows }: { rows: CourseRowData[] }) {
               {rows.map(row => (
                 <CourseRow key={row.slug} row={row} theme={theme} />
               ))}
+              {categoryRows.map(row => (
+                <CategoryRow key={row.category} row={row} theme={theme} />
+              ))}
             </tbody>
           </table>
         </div>
@@ -81,6 +81,9 @@ export default function CoursesView({ rows }: { rows: CourseRowData[] }) {
         <div className={`md:hidden divide-y ${dark ? 'divide-white/[0.05]' : 'divide-stone-200/70'}`}>
           {rows.map(row => (
             <CourseRow key={row.slug} row={row} theme={theme} mobile />
+          ))}
+          {categoryRows.map(row => (
+            <CategoryRow key={row.category} row={row} theme={theme} mobile />
           ))}
         </div>
       </AdminPanel>

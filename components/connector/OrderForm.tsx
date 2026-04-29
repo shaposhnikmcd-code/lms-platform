@@ -175,12 +175,51 @@ export default function OrderForm({ isOpen, onClose, labels }: OrderFormProps) {
   const [submitStatus, setSubmitStatus] = useState<'error' | null>(null);
   const [nameError, setNameError] = useState<string | null>(null);
 
+  const [promoCode, setPromoCode] = useState('');
+  const [promoApplied, setPromoApplied] = useState(false);
+  const [promoLoading, setPromoLoading] = useState(false);
+  const [promoError, setPromoError] = useState<string | null>(null);
+  const [promoPrice, setPromoPrice] = useState<number | null>(null);
+
   const euCityDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isUkraine = formData.country === 'UA';
-  const effectiveGamePrice = isAdmin ? ADMIN_TEST_PRICE : GAME_PRICE;
-  const effectiveDeliveryCost = isAdmin ? 0 : deliveryCost;
+  const baseGamePrice = isAdmin ? ADMIN_TEST_PRICE : GAME_PRICE;
+  const baseDeliveryCost = isAdmin ? 0 : deliveryCost;
+  const effectiveGamePrice = promoApplied && promoPrice !== null ? promoPrice : baseGamePrice;
+  const effectiveDeliveryCost = promoApplied ? 0 : baseDeliveryCost;
   const totalAmount = effectiveDeliveryCost ? effectiveGamePrice + effectiveDeliveryCost : effectiveGamePrice;
+
+  const handleApplyPromo = async () => {
+    if (!promoCode.trim()) return;
+    setPromoLoading(true);
+    setPromoError(null);
+    try {
+      const res = await fetch('/api/promo/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: promoCode.trim(), courseId: 'connector' }),
+      });
+      const data = await res.json();
+      if (data.valid && typeof data.fixedPrice === 'number') {
+        setPromoApplied(true);
+        setPromoPrice(data.fixedPrice);
+      } else {
+        setPromoError(data.message || 'Промокод недійсний');
+      }
+    } catch {
+      setPromoError('Помилка перевірки');
+    } finally {
+      setPromoLoading(false);
+    }
+  };
+
+  const handleResetPromo = () => {
+    setPromoApplied(false);
+    setPromoPrice(null);
+    setPromoCode('');
+    setPromoError(null);
+  };
 
   const buildCourierAddress = () => {
     return [
@@ -339,6 +378,7 @@ export default function OrderForm({ isOpen, onClose, labels }: OrderFormProps) {
           gamePrice: effectiveGamePrice,
           shippingCost: effectiveDeliveryCost ?? 0,
           callMe: formData.callMe,
+          promoCode: promoApplied ? promoCode.trim() : undefined,
         }),
       });
       if (!orderRes.ok) throw new Error('Order save error');
@@ -545,6 +585,50 @@ export default function OrderForm({ isOpen, onClose, labels }: OrderFormProps) {
               )}
 
               <DeliveryInfo labels={l} />
+
+              <div>
+                <label htmlFor="connector-promo" className="block text-sm font-medium text-gray-700 mb-1">
+                  Промокод
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    id="connector-promo"
+                    type="text"
+                    value={promoCode}
+                    onChange={(e) => {
+                      setPromoCode(e.target.value);
+                      setPromoError(null);
+                    }}
+                    disabled={promoApplied}
+                    placeholder="Введіть промокод"
+                    className="flex-1 px-3 py-2.5 border border-gray-200 rounded-lg uppercase focus:outline-none focus:ring-2 focus:ring-[#D4A017] focus:border-transparent disabled:bg-gray-50 disabled:text-gray-500"
+                  />
+                  {promoApplied ? (
+                    <button
+                      type="button"
+                      onClick={handleResetPromo}
+                      className="px-4 py-2.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-sm font-medium"
+                    >
+                      Скинути
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleApplyPromo}
+                      disabled={promoLoading || !promoCode.trim()}
+                      className="px-4 py-2.5 bg-[#D4A017] text-white rounded-lg hover:bg-[#b88913] transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {promoLoading ? '...' : 'Застосувати'}
+                    </button>
+                  )}
+                </div>
+                {promoError && <p className="text-red-500 text-sm mt-1">{promoError}</p>}
+                {promoApplied && (
+                  <p className="text-green-600 text-sm mt-1">
+                    ✓ Промокод застосовано: {promoPrice} ₴ (доставка 0 ₴)
+                  </p>
+                )}
+              </div>
 
               <DeliveryCostSummary
                 isUkraine={isUkraine}

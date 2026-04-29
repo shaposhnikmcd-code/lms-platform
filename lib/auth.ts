@@ -12,21 +12,21 @@ const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || "").split(",").map(e => e.trim
 
 const MANAGER_EMAILS = (process.env.MANAGER_EMAILS || "").split(",").map(e => e.trim()).filter(Boolean);
 
-const getRole = (email: string) => {
+/// Платформа доступна лише ADMIN/MANAGER. STUDENT/TEACHER — legacy enum-значення:
+/// нікому новому не присвоюються, login для них заблокований у signIn / authorize.
+const getRole = (email: string): "ADMIN" | "MANAGER" | null => {
   if (ADMIN_EMAILS.includes(email)) return "ADMIN";
   if (MANAGER_EMAILS.includes(email)) return "MANAGER";
-  return "STUDENT";
+  return null;
 };
 
 const ROLE_HIERARCHY: Record<string, string[]> = {
-  ADMIN: ["ADMIN", "MANAGER", "TEACHER", "STUDENT"],
-  MANAGER: ["MANAGER", "STUDENT"],
-  TEACHER: ["TEACHER", "STUDENT"],
-  STUDENT: ["STUDENT"],
+  ADMIN: ["ADMIN", "MANAGER"],
+  MANAGER: ["MANAGER"],
 };
 
 export const getAllowedRoles = (role: string): string[] => {
-  return ROLE_HIERARCHY[role] ?? ["STUDENT"];
+  return ROLE_HIERARCHY[role] ?? [];
 };
 
 export const authOptions: NextAuthOptions = {
@@ -90,6 +90,8 @@ export const authOptions: NextAuthOptions = {
           const user = await prisma.user.findUnique({ where: { email: credentials.email } });
           if (!user) return null;
           if (user.deletedAt) return null;
+          // Платформа лише для ADMIN/MANAGER. STUDENT/TEACHER (legacy) — login blocked.
+          if (user.role !== "ADMIN" && user.role !== "MANAGER") return null;
 
           // First-login password claim — спрацьовує ТІЛЬКИ якщо акаунт щойно створений
           // адміном і ніхто ще нічим його не торкався:
@@ -178,8 +180,20 @@ export const authOptions: NextAuthOptions = {
         token.email = user.email;
         token.name = user.name;
         token.picture = user.image;
-        token.role = user.role || (user.email ? getRole(user.email) : "STUDENT");
+        token.role = user.role;
         token.activeRole = token.role;
+      }
+      // Hydrate role з БД якщо токен його не має (OAuth-флоу не передає role
+      // через user-об'єкт, або старий JWT створено до додавання поля).
+      if (!token.role && token.email) {
+        const dbUser = await prisma.user.findUnique({
+          where: { email: token.email as string },
+          select: { role: true },
+        });
+        if (dbUser?.role) {
+          token.role = dbUser.role;
+          token.activeRole = dbUser.role;
+        }
       }
       if (trigger === "update" && session?.activeRole) {
         const allowedRoles = getAllowedRoles(token.role as string);
@@ -201,32 +215,42 @@ export const authOptions: NextAuthOptions = {
       return session;
     },
     async signIn({ user, account }) {
-      if (account?.provider !== "credentials") {
-        try {
-          const existingUser = await prisma.user.findUnique({ where: { email: user.email! } });
-          if (!existingUser) {
-            await prisma.user.create({
-              data: {
-                email: user.email!,
-                name: user.name,
-                image: user.image,
-                role: getRole(user.email!) as any,
-                lastLoginAt: new Date(),
-              }
-            });
-          } else {
-            await prisma.user.update({
-              where: { email: user.email! },
-              data: {
-                name: user.name,
-                image: user.image,
-                lastLoginAt: new Date(),
-              }
-            });
-          }
-        } catch (error) {
-          console.error('❌ Error syncing user:', error);
+      if (account?.provider === "credentials") return true;
+
+      // OAuth (Google/Facebook/Apple): доступ лише для whitelist email-ів
+      // (ADMIN_EMAILS / MANAGER_EMAILS). Решта — блок без створення User.
+      const email = user.email?.toLowerCase();
+      if (!email) return false;
+      const allowedRole = getRole(email);
+      if (!allowedRole) return false;
+
+      try {
+        const existingUser = await prisma.user.findUnique({ where: { email } });
+        if (!existingUser) {
+          await prisma.user.create({
+            data: {
+              email,
+              name: user.name,
+              image: user.image,
+              role: allowedRole,
+              lastLoginAt: new Date(),
+            },
+          });
+        } else {
+          if (existingUser.deletedAt) return false;
+          if (existingUser.role !== "ADMIN" && existingUser.role !== "MANAGER") return false;
+          await prisma.user.update({
+            where: { email },
+            data: {
+              name: user.name,
+              image: user.image,
+              lastLoginAt: new Date(),
+            },
+          });
         }
+      } catch (error) {
+        console.error('❌ Error syncing user:', error);
+        return false;
       }
       return true;
     },

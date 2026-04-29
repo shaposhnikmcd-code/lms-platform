@@ -828,6 +828,19 @@ model CoursePriceAuditLog {
   @@index([createdAt])
 }
 
+/// Промокоди по категоріях продуктів (bundle, connector). На відміну від
+/// `CoursePriceOverride`, тут НЕ керуємо ціною продукту — тільки фіксованою
+/// ціною за промокодом. Один код на всю категорію (будь-який пакет / гра Конектор).
+/// `category` приймає значення "bundle" або "connector".
+model CategoryPromoOverride {
+  id          String   @id @default(cuid())
+  category    String   @unique
+  promo1Code  String?
+  promo1Price Int?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
 /// Generic key-value store для app-рівневих налаштувань, які треба змінювати
 /// runtime без redeploy. Перший споживач — `yearlyGraceDays` (тривалість grace
 /// періоду Річної програми у днях). Fallback на дефолт із коду, якщо запис відсутній.

@@ -149,6 +149,26 @@ export async function applyPromoServerSide(args: {
     }
   }
 
+  // 1b) Категорійний промокод (bundle / yearly / monthly) — один код на всю
+  // категорію, керується з /dashboard/admin/courses.
+  const categoryKey: string | null =
+    courseId && courseId.startsWith('bundle_')
+      ? 'bundle'
+      : courseId === YEARLY_PROGRAM_CONFIG.monthlyOrderPrefix
+      ? 'monthly'
+      : courseId === YEARLY_PROGRAM_CONFIG.yearlyOrderPrefix
+      ? 'yearly'
+      : null;
+  if (categoryKey) {
+    const cat = await prisma.categoryPromoOverride.findUnique({
+      where: { category: categoryKey },
+      select: { promo1Code: true, promo1Price: true },
+    });
+    if (cat?.promo1Code && cat.promo1Code === code && cat.promo1Price !== null) {
+      return { finalPrice: Math.max(1, cat.promo1Price), promoId: null };
+    }
+  }
+
   // 2) Global PromoCode fallback
   const promo = await prisma.promoCode.findUnique({
     where: { code },

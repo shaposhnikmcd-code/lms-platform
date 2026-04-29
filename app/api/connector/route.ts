@@ -14,13 +14,30 @@ async function requireStaff() {
 
 export async function POST(req: NextRequest) {
   try {
-    const { email, fullName, phone, city, postOffice, gamePrice, shippingCost, callMe } = await req.json();
+    const { email, fullName, phone, city, postOffice, gamePrice, shippingCost, callMe, promoCode } = await req.json();
 
     const session = await getServerSession(authOptions);
     const sessionRole = (session?.user as { role?: string } | undefined)?.role;
     const isAdmin = sessionRole === 'ADMIN' || sessionRole === 'MANAGER';
-    const finalGamePrice = isAdmin ? 1 : (typeof gamePrice === 'number' ? gamePrice : 1099);
-    const finalShippingCost = isAdmin ? 0 : (typeof shippingCost === 'number' ? shippingCost : 0);
+
+    // Промокод (категорійний для конектора) — серверна перевірка, обнуляє доставку.
+    let promoApplied = false;
+    let promoFixedPrice: number | null = null;
+    if (typeof promoCode === 'string' && promoCode.trim()) {
+      const cat = await prisma.categoryPromoOverride.findUnique({
+        where: { category: 'connector' },
+        select: { promo1Code: true, promo1Price: true },
+      });
+      if (cat?.promo1Code && cat.promo1Code === promoCode.trim().toUpperCase() && cat.promo1Price !== null) {
+        promoApplied = true;
+        promoFixedPrice = Math.max(1, cat.promo1Price);
+      }
+    }
+
+    const baseGamePrice = isAdmin ? 1 : (typeof gamePrice === 'number' ? gamePrice : 1099);
+    const baseShippingCost = isAdmin ? 0 : (typeof shippingCost === 'number' ? shippingCost : 0);
+    const finalGamePrice = promoApplied ? promoFixedPrice! : baseGamePrice;
+    const finalShippingCost = promoApplied ? 0 : baseShippingCost;
     const finalAmount = finalGamePrice + finalShippingCost;
 
     // orderReference генерується server-side щоб не довіряти клієнту

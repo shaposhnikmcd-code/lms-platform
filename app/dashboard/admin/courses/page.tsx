@@ -15,9 +15,10 @@ const FALLBACK_OLD_PRICE: Record<string, number | null> = {
 export default async function AdminCourses() {
   await syncCatalogCourses();
 
-  const [overrides, dbCourses] = await Promise.all([
+  const [overrides, dbCourses, categoryPromos] = await Promise.all([
     prisma.coursePriceOverride.findMany(),
     prisma.course.findMany({ select: { slug: true, id: true, sendpulseCourseId: true } }),
+    prisma.categoryPromoOverride.findMany(),
   ]);
   const overridesBySlug = new Map(overrides.map((o) => [o.slug, o]));
   const dbBySlug = new Map(dbCourses.map((c) => [c.slug ?? c.id, c]));
@@ -43,5 +44,45 @@ export default async function AdminCourses() {
     };
   });
 
-  return <CoursesView rows={rows} />;
+  const promosByCategory = new Map(categoryPromos.map((c) => [c.category, c]));
+  const categoryRows = [
+    {
+      category: 'bundle' as const,
+      titleUk: 'Пакети курсів',
+      icon: '📦',
+      accent: '#D4A843',
+      hint: 'Один промокод на всі пакети',
+      promo1Code: promosByCategory.get('bundle')?.promo1Code ?? null,
+      promo1Price: promosByCategory.get('bundle')?.promo1Price ?? null,
+    },
+    {
+      category: 'connector' as const,
+      titleUk: 'Гра Конектор',
+      icon: '🧩',
+      accent: '#7C9D7C',
+      hint: 'Промокод обнуляє доставку',
+      promo1Code: promosByCategory.get('connector')?.promo1Code ?? null,
+      promo1Price: promosByCategory.get('connector')?.promo1Price ?? null,
+    },
+    {
+      category: 'yearly' as const,
+      titleUk: 'Річна програма',
+      icon: '📅',
+      accent: '#9C6FB6',
+      hint: '(Річна підписка)',
+      promo1Code: promosByCategory.get('yearly')?.promo1Code ?? null,
+      promo1Price: promosByCategory.get('yearly')?.promo1Price ?? null,
+    },
+    {
+      category: 'monthly' as const,
+      titleUk: 'Річна програма',
+      icon: '🔁',
+      accent: '#6FA8B6',
+      hint: '(Місячний платіж)',
+      promo1Code: promosByCategory.get('monthly')?.promo1Code ?? null,
+      promo1Price: promosByCategory.get('monthly')?.promo1Price ?? null,
+    },
+  ];
+
+  return <CoursesView rows={rows} categoryRows={categoryRows} />;
 }

@@ -278,7 +278,10 @@ export default function CourseRow({
     />
   );
 
-  const spIdCls = `${inputBase} text-center ${spIdParsed.ok ? inputOk : inputBad}`;
+  const spIdMuted = dark
+    ? 'bg-white/[0.02] border-white/[0.06] text-slate-500 focus:ring-amber-400/30 focus:border-amber-400/30 focus:text-slate-200 placeholder:text-slate-700'
+    : 'bg-stone-100/60 border-stone-200/60 text-stone-400 focus:ring-amber-500/30 focus:border-amber-500/40 focus:text-stone-700 placeholder:text-stone-300';
+  const spIdCls = `${inputBase} text-center ${spIdParsed.ok ? spIdMuted : inputBad}`;
   const spIdCell = (
     <div className="flex items-center gap-1.5 justify-center">
       <input
@@ -370,7 +373,7 @@ export default function CourseRow({
   }`;
 
   const actionsCell = (
-    <div className="flex flex-col gap-1.5 items-stretch">
+    <div className="flex flex-row gap-1.5 items-center justify-center">
       <button type="button" onClick={handleSave} disabled={!dirty || saving} className={saveBtnCls}>
         <FaCheck className="text-[10px]" />
         {saving ? '...' : 'Зберегти'}
@@ -380,9 +383,9 @@ export default function CourseRow({
         onClick={() => setShowResetModal(true)}
         disabled={!hasAnyOverride || resetting}
         className={resetBtnCls}
+        title="Скинути"
       >
         <FaRotateLeft className="text-[10px]" />
-        Скинути
       </button>
 
       {showResetModal && (
@@ -462,16 +465,16 @@ export default function CourseRow({
 
   return (
     <tr className={dark ? 'hover:bg-white/[0.02]' : 'hover:bg-stone-50/80'}>
-      <td className="px-3 py-3 align-middle">{titleCell}</td>
-      <td className="px-2 py-3 align-middle">{priceCell}</td>
-      <td className="px-2 py-3 align-middle">{oldPriceCell}</td>
-      <td className="px-2 py-3 align-middle">{spIdCell}</td>
-      <td className="px-2 py-3 align-middle">{defaultCell}</td>
-      <td className="px-2 py-3 align-middle">{promo1CodeCell}</td>
-      <td className="px-2 py-3 align-middle">{promo1PriceCell}</td>
-      <td className="px-2 py-3 align-middle">{promo2CodeCell}</td>
-      <td className="px-2 py-3 align-middle">{promo2PriceCell}</td>
-      <td className="px-2 py-3 align-middle">{actionsCell}</td>
+      <td className="px-3 py-2.5 align-middle">{titleCell}</td>
+      <td className="px-2 py-2.5 align-middle">{priceCell}</td>
+      <td className="px-2 py-2.5 align-middle">{oldPriceCell}</td>
+      <td className="px-2 py-2.5 align-middle">{spIdCell}</td>
+      <td className="px-2 py-2.5 align-middle">{defaultCell}</td>
+      <td className="px-2 py-2.5 align-middle">{promo1CodeCell}</td>
+      <td className="px-2 py-2.5 align-middle">{promo1PriceCell}</td>
+      <td className="px-2 py-2.5 align-middle">{promo2CodeCell}</td>
+      <td className="px-2 py-2.5 align-middle">{promo2PriceCell}</td>
+      <td className="px-2 py-2.5 align-middle">{actionsCell}</td>
     </tr>
   );
 }
