@@ -14,7 +14,9 @@ import {
   HiOutlineChevronLeft,
   HiOutlineChevronRight,
   HiOutlineEnvelope,
+  HiOutlineCurrencyDollar,
 } from 'react-icons/hi2';
+import type { YearlyProgramSettings } from '@/lib/yearlyProgramSettings';
 import { useAdminTheme, type Theme } from '../../_components/adminTheme';
 import { AdminShell, AdminPanel } from '../../_components/AdminShell';
 
@@ -110,14 +112,27 @@ const STATUS_OPTIONS: { value: 'ALL' | SubStatus; label: string }[] = [
   { value: 'ARCHIVED', label: 'Архів' },
 ];
 
+interface ProgramDefaults {
+  yearlyPrice: number;
+  monthlyPrice: number;
+  btnLabel: string;
+  priceNote: string;
+  duration: string;
+  registrationOpen: boolean;
+}
+
 export default function YearlyProgramView({
   rows,
   summary,
   graceDays,
+  programSettings,
+  programDefaults,
 }: {
   rows: Row[];
   summary: SummaryData;
   graceDays: number;
+  programSettings: YearlyProgramSettings;
+  programDefaults: ProgramDefaults;
 }) {
   const { theme, setTheme } = useAdminTheme();
   const dark = theme === 'dark';
@@ -133,6 +148,7 @@ export default function YearlyProgramView({
   const [page, setPage] = useState<number>(1);
   const [emailModalOpen, setEmailModalOpen] = useState(false);
   const [graceModalOpen, setGraceModalOpen] = useState(false);
+  const [pricingModalOpen, setPricingModalOpen] = useState(false);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -263,15 +279,25 @@ export default function YearlyProgramView({
           />
           <button
             type="button"
-            onClick={() => setEmailModalOpen(true)}
+            onClick={() => setPricingModalOpen(true)}
+            title="Налаштувати ціни, текст кнопок реєстрації та інформацію про програму"
             className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[12px] font-medium transition-colors ${
               dark
                 ? 'bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.08] hover:text-white hover:border-amber-400/40'
                 : 'bg-white/80 border-stone-300/60 text-stone-700 hover:bg-stone-100 hover:border-amber-600/50'
             }`}
           >
-            <HiOutlineEnvelope className="text-base" />
-            Нагадування по Email
+            <HiOutlineCurrencyDollar className="text-base" />
+            Вартість програми
+            {!programSettings.registrationOpen && (
+              <span
+                className={`ml-1 text-[10px] uppercase tracking-wider font-semibold rounded-full px-1.5 py-0.5 ${
+                  dark ? 'bg-rose-500/15 text-rose-300' : 'bg-rose-100 text-rose-700'
+                }`}
+              >
+                закрито
+              </span>
+            )}
           </button>
           <button
             type="button"
@@ -286,6 +312,18 @@ export default function YearlyProgramView({
             <HiOutlineClock className="text-base" />
             GRACE · {graceDays}д
           </button>
+          <button
+            type="button"
+            onClick={() => setEmailModalOpen(true)}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[12px] font-medium transition-colors ${
+              dark
+                ? 'bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.08] hover:text-white hover:border-amber-400/40'
+                : 'bg-white/80 border-stone-300/60 text-stone-700 hover:bg-stone-100 hover:border-amber-600/50'
+            }`}
+          >
+            <HiOutlineEnvelope className="text-base" />
+            Нагадування по Email
+          </button>
         </div>
       </AdminPanel>
       {emailModalOpen && <EmailRemindersModal theme={theme} onClose={() => setEmailModalOpen(false)} />}
@@ -294,6 +332,14 @@ export default function YearlyProgramView({
           theme={theme}
           initialDays={graceDays}
           onClose={() => setGraceModalOpen(false)}
+        />
+      )}
+      {pricingModalOpen && (
+        <ProgramPricingModal
+          theme={theme}
+          initial={programSettings}
+          defaults={programDefaults}
+          onClose={() => setPricingModalOpen(false)}
         />
       )}
 
@@ -1363,5 +1409,304 @@ function EmailScenarioColumn({
         })}
       </div>
     </div>
+  );
+}
+
+function ProgramPricingModal({
+  theme,
+  initial,
+  defaults,
+  onClose,
+}: {
+  theme: Theme;
+  initial: YearlyProgramSettings;
+  defaults: ProgramDefaults;
+  onClose: () => void;
+}) {
+  const router = useRouter();
+  const dark = theme === 'dark';
+  const [mounted, setMounted] = useState(false);
+  const [yearlyPrice, setYearlyPrice] = useState<string>(String(initial.yearlyPrice));
+  const [monthlyPrice, setMonthlyPrice] = useState<string>(String(initial.monthlyPrice));
+  const [btnLabel, setBtnLabel] = useState<string>(initial.btnLabel);
+  const [priceNote, setPriceNote] = useState<string>(initial.priceNote);
+  const [duration, setDuration] = useState<string>(initial.duration);
+  const [registrationOpen, setRegistrationOpen] = useState<boolean>(initial.registrationOpen);
+  const [saving, setSaving] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => { setMounted(true); }, []);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    document.body.style.overflow = 'hidden';
+    return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = ''; };
+  }, [onClose]);
+
+  const yp = Number(yearlyPrice);
+  const mp = Number(monthlyPrice);
+  const ypValid = Number.isInteger(yp) && yp > 0;
+  const mpValid = Number.isInteger(mp) && mp > 0;
+  const valid = ypValid && mpValid;
+  const dirty =
+    valid &&
+    (yp !== initial.yearlyPrice ||
+      mp !== initial.monthlyPrice ||
+      btnLabel.trim() !== initial.btnLabel ||
+      priceNote.trim() !== initial.priceNote ||
+      duration.trim() !== initial.duration ||
+      registrationOpen !== initial.registrationOpen);
+
+  const hasAnyOverride =
+    initial.overrides.yearlyPrice ||
+    initial.overrides.monthlyPrice ||
+    initial.overrides.btnLabel ||
+    initial.overrides.priceNote ||
+    initial.overrides.duration ||
+    initial.registrationOpen !== defaults.registrationOpen;
+
+  async function save() {
+    if (!dirty || saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/admin/yearly-program/program-settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          yearlyPrice: yp,
+          monthlyPrice: mp,
+          btnLabel: btnLabel.trim() === defaults.btnLabel ? null : btnLabel.trim(),
+          priceNote: priceNote.trim() === defaults.priceNote ? null : priceNote.trim(),
+          duration: duration.trim() === defaults.duration ? null : duration.trim(),
+          registrationOpen,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data?.error || 'Не вдалося зберегти');
+        return;
+      }
+      router.refresh();
+      onClose();
+    } catch (e) {
+      setError(`Помилка: ${(e as Error).message}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function resetAll() {
+    if (resetting) return;
+    if (!window.confirm('Скинути всі поля до значень за замовчуванням?')) return;
+    setResetting(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/admin/yearly-program/program-settings', {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data?.error || 'Не вдалося скинути');
+        return;
+      }
+      router.refresh();
+      onClose();
+    } catch (e) {
+      setError(`Помилка: ${(e as Error).message}`);
+    } finally {
+      setResetting(false);
+    }
+  }
+
+  const inputCls = `w-full px-3 py-2 rounded-lg border text-[14px] outline-none transition-colors ${
+    dark
+      ? 'bg-white/[0.04] border-white/[0.1] text-slate-100 focus:border-amber-400/50 placeholder:text-slate-600'
+      : 'bg-white border-stone-300 text-stone-900 focus:border-amber-600/60 placeholder:text-stone-400'
+  }`;
+  const labelCls = `block text-[11px] uppercase tracking-wider font-semibold mb-1.5 ${dark ? 'text-slate-400' : 'text-stone-600'}`;
+  const helpCls = `text-[11px] mt-1 ${dark ? 'text-slate-500' : 'text-stone-500'}`;
+
+  if (!mounted) return null;
+  return createPortal(
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4" role="dialog" aria-modal="true">
+      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
+      <div className={`relative max-w-3xl w-full rounded-2xl shadow-2xl max-h-[95vh] flex flex-col [&_*]:[scrollbar-width:none] [&_*::-webkit-scrollbar]:hidden ${
+        dark ? 'bg-zinc-900 border border-white/10 text-slate-200' : 'bg-white border border-stone-200 text-stone-800'
+      }`}>
+        <div className={`flex items-center justify-between px-5 py-3 border-b ${dark ? 'border-white/10' : 'border-stone-200'}`}>
+          <h3 className="text-base font-bold">Вартість програми</h3>
+          <button onClick={onClose} aria-label="Закрити" className={`w-7 h-7 rounded-full flex items-center justify-center ${dark ? 'hover:bg-white/10' : 'hover:bg-stone-100'}`}>✕</button>
+        </div>
+
+        <div className="px-5 py-4 space-y-4 overflow-y-auto">
+          <p className={`text-[12px] leading-snug ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
+            Налаштування публічної сторінки <code className={`px-1 py-0.5 rounded ${dark ? 'bg-white/[0.05]' : 'bg-stone-100'}`}>/yearly-program</code>.
+            Зміни застосовуються одразу після збереження.
+          </p>
+
+          {/* Toggle registrationOpen */}
+          <div className={`rounded-xl border px-4 py-3 ${
+            registrationOpen
+              ? dark ? 'border-emerald-400/30 bg-emerald-500/10' : 'border-emerald-500/40 bg-emerald-50'
+              : dark ? 'border-rose-400/30 bg-rose-500/10' : 'border-rose-500/40 bg-rose-50'
+          }`}>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[13px] font-semibold">
+                  {registrationOpen ? 'Реєстрація відкрита' : 'Реєстрація закрита'}
+                </p>
+                <p className={`text-[11px] mt-0.5 ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
+                  {registrationOpen
+                    ? 'Кнопки реєстрації активні — клік відкриває оплату/скрол до прайсу.'
+                    : 'Кнопки реєстрації неактивні — клік нічого не робить.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRegistrationOpen((v) => !v)}
+                role="switch"
+                aria-checked={registrationOpen}
+                className={`relative w-12 h-7 rounded-full transition-colors flex-shrink-0 ${
+                  registrationOpen
+                    ? dark ? 'bg-emerald-400' : 'bg-emerald-500'
+                    : dark ? 'bg-white/20' : 'bg-stone-300'
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 left-0.5 w-6 h-6 rounded-full bg-white shadow transition-transform ${
+                    registrationOpen ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
+          </div>
+
+          {/* Prices */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={labelCls}>Оплата за рік (грн)</label>
+              <input
+                type="number"
+                min={1}
+                value={yearlyPrice}
+                onChange={(e) => { setYearlyPrice(e.target.value); setError(null); }}
+                className={inputCls}
+              />
+              {!ypValid && yearlyPrice !== '' && (
+                <p className={`mt-1 text-[11px] ${dark ? 'text-rose-400' : 'text-rose-700'}`}>Ціле число &gt; 0</p>
+              )}
+              <p className={helpCls}>Дефолт: {defaults.yearlyPrice.toLocaleString('uk-UA')} грн</p>
+            </div>
+            <div>
+              <label className={labelCls}>Щомісячна оплата (грн)</label>
+              <input
+                type="number"
+                min={1}
+                value={monthlyPrice}
+                onChange={(e) => { setMonthlyPrice(e.target.value); setError(null); }}
+                className={inputCls}
+              />
+              {!mpValid && monthlyPrice !== '' && (
+                <p className={`mt-1 text-[11px] ${dark ? 'text-rose-400' : 'text-rose-700'}`}>Ціле число &gt; 0</p>
+              )}
+              <p className={helpCls}>Дефолт: {defaults.monthlyPrice.toLocaleString('uk-UA')} грн</p>
+            </div>
+          </div>
+
+          {/* Button label */}
+          <div>
+            <label className={labelCls}>Текст кнопок реєстрації</label>
+            <input
+              type="text"
+              value={btnLabel}
+              onChange={(e) => { setBtnLabel(e.target.value); setError(null); }}
+              placeholder={defaults.btnLabel}
+              className={inputCls}
+            />
+            <p className={helpCls}>
+              Замінює напис на всіх кнопках реєстрації (Hero, блок «Вартість програми», нижній CTA). Дефолт: «{defaults.btnLabel}».
+            </p>
+          </div>
+
+          {/* Flyer fields */}
+          <div className={`rounded-xl border p-3 ${dark ? 'border-white/10 bg-white/[0.02]' : 'border-stone-200 bg-stone-50/40'}`}>
+            <p className={`text-[11px] uppercase tracking-wider font-semibold mb-3 ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
+              Флаєр у Hero-блоці
+            </p>
+            <div className="space-y-3">
+              <div>
+                <label className={labelCls}>Щомісячний платіж (значення)</label>
+                <input
+                  type="text"
+                  value={priceNote}
+                  onChange={(e) => { setPriceNote(e.target.value); setError(null); }}
+                  placeholder={defaults.priceNote}
+                  className={inputCls}
+                />
+                <p className={helpCls}>Праве значення поряд з підписом «Щомісячний платіж». Дефолт: «{defaults.priceNote}».</p>
+              </div>
+              <div>
+                <label className={labelCls}>Тривалість (значення)</label>
+                <input
+                  type="text"
+                  value={duration}
+                  onChange={(e) => { setDuration(e.target.value); setError(null); }}
+                  placeholder={defaults.duration}
+                  className={inputCls}
+                />
+                <p className={helpCls}>Праве значення поряд з підписом «Тривалість». Дефолт: «{defaults.duration}».</p>
+              </div>
+            </div>
+          </div>
+
+          {error && (
+            <p className={`text-[12px] ${dark ? 'text-rose-400' : 'text-rose-700'}`}>{error}</p>
+          )}
+        </div>
+
+        <div className={`flex items-center justify-between gap-2 px-5 py-3 border-t ${dark ? 'border-white/10' : 'border-stone-200'}`}>
+          <button
+            onClick={resetAll}
+            disabled={!hasAnyOverride || resetting || saving}
+            className={`px-3 py-1.5 rounded-lg border text-[12px] font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+              dark
+                ? 'bg-white/[0.04] border-white/[0.1] text-slate-300 hover:bg-white/[0.08]'
+                : 'bg-white border-stone-300 text-stone-700 hover:bg-stone-50'
+            }`}
+            title="Скинути всі поля до дефолту"
+          >
+            {resetting ? '...' : 'Скинути до дефолту'}
+          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={onClose}
+              className={`px-3 py-1.5 rounded-lg border text-[12px] font-medium transition-colors ${
+                dark
+                  ? 'bg-white/[0.04] border-white/[0.1] text-slate-300 hover:bg-white/[0.08]'
+                  : 'bg-white border-stone-300 text-stone-700 hover:bg-stone-50'
+              }`}
+            >
+              Скасувати
+            </button>
+            <button
+              onClick={save}
+              disabled={!dirty || saving}
+              className={`px-4 py-1.5 rounded-lg text-[12px] font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                dark
+                  ? 'bg-amber-400/90 text-stone-900 hover:bg-amber-300'
+                  : 'bg-stone-900 text-amber-100 hover:bg-stone-800'
+              }`}
+            >
+              {saving ? '...' : 'Зберегти'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body,
   );
 }

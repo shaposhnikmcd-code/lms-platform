@@ -1,5 +1,9 @@
 import prisma from '@/lib/prisma';
 import { getYearlyGraceDays } from '@/lib/yearlyProgramConfig';
+import {
+  getYearlyProgramSettings,
+  YEARLY_PROGRAM_DEFAULTS,
+} from '@/lib/yearlyProgramSettings';
 import YearlyProgramView, { type Row, type SummaryData } from './_components/YearlyProgramView';
 
 const MAX_ROWS = 500;
@@ -48,7 +52,7 @@ export default async function AdminYearlyProgramPage() {
   });
 
   // Summary рахуємо через groupBy у БД — щоб KPI були точні навіть якщо subs > MAX_ROWS.
-  const [statusCounts, totalAggr, revenueAggr, graceDays] = await Promise.all([
+  const [statusCounts, totalAggr, revenueAggr, graceDays, programSettings] = await Promise.all([
     prisma.yearlyProgramSubscription.groupBy({
       by: ['status'],
       _count: { _all: true },
@@ -59,6 +63,7 @@ export default async function AdminYearlyProgramPage() {
       _sum: { amount: true },
     }),
     getYearlyGraceDays(prisma),
+    getYearlyProgramSettings(prisma),
   ]);
   const countByStatus = (st: string) =>
     statusCounts.find((s) => s.status === st)?._count._all ?? 0;
@@ -72,5 +77,13 @@ export default async function AdminYearlyProgramPage() {
     revenueTotal: revenueAggr._sum.amount ?? 0,
   };
 
-  return <YearlyProgramView rows={rows} summary={summary} graceDays={graceDays} />;
+  return (
+    <YearlyProgramView
+      rows={rows}
+      summary={summary}
+      graceDays={graceDays}
+      programSettings={programSettings}
+      programDefaults={YEARLY_PROGRAM_DEFAULTS}
+    />
+  );
 }

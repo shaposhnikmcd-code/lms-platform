@@ -5,7 +5,7 @@
 import prisma from './prisma';
 import { COURSES_BY_SLUG } from './coursesCatalog';
 import { YEARLY_PROGRAM_CONFIG } from './yearlyProgramConfig';
-import { YEARLY_PROGRAM } from '@/app/[locale]/yearly-program/config';
+import { getYearlyProgramSettings } from './yearlyProgramSettings';
 
 export type ResolvedPricingKind = 'course' | 'bundle' | 'yearly' | 'monthly' | 'connector';
 
@@ -55,9 +55,10 @@ export async function resolveServerPricing(args: {
 
   // yearly program (monthly PREFIX перевіряємо першим — він містить "yearly-program")
   if (orderReference.startsWith(`${YEARLY_PROGRAM_CONFIG.monthlyOrderPrefix}_`)) {
+    const settings = await getYearlyProgramSettings(prisma);
     return {
       kind: 'monthly',
-      basePrice: Number(YEARLY_PROGRAM.monthlyPrice),
+      basePrice: settings.monthlyPrice,
       productName: YEARLY_PROGRAM_CONFIG.monthlyOrderPrefix,
       productCount: 1,
       bundleId: null,
@@ -65,9 +66,10 @@ export async function resolveServerPricing(args: {
     };
   }
   if (orderReference.startsWith(`${YEARLY_PROGRAM_CONFIG.yearlyOrderPrefix}_`)) {
+    const settings = await getYearlyProgramSettings(prisma);
     return {
       kind: 'yearly',
-      basePrice: Number(YEARLY_PROGRAM.price),
+      basePrice: settings.yearlyPrice,
       productName: YEARLY_PROGRAM_CONFIG.yearlyOrderPrefix,
       productCount: 1,
       bundleId: null,

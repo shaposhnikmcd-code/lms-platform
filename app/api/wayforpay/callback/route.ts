@@ -4,7 +4,7 @@ import prisma from '@/lib/prisma';
 import { isYearlyProgramOrderRef, YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
 import { lookupStudentIdByEmail, openAccessViaEvent } from '@/lib/sendpulse';
 import { timingSafeEqualStr } from '@/lib/authTiming';
-import { YEARLY_PROGRAM } from '@/app/[locale]/yearly-program/config';
+import { getYearlyProgramSettings } from '@/lib/yearlyProgramSettings';
 import { provisionPayment } from '@/lib/paymentProvisioning';
 
 function getClientIp(req: NextRequest): string {
@@ -476,8 +476,17 @@ async function handleYearlyProgramCallback(args: {
             errorMsg: `No active MONTHLY subscription matching email+recToken`,
           } as RecurringCreateResult;
         }
-        const expectedAmount = Number(YEARLY_PROGRAM.monthlyPrice);
-        if (Number.isFinite(expectedAmount) && Math.abs(amountInt - expectedAmount) > 1) {
+        // Очікувана сума для рекурент-списання = сума першого PAID платежу
+        // цієї підписки (бо WFP токенізує оригінальну суму). Якщо немає
+        // попередніх PAID — fallback на поточний monthlyPrice з налаштувань.
+        const firstPaid = await tx.payment.findFirst({
+          where: { yearlyProgramSubscriptionId: sub.id, status: 'PAID' },
+          orderBy: { paidAt: 'asc' },
+          select: { amount: true },
+        });
+        const settings = firstPaid ? null : await getYearlyProgramSettings(tx);
+        const expectedAmount = firstPaid ? firstPaid.amount : settings?.monthlyPrice;
+        if (typeof expectedAmount === 'number' && Number.isFinite(expectedAmount) && Math.abs(amountInt - expectedAmount) > 1) {
           return {
             kind: 'error',
             skipReason: 'amount_mismatch',

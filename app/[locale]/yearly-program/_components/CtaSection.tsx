@@ -1,8 +1,8 @@
 import { FaArrowRight } from 'react-icons/fa';
 
-type Props = { title: string; btnLabel: string };
+type Props = { title: string; btnLabel: string; registrationOpen: boolean };
 
-export default function CtaSection({ title, btnLabel }: Props) {
+export default function CtaSection({ title, btnLabel, registrationOpen }: Props) {
   return (
     <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-24">
       <div className="relative bg-gradient-to-br from-[#1C3A2E] to-[#2a4f3f] rounded-2xl overflow-hidden p-6 md:p-8 max-w-lg mx-auto">
@@ -14,11 +14,18 @@ export default function CtaSection({ title, btnLabel }: Props) {
           <h2 className="text-xl md:text-2xl font-bold text-white">
             {title}
           </h2>
-          <a href="#price"
-            className="group inline-flex items-center justify-center gap-2 bg-[#D4A017] text-white font-bold px-8 py-3 rounded-lg hover:bg-[#b88913] transition-all">
-            <span>{btnLabel}</span>
-            <FaArrowRight className="group-hover:translate-x-1 transition-transform" />
-          </a>
+          {registrationOpen ? (
+            <a href="#price"
+              className="group inline-flex items-center justify-center gap-2 bg-[#D4A017] text-white font-bold px-8 py-3 rounded-lg hover:bg-[#b88913] transition-all">
+              <span>{btnLabel}</span>
+              <FaArrowRight className="group-hover:translate-x-1 transition-transform" />
+            </a>
+          ) : (
+            <button type="button" disabled
+              className="inline-flex items-center justify-center gap-2 bg-white/10 text-white/60 font-bold px-8 py-3 rounded-lg border border-white/20 cursor-not-allowed select-none">
+              <span>{btnLabel}</span>
+            </button>
+          )}
         </div>
       </div>
     </section>

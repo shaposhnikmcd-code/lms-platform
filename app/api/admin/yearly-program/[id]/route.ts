@@ -4,7 +4,7 @@ import { isAdmin, getAdminActor } from '@/lib/adminAuth';
 import { closeAccessInCourse, lookupStudentIdByEmail, openAccessViaEvent } from '@/lib/sendpulse';
 import { removeRegularSchedule } from '@/lib/wayforpay';
 import { YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
-import { YEARLY_PROGRAM } from '@/app/[locale]/yearly-program/config';
+import { getYearlyProgramSettings } from '@/lib/yearlyProgramSettings';
 
 /// Admin actions над конкретною підпискою Річної програми.
 /// Body: { action: "cancel" | "close_access" | "reopen_access" | "extend" | "delete",
@@ -178,10 +178,11 @@ async function handleReopenAccess(sub: NonNullable<SubWithUser>, actor: string) 
   }
 
   // Передаємо реальну суму плану — щоб у CRM SendPulse запис мав коректну ціну
-  // (а не 0 ₴ після ручного reopen). YEARLY = 15000, MONTHLY = 2200.
+  // (а не 0 ₴ після ручного reopen). Ціни редаговані з адмінки (YearlyProgramSetting).
+  const programSettings = await getYearlyProgramSettings(prisma);
   const planPrice = sub.plan === 'YEARLY'
-    ? Number(YEARLY_PROGRAM.price)
-    : Number(YEARLY_PROGRAM.monthlyPrice);
+    ? programSettings.yearlyPrice
+    : programSettings.monthlyPrice;
 
   try {
     await openAccessViaEvent(

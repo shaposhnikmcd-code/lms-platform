@@ -879,3 +879,18 @@ model AppSetting {
   value     Int
   updatedAt DateTime @updatedAt
 }
+
+/// Singleton-конфіг сторінки `/yearly-program` (Річна програма), редагований
+/// з адмінки без деплою. Завжди один рядок з id="singleton".
+/// Якщо поле = null → використовується дефолт із коду
+/// (`lib/yearlyProgramSettings.ts` DEFAULTS).
+model YearlyProgramSetting {
+  id               String   @id @default("singleton")
+  yearlyPrice      Int?
+  monthlyPrice     Int?
+  btnLabel         String?
+  priceNote        String?
+  duration         String?
+  registrationOpen Boolean  @default(true)
+  updatedAt        DateTime @updatedAt
+}

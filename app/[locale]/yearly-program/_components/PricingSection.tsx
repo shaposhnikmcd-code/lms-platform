@@ -24,6 +24,9 @@ type Props = {
     btnMonth: string;
     courseNameMonth: string;
   };
+  yearlyPrice: number;
+  monthlyPrice: number;
+  registrationOpen: boolean;
 };
 
 const TOTAL_MONTHLY_PAYMENTS = 9;
@@ -42,11 +45,10 @@ function DisabledButton({ label, variant }: { label: string; variant: 'light' | 
   );
 }
 
-export default function PricingSection({ t }: Props) {
-  const open = YEARLY_PROGRAM.registrationOpen;
-  const monthlyPrice = Number(YEARLY_PROGRAM.monthlyPrice);
+export default function PricingSection({ t, yearlyPrice, monthlyPrice, registrationOpen }: Props) {
+  const open = registrationOpen;
   const totalMonthly = monthlyPrice * TOTAL_MONTHLY_PAYMENTS;
-  const premium = totalMonthly - Number(YEARLY_PROGRAM.price);
+  const premium = totalMonthly - yearlyPrice;
 
   return (
     <section id="price" className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-14">
@@ -68,7 +70,7 @@ export default function PricingSection({ t }: Props) {
               <p className="text-white/40 text-sm mb-5">{t.yearSubtitle}</p>
 
               <div className="flex items-baseline justify-center gap-1.5 mb-2">
-                <span className="text-5xl font-black text-white tracking-tight">{YEARLY_PROGRAM.price}</span>
+                <span className="text-5xl font-black text-white tracking-tight">{yearlyPrice}</span>
                 <span className="text-white/50 text-sm font-medium">{t.currency}</span>
               </div>
               <p className="text-white/60 text-xs mb-5">{t.yearOneTime ?? 'Одноразовий платіж · Доступ на весь час програми'}</p>
@@ -91,7 +93,7 @@ export default function PricingSection({ t }: Props) {
                 {open ? (
                   <CoursePurchaseModal
                     courseName={t.courseNameYear}
-                    price={Number(YEARLY_PROGRAM.price)}
+                    price={yearlyPrice}
                     courseId={YEARLY_PROGRAM.courseId}
                     currency={t.currency}
                     buttonLabel={t.btnYear}
@@ -111,13 +113,13 @@ export default function PricingSection({ t }: Props) {
             <p className="text-gray-400 text-sm mb-5">{t.monthInstallment ?? 'Розсрочка на 9 місяців програми'}</p>
 
             <div className="flex items-baseline justify-center gap-1.5 mb-2">
-              <span className="text-5xl font-black text-[#1C3A2E] tracking-tight">{YEARLY_PROGRAM.monthlyPrice}</span>
+              <span className="text-5xl font-black text-[#1C3A2E] tracking-tight">{monthlyPrice}</span>
               <span className="text-gray-400 text-sm font-medium">{t.currencyMonth}</span>
             </div>
             <p className="text-gray-400 text-xs mb-5">
               {(t.monthCalc ?? '{count} платежів × {price} грн = {total} грн')
                 .replace('{count}', String(TOTAL_MONTHLY_PAYMENTS))
-                .replace('{price}', String(YEARLY_PROGRAM.monthlyPrice))
+                .replace('{price}', String(monthlyPrice))
                 .replace('{total}', totalMonthly.toLocaleString('uk-UA'))}
             </p>
 
