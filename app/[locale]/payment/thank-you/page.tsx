@@ -1,15 +1,68 @@
 import { Link } from '@/i18n/navigation';
+import { resolvePaymentByOrderRef } from '@/lib/paymentStatus';
 
 const SENDPULSE_LOGIN_URL = 'https://uimp-edu.sendpulse.online/courses/auth/login';
 
 interface Props {
-  searchParams: Promise<{ type?: string }>;
+  searchParams: Promise<{ type?: string; orderRef?: string }>;
 }
 
 export default async function ThankYouPage({ searchParams }: Props) {
-  const { type } = await searchParams;
+  const { type, orderRef } = await searchParams;
   const isConnector = type === 'connector';
   const isBundle = type === 'bundle';
+
+  // Defensive verification: if user lands here with an orderRef of a FAILED payment
+  // (e.g. shared link, navigation glitch), show failure UI instead of fake success.
+  // No orderRef → legacy/unknown flow → show success messaging as before.
+  if (orderRef) {
+    const { resolution } = await resolvePaymentByOrderRef(orderRef);
+    if (resolution === 'FAILED') {
+      return (
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4 py-12">
+          <div className="bg-white rounded-2xl shadow-lg p-10 max-w-xl w-full text-center">
+            <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-6">
+              <svg className="w-10 h-10 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </div>
+            <h1 className="text-3xl font-bold text-[#1C3A2E] mb-4">Платіж не пройшов</h1>
+            <p className="text-gray-700 mb-3">Банк відхилив операцію. Кошти не списано.</p>
+            <p className="text-gray-600 mb-8">Спробуйте ще раз або скористайтеся іншою карткою.</p>
+            <div className="flex flex-col sm:flex-row gap-3 justify-center">
+              <Link
+                href={isConnector ? '/links/connector' : '/courses'}
+                className="inline-block bg-[#D4A017] text-white font-bold py-3 px-8 rounded-xl hover:bg-[#b88913] transition-colors"
+              >
+                Спробувати знову
+              </Link>
+              <Link
+                href="/"
+                className="inline-block bg-white border border-gray-200 text-gray-700 font-medium py-3 px-8 rounded-xl hover:bg-gray-50 transition-colors"
+              >
+                На головну
+              </Link>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    if (resolution === 'PENDING') {
+      return (
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4 py-12">
+          <meta httpEquiv="refresh" content="3" />
+          <div className="bg-white rounded-2xl shadow-lg p-10 max-w-xl w-full text-center">
+            <div className="w-20 h-20 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-6">
+              <div className="w-10 h-10 border-2 border-[#D4A017] border-t-transparent rounded-full animate-spin" />
+            </div>
+            <h1 className="text-3xl font-bold text-[#1C3A2E] mb-4">Обробляємо платіж</h1>
+            <p className="text-gray-700 mb-3">Банк підтверджує операцію. Зазвичай це триває кілька секунд.</p>
+            <p className="text-gray-600">Сторінка оновиться автоматично.</p>
+          </div>
+        </div>
+      );
+    }
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4 py-12">

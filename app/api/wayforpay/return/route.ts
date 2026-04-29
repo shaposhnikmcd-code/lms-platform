@@ -7,19 +7,29 @@ function getBaseUrl(req: NextRequest): string {
   return process.env.NEXTAUTH_URL || 'http://localhost:3000';
 }
 
+function buildSuccessUrl(baseUrl: string, orderRef: string, type: string): string {
+  const params = new URLSearchParams();
+  if (type) params.set('type', type);
+  if (orderRef) params.set('orderRef', orderRef);
+  const qs = params.toString();
+  return `${baseUrl}/payment/success${qs ? `?${qs}` : ''}`;
+}
+
+function detectType(orderReference: string): string {
+  if (orderReference.startsWith('connector_')) return 'connector';
+  if (orderReference.startsWith('bundle_')) return 'bundle';
+  if (orderReference.startsWith('yearly-program-monthly_')) return 'monthly';
+  if (orderReference.startsWith('yearly-program_')) return 'yearly';
+  return 'course';
+}
+
 export async function POST(req: NextRequest) {
   const baseUrl = getBaseUrl(req);
-
-  // Try to detect course vs connector from form data
   try {
     const formData = await req.formData();
-    const orderReference = formData.get('orderReference') as string || '';
-    const type = orderReference.startsWith('connector_')
-      ? 'connector'
-      : orderReference.startsWith('bundle_')
-        ? 'bundle'
-        : 'course';
-    return NextResponse.redirect(`${baseUrl}/payment/success?type=${type}`, { status: 303 });
+    const orderReference = (formData.get('orderReference') as string) || '';
+    const type = detectType(orderReference);
+    return NextResponse.redirect(buildSuccessUrl(baseUrl, orderReference, type), { status: 303 });
   } catch {
     return NextResponse.redirect(`${baseUrl}/payment/success`, { status: 303 });
   }
@@ -27,6 +37,7 @@ export async function POST(req: NextRequest) {
 
 export async function GET(req: NextRequest) {
   const baseUrl = getBaseUrl(req);
-  const type = req.nextUrl.searchParams.get('type') || '';
-  return NextResponse.redirect(`${baseUrl}/payment/success${type ? `?type=${type}` : ''}`, { status: 303 });
+  const orderRef = req.nextUrl.searchParams.get('orderRef') || '';
+  const type = req.nextUrl.searchParams.get('type') || (orderRef ? detectType(orderRef) : '');
+  return NextResponse.redirect(buildSuccessUrl(baseUrl, orderRef, type), { status: 303 });
 }
