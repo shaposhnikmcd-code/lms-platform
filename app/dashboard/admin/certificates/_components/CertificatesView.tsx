@@ -376,6 +376,19 @@ function SyncCard({
   runTitle?: string;
 }) {
   const dark = theme === 'dark';
+
+  // Tick-стейт для перерахунку relative-таймстемпу "X хв тому".
+  // formatAgo(lastUpdated) обчислюється на render-time через Date.now() — без
+  // тригера re-render текст застрягне на початковому значенні. Локально HMR
+  // частіше ре-рендерить, тому виглядає нормально; на проді — статика.
+  // Інтервал 30с — достатньо для секунда/хвилина-зернистості.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (lastUpdated === null) return;
+    const id = setInterval(() => setTick(t => t + 1), 30_000);
+    return () => clearInterval(id);
+  }, [lastUpdated]);
+
   const palette =
     tone === 'emerald'
       ? {
