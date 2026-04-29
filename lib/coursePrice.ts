@@ -22,6 +22,6 @@ export async function getCoursePriceInfo(
   const row = await prisma.coursePriceOverride.findUnique({ where: { slug } });
   return {
     price: row?.price ?? fallbackPrice,
-    oldPrice: row?.oldPrice ?? fallbackOldPrice,
+    oldPrice: row ? row.oldPrice : fallbackOldPrice,
   };
 }

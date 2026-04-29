@@ -32,6 +32,7 @@ export default async function AdminCourses() {
       accent: c.accent,
       defaultPrice: c.price,
       defaultOldPrice: FALLBACK_OLD_PRICE[c.slug] ?? null,
+      hasOverride: !!o,
       overridePrice: o?.price ?? null,
       overrideOldPrice: o?.oldPrice ?? null,
       sendpulseCourseId: db?.sendpulseCourseId ?? null,

@@ -13,6 +13,7 @@ export interface CourseRowData {
   accent: string;
   defaultPrice: number;
   defaultOldPrice: number | null;
+  hasOverride: boolean;
   overridePrice: number | null;
   overrideOldPrice: number | null;
   sendpulseCourseId: number | null;
@@ -41,7 +42,7 @@ export default function CourseRow({
   const dark = theme === 'dark';
 
   const initialPrice = row.overridePrice ?? row.defaultPrice;
-  const initialOldPrice = row.overrideOldPrice ?? row.defaultOldPrice;
+  const initialOldPrice = row.hasOverride ? row.overrideOldPrice : row.defaultOldPrice;
 
   const [priceStr, setPriceStr] = useState(String(initialPrice));
   const [oldPriceStr, setOldPriceStr] = useState(
@@ -64,7 +65,7 @@ export default function CourseRow({
   const dirty =
     formValid && (currentPrice !== initialPrice || currentOldPrice !== initialOldPrice);
 
-  const hasAnyOverride = row.overridePrice !== null || row.overrideOldPrice !== null;
+  const hasAnyOverride = row.hasOverride;
 
   async function handleSave() {
     if (!formValid || currentPrice === null) return;
