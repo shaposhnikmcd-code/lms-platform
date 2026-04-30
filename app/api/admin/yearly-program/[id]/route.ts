@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { isAdmin, getAdminActor } from '@/lib/adminAuth';
 import { closeAccessInCourse, lookupStudentIdByEmail, openAccessViaEvent } from '@/lib/sendpulse';
-import { removeRegularSchedule, chargeByRecToken, getWayforpayCreds } from '@/lib/wayforpay';
+import { removeRegularSchedule, chargeByRecToken, getWayforpayCreds, getRegularStatus } from '@/lib/wayforpay';
 import { YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
 import { getYearlyProgramSettings } from '@/lib/yearlyProgramSettings';
 
@@ -46,9 +46,49 @@ export async function POST(
       return handleDelete(sub, actorLabel);
     case 'test_charge':
       return handleTestCharge(sub, actorLabel);
+    case 'wfp_status':
+      return handleWfpStatus(sub);
     default:
       return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
   }
+}
+
+/// Запитує у WFP статус регулярного платежу для діагностики.
+/// Перевіряє по всіх PAID платежах підписки — будь-який міг бути prime для regularApi schedule.
+async function handleWfpStatus(sub: NonNullable<SubWithUser>) {
+  const creds = getWayforpayCreds();
+  const merchantPassword = process.env.WAYFORPAY_MERCHANT_PASSWORD;
+  if (!merchantPassword) {
+    return NextResponse.json({ error: 'WAYFORPAY_MERCHANT_PASSWORD не налаштовано' }, { status: 500 });
+  }
+  const paidPayments = await prisma.payment.findMany({
+    where: { yearlyProgramSubscriptionId: sub.id, status: 'PAID' },
+    orderBy: { paidAt: 'asc' },
+    select: { orderReference: true, amount: true, paidAt: true },
+  });
+  const checks = await Promise.all(paidPayments.map(async (p) => {
+    const r = await getRegularStatus({
+      merchantAccount: creds.merchantAccount,
+      merchantPassword,
+      orderReference: p.orderReference,
+    });
+    return {
+      orderReference: p.orderReference,
+      paidAt: p.paidAt,
+      reasonCode: r.raw.reasonCode,
+      status: r.raw.status,
+      mode: r.raw.mode,
+      amount: r.raw.amount,
+      nextPayment: r.raw.nextPayment,
+      raw: r.raw,
+    };
+  }));
+  return NextResponse.json({
+    subId: sub.id,
+    recToken: sub.recToken ? sub.recToken.slice(0, 6) + '…' + sub.recToken.slice(-4) : null,
+    paidPaymentsCount: paidPayments.length,
+    checks,
+  });
 }
 
 /// Тригерить server-to-server CHARGE по збереженому recToken.

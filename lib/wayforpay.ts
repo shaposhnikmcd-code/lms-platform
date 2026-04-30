@@ -169,6 +169,28 @@ function normalizeMerchantPassword(value: string): string {
   return crypto.createHash('md5').update(value).digest('hex');
 }
 
+/// Отримати статус регулярного платежу WFP за orderReference.
+/// Корисно для діагностики: чи дійсно WFP створив регулярку при першому autopay-платежі.
+export async function getRegularStatus(opts: {
+  merchantAccount: string;
+  merchantPassword: string;
+  orderReference: string;
+}): Promise<{ ok: boolean; raw: Record<string, unknown> }> {
+  const res = await fetch('https://api.wayforpay.com/regularApi', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      requestType: 'STATUS',
+      merchantAccount: opts.merchantAccount,
+      merchantPassword: normalizeMerchantPassword(opts.merchantPassword),
+      orderReference: opts.orderReference,
+      apiVersion: 1,
+    }),
+  });
+  const raw = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  return { ok: res.ok && raw.reasonCode === 4100, raw };
+}
+
 /// Скасування регулярного платежу (якщо раніше створювали через regularApi CREATE).
 /// Використовується, коли юзер скасовує підписку — WFP припиняє списання.
 export async function removeRegularSchedule(opts: {
