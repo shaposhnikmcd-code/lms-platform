@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { signIn } from "next-auth/react";
 import Link from "next/link";
-import { FaFacebook, FaEnvelope, FaTimes } from 'react-icons/fa';
+import { FaEnvelope, FaTimes } from 'react-icons/fa';
 import { useTranslations } from 'next-intl';
 
 interface AuthModalProps {
@@ -91,15 +91,6 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
                     <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
                   </svg>
                   <span>{t('google')}</span>
-                </button>
-
-                <button
-                  onClick={() => signIn('facebook', { callbackUrl: '/dashboard' })}
-                  disabled={loading}
-                  className="w-full flex items-center justify-center gap-3 bg-[#1877F2] text-white font-medium py-3 px-4 rounded-xl hover:bg-[#1669d9] transition-all disabled:opacity-50"
-                >
-                  <FaFacebook className="text-xl" />
-                  <span>{t('facebook')}</span>
                 </button>
               </div>
 
