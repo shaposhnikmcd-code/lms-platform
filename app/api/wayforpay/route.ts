@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
     const host = req.headers.get('x-forwarded-host') || req.headers.get('host');
     const proto = req.headers.get('x-forwarded-proto') || (host?.includes('localhost') ? 'http' : 'https');
     const domain = host ? `${proto}://${host}` : (process.env.NEXTAUTH_URL || 'http://localhost:3000');
-    const merchantDomain = 'www.uimp.com.ua';
+    const merchantDomain = creds.merchantDomainName;
 
     const isConnector = orderReference.startsWith('connector_');
     const yearlyKind = isYearlyProgramOrderRef(orderReference);

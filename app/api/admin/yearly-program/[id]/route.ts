@@ -84,7 +84,7 @@ async function handleTestCharge(sub: NonNullable<SubWithUser>, actor: string) {
 
   const result = await chargeByRecToken({
     merchantAccount: creds.merchantAccount,
-    merchantDomainName: 'www.uimp.com.ua',
+    merchantDomainName: creds.merchantDomainName,
     merchantSecretKey: creds.secretKey,
     orderReference,
     amount,

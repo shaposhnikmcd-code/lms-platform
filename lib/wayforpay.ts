@@ -8,16 +8,26 @@ const API_URL = 'https://api.wayforpay.com/api';
 /// Тестовий мерчант WFP (з офіційної доки https://wiki.wayforpay.com/view/852472).
 /// Активується через env `WAYFORPAY_TEST_MODE=1` — переключає всі платежі в тестовий
 /// gateway, реальні гроші не списуються. Тестові карти: 4111111111111111, 5454545454545454.
+/// merchantDomainName має бути `www.market.ua` (зареєстрований домен test_merch_n1) —
+/// інакше WFP відхиляє платіж з "Bank declined".
 const WFP_TEST_MERCHANT = 'test_merch_n1';
 const WFP_TEST_SECRET = 'flk3409refn54t54t*FNJRET';
+const WFP_TEST_DOMAIN = 'www.market.ua';
+const WFP_PROD_DOMAIN = 'www.uimp.com.ua';
 
-export function getWayforpayCreds(): { merchantAccount: string; secretKey: string; isTest: boolean } {
+export function getWayforpayCreds(): { merchantAccount: string; secretKey: string; merchantDomainName: string; isTest: boolean } {
   if (process.env.WAYFORPAY_TEST_MODE === '1') {
-    return { merchantAccount: WFP_TEST_MERCHANT, secretKey: WFP_TEST_SECRET, isTest: true };
+    return {
+      merchantAccount: WFP_TEST_MERCHANT,
+      secretKey: WFP_TEST_SECRET,
+      merchantDomainName: WFP_TEST_DOMAIN,
+      isTest: true,
+    };
   }
   return {
     merchantAccount: process.env.WAYFORPAY_MERCHANT_LOGIN!,
     secretKey: process.env.WAYFORPAY_SECRET_KEY!,
+    merchantDomainName: WFP_PROD_DOMAIN,
     isTest: false,
   };
 }
