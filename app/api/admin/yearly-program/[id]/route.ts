@@ -50,9 +50,53 @@ export async function POST(
       return handleWfpStatus(sub);
     case 'wfp_advance_next':
       return handleWfpAdvanceNext(sub, actorLabel);
+    case 'test_send_email':
+      return handleTestSendEmail(sub, body as { template?: string });
     default:
       return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
   }
+}
+
+/// Шле email з обраного шаблону yearly-program напряму через Resend.
+/// Корисно для перевірки що тексти/розмітка/посилання виглядають як треба у клієнтській пошті.
+async function handleTestSendEmail(sub: NonNullable<SubWithUser>, body: { template?: string }) {
+  if (!sub.user?.email) {
+    return NextResponse.json({ error: 'User email відсутній' }, { status: 400 });
+  }
+  const tmpl = body.template ?? 'cyclicalChargeFailed1';
+  const allTemplates = [
+    'manualBeforeExpiry',
+    'manualOnExpiry',
+    'manualGraceStart',
+    'cyclicalChargeFailed1',
+    'cyclicalChargeFailed3',
+    'accessClosed',
+  ];
+  if (!allTemplates.includes(tmpl)) {
+    return NextResponse.json({ error: `template must be one of: ${allTemplates.join(', ')}` }, { status: 400 });
+  }
+  const { Resend } = await import('resend');
+  const resend = new Resend(process.env.RESEND_API_KEY);
+  const tmplModule = await import('@/lib/emailTemplates/yearlyProgram');
+  const fakeExpiresAt = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
+  const fakeGraceEnd = new Date(Date.now() + 6 * 24 * 60 * 60 * 1000);
+  const args = { name: sub.user.name, expiresAt: fakeExpiresAt, gracePeriodEndsAt: fakeGraceEnd };
+  const fn = (tmplModule as Record<string, unknown>)[tmpl] as (a: typeof args) => { subject: string; html: string };
+  const { subject, html } = fn(args);
+  const result = await resend.emails.send({
+    from: 'UIMP <onboarding@resend.dev>',
+    to: sub.user.email,
+    subject,
+    html,
+  });
+  return NextResponse.json({
+    ok: !result.error,
+    template: tmpl,
+    sentTo: sub.user.email,
+    subject,
+    error: result.error?.message ?? null,
+    resendId: result.data?.id ?? null,
+  });
 }
 
 /// Змінює дату наступного списання WFP-регулярки на завтра — щоб не чекати 30 днів
