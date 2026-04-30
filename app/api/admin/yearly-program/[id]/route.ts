@@ -52,9 +52,72 @@ export async function POST(
       return handleWfpAdvanceNext(sub, actorLabel);
     case 'test_send_email':
       return handleTestSendEmail(sub, body as { template?: string });
+    case 'simulate_cyclical_failure':
+      return handleSimulateCyclicalFailure(sub, actorLabel);
     default:
       return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
   }
+}
+
+/// Симулює сценарій "WFP не зміг автоматично списати": тимчасово ставить sub у
+/// GRACE + failedChargeCount=1 + reminderSentGraceStart=false + минулий expiresAt +
+/// gracePeriodEndsAt=now+5d. Потім викликає cron internally — той має побачити цю sub
+/// у sendGraceStartReminders і реально надіслати cyclicalChargeFailed1 лист через Resend.
+/// Після — повертає sub у попередній стан, щоб не зламати інші тести.
+async function handleSimulateCyclicalFailure(sub: NonNullable<SubWithUser>, actor: string) {
+  const cronSecret = process.env.CRON_SECRET;
+  if (!cronSecret) {
+    return NextResponse.json({ error: 'CRON_SECRET не налаштовано' }, { status: 500 });
+  }
+  const snapshot = {
+    status: sub.status,
+    failedChargeCount: sub.failedChargeCount,
+    recToken: sub.recToken,
+    reminderSentGraceStart: sub.reminderSentGraceStart,
+    reminderSentGraceMid: sub.reminderSentGraceMid,
+    expiresAt: sub.expiresAt,
+    gracePeriodEndsAt: sub.gracePeriodEndsAt,
+  };
+  const now = new Date();
+  await prisma.yearlyProgramSubscription.update({
+    where: { id: sub.id },
+    data: {
+      status: 'GRACE',
+      failedChargeCount: 1,
+      recToken: sub.recToken ?? `SIM_TOKEN_${Date.now()}`,
+      reminderSentGraceStart: false,
+      expiresAt: new Date(now.getTime() - 24 * 60 * 60 * 1000),
+      gracePeriodEndsAt: new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000),
+    },
+  });
+
+  const host = process.env.NEXTAUTH_URL || 'https://pre.uimp.com.ua';
+  const cronRes = await fetch(`${host.replace(/\/+$/, '')}/api/cron/yearly-subscriptions`, {
+    headers: { Authorization: `Bearer ${cronSecret}` },
+  });
+  const cronResult = await cronRes.json().catch(() => ({}));
+
+  // Revert
+  await prisma.yearlyProgramSubscription.update({
+    where: { id: sub.id },
+    data: snapshot,
+  });
+
+  await prisma.yearlyProgramSubscriptionEvent.create({
+    data: {
+      subscriptionId: sub.id,
+      type: 'admin_action',
+      message: `Simulate cyclical failure by ${actor} · cron returned ${cronRes.status}`,
+      metadata: { cronStatus: cronRes.status, cronResults: JSON.stringify(cronResult).slice(0, 800) },
+    },
+  });
+
+  return NextResponse.json({
+    ok: cronRes.status === 200,
+    cronStatus: cronRes.status,
+    cronResult,
+    snapshot,
+  });
 }
 
 /// Шле email з обраного шаблону yearly-program напряму через Resend.
