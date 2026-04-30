@@ -11,6 +11,7 @@ import {
   HiOutlineChevronRight,
   HiOutlineClipboard,
   HiCheck,
+  HiOutlineInformationCircle,
 } from 'react-icons/hi2';
 import { useAdminTheme, type Theme } from '../../_components/adminTheme';
 import { AdminShell, AdminPanel } from '../../_components/AdminShell';
@@ -93,7 +94,7 @@ export default function PaymentLogsView({ data }: { data: PaymentLogsData }) {
           {' '}— хто стукав, з яким статусом, і що система зробила.
         </>
       }
-      maxWidth="max-w-7xl"
+      maxWidth="max-w-[1420px]"
     >
       {/* KPI strip */}
       <div
@@ -147,14 +148,31 @@ export default function PaymentLogsView({ data }: { data: PaymentLogsData }) {
       {/* Table panel */}
       <AdminPanel theme={theme} padding="p-0">
         <div className="overflow-x-auto">
-          <table className="w-full text-[13px]">
+          <table className="w-full table-fixed text-[13px]">
+            <colgroup>
+              <col style={{ width: '110px' }} />
+              <col style={{ width: '220px' }} />
+              <col style={{ width: '110px' }} />
+              <col style={{ width: '200px' }} />
+              <col style={{ width: '110px' }} />
+              <col style={{ width: '90px' }} />
+              <col style={{ width: '110px' }} />
+              <col style={{ width: '130px' }} />
+              <col style={{ width: '130px' }} />
+              <col style={{ width: '130px' }} />
+            </colgroup>
             <thead className={`border-b ${dark ? 'border-white/[0.06] bg-black/10' : 'border-stone-300/40 bg-stone-50/40'}`}>
               <tr>
                 <Th theme={theme}>Час</Th>
                 <Th theme={theme}>Клієнт</Th>
                 <Th theme={theme} align="center">Тип</Th>
                 <Th theme={theme}>Вид</Th>
-                <Th theme={theme}>Статус</Th>
+                <Th theme={theme}>
+                  <span className="inline-flex items-center gap-1.5">
+                    Статус
+                    <StatusInfoButton theme={theme} />
+                  </span>
+                </Th>
                 <Th theme={theme}>Сума</Th>
                 <Th theme={theme}>IP</Th>
                 <Th theme={theme}>Дії</Th>
@@ -174,8 +192,13 @@ export default function PaymentLogsView({ data }: { data: PaymentLogsData }) {
                   const dt = new Date(log.createdAt);
                   return (
                     <tr key={log.id} className={dark ? 'hover:bg-white/[0.02]' : 'hover:bg-stone-50/60'}>
-                      <td className={`px-4 py-2.5 whitespace-nowrap text-[11px] tabular-nums ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
-                        {fmtKyivDateTime(dt)}
+                      <td className="px-4 py-2.5 whitespace-nowrap">
+                        <p className={`text-[13px] tabular-nums ${dark ? 'text-slate-200' : 'text-stone-800'}`}>
+                          {fmtKyivDate(dt)}
+                        </p>
+                        <p className={`text-[11px] tabular-nums ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+                          {fmtKyivTime(dt)}
+                        </p>
                       </td>
                       <td
                         className="px-4 py-2.5 max-w-[220px]"
@@ -185,10 +208,10 @@ export default function PaymentLogsView({ data }: { data: PaymentLogsData }) {
                           <div className="flex items-center gap-2 min-w-0">
                             <SourceBadge source={log.saleSource} size={16} />
                             <div className="flex flex-col gap-0.5 min-w-0">
-                              <span className={`text-[12px] font-medium truncate ${dark ? 'text-slate-200' : 'text-stone-800'}`}>
+                              <span className={`text-[13px] font-medium truncate ${dark ? 'text-slate-100' : 'text-stone-900'}`}>
                                 {log.clientName ?? '—'}
                               </span>
-                              <span className={`text-[10px] truncate ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+                              <span className={`text-[11px] truncate ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
                                 {log.clientEmail ?? ''}
                               </span>
                             </div>
@@ -505,6 +528,124 @@ function TypePill({ kind, theme }: { kind: string; theme: Theme }) {
   );
 }
 
+function StatusInfoButton({ theme }: { theme: Theme }) {
+  const dark = theme === 'dark';
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  type Item = {
+    badge: { transactionStatus: string | null; signatureValid: boolean | null; skipped: boolean };
+    summary: string;
+    causes?: string[];
+  };
+  const items: Item[] = [
+    {
+      badge: { transactionStatus: 'Approved', signatureValid: true, skipped: false },
+      summary: 'WayForPay підтвердив успішну оплату. Платіж зарахований, доступ відкрито, листи надіслано.',
+    },
+    {
+      badge: { transactionStatus: 'Declined', signatureValid: true, skipped: false },
+      summary: 'Банк або WayForPay відхилив транзакцію. Можливі причини:',
+      causes: [
+        'недостатньо коштів на картці',
+        'картка заблокована, прострочена або не для онлайн-платежів',
+        'не пройшла перевірка 3DS / SCA',
+        'клієнт натиснув "Скасувати" на формі',
+        'перевищено ліміт банку',
+      ],
+    },
+    {
+      badge: { transactionStatus: 'Expired', signatureValid: true, skipped: false },
+      summary: 'Час оплати вийшов — клієнт відкрив форму WayForPay, але не завершив платіж у відведений термін (~30 хв). Доступ не відкрито.',
+    },
+    {
+      badge: { transactionStatus: 'InProcessing', signatureValid: true, skipped: false },
+      summary: 'Платіж проходить обробку на стороні банку (3DS, антифрод). Тимчасовий стан — фінальний callback з Approved або Declined прийде пізніше.',
+    },
+    {
+      badge: { transactionStatus: null, signatureValid: false, skipped: false },
+      summary: 'Підпис callback-у не співпадає — потенційна підробка або неправильний merchantSecret. Доступ НЕ відкрито, лог зберігається для розслідування.',
+    },
+    {
+      badge: { transactionStatus: null, signatureValid: true, skipped: true },
+      summary: 'Лог отримано, але оброблено без дії. Можливі причини:',
+      causes: [
+        'дублікат orderReference (callback прийшов повторно)',
+        'тестовий callback від WayForPay',
+        'не вдалося ідентифікувати продукт за orderReference',
+      ],
+    },
+  ];
+
+  return (
+    <div ref={ref} className="relative inline-block">
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        aria-label="Що означають статуси"
+        className={`inline-flex items-center justify-center w-5 h-5 rounded-full border transition-colors ${
+          dark
+            ? 'text-amber-300 border-amber-400/40 bg-amber-500/15 hover:bg-amber-500/25'
+            : 'text-amber-800 border-amber-500/40 bg-amber-500/15 hover:bg-amber-500/25'
+        }`}
+      >
+        <HiOutlineInformationCircle className="text-[14px]" />
+      </button>
+      {open && (
+        <div
+          className={`absolute right-0 top-full mt-1.5 w-[460px] rounded-xl py-2 z-30 backdrop-blur-md border normal-case tracking-normal ${
+            dark
+              ? 'bg-[#161821]/95 border-white/[0.08] shadow-[0_12px_32px_rgba(0,0,0,0.5)]'
+              : 'bg-white/95 border-stone-300/60 shadow-[0_12px_32px_rgba(68,64,60,0.15)]'
+          }`}
+        >
+          <div className={`px-3 pb-2 mb-1 border-b text-[11px] font-semibold uppercase tracking-[0.18em] ${
+            dark ? 'border-white/[0.06] text-slate-400' : 'border-stone-200 text-stone-500'
+          }`}>
+            Статуси WayForPay callback
+          </div>
+          {items.map((it, i) => (
+            <div key={i} className="px-3 py-2 flex items-start gap-3">
+              <span className="shrink-0 w-[110px] flex justify-start mt-0.5">
+                <StatusBadge
+                  theme={theme}
+                  transactionStatus={it.badge.transactionStatus}
+                  signatureValid={it.badge.signatureValid}
+                  skipped={it.badge.skipped}
+                />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className={`text-[12px] leading-snug ${dark ? 'text-slate-300' : 'text-stone-700'}`}>
+                  {it.summary}
+                </p>
+                {it.causes && (
+                  <ul className={`mt-1 space-y-0.5 text-[11.5px] leading-snug list-disc pl-4 ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
+                    {it.causes.map((c, j) => <li key={j}>{c}</li>)}
+                  </ul>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function StatusBadge({
   transactionStatus,
   signatureValid,
@@ -633,19 +774,27 @@ function ServerPaginationBar({
   );
 }
 
-const KYIV_DATETIME_SEC_FMT = new Intl.DateTimeFormat('sv-SE', {
+const KYIV_DATE_FMT = new Intl.DateTimeFormat('uk-UA', {
   timeZone: 'Europe/Kyiv',
   year: 'numeric',
   month: '2-digit',
   day: '2-digit',
+});
+
+const KYIV_TIME_FMT = new Intl.DateTimeFormat('uk-UA', {
+  timeZone: 'Europe/Kyiv',
   hour: '2-digit',
   minute: '2-digit',
   second: '2-digit',
   hour12: false,
 });
 
-function fmtKyivDateTime(d: Date): string {
-  return KYIV_DATETIME_SEC_FMT.format(d).replace(',', '');
+function fmtKyivDate(d: Date): string {
+  return KYIV_DATE_FMT.format(d);
+}
+
+function fmtKyivTime(d: Date): string {
+  return KYIV_TIME_FMT.format(d);
 }
 
 function computePageList(current: number, total: number): (number | '…')[] {

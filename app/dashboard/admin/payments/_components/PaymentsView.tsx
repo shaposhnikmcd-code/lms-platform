@@ -3,7 +3,7 @@
 import { useMemo, useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
-import { HiOutlineFunnel, HiOutlineBanknotes, HiOutlineCheckCircle, HiOutlineClock, HiOutlineCreditCard, HiOutlineChevronLeft, HiOutlineChevronRight } from 'react-icons/hi2';
+import { HiOutlineFunnel, HiOutlineBanknotes, HiOutlineCheckCircle, HiOutlineClock, HiOutlineCreditCard, HiOutlineChevronLeft, HiOutlineChevronRight, HiOutlineClipboard, HiCheck, HiOutlineInformationCircle } from 'react-icons/hi2';
 import { useAdminTheme, type Theme } from '../../_components/adminTheme';
 import { AdminShell, AdminPanel } from '../../_components/AdminShell';
 import SourceBadge, { type SaleSource } from '../../_components/SourceBadge';
@@ -163,7 +163,16 @@ export default function PaymentsView({ rows }: { rows: Row[] }) {
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full">
+              <table className="w-full table-fixed">
+                <colgroup>
+                  <col style={{ width: '110px' }} />
+                  <col style={{ width: '230px' }} />
+                  <col style={{ width: '130px' }} />
+                  <col style={{ width: '240px' }} />
+                  <col style={{ width: '120px' }} />
+                  <col style={{ width: '120px' }} />
+                  <col style={{ width: '240px' }} />
+                </colgroup>
                 <thead className={`border-b ${dark ? 'border-white/[0.06] bg-black/10' : 'border-stone-300/40 bg-stone-50/40'}`}>
                   <tr>
                     <Th theme={theme}>Дата</Th>
@@ -176,7 +185,10 @@ export default function PaymentsView({ rows }: { rows: Row[] }) {
                     </Th>
                     <Th theme={theme}>Сума</Th>
                     <Th theme={theme}>
-                      <FilterHeader theme={theme} label="Статус" value={statusFilter} options={STATUS_OPTIONS} onChange={setStatusFilter} />
+                      <span className="inline-flex items-center gap-1.5">
+                        <FilterHeader theme={theme} label="Статус" value={statusFilter} options={STATUS_OPTIONS} onChange={setStatusFilter} />
+                        <StatusInfoButton theme={theme} />
+                      </span>
                     </Th>
                     <Th theme={theme}>Референс</Th>
                   </tr>
@@ -225,14 +237,14 @@ export default function PaymentsView({ rows }: { rows: Row[] }) {
                           <td className="px-5 py-3 text-center">
                             <ProductCell theme={theme} row={row} />
                           </td>
-                          <td className={`px-5 py-3 text-[13px] font-semibold tabular-nums ${dark ? 'text-slate-100' : 'text-stone-900'}`}>
+                          <td className={`px-5 py-3 text-[13px] font-semibold tabular-nums whitespace-nowrap ${dark ? 'text-slate-100' : 'text-stone-900'}`}>
                             {row.amount.toLocaleString()} ₴
                           </td>
                           <td className="px-5 py-3">
                             <StatusPill theme={theme} status={row.status} />
                           </td>
                           <td className="px-5 py-3">
-                            <TruncatedRef theme={theme} value={row.orderReference} />
+                            <CopyableRef theme={theme} value={row.orderReference} />
                           </td>
                         </tr>
                       );
@@ -384,7 +396,16 @@ function ProductCell({ row, theme }: { row: Row; theme: Theme }) {
       </span>
     );
   }
-  return <span className={`text-[13px] ${dark ? 'text-slate-300' : 'text-stone-700'}`}>{row.productLabel}</span>;
+  return (
+    <TruncatedPill
+      theme={theme}
+      label={row.productLabel}
+      tone={{
+        dark: 'bg-sky-500/10 text-sky-300 border-sky-500/20',
+        light: 'bg-sky-500/10 text-sky-800 border-sky-500/25',
+      }}
+    />
+  );
 }
 
 function useTruncationTooltip<T extends HTMLElement>() {
@@ -472,7 +493,7 @@ function TruncatedPill({
 }: {
   theme: Theme;
   label: string;
-  icon: string;
+  icon?: string;
   tone: { dark: string; light: string };
 }) {
   const dark = theme === 'dark';
@@ -487,29 +508,203 @@ function TruncatedPill({
           dark ? tone.dark : tone.light
         }`}
       >
-        <span className="shrink-0">{icon}</span>
-        <span ref={textRef} className="truncate max-w-[340px]">{label}</span>
+        {icon && <span className="shrink-0">{icon}</span>}
+        <span ref={textRef} className="truncate max-w-[200px]">{label}</span>
       </span>
       {tipPos && <TooltipBubble theme={theme} label={label} pos={tipPos} />}
     </>
   );
 }
 
-function TruncatedRef({ theme, value }: { theme: Theme; value: string }) {
+function CopyableRef({ theme, value }: { theme: Theme; value: string }) {
   const dark = theme === 'dark';
-  const { textRef, tipPos, show, hide } = useTruncationTooltip<HTMLSpanElement>();
+  const [copied, setCopied] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const wrapperRef = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    if (!expanded) return;
+    const onDown = (e: MouseEvent) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
+        setExpanded(false);
+      }
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [expanded]);
+
+  const handleToggleExpand = () => {
+    const sel = window.getSelection?.();
+    if (sel && sel.toString().length > 0) return;
+    setExpanded(prev => !prev);
+  };
+
+  const handleCopy = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // clipboard недоступний — користувач виділить руками
+    }
+  };
+
+  const containerBg = expanded
+    ? dark ? 'bg-white/[0.05] ring-1 ring-white/10' : 'bg-stone-900/[0.04] ring-1 ring-stone-900/10'
+    : dark ? 'hover:bg-white/[0.05]' : 'hover:bg-stone-900/[0.04]';
+  const focusRing = dark ? 'focus-visible:ring-amber-400/40' : 'focus-visible:ring-amber-600/40';
+
   return (
-    <>
-      <span
-        ref={textRef}
-        onMouseEnter={show}
-        onMouseLeave={hide}
-        className={`block truncate max-w-[220px] text-[11px] font-mono ${dark ? 'text-slate-500' : 'text-stone-500'}`}
-      >
-        {value}
+    <span ref={wrapperRef} className="group/copy relative inline-flex w-full max-w-full">
+      <span className={`inline-flex items-start gap-1.5 w-full max-w-full rounded-md px-1.5 py-0.5 -mx-1.5 -my-0.5 transition-colors ${containerBg}`}>
+        <button
+          type="button"
+          onClick={handleToggleExpand}
+          aria-label={expanded ? 'Згорнути референс' : 'Розгорнути референс'}
+          aria-expanded={expanded}
+          className={`text-left min-w-0 flex-1 cursor-pointer select-text outline-none focus-visible:ring-2 ${focusRing} rounded-sm`}
+        >
+          <span className={`block text-[11px] font-mono ${dark ? 'text-slate-500' : 'text-stone-500'} ${expanded ? 'whitespace-normal break-all' : 'truncate'}`}>
+            {value}
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={handleCopy}
+          aria-label={copied ? 'Скопійовано' : 'Скопіювати в буфер'}
+          className={`flex-shrink-0 inline-flex items-center justify-center w-4 h-4 mt-[1px] rounded transition-all outline-none focus-visible:ring-2 cursor-pointer ${focusRing} ${
+            copied
+              ? dark ? 'text-emerald-300' : 'text-emerald-600'
+              : dark
+                ? 'text-slate-500 opacity-40 group-hover/copy:opacity-100 hover:text-slate-200'
+                : 'text-stone-500 opacity-40 group-hover/copy:opacity-100 hover:text-stone-900'
+          }`}
+        >
+          {copied ? <HiCheck className="w-3.5 h-3.5" /> : <HiOutlineClipboard className="w-3.5 h-3.5" />}
+        </button>
       </span>
-      {tipPos && <TooltipBubble theme={theme} label={value} pos={tipPos} mono />}
-    </>
+
+      {copied && (
+        <span
+          role="status"
+          aria-live="polite"
+          className={`pointer-events-none absolute bottom-full left-0 mb-1.5 z-20 inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-semibold shadow-lg border whitespace-nowrap ${
+            dark
+              ? 'bg-slate-900 border-emerald-500/30 text-emerald-300 shadow-black/40'
+              : 'bg-stone-900 border-emerald-400/40 text-emerald-300 shadow-stone-900/30'
+          }`}
+        >
+          <HiCheck className="w-3 h-3" /> Скопійовано
+          <span
+            className={`absolute top-full left-3 w-0 h-0 border-l-[5px] border-r-[5px] border-t-[5px] border-l-transparent border-r-transparent ${
+              dark ? 'border-t-slate-900' : 'border-t-stone-900'
+            }`}
+          />
+        </span>
+      )}
+    </span>
+  );
+}
+
+function StatusInfoButton({ theme }: { theme: Theme }) {
+  const dark = theme === 'dark';
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  const items: { tone: 'PAID' | 'PENDING' | 'FAILED' | 'REFUNDED'; summary: string; causes?: string[] }[] = [
+    {
+      tone: 'PAID',
+      summary: 'WayForPay підтвердив успішну оплату. Сума зарахована, доступ відкрито, листи з курсом надіслані.',
+    },
+    {
+      tone: 'PENDING',
+      summary: 'Платіж створено в нашій системі, але фінального підтвердження від WayForPay ще немає. Можливі причини:',
+      causes: [
+        'клієнт перейшов на форму оплати, але не завершив платіж (закрив вкладку, передумав)',
+        'оплата у банка в обробці (перевірка 3DS / SCA)',
+        'Місячна підписка з автосписанням — рекурентний платіж ще не настав',
+        'callback від WFP не дійшов або затримався',
+      ],
+    },
+    {
+      tone: 'FAILED',
+      summary: 'Банк або WayForPay відхилив транзакцію. Доступ не відкрито. Можливі причини:',
+      causes: [
+        'недостатньо коштів на картці',
+        'картка заблокована, прострочена або не для онлайн-платежів',
+        'не пройшла перевірка 3DS / SCA (невірний код, тайм-аут)',
+        'клієнт натиснув "Скасувати" на формі WFP',
+        'перевищено ліміт банку (денний/місячний)',
+      ],
+    },
+    {
+      tone: 'REFUNDED',
+      summary: 'Адмін повернув кошти через WayForPay (повний або частковий refund). Доступ до продукту зазвичай закривається окремою дією вручну.',
+    },
+  ];
+
+  return (
+    <div ref={ref} className="relative inline-block">
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        aria-label="Що означають статуси"
+        className={`inline-flex items-center justify-center w-5 h-5 rounded-full border transition-colors ${
+          dark
+            ? 'text-amber-300 border-amber-400/40 bg-amber-500/15 hover:bg-amber-500/25'
+            : 'text-amber-800 border-amber-500/40 bg-amber-500/15 hover:bg-amber-500/25'
+        }`}
+      >
+        <HiOutlineInformationCircle className="text-[14px]" />
+      </button>
+      {open && (
+        <div
+          className={`absolute right-0 top-full mt-1.5 w-[440px] rounded-xl py-2 z-30 backdrop-blur-md border normal-case tracking-normal ${
+            dark
+              ? 'bg-[#161821]/95 border-white/[0.08] shadow-[0_12px_32px_rgba(0,0,0,0.5)]'
+              : 'bg-white/95 border-stone-300/60 shadow-[0_12px_32px_rgba(68,64,60,0.15)]'
+          }`}
+        >
+          <div className={`px-3 pb-2 mb-1 border-b text-[11px] font-semibold uppercase tracking-[0.18em] ${
+            dark ? 'border-white/[0.06] text-slate-400' : 'border-stone-200 text-stone-500'
+          }`}>
+            Статуси платежів
+          </div>
+          {items.map(it => (
+            <div key={it.tone} className="px-3 py-2 flex items-start gap-3">
+              <span className="shrink-0 w-[100px] flex justify-start mt-0.5">
+                <StatusPill theme={theme} status={it.tone} />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className={`text-[12px] leading-snug ${dark ? 'text-slate-300' : 'text-stone-700'}`}>
+                  {it.summary}
+                </p>
+                {it.causes && (
+                  <ul className={`mt-1 space-y-0.5 text-[11.5px] leading-snug list-disc pl-4 ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
+                    {it.causes.map((c, i) => <li key={i}>{c}</li>)}
+                  </ul>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
