@@ -57,8 +57,8 @@ export async function POST(
 /// Перевіряє по всіх PAID платежах підписки — будь-який міг бути prime для regularApi schedule.
 async function handleWfpStatus(sub: NonNullable<SubWithUser>) {
   const creds = getWayforpayCreds();
-  const merchantPassword = process.env.WAYFORPAY_MERCHANT_PASSWORD;
-  if (!merchantPassword) {
+  const rawPassword = process.env.WAYFORPAY_MERCHANT_PASSWORD;
+  if (!rawPassword) {
     return NextResponse.json({ error: 'WAYFORPAY_MERCHANT_PASSWORD не налаштовано' }, { status: 500 });
   }
   const paidPayments = await prisma.payment.findMany({
@@ -66,28 +66,45 @@ async function handleWfpStatus(sub: NonNullable<SubWithUser>) {
     orderBy: { paidAt: 'asc' },
     select: { orderReference: true, amount: true, paidAt: true },
   });
-  const checks = await Promise.all(paidPayments.map(async (p) => {
-    const r = await getRegularStatus({
-      merchantAccount: creds.merchantAccount,
-      merchantPassword,
-      orderReference: p.orderReference,
-    });
-    return {
-      orderReference: p.orderReference,
-      paidAt: p.paidAt,
-      reasonCode: r.raw.reasonCode,
-      status: r.raw.status,
-      mode: r.raw.mode,
-      amount: r.raw.amount,
-      nextPayment: r.raw.nextPayment,
-      raw: r.raw,
-    };
-  }));
+
+  // Probe with multiple password formats to find which auth WFP accepts
+  const md5Password = (await import('crypto')).createHash('md5').update(rawPassword).digest('hex');
+  const variants = [
+    { label: 'as_is', password: rawPassword },
+    { label: 'md5_of_raw', password: md5Password },
+  ];
+
+  const probes = await Promise.all(variants.flatMap((variant) =>
+    paidPayments.map(async (p) => {
+      const res = await fetch('https://api.wayforpay.com/regularApi', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          requestType: 'STATUS',
+          merchantAccount: creds.merchantAccount,
+          merchantPassword: variant.password,
+          orderReference: p.orderReference,
+          apiVersion: 1,
+        }),
+      });
+      const raw = await res.json().catch(() => ({}));
+      return {
+        passwordFormat: variant.label,
+        passwordPreview: variant.password.slice(0, 4) + '…' + variant.password.slice(-4) + ` (len=${variant.password.length})`,
+        orderReference: p.orderReference,
+        reasonCode: raw.reasonCode,
+        reason: raw.reason,
+        status: raw.status,
+      };
+    })
+  ));
+
   return NextResponse.json({
     subId: sub.id,
-    recToken: sub.recToken ? sub.recToken.slice(0, 6) + '…' + sub.recToken.slice(-4) : null,
+    rawPasswordLen: rawPassword.length,
+    rawIsHex32: /^[a-f0-9]{32}$/i.test(rawPassword),
     paidPaymentsCount: paidPayments.length,
-    checks,
+    probes,
   });
 }
 
