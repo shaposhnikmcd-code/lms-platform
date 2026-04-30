@@ -102,8 +102,14 @@ export function cyclicalChargeFailed1(args: { name: string | null; gracePeriodEn
     <h2 style="color: #1C3A2E; margin-top: 0;">Вітаю, ${nameOf(args.name)}!</h2>
     <p>На жаль, нам не вдалось автоматично списати оплату за наступний місяць у <strong>Річній програмі інституту UIMP</strong>.</p>
     <p>Можливі причини: недостатньо коштів, картку заблоковано, або вона прострочена.</p>
-    <p>Ми залишили вам доступ ще на <strong>7 днів</strong> — до <strong>${dateOf(args.gracePeriodEndsAt)}</strong>. За цей час потрібно або поповнити рахунок, або оплатити вручну на сайті:</p>
-    ${CTA_BUTTON('Оплатити вручну')}
+    <p>Ми залишили вам доступ ще на <strong>7 днів</strong> — до <strong>${dateOf(args.gracePeriodEndsAt)}</strong>.</p>
+    <p style="margin-top: 18px;"><strong>Що робити:</strong></p>
+    <ol style="margin: 8px 0 16px 0; padding-left: 20px; line-height: 1.7;">
+      <li><strong>Поповніть рахунок</strong> або переконайтеся що картка діюча — WayForPay автоматично спробує списати ще раз протягом 7 днів.</li>
+      <li><strong>Або оплатіть вручну</strong> за кнопкою нижче. На сторінці оплати оберіть варіант <strong style="color:#1C3A2E;">«Місячна — РАЗОВА»</strong> (а не АВТОПЛАТІЖ) — інакше може статися подвійне списання.</li>
+    </ol>
+    ${CTA_BUTTON('Оплатити вручну (РАЗОВА)')}
+    <p style="font-size: 13px; color: #6b7280;">Якщо хочете щоб автосписання продовжило працювати в наступних місяцях — нічого не робіть, просто поповніть картку. Якщо ж хочете далі платити вручну — після кнопки оберіть РАЗОВА і автосписання вимкнеться.</p>
     ${SUPPORT_FOOTER}
     <p style="margin-top: 32px;">З теплом,<br/>Команда UIMP</p>
   `);
@@ -118,8 +124,14 @@ export function cyclicalChargeFailed3(args: { name: string | null; gracePeriodEn
     <h2 style="color: #1C3A2E; margin-top: 0;">Вітаю, ${nameOf(args.name)}!</h2>
     <p>Минуло 3 дні з моменту, коли не вдалось списати оплату за наступний місяць у <strong>Річній програмі інституту UIMP</strong>.</p>
     <p>До <strong>${dateOf(args.gracePeriodEndsAt)}</strong> залишилось <strong>${daysLeft} ${daysWord(daysLeft)}</strong>. Якщо до цього часу оплата не надійде — доступ буде закрито.</p>
-    <p>Поповніть рахунок на картці або оплатіть вручну:</p>
-    ${CTA_BUTTON('Оплатити вручну')}
+    <p style="margin-top: 18px;"><strong>Як оплатити вручну:</strong></p>
+    <ol style="margin: 8px 0 16px 0; padding-left: 20px; line-height: 1.7;">
+      <li>Натисніть кнопку нижче.</li>
+      <li>На сторінці оплати оберіть варіант <strong style="color:#1C3A2E;">«Місячна — РАЗОВА»</strong> (а не АВТОПЛАТІЖ) — це гарантує що з вас не спишуть двічі.</li>
+      <li>Завершіть оплату.</li>
+    </ol>
+    ${CTA_BUTTON('Оплатити вручну (РАЗОВА)')}
+    <p style="font-size: 13px; color: #6b7280;">Альтернатива: поповніть картку — WayForPay може автоматично повторити списання у залишені дні.</p>
     ${SUPPORT_FOOTER}
     <p style="margin-top: 32px;">З теплом,<br/>Команда UIMP</p>
   `);
