@@ -217,40 +217,15 @@ export const authOptions: NextAuthOptions = {
     async signIn({ user, account }) {
       if (account?.provider === "credentials") return true;
 
-      // OAuth (Google/Facebook/Apple): доступ лише для whitelist email-ів
-      // (ADMIN_EMAILS / MANAGER_EMAILS). Решта — блок без створення User.
       const email = user.email?.toLowerCase();
       if (!email) return false;
-      const allowedRole = getRole(email);
-      if (!allowedRole) return false;
 
       try {
         const existingUser = await prisma.user.findUnique({ where: { email } });
-        if (!existingUser) {
-          const created = await prisma.user.create({
-            data: {
-              email,
-              name: user.name,
-              image: user.image,
-              role: allowedRole,
-              lastLoginAt: new Date(),
-            },
-          });
-          // Системна подія: акаунт створено через OAuth (актора-адміна немає,
-          // юзер сам залогінився як whitelisted email).
-          await prisma.userAuditLog.create({
-            data: {
-              userId: created.id,
-              eventType: 'CREATED',
-              targetName: created.name,
-              targetEmail: created.email,
-              targetRole: created.role,
-              actorId: null,
-              actorName: 'System (OAuth первинний логін)',
-              actorEmail: null,
-            },
-          });
-        } else {
+
+        // Існуючий юзер — пускаємо за роллю в БД (адмін міг призначити через адмінку,
+        // env-whitelist не обов'язковий).
+        if (existingUser) {
           if (existingUser.deletedAt) return false;
           if (existingUser.role !== "ADMIN" && existingUser.role !== "MANAGER") return false;
           await prisma.user.update({
@@ -261,7 +236,35 @@ export const authOptions: NextAuthOptions = {
               lastLoginAt: new Date(),
             },
           });
+          return true;
         }
+
+        // Новий юзер (немає в БД) — авто-створюємо лише якщо email у env-whitelist
+        // (bootstrap для перших адмінів, у яких ще немає User-рядка).
+        const allowedRole = getRole(email);
+        if (!allowedRole) return false;
+
+        const created = await prisma.user.create({
+          data: {
+            email,
+            name: user.name,
+            image: user.image,
+            role: allowedRole,
+            lastLoginAt: new Date(),
+          },
+        });
+        await prisma.userAuditLog.create({
+          data: {
+            userId: created.id,
+            eventType: 'CREATED',
+            targetName: created.name,
+            targetEmail: created.email,
+            targetRole: created.role,
+            actorId: null,
+            actorName: 'System (OAuth первинний логін)',
+            actorEmail: null,
+          },
+        });
       } catch (error) {
         console.error('❌ Error syncing user:', error);
         return false;
