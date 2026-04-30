@@ -18,21 +18,16 @@ import {
 import SyncDivisionsButton from './SyncDivisionsButton';
 import { useAdminTheme, type Theme } from './adminTheme';
 import { AdminShell, AdminPanel } from './AdminShell';
+import SalesChart from './SalesChart';
+import type { SalesSeries, SalesKpiBuckets, SalesPeriod } from '@/lib/admin-sales-analytics';
 
-type SalesBucket = { count: number; sum: number; avg: number };
 type BadgeTone = 'neutral' | 'warning' | 'success';
 type SectionBadge = { value: string; tone: BadgeTone } | null;
 
 export type AdminDashboardData = {
-  salesBuckets: {
-    courses: SalesBucket;
-    bundles: SalesBucket;
-    yearlyYearly: SalesBucket;
-    yearlyMonthlyOnce: SalesBucket;
-    yearlyMonthlyAuto: SalesBucket;
-    connector: SalesBucket;
-  };
-  activePeriodValue: string;
+  series: SalesSeries;
+  salesBuckets: SalesKpiBuckets;
+  activePeriodValue: SalesPeriod;
   activePeriodLabel: string;
   connectorAwaitingManager: number;
   connectorPendingPayment: number;
@@ -41,7 +36,7 @@ export type AdminDashboardData = {
   connectorStuckProcessing: number;
   bundleSuspended: number;
   connectorStandardPrice: number;
-  periodOptions: { value: string; label: string }[];
+  periodOptions: { value: SalesPeriod; label: string }[];
   sectionBadges: {
     courses: SectionBadge;
     bundles: SectionBadge;
@@ -109,8 +104,6 @@ export default function AdminDashboardView({ data }: { data: AdminDashboardData 
   }
 
   const b = data.sectionBadges;
-  /// Порядок відповідає column-major розкладці у сітці grid-flow-col + grid-rows-3:
-  /// перші 3 заповнюють ліву колонку згори вниз, наступні 3 — середню, останні 3 — праву.
   const quickActions = [
     { href: '/dashboard/admin/courses', label: 'Курси', desc: 'Ціни курсів', icon: HiOutlineBookOpen, badge: b.courses },
     { href: '/dashboard/admin/bundles', label: 'Пакети', desc: 'Курси зі знижкою', icon: HiOutlineSparkles, badge: b.bundles },
@@ -131,6 +124,7 @@ export default function AdminDashboardView({ data }: { data: AdminDashboardData 
       eyebrow="Admin · Overview"
       title="Адмін-панель"
       subtitle="Все, що потрібно — на одному екрані. Зайшов, подивився, зробив, пішов."
+      maxWidth="max-w-[1480px]"
       rightSlot={
         <>
           {attentionItems.length === 0 && (
@@ -169,7 +163,6 @@ export default function AdminDashboardView({ data }: { data: AdminDashboardData 
         </>
       }
     >
-      {/* Attention */}
       {attentionItems.length > 0 && (
         <section
           className={`mb-6 rounded-2xl p-5 backdrop-blur-sm border ${
@@ -246,122 +239,121 @@ export default function AdminDashboardView({ data }: { data: AdminDashboardData 
         </section>
       )}
 
-      {/* Period filter */}
-      <div className="mb-3 flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-2">
-          <span className={`text-[10px] uppercase tracking-[0.18em] font-semibold ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
-            Продажі
-          </span>
-          <span className={`text-[11px] tabular-nums ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
-            · {data.activePeriodLabel}
-          </span>
-        </div>
-        <div
-          className={`inline-flex rounded-lg p-0.5 border ${
-            dark ? 'bg-black/30 border-white/[0.06]' : 'bg-stone-100/80 border-stone-300/50'
-          }`}
-        >
-          {data.periodOptions.map(opt => {
-            const active = opt.value === data.activePeriodValue;
-            return (
-              <Link
-                key={opt.value}
-                href={`/dashboard/admin?period=${opt.value}`}
-                scroll={false}
-                className={`px-2.5 py-1 text-[11px] font-medium rounded-md transition-all ${
-                  active
-                    ? dark
-                      ? 'bg-white/10 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]'
-                      : 'bg-stone-900 text-white shadow-sm'
-                    : dark
-                      ? 'text-slate-500 hover:text-slate-200'
-                      : 'text-stone-500 hover:text-stone-900'
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+        {/* Analytics — chart + KPI strip */}
+        <div className="lg:col-span-9 flex flex-col gap-4">
+          <AdminPanel theme={theme} padding="p-5">
+            <div className="flex items-center gap-4 flex-wrap mb-4">
+              <div className="min-w-0">
+                <h2 className={`text-[15px] font-semibold tracking-tight ${dark ? 'text-white' : 'text-stone-900'}`}>
+                  Продажі
+                </h2>
+                <p className={`text-[12px] mt-0.5 tabular-nums ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+                  {data.series.rangeLabel}
+                </p>
+              </div>
+              <div
+                className={`inline-flex flex-wrap rounded-lg p-0.5 border ${
+                  dark ? 'bg-black/30 border-white/[0.06]' : 'bg-stone-100/80 border-stone-300/50'
                 }`}
               >
-                {opt.label}
-              </Link>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Sales KPI */}
-      <div
-        className={`mb-6 rounded-2xl grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 overflow-hidden backdrop-blur-sm border divide-y divide-x md:divide-y-0 ${
-          dark
-            ? 'bg-white/[0.03] border-white/[0.06] divide-white/[0.06]'
-            : 'bg-white/55 border-stone-300/50 divide-stone-300/40 shadow-[0_1px_2px_rgba(68,64,60,0.04)]'
-        }`}
-      >
-        <SalesKpi theme={theme} label="Курси" bucket={data.salesBuckets.courses} />
-        <SalesKpi theme={theme} label="Пакети" bucket={data.salesBuckets.bundles} />
-        <SalesKpi theme={theme} label="Річна підписка" bucket={data.salesBuckets.yearlyYearly} glow />
-        <SalesKpi theme={theme} label="Місячна · 1 міс." bucket={data.salesBuckets.yearlyMonthlyOnce} />
-        <SalesKpi theme={theme} label="Місячна · Автоплатіж" bucket={data.salesBuckets.yearlyMonthlyAuto} />
-        <SalesKpi theme={theme} label="Гра Конектор" bucket={data.salesBuckets.connector} />
-      </div>
-
-      {/* Quick actions */}
-      <AdminPanel theme={theme} className="max-w-4xl mx-auto">
-        <div className="flex items-center justify-between mb-5">
-          <div>
-            <h2 className={`text-[15px] font-semibold tracking-tight ${dark ? 'text-white' : 'text-stone-900'}`}>
-              Швидкі дії
-            </h2>
-            <p className={`text-[12px] mt-0.5 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
-              Перехід до розділів
-            </p>
-          </div>
-          <span
-            className={`text-[10px] uppercase tracking-[0.18em] font-medium tabular-nums ${
-              dark ? 'text-slate-600' : 'text-stone-500'
-            }`}
-          >
-            {quickActions.length}
-          </span>
-        </div>
-
-        <nav className="grid grid-cols-1 sm:grid-cols-3 sm:grid-rows-3 sm:grid-flow-col gap-1">
-          {quickActions.map(a => (
-            <Link
-              key={a.href}
-              href={a.href}
-              className={`group flex items-center gap-3 px-3 py-2.5 rounded-lg border transition-colors ${
-                dark
-                  ? 'border-white/[0.05] hover:bg-white/[0.04] hover:border-white/[0.1]'
-                  : 'border-stone-300/40 hover:bg-stone-100/70 hover:border-stone-400/50'
-              }`}
-            >
-              <a.icon
-                className={`text-lg flex-shrink-0 transition-colors ${
-                  dark
-                    ? 'text-slate-500 group-hover:text-amber-300'
-                    : 'text-stone-500 group-hover:text-amber-700'
-                }`}
-              />
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span
-                    className={`text-[13px] font-medium leading-tight ${
-                      dark ? 'text-slate-100' : 'text-stone-900'
-                    }`}
-                  >
-                    {a.label}
-                  </span>
-                  {a.badge && <SectionBadgePill theme={theme} badge={a.badge} />}
-                </div>
-                <div className={`text-[11px] truncate mt-0.5 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
-                  {a.desc}
-                </div>
+                {data.periodOptions.map(opt => {
+                  const active = opt.value === data.activePeriodValue;
+                  return (
+                    <Link
+                      key={opt.value}
+                      href={`/dashboard/admin?period=${opt.value}`}
+                      scroll={false}
+                      className={`px-2.5 py-1 text-[11px] font-medium rounded-md transition-all ${
+                        active
+                          ? dark
+                            ? 'bg-white/10 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]'
+                            : 'bg-stone-900 text-white shadow-sm'
+                          : dark
+                            ? 'text-slate-500 hover:text-slate-200'
+                            : 'text-stone-500 hover:text-stone-900'
+                      }`}
+                    >
+                      {opt.label}
+                    </Link>
+                  );
+                })}
               </div>
-            </Link>
-          ))}
-        </nav>
+            </div>
 
-        <div className={`mt-5 pt-5 border-t ${dark ? 'border-white/[0.06]' : 'border-stone-300/50'}`}>
-          <SyncDivisionsButton theme={theme} />
+            <SalesChart series={data.series} theme={theme} />
+          </AdminPanel>
         </div>
-      </AdminPanel>
+
+        {/* Quick actions — вертикальна колонка справа */}
+        <aside className="lg:col-span-3">
+          <AdminPanel theme={theme} padding="p-5" className="lg:sticky lg:top-6">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className={`text-[15px] font-semibold tracking-tight ${dark ? 'text-white' : 'text-stone-900'}`}>
+                  Швидкі дії
+                </h2>
+                <p className={`text-[11px] mt-0.5 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+                  Перехід до розділів
+                </p>
+              </div>
+              <span
+                className={`text-[10px] uppercase tracking-[0.18em] font-medium tabular-nums ${
+                  dark ? 'text-slate-600' : 'text-stone-500'
+                }`}
+              >
+                {quickActions.length}
+              </span>
+            </div>
+
+            <nav className="flex flex-col gap-1">
+              {quickActions.map(a => (
+                <Link
+                  key={a.href}
+                  href={a.href}
+                  className={`group flex items-center gap-2.5 px-2.5 py-2 rounded-lg border transition-colors ${
+                    dark
+                      ? 'border-white/[0.05] hover:bg-white/[0.04] hover:border-white/[0.1]'
+                      : 'border-stone-300/40 hover:bg-stone-100/70 hover:border-stone-400/50'
+                  }`}
+                >
+                  <a.icon
+                    className={`text-base flex-shrink-0 transition-colors ${
+                      dark
+                        ? 'text-slate-500 group-hover:text-amber-300'
+                        : 'text-stone-500 group-hover:text-amber-700'
+                    }`}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span
+                        className={`text-[12.5px] font-medium leading-tight ${
+                          dark ? 'text-slate-100' : 'text-stone-900'
+                        }`}
+                      >
+                        {a.label}
+                      </span>
+                      {a.badge && <SectionBadgePill theme={theme} badge={a.badge} />}
+                    </div>
+                    <div className={`text-[10.5px] truncate mt-0.5 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+                      {a.desc}
+                    </div>
+                  </div>
+                  <HiOutlineArrowRight
+                    className={`text-xs flex-shrink-0 opacity-0 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all ${
+                      dark ? 'text-slate-400' : 'text-stone-500'
+                    }`}
+                  />
+                </Link>
+              ))}
+            </nav>
+
+            <div className={`mt-4 pt-4 border-t ${dark ? 'border-white/[0.06]' : 'border-stone-300/50'}`}>
+              <SyncDivisionsButton theme={theme} />
+            </div>
+          </AdminPanel>
+        </aside>
+      </div>
     </AdminShell>
   );
 }
@@ -445,7 +437,7 @@ function SectionBadgePill({
   const cls = dark ? palette[badge.tone].dark : palette[badge.tone].light;
   return (
     <span
-      className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-medium tabular-nums border flex-shrink-0 ${cls}`}
+      className={`inline-flex items-center px-1.5 py-0.5 rounded-md text-[9.5px] font-medium tabular-nums border flex-shrink-0 ${cls}`}
     >
       {badge.value}
     </span>

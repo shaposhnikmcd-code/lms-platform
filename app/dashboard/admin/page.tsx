@@ -1,15 +1,16 @@
 import prisma from "@/lib/prisma";
 import AdminDashboardView from "./_components/AdminDashboardView";
+import { getSalesAnalytics, type SalesPeriod } from "@/lib/admin-sales-analytics";
 
 const CONNECTOR_STANDARD_PRICE = 1099;
 const CONNECTOR_ADMIN_TEST_PRICE = 1;
 
-const PERIOD_OPTIONS: { value: string; label: string; days: number }[] = [
-  { value: '7d', label: '7д', days: 7 },
-  { value: '30d', label: '1 міс.', days: 30 },
-  { value: '3m', label: '3 міс.', days: 90 },
-  { value: '6m', label: '6 міс.', days: 180 },
-  { value: '1y', label: '1 Рік', days: 365 },
+const PERIOD_OPTIONS: { value: SalesPeriod; label: string }[] = [
+  { value: '1m', label: '1 міс.' },
+  { value: '3m', label: '3 міс.' },
+  { value: '6m', label: '6 міс.' },
+  { value: '1y', label: '1 рік' },
+  { value: 'all', label: 'Весь період' },
 ];
 
 export default async function AdminDashboard({
@@ -18,27 +19,24 @@ export default async function AdminDashboard({
   searchParams: Promise<{ period?: string }>;
 }) {
   const { period } = await searchParams;
-  const activePeriod = PERIOD_OPTIONS.find(p => p.value === period) ?? PERIOD_OPTIONS[1];
-  const periodCutoff = new Date(Date.now() - activePeriod.days * 24 * 60 * 60 * 1000);
+  const activePeriod = PERIOD_OPTIONS.find(p => p.value === period) ?? PERIOD_OPTIONS[0];
 
   const [
+    series,
     connectorOrders,
     connectorPendingPayment,
     bundleSuspended,
     bundleDraft,
     bundleActive,
-    bundlePaymentsInPeriod,
-    coursePaymentsInPeriod,
-    yearlyPaymentsInPeriod,
     coursePublishedCount,
     newsPublishedCount,
     userCount,
     yearlyActiveCount,
     paymentPendingCount,
   ] = await Promise.all([
+    getSalesAnalytics(activePeriod.value),
     prisma.connectorOrder.findMany({
       select: {
-        amount: true,
         gamePrice: true,
         paymentStatus: true,
         orderStatus: true,
@@ -47,41 +45,10 @@ export default async function AdminDashboard({
         paidAt: true,
       },
     }),
-    prisma.connectorOrder.count({
-      where: { paymentStatus: 'PENDING' },
-    }),
+    prisma.connectorOrder.count({ where: { paymentStatus: 'PENDING' } }),
     prisma.bundle.count({ where: { suspendedAt: { not: null } } }),
     prisma.bundle.count({ where: { published: false } }),
     prisma.bundle.count({ where: { published: true, suspendedAt: null } }),
-    prisma.payment.findMany({
-      where: {
-        status: 'PAID',
-        bundleId: { not: null },
-        createdAt: { gte: periodCutoff },
-      },
-      select: { amount: true },
-    }),
-    prisma.payment.findMany({
-      where: {
-        status: 'PAID',
-        courseId: { not: null },
-        createdAt: { gte: periodCutoff },
-      },
-      select: { amount: true },
-    }),
-    prisma.payment.findMany({
-      where: {
-        status: 'PAID',
-        yearlyProgramSubscriptionId: { not: null },
-        createdAt: { gte: periodCutoff },
-      },
-      select: {
-        amount: true,
-        yearlyProgramSubscription: {
-          select: { plan: true, autoRenew: true },
-        },
-      },
-    }),
     prisma.course.count({ where: { published: true } }),
     prisma.news.count({ where: { published: true } }),
     prisma.user.count({ where: { deletedAt: null } }),
@@ -108,43 +75,10 @@ export default async function AdminDashboard({
   }).length;
   const connectorNonStandard = connectorOrders.filter(o => {
     if (o.paymentStatus !== 'PAID') return false;
-    if (o.createdAt < periodCutoff) return false;
+    if (o.createdAt < series.rangeStart || o.createdAt > series.rangeEnd) return false;
     const price = o.gamePrice ?? CONNECTOR_STANDARD_PRICE;
     return price !== CONNECTOR_STANDARD_PRICE && price !== CONNECTOR_ADMIN_TEST_PRICE;
   }).length;
-
-  const summarize = (items: { amount: number }[]) => {
-    const count = items.length;
-    const sum = items.reduce((s, p) => s + p.amount, 0);
-    const avg = count ? Math.round(sum / count) : 0;
-    return { count, sum, avg };
-  };
-
-  const connectorPaidInPeriod = connectorOrders.filter(
-    o => o.paymentStatus === 'PAID' && o.createdAt >= periodCutoff,
-  );
-  const yearlyYearlyItems = yearlyPaymentsInPeriod.filter(
-    p => p.yearlyProgramSubscription?.plan === 'YEARLY',
-  );
-  const yearlyMonthlyOnceItems = yearlyPaymentsInPeriod.filter(
-    p =>
-      p.yearlyProgramSubscription?.plan === 'MONTHLY' &&
-      p.yearlyProgramSubscription?.autoRenew === false,
-  );
-  const yearlyMonthlyAutoItems = yearlyPaymentsInPeriod.filter(
-    p =>
-      p.yearlyProgramSubscription?.plan === 'MONTHLY' &&
-      p.yearlyProgramSubscription?.autoRenew === true,
-  );
-
-  const salesBuckets = {
-    courses: summarize(coursePaymentsInPeriod),
-    bundles: summarize(bundlePaymentsInPeriod),
-    yearlyYearly: summarize(yearlyYearlyItems),
-    yearlyMonthlyOnce: summarize(yearlyMonthlyOnceItems),
-    yearlyMonthlyAuto: summarize(yearlyMonthlyAutoItems),
-    connector: summarize(connectorPaidInPeriod.map(o => ({ amount: o.amount }))),
-  };
 
   /// Бейджі на картках у «Швидкі дії». Показуємо лише той, що варто уваги
   /// (`warning` — залипли замовлення/платежі; інакше нейтральна загальна цифра).
@@ -181,7 +115,8 @@ export default async function AdminDashboard({
   return (
     <AdminDashboardView
       data={{
-        salesBuckets,
+        series,
+        salesBuckets: series.kpi,
         activePeriodValue: activePeriod.value,
         activePeriodLabel: activePeriod.label,
         connectorAwaitingManager,
@@ -191,7 +126,7 @@ export default async function AdminDashboard({
         connectorStuckProcessing,
         bundleSuspended,
         connectorStandardPrice: CONNECTOR_STANDARD_PRICE,
-        periodOptions: PERIOD_OPTIONS.map(({ value, label }) => ({ value, label })),
+        periodOptions: PERIOD_OPTIONS,
         sectionBadges,
       }}
     />
