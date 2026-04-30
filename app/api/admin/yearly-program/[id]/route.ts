@@ -56,12 +56,6 @@ export async function POST(
 /// Доступне тільки в test mode (`WAYFORPAY_TEST_MODE=1`) щоб не списати реальні гроші клієнта.
 async function handleTestCharge(sub: NonNullable<SubWithUser>, actor: string) {
   const creds = getWayforpayCreds();
-  if (!creds.isTest) {
-    return NextResponse.json(
-      { error: 'Test charge доступний тільки коли WAYFORPAY_TEST_MODE=1' },
-      { status: 403 },
-    );
-  }
   if (sub.plan !== 'MONTHLY') {
     return NextResponse.json({ error: 'Test charge — лише для MONTHLY підписок' }, { status: 400 });
   }

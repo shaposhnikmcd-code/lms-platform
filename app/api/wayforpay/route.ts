@@ -305,10 +305,9 @@ export async function POST(req: NextRequest) {
     };
 
     // Для MONTHLY плану Річної програми — увімкнути токенізацію й регулярне щомісячне списання.
-    // Адмінський тест (1 ₴) НЕ викликає регулярку у проді — щоб не створити рекурентну оплату в WFP.
-    // Виняток: коли увімкнено `WAYFORPAY_TEST_MODE=1` (тестовий мерчант WFP, реальні гроші не
-    // списуються) — admin теж отримує regular flags, щоб можна було перевірити cyclical флоу.
-    if (yearlyKind === 'monthly' && recurring !== false && (!isAdmin || creds.isTest)) {
+    // Admin теж отримує regular flags — це свідомий вибір: для перевірки cyclical потоку треба
+    // справжню регулярку на стороні WFP. Адмін після тесту викликає Cancel → removeRegularSchedule.
+    if (yearlyKind === 'monthly' && recurring !== false) {
       const flags = buildRegularPurchaseFlags({
         amount: finalAmount,
         totalPayments: YEARLY_PROGRAM_CONFIG.totalMonthlyPayments,
