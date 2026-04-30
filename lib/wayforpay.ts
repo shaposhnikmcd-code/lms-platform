@@ -161,6 +161,14 @@ export async function chargeByRecToken(opts: {
   };
 }
 
+/// WFP regularApi вимагає `merchantPassword` як MD5-хеш від паролю мерчанта (не plaintext).
+/// Якщо в env вже задано 32-символьний hex (готовий MD5) — використовуємо як є.
+/// Інакше — хешуємо, щоб дозволити користувачу зберігати plaintext-пароль з WFP-кабінету.
+function normalizeMerchantPassword(value: string): string {
+  if (/^[a-f0-9]{32}$/i.test(value)) return value.toLowerCase();
+  return crypto.createHash('md5').update(value).digest('hex');
+}
+
 /// Скасування регулярного платежу (якщо раніше створювали через regularApi CREATE).
 /// Використовується, коли юзер скасовує підписку — WFP припиняє списання.
 export async function removeRegularSchedule(opts: {
@@ -174,7 +182,7 @@ export async function removeRegularSchedule(opts: {
     body: JSON.stringify({
       requestType: 'REMOVE',
       merchantAccount: opts.merchantAccount,
-      merchantPassword: opts.merchantPassword,
+      merchantPassword: normalizeMerchantPassword(opts.merchantPassword),
       orderReference: opts.orderReference,
       apiVersion: 1,
     }),
