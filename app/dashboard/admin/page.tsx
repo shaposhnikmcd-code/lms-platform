@@ -51,7 +51,7 @@ export default async function AdminDashboard({
     prisma.bundle.count({ where: { published: true, suspendedAt: null } }),
     prisma.course.count({ where: { published: true } }),
     prisma.news.count({ where: { published: true } }),
-    prisma.user.count({ where: { deletedAt: null } }),
+    prisma.user.count({ where: { deletedAt: null, role: { in: ['ADMIN', 'MANAGER'] } } }),
     prisma.yearlyProgramSubscription.count({
       where: { status: { in: ['ACTIVE', 'GRACE'] } },
     }),
