@@ -325,7 +325,7 @@
     "payRecurringUnit": "/mies · 9 razy",
     "payRecurringHint": "Automatyczne obciążenie karty · razem {total} UAH",
     "payCurrency": "UAH",
-    "recurringNotice": "Karta będzie obciążana automatycznie {price} UAH miesięcznie, 9 razy. Po 9. płatności obciążanie się zakończy. Można anulować w każdej chwili, pisząc do naszego wsparcia technicznego. Kontakt znajdziesz na stronie O nas.",
+    "recurringNotice": "Karta będzie obciążana automatycznie {price} UAH miesięcznie, 9 razy. Po 9. płatności obciążanie się zakończy. Jeśli kolejna płatność się nie powiedzie (brak środków, bank odrzucił, karta anulowana) — natychmiast wyślemy e-mail z linkiem do płatności ręcznej, dostęp pozostaje przez 7 dni. Można anulować w każdej chwili, pisząc do naszego wsparcia technicznego. Kontakt na stronie O nas.",
     "testModeBadge": "🔧 Tryb testowy: {price} UAH",
     "testModePromo": "W trybie testowym promokod nie jest stosowany — cena już wynosi {price} UAH."
   },
