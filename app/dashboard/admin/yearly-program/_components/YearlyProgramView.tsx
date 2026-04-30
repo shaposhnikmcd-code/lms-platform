@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import {
@@ -1265,6 +1265,33 @@ const CYCLICAL_SCENARIOS: EmailScenario[] = [
   { type: 'closed',            title: '🔒 7-й день — закриття доступу',     when: 'Оплата так і не пройшла, закрили доступ.' },
 ];
 
+/// Iframe прев'ю листа з auto-height: висота підлаштовується під контент,
+/// щоб не було внутрішнього скролбара і весь контент модалки скролився одним рухом миші.
+function EmailPreviewFrame({ src, title }: { src: string; title: string }) {
+  const ref = useRef<HTMLIFrameElement | null>(null);
+  const [height, setHeight] = useState(500);
+  const measure = () => {
+    try {
+      const doc = ref.current?.contentDocument;
+      if (doc?.body) {
+        const h = Math.max(doc.body.scrollHeight, doc.documentElement.scrollHeight);
+        if (h > 0) setHeight(h + 8);
+      }
+    } catch {}
+  };
+  return (
+    <iframe
+      ref={ref}
+      src={src}
+      title={title}
+      onLoad={measure}
+      scrolling="no"
+      className="w-full bg-white block"
+      style={{ height, border: 'none' }}
+    />
+  );
+}
+
 function EmailRemindersModal({ theme, onClose }: { theme: Theme; onClose: () => void }) {
   const dark = theme === 'dark';
   const [mounted, setMounted] = useState(false);
@@ -1341,12 +1368,7 @@ function EmailRemindersModal({ theme, onClose }: { theme: Theme; onClose: () => 
                   ✕
                 </button>
               </div>
-              <iframe
-                key={activeScenario.type}
-                src={previewUrl}
-                title={`Email preview: ${activeScenario.title}`}
-                className="w-full h-[500px] bg-white"
-              />
+              <EmailPreviewFrame key={activeScenario.type} src={previewUrl} title={`Email preview: ${activeScenario.title}`} />
               <div className={`px-4 py-2 flex items-center gap-3 border-t ${dark ? 'border-white/10' : 'border-stone-200'}`}>
                 <a
                   href={previewUrl}
