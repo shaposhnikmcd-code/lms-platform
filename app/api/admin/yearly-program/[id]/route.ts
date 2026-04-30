@@ -359,21 +359,30 @@ async function handleCancel(sub: NonNullable<SubWithUser>, actor: string, reason
       const merchantAccount = process.env.WAYFORPAY_MERCHANT_LOGIN!;
       const merchantPassword = process.env.WAYFORPAY_MERCHANT_PASSWORD;
       if (merchantPassword) {
-        // orderReference для REMOVE — найперший Payment цієї підписки.
-        const firstPayment = await prisma.payment.findFirst({
+        // WFP може створити регулярку на будь-якому з autopay-платежів, не тільки на першому.
+        // Пробуємо REMOVE на кожному PAID orderRef поки не отримаємо 1100/Accept (success).
+        const paidPayments = await prisma.payment.findMany({
           where: { yearlyProgramSubscriptionId: sub.id, status: 'PAID' },
-          orderBy: { paidAt: 'asc' },
+          orderBy: { paidAt: 'desc' },
         });
-        if (firstPayment) {
+        const errors: string[] = [];
+        for (const p of paidPayments) {
           const result = await removeRegularSchedule({
             merchantAccount,
             merchantPassword,
-            orderReference: firstPayment.orderReference,
+            orderReference: p.orderReference,
           });
-          wfpRemoved = result.ok;
-          if (!result.ok) wfpError = JSON.stringify(result.raw).slice(0, 300);
-        } else {
-          wfpError = 'Перший Payment не знайдено';
+          if (result.ok) {
+            wfpRemoved = true;
+            break;
+          } else {
+            errors.push(`${p.orderReference}: ${JSON.stringify(result.raw).slice(0, 150)}`);
+          }
+        }
+        if (!wfpRemoved && paidPayments.length === 0) {
+          wfpError = 'PAID-платежів цієї підписки не знайдено';
+        } else if (!wfpRemoved) {
+          wfpError = errors.join(' | ').slice(0, 600);
         }
       } else {
         wfpError = 'WAYFORPAY_MERCHANT_PASSWORD не налаштовано';

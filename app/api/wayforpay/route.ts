@@ -178,23 +178,35 @@ export async function POST(req: NextRequest) {
             // Якщо REMOVE впаде — все одно мутимо БД, щоб уникнути неконсистентного стану;
             // помилку логуємо в subscription event для діагностики.
             let wfpRemoveError: string | null = null;
+            let wfpRemoveSuccess: string | null = null;
             if (!desiredAutoRenew && existing.autoRenew) {
               try {
                 const merchantPassword = process.env.WAYFORPAY_MERCHANT_PASSWORD;
                 if (!merchantPassword) {
                   wfpRemoveError = 'WAYFORPAY_MERCHANT_PASSWORD не налаштовано';
                 } else {
-                  const firstPayment = await prisma.payment.findFirst({
+                  // WFP може створити регулярку не на першому, а на будь-якому з autopay-платежів.
+                  // Пробуємо REMOVE на кожному PAID orderRef поки якийсь не повернеться 1100/Accept.
+                  const paidPayments = await prisma.payment.findMany({
                     where: { yearlyProgramSubscriptionId: existing.id, status: 'PAID' },
-                    orderBy: { paidAt: 'asc' },
+                    orderBy: { paidAt: 'desc' },
                   });
-                  if (firstPayment) {
+                  const errors: string[] = [];
+                  for (const p of paidPayments) {
                     const result = await removeRegularSchedule({
                       merchantAccount: merchantLogin,
                       merchantPassword,
-                      orderReference: firstPayment.orderReference,
+                      orderReference: p.orderReference,
                     });
-                    if (!result.ok) wfpRemoveError = JSON.stringify(result.raw).slice(0, 300);
+                    if (result.ok) {
+                      wfpRemoveSuccess = p.orderReference;
+                      break;
+                    } else {
+                      errors.push(`${p.orderReference}: ${JSON.stringify(result.raw).slice(0, 150)}`);
+                    }
+                  }
+                  if (!wfpRemoveSuccess) {
+                    wfpRemoveError = errors.join(' | ').slice(0, 600);
                   }
                 }
               } catch (e) {
