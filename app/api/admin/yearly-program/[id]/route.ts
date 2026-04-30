@@ -54,6 +54,8 @@ export async function POST(
       return handleTestSendEmail(sub, body as { template?: string });
     case 'simulate_cyclical_failure':
       return handleSimulateCyclicalFailure(sub, actorLabel);
+    case 'simulate_access_closed':
+      return handleSimulateAccessClosed(sub, actorLabel);
     default:
       return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
   }
@@ -117,6 +119,147 @@ async function handleSimulateCyclicalFailure(sub: NonNullable<SubWithUser>, acto
     cronStatus: cronRes.status,
     cronResult,
     snapshot,
+  });
+}
+
+/// Симулює end-to-end сценарій day+7 закриття доступу (GRACE → EXPIRED):
+/// тимчасово ставить sub у GRACE з минулим gracePeriodEndsAt, викликає cron
+/// internally — той реально закриває доступ у SendPulse через DELETE /students,
+/// ставить status=EXPIRED + reminderSentExpired=true, шле accessClosed лист.
+/// Після — повертає sub у попередній стан і відкриває доступ у SendPulse заново
+/// через openAccessViaEvent (як у handleReopenAccess).
+///
+/// ВИМОГИ ДО ПОТОЧНОЇ SUB: status=ACTIVE, expiresAt у майбутньому — інакше revert
+/// не буде чистим. Між cron-close і нашим reopen клієнт на ~1-2с має закритий
+/// доступ у SendPulse — це прийнятна ціна за реальну перевірку повного flow.
+async function handleSimulateAccessClosed(sub: NonNullable<SubWithUser>, actor: string) {
+  const cronSecret = process.env.CRON_SECRET;
+  if (!cronSecret) {
+    return NextResponse.json({ error: 'CRON_SECRET не налаштовано' }, { status: 500 });
+  }
+  if (!sub.user?.email) {
+    return NextResponse.json({ error: 'User email відсутній' }, { status: 400 });
+  }
+  if (sub.status !== 'ACTIVE') {
+    return NextResponse.json(
+      { error: `Sub status має бути ACTIVE для симуляції (поточний: ${sub.status})` },
+      { status: 400 },
+    );
+  }
+  if (!sub.expiresAt || sub.expiresAt <= new Date()) {
+    return NextResponse.json(
+      { error: 'Sub.expiresAt має бути в майбутньому для коректного revert' },
+      { status: 400 },
+    );
+  }
+
+  const snapshot = {
+    status: sub.status,
+    expiresAt: sub.expiresAt,
+    graceStartedAt: sub.graceStartedAt,
+    gracePeriodEndsAt: sub.gracePeriodEndsAt,
+    reminderSentExpired: sub.reminderSentExpired,
+    sendpulseAccessClosedAt: sub.sendpulseAccessClosedAt,
+    sendpulseAccessOpenedAt: sub.sendpulseAccessOpenedAt,
+  };
+
+  const now = new Date();
+  // Set GRACE з gracePeriodEndsAt у минулому → cron-step expireGraceSubscriptions
+  // підхопить sub-у і прожене реальний flow (SendPulse close + EXPIRED + email).
+  await prisma.yearlyProgramSubscription.update({
+    where: { id: sub.id },
+    data: {
+      status: 'GRACE',
+      graceStartedAt: new Date(now.getTime() - 8 * 24 * 60 * 60 * 1000),
+      gracePeriodEndsAt: new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000),
+      reminderSentExpired: false,
+    },
+  });
+
+  const host = process.env.NEXTAUTH_URL || 'https://pre.uimp.com.ua';
+  const cronRes = await fetch(`${host.replace(/\/+$/, '')}/api/cron/yearly-subscriptions`, {
+    headers: { Authorization: `Bearer ${cronSecret}` },
+  });
+  const cronResult = await cronRes.json().catch(() => ({}));
+
+  // Зчитати стан після cron, щоб повернути в респонс і записати в event metadata.
+  const afterCron = await prisma.yearlyProgramSubscription.findUnique({
+    where: { id: sub.id },
+    select: {
+      status: true,
+      reminderSentExpired: true,
+      sendpulseAccessClosedAt: true,
+    },
+  });
+
+  // Reopen access у SendPulse — використовуємо ту ж логіку, що й handleReopenAccess.
+  const programSettings = await getYearlyProgramSettings(prisma);
+  const planPrice = sub.plan === 'YEARLY'
+    ? programSettings.yearlyPrice
+    : programSettings.monthlyPrice;
+  let reopenError: string | null = null;
+  try {
+    await openAccessViaEvent(
+      sub.user.email,
+      YEARLY_PROGRAM_CONFIG.sendpulseEventSlug,
+      planPrice,
+    );
+  } catch (e) {
+    reopenError = (e as Error).message;
+  }
+
+  // Restore snapshot — повертаємо sub точно у стан до симуляції.
+  await prisma.yearlyProgramSubscription.update({
+    where: { id: sub.id },
+    data: {
+      status: snapshot.status,
+      expiresAt: snapshot.expiresAt,
+      graceStartedAt: snapshot.graceStartedAt,
+      gracePeriodEndsAt: snapshot.gracePeriodEndsAt,
+      reminderSentExpired: snapshot.reminderSentExpired,
+      sendpulseAccessClosedAt: snapshot.sendpulseAccessClosedAt,
+      sendpulseAccessOpenedAt: reopenError ? snapshot.sendpulseAccessOpenedAt : new Date(),
+    },
+  });
+
+  await prisma.yearlyProgramSubscriptionEvent.create({
+    data: {
+      subscriptionId: sub.id,
+      type: 'admin_action',
+      message: `Simulate access_closed by ${actor} · cron=${cronRes.status} · sub→${afterCron?.status ?? '?'} · letter=${afterCron?.reminderSentExpired ? 'sent' : 'NOT sent'}${reopenError ? ` · REOPEN FAILED: ${reopenError}` : ' · reopened'}`,
+      metadata: {
+        cronStatus: cronRes.status,
+        afterCronStatus: afterCron?.status,
+        emailFlagSet: afterCron?.reminderSentExpired,
+        sendpulseClosedAtAfterCron: afterCron?.sendpulseAccessClosedAt?.toISOString() ?? null,
+        reopenError,
+        cronResult: JSON.stringify(cronResult).slice(0, 800),
+      },
+    },
+  });
+
+  const expectedExpired = afterCron?.status === 'EXPIRED';
+  const expectedEmail = afterCron?.reminderSentExpired === true;
+  const expectedSendpulseClosed = afterCron?.sendpulseAccessClosedAt != null;
+
+  return NextResponse.json({
+    ok: cronRes.status === 200 && expectedExpired && expectedEmail && expectedSendpulseClosed && !reopenError,
+    cronStatus: cronRes.status,
+    assertions: {
+      cron_returned_200: cronRes.status === 200,
+      sub_marked_expired: expectedExpired,
+      reminder_expired_flag_set: expectedEmail,
+      sendpulse_closed_at_recorded: expectedSendpulseClosed,
+      reopen_succeeded: !reopenError,
+    },
+    afterCronState: afterCron,
+    reopenError,
+    cronResult,
+    snapshot: {
+      status: snapshot.status,
+      expiresAt: snapshot.expiresAt?.toISOString(),
+      reminderSentExpired: snapshot.reminderSentExpired,
+    },
   });
 }
 
