@@ -8,6 +8,7 @@
 import prisma from '@/lib/prisma';
 import { fetchAllStudentsProgressForCourse } from '@/lib/sendpulse';
 import { issueCourseCertificate } from '@/lib/certificates/service';
+import { TEST_PURCHASE_ROLES } from '@/lib/certificates/testUsers';
 
 export type CourseSyncResult = {
   courseId: string;
@@ -65,8 +66,13 @@ export async function syncCourseProgress(options?: {
       );
 
       // Тягнемо всіх enrolled у цей курс.
+      // Виключаємо тестові покупки ADMIN/MANAGER (1 ₴) — щоб cron не видавав їм
+      // сертифікати автоматично. Див. lib/certificates/testUsers.ts.
       const enrollments = await prisma.enrollment.findMany({
-        where: { courseId: course.id },
+        where: {
+          courseId: course.id,
+          user: { role: { notIn: TEST_PURCHASE_ROLES } },
+        },
         select: {
           userId: true,
           user: { select: { email: true, deletedAt: true } },

@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { requireAdmin } from '@/lib/certificates/adminAuth';
 import { issueCourseCertificate } from '@/lib/certificates/service';
+import { TEST_PURCHASE_ROLES } from '@/lib/certificates/testUsers';
 
 export async function GET(req: NextRequest) {
   const guard = await requireAdmin(req);
@@ -15,10 +16,12 @@ export async function GET(req: NextRequest) {
   const courseId = sp.get('courseId');
   const limit = Math.min(Number(sp.get('limit')) || 500, 1000);
 
-  const whereCourse = courseId ? { courseId } : {};
-
   const enrollments = await prisma.enrollment.findMany({
-    where: whereCourse,
+    where: {
+      ...(courseId ? { courseId } : {}),
+      // Виключаємо тестові покупки ADMIN/MANAGER (1 ₴) — див. lib/certificates/testUsers.ts
+      user: { role: { notIn: TEST_PURCHASE_ROLES } },
+    },
     take: limit,
     orderBy: { createdAt: 'desc' },
     include: {
