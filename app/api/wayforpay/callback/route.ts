@@ -440,20 +440,10 @@ async function handleYearlyProgramCallback(args: {
         sendpulseSlugs,
       };
     }
-    // Для recurring callback обовʼязково привʼязуємо по recToken (C5 fix).
-    // Не довіряємо тільки email — WFP може прислати callback з правильним підписом,
-    // але без recToken це ще не доводить що це наш merchantAccount.
-    if (!recToken) {
-      return {
-        prevStatus: null,
-        skipped: true,
-        skipReason: 'missing_rec_token',
-        errorMsg: `Recurring callback without recToken for ${clientEmail}`,
-        actions,
-        sendpulseSlugs,
-      };
-    }
-
+    // Для recurring callback довіряємо merchantSignature (вже валідовано вище).
+    // recToken може бути порожній у Purchase callback (WFP виставляє його тільки на
+    // cyclical списаннях). Тому шукаємо sub за email+plan+active. Якщо у sub recToken=null
+    // (перший cyclical після Purchase) — записуємо токен з callback'а.
     type RecurringCreateResult =
       | { kind: 'ok'; payment: NonNullable<typeof existingPayment> }
       | { kind: 'error'; skipReason: string; errorMsg: string };
@@ -466,7 +456,6 @@ async function handleYearlyProgramCallback(args: {
             userId: user.id,
             plan: 'MONTHLY',
             status: { in: ['ACTIVE', 'GRACE'] },
-            recToken,
           },
           orderBy: { createdAt: 'desc' },
         });
@@ -474,8 +463,25 @@ async function handleYearlyProgramCallback(args: {
           return {
             kind: 'error',
             skipReason: 'subscription_not_found',
-            errorMsg: `No active MONTHLY subscription matching email+recToken`,
+            errorMsg: `No active MONTHLY subscription for ${clientEmail}`,
           } as RecurringCreateResult;
+        }
+        // Захист від replay: якщо у sub вже є recToken і він не співпадає з incoming —
+        // підозрілий callback (потенційно стара регулярка з іншою картою).
+        if (sub.recToken && recToken && sub.recToken !== recToken) {
+          return {
+            kind: 'error',
+            skipReason: 'rec_token_mismatch',
+            errorMsg: `recToken in callback differs from sub.recToken`,
+          } as RecurringCreateResult;
+        }
+        // Якщо у БД recToken ще нема — bind з callback'а (перше cyclical після Purchase).
+        if (!sub.recToken && recToken) {
+          await tx.yearlyProgramSubscription.update({
+            where: { id: sub.id },
+            data: { recToken },
+          });
+          sub.recToken = recToken;
         }
         // Очікувана сума для рекурент-списання = сума першого PAID платежу
         // цієї підписки (бо WFP токенізує оригінальну суму). Якщо немає
