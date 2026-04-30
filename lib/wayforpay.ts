@@ -5,6 +5,23 @@ import crypto from 'crypto';
 
 const API_URL = 'https://api.wayforpay.com/api';
 
+/// Тестовий мерчант WFP (з офіційної доки https://wiki.wayforpay.com/view/852472).
+/// Активується через env `WAYFORPAY_TEST_MODE=1` — переключає всі платежі в тестовий
+/// gateway, реальні гроші не списуються. Тестові карти: 4111111111111111, 5454545454545454.
+const WFP_TEST_MERCHANT = 'test_merch_n1';
+const WFP_TEST_SECRET = 'flk3409refn54t54t*FNJRET';
+
+export function getWayforpayCreds(): { merchantAccount: string; secretKey: string; isTest: boolean } {
+  if (process.env.WAYFORPAY_TEST_MODE === '1') {
+    return { merchantAccount: WFP_TEST_MERCHANT, secretKey: WFP_TEST_SECRET, isTest: true };
+  }
+  return {
+    merchantAccount: process.env.WAYFORPAY_MERCHANT_LOGIN!,
+    secretKey: process.env.WAYFORPAY_SECRET_KEY!,
+    isTest: false,
+  };
+}
+
 /// Побудова HMAC-MD5 підпису з масиву полів, розділених `;`.
 export function signFields(fields: (string | number)[], secretKey: string): string {
   return crypto

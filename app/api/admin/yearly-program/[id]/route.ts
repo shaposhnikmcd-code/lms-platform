@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { isAdmin, getAdminActor } from '@/lib/adminAuth';
 import { closeAccessInCourse, lookupStudentIdByEmail, openAccessViaEvent } from '@/lib/sendpulse';
-import { removeRegularSchedule } from '@/lib/wayforpay';
+import { removeRegularSchedule, chargeByRecToken, getWayforpayCreds } from '@/lib/wayforpay';
 import { YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
 import { getYearlyProgramSettings } from '@/lib/yearlyProgramSettings';
 
@@ -44,9 +44,75 @@ export async function POST(
       return handleExtend(sub, body.daysToAdd ?? 30, actorLabel);
     case 'delete':
       return handleDelete(sub, actorLabel);
+    case 'test_charge':
+      return handleTestCharge(sub, actorLabel);
     default:
       return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
   }
+}
+
+/// Тригерить server-to-server CHARGE по збереженому recToken.
+/// Симулює WFP автосписання (cyclical) — у проді через regularApi WFP робив би те саме раз на місяць.
+/// Доступне тільки в test mode (`WAYFORPAY_TEST_MODE=1`) щоб не списати реальні гроші клієнта.
+async function handleTestCharge(sub: NonNullable<SubWithUser>, actor: string) {
+  const creds = getWayforpayCreds();
+  if (!creds.isTest) {
+    return NextResponse.json(
+      { error: 'Test charge доступний тільки коли WAYFORPAY_TEST_MODE=1' },
+      { status: 403 },
+    );
+  }
+  if (sub.plan !== 'MONTHLY') {
+    return NextResponse.json({ error: 'Test charge — лише для MONTHLY підписок' }, { status: 400 });
+  }
+  if (!sub.recToken) {
+    return NextResponse.json({ error: 'Підписка не має recToken (потрібен реальний АВТОПЛАТІЖ платіж спочатку)' }, { status: 400 });
+  }
+  if (!sub.user?.email) {
+    return NextResponse.json({ error: 'User email відсутній' }, { status: 400 });
+  }
+
+  const firstPaid = await prisma.payment.findFirst({
+    where: { yearlyProgramSubscriptionId: sub.id, status: 'PAID' },
+    orderBy: { paidAt: 'asc' },
+    select: { amount: true },
+  });
+  const amount = firstPaid?.amount ?? 1;
+  const orderReference = `${YEARLY_PROGRAM_CONFIG.monthlyOrderPrefix}_test_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+  const host = process.env.NEXTAUTH_URL || 'https://www.uimp.com.ua';
+  const serviceUrl = `${host.replace(/\/+$/, '')}/api/wayforpay/callback`;
+
+  const result = await chargeByRecToken({
+    merchantAccount: creds.merchantAccount,
+    merchantDomainName: 'www.uimp.com.ua',
+    merchantSecretKey: creds.secretKey,
+    orderReference,
+    amount,
+    productName: 'Річна програма UIMP — тестове автосписання',
+    productPrice: amount,
+    recToken: sub.recToken,
+    email: sub.user.email,
+    clientFirstName: sub.user.name?.split(' ')[0] ?? undefined,
+    serviceUrl,
+  });
+
+  await prisma.yearlyProgramSubscriptionEvent.create({
+    data: {
+      subscriptionId: sub.id,
+      type: 'admin_action',
+      message: `Test charge by ${actor} · ${result.ok ? 'OK' : 'FAILED'} · ${result.transactionStatus ?? 'no_status'}${result.reason ? ` · ${result.reason}` : ''}`,
+      metadata: { orderReference, amount, transactionStatus: result.transactionStatus, reason: result.reason, ok: result.ok },
+    },
+  });
+
+  return NextResponse.json({
+    ok: result.ok,
+    orderReference,
+    amount,
+    transactionStatus: result.transactionStatus,
+    reason: result.reason,
+    raw: result.raw,
+  });
 }
 
 type SubWithUser = Awaited<ReturnType<typeof prisma.yearlyProgramSubscription.findUnique>> & {

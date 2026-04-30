@@ -6,6 +6,7 @@ import { lookupStudentIdByEmail, openAccessViaEvent } from '@/lib/sendpulse';
 import { timingSafeEqualStr } from '@/lib/authTiming';
 import { getYearlyProgramSettings } from '@/lib/yearlyProgramSettings';
 import { provisionPayment } from '@/lib/paymentProvisioning';
+import { getWayforpayCreds } from '@/lib/wayforpay';
 
 function getClientIp(req: NextRequest): string {
   const xff = req.headers.get('x-forwarded-for');
@@ -52,7 +53,7 @@ export async function POST(req: NextRequest) {
       ip,
     });
 
-    const secretKey = process.env.WAYFORPAY_SECRET_KEY!;
+    const secretKey = getWayforpayCreds().secretKey;
     const signatureString = [
       body.merchantAccount,
       body.orderReference,

@@ -4,7 +4,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
 import { isYearlyProgramOrderRef, YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
-import { buildRegularPurchaseFlags, removeRegularSchedule } from '@/lib/wayforpay';
+import { buildRegularPurchaseFlags, removeRegularSchedule, getWayforpayCreds } from '@/lib/wayforpay';
 import { applyPromoServerSide, resolveServerPricing } from '@/lib/paymentPricing';
 import { checkRateLimit } from '@/lib/ratelimit';
 
@@ -19,8 +19,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Missing orderReference' }, { status: 400 });
     }
 
-    const merchantLogin = process.env.WAYFORPAY_MERCHANT_LOGIN!;
-    const secretKey = process.env.WAYFORPAY_SECRET_KEY!;
+    const creds = getWayforpayCreds();
+    const merchantLogin = creds.merchantAccount;
+    const secretKey = creds.secretKey;
     const host = req.headers.get('x-forwarded-host') || req.headers.get('host');
     const proto = req.headers.get('x-forwarded-proto') || (host?.includes('localhost') ? 'http' : 'https');
     const domain = host ? `${proto}://${host}` : (process.env.NEXTAUTH_URL || 'http://localhost:3000');
@@ -304,8 +305,10 @@ export async function POST(req: NextRequest) {
     };
 
     // Для MONTHLY плану Річної програми — увімкнути токенізацію й регулярне щомісячне списання.
-    // Адмінський тест (1 ₴) НЕ викликає регулярку — щоб не створити рекурентну оплату в WFP.
-    if (yearlyKind === 'monthly' && recurring !== false && !isAdmin) {
+    // Адмінський тест (1 ₴) НЕ викликає регулярку у проді — щоб не створити рекурентну оплату в WFP.
+    // Виняток: коли увімкнено `WAYFORPAY_TEST_MODE=1` (тестовий мерчант WFP, реальні гроші не
+    // списуються) — admin теж отримує regular flags, щоб можна було перевірити cyclical флоу.
+    if (yearlyKind === 'monthly' && recurring !== false && (!isAdmin || creds.isTest)) {
       const flags = buildRegularPurchaseFlags({
         amount: finalAmount,
         totalPayments: YEARLY_PROGRAM_CONFIG.totalMonthlyPayments,
