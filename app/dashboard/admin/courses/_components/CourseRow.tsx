@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { FaRotateLeft, FaCheck } from 'react-icons/fa6';
 import type { Theme } from '../../_components/adminTheme';
+import PromoTimer from './PromoTimer';
 
 export interface CourseRowData {
   slug: string;
@@ -18,8 +19,12 @@ export interface CourseRowData {
   overrideOldPrice: number | null;
   promo1Code: string | null;
   promo1Price: number | null;
+  promo1StartsAt: string | null;
+  promo1ExpiresAt: string | null;
   promo2Code: string | null;
   promo2Price: number | null;
+  promo2StartsAt: string | null;
+  promo2ExpiresAt: string | null;
   sendpulseCourseId: number | null;
 }
 
@@ -63,10 +68,14 @@ export default function CourseRow({
   const [promo1PriceStr, setPromo1PriceStr] = useState(
     row.promo1Price !== null ? String(row.promo1Price) : '',
   );
+  const [promo1StartsAt, setPromo1StartsAt] = useState<string | null>(row.promo1StartsAt);
+  const [promo1ExpiresAt, setPromo1ExpiresAt] = useState<string | null>(row.promo1ExpiresAt);
   const [promo2CodeStr, setPromo2CodeStr] = useState(row.promo2Code ?? '');
   const [promo2PriceStr, setPromo2PriceStr] = useState(
     row.promo2Price !== null ? String(row.promo2Price) : '',
   );
+  const [promo2StartsAt, setPromo2StartsAt] = useState<string | null>(row.promo2StartsAt);
+  const [promo2ExpiresAt, setPromo2ExpiresAt] = useState<string | null>(row.promo2ExpiresAt);
   const [spIdStr, setSpIdStr] = useState(
     row.sendpulseCourseId !== null ? String(row.sendpulseCourseId) : '',
   );
@@ -106,14 +115,25 @@ export default function CourseRow({
   const currentPrice = priceParsed.num;
   const currentOldPrice = oldPriceParsed.num;
 
+  // Якщо клієнт прибрав код — таймер автоматично теж стирається перед PATCH
+  // (інакше API поверне помилку «не можна задавати таймер без промокоду»).
+  const effPromo1Starts = promo1CodeParsed.code === null ? null : promo1StartsAt;
+  const effPromo1Expires = promo1CodeParsed.code === null ? null : promo1ExpiresAt;
+  const effPromo2Starts = promo2CodeParsed.code === null ? null : promo2StartsAt;
+  const effPromo2Expires = promo2CodeParsed.code === null ? null : promo2ExpiresAt;
+
   const dirty =
     formValid && (
       currentPrice !== initialPrice ||
       currentOldPrice !== initialOldPrice ||
       (promo1CodeParsed.code ?? null) !== (row.promo1Code ?? null) ||
       (promo1PriceParsed.num ?? null) !== (row.promo1Price ?? null) ||
+      effPromo1Starts !== row.promo1StartsAt ||
+      effPromo1Expires !== row.promo1ExpiresAt ||
       (promo2CodeParsed.code ?? null) !== (row.promo2Code ?? null) ||
-      (promo2PriceParsed.num ?? null) !== (row.promo2Price ?? null)
+      (promo2PriceParsed.num ?? null) !== (row.promo2Price ?? null) ||
+      effPromo2Starts !== row.promo2StartsAt ||
+      effPromo2Expires !== row.promo2ExpiresAt
     );
 
   const hasAnyOverride =
@@ -132,8 +152,12 @@ export default function CourseRow({
         oldPrice: oldPriceMatchesDefault ? null : currentOldPrice,
         promo1Code: promo1CodeParsed.code,
         promo1Price: promo1PriceParsed.num,
+        promo1StartsAt: effPromo1Starts,
+        promo1ExpiresAt: effPromo1Expires,
         promo2Code: promo2CodeParsed.code,
         promo2Price: promo2PriceParsed.num,
+        promo2StartsAt: effPromo2Starts,
+        promo2ExpiresAt: effPromo2Expires,
       };
       const res = await fetch(`/api/admin/courses/${row.slug}`, {
         method: 'PATCH',
@@ -203,8 +227,12 @@ export default function CourseRow({
       setOldPriceStr(row.defaultOldPrice !== null ? String(row.defaultOldPrice) : '');
       setPromo1CodeStr('');
       setPromo1PriceStr('');
+      setPromo1StartsAt(null);
+      setPromo1ExpiresAt(null);
       setPromo2CodeStr('');
       setPromo2PriceStr('');
+      setPromo2StartsAt(null);
+      setPromo2ExpiresAt(null);
       router.refresh();
     } catch (err) {
       alert(`Помилка: ${err}`);
@@ -310,14 +338,27 @@ export default function CourseRow({
   );
 
   const promo1CodeCell = (
-    <input
-      type="text"
-      placeholder="—"
-      className={`${promo1CodeCls} uppercase`}
-      value={promo1CodeStr}
-      onChange={e => setPromo1CodeStr(e.target.value)}
-      title="2–32 символи: латиниця, цифри, дефіс, підкреслення"
-    />
+    <div className="flex items-center gap-1.5">
+      <input
+        type="text"
+        placeholder="—"
+        className={`${promo1CodeCls} uppercase flex-1 min-w-0`}
+        value={promo1CodeStr}
+        onChange={e => setPromo1CodeStr(e.target.value)}
+        title="2–32 символи: латиниця, цифри, дефіс, підкреслення"
+      />
+      <PromoTimer
+        theme={theme}
+        startsAt={promo1StartsAt}
+        expiresAt={promo1ExpiresAt}
+        hasCode={promo1CodeParsed.code !== null}
+        label={`Промокод 1 · ${row.titleUk}`}
+        onChange={({ startsAt, expiresAt }) => {
+          setPromo1StartsAt(startsAt);
+          setPromo1ExpiresAt(expiresAt);
+        }}
+      />
+    </div>
   );
   const promo1PriceCell = (
     <input
@@ -330,14 +371,27 @@ export default function CourseRow({
     />
   );
   const promo2CodeCell = (
-    <input
-      type="text"
-      placeholder="—"
-      className={`${promo2CodeCls} uppercase`}
-      value={promo2CodeStr}
-      onChange={e => setPromo2CodeStr(e.target.value)}
-      title="2–32 символи: латиниця, цифри, дефіс, підкреслення"
-    />
+    <div className="flex items-center gap-1.5">
+      <input
+        type="text"
+        placeholder="—"
+        className={`${promo2CodeCls} uppercase flex-1 min-w-0`}
+        value={promo2CodeStr}
+        onChange={e => setPromo2CodeStr(e.target.value)}
+        title="2–32 символи: латиниця, цифри, дефіс, підкреслення"
+      />
+      <PromoTimer
+        theme={theme}
+        startsAt={promo2StartsAt}
+        expiresAt={promo2ExpiresAt}
+        hasCode={promo2CodeParsed.code !== null}
+        label={`Промокод 2 · ${row.titleUk}`}
+        onChange={({ startsAt, expiresAt }) => {
+          setPromo2StartsAt(startsAt);
+          setPromo2ExpiresAt(expiresAt);
+        }}
+      />
+    </div>
   );
   const promo2PriceCell = (
     <input

@@ -116,6 +116,19 @@ export async function resolveServerPricing(args: {
   return null;
 }
 
+/// Перевіряє, чи поточний момент входить у вікно дії промокоду.
+/// `null` для startsAt — активний з самого створення; `null` для expiresAt — без терміну.
+/// Експортовано, щоб переюзати з `/api/promo/validate` (єдина дефініція = single source of truth).
+export function isPromoWindowActive(
+  startsAt: Date | null | undefined,
+  expiresAt: Date | null | undefined,
+  now: Date = new Date(),
+): boolean {
+  if (startsAt && now.getTime() < startsAt.getTime()) return false;
+  if (expiresAt && now.getTime() >= expiresAt.getTime()) return false;
+  return true;
+}
+
 /// Застосовує promo код до базової ціни на сервері (без довіри до клієнта).
 /// Повертає { discountedPrice, promoId } — і потім саме ROUTE вирішує коли
 /// інкрементувати usedCount (has be after Payment is successfully created).
@@ -134,18 +147,38 @@ export async function applyPromoServerSide(args: {
   const { promoCode, courseId, basePrice } = args;
   if (!promoCode) return { finalPrice: basePrice, promoId: null };
   const code = promoCode.toUpperCase();
+  const now = new Date();
 
   // 1) Per-course override-промо (тільки для звичайних курсів-каталогу)
   if (courseId && COURSES_BY_SLUG[courseId]) {
     const override = await prisma.coursePriceOverride.findUnique({
       where: { slug: courseId },
-      select: { promo1Code: true, promo1Price: true, promo2Code: true, promo2Price: true },
+      select: {
+        promo1Code: true,
+        promo1Price: true,
+        promo1StartsAt: true,
+        promo1ExpiresAt: true,
+        promo2Code: true,
+        promo2Price: true,
+        promo2StartsAt: true,
+        promo2ExpiresAt: true,
+      },
     });
     if (override) {
-      if (override.promo1Code && override.promo1Code === code && override.promo1Price !== null) {
+      if (
+        override.promo1Code &&
+        override.promo1Code === code &&
+        override.promo1Price !== null &&
+        isPromoWindowActive(override.promo1StartsAt, override.promo1ExpiresAt, now)
+      ) {
         return { finalPrice: Math.max(1, override.promo1Price), promoId: null };
       }
-      if (override.promo2Code && override.promo2Code === code && override.promo2Price !== null) {
+      if (
+        override.promo2Code &&
+        override.promo2Code === code &&
+        override.promo2Price !== null &&
+        isPromoWindowActive(override.promo2StartsAt, override.promo2ExpiresAt, now)
+      ) {
         return { finalPrice: Math.max(1, override.promo2Price), promoId: null };
       }
     }
@@ -164,9 +197,19 @@ export async function applyPromoServerSide(args: {
   if (categoryKey) {
     const cat = await prisma.categoryPromoOverride.findUnique({
       where: { category: categoryKey },
-      select: { promo1Code: true, promo1Price: true },
+      select: {
+        promo1Code: true,
+        promo1Price: true,
+        promo1StartsAt: true,
+        promo1ExpiresAt: true,
+      },
     });
-    if (cat?.promo1Code && cat.promo1Code === code && cat.promo1Price !== null) {
+    if (
+      cat?.promo1Code &&
+      cat.promo1Code === code &&
+      cat.promo1Price !== null &&
+      isPromoWindowActive(cat.promo1StartsAt, cat.promo1ExpiresAt, now)
+    ) {
       return { finalPrice: Math.max(1, cat.promo1Price), promoId: null };
     }
   }

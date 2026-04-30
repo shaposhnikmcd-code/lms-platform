@@ -56,6 +56,34 @@ function parsePromoCode(raw: unknown): string | null | "invalid" {
   return trimmed.toUpperCase();
 }
 
+/// Парсимо ISO-string дату (з клієнта йде або повний ISO з `toISOString()`,
+/// або порожній рядок / null / undefined). Невалідне → "invalid".
+function parseDate(raw: unknown): Date | null | "invalid" {
+  if (raw === null || raw === undefined || raw === "") return null;
+  const d = new Date(String(raw));
+  if (Number.isNaN(d.getTime())) return "invalid";
+  return d;
+}
+
+function sameDate(a: Date | null, b: Date | null): boolean {
+  if (a === null && b === null) return true;
+  if (a === null || b === null) return false;
+  return a.getTime() === b.getTime();
+}
+
+function diffDateField(
+  name: string,
+  oldVal: Date | null,
+  newVal: Date | null,
+  changes: ChangesMap,
+) {
+  if (sameDate(oldVal, newVal)) return;
+  changes[name] = {
+    old: oldVal ? oldVal.toISOString() : null,
+    new: newVal ? newVal.toISOString() : null,
+  };
+}
+
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ slug: string }> },
@@ -111,12 +139,24 @@ export async function PATCH(
   const promo1Price = has("promo1Price")
     ? parsePrice(body.promo1Price)
     : (before?.promo1Price ?? null);
+  const promo1StartsAt = has("promo1StartsAt")
+    ? parseDate(body.promo1StartsAt)
+    : (before?.promo1StartsAt ?? null);
+  const promo1ExpiresAt = has("promo1ExpiresAt")
+    ? parseDate(body.promo1ExpiresAt)
+    : (before?.promo1ExpiresAt ?? null);
   const promo2Code = has("promo2Code")
     ? parsePromoCode(body.promo2Code)
     : (before?.promo2Code ?? null);
   const promo2Price = has("promo2Price")
     ? parsePrice(body.promo2Price)
     : (before?.promo2Price ?? null);
+  const promo2StartsAt = has("promo2StartsAt")
+    ? parseDate(body.promo2StartsAt)
+    : (before?.promo2StartsAt ?? null);
+  const promo2ExpiresAt = has("promo2ExpiresAt")
+    ? parseDate(body.promo2ExpiresAt)
+    : (before?.promo2ExpiresAt ?? null);
 
   if (
     price === "invalid" ||
@@ -129,6 +169,48 @@ export async function PATCH(
   if (promo1Code === "invalid" || promo2Code === "invalid") {
     return NextResponse.json(
       { error: "Промокод має бути 2–32 символи (латиниця, цифри, - та _)" },
+      { status: 400 },
+    );
+  }
+  if (
+    promo1StartsAt === "invalid" ||
+    promo1ExpiresAt === "invalid" ||
+    promo2StartsAt === "invalid" ||
+    promo2ExpiresAt === "invalid"
+  ) {
+    return NextResponse.json({ error: "Невалідна дата дії промокоду" }, { status: 400 });
+  }
+  // startsAt має бути < expiresAt, якщо обидва задані.
+  if (
+    promo1StartsAt &&
+    promo1ExpiresAt &&
+    promo1StartsAt.getTime() >= promo1ExpiresAt.getTime()
+  ) {
+    return NextResponse.json(
+      { error: "Для Промо 1: дата початку має бути раніше за дату завершення" },
+      { status: 400 },
+    );
+  }
+  if (
+    promo2StartsAt &&
+    promo2ExpiresAt &&
+    promo2StartsAt.getTime() >= promo2ExpiresAt.getTime()
+  ) {
+    return NextResponse.json(
+      { error: "Для Промо 2: дата початку має бути раніше за дату завершення" },
+      { status: 400 },
+    );
+  }
+  // Якщо промо очищено (немає коду) — таймер теж має бути очищений (data hygiene).
+  if (promo1Code === null && (promo1StartsAt !== null || promo1ExpiresAt !== null)) {
+    return NextResponse.json(
+      { error: "Не можна задавати таймер без промокоду 1" },
+      { status: 400 },
+    );
+  }
+  if (promo2Code === null && (promo2StartsAt !== null || promo2ExpiresAt !== null)) {
+    return NextResponse.json(
+      { error: "Не можна задавати таймер без промокоду 2" },
       { status: 400 },
     );
   }
@@ -164,8 +246,12 @@ export async function PATCH(
     oldPrice === null &&
     promo1Code === null &&
     promo1Price === null &&
+    promo1StartsAt === null &&
+    promo1ExpiresAt === null &&
     promo2Code === null &&
-    promo2Price === null;
+    promo2Price === null &&
+    promo2StartsAt === null &&
+    promo2ExpiresAt === null;
 
   if (allNull) {
     if (before) {
@@ -175,8 +261,12 @@ export async function PATCH(
       diffField("oldPrice", before.oldPrice, null, changes);
       diffField("promo1Code", before.promo1Code, null, changes);
       diffField("promo1Price", before.promo1Price, null, changes);
+      diffDateField("promo1StartsAt", before.promo1StartsAt ?? null, null, changes);
+      diffDateField("promo1ExpiresAt", before.promo1ExpiresAt ?? null, null, changes);
       diffField("promo2Code", before.promo2Code, null, changes);
       diffField("promo2Price", before.promo2Price, null, changes);
+      diffDateField("promo2StartsAt", before.promo2StartsAt ?? null, null, changes);
+      diffDateField("promo2ExpiresAt", before.promo2ExpiresAt ?? null, null, changes);
       await writeAudit(slug, actor, "update", changes);
     }
     await recalcAutoPricedBundlesForCourse(slug);
@@ -186,8 +276,31 @@ export async function PATCH(
 
   const override = await prisma.coursePriceOverride.upsert({
     where: { slug },
-    create: { slug, price, oldPrice, promo1Code, promo1Price, promo2Code, promo2Price },
-    update: { price, oldPrice, promo1Code, promo1Price, promo2Code, promo2Price },
+    create: {
+      slug,
+      price,
+      oldPrice,
+      promo1Code,
+      promo1Price,
+      promo1StartsAt,
+      promo1ExpiresAt,
+      promo2Code,
+      promo2Price,
+      promo2StartsAt,
+      promo2ExpiresAt,
+    },
+    update: {
+      price,
+      oldPrice,
+      promo1Code,
+      promo1Price,
+      promo1StartsAt,
+      promo1ExpiresAt,
+      promo2Code,
+      promo2Price,
+      promo2StartsAt,
+      promo2ExpiresAt,
+    },
   });
 
   const changes: ChangesMap = {};
@@ -195,8 +308,12 @@ export async function PATCH(
   diffField("oldPrice", before?.oldPrice ?? null, oldPrice, changes);
   diffField("promo1Code", before?.promo1Code ?? null, promo1Code, changes);
   diffField("promo1Price", before?.promo1Price ?? null, promo1Price, changes);
+  diffDateField("promo1StartsAt", before?.promo1StartsAt ?? null, promo1StartsAt, changes);
+  diffDateField("promo1ExpiresAt", before?.promo1ExpiresAt ?? null, promo1ExpiresAt, changes);
   diffField("promo2Code", before?.promo2Code ?? null, promo2Code, changes);
   diffField("promo2Price", before?.promo2Price ?? null, promo2Price, changes);
+  diffDateField("promo2StartsAt", before?.promo2StartsAt ?? null, promo2StartsAt, changes);
+  diffDateField("promo2ExpiresAt", before?.promo2ExpiresAt ?? null, promo2ExpiresAt, changes);
   await writeAudit(slug, actor, "update", changes);
 
   await recalcAutoPricedBundlesForCourse(slug);
@@ -227,8 +344,12 @@ export async function DELETE(
     diffField("oldPrice", before.oldPrice, null, changes);
     diffField("promo1Code", before.promo1Code, null, changes);
     diffField("promo1Price", before.promo1Price, null, changes);
+    diffDateField("promo1StartsAt", before.promo1StartsAt ?? null, null, changes);
+    diffDateField("promo1ExpiresAt", before.promo1ExpiresAt ?? null, null, changes);
     diffField("promo2Code", before.promo2Code, null, changes);
     diffField("promo2Price", before.promo2Price, null, changes);
+    diffDateField("promo2StartsAt", before.promo2StartsAt ?? null, null, changes);
+    diffDateField("promo2ExpiresAt", before.promo2ExpiresAt ?? null, null, changes);
     await writeAudit(slug, actor, "reset", changes);
   }
 

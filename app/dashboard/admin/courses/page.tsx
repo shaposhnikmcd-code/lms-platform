@@ -38,50 +38,42 @@ export default async function AdminCourses() {
       overrideOldPrice: o?.oldPrice ?? null,
       promo1Code: o?.promo1Code ?? null,
       promo1Price: o?.promo1Price ?? null,
+      promo1StartsAt: o?.promo1StartsAt ? o.promo1StartsAt.toISOString() : null,
+      promo1ExpiresAt: o?.promo1ExpiresAt ? o.promo1ExpiresAt.toISOString() : null,
       promo2Code: o?.promo2Code ?? null,
       promo2Price: o?.promo2Price ?? null,
+      promo2StartsAt: o?.promo2StartsAt ? o.promo2StartsAt.toISOString() : null,
+      promo2ExpiresAt: o?.promo2ExpiresAt ? o.promo2ExpiresAt.toISOString() : null,
       sendpulseCourseId: db?.sendpulseCourseId ?? null,
     };
   });
 
   const promosByCategory = new Map(categoryPromos.map((c) => [c.category, c]));
+  const buildCategoryRow = (
+    category: 'bundle' | 'connector' | 'yearly' | 'monthly',
+    titleUk: string,
+    icon: string,
+    accent: string,
+    hint: string,
+  ) => {
+    const p = promosByCategory.get(category);
+    return {
+      category,
+      titleUk,
+      icon,
+      accent,
+      hint,
+      promo1Code: p?.promo1Code ?? null,
+      promo1Price: p?.promo1Price ?? null,
+      promo1StartsAt: p?.promo1StartsAt ? p.promo1StartsAt.toISOString() : null,
+      promo1ExpiresAt: p?.promo1ExpiresAt ? p.promo1ExpiresAt.toISOString() : null,
+    };
+  };
   const categoryRows = [
-    {
-      category: 'bundle' as const,
-      titleUk: 'Пакети курсів',
-      icon: '📦',
-      accent: '#D4A843',
-      hint: 'Один промокод на всі пакети',
-      promo1Code: promosByCategory.get('bundle')?.promo1Code ?? null,
-      promo1Price: promosByCategory.get('bundle')?.promo1Price ?? null,
-    },
-    {
-      category: 'connector' as const,
-      titleUk: 'Гра Конектор',
-      icon: '🧩',
-      accent: '#7C9D7C',
-      hint: 'Промокод обнуляє доставку',
-      promo1Code: promosByCategory.get('connector')?.promo1Code ?? null,
-      promo1Price: promosByCategory.get('connector')?.promo1Price ?? null,
-    },
-    {
-      category: 'yearly' as const,
-      titleUk: 'Річна програма',
-      icon: '📅',
-      accent: '#9C6FB6',
-      hint: '(Річна підписка)',
-      promo1Code: promosByCategory.get('yearly')?.promo1Code ?? null,
-      promo1Price: promosByCategory.get('yearly')?.promo1Price ?? null,
-    },
-    {
-      category: 'monthly' as const,
-      titleUk: 'Річна програма',
-      icon: '🔁',
-      accent: '#6FA8B6',
-      hint: '(Місячний платіж)',
-      promo1Code: promosByCategory.get('monthly')?.promo1Code ?? null,
-      promo1Price: promosByCategory.get('monthly')?.promo1Price ?? null,
-    },
+    buildCategoryRow('bundle', 'Пакети курсів', '📦', '#D4A843', 'Один промокод на всі пакети'),
+    buildCategoryRow('connector', 'Гра Конектор', '🧩', '#7C9D7C', 'Промокод обнуляє доставку'),
+    buildCategoryRow('yearly', 'Річна програма', '📅', '#9C6FB6', '(Річна підписка)'),
+    buildCategoryRow('monthly', 'Річна програма', '🔁', '#6FA8B6', '(Місячний платіж)'),
   ];
 
   return <CoursesView rows={rows} categoryRows={categoryRows} />;

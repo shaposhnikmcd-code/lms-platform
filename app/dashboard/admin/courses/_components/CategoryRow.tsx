@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { FaRotateLeft, FaCheck } from 'react-icons/fa6';
 import type { Theme } from '../../_components/adminTheme';
+import PromoTimer from './PromoTimer';
 
 export interface CategoryRowData {
   category: 'bundle' | 'connector' | 'yearly' | 'monthly';
@@ -14,6 +15,8 @@ export interface CategoryRowData {
   hint: string;
   promo1Code: string | null;
   promo1Price: number | null;
+  promo1StartsAt: string | null;
+  promo1ExpiresAt: string | null;
 }
 
 function parsePriceInput(value: string): { ok: boolean; num: number | null } {
@@ -49,6 +52,8 @@ export default function CategoryRow({
   const [promo1PriceStr, setPromo1PriceStr] = useState(
     row.promo1Price !== null ? String(row.promo1Price) : '',
   );
+  const [promo1StartsAt, setPromo1StartsAt] = useState<string | null>(row.promo1StartsAt);
+  const [promo1ExpiresAt, setPromo1ExpiresAt] = useState<string | null>(row.promo1ExpiresAt);
   const [saving, setSaving] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
@@ -58,6 +63,9 @@ export default function CategoryRow({
   const promo1PairOk =
     (promo1CodeParsed.code !== null) === (promo1PriceParsed.num !== null);
 
+  const effPromo1Starts = promo1CodeParsed.code === null ? null : promo1StartsAt;
+  const effPromo1Expires = promo1CodeParsed.code === null ? null : promo1ExpiresAt;
+
   const formValid =
     promo1CodeParsed.ok &&
     promo1PriceParsed.ok &&
@@ -66,7 +74,9 @@ export default function CategoryRow({
   const dirty =
     formValid && (
       (promo1CodeParsed.code ?? null) !== (row.promo1Code ?? null) ||
-      (promo1PriceParsed.num ?? null) !== (row.promo1Price ?? null)
+      (promo1PriceParsed.num ?? null) !== (row.promo1Price ?? null) ||
+      effPromo1Starts !== row.promo1StartsAt ||
+      effPromo1Expires !== row.promo1ExpiresAt
     );
 
   const hasOverride = row.promo1Code !== null;
@@ -78,6 +88,8 @@ export default function CategoryRow({
       const payload = {
         promo1Code: promo1CodeParsed.code,
         promo1Price: promo1PriceParsed.num,
+        promo1StartsAt: effPromo1Starts,
+        promo1ExpiresAt: effPromo1Expires,
       };
       const res = await fetch(`/api/admin/category-promo/${row.category}`, {
         method: 'PATCH',
@@ -112,6 +124,8 @@ export default function CategoryRow({
       }
       setPromo1CodeStr('');
       setPromo1PriceStr('');
+      setPromo1StartsAt(null);
+      setPromo1ExpiresAt(null);
       router.refresh();
     } catch (err) {
       alert(`Помилка: ${err}`);
@@ -150,14 +164,27 @@ export default function CategoryRow({
   );
 
   const promo1CodeCell = (
-    <input
-      type="text"
-      placeholder="—"
-      className={`${promo1CodeCls} uppercase`}
-      value={promo1CodeStr}
-      onChange={e => setPromo1CodeStr(e.target.value)}
-      title="2–32 символи: латиниця, цифри, дефіс, підкреслення"
-    />
+    <div className="flex items-center gap-1.5">
+      <input
+        type="text"
+        placeholder="—"
+        className={`${promo1CodeCls} uppercase flex-1 min-w-0`}
+        value={promo1CodeStr}
+        onChange={e => setPromo1CodeStr(e.target.value)}
+        title="2–32 символи: латиниця, цифри, дефіс, підкреслення"
+      />
+      <PromoTimer
+        theme={theme}
+        startsAt={promo1StartsAt}
+        expiresAt={promo1ExpiresAt}
+        hasCode={promo1CodeParsed.code !== null}
+        label={`Промокод · ${row.titleUk}${row.hint ? ' ' + row.hint : ''}`}
+        onChange={({ startsAt, expiresAt }) => {
+          setPromo1StartsAt(startsAt);
+          setPromo1ExpiresAt(expiresAt);
+        }}
+      />
+    </div>
   );
   const promo1PriceCell = (
     <input

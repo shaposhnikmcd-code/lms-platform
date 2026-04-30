@@ -3,6 +3,19 @@ import prisma from '@/lib/prisma';
 import { checkRateLimit } from '@/lib/ratelimit';
 import { COURSES_BY_SLUG } from '@/lib/coursesCatalog';
 import { YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
+import { isPromoWindowActive } from '@/lib/paymentPricing';
+
+/// Якщо код збігся, але вікно дії ще не настало / вже минуло — повертаємо точне
+/// повідомлення замість generic "не знайдено", щоб користувач не плутався.
+function windowFeedback(
+  startsAt: Date | null | undefined,
+  expiresAt: Date | null | undefined,
+  now: Date,
+): string {
+  if (startsAt && now.getTime() < startsAt.getTime()) return 'Промокод ще не активний';
+  if (expiresAt && now.getTime() >= expiresAt.getTime()) return 'Промокод прострочений';
+  return 'Промокод не активний';
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -16,6 +29,7 @@ export async function POST(req: NextRequest) {
     }
 
     const upper = String(code).toUpperCase();
+    const now = new Date();
 
     // 1) Per-course override-промо: керується з /dashboard/admin/courses.
     // Той самий код може існувати на різних курсах із різними цінами; перевіряємо
@@ -23,10 +37,25 @@ export async function POST(req: NextRequest) {
     if (courseId && typeof courseId === 'string' && COURSES_BY_SLUG[courseId]) {
       const override = await prisma.coursePriceOverride.findUnique({
         where: { slug: courseId },
-        select: { promo1Code: true, promo1Price: true, promo2Code: true, promo2Price: true },
+        select: {
+          promo1Code: true,
+          promo1Price: true,
+          promo1StartsAt: true,
+          promo1ExpiresAt: true,
+          promo2Code: true,
+          promo2Price: true,
+          promo2StartsAt: true,
+          promo2ExpiresAt: true,
+        },
       });
       if (override) {
         if (override.promo1Code === upper && override.promo1Price !== null) {
+          if (!isPromoWindowActive(override.promo1StartsAt, override.promo1ExpiresAt, now)) {
+            return NextResponse.json({
+              valid: false,
+              message: windowFeedback(override.promo1StartsAt, override.promo1ExpiresAt, now),
+            });
+          }
           return NextResponse.json({
             valid: true,
             discountType: 'FIXED_PRICE',
@@ -34,6 +63,12 @@ export async function POST(req: NextRequest) {
           });
         }
         if (override.promo2Code === upper && override.promo2Price !== null) {
+          if (!isPromoWindowActive(override.promo2StartsAt, override.promo2ExpiresAt, now)) {
+            return NextResponse.json({
+              valid: false,
+              message: windowFeedback(override.promo2StartsAt, override.promo2ExpiresAt, now),
+            });
+          }
           return NextResponse.json({
             valid: true,
             discountType: 'FIXED_PRICE',
@@ -57,9 +92,20 @@ export async function POST(req: NextRequest) {
     if (categoryKey) {
       const cat = await prisma.categoryPromoOverride.findUnique({
         where: { category: categoryKey },
-        select: { promo1Code: true, promo1Price: true },
+        select: {
+          promo1Code: true,
+          promo1Price: true,
+          promo1StartsAt: true,
+          promo1ExpiresAt: true,
+        },
       });
       if (cat?.promo1Code === upper && cat.promo1Price !== null) {
+        if (!isPromoWindowActive(cat.promo1StartsAt, cat.promo1ExpiresAt, now)) {
+          return NextResponse.json({
+            valid: false,
+            message: windowFeedback(cat.promo1StartsAt, cat.promo1ExpiresAt, now),
+          });
+        }
         return NextResponse.json({
           valid: true,
           discountType: 'FIXED_PRICE',

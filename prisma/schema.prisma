@@ -44,20 +44,20 @@ model User {
 /// Лог подій життєвого циклу акаунтів ADMIN/MANAGER (хто і кого додав/видалив/відновив).
 /// Сюди НЕ записуємо buyer-юзерів від платіжних webhook-ів. Подія = один рядок.
 model UserAuditLog {
-  id           String         @id @default(cuid())
-  userId       String
-  user         User           @relation("UserAuditTarget", fields: [userId], references: [id], onDelete: Cascade)
-  eventType    UserAuditEvent
+  id          String         @id @default(cuid())
+  userId      String
+  user        User           @relation("UserAuditTarget", fields: [userId], references: [id], onDelete: Cascade)
+  eventType   UserAuditEvent
   /// Snapshot стану цільового юзера на момент події (щоб історія була читабельною
   /// навіть якщо юзера потім перейменували / змінили роль).
-  targetName   String?
-  targetEmail  String
-  targetRole   UserRole
+  targetName  String?
+  targetEmail String
+  targetRole  UserRole
   /// Хто виконав дію. actorId може бути null якщо подія системна (OAuth-первинний логін).
-  actorId      String?
-  actorName    String?
-  actorEmail   String?
-  createdAt    DateTime       @default(now())
+  actorId     String?
+  actorName   String?
+  actorEmail  String?
+  createdAt   DateTime       @default(now())
 
   @@index([createdAt])
   @@index([userId])
@@ -129,25 +129,25 @@ enum PasswordResetTokenPurpose {
 }
 
 model Course {
-  id             String           @id @default(cuid())
-  title          String
-  description    String
-  price          Int
-  published      Boolean          @default(false)
-  createdAt      DateTime         @default(now())
-  imageUrl       String?
-  slug           String?          @unique
+  id                String           @id @default(cuid())
+  title             String
+  description       String
+  price             Int
+  published         Boolean          @default(false)
+  createdAt         DateTime         @default(now())
+  imageUrl          String?
+  slug              String?          @unique
   /// ID курсу в SendPulse (Education API). Заповнюємо з URL курсу в кабінеті SP.
   /// Потрібно для auto-видачі сертифікатів через cron: без цього курс пропускається
   /// (сертифікат можна видати вручну з адмінки).
   sendpulseCourseId Int?
-  enrollments    Enrollment[]
-  modules        Module[]
-  progress       CourseProgress[]
-  payments       Payment[]
-  certificates   Certificate[]
-  courseTeachers CourseTeacher[]
-  promoCodes     PromoCode[]
+  enrollments       Enrollment[]
+  modules           Module[]
+  progress          CourseProgress[]
+  payments          Payment[]
+  certificates      Certificate[]
+  courseTeachers    CourseTeacher[]
+  promoCodes        PromoCode[]
 }
 
 model CourseTeacher {
@@ -292,60 +292,60 @@ model Payment {
 /// issueYear), щоб перейменування курсу чи зміна імені юзера не впливали на
 /// вже виданий документ. PDF регенерується з БД on-demand за verificationToken.
 model Certificate {
-  id                 String                      @id @default(cuid())
+  id                String          @id @default(cuid())
   /// Людино-читабельний номер для друку: UIMP-COURSE-2026-00042 / UIMP-YEAR-2026-00007
-  certNumber         String                      @unique
+  certNumber        String          @unique
   /// Непередбачуваний token для публічної верифікації /certificate/{token}. 32 символи nanoid.
-  verificationToken  String                      @unique
-  type               CertificateType
+  verificationToken String          @unique
+  type              CertificateType
   /// Тільки для YEARLY_PROGRAM: LISTENER або PRACTICAL. null для COURSE.
-  category           CertCategory?
+  category          CertCategory?
 
-  userId             String
-  user               User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   /// Для COURSE: id курсу в нашій БД. Для YEARLY — null.
-  courseId           String?
-  course             Course?                     @relation(fields: [courseId], references: [id])
+  courseId String?
+  course   Course? @relation(fields: [courseId], references: [id])
 
   /// Для YEARLY_PROGRAM: лінк на підписку, за якою виданий серт.
-  subscriptionId     String?
-  subscription       YearlyProgramSubscription?  @relation(fields: [subscriptionId], references: [id])
+  subscriptionId String?
+  subscription   YearlyProgramSubscription? @relation(fields: [subscriptionId], references: [id])
 
   /// Snapshot recipient name (що буде надруковано) — editable у білдері перед видачею.
-  recipientName      String
-  recipientEmail     String
+  recipientName  String
+  recipientEmail String
   /// Snapshot назви курсу на момент видачі (для COURSE типу).
-  courseName         String?
+  courseName     String?
   /// Рік видачі — друкується на сертифікаті (замість baked-in "2026" в JPG).
-  issueYear          Int
+  issueYear      Int
 
-  issuedAt           DateTime                    @default(now())
+  issuedAt       DateTime @default(now())
   /// null = згенеровано системою (cron); заповнене = видано вручну адміном.
-  issuedByUserId     String?
-  issuedByName       String?
-  issuedByEmail      String?
+  issuedByUserId String?
+  issuedByName   String?
+  issuedByEmail  String?
   /// true = видано через білдер адміном; false = автовидача з крона.
-  issuedManually     Boolean                     @default(false)
+  issuedManually Boolean  @default(false)
 
   /// SHA-256 згенерованого PDF — для integrity checks (audit).
-  pdfHash            String?
+  pdfHash String?
 
-  emailStatus        CertEmailStatus             @default(PENDING)
-  emailSentAt        DateTime?
-  emailMessageId     String?
-  emailError         String?
+  emailStatus    CertEmailStatus @default(PENDING)
+  emailSentAt    DateTime?
+  emailMessageId String?
+  emailError     String?
 
-  revoked            Boolean                     @default(false)
-  revokedAt          DateTime?
-  revokedByUserId    String?
-  revokedByName      String?
-  revokedReason      String?
+  revoked         Boolean   @default(false)
+  revokedAt       DateTime?
+  revokedByUserId String?
+  revokedByName   String?
+  revokedReason   String?
 
-  events             CertificateEvent[]
+  events CertificateEvent[]
 
-  createdAt          DateTime                    @default(now())
-  updatedAt          DateTime                    @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   /// Унікальність "активного" сертифіката — реалізована як **partial unique index** на рівні
   /// Postgres (`WHERE revoked = false`) — див. міграцію `20260427120000_cert_partial_unique`.
@@ -361,18 +361,18 @@ model Certificate {
 
 /// Append-only аудит лог дій над сертифікатами — видно в адмінці ("Історія").
 model CertificateEvent {
-  id             String      @id @default(cuid())
-  certificateId  String
-  certificate    Certificate @relation(fields: [certificateId], references: [id], onDelete: Cascade)
+  id            String      @id @default(cuid())
+  certificateId String
+  certificate   Certificate @relation(fields: [certificateId], references: [id], onDelete: Cascade)
   /// Хто ініціював подію: adminId, або null якщо system (cron / auto).
-  actorId        String?
-  actorName      String?
-  actorEmail     String?
+  actorId       String?
+  actorName     String?
+  actorEmail    String?
   /// GENERATED | SENT | RESENT | REVOKED | DOWNLOADED | VIEWED | EMAIL_FAILED
-  action         String
-  message        String?
-  metadata       Json?
-  createdAt      DateTime    @default(now())
+  action        String
+  message       String?
+  metadata      Json?
+  createdAt     DateTime    @default(now())
 
   @@index([certificateId, createdAt])
   @@index([actorId])
@@ -826,19 +826,27 @@ model SpecialistOverride {
 /// `oldPrice` — стара ціна, що рендериться перекресленою поруч із новою (тільки на
 /// детальних сторінках курсів; у списку /courses завжди видно тільки актуальну ціну).
 model CoursePriceOverride {
-  id          String   @id @default(cuid())
-  slug        String   @unique
-  price       Int?
-  oldPrice    Int?
+  id              String    @id @default(cuid())
+  slug            String    @unique
+  price           Int?
+  oldPrice        Int?
   /// Per-course промокоди (до 2 на курс). `code` зберігається в UPPER-case.
   /// На відміну від глобальної моделі `PromoCode`, тут код може повторюватись між курсами,
   /// і ціна — фіксована (не percentage/fixed-discount).
-  promo1Code  String?
-  promo1Price Int?
-  promo2Code  String?
-  promo2Price Int?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  ///
+  /// Опційне вікно дії промокоду: `startsAt` — коли стає активним (null = одразу),
+  /// `expiresAt` — коли стає неактивним (null = безстроково). Перевірка робиться
+  /// в `lib/paymentPricing.ts:applyPromoServerSide` і `/api/promo/validate`.
+  promo1Code      String?
+  promo1Price     Int?
+  promo1StartsAt  DateTime?
+  promo1ExpiresAt DateTime?
+  promo2Code      String?
+  promo2Price     Int?
+  promo2StartsAt  DateTime?
+  promo2ExpiresAt DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 }
 
 /// Лог змін на сторінці адмін → Курси (ціни + промокоди + SP course ID).
@@ -850,7 +858,7 @@ model CoursePriceAuditLog {
   userId    String?
   userEmail String?
   userName  String?
-  action    String   // "update" | "reset"
+  action    String // "update" | "reset"
   changes   Json
   createdAt DateTime @default(now())
 
@@ -863,12 +871,14 @@ model CoursePriceAuditLog {
 /// ціною за промокодом. Один код на всю категорію (будь-який пакет / гра Конектор).
 /// `category` приймає значення "bundle" або "connector".
 model CategoryPromoOverride {
-  id          String   @id @default(cuid())
-  category    String   @unique
-  promo1Code  String?
-  promo1Price Int?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id              String    @id @default(cuid())
+  category        String    @unique
+  promo1Code      String?
+  promo1Price     Int?
+  promo1StartsAt  DateTime?
+  promo1ExpiresAt DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 }
 
 /// Generic key-value store для app-рівневих налаштувань, які треба змінювати

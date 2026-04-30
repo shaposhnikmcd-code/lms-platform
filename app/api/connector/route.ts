@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
+import { isPromoWindowActive } from '@/lib/paymentPricing';
 
 const CONNECTOR_ORDER_STATUSES = ['NEW', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED'] as const;
 
@@ -26,9 +27,19 @@ export async function POST(req: NextRequest) {
     if (typeof promoCode === 'string' && promoCode.trim()) {
       const cat = await prisma.categoryPromoOverride.findUnique({
         where: { category: 'connector' },
-        select: { promo1Code: true, promo1Price: true },
+        select: {
+          promo1Code: true,
+          promo1Price: true,
+          promo1StartsAt: true,
+          promo1ExpiresAt: true,
+        },
       });
-      if (cat?.promo1Code && cat.promo1Code === promoCode.trim().toUpperCase() && cat.promo1Price !== null) {
+      if (
+        cat?.promo1Code &&
+        cat.promo1Code === promoCode.trim().toUpperCase() &&
+        cat.promo1Price !== null &&
+        isPromoWindowActive(cat.promo1StartsAt, cat.promo1ExpiresAt)
+      ) {
         promoApplied = true;
         promoFixedPrice = Math.max(1, cat.promo1Price);
       }
