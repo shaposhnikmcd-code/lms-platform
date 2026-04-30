@@ -169,6 +169,38 @@ function normalizeMerchantPassword(value: string): string {
   return crypto.createHash('md5').update(value).digest('hex');
 }
 
+/// Змінити параметри регулярного платежу WFP. Зокрема — `dateNext` для прискорення тестового списання.
+/// Поля: amount, currency, regularMode (monthly/daily/...), dateNext, dateEnd — усі обов'язкові за докою.
+export async function changeRegularSchedule(opts: {
+  merchantAccount: string;
+  merchantPassword: string;
+  orderReference: string;
+  amount: number;
+  currency?: string;
+  regularMode?: string;
+  dateNext: string; // DD.MM.YYYY
+  dateEnd: string;  // DD.MM.YYYY
+}): Promise<{ ok: boolean; raw: Record<string, unknown> }> {
+  const res = await fetch('https://api.wayforpay.com/regularApi', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      requestType: 'CHANGE',
+      merchantAccount: opts.merchantAccount,
+      merchantPassword: normalizeMerchantPassword(opts.merchantPassword),
+      orderReference: opts.orderReference,
+      amount: opts.amount,
+      currency: opts.currency ?? 'UAH',
+      regularMode: opts.regularMode ?? 'monthly',
+      dateNext: opts.dateNext,
+      dateEnd: opts.dateEnd,
+      apiVersion: 1,
+    }),
+  });
+  const raw = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  return { ok: res.ok && raw.reasonCode === 4100, raw };
+}
+
 /// Отримати статус регулярного платежу WFP за orderReference.
 /// Корисно для діагностики: чи дійсно WFP створив регулярку при першому autopay-платежі.
 export async function getRegularStatus(opts: {

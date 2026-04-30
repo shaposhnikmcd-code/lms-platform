@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { isAdmin, getAdminActor } from '@/lib/adminAuth';
 import { closeAccessInCourse, lookupStudentIdByEmail, openAccessViaEvent } from '@/lib/sendpulse';
-import { removeRegularSchedule, chargeByRecToken, getWayforpayCreds, getRegularStatus } from '@/lib/wayforpay';
+import { removeRegularSchedule, chargeByRecToken, getWayforpayCreds, getRegularStatus, changeRegularSchedule } from '@/lib/wayforpay';
 import { YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
 import { getYearlyProgramSettings } from '@/lib/yearlyProgramSettings';
 
@@ -48,9 +48,80 @@ export async function POST(
       return handleTestCharge(sub, actorLabel);
     case 'wfp_status':
       return handleWfpStatus(sub);
+    case 'wfp_advance_next':
+      return handleWfpAdvanceNext(sub, actorLabel);
     default:
       return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
   }
+}
+
+/// Змінює дату наступного списання WFP-регулярки на завтра — щоб не чекати 30 днів
+/// для перевірки cyclical callback потоку. Шукає orderReference, для якого WFP має активний schedule.
+async function handleWfpAdvanceNext(sub: NonNullable<SubWithUser>, actor: string) {
+  const creds = getWayforpayCreds();
+  const merchantPassword = process.env.WAYFORPAY_MERCHANT_PASSWORD;
+  if (!merchantPassword) {
+    return NextResponse.json({ error: 'WAYFORPAY_MERCHANT_PASSWORD не налаштовано' }, { status: 500 });
+  }
+  const paidPayments = await prisma.payment.findMany({
+    where: { yearlyProgramSubscriptionId: sub.id, status: 'PAID' },
+    orderBy: { paidAt: 'desc' },
+    select: { orderReference: true, amount: true },
+  });
+
+  // Шукаємо першу регулярку зі статусом Active по нашим orderRef
+  let foundRegular: { orderReference: string; amount: number; status?: unknown } | null = null;
+  for (const p of paidPayments) {
+    const status = await getRegularStatus({
+      merchantAccount: creds.merchantAccount,
+      merchantPassword,
+      orderReference: p.orderReference,
+    });
+    if (status.ok && (status.raw.status === 'Active' || status.raw.status === 'Created')) {
+      foundRegular = { orderReference: p.orderReference, amount: p.amount, status: status.raw };
+      break;
+    }
+  }
+
+  if (!foundRegular) {
+    return NextResponse.json({
+      error: 'Активної WFP-регулярки не знайдено. Спочатку оформи AUTOPAY-платіж на pre.uimp.com.ua.',
+      checkedPayments: paidPayments.length,
+    }, { status: 404 });
+  }
+
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const dd = String(tomorrow.getDate()).padStart(2, '0');
+  const mm = String(tomorrow.getMonth() + 1).padStart(2, '0');
+  const dateNext = `${dd}.${mm}.${tomorrow.getFullYear()}`;
+  const dateEnd = `${dd}.${mm}.${tomorrow.getFullYear() + 10}`;
+
+  const result = await changeRegularSchedule({
+    merchantAccount: creds.merchantAccount,
+    merchantPassword,
+    orderReference: foundRegular.orderReference,
+    amount: foundRegular.amount,
+    regularMode: 'monthly',
+    dateNext,
+    dateEnd,
+  });
+
+  await prisma.yearlyProgramSubscriptionEvent.create({
+    data: {
+      subscriptionId: sub.id,
+      type: 'admin_action',
+      message: `WFP regularApi CHANGE by ${actor} · dateNext=${dateNext} · ${result.ok ? 'OK' : 'FAILED'} · ${JSON.stringify(result.raw).slice(0, 200)}`,
+      metadata: { orderReference: foundRegular.orderReference, dateNext, ok: result.ok, raw: JSON.stringify(result.raw) },
+    },
+  });
+
+  return NextResponse.json({
+    ok: result.ok,
+    orderReference: foundRegular.orderReference,
+    dateNext,
+    raw: result.raw,
+  });
 }
 
 /// Запитує у WFP статус регулярного платежу для діагностики.
