@@ -154,6 +154,21 @@ export async function POST(req: NextRequest) {
           orderBy: { createdAt: 'desc' },
         });
         if (existing) {
+          // Захист від подвійного списання: якщо MONTHLY у стані GRACE з failedChargeCount>0
+          // (автоплатіж не пройшов, чекаємо ручної оплати) — блокуємо повторний вибір АВТОПЛАТІЖ.
+          // Існуюча WFP-регулярка може у grace-вікні самостійно повторно спробувати списати,
+          // що + manual autopay-платіж = два списання. Дозволяємо лише РАЗОВА.
+          if (
+            plan === 'MONTHLY'
+            && existing.status === 'GRACE'
+            && (existing.failedChargeCount ?? 0) > 0
+            && recurring === true
+          ) {
+            return NextResponse.json({
+              error: 'Будь ласка, оберіть РАЗОВА для відновлення підписки. Автосписання буде відновлено наступним стандартним циклом.',
+              code: 'autopay_blocked_in_grace',
+            }, { status: 400 });
+          }
           yearlyProgramSubscriptionId = existing.id;
           // Sync autoRenew з recurring у обидва боки. Без цього БД залишається "разова"
           // навіть коли юзер апгрейдиться на АВТОПЛАТІЖ (callback пише monthly-once у логи).

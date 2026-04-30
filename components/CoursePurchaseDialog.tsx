@@ -170,7 +170,10 @@ export default function CoursePurchaseDialog({
           recurring: allowRecurringChoice ? isRecurring === true : undefined,
         }),
       });
-      if (!response.ok) throw new Error(t('errorPayment'));
+      if (!response.ok) {
+        const errBody = await response.json().catch(() => ({}));
+        throw new Error(errBody.error || t('errorPayment'));
+      }
       const paymentData = await response.json();
       const form = document.createElement('form');
       form.method = 'POST';
@@ -197,7 +200,10 @@ export default function CoursePurchaseDialog({
       form.submit();
     } catch (error) {
       console.error('Payment error:', error);
-      setErrors((prev) => ({ ...prev, general: t('errorPaymentRetry') }));
+      const msg = error instanceof Error && error.message && error.message !== t('errorPayment')
+        ? error.message
+        : t('errorPaymentRetry');
+      setErrors((prev) => ({ ...prev, general: msg }));
       setLoading(false);
       inFlightRef.current = false;
     }
