@@ -145,30 +145,31 @@ async function handleWfpStatus(sub: NonNullable<SubWithUser>) {
     { label: 'md5_of_raw', password: md5Password },
   ];
 
-  const probes = await Promise.all(variants.flatMap((variant) =>
-    paidPayments.map(async (p) => {
-      const res = await fetch('https://api.wayforpay.com/regularApi', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          requestType: 'STATUS',
-          merchantAccount: creds.merchantAccount,
-          merchantPassword: variant.password,
-          orderReference: p.orderReference,
-          apiVersion: 1,
-        }),
-      });
-      const raw = await res.json().catch(() => ({}));
-      return {
-        passwordFormat: variant.label,
-        passwordPreview: variant.password.slice(0, 4) + '…' + variant.password.slice(-4) + ` (len=${variant.password.length})`,
-        orderReference: p.orderReference,
-        reasonCode: raw.reasonCode,
-        reason: raw.reason,
-        status: raw.status,
-      };
-    })
-  ));
+  // Спробуємо комбінації: password format × apiVersion × content-type
+  const requestVariants = [
+    { label: 'json_v1_int', body: { requestType: 'STATUS', merchantAccount: creds.merchantAccount, merchantPassword: variants[0].password, orderReference: paidPayments[0]?.orderReference, apiVersion: 1 }, ct: 'application/json' },
+    { label: 'json_v1_str', body: { requestType: 'STATUS', merchantAccount: creds.merchantAccount, merchantPassword: variants[0].password, orderReference: paidPayments[0]?.orderReference, apiVersion: '1' }, ct: 'application/json' },
+    { label: 'json_no_ver', body: { requestType: 'STATUS', merchantAccount: creds.merchantAccount, merchantPassword: variants[0].password, orderReference: paidPayments[0]?.orderReference }, ct: 'application/json' },
+    { label: 'json_v2', body: { requestType: 'STATUS', merchantAccount: creds.merchantAccount, merchantPassword: variants[0].password, orderReference: paidPayments[0]?.orderReference, apiVersion: 2 }, ct: 'application/json' },
+    { label: 'md5_v1_int', body: { requestType: 'STATUS', merchantAccount: creds.merchantAccount, merchantPassword: variants[1].password, orderReference: paidPayments[0]?.orderReference, apiVersion: 1 }, ct: 'application/json' },
+    { label: 'md5_md5_v1', body: { requestType: 'STATUS', merchantAccount: creds.merchantAccount, merchantPassword: (await import('crypto')).createHash('md5').update(variants[1].password).digest('hex'), orderReference: paidPayments[0]?.orderReference, apiVersion: 1 }, ct: 'application/json' },
+  ];
+
+  const probes = await Promise.all(requestVariants.map(async (v) => {
+    const res = await fetch('https://api.wayforpay.com/regularApi', {
+      method: 'POST',
+      headers: { 'Content-Type': v.ct },
+      body: JSON.stringify(v.body),
+    });
+    const raw = await res.json().catch(() => ({}));
+    return {
+      label: v.label,
+      orderReference: paidPayments[0]?.orderReference,
+      reasonCode: raw.reasonCode,
+      reason: raw.reason,
+      status: raw.status,
+    };
+  }));
 
   return NextResponse.json({
     subId: sub.id,
