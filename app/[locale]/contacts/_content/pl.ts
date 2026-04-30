@@ -146,6 +146,11 @@ export const contactsContent = {
       { q: "Jak otrzymać zwrot środków, jeśli kurs nie pasuje?", a: "Gwarantujemy zwrot środków w ciągu 7 dni od płatności. Napisz do nas mailem." },
       { q: "Czy można uczyć się z telefonu?", a: "Tak, platforma jest w pełni dostosowana do urządzeń mobilnych." },
       { q: "Jak zostać wykładowcą UIMP?", a: "Napisz do nas mailem z krótkim opisem swojej wiedzy i doświadczenia." },
+      { q: "Jak działa miesięczna płatność automatyczna za Roczny Program?", a: "Gdy wybierzesz AUTO-PŁATNOŚĆ, Twoja karta jest tokenizowana w systemie WayForPay (nie przechowujemy danych karty). WayForPay automatycznie pobiera opłatę co 30 dni. Program trwa 9 miesięcy — po 9. pomyślnym obciążeniu auto-płatności zostają automatycznie zatrzymane." },
+      { q: "Co się stanie, jeśli na karcie zabraknie środków?", a: "Jeśli kolejna płatność się nie powiedzie (brak środków, bank odrzucił, karta anulowana), natychmiast wyślemy e-mail z linkiem do ręcznej płatności. Dostęp do programu pozostaje aktywny przez 7 dni od pierwszej nieudanej próby. Jeśli problem nie zostanie rozwiązany w ciągu 7 dni, dostęp zostanie zamknięty. WayForPay może spróbować ponownie automatycznie w ciągu tych 7 dni." },
+      { q: "Jak anulować auto-płatność?", a: "Skontaktuj się z naszym wsparciem technicznym — anulujemy w ciągu dnia. Alternatywnie: przy kolejnej płatności wybierz JEDNORAZOWĄ (bez auto-pobrania) — nasz system automatycznie anuluje auto-płatność. Usunięcie lub zablokowanie karty w banku również zatrzymuje auto-pobrania." },
+      { q: "Czy mogę przełączać się między auto-płatnością a jednorazową?", a: "Tak. Przy kolejnej płatności po prostu wybierz inną opcję — system automatycznie zaktualizuje typ subskrypcji. Jeśli przełączysz się z auto-płatności na jednorazową, poprzednia auto-płatność zostanie anulowana." },
+      { q: "Czy zostanie coś pobrane po zakończeniu 9 auto-płatności?", a: "Nie. Po 9. pomyślnym obciążeniu program kończy się, a WayForPay automatycznie zatrzymuje auto-płatności. Dostęp pozostaje do końca ostatniego opłaconego miesiąca." },
     ],
   },
 };

@@ -146,6 +146,11 @@ export const contactsContent = {
       { q: "How can I get a refund if the course is not right for me?", a: "We guarantee a refund within 7 days after payment. Write to us by email." },
       { q: "Can I learn from a phone?", a: "Yes, the platform is fully adapted for mobile devices." },
       { q: "How do I become a UIMP teacher?", a: "Write to us by email with a short description of your expertise and experience." },
+      { q: "How does the monthly auto-payment for the Yearly Program work?", a: "When you choose AUTO-PAY, your card is tokenized by WayForPay (we don't store card details). WayForPay automatically charges the monthly fee every 30 days. The program lasts 9 months — after the 9th successful charge, auto-payments stop automatically." },
+      { q: "What happens if my card has insufficient funds?", a: "If a charge fails (insufficient funds, bank declined, card cancelled), we immediately send an email with a manual payment link. Access to the program stays active for 7 days from the first failed attempt. If the issue isn't resolved within 7 days, access is closed. WayForPay may retry automatically within these 7 days." },
+      { q: "How do I cancel auto-payment?", a: "Contact our tech support — we'll cancel within a day. Alternative: on your next payment, choose ONE-TIME (no auto-charge) — our system will automatically cancel the auto-payment. Removing or blocking the card at your bank also stops auto-charges." },
+      { q: "Can I switch between auto-payment and one-time payment?", a: "Yes. On your next payment just choose the other option — the system automatically updates the subscription type. If you switch from auto-payment to one-time, the previous auto-payment is cancelled." },
+      { q: "Will anything be charged after the 9 auto-payments are completed?", a: "No. After the 9th successful charge, the program ends and WayForPay automatically stops auto-payments. Access remains until the end of the last paid month." },
     ],
   },
 };
