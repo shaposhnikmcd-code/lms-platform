@@ -1,0 +1,218 @@
+- generic [ref=e1]:
+  - navigation [ref=e2]:
+    - generic [ref=e4]:
+      - link "UIMP" [ref=e5] [cursor=pointer]:
+        - /url: /
+        - img "UIMP" [ref=e7]
+      - generic [ref=e8]:
+        - link "Головна" [ref=e9] [cursor=pointer]:
+          - /url: /
+        - link "Освітні проєкти" [ref=e10] [cursor=pointer]:
+          - /url: /courses
+        - link "Річна програма" [ref=e11] [cursor=pointer]:
+          - /url: /yearly-program
+        - link "База спеціалістів" [ref=e12] [cursor=pointer]:
+          - /url: /consultations
+        - link "Терапевтичні ігри" [ref=e13] [cursor=pointer]:
+          - /url: /games
+        - link "Події та Новини" [ref=e14] [cursor=pointer]:
+          - /url: /news
+        - link "Про нас" [ref=e15] [cursor=pointer]:
+          - /url: /contacts
+        - link "Благодійні проєкти" [ref=e16] [cursor=pointer]:
+          - /url: /charity
+        - link "Партнери" [ref=e17] [cursor=pointer]:
+          - /url: /partners
+        - button "Ще" [ref=e19] [cursor=pointer]:
+          - generic [ref=e20]: Ще
+          - img [ref=e21]
+      - generic [ref=e23]:
+        - button "Українська" [ref=e25] [cursor=pointer]:
+          - img [ref=e26]
+          - generic [ref=e29]: Українська
+          - img [ref=e30]
+        - generic [ref=e32]:
+          - link "Avatar Ihor Shaposhnyk" [ref=e33] [cursor=pointer]:
+            - /url: /dashboard
+            - img "Avatar" [ref=e35]
+            - generic [ref=e36]:
+              - generic [ref=e37]: Ihor
+              - generic [ref=e38]: Shaposhnyk
+          - button "Вийти" [ref=e39] [cursor=pointer]
+  - main [ref=e40]:
+    - generic [ref=e41]:
+      - generic [ref=e43]:
+        - link [ref=e44] [cursor=pointer]:
+          - /url: /games
+          - img [ref=e45]
+        - button [ref=e47] [cursor=pointer]:
+          - img [ref=e48]
+        - generic [ref=e50]:
+          - img "КОНЕКТОР" [ref=e53]
+          - heading "КОНЕКТОР" [level=1] [ref=e54]
+          - paragraph [ref=e55]: психологічна гра для пар
+          - generic [ref=e56]:
+            - link [ref=e57] [cursor=pointer]:
+              - /url: https://t.me/shaposhnykpsy
+              - img [ref=e58]
+            - link [ref=e60] [cursor=pointer]:
+              - /url: https://www.youtube.com/@bible_psychotherapy
+              - img [ref=e61]
+            - link [ref=e63] [cursor=pointer]:
+              - /url: https://www.instagram.com/uimp_psychotherapy
+              - img [ref=e64]
+          - generic [ref=e66]:
+            - heading "У наборі:" [level=2] [ref=e67]
+            - generic [ref=e68]:
+              - generic [ref=e69]:
+                - generic [ref=e70]: "25"
+                - generic [ref=e71]: карток з діями
+              - generic [ref=e72]:
+                - generic [ref=e73]: "25"
+                - generic [ref=e74]: карток 18+
+              - generic [ref=e75]:
+                - generic [ref=e76]: "100"
+                - generic [ref=e77]: тематичних питань
+            - paragraph [ref=e78]: Загалом 150 карток
+          - generic [ref=e79]:
+            - paragraph [ref=e80]: Гра створена професійними психологами, психотерапевтами та спеціалістами Українського інституту Душеопіки та Психотерапії.
+            - paragraph [ref=e81]: Допомагає парам краще зрозуміти один одного, відкрити емоції партнера, підвищити емоційну близькість.
+            - paragraph [ref=e83]: "\"Гра допомагає звернутися до Бога як джерела любові.\""
+          - generic [ref=e84]:
+            - generic [ref=e85]:
+              - text: "1099"
+              - generic [ref=e86]: грн
+            - paragraph [ref=e88]:
+              - generic [ref=e89]: 📦
+              - text: Доставка оплачується покупцем
+            - button "Замовити" [ref=e90] [cursor=pointer]
+      - generic [ref=e141]:
+        - button [ref=e142] [cursor=pointer]:
+          - img [ref=e143]
+        - generic [ref=e145]:
+          - generic [ref=e146]:
+            - heading "Форма замовлення" [level=2] [ref=e147]
+            - paragraph [ref=e148]: Психологічна гра для пар
+          - generic [ref=e149]:
+            - generic [ref=e150]:
+              - generic [ref=e151]: Прізвище, Ім'я та по Батькові *
+              - generic [ref=e152]:
+                - generic:
+                  - img
+                - textbox "Прізвище Ім'я По батькові" [ref=e153]: Шапошник Ігор Тестовий
+            - generic [ref=e154]:
+              - generic [ref=e155]: Номер телефону *
+              - generic [ref=e156]:
+                - button "UA +380" [ref=e158] [cursor=pointer]:
+                  - img "UA" [ref=e159]
+                  - generic [ref=e160]: "+380"
+                  - img [ref=e161]
+                - textbox "(__) ___-__-__" [ref=e163]: "991234567"
+            - generic [ref=e164]:
+              - generic [ref=e165]: Email *
+              - generic [ref=e166]:
+                - generic:
+                  - img
+                - textbox "username@gmail.com" [ref=e167]: shaposhnik.mcd@gmail.com
+            - generic [ref=e168]:
+              - generic [ref=e169]: Країна доставки *
+              - button "UA Україна" [ref=e171] [cursor=pointer]:
+                - img "UA" [ref=e172]
+                - generic [ref=e173]: Україна
+                - img [ref=e174]
+            - generic [ref=e176]:
+              - generic [ref=e177]: Тип доставки
+              - generic [ref=e178]:
+                - button "📦 До відділення НП" [ref=e179] [cursor=pointer]
+                - button "🚗 Кур'єром за адресою" [ref=e180] [cursor=pointer]
+            - generic [ref=e181]:
+              - generic [ref=e182]: Населений пункт *
+              - generic [ref=e183]:
+                - generic:
+                  - img
+                - textbox "Введіть назву міста або села" [active] [ref=e184]: Київ
+              - generic [ref=e212]:
+                - button "Київ Київська" [ref=e213] [cursor=pointer]:
+                  - paragraph [ref=e214]: Київ
+                  - paragraph [ref=e215]: Київська
+                - button "Київець Львівська" [ref=e216] [cursor=pointer]:
+                  - paragraph [ref=e217]: Київець
+                  - paragraph [ref=e218]: Львівська
+            - generic [ref=e185]:
+              - generic [ref=e186]: Відділення Нової Пошти *
+              - generic [ref=e187]:
+                - generic:
+                  - img
+                - textbox "Почніть вводити адресу або номер" [ref=e188]
+            - generic [ref=e189]:
+              - paragraph [ref=e190]: 📦 Доставка Nova Post
+              - paragraph [ref=e191]: "Доставляємо до відділень Nova Post в: Україні, Польщі, Німеччині, Чехії, Литві, Латвії, Естонії, Італії, Іспанії, Словаччині, Угорщині, Румунії, Молдові, Франції, Великій Британії, Австрії, Нідерландах."
+              - paragraph [ref=e192]:
+                - text: "Якщо вашої країни немає у списку — напишіть нам:"
+                - link "support@uimp.com.ua" [ref=e193] [cursor=pointer]:
+                  - /url: mailto:support@uimp.com.ua
+            - generic [ref=e194]:
+              - generic [ref=e195]:
+                - generic [ref=e196]: Гра «Конектор»
+                - generic [ref=e197]: 1 грн
+              - generic [ref=e198]:
+                - generic [ref=e199]: Доставка Нова Пошта
+                - generic [ref=e200]: Оберіть місто
+              - generic [ref=e201]:
+                - generic [ref=e202]: Разом
+                - generic [ref=e203]: 1 грн + доставка
+            - generic [ref=e204]:
+              - checkbox "Я хочу, щоб мені перетелефонували" [ref=e205]
+              - generic [ref=e206]: Я хочу, щоб мені перетелефонували
+            - button "Замовити та оплатити" [ref=e207] [cursor=pointer]:
+              - img [ref=e208]
+              - generic [ref=e210]: Замовити та оплатити
+            - paragraph [ref=e211]: Натискаючи "Замовити", ви погоджуєтесь з умовами обробки персональних даних
+  - contentinfo [ref=e91]:
+    - generic [ref=e93]:
+      - generic [ref=e94]:
+        - generic [ref=e95]: UIMP
+        - generic [ref=e96]: Ми в соцмережах
+      - generic [ref=e98]:
+        - link "Telegram" [ref=e99] [cursor=pointer]:
+          - /url: https://t.me/shaposhnykpsy
+          - img [ref=e101]
+          - generic [ref=e103]: Telegram
+        - link "Instagram" [ref=e104] [cursor=pointer]:
+          - /url: https://www.instagram.com/uimp_psychotherapy
+          - img [ref=e106]
+          - generic [ref=e108]: Instagram
+        - link "YouTube" [ref=e109] [cursor=pointer]:
+          - /url: https://www.youtube.com/@bible_psychotherapy
+          - img [ref=e111]
+          - generic [ref=e113]: YouTube
+    - generic [ref=e114]:
+      - generic [ref=e115]:
+        - generic [ref=e116]: UIMP
+        - generic [ref=e117]: Український інститут Душеопіки та Психотерапії
+      - generic [ref=e118]:
+        - generic [ref=e119]:
+          - link "Політика конфіденційності" [ref=e120] [cursor=pointer]:
+            - /url: /privacy
+          - link "Умови використання" [ref=e121] [cursor=pointer]:
+            - /url: /terms
+          - link "Доступність" [ref=e122] [cursor=pointer]:
+            - /url: /accessibility
+        - generic [ref=e123]:
+          - link "Технічна підтримка" [ref=e124] [cursor=pointer]:
+            - /url: https://t.me/uimp_support
+          - link "uimp.edu@gmail.com" [ref=e125] [cursor=pointer]:
+            - /url: mailto:uimp.edu@gmail.com
+      - paragraph [ref=e126]: © 2026 Ukrainian Institute of Ministry and Psychotherapy. Всі права захищені.
+  - alert [ref=e127]
+  - generic [ref=e130]:
+    - heading "Ми поважаємо вашу приватність" [level=2] [ref=e131]
+    - paragraph [ref=e132]:
+      - text: Ми використовуємо cookies для забезпечення роботи сайту та покращення вашого досвіду. Ви можете обрати які категорії cookies дозволити. Детальніше — в нашій
+      - link "Політиці конфіденційності" [ref=e133] [cursor=pointer]:
+        - /url: /privacy
+      - text: .
+    - generic [ref=e134]:
+      - button "Прийняти всі" [ref=e135] [cursor=pointer]
+      - button "Налаштувати" [ref=e136] [cursor=pointer]
+      - button "Відхилити всі" [ref=e137] [cursor=pointer]
