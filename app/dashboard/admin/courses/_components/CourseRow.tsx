@@ -84,6 +84,39 @@ export default function CourseRow({
   const [resetting, setResetting] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
 
+  // Draft persistence — щоб незбережені зміни не зникали при перезавантаженні сторінки.
+  const draftKey = `lms-admin-course-draft-${row.slug}`;
+  const [draftHydrated, setDraftHydrated] = useState(false);
+  useEffect(() => {
+    try {
+      const raw = typeof window !== 'undefined' ? window.localStorage.getItem(draftKey) : null;
+      if (raw) {
+        const d = JSON.parse(raw) as Record<string, unknown>;
+        if (d && typeof d === 'object') {
+          if (typeof d.priceStr === 'string') setPriceStr(d.priceStr);
+          if (typeof d.oldPriceStr === 'string') setOldPriceStr(d.oldPriceStr);
+          if (typeof d.promo1CodeStr === 'string') setPromo1CodeStr(d.promo1CodeStr);
+          if (typeof d.promo1PriceStr === 'string') setPromo1PriceStr(d.promo1PriceStr);
+          if (d.promo1StartsAt === null || typeof d.promo1StartsAt === 'string')
+            setPromo1StartsAt(d.promo1StartsAt as string | null);
+          if (d.promo1ExpiresAt === null || typeof d.promo1ExpiresAt === 'string')
+            setPromo1ExpiresAt(d.promo1ExpiresAt as string | null);
+          if (typeof d.promo2CodeStr === 'string') setPromo2CodeStr(d.promo2CodeStr);
+          if (typeof d.promo2PriceStr === 'string') setPromo2PriceStr(d.promo2PriceStr);
+          if (d.promo2StartsAt === null || typeof d.promo2StartsAt === 'string')
+            setPromo2StartsAt(d.promo2StartsAt as string | null);
+          if (d.promo2ExpiresAt === null || typeof d.promo2ExpiresAt === 'string')
+            setPromo2ExpiresAt(d.promo2ExpiresAt as string | null);
+          if (typeof d.spIdStr === 'string') setSpIdStr(d.spIdStr);
+        }
+      }
+    } catch {
+      // ignore corrupt draft
+    }
+    setDraftHydrated(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const priceParsed = parsePriceInput(priceStr);
   const oldPriceParsed = parsePriceInput(oldPriceStr);
   const promo1CodeParsed = parsePromoInput(promo1CodeStr);
@@ -187,6 +220,51 @@ export default function CourseRow({
   })();
   const spDirty =
     spIdParsed.ok && (spIdParsed.num ?? null) !== (row.sendpulseCourseId ?? null);
+
+  // Зберігаємо draft у localStorage поки є незбережені зміни; чистимо коли все «застосовано».
+  useEffect(() => {
+    if (!draftHydrated) return;
+    try {
+      if (!dirty && !spDirty) {
+        window.localStorage.removeItem(draftKey);
+        return;
+      }
+      window.localStorage.setItem(
+        draftKey,
+        JSON.stringify({
+          priceStr,
+          oldPriceStr,
+          promo1CodeStr,
+          promo1PriceStr,
+          promo1StartsAt,
+          promo1ExpiresAt,
+          promo2CodeStr,
+          promo2PriceStr,
+          promo2StartsAt,
+          promo2ExpiresAt,
+          spIdStr,
+        }),
+      );
+    } catch {
+      // localStorage недоступний (приватний режим тощо) — мовчки скіпаємо
+    }
+  }, [
+    draftHydrated,
+    draftKey,
+    dirty,
+    spDirty,
+    priceStr,
+    oldPriceStr,
+    promo1CodeStr,
+    promo1PriceStr,
+    promo1StartsAt,
+    promo1ExpiresAt,
+    promo2CodeStr,
+    promo2PriceStr,
+    promo2StartsAt,
+    promo2ExpiresAt,
+    spIdStr,
+  ]);
 
   async function handleSaveSpId() {
     if (!spIdParsed.ok) return;

@@ -3,7 +3,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { HiOutlineClock } from 'react-icons/hi2';
-import { FaCheck } from 'react-icons/fa6';
+import { FaCheck, FaXmark } from 'react-icons/fa6';
 import type { Theme } from '../../_components/adminTheme';
 
 /// Стан вікна дії промокоду:
@@ -30,32 +30,45 @@ export function getPromoWindowState(
   return 'active';
 }
 
-/// Конвертує ISO-string у формат `<input type="datetime-local">` (`YYYY-MM-DDTHH:mm`).
-/// Враховує локальну TZ браузера (адмін у Києві → бачить київський час).
+/// Внутрішній формат draft-у — `YYYY-MM-DDTHH:mm` у локальному часі (Київ).
+type Parts = { y: number; mo: number; d: number; h: number; mi: number };
+
+const pad = (n: number) => String(n).padStart(2, '0');
+
 function isoToLocalInput(iso: string | null): string {
   if (!iso) return '';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
-  const pad = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-/// Поточний локальний час у форматі `<input type="datetime-local">`. Для `min`-атрибута,
-/// щоб системний date-picker не показував минулі дні.
 function nowLocalInput(): string {
   const d = new Date();
-  const pad = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-/// Перетворює значення з `<input type="datetime-local">` назад в ISO-string (UTC).
-/// Конструктор `new Date('YYYY-MM-DDTHH:mm')` інтерпретує рядок у локальній TZ —
-/// саме те, що нам треба.
 function localInputToIso(local: string): string | null {
   if (!local) return null;
   const d = new Date(local);
   if (Number.isNaN(d.getTime())) return null;
   return d.toISOString();
+}
+
+function parseDraft(s: string): Parts | null {
+  if (!s) return null;
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/);
+  if (!m) return null;
+  return { y: +m[1], mo: +m[2] - 1, d: +m[3], h: +m[4], mi: +m[5] };
+}
+
+function combineDraft(p: Parts): string {
+  return `${p.y}-${pad(p.mo + 1)}-${pad(p.d)}T${pad(p.h)}:${pad(p.mi)}`;
+}
+
+function formatChip(s: string): string {
+  const p = parseDraft(s);
+  if (!p) return '';
+  return `${pad(p.d)}.${pad(p.mo + 1)}.${p.y} ${pad(p.h)}:${pad(p.mi)}`;
 }
 
 function formatHumanDate(iso: string | null): string {
@@ -75,13 +88,12 @@ interface Props {
   theme: Theme;
   startsAt: string | null;
   expiresAt: string | null;
-  /// Чи є вже введений код у відповідному рядку — без коду таймер не має сенсу,
-  /// тому іконку показуємо disabled.
   hasCode: boolean;
   onChange: (next: { startsAt: string | null; expiresAt: string | null }) => void;
-  /// Підпис у заголовку popover-а: "Промокод 1" / "Промокод 2" / назва категорії.
   label: string;
 }
+
+const POP_W = 340;
 
 export default function PromoTimer({ theme, startsAt, expiresAt, hasCode, onChange, label }: Props) {
   const dark = theme === 'dark';
@@ -93,18 +105,14 @@ export default function PromoTimer({ theme, startsAt, expiresAt, hasCode, onChan
 
   const state = getPromoWindowState(startsAt, expiresAt);
 
-  // Локальний draft — застосовується по "Готово", скасовується по "X" / outside click.
   const [draftStart, setDraftStart] = useState<string>(isoToLocalInput(startsAt));
   const [draftEnd, setDraftEnd] = useState<string>(isoToLocalInput(expiresAt));
-  // Зафіксований "min" на момент відкриття popover-а — щоб date-picker не «дрейфував»
-  // поки користувач вибирає (інакше min рахувався б на кожному рендері).
+  const [activeField, setActiveField] = useState<'start' | 'end'>('start');
   const [nowMin, setNowMin] = useState<string>(() => nowLocalInput());
   useEffect(() => {
     if (open) setNowMin(nowLocalInput());
   }, [open]);
 
-  // Початкові значення (на момент відкриття) — щоб не флагати як "минулу дату" поля,
-  // які користувач не змінював (наприклад, прострочений промо, який залишають як є).
   const initialStart = isoToLocalInput(startsAt);
   const initialEnd = isoToLocalInput(expiresAt);
 
@@ -113,7 +121,6 @@ export default function PromoTimer({ theme, startsAt, expiresAt, hasCode, onChan
     setDraftEnd(isoToLocalInput(expiresAt));
   }, [startsAt, expiresAt]);
 
-  // Live-валідація. Показуємо inline помилку в popover-і замість alert().
   const startInPast =
     draftStart !== '' &&
     draftStart !== initialStart &&
@@ -137,17 +144,34 @@ export default function PromoTimer({ theme, startsAt, expiresAt, hasCode, onChan
     ? 'Дата «Активний з» має бути раніше за «Активний до»'
     : null;
 
-  // Позиціонування popover'а під іконкою.
+  // Позиціонування popover-а: під іконкою, із flip над нею якщо знизу немає місця.
   useLayoutEffect(() => {
-    if (!open || !btnRef.current) return;
-    const rect = btnRef.current.getBoundingClientRect();
-    const POP_W = 320;
-    let left = rect.left + rect.width / 2 - POP_W / 2;
-    if (typeof window !== 'undefined') {
-      left = Math.max(8, Math.min(left, window.innerWidth - POP_W - 8));
+    if (!open) return;
+    function compute() {
+      if (!btnRef.current) return;
+      const rect = btnRef.current.getBoundingClientRect();
+      const popH = popRef.current?.offsetHeight ?? 480;
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      let left = rect.left + rect.width / 2 - POP_W / 2;
+      left = Math.max(8, Math.min(left, vw - POP_W - 8));
+      let top = rect.bottom + 8;
+      if (top + popH > vh - 8) {
+        const flipped = rect.top - popH - 8;
+        top = flipped >= 8 ? flipped : Math.max(8, vh - popH - 8);
+      }
+      setPos({ top, left });
     }
-    setPos({ top: rect.bottom + 8, left });
-  }, [open]);
+    compute();
+    const raf = requestAnimationFrame(compute);
+    window.addEventListener('resize', compute);
+    window.addEventListener('scroll', compute, true);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('resize', compute);
+      window.removeEventListener('scroll', compute, true);
+    };
+  }, [open, draftStart, draftEnd, activeField]);
 
   // Outside click + Esc.
   useEffect(() => {
@@ -168,7 +192,6 @@ export default function PromoTimer({ theme, startsAt, expiresAt, hasCode, onChan
     };
   }, [open]);
 
-  // Стилі іконки за станом.
   const iconTone = (() => {
     if (!hasCode) {
       return dark
@@ -205,7 +228,7 @@ export default function PromoTimer({ theme, startsAt, expiresAt, hasCode, onChan
   })();
 
   function applyDraft() {
-    if (draftError) return; // Кнопка «Готово» disabled — це додатковий guard.
+    if (draftError) return;
     const newStart = localInputToIso(draftStart);
     const newEnd = localInputToIso(draftEnd);
     onChange({ startsAt: newStart, expiresAt: newEnd });
@@ -219,8 +242,11 @@ export default function PromoTimer({ theme, startsAt, expiresAt, hasCode, onChan
     setOpen(false);
   }
 
-  // Маркер-крапка над іконкою, коли стан != off.
   const dotColor = state === 'expired' ? 'bg-rose-400' : state === 'pending' ? 'bg-sky-400' : 'bg-amber-400';
+
+  const activeValue = activeField === 'start' ? draftStart : draftEnd;
+  const setActiveValue = (v: string) => (activeField === 'start' ? setDraftStart(v) : setDraftEnd(v));
+  const activeMin = activeField === 'start' ? nowMin : (draftStart || nowMin);
 
   return (
     <>
@@ -245,7 +271,7 @@ export default function PromoTimer({ theme, startsAt, expiresAt, hasCode, onChan
       {open && pos && createPortal(
         <div
           ref={popRef}
-          style={{ position: 'fixed', top: pos.top, left: pos.left, width: 320, zIndex: 200 }}
+          style={{ position: 'fixed', top: pos.top, left: pos.left, width: POP_W, zIndex: 200 }}
           className={`rounded-xl border shadow-2xl p-4 ${
             dark
               ? 'bg-[#14161d] border-white/[0.1] text-slate-100'
@@ -262,28 +288,37 @@ export default function PromoTimer({ theme, startsAt, expiresAt, hasCode, onChan
             <StateBadge state={state} dark={dark} />
           </div>
 
-          <div className="space-y-3">
-            <DateField
+          <div className="grid grid-cols-2 gap-2">
+            <FieldChip
               id={`${fmtId}-start`}
               label="Активний з"
               value={draftStart}
-              onChange={setDraftStart}
-              dark={dark}
               placeholder="одразу"
-              min={nowMin}
+              dark={dark}
+              active={activeField === 'start'}
               invalid={startInPast || startEndInverted}
+              onSelect={() => setActiveField('start')}
+              onClear={() => setDraftStart('')}
             />
-            <DateField
+            <FieldChip
               id={`${fmtId}-end`}
               label="Активний до"
               value={draftEnd}
-              onChange={setDraftEnd}
-              dark={dark}
               placeholder="без обмеження"
-              min={nowMin}
+              dark={dark}
+              active={activeField === 'end'}
               invalid={endInPast || startEndInverted}
+              onSelect={() => setActiveField('end')}
+              onClear={() => setDraftEnd('')}
             />
           </div>
+
+          <InlineCalendar
+            value={activeValue}
+            onChange={setActiveValue}
+            min={activeMin}
+            dark={dark}
+          />
 
           {draftError ? (
             <div
@@ -303,6 +338,39 @@ export default function PromoTimer({ theme, startsAt, expiresAt, hasCode, onChan
               часовому поясі (Київ).
             </p>
           )}
+
+          <div
+            className={`mt-3 rounded-lg border px-3 py-2 ${
+              dark
+                ? 'bg-amber-400/[0.05] border-amber-400/20'
+                : 'bg-amber-100/40 border-amber-500/30'
+            }`}
+          >
+            <p
+              className={`text-[9px] uppercase tracking-[0.2em] font-semibold mb-1 ${
+                dark ? 'text-amber-200/70' : 'text-amber-900/70'
+              }`}
+            >
+              Буде збережено
+            </p>
+            <div className="flex items-center gap-2 text-[11.5px]">
+              <SummaryPart
+                tag="з"
+                value={draftStart ? formatChip(draftStart) : null}
+                empty="одразу"
+                dark={dark}
+                onClear={() => setDraftStart('')}
+              />
+              <span className={`text-[12px] ${dark ? 'text-slate-500' : 'text-stone-400'}`}>→</span>
+              <SummaryPart
+                tag="до"
+                value={draftEnd ? formatChip(draftEnd) : null}
+                empty="без обмеження"
+                dark={dark}
+                onClear={() => setDraftEnd('')}
+              />
+            </div>
+          </div>
 
           <div className="flex items-center gap-2 mt-4">
             <button
@@ -350,70 +418,384 @@ export default function PromoTimer({ theme, startsAt, expiresAt, hasCode, onChan
   );
 }
 
-function DateField({
+function FieldChip({
   id,
   label,
   value,
-  onChange,
-  dark,
   placeholder,
-  invalid = false,
-  min,
+  dark,
+  active,
+  invalid,
+  onSelect,
+  onClear,
 }: {
   id: string;
   label: string;
   value: string;
+  placeholder: string;
+  dark: boolean;
+  active: boolean;
+  invalid: boolean;
+  onSelect: () => void;
+  onClear: () => void;
+}) {
+  const ringActive = active
+    ? dark
+      ? 'border-amber-400/60 bg-amber-400/[0.08]'
+      : 'border-amber-500/60 bg-amber-100/60'
+    : invalid
+    ? dark
+      ? 'border-rose-400/50 bg-rose-500/[0.06]'
+      : 'border-rose-400/60 bg-rose-100/50'
+    : dark
+    ? 'border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.06]'
+    : 'border-stone-300/60 bg-white/70 hover:bg-white';
+
+  return (
+    <div
+      className={`relative rounded-lg border transition-colors ${ringActive}`}
+    >
+      <button
+        id={id}
+        type="button"
+        onClick={onSelect}
+        className="w-full text-left px-2.5 py-1.5"
+      >
+        <div className="flex items-baseline mb-0.5">
+          <span
+            className={`text-[10px] uppercase tracking-[0.18em] font-semibold ${
+              dark ? 'text-slate-500' : 'text-stone-500'
+            }`}
+          >
+            {label}
+          </span>
+        </div>
+        <div
+          className={`text-[12px] ${value ? 'pr-7' : ''} ${
+            value
+              ? dark ? 'text-slate-100' : 'text-stone-900'
+              : dark ? 'text-slate-600 italic' : 'text-stone-400 italic'
+          }`}
+        >
+          {value ? formatChip(value) : placeholder}
+        </div>
+      </button>
+      {value && (
+        <button
+          type="button"
+          aria-label={`Стерти «${label}»`}
+          title="Стерти"
+          onClick={e => {
+            e.stopPropagation();
+            onClear();
+          }}
+          className={`absolute right-1.5 top-1/2 -translate-y-1/2 inline-flex items-center justify-center w-6 h-6 rounded-full border transition-colors cursor-pointer ${
+            dark
+              ? 'bg-white/[0.06] border-white/[0.1] text-slate-300 hover:bg-rose-500/20 hover:border-rose-400/40 hover:text-rose-200'
+              : 'bg-white/80 border-stone-300/60 text-stone-600 hover:bg-rose-100 hover:border-rose-400/60 hover:text-rose-700'
+          }`}
+        >
+          <FaXmark className="text-[11px]" />
+        </button>
+      )}
+    </div>
+  );
+}
+
+function InlineCalendar({
+  value,
+  onChange,
+  dark,
+  min,
+}: {
+  value: string;
   onChange: (v: string) => void;
   dark: boolean;
-  placeholder: string;
-  invalid?: boolean;
   min?: string;
 }) {
+  const parsed = parseDraft(value);
+  const minParts = min ? parseDraft(min) : null;
+
+  const today = new Date();
+  const [view, setView] = useState<{ y: number; mo: number }>(() =>
+    parsed ? { y: parsed.y, mo: parsed.mo } : { y: today.getFullYear(), mo: today.getMonth() },
+  );
+
+  // Sync view to value when value змінюється ззовні (зміна activeField).
+  useEffect(() => {
+    const p = parseDraft(value);
+    if (p) setView({ y: p.y, mo: p.mo });
+  }, [value]);
+
+  // Дефолт часу — 07:00 (ранок), коли поле ще порожнє.
+  const DEFAULT_H = 7;
+  const DEFAULT_MI = 0;
+  const h = parsed?.h ?? DEFAULT_H;
+  const mi = parsed?.mi ?? DEFAULT_MI;
+
+  function pickDate(y: number, mo: number, d: number) {
+    if (parsed) {
+      onChange(combineDraft({ y, mo, d, h: parsed.h, mi: parsed.mi }));
+    } else {
+      onChange(combineDraft({ y, mo, d, h: DEFAULT_H, mi: DEFAULT_MI }));
+    }
+  }
+  function pickTime(newH: number, newMi: number) {
+    if (parsed) {
+      onChange(combineDraft({ ...parsed, h: newH, mi: newMi }));
+    } else {
+      const t = new Date();
+      onChange(combineDraft({ y: t.getFullYear(), mo: t.getMonth(), d: t.getDate(), h: newH, mi: newMi }));
+    }
+  }
+
+  function pickNow() {
+    const t = new Date();
+    onChange(combineDraft({ y: t.getFullYear(), mo: t.getMonth(), d: t.getDate(), h: t.getHours(), mi: t.getMinutes() }));
+    setView({ y: t.getFullYear(), mo: t.getMonth() });
+  }
+
+  const monthName = new Date(view.y, view.mo, 1).toLocaleString('uk-UA', { month: 'long', year: 'numeric' });
+  const firstWeekday = (new Date(view.y, view.mo, 1).getDay() + 6) % 7; // Mon=0
+  const daysInMonth = new Date(view.y, view.mo + 1, 0).getDate();
+  const prevDays = new Date(view.y, view.mo, 0).getDate();
+
+  type Cell = { y: number; mo: number; d: number; outside: boolean };
+  const cells: Cell[] = [];
+  for (let i = firstWeekday - 1; i >= 0; i--) {
+    const d = prevDays - i;
+    const mo = view.mo === 0 ? 11 : view.mo - 1;
+    const y = view.mo === 0 ? view.y - 1 : view.y;
+    cells.push({ y, mo, d, outside: true });
+  }
+  for (let d = 1; d <= daysInMonth; d++) {
+    cells.push({ y: view.y, mo: view.mo, d, outside: false });
+  }
+  while (cells.length < 42) {
+    const last = cells[cells.length - 1];
+    const next = new Date(last.y, last.mo, last.d + 1);
+    cells.push({
+      y: next.getFullYear(),
+      mo: next.getMonth(),
+      d: next.getDate(),
+      outside: next.getMonth() !== view.mo,
+    });
+  }
+
+  function isBeforeMin(y: number, mo: number, d: number): boolean {
+    if (!minParts) return false;
+    if (y !== minParts.y) return y < minParts.y;
+    if (mo !== minParts.mo) return mo < minParts.mo;
+    return d < minParts.d;
+  }
+  const isSelected = (y: number, mo: number, d: number) =>
+    !!parsed && parsed.y === y && parsed.mo === mo && parsed.d === d;
+  const isToday = (y: number, mo: number, d: number) =>
+    today.getFullYear() === y && today.getMonth() === mo && today.getDate() === d;
+
   return (
-    <div>
-      <div className="flex items-baseline justify-between mb-1">
-        <label
-          htmlFor={id}
+    <div
+      className={`mt-3 rounded-lg border p-2.5 ${
+        dark ? 'bg-white/[0.02] border-white/[0.06]' : 'bg-white/40 border-stone-300/40'
+      }`}
+    >
+      <div className="flex items-center justify-between mb-2">
+        <button
+          type="button"
+          aria-label="Попередній місяць"
+          onClick={() =>
+            setView(v => (v.mo === 0 ? { y: v.y - 1, mo: 11 } : { y: v.y, mo: v.mo - 1 }))
+          }
+          className={`w-7 h-7 inline-flex items-center justify-center rounded text-[14px] leading-none ${
+            dark ? 'text-slate-300 hover:bg-white/[0.06]' : 'text-stone-600 hover:bg-stone-200/60'
+          }`}
+        >
+          ‹
+        </button>
+        <span
+          className={`text-[12px] font-medium capitalize ${dark ? 'text-slate-200' : 'text-stone-800'}`}
+        >
+          {monthName}
+        </span>
+        <button
+          type="button"
+          aria-label="Наступний місяць"
+          onClick={() =>
+            setView(v => (v.mo === 11 ? { y: v.y + 1, mo: 0 } : { y: v.y, mo: v.mo + 1 }))
+          }
+          className={`w-7 h-7 inline-flex items-center justify-center rounded text-[14px] leading-none ${
+            dark ? 'text-slate-300 hover:bg-white/[0.06]' : 'text-stone-600 hover:bg-stone-200/60'
+          }`}
+        >
+          ›
+        </button>
+      </div>
+
+      <div
+        className={`grid grid-cols-7 gap-0.5 mb-1 text-[9px] uppercase tracking-wider text-center ${
+          dark ? 'text-slate-600' : 'text-stone-400'
+        }`}
+      >
+        {['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Нд'].map(d => (
+          <div key={d}>{d}</div>
+        ))}
+      </div>
+      <div className="grid grid-cols-7 gap-0.5">
+        {cells.map((c, i) => {
+          const disabled = isBeforeMin(c.y, c.mo, c.d);
+          const sel = isSelected(c.y, c.mo, c.d);
+          const tod = isToday(c.y, c.mo, c.d);
+          const cls = sel
+            ? dark
+              ? 'bg-emerald-500/90 text-white font-semibold shadow-[0_0_10px_-2px_rgba(16,185,129,0.5)]'
+              : 'bg-emerald-600 text-white font-semibold shadow-[0_0_10px_-2px_rgba(5,150,105,0.4)]'
+            : disabled
+            ? dark
+              ? 'text-slate-700 cursor-not-allowed'
+              : 'text-stone-300 cursor-not-allowed'
+            : c.outside
+            ? dark
+              ? 'text-slate-600 hover:bg-white/[0.04]'
+              : 'text-stone-400 hover:bg-stone-200/40'
+            : tod
+            ? dark
+              ? 'text-amber-300 ring-1 ring-amber-400/40 hover:bg-white/[0.06]'
+              : 'text-amber-700 ring-1 ring-amber-500/40 hover:bg-amber-50'
+            : dark
+            ? 'text-slate-200 hover:bg-white/[0.06]'
+            : 'text-stone-800 hover:bg-stone-200/50';
+          return (
+            <button
+              key={i}
+              type="button"
+              disabled={disabled}
+              onClick={() => pickDate(c.y, c.mo, c.d)}
+              className={`h-7 text-[11px] rounded transition-colors ${cls}`}
+            >
+              {c.d}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="flex items-center gap-2 mt-3">
+        <span
           className={`text-[10px] uppercase tracking-[0.18em] font-semibold ${
             dark ? 'text-slate-500' : 'text-stone-500'
           }`}
         >
-          {label}
-        </label>
-        {!value && (
-          <span className={`text-[10px] ${dark ? 'text-slate-600' : 'text-stone-400'}`}>
-            {placeholder}
-          </span>
-        )}
-        {value && (
-          <button
-            type="button"
-            onClick={() => onChange('')}
-            className={`text-[10px] underline decoration-dotted underline-offset-2 ${
-              dark ? 'text-slate-500 hover:text-slate-300' : 'text-stone-500 hover:text-stone-700'
-            }`}
-          >
-            Стерти
-          </button>
-        )}
+          Час
+        </span>
+        <input
+          type="number"
+          min={0}
+          max={23}
+          value={pad(h)}
+          onChange={e => {
+            const v = Math.max(0, Math.min(23, Number(e.target.value) || 0));
+            pickTime(v, mi);
+          }}
+          className={`w-12 px-2 py-1 text-[12px] text-center rounded border focus:outline-none focus:ring-2 ${
+            dark
+              ? 'bg-white/[0.04] border-white/[0.08] text-slate-100 focus:ring-amber-400/40'
+              : 'bg-white/80 border-stone-300/60 text-stone-900 focus:ring-amber-500/40'
+          }`}
+        />
+        <span className={dark ? 'text-slate-500' : 'text-stone-500'}>:</span>
+        <input
+          type="number"
+          min={0}
+          max={59}
+          value={pad(mi)}
+          onChange={e => {
+            const v = Math.max(0, Math.min(59, Number(e.target.value) || 0));
+            pickTime(h, v);
+          }}
+          className={`w-12 px-2 py-1 text-[12px] text-center rounded border focus:outline-none focus:ring-2 ${
+            dark
+              ? 'bg-white/[0.04] border-white/[0.08] text-slate-100 focus:ring-amber-400/40'
+              : 'bg-white/80 border-stone-300/60 text-stone-900 focus:ring-amber-500/40'
+          }`}
+        />
+        <div className="flex-1" />
+        <button
+          type="button"
+          onClick={pickNow}
+          className={`text-[10.5px] font-medium px-2 py-1 rounded border transition-colors ${
+            dark
+              ? 'bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.08]'
+              : 'bg-white/70 border-stone-300/60 text-stone-700 hover:bg-white'
+          }`}
+        >
+          Зараз
+        </button>
       </div>
-      <input
-        id={id}
-        type="datetime-local"
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        min={min}
-        aria-invalid={invalid || undefined}
-        className={`w-full px-2 py-1.5 text-[13px] rounded-lg border focus:outline-none focus:ring-2 transition-colors ${
-          invalid
+    </div>
+  );
+}
+
+function SummaryPart({
+  tag,
+  value,
+  empty,
+  dark,
+  onClear,
+}: {
+  tag: string;
+  value: string | null;
+  empty: string;
+  dark: boolean;
+  onClear: () => void;
+}) {
+  const filled = !!value;
+  // Хover-стилі з'являються тільки коли є що стирати; для empty стану — кнопка disabled-вигляду.
+  return (
+    <div className="flex items-center gap-1.5 flex-1 min-w-0">
+      <button
+        type="button"
+        onClick={filled ? onClear : undefined}
+        disabled={!filled}
+        title={filled ? 'Стерти' : undefined}
+        aria-label={filled ? `Стерти «${tag}»` : undefined}
+        className={`group inline-flex items-center justify-center w-4 h-4 rounded-full flex-shrink-0 text-[9px] font-bold leading-none transition-colors ${
+          filled
             ? dark
-              ? 'bg-rose-500/[0.08] border-rose-400/50 text-rose-100 focus:ring-rose-400/40 focus:border-rose-400/60'
-              : 'bg-rose-100/60 border-rose-400/60 text-rose-900 focus:ring-rose-500/40 focus:border-rose-500/60'
+              ? 'bg-emerald-500/90 text-white hover:bg-rose-500/90'
+              : 'bg-emerald-600 text-white hover:bg-rose-600'
             : dark
-            ? 'bg-white/[0.04] border-white/[0.08] text-slate-100 focus:ring-amber-400/40 focus:border-amber-400/40'
-            : 'bg-white/80 border-stone-300/60 text-stone-900 focus:ring-amber-500/40 focus:border-amber-500/50'
+            ? 'bg-white/[0.06] text-slate-600 border border-white/[0.08] cursor-default'
+            : 'bg-white/60 text-stone-400 border border-stone-300/60 cursor-default'
         }`}
-      />
+      >
+        {filled ? (
+          <>
+            <span className="group-hover:hidden">✓</span>
+            <span className="hidden group-hover:inline">✕</span>
+          </>
+        ) : (
+          '○'
+        )}
+      </button>
+      <span
+        className={`text-[9px] uppercase tracking-wider font-semibold flex-shrink-0 ${
+          dark ? 'text-amber-200/70' : 'text-amber-900/70'
+        }`}
+      >
+        {tag}
+      </span>
+      <span
+        className={`truncate ${
+          filled
+            ? dark
+              ? 'text-slate-100 font-medium'
+              : 'text-stone-900 font-medium'
+            : dark
+            ? 'text-slate-500 italic'
+            : 'text-stone-500 italic'
+        }`}
+      >
+        {value ?? empty}
+      </span>
     </div>
   );
 }
