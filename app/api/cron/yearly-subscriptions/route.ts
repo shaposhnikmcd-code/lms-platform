@@ -205,7 +205,7 @@ async function expireGraceSubscriptions(): Promise<StepResult> {
   return { step: 'expire_grace', processed: subs.length, errors };
 }
 
-/// MANUAL #1: за 3 дні до експайру. Тільки MANUAL (recToken=null) ACTIVE.
+/// MANUAL #1: за 3 дні до експайру. Тільки MANUAL (autoRenew=false) ACTIVE.
 async function sendManualBeforeExpiryReminders(): Promise<StepResult> {
   const errors: string[] = [];
   const now = new Date();
@@ -216,7 +216,7 @@ async function sendManualBeforeExpiryReminders(): Promise<StepResult> {
     where: {
       status: 'ACTIVE',
       plan: 'MONTHLY',
-      recToken: null,
+      autoRenew: false,
       expiresAt: { gte: windowStart, lt: windowEnd },
       reminderSent3d: false,
     },
@@ -261,7 +261,7 @@ async function sendManualOnExpiryReminders(): Promise<StepResult> {
     where: {
       status: 'ACTIVE',
       plan: 'MONTHLY',
-      recToken: null,
+      autoRenew: false,
       expiresAt: { gte: startOfToday, lt: startOfTomorrow },
       reminderSentOnExpiry: false,
     },
@@ -313,9 +313,9 @@ async function sendGraceStartReminders(): Promise<StepResult> {
   await processInParallel(subs, async (sub) => {
     try {
       if (!sub.user?.email || !sub.gracePeriodEndsAt) return;
-      // Для cyclical — шлемо тільки якщо були failed charge attempts.
-      // Для manual — шлемо завжди (grace стартував).
-      const isManual = !sub.recToken;
+      // Для cyclical (autoRenew=true) — шлемо тільки якщо були failed charge attempts.
+      // Для manual (autoRenew=false) — шлемо завжди (grace стартував).
+      const isManual = !sub.autoRenew;
       if (!isManual && (sub.failedChargeCount ?? 0) === 0) return;
 
       const { subject, html } = isManual
@@ -342,7 +342,7 @@ async function sendGraceStartReminders(): Promise<StepResult> {
   return { step: 'grace_start', processed, errors };
 }
 
-/// CYCLICAL #2: день +3 під час grace. Тільки cyclical (recToken set).
+/// CYCLICAL #2: день +3 під час grace. Тільки cyclical (autoRenew=true).
 async function sendCyclicalGraceMidReminders(): Promise<StepResult> {
   const errors: string[] = [];
   const now = new Date();
@@ -352,7 +352,7 @@ async function sendCyclicalGraceMidReminders(): Promise<StepResult> {
     where: {
       status: 'GRACE',
       plan: 'MONTHLY',
-      recToken: { not: null },
+      autoRenew: true,
       graceStartedAt: { lt: threeDaysAgo },
       reminderSentGraceMid: false,
       gracePeriodEndsAt: { not: null },

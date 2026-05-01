@@ -49,7 +49,6 @@ export async function GET(
     cancelledAt: sub.cancelledAt?.toISOString() ?? null,
     cancelledBy: sub.cancelledBy,
     cancelledReason: sub.cancelledReason,
-    recTokenMasked: sub.recToken ? `${sub.recToken.slice(0, 6)}…${sub.recToken.slice(-4)}` : null,
     lastPaymentAt: sub.lastPaymentAt?.toISOString() ?? null,
     lastChargeAttemptAt: sub.lastChargeAttemptAt?.toISOString() ?? null,
     lastChargeError: sub.lastChargeError,

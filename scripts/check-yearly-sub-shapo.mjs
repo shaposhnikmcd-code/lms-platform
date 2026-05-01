@@ -8,7 +8,6 @@ const subs = await prisma.yearlyProgramSubscription.findMany({
     plan: true,
     status: true,
     autoRenew: true,
-    recToken: true,
     expiresAt: true,
     createdAt: true,
     _count: { select: { payments: true, events: true } },

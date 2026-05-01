@@ -700,19 +700,20 @@ model PaymentCallbackLog {
 }
 
 /// Підписка на Річну програму (навчальна програма на платформі SendPulse).
-/// YEARLY = одна оплата, доступ на 1 рік. MONTHLY = щомісячне авто-списання через WayForPay recToken,
-/// при кожному успішному charge expiresAt продовжується на +30 днів. Доступ до SendPulse
-/// курсу відкривається подією (SENDPULSE_EVENT_URL) і закривається через Education API
-/// (DELETE /students/{studentId}/{courseId}).
+/// YEARLY = одна оплата, доступ на 1 рік. MONTHLY = щомісячне авто-списання через WayForPay
+/// regularApi (WFP-managed schedule), при кожному успішному charge expiresAt продовжується
+/// на +30 днів. Доступ до SendPulse курсу відкривається подією (SENDPULSE_EVENT_URL) і
+/// закривається через Education API (DELETE /students/{studentId}/{courseId}).
 model YearlyProgramSubscription {
   id              String                          @id @default(cuid())
   userId          String
   user            User                            @relation(fields: [userId], references: [id], onDelete: Cascade)
   plan            YearlyProgramPlan
   status          YearlyProgramSubscriptionStatus @default(PENDING)
-  /// Для MONTHLY плану: true — автосписання ввімкнено (9 платежів через WFP recToken);
+  /// Для MONTHLY плану: true — автосписання ввімкнено (WFP-managed regular schedule, 9 платежів);
   /// false — разова оплата за 1 місяць без рекурентних списань.
   /// Для YEARLY плану завжди false (у річної немає рекурентних списань).
+  /// Це source-of-truth для cron, який вирішує MANUAL vs CYCLICAL reminder flow.
   autoRenew       Boolean                         @default(false)
   startDate       DateTime?
   /// Для YEARLY = startDate + 1 рік. Для MONTHLY = останній успішний charge + 30 днів.
@@ -721,9 +722,7 @@ model YearlyProgramSubscription {
   cancelledBy     String? // "user" | "admin" | "system"
   cancelledReason String?
 
-  /// WayForPay tokenization — для авто-списання MONTHLY плану.
-  recToken            String?
-  /// Опційно: orderReference запису в regularApi (якщо колись перейдемо на WFP-managed schedule).
+  /// Опційно: orderReference запису в regularApi (якщо колись перейдемо на server-managed schedule).
   wfpRegularRef       String?
   lastPaymentAt       DateTime?
   lastChargeAttemptAt DateTime?

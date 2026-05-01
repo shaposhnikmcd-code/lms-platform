@@ -1,9 +1,6 @@
-/// WayForPay helpers — сигнатури + server-to-server Charge по recToken
-/// (для авто-списань Місячної підписки Річної програми).
+/// WayForPay helpers — підписи + параметри регулярних платежів + REMOVE на скасування.
 
 import crypto from 'crypto';
-
-const API_URL = 'https://api.wayforpay.com/api';
 
 /// Тестовий мерчант WFP (з офіційної доки https://wiki.wayforpay.com/view/852472).
 /// Активується через env `WAYFORPAY_TEST_MODE=1` — переключає всі платежі в тестовий
@@ -40,7 +37,7 @@ export function signFields(fields: (string | number)[], secretKey: string): stri
     .digest('hex');
 }
 
-/// Параметри, що йдуть у Purchase як flags для токенізації + регулярних списань.
+/// Параметри, що йдуть у Purchase як flags для регулярних списань.
 /// Використовується для ПЕРШОГО платежу Місячної підписки — WFP запамʼятає картку
 /// і почне щомісячно списувати автоматично. Кожне списання шле callback на serviceUrl.
 ///
@@ -79,88 +76,6 @@ export function buildRegularPurchaseFlags(opts: {
   };
 }
 
-/// Server-to-server Charge по збереженому recToken — без CVV, без 3DS.
-/// Повертає response від WFP; успіх зазвичай transactionStatus="Approved".
-export async function chargeByRecToken(opts: {
-  merchantAccount: string;
-  merchantDomainName: string;
-  merchantSecretKey: string;
-  orderReference: string;
-  amount: number;
-  currency?: string;
-  productName: string;
-  productPrice: number;
-  productCount?: number;
-  recToken: string;
-  email: string;
-  clientFirstName?: string;
-  clientLastName?: string;
-  clientPhone?: string;
-  serviceUrl?: string;
-}): Promise<{
-  ok: boolean;
-  transactionStatus: string | null;
-  reason: string | null;
-  raw: Record<string, unknown>;
-}> {
-  const orderDate = Math.floor(Date.now() / 1000);
-  const currency = opts.currency ?? 'UAH';
-  const productCount = opts.productCount ?? 1;
-
-  const signature = signFields(
-    [
-      opts.merchantAccount,
-      opts.merchantDomainName,
-      opts.orderReference,
-      orderDate,
-      opts.amount,
-      currency,
-      opts.productName,
-      productCount,
-      opts.productPrice,
-    ],
-    opts.merchantSecretKey,
-  );
-
-  const body: Record<string, unknown> = {
-    transactionType: 'CHARGE',
-    merchantAccount: opts.merchantAccount,
-    merchantDomainName: opts.merchantDomainName,
-    merchantSignature: signature,
-    apiVersion: 1,
-    orderReference: opts.orderReference,
-    orderDate,
-    amount: opts.amount,
-    currency,
-    productName: [opts.productName],
-    productPrice: [opts.productPrice],
-    productCount: [productCount],
-    recToken: opts.recToken,
-    clientEmail: opts.email,
-  };
-  if (opts.clientFirstName) body.clientFirstName = opts.clientFirstName;
-  if (opts.clientLastName) body.clientLastName = opts.clientLastName;
-  if (opts.clientPhone) body.clientPhone = opts.clientPhone;
-  if (opts.serviceUrl) body.serviceUrl = opts.serviceUrl;
-
-  const res = await fetch(API_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-
-  const raw = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-  const transactionStatus = (raw.transactionStatus as string | undefined) ?? null;
-  const reason = (raw.reason as string | undefined) ?? null;
-
-  return {
-    ok: res.ok && transactionStatus === 'Approved',
-    transactionStatus,
-    reason,
-    raw,
-  };
-}
-
 /// WFP regularApi вимагає `merchantPassword` як MD5-хеш від паролю мерчанта (не plaintext).
 /// Якщо в env вже задано 32-символьний hex (готовий MD5) — використовуємо як є.
 /// Інакше — хешуємо, щоб дозволити користувачу зберігати plaintext-пароль з WFP-кабінету.
@@ -169,61 +84,7 @@ function normalizeMerchantPassword(value: string): string {
   return crypto.createHash('md5').update(value).digest('hex');
 }
 
-/// Змінити параметри регулярного платежу WFP. Зокрема — `dateNext` для прискорення тестового списання.
-/// Поля: amount, currency, regularMode (monthly/daily/...), dateNext, dateEnd — усі обов'язкові за докою.
-export async function changeRegularSchedule(opts: {
-  merchantAccount: string;
-  merchantPassword: string;
-  orderReference: string;
-  amount: number;
-  currency?: string;
-  regularMode?: string;
-  dateNext: string; // DD.MM.YYYY
-  dateEnd: string;  // DD.MM.YYYY
-}): Promise<{ ok: boolean; raw: Record<string, unknown> }> {
-  const res = await fetch('https://api.wayforpay.com/regularApi', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      requestType: 'CHANGE',
-      merchantAccount: opts.merchantAccount,
-      merchantPassword: normalizeMerchantPassword(opts.merchantPassword),
-      orderReference: opts.orderReference,
-      amount: opts.amount,
-      currency: opts.currency ?? 'UAH',
-      regularMode: opts.regularMode ?? 'monthly',
-      dateNext: opts.dateNext,
-      dateEnd: opts.dateEnd,
-      apiVersion: 1,
-    }),
-  });
-  const raw = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-  return { ok: res.ok && raw.reasonCode === 4100, raw };
-}
-
-/// Отримати статус регулярного платежу WFP за orderReference.
-/// Корисно для діагностики: чи дійсно WFP створив регулярку при першому autopay-платежі.
-export async function getRegularStatus(opts: {
-  merchantAccount: string;
-  merchantPassword: string;
-  orderReference: string;
-}): Promise<{ ok: boolean; raw: Record<string, unknown> }> {
-  const res = await fetch('https://api.wayforpay.com/regularApi', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      requestType: 'STATUS',
-      merchantAccount: opts.merchantAccount,
-      merchantPassword: normalizeMerchantPassword(opts.merchantPassword),
-      orderReference: opts.orderReference,
-      apiVersion: 1,
-    }),
-  });
-  const raw = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-  return { ok: res.ok && raw.reasonCode === 4100, raw };
-}
-
-/// Скасування регулярного платежу (якщо раніше створювали через regularApi CREATE).
+/// Скасування регулярного платежу через regularApi REMOVE.
 /// Використовується, коли юзер скасовує підписку — WFP припиняє списання.
 export async function removeRegularSchedule(opts: {
   merchantAccount: string;

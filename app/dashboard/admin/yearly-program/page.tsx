@@ -42,7 +42,6 @@ export default async function AdminYearlyProgramPage() {
       lastPaymentAt: s.lastPaymentAt?.toISOString() ?? null,
       failedChargeCount: s.failedChargeCount,
       lastChargeError: s.lastChargeError,
-      hasRecToken: !!s.recToken,
       sendpulseStudentId: s.sendpulseStudentId,
       sendpulseAccessOpenedAt: s.sendpulseAccessOpenedAt?.toISOString() ?? null,
       sendpulseAccessClosedAt: s.sendpulseAccessClosedAt?.toISOString() ?? null,

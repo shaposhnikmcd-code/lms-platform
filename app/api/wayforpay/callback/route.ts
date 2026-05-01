@@ -535,7 +535,6 @@ async function handleYearlyProgramCallback(args: {
     : typeof amountRaw === 'string'
       ? Math.round(Number(amountRaw))
       : 0;
-  const recToken = (args.body.recToken as string | undefined) ?? null;
 
   // 1) Знаходимо Payment за orderReference (перший платіж).
   const existingPayment = await prisma.payment.findUnique({
@@ -548,7 +547,7 @@ async function handleYearlyProgramCallback(args: {
 
   if (!payment) {
     // 2) Це WFP авто-списання по регулярному платежу. orderReference новий.
-    //    Валідуємо kind/email/recToken, потім атомарно створюємо Payment у Serializable tx
+    //    Валідуємо kind/email, потім атомарно створюємо Payment у Serializable tx
     //    (щоб два одночасних recurring-колбеки з різними orderRef не подвоїли списання).
     if (args.kind !== 'monthly' || !clientEmail) {
       return {
@@ -572,9 +571,9 @@ async function handleYearlyProgramCallback(args: {
       };
     }
     // Для recurring callback довіряємо merchantSignature (вже валідовано вище).
-    // recToken може бути порожній у Purchase callback (WFP виставляє його тільки на
-    // cyclical списаннях). Тому шукаємо sub за email+plan+active. Якщо у sub recToken=null
-    // (перший cyclical після Purchase) — записуємо токен з callback'а.
+    // Шукаємо sub за email+plan+active. Якщо є — створюємо новий Payment лінкований
+    // до неї. Захист від двох одночасних recurring-колбеків — Serializable transaction
+    // + UNIQUE constraint на Payment.orderReference.
     type RecurringCreateResult =
       | { kind: 'ok'; payment: NonNullable<typeof existingPayment> }
       | { kind: 'error'; skipReason: string; errorMsg: string };
@@ -596,23 +595,6 @@ async function handleYearlyProgramCallback(args: {
             skipReason: 'subscription_not_found',
             errorMsg: `No active MONTHLY subscription for ${clientEmail}`,
           } as RecurringCreateResult;
-        }
-        // Захист від replay: якщо у sub вже є recToken і він не співпадає з incoming —
-        // підозрілий callback (потенційно стара регулярка з іншою картою).
-        if (sub.recToken && recToken && sub.recToken !== recToken) {
-          return {
-            kind: 'error',
-            skipReason: 'rec_token_mismatch',
-            errorMsg: `recToken in callback differs from sub.recToken`,
-          } as RecurringCreateResult;
-        }
-        // Якщо у БД recToken ще нема — bind з callback'а (перше cyclical після Purchase).
-        if (!sub.recToken && recToken) {
-          await tx.yearlyProgramSubscription.update({
-            where: { id: sub.id },
-            data: { recToken },
-          });
-          sub.recToken = recToken;
         }
         // Очікувана сума для рекурент-списання = сума першого PAID платежу
         // цієї підписки (бо WFP токенізує оригінальну суму). Якщо немає
@@ -783,8 +765,6 @@ async function handleYearlyProgramCallback(args: {
           lastPaymentAt: now,
           failedChargeCount: 0,
           lastChargeError: null,
-          // recToken оновлюємо якщо WFP прислав його у цьому callback (перший платіж monthly).
-          ...(recToken ? { recToken } : {}),
           // Reset reminders — щоб наступний цикл знову їх відправив.
           reminderSent3d: false,
           reminderSentExpired: false,

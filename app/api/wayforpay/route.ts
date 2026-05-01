@@ -221,7 +221,6 @@ export async function POST(req: NextRequest) {
               where: { id: existing.id },
               data: {
                 autoRenew: desiredAutoRenew,
-                ...(desiredAutoRenew ? {} : { recToken: null }),
               },
             });
             await prisma.yearlyProgramSubscriptionEvent.create({

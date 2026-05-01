@@ -39,7 +39,6 @@ export interface Row {
   lastPaymentAt: string | null;
   failedChargeCount: number;
   lastChargeError: string | null;
-  hasRecToken: boolean;
   sendpulseStudentId: number | null;
   sendpulseAccessOpenedAt: string | null;
   sendpulseAccessClosedAt: string | null;
@@ -67,7 +66,6 @@ interface SubscriptionDetails {
   cancelledAt: string | null;
   cancelledBy: string | null;
   cancelledReason: string | null;
-  recTokenMasked: string | null;
   lastPaymentAt: string | null;
   lastChargeError: string | null;
   failedChargeCount: number;
@@ -684,23 +682,12 @@ function ExpandedRowContent({
           }}>
             🗑 Архівувати запис
           </ActionBtn>
-          {row.plan === 'MONTHLY' && (
-            <ActionBtn theme={theme} disabled={busy} tone="success" onClick={() =>
-              onAction('test_charge', undefined, 'Тригернути TEST CHARGE по recToken? Працює тільки коли WAYFORPAY_TEST_MODE=1.')
-            }>
-              🧪 Test Charge (autopay simulation)
-            </ActionBtn>
-          )}
         </div>
 
         {(() => {
           // Показуємо лише поля, які реально несуть інформацію (відрізняються від дефолту).
           // Якщо все «чисто» — секція взагалі не рендериться.
           const items: [string, string][] = [];
-          // recToken цікавий тільки для MONTHLY: якщо ACTIVE без токена — потенційна проблема автосписання.
-          if (row.plan === 'MONTHLY') {
-            items.push(['recToken', details.recTokenMasked ?? '⚠ нема (автосписання не пройде)']);
-          }
           if (details.sendpulseStudentId != null) {
             items.push(['SP studentId', details.sendpulseStudentId.toString()]);
           }
@@ -1063,7 +1050,7 @@ function HelpModal({ theme, onClose }: { theme: Theme; onClose: () => void }) {
     { icon: '🚫', name: 'Скасувати автосписання (MONTHLY) / Позначити як скасовану (YEARLY)', desc: 'MONTHLY: зупиняє автоматичні списання з картки на боці WayForPay. YEARLY: лише ставить статус CANCELLED — доступ працює до кінця оплаченого року.' },
     { icon: '✕', name: 'Закрити доступ у SendPulse', desc: 'Миттєво забирає доступ до курсу в SendPulse. Підписка стає EXPIRED. Можна потім "Відкрити знову".' },
     { icon: '✓', name: 'Відкрити доступ до SendPulse знову', desc: 'Відновлює доступ у SendPulse + продовжує термін згідно плану (YEARLY +365д, MONTHLY +30д). Не працює для ARCHIVED.' },
-    { icon: '🗑', name: 'Архівувати запис', desc: 'Назавжди закриває доступ у SendPulse, очищає технічні поля (recToken, studentId), ставить статус ARCHIVED. Картка лишається в адмінці як архів. Відновити не можна. Для підтвердження треба ввести email.' },
+    { icon: '🗑', name: 'Архівувати запис', desc: 'Назавжди закриває доступ у SendPulse, очищає технічні поля (studentId), ставить статус ARCHIVED. Картка лишається в адмінці як архів. Відновити не можна. Для підтвердження треба ввести email.' },
   ];
 
   if (!mounted) return null;

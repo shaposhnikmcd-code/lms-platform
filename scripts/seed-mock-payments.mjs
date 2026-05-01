@@ -259,7 +259,6 @@ for (let i = 0; i < COUNT.autoSubs; i++) {
         autoRenew: true,
         startDate: firstAt,
         lastPaymentAt: firstAt,
-        recToken: 'mock-rec-' + uid(),
       },
       select: { id: true },
     });

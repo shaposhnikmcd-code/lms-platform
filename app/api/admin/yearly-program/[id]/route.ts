@@ -106,7 +106,6 @@ async function handleCancel(sub: NonNullable<SubWithUser>, actor: string, reason
       cancelledAt: new Date(),
       cancelledBy: actor,
       cancelledReason: reason ?? null,
-      recToken: null,
     },
   });
 
@@ -267,7 +266,7 @@ async function handleExtend(sub: NonNullable<SubWithUser>, daysToAdd: number, ac
 }
 
 async function handleDelete(sub: NonNullable<SubWithUser>, actor: string) {
-  // Soft-archive: закриваємо доступ у SendPulse, чистимо технічні поля (recToken/studentId),
+  // Soft-archive: закриваємо доступ у SendPulse, чистимо technical sendpulseStudentId,
   // ставимо статус ARCHIVED. Картка лишається в адмінці як архівний запис; reopen заборонений.
   // Payment-и лишаються нерушеними з лінком на цю підписку.
   let sendpulseClosed = false;
@@ -300,7 +299,6 @@ async function handleDelete(sub: NonNullable<SubWithUser>, actor: string) {
       status: 'ARCHIVED',
       sendpulseAccessClosedAt: sendpulseClosed ? now : sub.sendpulseAccessClosedAt,
       // Чистимо технічні поля — підписку вже не можна реактивувати
-      recToken: null,
       sendpulseStudentId: null,
     },
   });
