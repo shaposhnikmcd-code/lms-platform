@@ -205,40 +205,28 @@ export async function POST(req: NextRequest) {
           data: { paymentStatus: 'FAILED' },
         });
         actions.push('connector:failed');
+      } else if (kind === 'monthly') {
+        // Для MONTHLY Declined/Expired йдемо через спеціальний handler який знає
+        // про recurring сценарій: коли cyclical-callback приходить з НОВИМ orderRef
+        // (якого нема в нашій БД), треба знайти sub за email і створити Payment FAILED
+        // лінкованим до неї + інкрементувати failedChargeCount, щоб cron потім міг
+        // надіслати лист cyclicalChargeFailed1 і запустити grace-flow.
+        const result = await handleYearlyProgramFailedCallback({
+          orderReference: orderReference!,
+          body,
+          transactionStatus,
+        });
+        skipped = result.skipped;
+        skipReason = result.skipReason;
+        errorMsg = result.errorMsg;
+        actions.push(...result.actions);
       } else {
+        // course / bundle / yearly (single-shot) — простий flip існуючого Payment у FAILED.
         await prisma.payment.updateMany({
           where: { orderReference: orderReference! },
           data: { status: 'FAILED' },
         });
         actions.push('payment:failed');
-
-        // Для MONTHLY регулярки фіксуємо невдалу спробу на підписці — cron
-        // потім вирішує чи закривати доступ після grace-періоду.
-        if (kind === 'monthly') {
-          const failedPayment = await prisma.payment.findUnique({
-            where: { orderReference: orderReference! },
-            select: { yearlyProgramSubscriptionId: true },
-          });
-          if (failedPayment?.yearlyProgramSubscriptionId) {
-            await prisma.yearlyProgramSubscription.update({
-              where: { id: failedPayment.yearlyProgramSubscriptionId },
-              data: {
-                failedChargeCount: { increment: 1 },
-                lastChargeAttemptAt: new Date(),
-                lastChargeError: `WFP ${transactionStatus}: ${String(body.reason ?? body.reasonCode ?? '')}`.slice(0, 500),
-              },
-            });
-            await prisma.yearlyProgramSubscriptionEvent.create({
-              data: {
-                subscriptionId: failedPayment.yearlyProgramSubscriptionId,
-                type: 'charge_failed',
-                message: `${transactionStatus}: ${String(body.reason ?? body.reasonCode ?? 'unknown')}`,
-                metadata: { orderReference, transactionStatus, reason: body.reason ?? null },
-              },
-            });
-            actions.push('yearly:charge_failed_logged');
-          }
-        }
       }
       console.log('❌ Оплата відхилена для:', orderReference);
     } else {
@@ -376,6 +364,149 @@ interface YearlyResult {
   errorMsg: string | null;
   actions: string[];
   sendpulseSlugs: string[];
+}
+
+/// Обробка failed (Declined/Expired) callback для MONTHLY plan.
+/// — Якщо Payment з orderReference знайдений (це failed initial autopay платіж) — flip у FAILED.
+/// — Якщо orderReference новий (failed cyclical від WFP, sub існує) — знаходимо sub за email,
+///   створюємо Payment FAILED лінкований до неї + інкрементуємо failedChargeCount.
+///
+/// Без цього handler-а cyclical-FAILED був би тихим: updateMany оновлював 0 рядків
+/// (Payment не існує), failedChargeCount не ріс, cron не бачив підставу для grace-листа.
+/// Клієнт не дізнавався про невдалий cyclical поки не закінчиться доступ.
+async function handleYearlyProgramFailedCallback(args: {
+  orderReference: string;
+  body: Record<string, unknown>;
+  transactionStatus: string;
+}): Promise<{
+  skipped: boolean;
+  skipReason: string | null;
+  errorMsg: string | null;
+  actions: string[];
+}> {
+  const actions: string[] = [];
+  const clientEmail = (args.body.email as string | undefined) ?? null;
+  const amountRaw = args.body.amount;
+  const amountInt = typeof amountRaw === 'number'
+    ? Math.round(amountRaw)
+    : typeof amountRaw === 'string'
+      ? Math.round(Number(amountRaw))
+      : 0;
+  const reasonStr = `WFP ${args.transactionStatus}: ${String(args.body.reason ?? args.body.reasonCode ?? 'unknown')}`.slice(0, 500);
+
+  // Path 1: Payment вже існує (initial autopay-платіж не пройшов 3DS, або ручний РАЗОВА FAILED).
+  const existing = await prisma.payment.findUnique({
+    where: { orderReference: args.orderReference },
+    select: { id: true, yearlyProgramSubscriptionId: true, status: true },
+  });
+
+  if (existing) {
+    // Idempotent: оновлюємо тільки якщо ще не FAILED.
+    if (existing.status !== 'FAILED') {
+      await prisma.payment.update({
+        where: { id: existing.id },
+        data: { status: 'FAILED' },
+      });
+      actions.push('payment:failed');
+    } else {
+      actions.push('skip:already_failed');
+    }
+    if (existing.yearlyProgramSubscriptionId) {
+      await prisma.yearlyProgramSubscription.update({
+        where: { id: existing.yearlyProgramSubscriptionId },
+        data: {
+          failedChargeCount: { increment: 1 },
+          lastChargeAttemptAt: new Date(),
+          lastChargeError: reasonStr,
+        },
+      });
+      await prisma.yearlyProgramSubscriptionEvent.create({
+        data: {
+          subscriptionId: existing.yearlyProgramSubscriptionId,
+          type: 'charge_failed',
+          message: reasonStr,
+          metadata: { orderReference: args.orderReference, transactionStatus: args.transactionStatus, reason: args.body.reason ?? null, source: 'existing_payment' },
+        },
+      });
+      actions.push('yearly:charge_failed_logged');
+    }
+    return { skipped: false, skipReason: null, errorMsg: null, actions };
+  }
+
+  // Path 2: Payment не існує — це cyclical FAILED від WFP з новим orderRef.
+  // Шукаємо sub за email (як у Approved recurring branch).
+  if (!clientEmail) {
+    return {
+      skipped: true,
+      skipReason: 'cyclical_failed_no_email',
+      errorMsg: `Failed cyclical for ${args.orderReference}: no email in callback`,
+      actions,
+    };
+  }
+  const user = await prisma.user.findUnique({ where: { email: clientEmail } });
+  if (!user) {
+    return {
+      skipped: true,
+      skipReason: 'cyclical_failed_user_not_found',
+      errorMsg: `Failed cyclical for ${args.orderReference}: no user with email ${clientEmail}`,
+      actions,
+    };
+  }
+
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const sub = await tx.yearlyProgramSubscription.findFirst({
+        where: {
+          userId: user.id,
+          plan: 'MONTHLY',
+          status: { in: ['ACTIVE', 'GRACE'] },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (!sub) {
+        return { ok: false as const, skipReason: 'cyclical_failed_no_sub', errorMsg: `No active MONTHLY sub for ${clientEmail}` };
+      }
+      // Створюємо Payment FAILED лінкований до sub (на майбутні аудити і admin UI).
+      await tx.payment.create({
+        data: {
+          userId: user.id,
+          courseId: null,
+          bundleId: null,
+          orderReference: args.orderReference,
+          amount: amountInt || 0,
+          status: 'FAILED',
+          yearlyProgramSubscriptionId: sub.id,
+        },
+      });
+      await tx.yearlyProgramSubscription.update({
+        where: { id: sub.id },
+        data: {
+          failedChargeCount: { increment: 1 },
+          lastChargeAttemptAt: new Date(),
+          lastChargeError: reasonStr,
+        },
+      });
+      await tx.yearlyProgramSubscriptionEvent.create({
+        data: {
+          subscriptionId: sub.id,
+          type: 'charge_failed',
+          message: `Cyclical FAILED · ${reasonStr}`,
+          metadata: { orderReference: args.orderReference, transactionStatus: args.transactionStatus, reason: args.body.reason ?? null, source: 'cyclical' },
+        },
+      });
+      return { ok: true as const };
+    }, { isolationLevel: 'Serializable' });
+
+    if (!result.ok) {
+      return { skipped: true, skipReason: result.skipReason, errorMsg: result.errorMsg, actions };
+    }
+    actions.push('yearly:cyclical_failed_recorded');
+    return { skipped: false, skipReason: null, errorMsg: null, actions };
+  } catch (e) {
+    // UNIQUE conflict на orderReference: паралельний колбек встиг створити — ОК, idempotent.
+    actions.push('yearly:cyclical_failed_race_recovered');
+    return { skipped: false, skipReason: null, errorMsg: null, actions };
+  }
 }
 
 /// Обробка callback-а для Річної програми (yearly або monthly plan).
