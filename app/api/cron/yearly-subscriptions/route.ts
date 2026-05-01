@@ -17,8 +17,10 @@ import {
   accessClosed,
 } from '@/lib/emailTemplates/yearlyProgram';
 
+import { MAILER_FROM_EMAIL } from '@/lib/mailer';
+
 const resend = new Resend(process.env.RESEND_API_KEY);
-const FROM = 'UIMP <onboarding@resend.dev>';
+const FROM = MAILER_FROM_EMAIL;
 const CONCURRENCY = 5;
 
 interface StepResult {
@@ -55,9 +57,96 @@ export async function GET(req: NextRequest) {
   results.push(await sendManualOnExpiryReminders());
   results.push(await sendGraceStartReminders());
   results.push(await sendCyclicalGraceMidReminders());
+  results.push(await sendScheduledCohortLaunchEmails());
   results.push(await syncYearlyCourseProgress());
 
   return NextResponse.json({ ok: true, results, timestamp: new Date().toISOString() });
+}
+
+/// Запланована welcome-розсилка cohort-у. Менеджер міг натиснути "✉️ Запустити розсилку"
+/// з відстрочкою (emailScheduledFor у майбутньому). Cron перевіряє: якщо emailScheduledFor
+/// у минулому і emailSentAt ще порожній — запускаємо розсилку.
+async function sendScheduledCohortLaunchEmails(): Promise<StepResult> {
+  const errors: string[] = [];
+  const now = new Date();
+  const cohorts = await prisma.yearlyProgramCohort.findMany({
+    where: {
+      emailScheduledFor: { lte: now },
+      emailSentAt: null,
+    },
+    select: { id: true, name: true, startDate: true, endDate: true, launchEmailSubject: true, launchEmailBody: true },
+  });
+
+  if (cohorts.length === 0) return { step: 'sendScheduledCohortLaunchEmails', processed: 0, errors };
+
+  const { sendEmail } = await import('@/lib/mailer');
+  const { renderLaunchEmailTemplate, DEFAULT_LAUNCH_EMAIL_BODY, DEFAULT_LAUNCH_EMAIL_SUBJECT } =
+    await import('@/lib/yearlyProgramCohort');
+
+  let processed = 0;
+  for (const cohort of cohorts) {
+    try {
+      const subs = await prisma.yearlyProgramSubscription.findMany({
+        where: {
+          cohortId: cohort.id,
+          status: { in: ['PENDING', 'ACTIVE', 'GRACE'] },
+        },
+        include: {
+          user: { select: { name: true, email: true } },
+          events: {
+            where: { type: 'launch_email_sent' },
+            select: { metadata: true },
+          },
+        },
+      });
+
+      const subjectTpl = cohort.launchEmailSubject ?? DEFAULT_LAUNCH_EMAIL_SUBJECT;
+      const bodyTpl = cohort.launchEmailBody ?? DEFAULT_LAUNCH_EMAIL_BODY;
+
+      for (const s of subs) {
+        if (!s.user?.email) continue;
+        const alreadySent = s.events.some((ev) => {
+          const m = ev.metadata as { cohortId?: string } | null;
+          return m?.cohortId === cohort.id;
+        });
+        if (alreadySent) continue;
+
+        const { subject, body } = renderLaunchEmailTemplate({
+          subject: subjectTpl,
+          body: bodyTpl,
+          variables: {
+            name: s.user.name,
+            email: s.user.email,
+            startDate: cohort.startDate,
+            endDate: cohort.endDate,
+            cohortName: cohort.name,
+          },
+        });
+        const res = await sendEmail({ to: s.user.email, subject, html: body });
+        if (!res.ok) {
+          errors.push(`${cohort.id}/${s.id}: ${res.error}`);
+          continue;
+        }
+        await prisma.yearlyProgramSubscriptionEvent.create({
+          data: {
+            subscriptionId: s.id,
+            type: 'launch_email_sent',
+            message: 'Welcome email sent by scheduled cron',
+            metadata: { cohortId: cohort.id, messageId: res.messageId, source: 'cron' },
+          },
+        });
+        processed++;
+      }
+      await prisma.yearlyProgramCohort.update({
+        where: { id: cohort.id },
+        data: { emailSentAt: new Date() },
+      });
+    } catch (e) {
+      errors.push(`cohort ${cohort.id}: ${(e as Error).message.slice(0, 200)}`);
+    }
+  }
+
+  return { step: 'sendScheduledCohortLaunchEmails', processed, errors };
 }
 
 async function transitionActiveToGrace(): Promise<StepResult> {

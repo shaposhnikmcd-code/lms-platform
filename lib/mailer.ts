@@ -1,19 +1,30 @@
-/// Централізована відправка листів через Resend. Зараз єдина точка виходу —
-/// треба було б, щоб усі місця (contact form, password reset, invite, cron-нагадування)
-/// йшли сюди і щоб ми могли легко поміняти провайдера чи додати From-домен.
+/// Централізована відправка листів через Resend. Єдина точка виходу для всіх
+/// outbound emails — contact form, password reset, invite, certificate, cron-нагадування,
+/// масові розсилки Річної програми.
 ///
 /// Конвенція:
 /// - Якщо `RESEND_API_KEY` не заданий (dev без .env) — лист НЕ шлеться,
 ///   а логується в консоль (разом з `devPreviewHint`, якщо є). Це дозволяє
 ///   тестувати password-reset локально без справжніх листів.
-/// - `from` беремо з `RESEND_FROM_EMAIL`, fallback — sandbox-дефолт Resend.
+/// - `from` беремо з `RESEND_FROM_EMAIL`, fallback — інститутська адреса
+///   `UIMP Education <edu@uimp.com.ua>`. Це наша головна адреса для масових
+///   розсилок, сертифікатів та системних сповіщень. Reply-to листів про
+///   сертифікати теж edu@uimp.com.ua (lib/certificates/service.ts).
 
 import { Resend } from 'resend';
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
-const FROM_EMAIL = process.env.RESEND_FROM_EMAIL || 'UIMP <onboarding@resend.dev>';
+
+/// Адреса відправника усіх системних листів інституту. Експортується щоб UI
+/// міг показати її в адмінках перед відправкою (прозорість для менеджера).
+export const MAILER_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || 'UIMP Education <edu@uimp.com.ua>';
 
 const resend = RESEND_API_KEY ? new Resend(RESEND_API_KEY) : null;
+
+/// Чи реально сконфігуровано Resend (є API key). Якщо false — листи лише в консолі.
+export function isMailerConfigured(): boolean {
+  return resend !== null;
+}
 
 export interface EmailAttachment {
   filename: string;
@@ -48,7 +59,7 @@ export async function sendEmail(args: SendEmailArgs): Promise<{ ok: boolean; err
 
   try {
     const payload: Parameters<typeof resend.emails.send>[0] = {
-      from: FROM_EMAIL,
+      from: MAILER_FROM_EMAIL,
       to,
       subject,
       html,

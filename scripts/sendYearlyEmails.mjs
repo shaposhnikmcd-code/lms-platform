@@ -17,7 +17,7 @@ if (!process.env.RESEND_API_KEY) {
 }
 
 const resend = new Resend(process.env.RESEND_API_KEY);
-const FROM = 'UIMP <onboarding@resend.dev>';
+const FROM = process.env.RESEND_FROM_EMAIL || 'UIMP Education <edu@uimp.com.ua>';
 const SAMPLE_NAME = 'Ольга';
 const PROGRAM_URL = 'https://www.uimp.com.ua/yearly-program';
 const SUPPORT_TG = 'https://t.me/uimp_support';

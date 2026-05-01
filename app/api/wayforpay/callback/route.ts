@@ -7,6 +7,7 @@ import { timingSafeEqualStr } from '@/lib/authTiming';
 import { getYearlyProgramSettings } from '@/lib/yearlyProgramSettings';
 import { provisionPayment } from '@/lib/paymentProvisioning';
 import { getWayforpayCreds } from '@/lib/wayforpay';
+import { calculateAccessUntil } from '@/lib/yearlyProgramAccess';
 
 function getClientIp(req: NextRequest): string {
   const xff = req.headers.get('x-forwarded-for');
@@ -723,10 +724,13 @@ async function handleYearlyProgramCallback(args: {
   // Atomic: flip Payment → PAID + extend subscription + create renewal event.
   // Якщо будь-який крок падає — rollback. Payment лишається PENDING, WFP retry відпрацює знову.
   // Гарантує: неможливо мати PAID Payment без відповідного extend-у sub.expiresAt.
+  type SubWithCohort = NonNullable<Awaited<ReturnType<typeof prisma.yearlyProgramSubscription.findUnique>>> & {
+    cohort: { startDate: Date; endDate: Date; launchedAt: Date | null } | null;
+  };
   type FlipResult =
     | { kind: 'already_paid' }
     | { kind: 'sub_missing' }
-    | { kind: 'ok'; sub: NonNullable<Awaited<ReturnType<typeof prisma.yearlyProgramSubscription.findUnique>>>; newExpiresAt: Date; durationDays: number; wasFirstPayment: boolean };
+    | { kind: 'ok'; sub: SubWithCohort; newExpiresAt: Date; durationDays: number; wasFirstPayment: boolean };
 
   const SUB_MISSING_SENTINEL = '__SUB_MISSING_ROLLBACK__';
   let flipResult: FlipResult;
@@ -742,6 +746,9 @@ async function handleYearlyProgramCallback(args: {
 
       const sub = await tx.yearlyProgramSubscription.findUnique({
         where: { id: payment!.yearlyProgramSubscriptionId! },
+        include: {
+          cohort: { select: { startDate: true, endDate: true, launchedAt: true } },
+        },
       });
       if (!sub) {
         // Кидаємо sentinel щоб зробити rollback flip-а — Payment має лишитись PENDING.
@@ -749,12 +756,22 @@ async function handleYearlyProgramCallback(args: {
       }
 
       const now = new Date();
-      const durationDays = sub.plan === 'YEARLY'
-        ? YEARLY_PROGRAM_CONFIG.yearlyDurationDays
-        : YEARLY_PROGRAM_CONFIG.monthlyDurationDays;
-      const currentExpires = sub.expiresAt && sub.expiresAt > now ? sub.expiresAt : now;
-      const newExpiresAt = new Date(currentExpires.getTime() + durationDays * 24 * 60 * 60 * 1000);
       const wasFirstPayment = !sub.startDate;
+
+      // Cohort-aware розрахунок expiresAt. Якщо у sub є cohort — використовуємо його межі;
+      // без cohort (legacy) — стара логіка `last_payment + N днів`.
+      const allPayments = await tx.payment.findMany({
+        where: { yearlyProgramSubscriptionId: sub.id, status: 'PAID' },
+        select: { amount: true, status: true, paidAt: true, createdAt: true },
+      });
+      const newExpiresAt = calculateAccessUntil({
+        plan: sub.plan,
+        autoRenew: sub.autoRenew,
+        cohort: sub.cohort ? { startDate: sub.cohort.startDate, endDate: sub.cohort.endDate } : null,
+        payments: allPayments,
+        newPaymentAt: now,
+      }) ?? now;
+      const durationDays = Math.round((newExpiresAt.getTime() - (sub.expiresAt ?? now).getTime()) / (24 * 60 * 60 * 1000));
 
       await tx.yearlyProgramSubscription.update({
         where: { id: sub.id },
@@ -784,7 +801,7 @@ async function handleYearlyProgramCallback(args: {
         },
       });
 
-      return { kind: 'ok', sub, newExpiresAt, durationDays, wasFirstPayment };
+      return { kind: 'ok', sub: sub as SubWithCohort, newExpiresAt, durationDays, wasFirstPayment };
     });
   } catch (e) {
     if (e instanceof Error && e.message === SUB_MISSING_SENTINEL) {
@@ -836,9 +853,25 @@ async function handleYearlyProgramCallback(args: {
         : 'monthly-once';
   actions.push(`yearly:${planLabel}:+${flipResult.durationDays}d`);
 
-  // Відкриваємо доступ у SendPulse (event → funnel → enrollment).
-  // Для recurring-платежу це не обовʼязково (доступ вже відкритий), але повторне відправлення
-  // не шкодить — SendPulse ігнорує дублі.
+  // Відкриваємо доступ у SendPulse тільки якщо cohort уже запущений (launchedAt set)
+  // АБО підписка не прив'язана до cohort (legacy). Для запущеного cohort-у нові оплати
+  // → миттєвий доступ. Для cohort-у, який ще не стартував — оплата фіксується, але доступ
+  // відкриється централізовано в момент `🚀 Запустити програму`.
+  const cohortLaunched = sub.cohort?.launchedAt != null;
+  const shouldOpenAccessNow = !sub.cohort || cohortLaunched;
+
+  if (!shouldOpenAccessNow) {
+    actions.push('sendpulse:deferred_until_cohort_launch');
+    return {
+      prevStatus,
+      skipped: false,
+      skipReason: null,
+      errorMsg: null,
+      actions,
+      sendpulseSlugs,
+    };
+  }
+
   try {
     await openAccessViaEvent(
       user.email,

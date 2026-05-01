@@ -1,6 +1,7 @@
 import { Resend } from 'resend';
 import { NextRequest, NextResponse } from 'next/server';
 import { checkRateLimit } from '@/lib/ratelimit';
+import { MAILER_FROM_EMAIL } from '@/lib/mailer';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -32,7 +33,7 @@ export async function POST(req: NextRequest) {
 
     // HTML escape — `name/email/message` інтерпольовано в лист, без escape це XSS у Gmail preview.
     await resend.emails.send({
-      from: 'UIMP <onboarding@resend.dev>',
+      from: MAILER_FROM_EMAIL,
       to: 'uimp.edu@gmail.com',
       subject: `Новий запит з сайту UIMP від ${esc(name)}`,
       html: `

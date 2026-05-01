@@ -7,6 +7,7 @@ import { isYearlyProgramOrderRef, YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProg
 import { buildRegularPurchaseFlags, removeRegularSchedule, getWayforpayCreds } from '@/lib/wayforpay';
 import { applyPromoServerSide, resolveServerPricing } from '@/lib/paymentPricing';
 import { checkRateLimit } from '@/lib/ratelimit';
+import { lastAutopayChargeDate, maxAutopayChargeCount } from '@/lib/yearlyProgramAccess';
 
 export async function POST(req: NextRequest) {
   try {
@@ -69,6 +70,9 @@ export async function POST(req: NextRequest) {
     const productName: string = resolved.productName;
     const productPrice: number = finalAmount;
     const productCount: number = resolved.productCount;
+    /// Поточний cohort Річної програми. Якщо менеджер ще не створив cohort — null
+    /// (підписка створюється без cohort, регулярка йде по legacy-логіці = 9 платежів від покупки).
+    let currentCohortId: string | null = null;
 
     // Для курсів/пакетів/yearly — створюємо/знаходимо користувача і Payment
     if (!isConnector) {
@@ -144,6 +148,11 @@ export async function POST(req: NextRequest) {
       // Для річної програми — знаходимо/створюємо підписку і лінкуємо Payment
       let yearlyProgramSubscriptionId: string | null = null;
       if (yearlyKind) {
+        const currentCohort = await prisma.yearlyProgramCohort.findFirst({
+          where: { isCurrent: true },
+          select: { id: true },
+        });
+        currentCohortId = currentCohort?.id ?? null;
         const plan = yearlyKind === 'yearly' ? 'YEARLY' : 'MONTHLY';
         const existing = await prisma.yearlyProgramSubscription.findFirst({
           where: {
@@ -242,6 +251,7 @@ export async function POST(req: NextRequest) {
               plan,
               status: 'PENDING',
               autoRenew,
+              cohortId: currentCohortId,
             },
           });
           yearlyProgramSubscriptionId = created.id;
@@ -337,11 +347,44 @@ export async function POST(req: NextRequest) {
     // Admin теж отримує regular flags — це свідомий вибір: для перевірки cyclical потоку треба
     // справжню регулярку на стороні WFP. Адмін після тесту викликає Cancel → removeRegularSchedule.
     if (yearlyKind === 'monthly' && recurring !== false) {
-      const flags = buildRegularPurchaseFlags({
-        amount: finalAmount,
-        totalPayments: YEARLY_PROGRAM_CONFIG.totalMonthlyPayments,
-      });
-      Object.assign(paymentData, flags);
+      // Якщо є поточний cohort — обмежуємо регулярку cohort.endDate, щоб остання
+      // автосписання не виходила за межі програми. Без cohort — стара поведінка
+      // (9 платежів × 30 днів від моменту покупки).
+      let regularFlags: ReturnType<typeof buildRegularPurchaseFlags>;
+      if (currentCohortId) {
+        const cohort = await prisma.yearlyProgramCohort.findUnique({
+          where: { id: currentCohortId },
+          select: { endDate: true },
+        });
+        if (cohort) {
+          const now = new Date();
+          const totalPayments = maxAutopayChargeCount({
+            firstPaymentDate: now,
+            cohortEndDate: cohort.endDate,
+          });
+          const dateEndCohort = lastAutopayChargeDate({
+            firstPaymentDate: now,
+            cohortEndDate: cohort.endDate,
+          });
+          regularFlags = buildRegularPurchaseFlags({
+            amount: finalAmount,
+            dateBegin: now,
+            dateEnd: dateEndCohort,
+            totalPayments,
+          });
+        } else {
+          regularFlags = buildRegularPurchaseFlags({
+            amount: finalAmount,
+            totalPayments: YEARLY_PROGRAM_CONFIG.totalMonthlyPayments,
+          });
+        }
+      } else {
+        regularFlags = buildRegularPurchaseFlags({
+          amount: finalAmount,
+          totalPayments: YEARLY_PROGRAM_CONFIG.totalMonthlyPayments,
+        });
+      }
+      Object.assign(paymentData, regularFlags);
     }
 
     return NextResponse.json(paymentData);

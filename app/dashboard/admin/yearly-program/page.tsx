@@ -4,19 +4,47 @@ import {
   getYearlyProgramSettings,
   YEARLY_PROGRAM_DEFAULTS,
 } from '@/lib/yearlyProgramSettings';
-import YearlyProgramView, { type Row, type SummaryData } from './_components/YearlyProgramView';
+import YearlyProgramView, { type SummaryData } from './_components/YearlyProgramView';
+import type { Row, CohortListItem } from './_components/types';
 
 const MAX_ROWS = 500;
 
 export default async function AdminYearlyProgramPage() {
-  const subs = await prisma.yearlyProgramSubscription.findMany({
-    orderBy: { createdAt: 'desc' },
-    take: MAX_ROWS,
-    include: {
-      user: { select: { id: true, name: true, email: true } },
-      payments: { select: { id: true, amount: true, status: true, createdAt: true, paidAt: true } },
-    },
+  const [subs, cohorts] = await Promise.all([
+    prisma.yearlyProgramSubscription.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: MAX_ROWS,
+      include: {
+        user: { select: { id: true, name: true, email: true } },
+        payments: { select: { id: true, amount: true, status: true, createdAt: true, paidAt: true } },
+        cohort: { select: { id: true, name: true, startDate: true, launchedAt: true } },
+      },
+    }),
+    prisma.yearlyProgramCohort.findMany({
+      orderBy: { startDate: 'desc' },
+    }),
+  ]);
+
+  const cohortSubsCount = await prisma.yearlyProgramSubscription.groupBy({
+    by: ['cohortId'],
+    _count: { _all: true },
   });
+  const countByCohort = new Map<string | null, number>();
+  for (const c of cohortSubsCount) countByCohort.set(c.cohortId, c._count._all);
+
+  const cohortList: CohortListItem[] = cohorts.map((c) => ({
+    id: c.id,
+    name: c.name,
+    startDate: c.startDate.toISOString(),
+    endDate: c.endDate.toISOString(),
+    launchedAt: c.launchedAt?.toISOString() ?? null,
+    emailScheduledFor: c.emailScheduledFor?.toISOString() ?? null,
+    emailSentAt: c.emailSentAt?.toISOString() ?? null,
+    launchEmailSubject: c.launchEmailSubject,
+    launchEmailBody: c.launchEmailBody,
+    isCurrent: c.isCurrent,
+    subscriptionsCount: countByCohort.get(c.id) ?? 0,
+  }));
 
   const now = Date.now();
 
@@ -25,6 +53,10 @@ export default async function AdminYearlyProgramPage() {
     const totalPaid = paidPayments.reduce((sum, p) => sum + p.amount, 0);
     const msLeft = s.expiresAt ? s.expiresAt.getTime() - now : null;
     const daysLeft = msLeft !== null ? Math.ceil(msLeft / (24 * 60 * 60 * 1000)) : null;
+
+    const firstPaid = paidPayments
+      .map((p) => p.paidAt ?? p.createdAt)
+      .sort((a, b) => a.getTime() - b.getTime())[0];
 
     return {
       id: s.id,
@@ -37,6 +69,11 @@ export default async function AdminYearlyProgramPage() {
       startDate: s.startDate?.toISOString() ?? null,
       expiresAt: s.expiresAt?.toISOString() ?? null,
       daysLeft,
+      firstPaymentAt: firstPaid?.toISOString() ?? null,
+      cohortStartDate: s.cohort?.startDate.toISOString() ?? null,
+      cohortName: s.cohort?.name ?? null,
+      cohortId: s.cohort?.id ?? null,
+      cohortLaunched: s.cohort?.launchedAt != null,
       cancelledAt: s.cancelledAt?.toISOString() ?? null,
       cancelledBy: s.cancelledBy,
       lastPaymentAt: s.lastPaymentAt?.toISOString() ?? null,
@@ -50,7 +87,6 @@ export default async function AdminYearlyProgramPage() {
     };
   });
 
-  // Summary рахуємо через groupBy у БД — щоб KPI були точні навіть якщо subs > MAX_ROWS.
   const [statusCounts, totalAggr, revenueAggr, graceDays, programSettings] = await Promise.all([
     prisma.yearlyProgramSubscription.groupBy({
       by: ['status'],
@@ -80,6 +116,7 @@ export default async function AdminYearlyProgramPage() {
     <YearlyProgramView
       rows={rows}
       summary={summary}
+      cohorts={cohortList}
       graceDays={graceDays}
       programSettings={programSettings}
       programDefaults={YEARLY_PROGRAM_DEFAULTS}

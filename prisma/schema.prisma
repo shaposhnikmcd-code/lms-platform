@@ -760,6 +760,13 @@ model YearlyProgramSubscription {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  /// Запуск Річної програми (cohort), до якого належить ця підписка.
+  /// Усі нові оплати потрапляють у поточний cohort (`isCurrent=true`). Менеджер
+  /// може перенести підписку в наступний cohort вручну до моменту запуску.
+  /// nullable для зворотної сумісності з підписками, створеними до cohort-системи.
+  cohortId String?
+  cohort   YearlyProgramCohort? @relation(fields: [cohortId], references: [id], onDelete: SetNull)
+
   payments     Payment[]                        @relation("YearlyProgramPayments")
   events       YearlyProgramSubscriptionEvent[]
   certificates Certificate[]
@@ -769,6 +776,7 @@ model YearlyProgramSubscription {
   @@index([expiresAt])
   @@index([status, expiresAt])
   @@index([plan, status, expiresAt])
+  @@index([cohortId])
 }
 
 /// Лог важливих подій підписки — видно в адмінці для прозорості й дебагу.
@@ -793,6 +801,50 @@ model YearlyProgramSubscriptionEvent {
 enum YearlyProgramPlan {
   YEARLY
   MONTHLY
+}
+
+/// "Запуск" Річної програми — навчальна когорта з фіксованими датами старту та завершення.
+/// Менеджер створює cohort заздалегідь (наприклад, "Річна програма 2026" зі стартом 01.09.2026).
+/// Усі нові оплати автоматично потрапляють у поточний (`isCurrent=true`) cohort.
+/// Доступ до SendPulse і email-розсилка стартують у момент запуску — менеджер тисне
+/// "🚀 Запустити програму", фіксується `launchedAt`, відкривається SendPulse усім оплаченим,
+/// розсилається welcome-лист. Розсилку можна виконати окремо ("✉️ Запустити розсилку")
+/// — миттєво або за запланованою датою (`emailScheduledFor` обробляється cron-ом).
+model YearlyProgramCohort {
+  id   String @id @default(cuid())
+  /// Назва, що показується в адмінці й у листах. Default: `Річна програма {рік startDate}`.
+  name String
+
+  /// Планована дата старту програми (доступ у SendPulse активний з цієї дати).
+  startDate DateTime
+  /// Планована дата завершення програми (доступ закривається після цієї дати).
+  endDate   DateTime
+
+  /// Момент, коли менеджер натиснув "🚀 Запустити програму" — відкриває SendPulse усім
+  /// оплаченим підпискам у cohort, перераховує доступ. null = ще не запущено.
+  launchedAt DateTime?
+
+  /// Розклад welcome-розсилки. emailScheduledFor у майбутньому — cron обробить пізніше;
+  /// emailScheduledFor у минулому без emailSentAt — ще не оброблено (буде у наступному cron-tick).
+  emailScheduledFor DateTime?
+  emailSentAt       DateTime?
+
+  /// Шаблон welcome-листа. Підтримує плейсхолдери {{name}}, {{startDate}}, {{endDate}}, {{cohortName}}.
+  /// null → fallback на дефолтний шаблон з lib/yearlyProgramCohort.ts.
+  launchEmailSubject String?
+  launchEmailBody    String?
+
+  /// Поточний cohort — той, у який потрапляють нові оплати. Тільки один cohort
+  /// може мати isCurrent=true (DB constraint через partial unique index).
+  isCurrent Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  subscriptions YearlyProgramSubscription[]
+
+  @@index([startDate])
+  @@index([isCurrent])
 }
 
 enum YearlyProgramSubscriptionStatus {

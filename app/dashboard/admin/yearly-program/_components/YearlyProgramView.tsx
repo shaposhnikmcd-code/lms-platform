@@ -15,45 +15,18 @@ import {
   HiOutlineChevronRight,
   HiOutlineEnvelope,
   HiOutlineCurrencyDollar,
+  HiOutlineArrowRightCircle,
 } from 'react-icons/hi2';
 import type { YearlyProgramSettings } from '@/lib/yearlyProgramSettings';
 import { useAdminTheme, type Theme } from '../../_components/adminTheme';
 import { AdminShell, AdminPanel } from '../../_components/AdminShell';
+import type { Row, SubStatus, Plan, SummaryData, CohortListItem } from './types';
+import CohortHeader from './CohortHeader';
+import CohortActions from './CohortActions';
+import CreateCohortModal from './CreateCohortModal';
+import MoveCohortBtn from './MoveCohortBtn';
 
-export type Plan = 'YEARLY' | 'MONTHLY';
-export type SubStatus = 'PENDING' | 'ACTIVE' | 'GRACE' | 'EXPIRED' | 'CANCELLED' | 'ARCHIVED';
-
-export interface Row {
-  id: string;
-  createdAt: string;
-  userName: string | null;
-  userEmail: string;
-  plan: Plan;
-  autoRenew: boolean;
-  status: SubStatus;
-  startDate: string | null;
-  expiresAt: string | null;
-  daysLeft: number | null;
-  cancelledAt: string | null;
-  cancelledBy: string | null;
-  lastPaymentAt: string | null;
-  failedChargeCount: number;
-  lastChargeError: string | null;
-  sendpulseStudentId: number | null;
-  sendpulseAccessOpenedAt: string | null;
-  sendpulseAccessClosedAt: string | null;
-  paymentsCount: number;
-  totalPaid: number;
-}
-
-export interface SummaryData {
-  total: number;
-  active: number;
-  grace: number;
-  expired: number;
-  cancelled: number;
-  revenueTotal: number;
-}
+export type { Row, SubStatus, Plan, SummaryData };
 
 interface SubscriptionDetails {
   id: string;
@@ -122,12 +95,14 @@ interface ProgramDefaults {
 export default function YearlyProgramView({
   rows,
   summary,
+  cohorts,
   graceDays,
   programSettings,
   programDefaults,
 }: {
   rows: Row[];
   summary: SummaryData;
+  cohorts: CohortListItem[];
   graceDays: number;
   programSettings: YearlyProgramSettings;
   programDefaults: ProgramDefaults;
@@ -135,6 +110,12 @@ export default function YearlyProgramView({
   const { theme, setTheme } = useAdminTheme();
   const dark = theme === 'dark';
   const router = useRouter();
+
+  // Cohort UI: за замовчуванням обираємо поточний cohort, якщо є; інакше null = усі підписки.
+  const initialCohortId = cohorts.find((c) => c.isCurrent)?.id ?? cohorts[0]?.id ?? null;
+  const [activeCohortId, setActiveCohortId] = useState<string | null>(initialCohortId);
+  const [createCohortOpen, setCreateCohortOpen] = useState(false);
+  const activeCohort = cohorts.find((c) => c.id === activeCohortId) ?? null;
 
   const [planFilter, setPlanFilter] = useState<PlanFilter>('ALL');
   const [statusFilter, setStatusFilter] = useState<'ALL' | SubStatus>('ALL');
@@ -151,6 +132,8 @@ export default function YearlyProgramView({
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return rows.filter((r) => {
+      // Cohort filter: null = усі. Інакше показуємо тільки підписки активного cohort-у.
+      if (activeCohortId !== null && r.cohortId !== activeCohortId) return false;
       if (planFilter === 'YEARLY' && r.plan !== 'YEARLY') return false;
       if (planFilter === 'MONTHLY_AUTO' && !(r.plan === 'MONTHLY' && r.autoRenew)) return false;
       if (planFilter === 'MONTHLY_ONCE' && !(r.plan === 'MONTHLY' && !r.autoRenew)) return false;
@@ -158,7 +141,7 @@ export default function YearlyProgramView({
       if (q && !r.userEmail.toLowerCase().includes(q) && !(r.userName ?? '').toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [rows, planFilter, statusFilter, search]);
+  }, [rows, activeCohortId, planFilter, statusFilter, search]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   useEffect(() => {
@@ -228,6 +211,23 @@ export default function YearlyProgramView({
       subtitle="Платежі та доступ до Річної програми (SendPulse). Місячна підписка — з автосписанням, річна — одна оплата на рік."
       maxWidth="max-w-7xl"
     >
+      <CohortHeader
+        cohorts={cohorts}
+        activeCohortId={activeCohortId}
+        onSelect={setActiveCohortId}
+        onCreate={() => setCreateCohortOpen(true)}
+        theme={theme}
+      />
+      {activeCohort && (
+        <CohortActions cohort={activeCohort} theme={theme} />
+      )}
+      {createCohortOpen && (
+        <CreateCohortModal
+          theme={theme}
+          onClose={() => setCreateCohortOpen(false)}
+          onCreated={(id) => setActiveCohortId(id)}
+        />
+      )}
       <div
         className={`mb-6 rounded-2xl grid grid-cols-2 lg:grid-cols-5 overflow-hidden backdrop-blur-sm border divide-y lg:divide-y-0 lg:divide-x ${
           dark
@@ -351,6 +351,8 @@ export default function YearlyProgramView({
                 <Th theme={theme}>Користувач</Th>
                 <Th theme={theme} align="center">Підписка</Th>
                 <Th theme={theme} align="center">Статус</Th>
+                <Th theme={theme}>Дата оплати</Th>
+                <Th theme={theme}>Початок програми</Th>
                 <Th theme={theme}>Доступ до</Th>
                 <Th theme={theme}>Платежів</Th>
                 <Th theme={theme}>Сплачено</Th>
@@ -360,7 +362,7 @@ export default function YearlyProgramView({
             <tbody className={dark ? 'divide-y divide-white/[0.04]' : 'divide-y divide-stone-200/60'}>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className={`px-4 py-14 text-center text-sm ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+                  <td colSpan={11} className={`px-4 py-14 text-center text-sm ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
                     {rows.length === 0 ? 'Поки ніхто не підписався.' : 'Нічого не знайдено за фільтрами.'}
                   </td>
                 </tr>
@@ -555,6 +557,23 @@ function RowBlock({
         <td className="px-4 py-2.5 text-center"><PlanBadge theme={theme} plan={r.plan} autoRenew={r.autoRenew} /></td>
         <td className="px-4 py-2.5 text-center"><StatusBadge theme={theme} status={r.status} /></td>
         <td className={`px-4 py-2.5 text-[11px] tabular-nums whitespace-nowrap ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
+          {r.firstPaymentAt ? fmtDate(r.firstPaymentAt) : <span className={dark ? 'text-slate-600' : 'text-stone-400'}>—</span>}
+        </td>
+        <td className={`px-4 py-2.5 text-[11px] tabular-nums whitespace-nowrap ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
+          {r.cohortStartDate ? (
+            <>
+              <div>{fmtDateShort(r.cohortStartDate)}</div>
+              {r.cohortName && (
+                <div className={`text-[10px] truncate max-w-[140px] ${dark ? 'text-slate-600' : 'text-stone-500'}`} title={r.cohortName}>
+                  {r.cohortName}
+                </div>
+              )}
+            </>
+          ) : (
+            <span className={dark ? 'text-slate-600' : 'text-stone-400'}>—</span>
+          )}
+        </td>
+        <td className={`px-4 py-2.5 text-[11px] tabular-nums whitespace-nowrap ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
           {r.expiresAt ? (
             <>
               <div>{fmtDateShort(r.expiresAt)}</div>
@@ -583,7 +602,7 @@ function RowBlock({
 
       {expanded && (
         <tr className={dark ? 'bg-black/20' : 'bg-stone-50/80'}>
-          <td colSpan={9} className="px-6 py-5">
+          <td colSpan={11} className="px-6 py-5">
             <ExpandedRowContent
               theme={theme}
               details={details}
@@ -682,6 +701,16 @@ function ExpandedRowContent({
           }}>
             🗑 Архівувати запис
           </ActionBtn>
+          {row.plan === 'MONTHLY' && (
+            <ActionBtn theme={theme} disabled={busy} tone="success" onClick={() =>
+              onAction('test_charge', undefined, 'Тригернути TEST CHARGE по recToken? Працює тільки коли WAYFORPAY_TEST_MODE=1.')
+            }>
+              🧪 Test Charge (autopay simulation)
+            </ActionBtn>
+          )}
+          {!row.cohortLaunched && (
+            <MoveCohortBtn theme={theme} row={row} disabled={busy} />
+          )}
         </div>
 
         {(() => {
