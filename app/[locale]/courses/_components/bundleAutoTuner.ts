@@ -283,12 +283,14 @@
 //     desc-контейнері = 4 * line-height + 4), або тюнер (міряє maxDescHeight у ряду,
 //     виставляє uniform minHeight на всі картки + 4px bottom gap).
 //     TODO: конкретну реалізацію user затвердить окремим запитом. Зараз — лише правило.
-// 41. Cross-bundle row sync: коли два (або більше) однотипних бандли (same type/paid/free)
-//     стоять поруч у тому ж ряду, тюнер синхронізує їхню paid-card висоту до max(natural)
-//     серед пари. Вирішує кейс: DISCOUNT 2-paid з коротким desc (natural 220) поруч з
-//     бандлом з довшим desc (natural 249) → обидва стають 249, щоб уникнути візуальної
-//     диспропорції коли adjuster "роздуває" відступи у коротшого для fit-у в unifiedHeight.
-//     Не зачіпає CTA (rule #19/14) і не зачіпає free-cards (можна розширити за потреби).
+// 41. Cross-bundle row sync — РОЗДІЛЕНО на два scope-и (rule #43 уточнює):
+//     a) Card-level sync (NARROW, цей пункт): коли два (або більше) **однотипних** бандли
+//        (same type/paid/free) стоять поруч у тому ж ряду, тюнер синхронізує їхню paid-card
+//        висоту до max(natural) серед пари. Strict mates тут необхідний — щоб порівнювати
+//        висоту картки потрібна ідентична структура (paid/free count, тип). Вирішує кейс:
+//        DISCOUNT 2-paid з коротким desc (natural 220) поруч з бандлом з довшим desc (249) →
+//        обидва картки стають 249. Не зачіпає CTA (rule #19/14), не зачіпає free-cards.
+//     b) Bundle-level minHeight sync — див. rule #43 (BROAD scope).
 //     Реалізація: `syncBundleRow()` у кінці `autoTuneBundle()`.
 // 42. Адаптивна висота бандлу — картки НІКОЛИ не клiпаються; бандл росте під контент.
 //     Перекриває попередню "fixed unifiedHeight з overflow:hidden" модель де при довгому h3 +
@@ -303,13 +305,39 @@
 //        Idempotent: orig minHeight зберігається в `dataset.tunerOrigMinH`, скидається на
 //        кожному запуску. Skip для `forcedHeight` (miniature) — там фіксована висота важлива.
 //     d) `syncBundleRow` розширений: окрім paid-card висоти синхронізує також bundle minHeight
-//        серед mate-ів (same type/paid/free/top Y) до max(naturals). Сусідні бандли в ряду
-//        вирівнюються знизу автоматично; коротші отримують slack → adjuster (rule #39) рівномірно
-//        розподіляє по слотах.
+//        серед сусідів у ряду (top-Y match) до max(naturals). Scope ШИРОКИЙ — будь-які бандли
+//        у тому самому ряду, незалежно від type/paid/free (див. rule #43). Сусідні бандли
+//        вирівнюються знизу автоматично; коротші отримують slack → adjuster (rule #39)
+//        рівномірно розподіляє по слотах.
 //     e) WebkitLineClamp:4 у JSX лишається як safety net (тексти 5+ рядків отримають ellipsis,
 //        але висота резервується точно під 4 рядки → клiпається тільки реально надлишковий 5+ рядок).
 //     Сумісність: bundles де naturalMax < unifiedHeight (короткі h3+descs) поведінкою не змінюються
 //     (cap=null повертає natural; bundle.minHeight = unifiedHeight як раніше).
+// 43. Bundle minHeight row-sync (BROAD scope) — Rule #42d з широким фільтром mate-ів.
+//     Раніше bundle-height sync ділив фільтр з card-sync (Rule #41 — strict same type/paid/free).
+//     Це не давало вирівнятися сусіднім бандлам РІЗНИХ типів у тому самому ряду (напр.
+//     CHOICE_FREE 1+3 поруч з DISCOUNT 5-paid: обидва мають unifiedHeight=920 з Models, але
+//     якщо контент в одному expand-нувся до 970, інший лишався на 920 → видима різниця
+//     висот). Strict-mates filter був архітектурною помилкою для height-sync — на відміну
+//     від card-sync, висота **самого пакета** — це просто прямокутник: він не вимагає
+//     ідентичної внутрішньої структури сусіда, лише факту що сусід — у тому ж ряду.
+//     Новий контракт:
+//     - Mates для card-sync (Rule #41): same `data-bundle-type`+`data-bundle-paid`+
+//       `data-bundle-free`+top-Y match. NARROW.
+//     - Mates для bundle minHeight sync (Rule #43, цей пункт): тільки top-Y match
+//       (`Math.abs(top diff) < 10px`). BROAD — будь-який пакет у тому самому ряду.
+//     Поведінка: всі бандли в ряду отримують `minHeight = max(clientHeight)` серед сусідів.
+//     Коротші — більше повітря (Rule #39 adjuster розподіляє slack по слотах). Вищі —
+//     не зменшуються (картки на naturalMax, Rule #42a, ніколи не клiпаються).
+//     Skip для miniature (forcedHeight через `style.height`) — там фіксована висота
+//     потрібна для preview масштабу.
+//     Idempotent: orig minHeight зберігається у `dataset.tunerOrigMinH`. Якщо expand вже
+//     встановив його — sync не перезаписує, тільки оновлює style.minHeight.
+//     Сходимість на multi-bundle resize: автотюнер запускається кожного бандла окремо
+//     через RAF; останній bundle у frame бачить фінальні `clientHeight` усіх mate-ів і
+//     виставляє коректний row-max. Резет-фаза в `expandBundleIfNeeded` гарантує що
+//     попередні sync-значення не накопичуються між запусками.
+//
 // 40. CAP calc враховує margin ОСТАННЬОГО grid-контейнера → CTA. У `computeCardHeightCaps`
 //     до `gapsTotal` додається `lastContainer.marginBottom` (lastContainer = freeContainer
 //     якщо є, інакше paidContainer). Раніше враховувався лише paid→free (коли обидва
@@ -748,66 +776,78 @@ function expandBundleIfNeeded(root: HTMLElement, cta: HTMLElement | null) {
   }
 }
 
-// Правило 41: синхронізує paid-card висоту серед однотипних сусідів у тому ж ряду.
-// Кожен бандл зберігає свій naturalMax у dataset під час tune. Sync знаходить mate-ів
-// (same type/paid/free, top Y в межах 10px), виводить max(naturals), та застосовує
-// через `--tuned-paid-card-h` на всіх учасниках. Після зміни — перезапускає adjuster
-// на оновлених бандлах (margins/padding перерозподіляються під нову card.h).
-// Idempotent: викликається в кожному autoTuneBundle; перший бандл у ряду просто збереже
-// свій natural, останній — знайде всіх готових і застосує row-max.
+// Правило 41+43: Cross-bundle row sync — два рівні з різними scope-ами.
+//
+// Чому розділено: висота **картки курсу** і висота **самого пакета** — це різні задачі.
+//   • Картка має внутрішню структуру (icon + h4 + desc + benefits + price-strip). Щоб
+//     синхронізувати її висоту з сусідньою карткою, обидві картки мусять мати ту саму
+//     структуру (інакше "висота картки" — про різні речі). Тому Rule #41 використовує
+//     STRICT mates: `same type/paid/free + top-Y match`.
+//   • Висота пакета — це просто розмір прямокутника, що містить заголовок, картки і CTA.
+//     Сусіди у ряду повинні мати однакову нижню межу незалежно від внутрішньої структури.
+//     Тому Rule #43 використовує BROAD mates: тільки `top-Y match`.
+//
+// Idempotent: викликається з кожного autoTuneBundle; останній бандл у frame бачить фінальні
+// natural-розміри усіх mate-ів і виставляє коректний row-max. Reset-фаза в
+// `expandBundleIfNeeded` (Rule #42c) гарантує що попередні sync-значення не накопичуються.
 function syncBundleRow(root: HTMLElement) {
   const paidCards = Array.from(root.querySelectorAll<HTMLElement>('[data-bundle-paid-card]'));
-  if (paidCards.length === 0) return;
 
-  // Зберегти natural у dataset (measurement — після adjuster, але cards height фіксована varom)
-  const myCardH = parseFloat(root.style.getPropertyValue('--tuned-paid-card-h')) || paidCards[0].offsetHeight;
-  root.dataset.bundleNaturalPaidH = String(myCardH);
+  // Зберегти natural paid-card height у dataset (для Rule #41).
+  if (paidCards.length > 0) {
+    const myCardH = parseFloat(root.style.getPropertyValue('--tuned-paid-card-h')) || paidCards[0].offsetHeight;
+    root.dataset.bundleNaturalPaidH = String(myCardH);
+  }
 
-  const myType = root.getAttribute('data-bundle-type');
-  const myPaid = root.getAttribute('data-bundle-paid');
-  const myFree = root.getAttribute('data-bundle-free');
   const myTop = root.getBoundingClientRect().top;
-
   const allRoots = Array.from(document.querySelectorAll<HTMLElement>('[data-bundle-root]'));
-  const mates = allRoots.filter((r) => {
-    if (r.getAttribute('data-bundle-type') !== myType) return false;
-    if (r.getAttribute('data-bundle-paid') !== myPaid) return false;
-    if (r.getAttribute('data-bundle-free') !== myFree) return false;
-    return Math.abs(r.getBoundingClientRect().top - myTop) < 10;
-  });
-  if (mates.length < 2) return;
 
-  // Перевірити чи всі mate-и вже мають встановлений natural
-  const naturals = mates.map((r) => parseFloat(r.dataset.bundleNaturalPaidH || '0'));
-  if (naturals.some((n) => !n || n <= 0)) return;
+  // Усі бандли в тому ж візуальному ряду (top-Y у межах 10px). Це база для обох scope-ів.
+  const rowMates = allRoots.filter((r) => Math.abs(r.getBoundingClientRect().top - myTop) < 10);
 
-  const rowMax = Math.max(...naturals);
-  const changed: HTMLElement[] = [];
-  mates.forEach((r) => {
-    const currentVar = parseFloat(r.style.getPropertyValue('--tuned-paid-card-h')) || 0;
-    if (Math.abs(currentVar - rowMax) > 1) {
-      r.style.setProperty('--tuned-paid-card-h', `${rowMax}px`);
-      changed.push(r);
+  // ─── Rule #41: card-level sync (NARROW mates) ────────────────────────────────────
+  if (paidCards.length > 0) {
+    const myType = root.getAttribute('data-bundle-type');
+    const myPaid = root.getAttribute('data-bundle-paid');
+    const myFree = root.getAttribute('data-bundle-free');
+    const cardMates = rowMates.filter((r) =>
+      r.getAttribute('data-bundle-type') === myType
+      && r.getAttribute('data-bundle-paid') === myPaid
+      && r.getAttribute('data-bundle-free') === myFree,
+    );
+
+    if (cardMates.length >= 2) {
+      const naturals = cardMates.map((r) => parseFloat(r.dataset.bundleNaturalPaidH || '0'));
+      // Якщо хоч один mate ще не зберіг natural (рендериться в наступному RAF) — пропускаємо;
+      // наступний виклик з останнього бандла в ряду побачить усіх готових.
+      if (!naturals.some((n) => !n || n <= 0)) {
+        const cardRowMax = Math.max(...naturals);
+        const changedCards: HTMLElement[] = [];
+        cardMates.forEach((r) => {
+          const currentVar = parseFloat(r.style.getPropertyValue('--tuned-paid-card-h')) || 0;
+          if (Math.abs(currentVar - cardRowMax) > 1) {
+            r.style.setProperty('--tuned-paid-card-h', `${cardRowMax}px`);
+            changedCards.push(r);
+          }
+        });
+        // Adjuster перерозподіляє margins/padding під нову card height
+        changedCards.forEach((r) => {
+          const ct = r.querySelector<HTMLElement>('[data-bundle-cta]');
+          adjustBundleSpacing(r, ct);
+        });
+      }
     }
-  });
+  }
 
-  // Перезапустити adjuster на mate-ах з оновленою card height (margins/padding тепер застарілі)
-  changed.forEach((r) => {
-    const ct = r.querySelector<HTMLElement>('[data-bundle-cta]');
-    adjustBundleSpacing(r, ct);
-  });
-
-  // Rule #42d: cross-bundle bundle-height sync. Після того як `expandBundleIfNeeded` встановив
-  // кожному mate його natural minHeight — синхронізуємо до max серед mate-ів. Сусіди в ряду
-  // вирівнюються знизу; коротші отримують slack → adjuster розподіляє по слотах.
-  // Skip для miniature (forcedHeight через style.height).
-  const heightMates = mates.filter((r) => !r.style.height);
+  // ─── Rule #43: bundle minHeight sync (BROAD mates) ───────────────────────────────
+  // Будь-які бандли у тому самому ряду (незалежно від type/paid/free) вирівнюються
+  // знизу до max(clientHeight). Коротші отримують slack → adjuster розподіляє по слотах.
+  // Skip для miniature (forcedHeight через style.height) — там фіксована висота важлива.
+  const heightMates = rowMates.filter((r) => !r.style.height);
   if (heightMates.length >= 2) {
-    const heightNaturals = heightMates.map((r) => {
-      // clientHeight = поточна visible висота (border-box без border). Включає padding + content.
-      // expandBundleIfNeeded вже міг підняти minHeight → r.clientHeight ≈ max(unifiedHeight, needed).
-      return r.clientHeight;
-    });
+    // clientHeight = поточна visible висота (border-box без border). Включає padding + content.
+    // expandBundleIfNeeded вже міг підняти minHeight → r.clientHeight ≈ max(unifiedHeight, needed).
+    const heightNaturals = heightMates.map((r) => r.clientHeight);
     const rowMaxH = Math.max(...heightNaturals);
     const changedH: HTMLElement[] = [];
     heightMates.forEach((r) => {

@@ -1272,7 +1272,7 @@ function RowsView({
       <div className={`mb-4 rounded-lg border px-4 py-2.5 text-[11px] ${dark ? 'bg-white/[0.03] border-white/[0.08] text-slate-400' : 'bg-white/70 border-stone-300/50 text-stone-600'}`}>
         <span className="font-semibold">Як користуватись:</span> перетягни pill «Ряд N» у шапці щоб змінити порядок; перетягни пакет на solo-сторінку — стане в пару; кинь у зону «Винести в новий ряд» — створить окремий ряд.
       </div>
-      <DndContext id="bundles-rows-dnd" sensors={sensors} collisionDetection={collisionDetection} autoScroll={false} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+      <DndContext id="bundles-rows-dnd" sensors={sensors} collisionDetection={collisionDetection} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
         <SortableContext
           items={slots.map((slot, idx) => `slot-${idx}`)}
           strategy={rectSortingStrategy}
