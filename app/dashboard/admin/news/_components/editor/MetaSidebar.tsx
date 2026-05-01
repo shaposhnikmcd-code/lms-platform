@@ -16,7 +16,7 @@ const cardStyle: React.CSSProperties = {
 };
 
 const cardHeaderStyle: React.CSSProperties = {
-  padding: "11px 16px",
+  padding: "7px 12px",
   background: "#1C3A2E",
   fontSize: "9px",
   fontWeight: 800,
@@ -27,10 +27,10 @@ const cardHeaderStyle: React.CSSProperties = {
 };
 
 const cardBodyStyle: React.CSSProperties = {
-  padding: "16px",
+  padding: "10px 12px",
   display: "flex",
   flexDirection: "column",
-  gap: "14px",
+  gap: "8px",
 };
 
 const labelStyle: React.CSSProperties = {
@@ -38,7 +38,7 @@ const labelStyle: React.CSSProperties = {
   fontSize: "10px",
   fontWeight: 700,
   color: "#1C3A2E",
-  marginBottom: "5px",
+  marginBottom: "3px",
   textTransform: "uppercase",
   letterSpacing: "0.07em",
   fontFamily: ff,
@@ -46,7 +46,7 @@ const labelStyle: React.CSSProperties = {
 
 const inputStyle: React.CSSProperties = {
   width: "100%",
-  padding: "9px 12px",
+  padding: "6px 10px",
   borderRadius: "8px",
   borderWidth: "1.5px",
   borderStyle: "solid",
@@ -91,7 +91,7 @@ export default function MetaSidebar({ meta, onChange, onUpload }: Props) {
   };
 
   return (
-    <div style={{ width: "200px", minWidth: "200px", display: "flex", flexDirection: "column", gap: "16px" }}>
+    <div style={{ width: "200px", minWidth: "200px", display: "flex", flexDirection: "column", gap: "10px" }}>
 
       <div style={cardStyle}>
         <div style={cardHeaderStyle}>{"Публікація"}</div>
@@ -107,7 +107,8 @@ export default function MetaSidebar({ meta, onChange, onUpload }: Props) {
           <div>
             <label style={labelStyle}>{"Короткий опис"}</label>
             <textarea
-              style={{ ...inputStyle, resize: "vertical", minHeight: "80px" }}
+              rows={2}
+              style={{ ...inputStyle, resize: "vertical", minHeight: "44px" }}
               value={meta.excerpt}
               onChange={e => onChange({ ...meta, excerpt: e.target.value })}
               placeholder="Короткий опис для картки новини"
@@ -132,14 +133,16 @@ export default function MetaSidebar({ meta, onChange, onUpload }: Props) {
       <div style={cardStyle}>
         <div style={cardHeaderStyle}>{"Фон сторінки новини"}</div>
         <div style={cardBodyStyle}>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}>
-            {/* Дефолтний (білий) */}
+          {/* Grid 9-колонок: default білий + 7 UIMP кольорів + custom color picker.
+              Хитрість: input[type=color] має мінімальну ширину в Chrome (~50px),
+              тому ховаємо його під label/button, що бере 100% свого grid-cell. */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(9, 1fr)", gap: "3px" }}>
             <button
               type="button"
               title="Білий (за замовчуванням)"
               onClick={() => onChange({ ...meta, pageBgColor: "" })}
               style={{
-                width: "26px", height: "26px", borderRadius: "6px",
+                width: "100%", aspectRatio: "1 / 1", borderRadius: "5px",
                 border: `1.5px solid ${!meta.pageBgColor ? "#D4A843" : "#E8D5B7"}`,
                 background: "#FFFFFF",
                 cursor: "pointer", padding: 0,
@@ -155,7 +158,7 @@ export default function MetaSidebar({ meta, onChange, onUpload }: Props) {
                   title={c.label}
                   onClick={() => onChange({ ...meta, pageBgColor: c.value })}
                   style={{
-                    width: "26px", height: "26px", borderRadius: "6px",
+                    width: "100%", aspectRatio: "1 / 1", borderRadius: "5px",
                     border: `1.5px solid ${active ? "#D4A843" : "#E8D5B7"}`,
                     background: c.value, cursor: "pointer", padding: 0,
                     boxShadow: active ? "0 0 0 2px rgba(212,168,67,0.3)" : "none",
@@ -163,16 +166,28 @@ export default function MetaSidebar({ meta, onChange, onUpload }: Props) {
                 />
               );
             })}
-            <input
-              type="color"
-              value={meta.pageBgColor || "#FFFFFF"}
-              onChange={(e) => onChange({ ...meta, pageBgColor: e.target.value })}
+            <label
               title="Свій колір"
-              style={{ width: "30px", height: "26px", border: "1.5px solid #E8D5B7", borderRadius: "6px", padding: 0, background: "none", cursor: "pointer" }}
-            />
-          </div>
-          <div style={{ fontSize: "10px", color: "#9CA3AF", lineHeight: 1.4, fontFamily: ff }}>
-            {"Колір білого контейнера, в якому розміщено блоки новини."}
+              style={{
+                width: "100%", aspectRatio: "1 / 1", borderRadius: "5px",
+                border: "1.5px solid #E8D5B7",
+                background: "conic-gradient(from 180deg, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)",
+                cursor: "pointer", padding: 0,
+                position: "relative", overflow: "hidden",
+                display: "block",
+              }}
+            >
+              <input
+                type="color"
+                value={meta.pageBgColor || "#FFFFFF"}
+                onChange={(e) => onChange({ ...meta, pageBgColor: e.target.value })}
+                style={{
+                  position: "absolute", inset: 0,
+                  width: "100%", height: "100%",
+                  opacity: 0, cursor: "pointer", border: "none", padding: 0,
+                }}
+              />
+            </label>
           </div>
         </div>
       </div>
@@ -195,7 +210,7 @@ export default function MetaSidebar({ meta, onChange, onUpload }: Props) {
           ) : (
             <div
               onClick={() => fileRef.current?.click()}
-              style={{ borderWidth: "2px", borderStyle: "dashed", borderColor: "#D4A843", borderRadius: "10px", padding: "24px 16px", textAlign: "center", cursor: "pointer", color: "#9CA3AF", fontSize: "12px", background: "#FAF6F0", fontFamily: ff }}
+              style={{ borderWidth: "1.5px", borderStyle: "dashed", borderColor: "#D4A843", borderRadius: "8px", padding: "10px 12px", textAlign: "center", cursor: "pointer", color: "#9CA3AF", fontSize: "11px", background: "#FAF6F0", fontFamily: ff }}
             >
               {uploading ? "Завантаження..." : "🖼 Завантажити обкладинку"}
             </div>

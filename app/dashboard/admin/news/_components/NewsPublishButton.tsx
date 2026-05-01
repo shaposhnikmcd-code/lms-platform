@@ -163,8 +163,51 @@ export default function NewsPublishButton({
     }
   };
 
+  // Миттєве призупинення (suspendedAt=now, resumeAt=null) — для випадку коли вже є
+  // заплановане призупинення (pill його показує і керує датою). Основна кнопка тоді
+  // не дублює календар, а просто призупиняє зараз.
+  const onInstantSuspend = async () => {
+    setLoading(true);
+    try {
+      const suspendedISO = new Date().toISOString();
+      const res = await patch({ suspendedAt: suspendedISO, resumeAt: null });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err?.error || 'Не вдалося призупинити');
+        return;
+      }
+      onChange?.({ published: true, suspendedAt: suspendedISO, resumeAt: null });
+      router.refresh();
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Миттєва публікація без модалки — коли в чернетці вже є запланована публікація
+  // (futureResume → pill керує датою). Основна кнопка просто публікує зараз.
+  const onInstantPublish = async () => {
+    setLoading(true);
+    try {
+      const res = await patch({ published: true, suspendedAt: null, resumeAt: null });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err?.error || 'Не вдалося опублікувати');
+        return;
+      }
+      onChange?.({ published: true, suspendedAt: null, resumeAt: null });
+      router.refresh();
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const minNow = nowLocalInput();
   const hasScheduledResume = !!resumeAt && new Date(resumeAt) > new Date();
+  const hasScheduledSuspend = !!suspendedAt && new Date(suspendedAt) > new Date();
+  const hasScheduledPublish =
+    !!resumeAt &&
+    new Date(resumeAt) > new Date() &&
+    (!suspendedAt || new Date(suspendedAt) <= new Date());
 
   // --- Resume (paused → enable) ---
   if (mode === 'resume') {
@@ -207,8 +250,10 @@ export default function NewsPublishButton({
       <>
         <button
           type="button"
-          onClick={openModal}
-          className={`inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-[12px] font-medium rounded-lg border transition-colors ${
+          onClick={hasScheduledPublish ? onInstantPublish : openModal}
+          disabled={loading}
+          title={hasScheduledPublish ? 'Опублікувати зараз (override запланованого таймера)' : undefined}
+          className={`inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-[12px] font-medium rounded-lg border transition-colors disabled:opacity-50 ${
             dark
               ? 'bg-emerald-500/10 text-emerald-200 border-emerald-400/25 hover:bg-emerald-500/20'
               : 'bg-emerald-200/40 text-emerald-800 border-emerald-500/30 hover:bg-emerald-200/70'
@@ -239,8 +284,10 @@ export default function NewsPublishButton({
     <>
       <button
         type="button"
-        onClick={openModal}
-        className={`inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-[12px] font-medium rounded-lg border transition-colors ${
+        onClick={hasScheduledSuspend ? onInstantSuspend : openModal}
+        disabled={loading}
+        title={hasScheduledSuspend ? 'Призупинити зараз (override запланованого таймера)' : undefined}
+        className={`inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-[12px] font-medium rounded-lg border transition-colors disabled:opacity-50 ${
           dark
             ? 'bg-amber-500/10 text-amber-200 border-amber-400/25 hover:bg-amber-500/20'
             : 'bg-amber-200/40 text-amber-900 border-amber-500/40 hover:bg-amber-200/70'

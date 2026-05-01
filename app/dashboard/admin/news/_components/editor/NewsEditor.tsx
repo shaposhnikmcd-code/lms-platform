@@ -324,10 +324,9 @@ export default function NewsEditor({
             />
             <span className="truncate">{pageTitle}</span>
           </h1>
-          {(message || uploading) && (
+          {uploading && (
             <p className="mt-2 text-[12px] font-medium">
-              {message && <span className="text-rose-600">{message}</span>}
-              {uploading && <span className="text-amber-600">Завантаження…</span>}
+              <span className="text-amber-600">Завантаження…</span>
             </p>
           )}
         </div>
@@ -347,7 +346,24 @@ export default function NewsEditor({
             />
           </div>
 
-          <div className="w-full lg:w-auto lg:sticky lg:top-24 lg:self-start">
+          {/* Sticky-сайдбар з внутрішнім скролом — точно як ліва палітра BlockPalette
+              (sticky top:80, maxHeight calc(100vh-100), overflow-y auto, scrollbar hidden).
+              Інлайн стилі, не Tailwind lg:* — щоб уникнути пропуску класів і гарантувати
+              ідентичну поведінку обом барам. */}
+          <div
+            className="news-palette-scroll"
+            style={{
+              position: "sticky",
+              top: "80px",
+              alignSelf: "flex-start",
+              maxHeight: "calc(100vh - 100px)",
+              overflowY: "auto",
+              overflowX: "hidden",
+              scrollbarWidth: "none",
+              msOverflowStyle: "none",
+              flexShrink: 0,
+            }}
+          >
             <MetaSidebar meta={meta} onChange={setMeta} onUpload={uploadFile} />
           </div>
         </div>
@@ -380,6 +396,30 @@ export default function NewsEditor({
         <HiOutlineCheckCircle className="text-[20px]" />
         <span>{saving ? "Збереження…" : "Зберегти"}</span>
       </button>
+
+      {/* Floating toast з помилкою — з'являється під кнопкою Зберегти, щоб користувач
+          одразу бачив причину невдалого збереження (раніше повідомлення було під заголовком
+          сторінки в лівому верхньому куті, далеко від кнопки — його не помічали). */}
+      {message && (
+        <div
+          role="alert"
+          className="fixed top-[152px] right-[88px] z-40 max-w-[360px] flex items-start gap-2.5 px-4 py-3 rounded-xl bg-rose-50 border border-rose-300 shadow-lg animate-[slideInDown_0.2s_ease-out]"
+          style={{
+            boxShadow: "0 8px 24px -6px rgba(244, 63, 94, 0.35), 0 2px 6px rgba(0,0,0,0.08)",
+          }}
+        >
+          <span className="flex-shrink-0 inline-flex items-center justify-center w-5 h-5 rounded-full bg-rose-500 text-white text-[12px] font-bold mt-0.5">!</span>
+          <p className="text-[13px] font-medium text-rose-900 leading-snug flex-1">{message}</p>
+          <button
+            type="button"
+            onClick={() => setMessage("")}
+            aria-label="Закрити"
+            className="flex-shrink-0 -mr-1 -mt-1 w-6 h-6 inline-flex items-center justify-center rounded-md text-rose-500 hover:bg-rose-100 transition-colors"
+          >
+            ✕
+          </button>
+        </div>
+      )}
     </div>
   );
 }
