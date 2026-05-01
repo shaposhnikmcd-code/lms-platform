@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
       payments: { where: { status: 'PAID' }, select: { amount: true, paidAt: true } },
       certificates: {
         where: { revoked: false, type: 'YEARLY_PROGRAM' },
-        select: { id: true, certNumber: true, category: true, emailStatus: true, issuedAt: true },
+        select: { id: true, certNumber: true, category: true, emailStatus: true, emailFromAddress: true, issuedAt: true },
       },
     },
   });

@@ -3,7 +3,7 @@
 /// роблять тонкий шар auth + валідацію + виклик цих функцій.
 
 import prisma from '@/lib/prisma';
-import { sendEmail, appBaseUrl } from '@/lib/mailer';
+import { sendEmail, appBaseUrl, MAILER_FROM_EMAIL } from '@/lib/mailer';
 import { certificateEmailHtml, certificateEmailSubject } from '@/lib/emailTemplates/certificate';
 import { generateCertificatePdf } from './generatePdf';
 import { generateCertNumber, newVerificationToken, hashPdfBytes } from './identifiers';
@@ -102,6 +102,55 @@ export async function issueCourseCertificate(input: IssueCourseCertInput): Promi
   await logEvent(certificate.id, 'GENERATED', actor, issuedManually ? 'Видано вручну (COURSE)' : 'Видано автоматично (cron)');
 
   await sendCertificateEmail(certificate, actor, /* isResend */ false);
+
+  return prisma.certificate.findUniqueOrThrow({ where: { id: certificate.id } });
+}
+
+/// Видача "персонального" Річного сертифіката без привʼязки до підписки. Для випадків,
+/// коли учасник не купував Річну програму через сайт (офлайн домовленість, спецдомовленість).
+/// Дублі контролює route — partial unique index на Certificate не покриває (userId, type) для
+/// YEARLY_PROGRAM (там немає courseId), тому валідація в application code.
+export async function issueManualYearlyCertificate(input: {
+  userId: string;
+  category: CertCategory;
+  recipientName?: string;
+  actor: Actor;
+}): Promise<Certificate> {
+  const { userId, category, actor } = input;
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, name: true, email: true },
+  });
+  if (!user) throw new Error(`User not found: ${userId}`);
+
+  const recipientName = (input.recipientName?.trim() || user.name?.trim() || user.email).trim();
+  const issueYear = new Date().getUTCFullYear();
+  const certNumber = await generateCertNumber('YEARLY_PROGRAM', issueYear);
+  const verificationToken = newVerificationToken();
+
+  const certificate = await prisma.certificate.create({
+    data: {
+      certNumber,
+      verificationToken,
+      type: 'YEARLY_PROGRAM',
+      category,
+      userId,
+      subscriptionId: null,
+      recipientName,
+      recipientEmail: user.email,
+      issueYear,
+      issuedManually: true,
+      issuedByUserId: actor?.id ?? null,
+      issuedByName: actor?.name ?? null,
+      issuedByEmail: actor?.email ?? null,
+      emailStatus: 'PENDING',
+    },
+  });
+
+  await logEvent(certificate.id, 'GENERATED', actor, `Видано вручну (Річна, ${category === 'LISTENER' ? 'Слухач' : 'Практична участь'}, без підписки)`);
+
+  await sendCertificateEmail(certificate, actor, false);
 
   return prisma.certificate.findUniqueOrThrow({ where: { id: certificate.id } });
 }
@@ -218,6 +267,7 @@ async function sendCertificateEmail(cert: Certificate, actor: Actor, isResend: b
           emailStatus: 'SENT',
           emailSentAt: new Date(),
           emailMessageId: result.messageId ?? null,
+          emailFromAddress: MAILER_FROM_EMAIL,
           emailError: null,
           pdfHash,
         },

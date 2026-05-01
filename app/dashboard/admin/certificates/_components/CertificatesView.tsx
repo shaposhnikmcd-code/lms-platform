@@ -20,6 +20,7 @@ import {
 } from 'react-icons/hi2';
 import { useAdminTheme, type Theme } from '../../_components/adminTheme';
 import { AdminShell, AdminPanel } from '../../_components/AdminShell';
+import MailerFromBadge from '../../_components/MailerFromBadge';
 import YearlyInfoModal from './YearlyInfoModal';
 import CoursesInfoModal from './CoursesInfoModal';
 
@@ -43,6 +44,7 @@ interface CourseCandidate {
     id: string;
     certNumber: string;
     emailStatus: EmailStatus;
+    emailFromAddress: string | null;
     issuedAt: string;
     issuedManually: boolean;
     revoked: boolean;
@@ -68,6 +70,7 @@ interface YearlyCandidate {
     certNumber: string;
     category: CertCategory | null;
     emailStatus: EmailStatus;
+    emailFromAddress: string | null;
     issuedAt: string;
   } | null;
 }
@@ -134,6 +137,9 @@ export default function CertificatesView() {
       eyebrow="Admin · Сертифікати"
       maxWidth="max-w-[1400px]"
     >
+      <div className="mb-4 flex items-center justify-end">
+        <MailerFromBadge theme={theme} />
+      </div>
       <Tabs theme={theme} active={activeTab} onChange={setActiveTab} />
 
       <div className="mt-6">
@@ -460,6 +466,13 @@ function formatDateOnly(iso: string | null): string {
   }
 }
 
+/// Дістає чистий email з "Display Name <email@domain>" формату (RESEND_FROM_EMAIL).
+function extractEmail(addr: string | null): string {
+  if (!addr) return '';
+  const m = /^(.+?)\s*<([^>]+)>$/.exec(addr);
+  return (m?.[2] ?? addr).trim();
+}
+
 /// Колонка "Курс завершено" — % прогресу з SendPulse, оновлюється щоденним cron-ом.
 function ProgressCell({
   theme,
@@ -749,15 +762,16 @@ function CoursesTab({
               <Th>Курс завершено</Th>
               <Th>Сертифікат</Th>
               <Th>Статус</Th>
+              <Th>Лист надійшов з</Th>
               <Th>Дії</Th>
             </tr>
           </thead>
           <tbody className={dark ? 'divide-y divide-white/[0.04]' : 'divide-y divide-stone-200/60'}>
             {loading && candidates.length === 0 && (
-              <tr><td colSpan={8} className="py-8 text-center text-stone-500">Завантаження…</td></tr>
+              <tr><td colSpan={9} className="py-8 text-center text-stone-500">Завантаження…</td></tr>
             )}
             {!loading && lastUpdated !== null && filtered.length === 0 && (
-              <tr><td colSpan={8} className="py-8 text-center text-stone-500">Немає даних</td></tr>
+              <tr><td colSpan={9} className="py-8 text-center text-stone-500">Немає даних</td></tr>
             )}
             {filtered.map((c) => {
               const key = `${c.userId}_${c.courseId}`;
@@ -808,6 +822,15 @@ function CoursesTab({
                   <td className="py-3 pr-3">
                     {cert ? (
                       <StatusBadge theme={theme} status={cert.emailStatus} revoked={cert.revoked} />
+                    ) : (
+                      <span className={`text-[11px] italic ${dark ? 'text-slate-500' : 'text-stone-400'}`}>—</span>
+                    )}
+                  </td>
+                  <td className="py-3 pr-3">
+                    {cert?.emailFromAddress ? (
+                      <span className={`font-mono text-[11px] ${dark ? 'text-slate-300' : 'text-stone-700'}`} title={cert.emailFromAddress}>
+                        {extractEmail(cert.emailFromAddress)}
+                      </span>
                     ) : (
                       <span className={`text-[11px] italic ${dark ? 'text-slate-500' : 'text-stone-400'}`}>—</span>
                     )}
@@ -914,6 +937,7 @@ function YearlyTab({
   const [planFilter, setPlanFilter] = useState<'all' | 'YEARLY' | 'MONTHLY'>('all');
   const [issuedFilter, setIssuedFilter] = useState<'all' | 'yes' | 'no'>('all');
   const [dialogSub, setDialogSub] = useState<YearlyCandidate | null>(null);
+  const [showIssueManual, setShowIssueManual] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [showInfo, setShowInfo] = useState(false);
   const [runningSp, setRunningSp] = useState(false);
@@ -1006,15 +1030,25 @@ function YearlyTab({
             runTitle="Запитати у SendPulse прогрес студентів Річної програми (для колонки 'Курс завершено')"
           />
         </div>
-        <button
-          type="button"
-          onClick={() => setShowInfo(true)}
-          title="Як працює Річна програма — довідник для менеджерів"
-          aria-label="Довідник"
-          className={`inline-flex items-center justify-center w-9 h-9 rounded-full border transition-colors ${dark ? 'bg-amber-500/10 border-amber-500/30 text-amber-300 hover:bg-amber-500/20' : 'bg-amber-50 border-amber-300 text-amber-700 hover:bg-amber-100'}`}
-        >
-          <HiOutlineInformationCircle className="w-5 h-5" />
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowIssueManual(true)}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-br from-amber-500 to-amber-600 text-white text-[13px] font-semibold shadow-md hover:shadow-lg transition-shadow"
+          >
+            <HiOutlinePlus className="text-[16px]" />
+            Видати сертифікат
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowInfo(true)}
+            title="Як працює Річна програма — довідник для менеджерів"
+            aria-label="Довідник"
+            className={`inline-flex items-center justify-center w-9 h-9 rounded-full border transition-colors ${dark ? 'bg-amber-500/10 border-amber-500/30 text-amber-300 hover:bg-amber-500/20' : 'bg-amber-50 border-amber-300 text-amber-700 hover:bg-amber-100'}`}
+          >
+            <HiOutlineInformationCircle className="w-5 h-5" />
+          </button>
+        </div>
       </div>
 
       {/* Row 2 — Фільтри + лічильник */}
@@ -1063,6 +1097,7 @@ function YearlyTab({
               <Th>Курс завершено</Th>
               <Th>Сертифікат створено</Th>
               <Th>Сертифікат відправлено</Th>
+              <Th>Лист надійшов з</Th>
               <Th>Сертифікат</Th>
               <Th>Створити вручну</Th>
             </tr>
@@ -1070,14 +1105,14 @@ function YearlyTab({
           <tbody className={dark ? 'divide-y divide-white/[0.04]' : 'divide-y divide-stone-200/60'}>
             {loading && (
               <tr>
-                <td colSpan={11} className="py-8 text-center text-stone-500">
+                <td colSpan={12} className="py-8 text-center text-stone-500">
                   Завантаження…
                 </td>
               </tr>
             )}
             {!loading && filtered.length === 0 && (
               <tr>
-                <td colSpan={11} className="py-8 text-center text-stone-500">
+                <td colSpan={12} className="py-8 text-center text-stone-500">
                   Немає даних
                 </td>
               </tr>
@@ -1124,6 +1159,15 @@ function YearlyTab({
                     <StatusBadge theme={theme} status={c.certificate.emailStatus} revoked={false} />
                   ) : (
                     <span className={`text-[12px] ${dark ? 'text-slate-500' : 'text-stone-400'}`}>—</span>
+                  )}
+                </td>
+                <td className="py-3 pr-3">
+                  {c.certificate?.emailFromAddress ? (
+                    <span className={`font-mono text-[11px] ${dark ? 'text-slate-300' : 'text-stone-700'}`} title={c.certificate.emailFromAddress}>
+                      {extractEmail(c.certificate.emailFromAddress)}
+                    </span>
+                  ) : (
+                    <span className={`text-[11px] italic ${dark ? 'text-slate-500' : 'text-stone-400'}`}>—</span>
                   )}
                 </td>
                 <td className="py-3 pr-3">
@@ -1177,6 +1221,19 @@ function YearlyTab({
           onClose={() => setDialogSub(null)}
           onIssued={() => {
             setDialogSub(null);
+            fetchList();
+            pushToast({ type: 'success', msg: 'Сертифікат видано та відправлено' });
+          }}
+          onError={(msg) => pushToast({ type: 'error', msg })}
+        />
+      )}
+
+      {showIssueManual && (
+        <IssueYearlyManualDialog
+          theme={theme}
+          onClose={() => setShowIssueManual(false)}
+          onIssued={() => {
+            setShowIssueManual(false);
             fetchList();
             pushToast({ type: 'success', msg: 'Сертифікат видано та відправлено' });
           }}
@@ -2081,6 +2138,19 @@ function PreviewPane({
   );
 }
 
+type CourseOption = { id: string; title: string };
+
+type ExistingCertSummary = {
+  id: string;
+  certNumber: string;
+  recipientName: string;
+  recipientEmail: string;
+  emailStatus: 'PENDING' | 'SENT' | 'FAILED';
+  emailSentAt: string | null;
+  issuedAt: string;
+  issuedManually: boolean;
+};
+
 function IssueCourseDialog({
   theme,
   preselected,
@@ -2095,52 +2165,72 @@ function IssueCourseDialog({
   onError: (msg: string) => void;
 }) {
   const dark = theme === 'dark';
-  const [candidates, setCandidates] = useState<CourseCandidate[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
-  const [selected, setSelected] = useState<CourseCandidate | null>(preselected ?? null);
+  const [courses, setCourses] = useState<CourseOption[]>([]);
+  const [loadingCourses, setLoadingCourses] = useState(true);
+  const [fromEmail, setFromEmail] = useState<string | null>(null);
   const [recipientName, setRecipientName] = useState(preselected?.userName ?? '');
+  const [recipientEmail, setRecipientEmail] = useState(preselected?.userEmail ?? '');
+  const [courseId, setCourseId] = useState<string>(preselected?.courseId ?? '');
   const [busy, setBusy] = useState(false);
-  const [showOnlyMissing, setShowOnlyMissing] = useState(true);
-  const [confirmingIncomplete, setConfirmingIncomplete] = useState(false);
+  const [existing, setExisting] = useState<ExistingCertSummary | null>(null);
 
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch('/api/admin/certificates/course');
+        const res = await fetch('/api/admin/courses');
         const data = await res.json();
-        setCandidates(data.candidates ?? []);
+        const list = Array.isArray(data) ? data : [];
+        setCourses(
+          list
+            .map((c: { id: string; title: string }) => ({ id: c.id, title: c.title }))
+            .sort((a: CourseOption, b: CourseOption) => a.title.localeCompare(b.title, 'uk')),
+        );
       } finally {
-        setLoading(false);
+        setLoadingCourses(false);
       }
     })();
   }, []);
 
-  const filtered = useMemo(() => {
-    const s = search.trim().toLowerCase();
-    return candidates.filter((c) => {
-      if (showOnlyMissing && c.certificate) return false;
-      if (!s) return true;
-      return `${c.userName ?? ''} ${c.userEmail} ${c.courseTitle}`.toLowerCase().includes(s);
-    });
-  }, [candidates, search, showOnlyMissing]);
+  useEffect(() => {
+    fetch('/api/admin/mailer-config')
+      .then((r) => r.json())
+      .then((data: { fromEmail?: string }) => {
+        if (data?.fromEmail) setFromEmail(data.fromEmail);
+      })
+      .catch(() => {});
+  }, []);
 
-  async function submit() {
-    if (!selected) return;
-    setConfirmingIncomplete(false);
+  const selectedCourse = useMemo(
+    () => courses.find((c) => c.id === courseId) ?? null,
+    [courses, courseId],
+  );
+
+  const canSubmit =
+    !busy &&
+    recipientName.trim().length > 0 &&
+    recipientEmail.trim().length > 0 &&
+    courseId.length > 0;
+
+  async function submit(force: boolean) {
     setBusy(true);
     try {
-      const res = await fetch('/api/admin/certificates/course', {
+      const res = await fetch('/api/admin/certificates/course/manual', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          userId: selected.userId,
-          courseId: selected.courseId,
-          recipientName: recipientName.trim() || undefined,
+          recipientName: recipientName.trim(),
+          recipientEmail: recipientEmail.trim(),
+          courseId,
+          force,
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? 'Помилка');
+      if (res.status === 409 && data?.error === 'EXISTS' && data?.existing) {
+        setExisting(data.existing as ExistingCertSummary);
+        return;
+      }
+      if (!res.ok) throw new Error(data?.error ?? 'Помилка');
+      setExisting(null);
       onIssued();
     } catch (err) {
       onError(err instanceof Error ? err.message : 'Помилка');
@@ -2149,23 +2239,10 @@ function IssueCourseDialog({
     }
   }
 
-  /// Якщо учасник не закінчив курс на 100% (або прогрес SP взагалі невідомий) —
-  /// спочатку показуємо confirm-попап. Інакше одразу submit.
-  function handleClickIssue() {
-    if (!selected) return;
-    const pct = selected.spProgressPercent;
-    const completed = pct !== null && pct >= 100;
-    if (!completed) {
-      setConfirmingIncomplete(true);
-    } else {
-      void submit();
-    }
-  }
-
   return (
     <ModalShell
       theme={theme}
-      title="Видати курсовий сертифікат"
+      title="Видати курсовий сертифікат персонально"
       onClose={onClose}
       wide
       footer={
@@ -2174,8 +2251,8 @@ function IssueCourseDialog({
             Скасувати
           </button>
           <button
-            onClick={handleClickIssue}
-            disabled={!selected || busy || !recipientName.trim()}
+            onClick={() => void submit(false)}
+            disabled={!canSubmit}
             className="px-4 py-2 rounded-lg bg-amber-500 text-white text-[13px] font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {busy ? 'Видаю…' : 'Видати і відправити'}
@@ -2185,88 +2262,90 @@ function IssueCourseDialog({
     >
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_1fr] gap-5">
         <div className="space-y-4">
-          <div className="flex items-center gap-2 flex-wrap">
+          <div>
+            <label className={`block text-[11px] uppercase tracking-wider mb-1 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
+              Ім&apos;я (як надрукувати)
+            </label>
             <input
               autoFocus
-              placeholder="Пошук: ім'я, email, курс…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className={`flex-1 min-w-[200px] px-3 py-2 rounded-lg border text-[13px] ${dark ? 'bg-white/[0.04] border-white/[0.1] text-white' : 'bg-white border-stone-300 text-stone-900'}`}
+              value={recipientName}
+              onChange={(e) => setRecipientName(e.target.value)}
+              placeholder="Ім'я та Прізвище"
+              className={`w-full px-3 py-2 rounded-lg border text-[13px] ${dark ? 'bg-white/[0.04] border-white/[0.1] text-white placeholder-slate-500' : 'bg-white border-stone-300 text-stone-900'}`}
             />
-            <label className={`inline-flex items-center gap-2 text-[12px] ${dark ? 'text-slate-300' : 'text-stone-700'}`}>
-              <input type="checkbox" checked={showOnlyMissing} onChange={(e) => setShowOnlyMissing(e.target.checked)} />
-              Без серта
+          </div>
+
+          <div>
+            <label className={`block text-[11px] uppercase tracking-wider mb-1 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
+              Email
             </label>
+            <input
+              type="email"
+              value={recipientEmail}
+              onChange={(e) => setRecipientEmail(e.target.value)}
+              placeholder="name@example.com"
+              className={`w-full px-3 py-2 rounded-lg border text-[13px] ${dark ? 'bg-white/[0.04] border-white/[0.1] text-white placeholder-slate-500' : 'bg-white border-stone-300 text-stone-900'}`}
+            />
+            <p className={`text-[11px] mt-1 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+              Якщо такого юзера ще немає — буде створено новий запис.
+            </p>
           </div>
 
-          <div className={`rounded-lg border max-h-[300px] overflow-y-auto ${dark ? 'border-white/[0.08]' : 'border-stone-200'}`}>
-            {loading ? (
-              <div className="p-4 text-center text-stone-500">Завантаження…</div>
-            ) : filtered.length === 0 ? (
-              <div className="p-4 text-center text-stone-500">Нічого не знайдено</div>
-            ) : (
-              filtered.slice(0, 100).map((c) => {
-                const key = `${c.userId}_${c.courseId}`;
-                const isSel = selected?.userId === c.userId && selected?.courseId === c.courseId;
-                return (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() => {
-                      setSelected(c);
-                      setRecipientName(c.userName ?? '');
-                    }}
-                    className={`w-full text-left px-3 py-2 flex items-center justify-between gap-3 border-b last:border-0 ${dark ? 'border-white/[0.04]' : 'border-stone-100'} ${isSel ? (dark ? 'bg-amber-500/15' : 'bg-amber-50') : (dark ? 'hover:bg-white/[0.02]' : 'hover:bg-stone-50')}`}
-                  >
-                    <div className="min-w-0">
-                      <div className="text-[13px] font-medium truncate">{c.userName ?? c.userEmail}</div>
-                      <div className={`text-[11px] truncate ${dark ? 'text-slate-400' : 'text-stone-500'}`}>{c.userEmail} · {c.courseTitle}</div>
-                    </div>
-                    {c.certificate && (
-                      <span className={`text-[10px] px-2 py-0.5 rounded ${dark ? 'bg-emerald-500/20 text-emerald-200' : 'bg-emerald-100 text-emerald-800'}`}>
-                        ✓
-                      </span>
-                    )}
-                  </button>
-                );
-              })
-            )}
+          <div>
+            <label className={`block text-[11px] uppercase tracking-wider mb-1 ${dark ? 'text-slate-500' : 'text-stone-400'}`}>
+              Лист надійде з
+            </label>
+            <input
+              type="text"
+              readOnly
+              disabled
+              value={fromEmail ?? 'Завантаження…'}
+              title="Адреса відправника листа. Змінити можна тільки через RESEND_FROM_EMAIL у env."
+              className={`w-full px-3 py-2 rounded-lg border text-[13px] cursor-not-allowed ${
+                dark
+                  ? 'bg-white/[0.02] border-white/[0.06] text-slate-500'
+                  : 'bg-stone-100 border-stone-200 text-stone-500'
+              }`}
+            />
           </div>
 
-          {selected && (
-            <div className={`rounded-lg p-4 ${dark ? 'bg-white/[0.04]' : 'bg-stone-50'}`}>
-              <label className={`block text-[11px] uppercase tracking-wider mb-1 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
-                Ім'я для друку
-              </label>
-              <input
-                value={recipientName}
-                onChange={(e) => setRecipientName(e.target.value)}
-                className={`w-full px-3 py-2 rounded-lg border text-[13px] ${dark ? 'bg-white/[0.04] border-white/[0.1] text-white' : 'bg-white border-stone-300 text-stone-900'}`}
-              />
-              <div className={`text-[11px] mt-2 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
-                {selected.courseTitle} · {selected.userEmail}
-              </div>
-            </div>
-          )}
+          <div>
+            <label className={`block text-[11px] uppercase tracking-wider mb-1 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
+              Курс
+            </label>
+            <select
+              value={courseId}
+              onChange={(e) => setCourseId(e.target.value)}
+              disabled={loadingCourses}
+              className={`w-full px-3 py-2 rounded-lg border text-[13px] ${dark ? 'bg-white/[0.04] border-white/[0.1] text-white' : 'bg-white border-stone-300 text-stone-900'}`}
+            >
+              <option value="">{loadingCourses ? 'Завантаження…' : '— оберіть курс —'}</option>
+              {courses.map((c) => (
+                <option key={c.id} value={c.id}>{c.title}</option>
+              ))}
+            </select>
+          </div>
         </div>
 
         <PreviewPane
           theme={theme}
-          disabled={!selected}
+          disabled={!recipientName.trim() || !selectedCourse}
           params={{
             type: 'COURSE',
             recipientName: recipientName.trim(),
-            courseName: selected?.courseTitle,
+            courseName: selectedCourse?.title,
           }}
         />
       </div>
 
-      {confirmingIncomplete && selected && (
-        <IncompleteProgressConfirm
+      {existing && (
+        <ExistingCertConfirm
           theme={theme}
-          candidate={selected}
-          onCancel={() => setConfirmingIncomplete(false)}
-          onConfirm={() => void submit()}
+          existing={existing}
+          courseTitle={selectedCourse?.title ?? ''}
+          recipientEmail={recipientEmail.trim()}
+          onCancel={() => setExisting(null)}
+          onConfirm={() => void submit(true)}
           busy={busy}
         />
       )}
@@ -2274,28 +2353,30 @@ function IssueCourseDialog({
   );
 }
 
-function IncompleteProgressConfirm({
+function ExistingCertConfirm({
   theme,
-  candidate,
+  existing,
+  courseTitle,
+  recipientEmail,
   onCancel,
   onConfirm,
   busy,
 }: {
   theme: Theme;
-  candidate: CourseCandidate;
+  existing: ExistingCertSummary;
+  courseTitle: string;
+  recipientEmail: string;
   onCancel: () => void;
   onConfirm: () => void;
   busy: boolean;
 }) {
   const dark = theme === 'dark';
-  const pct = candidate.spProgressPercent;
-  const progressLabel =
-    pct === null
-      ? 'невідомо (немає даних з SendPulse)'
-      : `${pct}%`;
-  const checkedLabel = candidate.spProgressCheckedAt
-    ? formatDate(candidate.spProgressCheckedAt)
-    : '—';
+  const sentLabel =
+    existing.emailStatus === 'SENT'
+      ? `Виданий і відправлений${existing.emailSentAt ? ` (${formatDate(existing.emailSentAt)})` : ''}`
+      : existing.emailStatus === 'FAILED'
+        ? 'Виданий, але лист не відправлено'
+        : 'Виданий, лист ще не відправлений';
 
   return (
     <div
@@ -2303,7 +2384,7 @@ function IncompleteProgressConfirm({
       onClick={onCancel}
     >
       <div
-        className={`relative w-full max-w-[520px] rounded-2xl shadow-2xl border ${dark ? 'bg-[#14161d] border-amber-500/40 text-slate-100' : 'bg-[#fbf7ec] border-amber-500/50 text-stone-900'}`}
+        className={`relative w-full max-w-[560px] rounded-2xl shadow-2xl border ${dark ? 'bg-[#14161d] border-amber-500/40 text-slate-100' : 'bg-[#fbf7ec] border-amber-500/50 text-stone-900'}`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="px-6 pt-6 pb-2 flex items-start gap-3">
@@ -2314,37 +2395,24 @@ function IncompleteProgressConfirm({
           </span>
           <div className="min-w-0">
             <h3 className="text-[18px] font-semibold leading-tight">
-              Курс не завершено. Точно видавати сертифікат?
+              Сертифікат для цього юзера й курсу вже існує
             </h3>
             <p className={`text-[12.5px] mt-1 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
-              Ця дія створить сертифікат, відправить його на email учаснику й зафіксується у журналі. Відмінити можна лише через відклик.
+              Якщо натиснути «Все одно видати», попередній буде відкликано, а замість
+              нього створено новий і відправлено лист.
             </p>
           </div>
         </div>
 
         <div className={`mx-6 my-4 rounded-xl p-4 text-[13px] leading-[1.65] ${dark ? 'bg-amber-500/10 border border-amber-500/25 text-amber-100' : 'bg-amber-50 border border-amber-300/60 text-amber-950'}`}>
           <ul className="space-y-1.5">
-            <li>
-              <strong>Учасник:</strong> {candidate.userName ?? candidate.userEmail}
-            </li>
-            <li>
-              <strong>Курс:</strong> {candidate.courseTitle}
-            </li>
-            <li>
-              <strong>Прогрес у SendPulse:</strong>{' '}
-              <span className="font-mono">{progressLabel}</span>
-              {pct !== null && pct < 100 && (
-                <> · <span className={dark ? 'text-red-300' : 'text-red-700'}>не закінчено</span></>
-              )}
-            </li>
-            <li>
-              <strong>Перевірено:</strong> {checkedLabel}
-            </li>
+            <li><strong>Email:</strong> {recipientEmail}</li>
+            <li><strong>Курс:</strong> {courseTitle}</li>
+            <li><strong>Номер:</strong> <span className="font-mono">{existing.certNumber}</span></li>
+            <li><strong>Ім&apos;я в серті:</strong> {existing.recipientName}</li>
+            <li><strong>Видано:</strong> {formatDate(existing.issuedAt)} · {existing.issuedManually ? 'вручну' : 'авто'}</li>
+            <li><strong>Статус:</strong> {sentLabel}</li>
           </ul>
-          <p className={`mt-3 text-[12px] ${dark ? 'text-amber-200/80' : 'text-amber-900/80'}`}>
-            Зазвичай сертифікат видається після 100% завершення курсу. Якщо це особлива
-            домовленість з учнем — продовжуй. Якщо сумніваєшся — скасуй і уточни.
-          </p>
         </div>
 
         <div className="px-6 pb-6 pt-2 flex items-center justify-end gap-2">
@@ -2362,7 +2430,7 @@ function IncompleteProgressConfirm({
             disabled={busy}
             className="px-5 py-2.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-[13px] font-semibold shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {busy ? 'Видаю…' : 'Так, видати і відправити'}
+            {busy ? 'Видаю…' : 'Все одно видати'}
           </button>
         </div>
       </div>
@@ -2386,8 +2454,18 @@ function IssueYearlyDialog({
   const dark = theme === 'dark';
   const [category, setCategory] = useState<CertCategory>('PRACTICAL');
   const [recipientName, setRecipientName] = useState(candidate.userName ?? '');
+  const [fromEmail, setFromEmail] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmingPartial, setConfirmingPartial] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/admin/mailer-config')
+      .then((r) => r.json())
+      .then((data: { fromEmail?: string }) => {
+        if (data?.fromEmail) setFromEmail(data.fromEmail);
+      })
+      .catch(() => {});
+  }, []);
 
   async function submit() {
     setConfirmingPartial(false);
@@ -2502,6 +2580,24 @@ function IssueYearlyDialog({
             onChange={(e) => setRecipientName(e.target.value)}
             placeholder="Повне ім'я учасника"
             className={`w-full px-3 py-2 rounded-lg border text-[14px] ${dark ? 'bg-white/[0.04] border-white/[0.1] text-white' : 'bg-white border-stone-300 text-stone-900'}`}
+          />
+        </div>
+
+        <div>
+          <label className={`block text-[11px] uppercase tracking-wider mb-1 ${dark ? 'text-slate-500' : 'text-stone-400'}`}>
+            Лист надійде з
+          </label>
+          <input
+            type="text"
+            readOnly
+            disabled
+            value={fromEmail ?? 'Завантаження…'}
+            title="Адреса відправника листа. Змінити можна тільки через RESEND_FROM_EMAIL у env."
+            className={`w-full px-3 py-2 rounded-lg border text-[13px] cursor-not-allowed ${
+              dark
+                ? 'bg-white/[0.02] border-white/[0.06] text-slate-500'
+                : 'bg-stone-100 border-stone-200 text-stone-500'
+            }`}
           />
         </div>
         </div>
@@ -2622,5 +2718,194 @@ function PartialPaymentConfirm({
         </div>
       </div>
     </div>
+  );
+}
+
+function IssueYearlyManualDialog({
+  theme,
+  onClose,
+  onIssued,
+  onError,
+}: {
+  theme: Theme;
+  onClose: () => void;
+  onIssued: () => void;
+  onError: (msg: string) => void;
+}) {
+  const dark = theme === 'dark';
+  const [fromEmail, setFromEmail] = useState<string | null>(null);
+  const [recipientName, setRecipientName] = useState('');
+  const [recipientEmail, setRecipientEmail] = useState('');
+  const [category, setCategory] = useState<CertCategory>('PRACTICAL');
+  const [busy, setBusy] = useState(false);
+  const [existing, setExisting] = useState<ExistingCertSummary | null>(null);
+
+  useEffect(() => {
+    fetch('/api/admin/mailer-config')
+      .then((r) => r.json())
+      .then((data: { fromEmail?: string }) => {
+        if (data?.fromEmail) setFromEmail(data.fromEmail);
+      })
+      .catch(() => {});
+  }, []);
+
+  const canSubmit =
+    !busy &&
+    recipientName.trim().length > 0 &&
+    recipientEmail.trim().length > 0;
+
+  async function submit(force: boolean) {
+    setBusy(true);
+    try {
+      const res = await fetch('/api/admin/certificates/yearly/manual', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          recipientName: recipientName.trim(),
+          recipientEmail: recipientEmail.trim(),
+          category,
+          force,
+        }),
+      });
+      const data = await res.json();
+      if (res.status === 409 && data?.error === 'EXISTS' && data?.existing) {
+        setExisting(data.existing as ExistingCertSummary);
+        return;
+      }
+      if (!res.ok) throw new Error(data?.error ?? 'Помилка');
+      setExisting(null);
+      onIssued();
+    } catch (err) {
+      onError(err instanceof Error ? err.message : 'Помилка');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const categoryLabel = category === 'PRACTICAL' ? 'Практична участь' : 'Слухач';
+
+  return (
+    <ModalShell
+      theme={theme}
+      title="Видати сертифікат Річної програми персонально"
+      onClose={onClose}
+      wide
+      footer={
+        <>
+          <button onClick={onClose} className={`px-4 py-2 rounded-lg text-[13px] ${dark ? 'bg-white/[0.05] text-slate-200' : 'bg-stone-100 text-stone-700'}`}>
+            Скасувати
+          </button>
+          <button
+            onClick={() => void submit(false)}
+            disabled={!canSubmit}
+            className="px-4 py-2 rounded-lg bg-amber-500 text-white text-[13px] font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {busy ? 'Видаю…' : 'Видати і відправити'}
+          </button>
+        </>
+      }
+    >
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_1fr] gap-5">
+        <div className="space-y-4">
+          <div>
+            <label className={`block text-[11px] uppercase tracking-wider mb-1 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
+              Ім&apos;я (як надрукувати)
+            </label>
+            <input
+              autoFocus
+              value={recipientName}
+              onChange={(e) => setRecipientName(e.target.value)}
+              placeholder="Ім'я та Прізвище"
+              className={`w-full px-3 py-2 rounded-lg border text-[13px] ${dark ? 'bg-white/[0.04] border-white/[0.1] text-white placeholder-slate-500' : 'bg-white border-stone-300 text-stone-900'}`}
+            />
+          </div>
+
+          <div>
+            <label className={`block text-[11px] uppercase tracking-wider mb-1 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
+              Email
+            </label>
+            <input
+              type="email"
+              value={recipientEmail}
+              onChange={(e) => setRecipientEmail(e.target.value)}
+              placeholder="name@example.com"
+              className={`w-full px-3 py-2 rounded-lg border text-[13px] ${dark ? 'bg-white/[0.04] border-white/[0.1] text-white placeholder-slate-500' : 'bg-white border-stone-300 text-stone-900'}`}
+            />
+            <p className={`text-[11px] mt-1 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+              Якщо такого юзера ще немає — буде створено новий запис.
+            </p>
+          </div>
+
+          <div>
+            <label className={`block text-[11px] uppercase tracking-wider mb-1 ${dark ? 'text-slate-500' : 'text-stone-400'}`}>
+              Лист надійде з
+            </label>
+            <input
+              type="text"
+              readOnly
+              disabled
+              value={fromEmail ?? 'Завантаження…'}
+              title="Адреса відправника листа. Змінити можна тільки через RESEND_FROM_EMAIL у env."
+              className={`w-full px-3 py-2 rounded-lg border text-[13px] cursor-not-allowed ${
+                dark
+                  ? 'bg-white/[0.02] border-white/[0.06] text-slate-500'
+                  : 'bg-stone-100 border-stone-200 text-stone-500'
+              }`}
+            />
+          </div>
+
+          <div>
+            <label className={`block text-[11px] uppercase tracking-wider mb-2 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
+              Категорія
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              {(['PRACTICAL', 'LISTENER'] as const).map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => setCategory(k)}
+                  className={`text-left px-4 py-3 rounded-xl border transition-all ${
+                    category === k
+                      ? 'bg-amber-500 border-amber-500 text-white shadow-md'
+                      : dark
+                        ? 'bg-white/[0.04] border-white/[0.1] text-slate-200 hover:bg-white/[0.08]'
+                        : 'bg-white border-stone-300 text-stone-800 hover:bg-stone-50'
+                  }`}
+                >
+                  <div className="font-semibold text-[14px]">
+                    {k === 'PRACTICAL' ? 'Практична участь' : 'Слухач'}
+                  </div>
+                  <div className={`text-[11px] mt-0.5 ${category === k ? 'text-white/80' : dark ? 'text-slate-400' : 'text-stone-500'}`}>
+                    {k === 'PRACTICAL' ? 'Вища категорія — активна практика' : 'Слухав лекції, без активної практики'}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <PreviewPane
+          theme={theme}
+          disabled={!recipientName.trim()}
+          params={{
+            type: 'YEARLY_PROGRAM',
+            category,
+            recipientName: recipientName.trim(),
+          }}
+        />
+      </div>
+
+      {existing && (
+        <ExistingCertConfirm
+          theme={theme}
+          existing={existing}
+          courseTitle={`Річна програма · ${categoryLabel}`}
+          recipientEmail={recipientEmail.trim()}
+          onCancel={() => setExisting(null)}
+          onConfirm={() => void submit(true)}
+          busy={busy}
+        />
+      )}
+    </ModalShell>
   );
 }

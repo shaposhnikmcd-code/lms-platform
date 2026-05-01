@@ -331,10 +331,13 @@ model Certificate {
   /// SHA-256 згенерованого PDF — для integrity checks (audit).
   pdfHash String?
 
-  emailStatus    CertEmailStatus @default(PENDING)
-  emailSentAt    DateTime?
-  emailMessageId String?
-  emailError     String?
+  emailStatus      CertEmailStatus @default(PENDING)
+  emailSentAt      DateTime?
+  emailMessageId   String?
+  emailError       String?
+  /// From-адреса, з якої реально пішов лист (snapshot RESEND_FROM_EMAIL на момент відправки).
+  /// null = ще не відправлявся, або відправлявся до того як це поле зʼявилося.
+  emailFromAddress String?
 
   revoked         Boolean   @default(false)
   revokedAt       DateTime?
