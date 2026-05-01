@@ -27,7 +27,6 @@ export interface Row {
   lastPaymentAt: string | null;
   failedChargeCount: number;
   lastChargeError: string | null;
-  hasRecToken: boolean;
   sendpulseStudentId: number | null;
   sendpulseAccessOpenedAt: string | null;
   sendpulseAccessClosedAt: string | null;

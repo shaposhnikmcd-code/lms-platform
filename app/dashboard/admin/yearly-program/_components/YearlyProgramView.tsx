@@ -701,13 +701,6 @@ function ExpandedRowContent({
           }}>
             🗑 Архівувати запис
           </ActionBtn>
-          {row.plan === 'MONTHLY' && (
-            <ActionBtn theme={theme} disabled={busy} tone="success" onClick={() =>
-              onAction('test_charge', undefined, 'Тригернути TEST CHARGE по recToken? Працює тільки коли WAYFORPAY_TEST_MODE=1.')
-            }>
-              🧪 Test Charge (autopay simulation)
-            </ActionBtn>
-          )}
           {!row.cohortLaunched && (
             <MoveCohortBtn theme={theme} row={row} disabled={busy} />
           )}
