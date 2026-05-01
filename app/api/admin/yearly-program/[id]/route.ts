@@ -493,22 +493,30 @@ type SubWithUser = Awaited<ReturnType<typeof prisma.yearlyProgramSubscription.fi
 };
 
 async function handleCancel(sub: NonNullable<SubWithUser>, actor: string, reason?: string) {
-  // 1) Якщо плани MONTHLY і є recToken — спробувати зняти регулярку на стороні WFP
-  let wfpRemoved = false;
+  // 1) Якщо план MONTHLY — пробуємо зняти ВСІ активні WFP-регулярки.
+  // НЕ гейтимо по sub.recToken: WFP не повертає recToken у callback (відоме обмеження
+  // нашого мерчант-акаунта, чекаємо відповідь WFP support), але регулярки реально
+  // створюються і списують. Тому єдиний надійний спосіб — пробувати REMOVE по orderRef.
+  // У клієнта може бути одночасно >1 активна регулярка (наприклад, картка + Apple Pay):
+  // кожна прив'язана до свого orderRef першого autopay-платежу. Тому ітеруємо ВСІ
+  // PAID платежі підписки і не break-имо після першого успіху.
+  let wfpRemovedCount = 0;
+  let wfpAttemptedCount = 0;
   let wfpError: string | null = null;
 
-  if (sub.plan === 'MONTHLY' && sub.recToken) {
+  if (sub.plan === 'MONTHLY') {
     try {
       const merchantAccount = process.env.WAYFORPAY_MERCHANT_LOGIN!;
       const merchantPassword = process.env.WAYFORPAY_MERCHANT_PASSWORD;
-      if (merchantPassword) {
-        // WFP може створити регулярку на будь-якому з autopay-платежів, не тільки на першому.
-        // Пробуємо REMOVE на кожному PAID orderRef поки не отримаємо 1100/Accept (success).
+      if (!merchantPassword) {
+        wfpError = 'WAYFORPAY_MERCHANT_PASSWORD не налаштовано';
+      } else {
         const paidPayments = await prisma.payment.findMany({
           where: { yearlyProgramSubscriptionId: sub.id, status: 'PAID' },
           orderBy: { paidAt: 'desc' },
         });
-        const errors: string[] = [];
+        wfpAttemptedCount = paidPayments.length;
+        const realErrors: string[] = [];
         for (const p of paidPayments) {
           const result = await removeRegularSchedule({
             merchantAccount,
@@ -516,19 +524,17 @@ async function handleCancel(sub: NonNullable<SubWithUser>, actor: string, reason
             orderReference: p.orderReference,
           });
           if (result.ok) {
-            wfpRemoved = true;
-            break;
-          } else {
-            errors.push(`${p.orderReference}: ${JSON.stringify(result.raw).slice(0, 150)}`);
+            wfpRemovedCount++;
+          } else if (result.raw.reasonCode !== 4102) {
+            // 4102 "Rule is not found" — означає що для цього orderRef регулярки НЕ було
+            // (нормально, якщо це cyclical-Payment або РАЗОВА у цій підписці).
+            // Все інше — справжня помилка від WFP, варто залогувати.
+            realErrors.push(`${p.orderReference}: code=${result.raw.reasonCode} reason=${String(result.raw.reason ?? '').slice(0, 80)}`);
           }
         }
-        if (!wfpRemoved && paidPayments.length === 0) {
-          wfpError = 'PAID-платежів цієї підписки не знайдено';
-        } else if (!wfpRemoved) {
-          wfpError = errors.join(' | ').slice(0, 600);
+        if (realErrors.length > 0) {
+          wfpError = realErrors.join(' | ').slice(0, 600);
         }
-      } else {
-        wfpError = 'WAYFORPAY_MERCHANT_PASSWORD не налаштовано';
       }
     } catch (e) {
       wfpError = (e as Error).message;
@@ -550,16 +556,24 @@ async function handleCancel(sub: NonNullable<SubWithUser>, actor: string, reason
     },
   });
 
+  const wfpSummary = sub.plan === 'MONTHLY'
+    ? ` · WFP REMOVE: ${wfpRemovedCount}/${wfpAttemptedCount}${wfpError ? ` (errors: ${wfpError.slice(0, 200)})` : ''}`
+    : '';
   await prisma.yearlyProgramSubscriptionEvent.create({
     data: {
       subscriptionId: sub.id,
       type: 'cancelled',
-      message: `Cancelled by ${actor}${reason ? ` — ${reason}` : ''}${wfpRemoved ? ' · WFP regular removed' : (wfpError ? ` · WFP: ${wfpError}` : '')}`,
-      metadata: { wfpRemoved, wfpError, reason },
+      message: `Cancelled by ${actor}${reason ? ` — ${reason}` : ''}${wfpSummary}`,
+      metadata: { wfpRemovedCount, wfpAttemptedCount, wfpError, reason },
     },
   });
 
-  return NextResponse.json({ ok: true, wfpRemoved, wfpError });
+  return NextResponse.json({
+    ok: true,
+    wfpRemovedCount,
+    wfpAttemptedCount,
+    wfpError,
+  });
 }
 
 async function handleCloseAccess(sub: NonNullable<SubWithUser>, actor: string) {
