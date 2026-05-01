@@ -91,6 +91,7 @@ export default async function PaymentLogsPage({
             source: true,
             course: { select: { title: true } },
             bundle: { select: { title: true } },
+            user: { select: { name: true, email: true } },
           },
         }),
         prisma.connectorOrder.findMany({
@@ -101,10 +102,12 @@ export default async function PaymentLogsPage({
     : [[], []];
   const sourceByOrderRef = new Map<string, 'UIMP' | 'TETYANA'>();
   const productNameByOrderRef = new Map<string, string>();
+  const userByOrderRef = new Map<string, { name: string | null; email: string }>();
   for (const p of paymentRecords) {
     sourceByOrderRef.set(p.orderReference, p.source);
     const name = p.bundle?.title ?? p.course?.title;
     if (name) productNameByOrderRef.set(p.orderReference, name);
+    if (p.user) userByOrderRef.set(p.orderReference, { name: p.user.name, email: p.user.email });
   }
   for (const c of connectorSources) sourceByOrderRef.set(c.orderReference, c.source);
 
@@ -135,6 +138,14 @@ export default async function PaymentLogsPage({
   const data: PaymentLogsData = {
     logs: logs.map((l) => {
       const autoRenew = l.orderReference ? autoRenewByOrderRef.get(l.orderReference) ?? null : null;
+      // Primary identity = User за Payment.userId (UIMP-side); fallback = clientEmail з WFP-payload.
+      const linkedUser = l.orderReference ? userByOrderRef.get(l.orderReference) ?? null : null;
+      const primaryName = linkedUser?.name ?? (l.clientEmail ? nameByEmail.get(l.clientEmail) ?? null : null);
+      const primaryEmail = linkedUser?.email ?? l.clientEmail;
+      const walletEmail =
+        l.clientEmail && primaryEmail && l.clientEmail.toLowerCase() !== primaryEmail.toLowerCase()
+          ? l.clientEmail
+          : null;
       return {
         id: l.id,
         createdAt: l.createdAt.toISOString(),
@@ -145,8 +156,9 @@ export default async function PaymentLogsPage({
         skipped: l.skipped,
         amount: l.amount,
         currency: l.currency,
-        clientName: l.clientEmail ? nameByEmail.get(l.clientEmail) ?? null : null,
-        clientEmail: l.clientEmail,
+        clientName: primaryName,
+        clientEmail: primaryEmail,
+        walletEmail,
         ip: l.ip,
         actionsTaken: l.actionsTaken,
         skipReason: l.skipReason,

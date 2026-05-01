@@ -31,6 +31,8 @@ export interface LogRow {
   currency: string | null;
   clientName: string | null;
   clientEmail: string | null;
+  /// Email що ввели в WFP-формі, якщо відрізняється від email юзера (рідкісний кейс — корисно для саппорту)
+  walletEmail: string | null;
   ip: string | null;
   actionsTaken: string | null;
   skipReason: string | null;
@@ -202,7 +204,13 @@ export default function PaymentLogsView({ data }: { data: PaymentLogsData }) {
                       </td>
                       <td
                         className="px-4 py-2.5 max-w-[220px]"
-                        title={[log.clientName, log.clientEmail].filter(Boolean).join(' · ')}
+                        title={[
+                          log.clientName,
+                          log.clientEmail,
+                          log.walletEmail ? `WFP: ${log.walletEmail}` : null,
+                        ]
+                          .filter(Boolean)
+                          .join(' · ')}
                       >
                         {log.clientName || log.clientEmail ? (
                           <div className="flex items-center gap-2 min-w-0">
@@ -214,6 +222,14 @@ export default function PaymentLogsView({ data }: { data: PaymentLogsData }) {
                               <span className={`text-[11px] truncate ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
                                 {log.clientEmail ?? ''}
                               </span>
+                              {log.walletEmail && (
+                                <span
+                                  className={`text-[10px] truncate ${dark ? 'text-amber-400/70' : 'text-amber-700/80'}`}
+                                  title={`Email вказаний у формі WFP: ${log.walletEmail}`}
+                                >
+                                  WFP: {log.walletEmail}
+                                </span>
+                              )}
                             </div>
                           </div>
                         ) : (
