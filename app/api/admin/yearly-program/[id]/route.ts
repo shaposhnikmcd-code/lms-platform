@@ -56,6 +56,8 @@ export async function POST(
       return handleSimulateCyclicalFailure(sub, actorLabel);
     case 'simulate_access_closed':
       return handleSimulateAccessClosed(sub, actorLabel);
+    case 'simulate_failed_cyclical_callback':
+      return handleSimulateFailedCyclicalCallback(sub, actorLabel);
     default:
       return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
   }
@@ -119,6 +121,145 @@ async function handleSimulateCyclicalFailure(sub: NonNullable<SubWithUser>, acto
     cronStatus: cronRes.status,
     cronResult,
     snapshot,
+  });
+}
+
+/// Симулює failed cyclical callback від WFP — POST у наш callback endpoint
+/// з валідним merchantSignature, transactionStatus='Declined', НОВИМ orderRef
+/// (якого нема в БД), email підписника. Це повторює реальний сценарій коли
+/// WFP пробує cyclical-списання і карта повертає decline.
+///
+/// Перевіряє нашу гілку handleYearlyProgramFailedCallback Path 2:
+///   - знаходить sub за email
+///   - створює Payment FAILED лінкований до sub
+///   - інкрементує failedChargeCount
+///   - додає event 'charge_failed'
+///
+/// Після simulate ВЛАСНЕ revert НЕ робимо: failedChargeCount/event/Payment FAILED
+/// лишаються — це реальний слід симульованого failed cyclical, корисний для перевірки
+/// що cron потім надішле cyclicalChargeFailed1 лист (який сам собою idempotent).
+/// Якщо потрібно повернути sub до чистого стану — `cleanup_failed_cyclical_test` дія
+/// (TODO коли знадобиться) або вручну видалити в адмінці.
+async function handleSimulateFailedCyclicalCallback(sub: NonNullable<SubWithUser>, actor: string) {
+  if (!sub.user?.email) {
+    return NextResponse.json({ error: 'User email відсутній' }, { status: 400 });
+  }
+  if (sub.plan !== 'MONTHLY') {
+    return NextResponse.json({ error: 'Доступно лише для MONTHLY-підписки (cyclical-flow)' }, { status: 400 });
+  }
+  if (sub.status !== 'ACTIVE' && sub.status !== 'GRACE') {
+    return NextResponse.json({ error: `Sub status має бути ACTIVE або GRACE (поточний: ${sub.status})` }, { status: 400 });
+  }
+
+  const creds = getWayforpayCreds();
+  const orderReference = `${YEARLY_PROGRAM_CONFIG.monthlyOrderPrefix}_simfailed_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+  const amount = 1;
+  const currency = 'UAH';
+  const authCode = '000000';
+  const cardPan = '44****0125';
+  const transactionStatus = 'Declined';
+  const reasonCode = 1107; // 1107 — типовий WFP refusal код "Insufficient funds" / generic decline
+  const reason = 'SIMULATED: Insufficient funds';
+
+  const signatureString = [
+    creds.merchantAccount,
+    orderReference,
+    amount,
+    currency,
+    authCode,
+    cardPan,
+    transactionStatus,
+    reasonCode,
+  ].join(';');
+  const merchantSignature = (await import('crypto'))
+    .createHmac('md5', creds.secretKey)
+    .update(signatureString)
+    .digest('hex');
+
+  const payload = {
+    merchantAccount: creds.merchantAccount,
+    orderReference,
+    merchantSignature,
+    amount,
+    currency,
+    authCode,
+    cardPan,
+    transactionStatus,
+    reasonCode,
+    reason,
+    email: sub.user.email,
+    recToken: '',
+    paymentSystem: 'card',
+    cardType: 'Visa',
+  };
+
+  const host = process.env.NEXTAUTH_URL || 'https://pre.uimp.com.ua';
+  const callbackRes = await fetch(`${host.replace(/\/+$/, '')}/api/wayforpay/callback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const callbackJson = await callbackRes.json().catch(() => ({}));
+
+  // Зчитати стан після callback — перевірити що: failedChargeCount інкремент,
+  // Payment FAILED створений, event charge_failed додано.
+  const after = await prisma.yearlyProgramSubscription.findUnique({
+    where: { id: sub.id },
+    select: {
+      failedChargeCount: true,
+      lastChargeAttemptAt: true,
+      lastChargeError: true,
+      status: true,
+    },
+  });
+  const createdPayment = await prisma.payment.findUnique({
+    where: { orderReference },
+    select: { id: true, status: true, amount: true, yearlyProgramSubscriptionId: true },
+  });
+  const lastEvent = await prisma.yearlyProgramSubscriptionEvent.findFirst({
+    where: { subscriptionId: sub.id, type: 'charge_failed' },
+    orderBy: { createdAt: 'desc' },
+    select: { type: true, message: true, createdAt: true, metadata: true },
+  });
+
+  await prisma.yearlyProgramSubscriptionEvent.create({
+    data: {
+      subscriptionId: sub.id,
+      type: 'admin_action',
+      message: `Simulate failed cyclical callback by ${actor} · orderRef=${orderReference} · callbackStatus=${callbackRes.status} · failedCount=${sub.failedChargeCount}→${after?.failedChargeCount} · paymentCreated=${!!createdPayment}`,
+      metadata: {
+        orderReference,
+        callbackStatus: callbackRes.status,
+        callbackResponse: JSON.stringify(callbackJson).slice(0, 400),
+        failedChargeCountBefore: sub.failedChargeCount,
+        failedChargeCountAfter: after?.failedChargeCount,
+        paymentCreated: createdPayment ? { id: createdPayment.id, status: createdPayment.status, linkedToSub: createdPayment.yearlyProgramSubscriptionId === sub.id } : null,
+      },
+    },
+  });
+
+  const expectedFailedIncrement = (after?.failedChargeCount ?? 0) === (sub.failedChargeCount ?? 0) + 1;
+  const expectedPaymentFailed = createdPayment?.status === 'FAILED' && createdPayment.yearlyProgramSubscriptionId === sub.id;
+  const expectedEventCreated = lastEvent && (Date.now() - lastEvent.createdAt.getTime()) < 5000;
+
+  return NextResponse.json({
+    ok: callbackRes.status === 200 && expectedFailedIncrement && expectedPaymentFailed && expectedEventCreated,
+    callbackStatus: callbackRes.status,
+    callbackResponse: callbackJson,
+    assertions: {
+      callback_returned_200: callbackRes.status === 200,
+      failed_charge_count_incremented: expectedFailedIncrement,
+      payment_created_FAILED_linked_to_sub: expectedPaymentFailed,
+      charge_failed_event_added: expectedEventCreated,
+    },
+    state: {
+      orderReference,
+      failedChargeCountBefore: sub.failedChargeCount,
+      failedChargeCountAfter: after?.failedChargeCount,
+      lastChargeError: after?.lastChargeError,
+      payment: createdPayment,
+      lastEvent: lastEvent ? { message: lastEvent.message, at: lastEvent.createdAt.toISOString() } : null,
+    },
   });
 }
 
