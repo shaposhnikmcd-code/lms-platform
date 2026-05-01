@@ -242,5 +242,15 @@ export async function removeRegularSchedule(opts: {
     }),
   });
   const raw = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-  return { ok: res.ok && (raw.reasonCode === 1100 || raw.status === 'Accept'), raw };
+  // WFP regularApi використовує власну таблицю reasonCode (4100=Accept, 4101=Reject,
+  // 4102=Rule not found, 4104=Removed). Transaction API натомість використовує 1100=Ok.
+  // Тому success тут — будь-який з: status='Accept', reasonCode=4100 (Accept на REMOVE),
+  // reasonCode=4104 (вже знятий — теж OK для нас, регулярка точно неактивна),
+  // або reasonCode=1100 (на випадок якщо WFP повертає transaction-style код).
+  const isSuccess =
+    raw.status === 'Accept'
+    || raw.reasonCode === 4100
+    || raw.reasonCode === 4104
+    || raw.reasonCode === 1100;
+  return { ok: res.ok && isSuccess, raw };
 }
