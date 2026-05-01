@@ -31,7 +31,8 @@ export default async function NewsPage({ params }: { params: Promise<{ locale: s
       published: true,
       OR: [
         { suspendedAt: null },
-        { resumeAt: { lte: now } },
+        { suspendedAt: { gt: now } }, // заплановане призупинення ще не настало
+        { resumeAt: { lte: now } },   // суспенс вже завершився
       ],
     },
     orderBy: { createdAt: "desc" },

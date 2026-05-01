@@ -5,6 +5,11 @@ import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { FaEye, FaEyeSlash, FaPause } from 'react-icons/fa';
 import type { Theme } from '../../_components/adminTheme';
+import InlineDateTimePicker, {
+  localInputToIso,
+  nowLocalInput,
+  formatLocalChip,
+} from '../../_components/InlineDateTimePicker';
 
 type Result = {
   published: boolean;
@@ -17,22 +22,33 @@ type Position = { top: number; left: number };
 
 const STATUS_META: Record<
   StatusKey,
-  { label: string; iconKey: 'eye' | 'pause' | 'eyeSlash'; dark: string; light: string }
+  {
+    /// Назва стану (показується на pill-кнопці).
+    label: string;
+    /// Дієслово-дія (показується у випадайці — що станеться при кліку).
+    action: string;
+    iconKey: 'eye' | 'pause' | 'eyeSlash';
+    dark: string;
+    light: string;
+  }
 > = {
   visible: {
     label: 'Опубліковано',
+    action: 'Опублікувати',
     iconKey: 'eye',
     dark: 'bg-emerald-500/10 text-emerald-200 border-emerald-400/25',
     light: 'bg-emerald-200/40 text-emerald-800 border-emerald-500/30',
   },
   suspended: {
     label: 'Призупинено',
+    action: 'Призупинити',
     iconKey: 'pause',
     dark: 'bg-amber-500/10 text-amber-200 border-amber-400/25',
     light: 'bg-amber-200/40 text-amber-900 border-amber-500/40',
   },
   draft: {
     label: 'Чернетка',
+    action: 'У чернетку',
     iconKey: 'eyeSlash',
     dark: 'bg-white/[0.04] text-slate-300 border-white/[0.08]',
     light: 'bg-stone-100/80 text-stone-700 border-stone-300/60',
@@ -68,10 +84,16 @@ export default function StatusPicker({
   const [pos, setPos] = useState<Position>({ top: 0, left: 0 });
   const [busy, setBusy] = useState(false);
   const [showSuspendModal, setShowSuspendModal] = useState(false);
-  const [date, setDate] = useState('');
+  // Локальний draft у форматі YYYY-MM-DDTHH:mm.
+  const [dt, setDt] = useState('');
 
+  // «Зараз призупинена» = suspendedAt у минулому/зараз і ще немає resume.
+  // Якщо suspendedAt у майбутньому — це заплановане призупинення, новина все ще видима.
+  const now = new Date();
   const activeSuspension =
-    !!suspendedAt && (!resumeAt || new Date(resumeAt) > new Date());
+    !!suspendedAt &&
+    new Date(suspendedAt) <= now &&
+    (!resumeAt || new Date(resumeAt) > now);
   const current: StatusKey = !published ? 'draft' : activeSuspension ? 'suspended' : 'visible';
 
   useEffect(() => setMounted(true), []);
@@ -143,25 +165,26 @@ export default function StatusPicker({
     setShowSuspendModal(true);
   };
 
+  // Призупинити: dt порожнє → миттєво (suspendedAt=now). dt задане → запланувати (suspendedAt=dt).
   const confirmSuspend = async () => {
-    const suspendedISO = new Date().toISOString();
-    const resumeISO = date ? new Date(date).toISOString() : null;
+    const dtISO = localInputToIso(dt);
+    const suspendedISO = dtISO ?? new Date().toISOString();
     setBusy(true);
     try {
       const res = await patch({
         published: true,
         suspendedAt: suspendedISO,
-        resumeAt: resumeISO,
+        resumeAt: null,
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         alert(err?.error || 'Не вдалося');
         return;
       }
-      onChange?.({ published: true, suspendedAt: suspendedISO, resumeAt: resumeISO });
+      onChange?.({ published: true, suspendedAt: suspendedISO, resumeAt: null });
       router.refresh();
       setShowSuspendModal(false);
-      setDate('');
+      setDt('');
     } finally {
       setBusy(false);
     }
@@ -217,34 +240,44 @@ export default function StatusPicker({
         mounted &&
         createPortal(
           <div className="fixed inset-0 z-[100]" onClick={() => setOpen(false)}>
-            <ul
-              role="listbox"
-              className="absolute list-none flex flex-col gap-1 animate-[slideDown_120ms_ease-out] origin-top"
-              style={{ top: pos.top, left: pos.left, width: 130 }}
+            <div
+              className={`absolute rounded-xl border shadow-2xl p-2 animate-[slideDown_120ms_ease-out] origin-top ${
+                dark ? 'bg-[#14161d] border-white/[0.1]' : 'bg-[#fbf7ec] border-stone-300/60'
+              }`}
+              style={{ top: pos.top, left: pos.left, width: 156 }}
               onClick={e => e.stopPropagation()}
             >
-              {(['visible', 'suspended', 'draft'] as StatusKey[])
-                .filter(key => key !== current)
-                .map(key => {
-                  const meta = STATUS_META[key];
-                  return (
-                    <li key={key}>
-                      <button
-                        type="button"
-                        role="option"
-                        onClick={() => onOptionClick(key)}
-                        disabled={busy}
-                        className={`w-full inline-flex items-center justify-center gap-1 px-2 py-1 rounded-full text-[11px] font-medium border shadow-md transition-all hover:shadow-lg active:scale-[0.97] disabled:opacity-60 ${
-                          dark ? meta.dark : meta.light
-                        }`}
-                      >
-                        {renderIcon(meta.iconKey)}
-                        {meta.label}
-                      </button>
-                    </li>
-                  );
-                })}
-            </ul>
+              <p
+                className={`text-[9px] uppercase tracking-[0.18em] font-semibold mb-1.5 px-1 ${
+                  dark ? 'text-slate-500' : 'text-stone-500'
+                }`}
+              >
+                Змінити на
+              </p>
+              <ul role="listbox" className="list-none flex flex-col gap-1">
+                {(['visible', 'suspended', 'draft'] as StatusKey[])
+                  .filter(key => key !== current)
+                  .map(key => {
+                    const meta = STATUS_META[key];
+                    return (
+                      <li key={key}>
+                        <button
+                          type="button"
+                          role="option"
+                          onClick={() => onOptionClick(key)}
+                          disabled={busy}
+                          className={`w-full inline-flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-full text-[11px] font-medium border transition-all hover:shadow-md active:scale-[0.97] disabled:opacity-60 ${
+                            dark ? meta.dark : meta.light
+                          }`}
+                        >
+                          {renderIcon(meta.iconKey)}
+                          {meta.action}
+                        </button>
+                      </li>
+                    );
+                  })}
+              </ul>
+            </div>
           </div>,
           document.body,
         )}
@@ -259,12 +292,12 @@ export default function StatusPicker({
             onClick={() => {
               if (!busy) {
                 setShowSuspendModal(false);
-                setDate('');
+                setDt('');
               }
             }}
           >
             <div
-              className={`rounded-2xl p-6 w-full max-w-sm mx-4 border shadow-2xl ${
+              className={`rounded-2xl p-6 w-full max-w-md mx-4 border shadow-2xl ${
                 dark ? 'bg-[#14161d] border-white/[0.08]' : 'bg-[#fbf7ec] border-stone-300/60'
               }`}
               onClick={e => e.stopPropagation()}
@@ -276,41 +309,76 @@ export default function StatusPicker({
               >
                 Призупинити новину
               </h3>
-              <p className={`text-sm mb-5 ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
-                Новина зникне з вітрини. Можна задати дату автоматичного повернення.
+              <p className={`text-sm mb-4 ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
+                Призупинити зараз — або обрати час, з якого новина має зникнути з вітрини. До
+                цього часу вона залишається опублікованою.
               </p>
-              <label
-                className={`block text-[12px] font-medium mb-1.5 ${
-                  dark ? 'text-slate-300' : 'text-stone-700'
+              <InlineDateTimePicker
+                value={dt}
+                onChange={setDt}
+                theme={theme}
+                min={nowLocalInput()}
+              />
+              <div
+                className={`mt-3 mb-4 rounded-lg border px-3 py-2 ${
+                  dark
+                    ? 'bg-amber-400/[0.05] border-amber-400/20'
+                    : 'bg-amber-100/40 border-amber-500/30'
                 }`}
               >
-                Повернути автоматично (необовʼязково)
-              </label>
-              <input
-                type="date"
-                value={date}
-                onChange={e => setDate(e.target.value)}
-                min={new Date().toISOString().split('T')[0]}
-                onClick={e => (e.target as HTMLInputElement).showPicker()}
-                className={`w-full rounded-lg px-3 py-2 text-sm mb-5 cursor-pointer focus:outline-none focus:ring-2 border ${
-                  dark
-                    ? 'bg-white/[0.04] border-white/[0.08] text-slate-100 focus:ring-amber-400/40 focus:border-amber-400/40 [color-scheme:dark]'
-                    : 'bg-white/80 border-stone-300/60 text-stone-900 focus:ring-amber-500/40 focus:border-amber-500/50'
-                }`}
-              />
-              {date && (
-                <p className={`text-[11px] mb-4 -mt-3 ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
-                  Новина повернеться на вітрину{' '}
-                  <span className={`font-semibold ${dark ? 'text-slate-200' : 'text-stone-900'}`}>
-                    {new Date(date).toLocaleDateString('uk-UA')}
-                  </span>
+                <p
+                  className={`text-[9px] uppercase tracking-[0.2em] font-semibold mb-1 ${
+                    dark ? 'text-amber-200/70' : 'text-amber-900/70'
+                  }`}
+                >
+                  Призупиниться
                 </p>
-              )}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={dt ? () => setDt('') : undefined}
+                    disabled={!dt}
+                    title={dt ? 'Стерти час' : undefined}
+                    aria-label={dt ? 'Стерти час' : undefined}
+                    className={`group inline-flex items-center justify-center w-4 h-4 rounded-full flex-shrink-0 text-[9px] font-bold leading-none transition-colors ${
+                      dt
+                        ? dark
+                          ? 'bg-emerald-500/90 text-white hover:bg-rose-500/90'
+                          : 'bg-emerald-600 text-white hover:bg-rose-600'
+                        : dark
+                        ? 'bg-white/[0.06] text-slate-600 border border-white/[0.08] cursor-default'
+                        : 'bg-white/60 text-stone-400 border border-stone-300/60 cursor-default'
+                    }`}
+                  >
+                    {dt ? (
+                      <>
+                        <span className="group-hover:hidden">✓</span>
+                        <span className="hidden group-hover:inline">✕</span>
+                      </>
+                    ) : (
+                      '○'
+                    )}
+                  </button>
+                  <span
+                    className={`text-[11.5px] truncate ${
+                      dt
+                        ? dark
+                          ? 'text-slate-100 font-medium'
+                          : 'text-stone-900 font-medium'
+                        : dark
+                        ? 'text-slate-500 italic'
+                        : 'text-stone-500 italic'
+                    }`}
+                  >
+                    {dt ? formatLocalChip(dt) : 'призупинити зараз'}
+                  </span>
+                </div>
+              </div>
               <div className="flex gap-2">
                 <button
                   onClick={() => {
                     setShowSuspendModal(false);
-                    setDate('');
+                    setDt('');
                   }}
                   disabled={busy}
                   className={`flex-1 px-4 py-2.5 text-sm font-medium rounded-xl border transition-colors disabled:opacity-50 ${
@@ -330,7 +398,7 @@ export default function StatusPicker({
                       : 'bg-amber-600 text-white hover:bg-amber-700 shadow-sm'
                   }`}
                 >
-                  {busy ? '...' : 'Призупинити'}
+                  {busy ? '...' : dt ? 'Запланувати' : 'Призупинити зараз'}
                 </button>
               </div>
             </div>

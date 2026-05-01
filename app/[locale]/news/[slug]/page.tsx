@@ -42,8 +42,12 @@ export default async function NewsItemPage({ params }: Props) {
   });
 
   const now = new Date();
+  // Новина прихована iff suspendedAt уже настав і ще немає завершення (resumeAt у майбутньому або null).
+  // Якщо suspendedAt у майбутньому — це заплановане призупинення, новина все ще видима.
   const isSuspended =
-    !!item?.suspendedAt && (!item.resumeAt || new Date(item.resumeAt) > now);
+    !!item?.suspendedAt &&
+    new Date(item.suspendedAt) <= now &&
+    (!item.resumeAt || new Date(item.resumeAt) > now);
   if (!item || !item.published || isSuspended) notFound();
 
   const related = await prisma.news.findMany({
@@ -53,6 +57,7 @@ export default async function NewsItemPage({ params }: Props) {
       category: item.category,
       OR: [
         { suspendedAt: null },
+        { suspendedAt: { gt: now } },
         { resumeAt: { lte: now } },
       ],
     },

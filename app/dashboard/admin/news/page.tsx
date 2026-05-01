@@ -14,6 +14,7 @@ import { AdminShell, AdminPanel } from '../_components/AdminShell';
 import NewsPublishButton from './_components/NewsPublishButton';
 import CategoryPicker from './_components/CategoryPicker';
 import StatusPicker from './_components/StatusPicker';
+import ScheduledTimerPill from './_components/ScheduledTimerPill';
 import { sanitizeHtml } from '@/lib/sanitizeHtml';
 import { parseBlocks } from '@/lib/news/render';
 import ScaledNewsPreview from '@/lib/news/ScaledNewsPreview';
@@ -326,7 +327,7 @@ export default function AdminNewsPage() {
 
                   {/* Status — popup picker with 3 transitions */}
                   <div
-                    className="hidden sm:flex flex-col items-center gap-1 flex-shrink-0"
+                    className="hidden sm:flex flex-row items-center gap-1.5 flex-shrink-0"
                     onClick={e => e.stopPropagation()}
                   >
                     <StatusPicker
@@ -337,15 +338,17 @@ export default function AdminNewsPage() {
                       theme={theme}
                       onChange={result => updateNewsLocal(item.id, result)}
                     />
-                    {!!item.suspendedAt &&
-                      item.resumeAt &&
-                      new Date(item.resumeAt) > new Date() && (
-                        <p
-                          className={`text-[10px] ${dark ? 'text-amber-300/70' : 'text-amber-700'}`}
-                        >
-                          З {new Date(item.resumeAt).toLocaleDateString('uk-UA')}
-                        </p>
-                      )}
+                    {((item.suspendedAt && new Date(item.suspendedAt) > new Date()) ||
+                      (item.resumeAt && new Date(item.resumeAt) > new Date())) && (
+                      <ScheduledTimerPill
+                        newsId={item.id}
+                        published={item.published}
+                        suspendedAt={item.suspendedAt}
+                        resumeAt={item.resumeAt}
+                        theme={theme}
+                        onChange={result => updateNewsLocal(item.id, result)}
+                      />
+                    )}
                   </div>
 
                   {/* Actions stack */}
