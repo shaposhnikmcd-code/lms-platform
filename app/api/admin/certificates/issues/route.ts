@@ -39,8 +39,12 @@ export async function GET(req: NextRequest) {
   const issues: IssueRow[] = [];
 
   // 1) Завантажуємо невідкликані сертифікати з усіма потрібними зв'язками.
+  // SUPERVISION виключаємо — їх не пов'язано з оплатами/курсами/підписками,
+  // тому жоден з UNPAID/MANUAL_INCOMPLETE/COMPLETED_NO_CERT не має сенсу.
+  // EMAIL_FAILED для них теж не показуємо — менеджер бачить статус листа в самій
+  // вкладці "Супервізія" (колонка "Статус") і там же може перевідправити.
   const certs = await prisma.certificate.findMany({
-    where: { revoked: false },
+    where: { revoked: false, type: { not: 'SUPERVISION' } },
     orderBy: { issuedAt: 'desc' },
     include: {
       user: { select: { id: true, name: true, email: true, deletedAt: true } },
@@ -136,6 +140,10 @@ export async function GET(req: NextRequest) {
   // ---------- Аналіз сертифікатів ----------
   for (const cert of certs) {
     if (cert.user.deletedAt) continue;
+    /// SUPERVISION уже відфільтровано у `where`, але defensive type narrowing для TS:
+    /// IssueRow.certType приймає тільки 'COURSE' | 'YEARLY_PROGRAM' | null.
+    if (cert.type === 'SUPERVISION') continue;
+    const certType: 'COURSE' | 'YEARLY_PROGRAM' = cert.type;
     const userObj = { id: cert.user.id, name: cert.user.name, email: cert.user.email };
     const issuedBy =
       cert.issuedByName || cert.issuedByEmail
@@ -193,7 +201,7 @@ export async function GET(req: NextRequest) {
     if (!hasPaymentTrail) {
       issues.push({
         kind: 'UNPAID',
-        certType: cert.type,
+        certType: certType,
         certificate: baseCert,
         user: userObj,
         subjectTitle,
@@ -216,7 +224,7 @@ export async function GET(req: NextRequest) {
       if (isIncomplete) {
         issues.push({
           kind: 'MANUAL_INCOMPLETE',
-          certType: cert.type,
+          certType: certType,
           certificate: baseCert,
           user: userObj,
           subjectTitle,
@@ -238,7 +246,7 @@ export async function GET(req: NextRequest) {
     if (isFailed || isStuckPending) {
       issues.push({
         kind: 'EMAIL_FAILED',
-        certType: cert.type,
+        certType: certType,
         certificate: baseCert,
         user: userObj,
         subjectTitle,

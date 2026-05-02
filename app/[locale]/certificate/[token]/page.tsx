@@ -54,15 +54,26 @@ export default async function CertificateVerifyPage({ params }: Props) {
     })
     .catch(() => {});
 
-  const typeLabel = cert.type === 'COURSE'
-    ? 'Сертифікат про завершення курсу'
-    : 'Сертифікат Річної програми';
+  const typeLabel =
+    cert.type === 'COURSE'
+      ? 'Сертифікат про завершення курсу'
+      : cert.type === 'SUPERVISION'
+        ? 'Сертифікат супервізії'
+        : 'Сертифікат Річної програми';
   const categoryLabel = cert.category === 'LISTENER'
     ? 'Слухач'
     : cert.category === 'PRACTICAL'
       ? 'Практична участь'
       : null;
   const courseTitle = cert.courseName ?? cert.course?.title ?? null;
+  const subjectFieldLabel = cert.type === 'SUPERVISION' ? 'Тема супервізії' : 'Курс';
+  const supervisionDateStr = cert.supervisionDate
+    ? new Date(cert.supervisionDate).toLocaleDateString(
+        locale === 'en' ? 'en-GB' : locale === 'pl' ? 'pl-PL' : 'uk-UA',
+        { day: '2-digit', month: 'long', year: 'numeric' },
+      )
+    : null;
+  /// SUPERVISION не має посилання — це не продукт із сторінкою.
   const linkUrl =
     cert.type === 'COURSE' && cert.course?.slug
       ? `/${locale}/courses/${cert.course.slug}`
@@ -132,7 +143,8 @@ export default async function CertificateVerifyPage({ params }: Props) {
               <DetailRow label="Номер" value={cert.certNumber} mono />
               <DetailRow label="Видано" value={formatDate(cert.issuedAt, locale)} />
               <DetailRow label="Рік" value={String(cert.issueYear)} />
-              {courseTitle && <DetailRow label="Курс" value={courseTitle} />}
+              {courseTitle && <DetailRow label={subjectFieldLabel} value={courseTitle} />}
+              {supervisionDateStr && <DetailRow label="Дата супервізії" value={supervisionDateStr} />}
               {categoryLabel && <DetailRow label="Категорія" value={categoryLabel} />}
             </div>
 

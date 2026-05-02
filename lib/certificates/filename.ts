@@ -8,7 +8,7 @@
 
 export interface CertLike {
   certNumber: string;
-  type: 'COURSE' | 'YEARLY_PROGRAM';
+  type: 'COURSE' | 'YEARLY_PROGRAM' | 'SUPERVISION';
   category?: 'LISTENER' | 'PRACTICAL' | null;
   courseName?: string | null;
 }
@@ -37,6 +37,10 @@ export function certificateContentDisposition(
 function subjectName(cert: CertLike): string {
   if (cert.type === 'COURSE') {
     return (cert.courseName ?? '').trim() || 'Курс';
+  }
+  if (cert.type === 'SUPERVISION') {
+    const topic = (cert.courseName ?? '').trim();
+    return topic ? `Супервізія — ${topic}` : 'Супервізія';
   }
   if (cert.category === 'LISTENER') return 'Річна програма (Слухач)';
   if (cert.category === 'PRACTICAL') return 'Річна програма (Практична участь)';

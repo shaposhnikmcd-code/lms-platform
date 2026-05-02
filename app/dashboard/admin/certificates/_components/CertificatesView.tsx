@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import {
   HiOutlineDocumentText,
   HiOutlineAcademicCap,
@@ -10,6 +11,7 @@ import {
   HiOutlineXCircle,
   HiOutlineEye,
   HiOutlineArrowsPointingOut,
+  HiOutlineArrowsPointingIn,
   HiOutlinePlus,
   HiOutlineExclamationTriangle,
   HiOutlineCheckCircle,
@@ -17,6 +19,7 @@ import {
   HiOutlineInformationCircle,
   HiOutlineCircleStack,
   HiOutlineCloudArrowDown,
+  HiOutlineUsers,
 } from 'react-icons/hi2';
 import { useAdminTheme, type Theme } from '../../_components/adminTheme';
 import { AdminShell, AdminPanel } from '../../_components/AdminShell';
@@ -24,9 +27,9 @@ import MailerFromBadge from '../../_components/MailerFromBadge';
 import YearlyInfoModal from './YearlyInfoModal';
 import CoursesInfoModal from './CoursesInfoModal';
 
-type TabKey = 'courses' | 'yearly' | 'history' | 'issues';
+type TabKey = 'courses' | 'yearly' | 'supervision' | 'history' | 'issues';
 
-type CertificateType = 'COURSE' | 'YEARLY_PROGRAM';
+type CertificateType = 'COURSE' | 'YEARLY_PROGRAM' | 'SUPERVISION';
 type CertCategory = 'LISTENER' | 'PRACTICAL';
 type EmailStatus = 'PENDING' | 'SENT' | 'FAILED' | 'BOUNCED';
 
@@ -95,9 +98,28 @@ interface HistoryEvent {
   };
 }
 
+interface SupervisionCertificate {
+  id: string;
+  certNumber: string;
+  recipientName: string;
+  recipientEmail: string;
+  /// Тема супервізії (друкується як subject на серті); зберігається у courseName-полі.
+  courseName: string | null;
+  supervisionDate: string | null;
+  issueYear: number;
+  issuedAt: string;
+  issuedByName: string | null;
+  issuedByEmail: string | null;
+  emailStatus: EmailStatus;
+  emailSentAt: string | null;
+  emailFromAddress: string | null;
+  revoked: boolean;
+}
+
 const TABS: Array<{ key: TabKey; label: string; icon: React.ComponentType<{ className?: string }> }> = [
   { key: 'courses', label: 'Курси', icon: HiOutlineDocumentText },
   { key: 'yearly', label: 'Річна програма', icon: HiOutlineAcademicCap },
+  { key: 'supervision', label: 'Супервізія', icon: HiOutlineUsers },
   { key: 'history', label: 'Історія', icon: HiOutlineClock },
   { key: 'issues', label: 'Помилки', icon: HiOutlineExclamationTriangle },
 ];
@@ -109,7 +131,10 @@ export default function CertificatesView() {
   const [activeTab, setActiveTabState] = useState<TabKey>('courses');
   useEffect(() => {
     const t = new URLSearchParams(window.location.search).get('tab');
-    if (t === 'courses' || t === 'yearly' || t === 'history' || t === 'issues') {
+    if (
+      t === 'courses' || t === 'yearly' || t === 'supervision' ||
+      t === 'history' || t === 'issues'
+    ) {
       setActiveTabState(t);
     }
   }, []);
@@ -145,6 +170,7 @@ export default function CertificatesView() {
       <div className="mt-6">
         {activeTab === 'courses' && <CoursesTab theme={theme} pushToast={setToast} />}
         {activeTab === 'yearly' && <YearlyTab theme={theme} pushToast={setToast} />}
+        {activeTab === 'supervision' && <SupervisionTab theme={theme} pushToast={setToast} />}
         {activeTab === 'history' && <HistoryTab theme={theme} />}
         {activeTab === 'issues' && <IssuesTab theme={theme} pushToast={setToast} />}
       </div>
@@ -1246,6 +1272,256 @@ function YearlyTab({
   );
 }
 
+/* ----------------------------- Supervision Tab --------------------------- */
+
+/// Закладка для видачі сертифікатів супервізії — онлайн-занять, які менеджери
+/// проводять без продажів через сайт. Логіка інтерфейсу симетрична Курси/Річна:
+///   - Кнопка "Видати сертифікат" → IssueSupervisionDialog
+///   - Таблиця всіх раніше виданих SUPERVISION-сертифікатів (хто, кому, тема,
+///     дата супервізії, дата видачі, статус листа, дії)
+///   - Пошук по імені/email/темі
+///   - Фільтр статусу листа
+///
+/// SUPERVISION-сертифікати НЕ потрапляють у вкладку "Помилки" (фільтр на API),
+/// але всі події (GENERATED/SENT/RESENT/REVOKED/EMAIL_FAILED) пишуться у
+/// CertificateEvent → видно в Історії.
+function SupervisionTab({
+  theme,
+  pushToast,
+}: {
+  theme: Theme;
+  pushToast: (t: { type: 'success' | 'error'; msg: string }) => void;
+}) {
+  const dark = theme === 'dark';
+  const { items: certs, loading, refresh: fetchList } =
+    useCachedList<SupervisionCertificate>('cert-supervision-v1', async () => {
+      const res = await fetch('/api/admin/certificates/supervision');
+      const data = await res.json();
+      return (data.certificates ?? []) as SupervisionCertificate[];
+    });
+
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | EmailStatus | 'REVOKED'>('all');
+  const [showIssue, setShowIssue] = useState(false);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const filtered = useMemo(() => {
+    const s = search.trim().toLowerCase();
+    return certs.filter((c) => {
+      if (statusFilter === 'REVOKED') {
+        if (!c.revoked) return false;
+      } else if (statusFilter !== 'all') {
+        if (c.revoked) return false;
+        if (c.emailStatus !== statusFilter) return false;
+      }
+      if (s) {
+        const hay = `${c.recipientName} ${c.recipientEmail} ${c.courseName ?? ''} ${c.certNumber}`.toLowerCase();
+        if (!hay.includes(s)) return false;
+      }
+      return true;
+    });
+  }, [certs, search, statusFilter]);
+
+  async function handleResend(certId: string) {
+    setBusyId(certId);
+    try {
+      const res = await fetch(`/api/admin/certificates/${certId}/resend`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Помилка');
+      pushToast({ type: 'success', msg: 'Лист перевідправлено' });
+      fetchList();
+    } catch (err) {
+      pushToast({ type: 'error', msg: err instanceof Error ? err.message : 'Помилка' });
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function handleRevoke(certId: string) {
+    const reason = window.prompt('Причина відклику (опційно):') ?? undefined;
+    if (!window.confirm('Точно відкликати сертифікат? Дію видно публічно.')) return;
+    setBusyId(certId);
+    try {
+      const res = await fetch(`/api/admin/certificates/${certId}/revoke`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Помилка');
+      pushToast({ type: 'success', msg: 'Сертифікат відкликано' });
+      fetchList();
+    } catch (err) {
+      pushToast({ type: 'error', msg: err instanceof Error ? err.message : 'Помилка' });
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return (
+    <AdminPanel theme={theme}>
+      {/* Row 1 — Дії (без sync — супервізії видаються тільки вручну, ніяких кандидатів з БД немає) */}
+      <div className="flex items-center justify-end gap-3 flex-wrap mb-4">
+        <button
+          type="button"
+          onClick={() => setShowIssue(true)}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-br from-amber-500 to-amber-600 text-white text-[13px] font-semibold shadow-md hover:shadow-lg transition-shadow"
+        >
+          <HiOutlinePlus className="text-[16px]" />
+          Видати сертифікат
+        </button>
+      </div>
+
+      {/* Row 2 — Фільтри */}
+      <div className="flex items-center justify-between gap-3 flex-wrap mb-5">
+        <div className="flex items-center gap-2 flex-wrap">
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Пошук: ім'я, email, тема, номер…"
+            className={`px-3 py-2 rounded-lg border text-[13px] min-w-[280px] ${dark ? 'bg-white/[0.04] border-white/[0.1] text-white placeholder-slate-500' : 'bg-white border-stone-300 text-stone-900'}`}
+          />
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
+            className={`px-3 py-2 rounded-lg border text-[13px] ${dark ? 'bg-white/[0.04] border-white/[0.1] text-white' : 'bg-white border-stone-300 text-stone-900'}`}
+          >
+            <option value="all">Усі статуси</option>
+            <option value="SENT">Відправлено</option>
+            <option value="PENDING">Очікує</option>
+            <option value="FAILED">Помилка</option>
+            <option value="BOUNCED">Bounce</option>
+            <option value="REVOKED">Відкликано</option>
+          </select>
+        </div>
+        <span className={`text-[12px] ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
+          показано <strong className={dark ? 'text-slate-200' : 'text-stone-700'}>{filtered.length}</strong> з {certs.length}
+        </span>
+      </div>
+
+      <div className="overflow-x-auto rounded-xl">
+        <table className="w-full text-[13px]">
+          <thead className={`text-left text-[11px] uppercase tracking-wider ${dark ? 'text-slate-400 border-b border-white/[0.06]' : 'text-stone-500 border-b border-stone-200'}`}>
+            <tr>
+              <Th>Отримувач</Th>
+              <Th>Тема супервізії</Th>
+              <Th>Дата супервізії</Th>
+              <Th>Сертифікат</Th>
+              <Th>Видав</Th>
+              <Th>Статус</Th>
+              <Th>Лист надійшов з</Th>
+              <Th>Дії</Th>
+            </tr>
+          </thead>
+          <tbody className={dark ? 'divide-y divide-white/[0.04]' : 'divide-y divide-stone-200/60'}>
+            {loading && certs.length === 0 && (
+              <tr><td colSpan={8} className="py-8 text-center text-stone-500">Завантаження…</td></tr>
+            )}
+            {!loading && filtered.length === 0 && (
+              <tr><td colSpan={8} className="py-8 text-center text-stone-500">Немає виданих сертифікатів</td></tr>
+            )}
+            {filtered.map((c) => {
+              const busy = busyId === c.id;
+              return (
+                <tr key={c.id} className={dark ? 'hover:bg-white/[0.02]' : 'hover:bg-stone-50/70'}>
+                  <td className="py-3 pr-3">
+                    <div className="font-medium">{c.recipientName}</div>
+                    <div className={`text-[11px] ${dark ? 'text-slate-400' : 'text-stone-500'}`}>{c.recipientEmail}</div>
+                  </td>
+                  <td className="py-3 pr-3 max-w-[280px]">
+                    <div className="truncate" title={c.courseName ?? ''}>{c.courseName ?? '—'}</div>
+                  </td>
+                  <td className="py-3 pr-3 whitespace-nowrap">
+                    {c.supervisionDate ? formatDateOnly(c.supervisionDate) : (
+                      <span className={`text-[11px] italic ${dark ? 'text-slate-500' : 'text-stone-400'}`}>не вказана</span>
+                    )}
+                  </td>
+                  <td className="py-3 pr-3">
+                    <div className="font-mono text-[11px]">{c.certNumber}</div>
+                    <div className={`text-[10px] mt-0.5 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
+                      {formatDate(c.issuedAt)}
+                    </div>
+                  </td>
+                  <td className="py-3 pr-3">
+                    {c.issuedByName || c.issuedByEmail ? (
+                      <>
+                        <div>{c.issuedByName ?? '—'}</div>
+                        <div className={`text-[10px] ${dark ? 'text-slate-400' : 'text-stone-500'}`}>{c.issuedByEmail}</div>
+                      </>
+                    ) : (
+                      <span className={`text-[11px] italic ${dark ? 'text-slate-500' : 'text-stone-400'}`}>—</span>
+                    )}
+                  </td>
+                  <td className="py-3 pr-3">
+                    <StatusBadge theme={theme} status={c.emailStatus} revoked={c.revoked} />
+                  </td>
+                  <td className="py-3 pr-3">
+                    {c.emailFromAddress ? (
+                      <span className={`font-mono text-[11px] ${dark ? 'text-slate-300' : 'text-stone-700'}`} title={c.emailFromAddress}>
+                        {extractEmail(c.emailFromAddress)}
+                      </span>
+                    ) : (
+                      <span className={`text-[11px] italic ${dark ? 'text-slate-500' : 'text-stone-400'}`}>—</span>
+                    )}
+                  </td>
+                  <td className="py-3">
+                    <div className="inline-flex items-center gap-1">
+                      <a
+                        href={`/api/admin/certificates/${c.id}/pdf`}
+                        target="_blank"
+                        rel="noreferrer"
+                        title={c.revoked ? 'PDF відкликаного' : 'Переглянути PDF'}
+                        className={`inline-flex items-center justify-center w-8 h-8 rounded-md ${dark ? 'bg-white/[0.05] text-slate-200 hover:bg-white/[0.1]' : 'bg-stone-100 text-stone-700 hover:bg-stone-200'}`}
+                      >
+                        <HiOutlineEye />
+                      </a>
+                      {!c.revoked && (
+                        <>
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => handleResend(c.id)}
+                            title="Перевідправити"
+                            className={`inline-flex items-center justify-center w-8 h-8 rounded-md disabled:opacity-40 ${dark ? 'bg-white/[0.05] text-slate-200 hover:bg-white/[0.1]' : 'bg-stone-100 text-stone-700 hover:bg-stone-200'}`}
+                          >
+                            <HiOutlinePaperAirplane />
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => handleRevoke(c.id)}
+                            title="Відкликати"
+                            className={`inline-flex items-center justify-center w-8 h-8 rounded-md disabled:opacity-40 ${dark ? 'bg-red-500/10 text-red-300 hover:bg-red-500/20' : 'bg-red-50 text-red-700 hover:bg-red-100'}`}
+                          >
+                            <HiOutlineXCircle />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {showIssue && (
+        <IssueSupervisionDialog
+          theme={theme}
+          onClose={() => setShowIssue(false)}
+          onIssued={() => {
+            setShowIssue(false);
+            fetchList();
+            pushToast({ type: 'success', msg: 'Сертифікат видано та відправлено' });
+          }}
+          onError={(msg) => pushToast({ type: 'error', msg })}
+        />
+      )}
+    </AdminPanel>
+  );
+}
+
 function HealthBadge({ theme, candidate }: { theme: Theme; candidate: YearlyCandidate }) {
   const dark = theme === 'dark';
   const { paymentHealth, paidCount, expectedPayments } = candidate;
@@ -1288,7 +1564,7 @@ function statusColors(s: string, dark: boolean): string {
 
 /* --------------------------------- History Tab ----------------------------- */
 
-type HistorySection = 'course' | 'yearly';
+type HistorySection = 'course' | 'yearly' | 'supervision';
 
 interface CertHistoryRow {
   certId: string;
@@ -1367,7 +1643,12 @@ function HistoryTab({ theme }: { theme: Theme }) {
   const fetchEvents = useCallback(async () => {
     setLoading(true);
     const qs = new URLSearchParams();
-    qs.set('certType', section === 'course' ? 'COURSE' : 'YEARLY_PROGRAM');
+    const certTypeMap: Record<HistorySection, string> = {
+      course: 'COURSE',
+      yearly: 'YEARLY_PROGRAM',
+      supervision: 'SUPERVISION',
+    };
+    qs.set('certType', certTypeMap[section]);
     qs.set('limit', '1000');
     try {
       const res = await fetch(`/api/admin/certificates/history?${qs.toString()}`);
@@ -1403,6 +1684,13 @@ function HistoryTab({ theme }: { theme: Theme }) {
             onClick={() => setSection('yearly')}
           >
             Річна програма
+          </SubTabButton>
+          <SubTabButton
+            active={section === 'supervision'}
+            dark={dark}
+            onClick={() => setSection('supervision')}
+          >
+            Супервізія
           </SubTabButton>
         </div>
         <button
@@ -1442,7 +1730,7 @@ function HistoryTab({ theme }: { theme: Theme }) {
                   <td className="py-3 pr-3">
                     <div className="font-mono text-[11px]">{r.certNumber}</div>
                     <div className={`text-[10px] ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
-                      {r.type === 'COURSE' ? 'Курс' : 'Річна'}
+                      {r.type === 'COURSE' ? 'Курс' : r.type === 'SUPERVISION' ? 'Супервізія' : 'Річна'}
                     </div>
                   </td>
                   <td className="py-3 pr-3">
@@ -1943,6 +2231,7 @@ function ModalShell({
   onClose,
   footer,
   wide,
+  expandable,
 }: {
   theme: Theme;
   title: string;
@@ -1950,8 +2239,12 @@ function ModalShell({
   onClose: () => void;
   footer?: React.ReactNode;
   wide?: boolean;
+  /// Якщо true — у header-і з'являється кнопка «Розгорнути на весь екран».
+  /// Дефолт false — використовується тільки на формах, де preview потребує більшого простору.
+  expandable?: boolean;
 }) {
   const dark = theme === 'dark';
+  const [expanded, setExpanded] = useState(false);
   useEffect(() => {
     const fn = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -1959,19 +2252,42 @@ function ModalShell({
     document.addEventListener('keydown', fn);
     return () => document.removeEventListener('keydown', fn);
   }, [onClose]);
+
+  const sizeClasses = expanded
+    ? 'max-w-none w-screen max-h-none h-screen rounded-none border-0'
+    : `${wide ? 'max-w-[1100px]' : 'max-w-2xl'} max-h-[92vh] rounded-2xl border`;
+  const wrapperPadding = expanded ? 'p-0' : 'p-4';
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+    <div className={`fixed inset-0 z-50 flex items-center justify-center bg-black/50 ${wrapperPadding}`}>
       <div
-        className={`w-full ${wide ? 'max-w-[1100px]' : 'max-w-2xl'} max-h-[92vh] rounded-2xl border overflow-hidden flex flex-col ${dark ? 'bg-[#14171f] border-white/[0.1]' : 'bg-white border-stone-200'}`}
+        className={`w-full ${sizeClasses} overflow-hidden flex flex-col ${dark ? 'bg-[#14171f] border-white/[0.1]' : 'bg-white border-stone-200'}`}
       >
         <div className={`px-5 py-4 border-b flex items-center justify-between ${dark ? 'border-white/[0.08]' : 'border-stone-200'}`}>
           <h3 className="text-[16px] font-semibold">{title}</h3>
-          <button
-            onClick={onClose}
-            className={`w-8 h-8 rounded-md flex items-center justify-center ${dark ? 'hover:bg-white/[0.08] text-slate-300' : 'hover:bg-stone-100 text-stone-600'}`}
-          >
-            ✕
-          </button>
+          <div className="flex items-center gap-1">
+            {expandable && (
+              <button
+                type="button"
+                onClick={() => setExpanded(v => !v)}
+                aria-label={expanded ? 'Згорнути' : 'Розгорнути на весь екран'}
+                title={expanded ? 'Згорнути' : 'Розгорнути на весь екран'}
+                className={`w-8 h-8 rounded-md flex items-center justify-center ${dark ? 'hover:bg-white/[0.08] text-slate-300' : 'hover:bg-stone-100 text-stone-600'}`}
+              >
+                {expanded
+                  ? <HiOutlineArrowsPointingIn className="w-4 h-4" />
+                  : <HiOutlineArrowsPointingOut className="w-4 h-4" />}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Закрити"
+              className={`w-8 h-8 rounded-md flex items-center justify-center ${dark ? 'hover:bg-white/[0.08] text-slate-300' : 'hover:bg-stone-100 text-stone-600'}`}
+            >
+              ✕
+            </button>
+          </div>
         </div>
         <div className="p-5 overflow-y-auto flex-1">{children}</div>
         {footer && (
@@ -1996,10 +2312,12 @@ function PreviewPane({
 }: {
   theme: Theme;
   params: {
-    type: 'COURSE' | 'YEARLY_PROGRAM';
+    type: 'COURSE' | 'YEARLY_PROGRAM' | 'SUPERVISION';
     category?: 'LISTENER' | 'PRACTICAL';
     recipientName: string;
     courseName?: string;
+    /// Тільки для SUPERVISION — yyyy-mm-dd або порожній. Опційне.
+    supervisionDate?: string;
   };
   disabled?: boolean;
 }) {
@@ -2037,17 +2355,20 @@ function PreviewPane({
       });
       if (params.category) qs.set('category', params.category);
       if (params.courseName) qs.set('courseName', params.courseName);
+      if (params.supervisionDate) qs.set('supervisionDate', params.supervisionDate);
       setBaseSrc(`/api/admin/certificates/preview?${qs.toString()}`);
     }, 500);
     return () => clearTimeout(t);
-  }, [disabled, params.type, params.category, params.recipientName, params.courseName]);
+  }, [disabled, params.type, params.category, params.recipientName, params.courseName, params.supervisionDate]);
 
   const src = baseSrc ? `${baseSrc}#toolbar=0&navpanes=0&scrollbar=0&statusbar=0&messages=0&view=Fit&zoom=page-fit` : null;
 
-  /// Реальні розміри PDF — мають співпадати з PAGE_SIZES у lib/certificates/generatePdf.ts.
-  /// COURSE = 1280×760 (вужчий, ~1.68:1), YEARLY = 1280×960 (~1.33:1). Якщо тут будуть
-  /// неправильні пропорції — превью буде обрізане або з полями, бо iframe має фіксований aspect.
-  const pageAspect = params.type === 'COURSE' ? '1280 / 760' : '1280 / 960';
+  /// Реальні розміри PDF — мають співпадати з PAGE_SIZES у lib/certificates/templateConfig.ts.
+  /// COURSE = 1280×760 (sidebar layout), YEARLY = 1280×960, SUPERVISION = 1280×900 (унікальна).
+  const pageAspect =
+    params.type === 'COURSE' ? '1280 / 760'
+      : params.type === 'SUPERVISION' ? '1280 / 900'
+        : '1280 / 960';
 
   return (
     <>
@@ -2068,72 +2389,82 @@ function PreviewPane({
             </button>
           )}
         </div>
-        <button
-          type="button"
-          onClick={() => src && setExpanded(true)}
-          disabled={!src}
-          style={{ aspectRatio: pageAspect }}
-          className="w-full flex items-center justify-center relative p-0 m-0 border-0 cursor-zoom-in disabled:cursor-default bg-transparent"
-        >
-          {!params.recipientName.trim() ? (
-            <div className={`text-[13px] p-4 text-center ${dark ? 'text-slate-500' : 'text-stone-400'}`}>
-              Введіть ім'я — з'явиться прев'ю PDF
-            </div>
-          ) : src ? (
-            <>
-              <div className="absolute inset-0 overflow-hidden">
-                <iframe
-                  src={src}
-                  title="Certificate preview"
-                  onLoad={() => setLoading(false)}
-                  className={`block border-0 pointer-events-none transition-opacity duration-200 ${loading ? 'opacity-30' : 'opacity-100'}`}
-                  style={{
-                    width: 'calc(100% + 18px)',
-                    height: 'calc(100% + 18px)',
-                    marginLeft: '-9px',
-                    marginTop: '-9px',
-                  }}
-                />
+        {/* Wrapper з flex-1 + items-center центрує сертифікат вертикально, коли
+            висота лівої колонки (форма) перевищує природну висоту preview-а */}
+        <div className="flex-1 flex items-center justify-center min-h-0">
+          <button
+            type="button"
+            onClick={() => src && setExpanded(true)}
+            disabled={!src}
+            style={{ aspectRatio: pageAspect }}
+            className="w-full flex items-center justify-center relative p-0 m-0 border-0 cursor-zoom-in disabled:cursor-default bg-transparent"
+          >
+            {!params.recipientName.trim() ? (
+              <div className={`text-[13px] p-4 text-center ${dark ? 'text-slate-500' : 'text-stone-400'}`}>
+                Введіть ім'я — з'явиться прев'ю PDF
               </div>
-              {loading && (
-                <div className={`absolute inset-0 flex items-center justify-center pointer-events-none ${dark ? 'bg-black/30' : 'bg-stone-50/60'}`}>
-                  <div className="flex flex-col items-center gap-2">
-                    <div className={`w-8 h-8 border-2 rounded-full animate-spin ${dark ? 'border-white/20 border-t-amber-400' : 'border-stone-300 border-t-amber-600'}`} />
-                    <div className={`text-[12px] uppercase tracking-wider ${dark ? 'text-slate-300' : 'text-stone-600'}`}>Генерую сертифікат…</div>
-                  </div>
+            ) : src ? (
+              <>
+                <div className="absolute inset-0 overflow-hidden">
+                  <iframe
+                    src={src}
+                    title="Certificate preview"
+                    onLoad={() => setLoading(false)}
+                    className={`block border-0 pointer-events-none transition-opacity duration-200 ${loading ? 'opacity-30' : 'opacity-100'}`}
+                    style={{
+                      width: 'calc(100% + 18px)',
+                      height: 'calc(100% + 18px)',
+                      marginLeft: '-9px',
+                      marginTop: '-9px',
+                    }}
+                  />
                 </div>
-              )}
-            </>
-          ) : (
-            <div className="flex flex-col items-center gap-2">
-              <div className={`w-8 h-8 border-2 rounded-full animate-spin ${dark ? 'border-white/20 border-t-amber-400' : 'border-stone-300 border-t-amber-600'}`} />
-              <div className={`text-[12px] uppercase tracking-wider ${dark ? 'text-slate-300' : 'text-stone-600'}`}>Генерую сертифікат…</div>
-            </div>
-          )}
-        </button>
+                {loading && (
+                  <div className={`absolute inset-0 flex items-center justify-center pointer-events-none ${dark ? 'bg-black/30' : 'bg-stone-50/60'}`}>
+                    <div className="flex flex-col items-center gap-2">
+                      <div className={`w-8 h-8 border-2 rounded-full animate-spin ${dark ? 'border-white/20 border-t-amber-400' : 'border-stone-300 border-t-amber-600'}`} />
+                      <div className={`text-[12px] uppercase tracking-wider ${dark ? 'text-slate-300' : 'text-stone-600'}`}>Генерую сертифікат…</div>
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="flex flex-col items-center gap-2">
+                <div className={`w-8 h-8 border-2 rounded-full animate-spin ${dark ? 'border-white/20 border-t-amber-400' : 'border-stone-300 border-t-amber-600'}`} />
+                <div className={`text-[12px] uppercase tracking-wider ${dark ? 'text-slate-300' : 'text-stone-600'}`}>Генерую сертифікат…</div>
+              </div>
+            )}
+          </button>
+        </div>
       </div>
 
-      {expanded && src && (
-        <div
-          className="fixed inset-0 z-[60] bg-black/80 flex items-center justify-center p-4 cursor-zoom-out"
-          onClick={() => setExpanded(false)}
-        >
+      {expanded && src && typeof document !== 'undefined' &&
+        /// Portal у document.body — щоб escape-нути будь-який containing block
+        /// з backdrop-filter / transform / filter (AdminPanel має `backdrop-blur-sm`,
+        /// що тримало fullscreen-overlay позиціонованим відносно панелі замість viewport-у).
+        createPortal(
           <div
-            className="relative w-full max-w-[1400px] h-[92vh] bg-white rounded-lg overflow-hidden"
-            onClick={(e) => e.stopPropagation()}
+            className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4 cursor-zoom-out"
+            onClick={() => setExpanded(false)}
           >
-            <iframe src={src} title="Certificate full" className="w-full h-full border-0" />
-            <button
-              type="button"
-              onClick={() => setExpanded(false)}
-              className="absolute top-3 right-3 w-10 h-10 rounded-full bg-black/70 text-white text-xl flex items-center justify-center hover:bg-black"
-              aria-label="Закрити"
+            <div
+              className="relative w-full max-w-[1400px] h-[92vh] bg-white rounded-lg overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
             >
-              ✕
-            </button>
-          </div>
-        </div>
-      )}
+              <iframe src={src} title="Certificate full" className="w-full h-full border-0" />
+              <button
+                type="button"
+                onClick={() => setExpanded(false)}
+                className="absolute top-3 right-3 w-10 h-10 rounded-full bg-black/70 text-white text-xl flex items-center justify-center hover:bg-black"
+                aria-label="Закрити"
+              >
+                ✕
+              </button>
+            </div>
+          </div>,
+          document.body,
+        )
+      }
     </>
   );
 }
@@ -2906,6 +3237,188 @@ function IssueYearlyManualDialog({
           busy={busy}
         />
       )}
+    </ModalShell>
+  );
+}
+
+/* --------------------------- IssueSupervisionDialog --------------------------- */
+
+/// Модалка видачі сертифіката супервізії. Менеджер вписує:
+///   - Ім'я отримувача (як буде надруковано)
+///   - Email (на який піде PDF; якщо такого юзера ще немає — створюється)
+///   - Тема супервізії (друкується замість назви курсу)
+///   - Дата супервізії (опційно — друкується у body)
+/// Live-превью оновлюється debounced 500мс.
+function IssueSupervisionDialog({
+  theme,
+  onClose,
+  onIssued,
+  onError,
+}: {
+  theme: Theme;
+  onClose: () => void;
+  onIssued: () => void;
+  onError: (msg: string) => void;
+}) {
+  const dark = theme === 'dark';
+  const [fromEmail, setFromEmail] = useState<string | null>(null);
+  const [recipientName, setRecipientName] = useState('');
+  const [recipientEmail, setRecipientEmail] = useState('');
+  const [topic, setTopic] = useState('');
+  const [supervisionDate, setSupervisionDate] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/admin/mailer-config')
+      .then((r) => r.json())
+      .then((data: { fromEmail?: string }) => {
+        if (data?.fromEmail) setFromEmail(data.fromEmail);
+      })
+      .catch(() => {});
+  }, []);
+
+  const canSubmit =
+    !busy &&
+    recipientName.trim().length > 0 &&
+    recipientEmail.trim().length > 0 &&
+    topic.trim().length > 0;
+
+  async function submit() {
+    setBusy(true);
+    try {
+      const res = await fetch('/api/admin/certificates/supervision', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          recipientName: recipientName.trim(),
+          recipientEmail: recipientEmail.trim(),
+          topic: topic.trim(),
+          supervisionDate: supervisionDate || null,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error ?? 'Помилка');
+      onIssued();
+    } catch (err) {
+      onError(err instanceof Error ? err.message : 'Помилка');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <ModalShell
+      theme={theme}
+      title="Видати сертифікат супервізії"
+      onClose={onClose}
+      wide
+      expandable
+      footer={
+        <>
+          <button onClick={onClose} className={`px-4 py-2 rounded-lg text-[13px] ${dark ? 'bg-white/[0.05] text-slate-200' : 'bg-stone-100 text-stone-700'}`}>
+            Скасувати
+          </button>
+          <button
+            onClick={() => void submit()}
+            disabled={!canSubmit}
+            className="px-4 py-2 rounded-lg bg-amber-500 text-white text-[13px] font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {busy ? 'Видаю…' : 'Видати і відправити'}
+          </button>
+        </>
+      }
+    >
+      <div className="grid grid-cols-1 lg:grid-cols-[0.82fr_1.18fr] gap-5">
+        <div className="space-y-4">
+          <div>
+            <label className={`block text-[11px] uppercase tracking-wider mb-1 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
+              Ім&apos;я (як надрукувати)
+            </label>
+            <input
+              autoFocus
+              value={recipientName}
+              onChange={(e) => setRecipientName(e.target.value)}
+              placeholder="Ім'я та Прізвище"
+              className={`w-full px-3 py-2 rounded-lg border text-[13px] ${dark ? 'bg-white/[0.04] border-white/[0.1] text-white placeholder-slate-500' : 'bg-white border-stone-300 text-stone-900'}`}
+            />
+          </div>
+
+          <div>
+            <label className={`block text-[11px] uppercase tracking-wider mb-1 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
+              Email
+            </label>
+            <input
+              type="email"
+              value={recipientEmail}
+              onChange={(e) => setRecipientEmail(e.target.value)}
+              placeholder="name@example.com"
+              className={`w-full px-3 py-2 rounded-lg border text-[13px] ${dark ? 'bg-white/[0.04] border-white/[0.1] text-white placeholder-slate-500' : 'bg-white border-stone-300 text-stone-900'}`}
+            />
+            <p className={`text-[11px] mt-1 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+              Якщо такого юзера ще немає — буде створено новий запис.
+            </p>
+          </div>
+
+          <div>
+            <label className={`block text-[11px] uppercase tracking-wider mb-1 ${dark ? 'text-slate-500' : 'text-stone-400'}`}>
+              Лист надійде з
+            </label>
+            <input
+              type="text"
+              readOnly
+              disabled
+              value={fromEmail ?? 'Завантаження…'}
+              title="Адреса відправника листа. Змінити можна тільки через RESEND_FROM_EMAIL у env."
+              className={`w-full px-3 py-2 rounded-lg border text-[13px] cursor-not-allowed ${
+                dark
+                  ? 'bg-white/[0.02] border-white/[0.06] text-slate-500'
+                  : 'bg-stone-100 border-stone-200 text-stone-500'
+              }`}
+            />
+          </div>
+
+          <div>
+            <label className={`block text-[11px] uppercase tracking-wider mb-1 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
+              Тема супервізії
+            </label>
+            <input
+              value={topic}
+              onChange={(e) => setTopic(e.target.value)}
+              placeholder="Напр.: Робота з проєкціями у клієнтсько-терапевтичних відносинах"
+              className={`w-full px-3 py-2 rounded-lg border text-[13px] ${dark ? 'bg-white/[0.04] border-white/[0.1] text-white placeholder-slate-500' : 'bg-white border-stone-300 text-stone-900'}`}
+            />
+            <p className={`text-[11px] mt-1 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+              Друкується на сертифікаті як назва.
+            </p>
+          </div>
+
+          <div>
+            <label className={`block text-[11px] uppercase tracking-wider mb-1 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
+              Дата супервізії <span className="normal-case text-stone-400">(опційно)</span>
+            </label>
+            <input
+              type="date"
+              value={supervisionDate}
+              onChange={(e) => setSupervisionDate(e.target.value)}
+              className={`w-full px-3 py-2 rounded-lg border text-[13px] ${dark ? 'bg-white/[0.04] border-white/[0.1] text-white' : 'bg-white border-stone-300 text-stone-900'}`}
+            />
+            <p className={`text-[11px] mt-1 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+              Якщо вказана — друкується у body сертифіката як дата проведення заняття.
+            </p>
+          </div>
+        </div>
+
+        <PreviewPane
+          theme={theme}
+          disabled={!recipientName.trim() || !topic.trim()}
+          params={{
+            type: 'SUPERVISION',
+            recipientName: recipientName.trim(),
+            courseName: topic.trim(),
+            supervisionDate: supervisionDate || undefined,
+          }}
+        />
+      </div>
     </ModalShell>
   );
 }

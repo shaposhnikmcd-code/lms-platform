@@ -5,9 +5,12 @@ import { esc } from '../mailer';
 export interface CertificateEmailArgs {
   recipientName: string;
   recipientEmail: string;
-  type: 'COURSE' | 'YEARLY_PROGRAM';
+  type: 'COURSE' | 'YEARLY_PROGRAM' | 'SUPERVISION';
   category?: 'LISTENER' | 'PRACTICAL';
+  /// COURSE: назва курсу. SUPERVISION: тема супервізії. YEARLY_PROGRAM: не використовується.
   courseName?: string;
+  /// Тільки для SUPERVISION — людино-читабельна дата проведення (DD.MM.YYYY).
+  supervisionDate?: string;
   certNumber: string;
   verificationUrl: string;
   issueYear: number;
@@ -17,20 +20,38 @@ export function certificateEmailSubject(args: CertificateEmailArgs): string {
   if (args.type === 'COURSE') {
     return `Ваш сертифікат UIMP — ${args.courseName ?? 'курс'}`;
   }
+  if (args.type === 'SUPERVISION') {
+    return args.courseName
+      ? `Ваш сертифікат UIMP — Супервізія: ${args.courseName}`
+      : 'Ваш сертифікат UIMP — Супервізія';
+  }
   return 'Ваш сертифікат UIMP — Річна програма';
 }
 
 export function certificateEmailHtml(args: CertificateEmailArgs): string {
   const name = args.recipientName?.trim() || args.recipientEmail;
 
-  const achievement =
-    args.type === 'COURSE'
-      ? `ви успішно завершили курс <strong>${esc(args.courseName ?? '')}</strong> в Українському інституті душеопіки та психотерапії.`
-      : args.category === 'LISTENER'
-        ? 'ви успішно завершили Річну програму в Українському інституті душеопіки та психотерапії у категорії <strong>Слухач</strong>.'
-        : 'ви успішно завершили Річну програму практичного навчання в Українському інституті душеопіки та психотерапії.';
+  let achievement: string;
+  if (args.type === 'COURSE') {
+    achievement = `ви успішно завершили курс <strong>${esc(args.courseName ?? '')}</strong> в Українському інституті душеопіки та психотерапії.`;
+  } else if (args.type === 'SUPERVISION') {
+    const topic = args.courseName?.trim();
+    const dateSuffix = args.supervisionDate ? ` (${esc(args.supervisionDate)})` : '';
+    achievement = topic
+      ? `ви взяли участь у супервізійному занятті <strong>${esc(topic)}</strong>${dateSuffix} в Українському інституті душеопіки та психотерапії.`
+      : `ви взяли участь у супервізійному занятті${dateSuffix} в Українському інституті душеопіки та психотерапії.`;
+  } else if (args.category === 'LISTENER') {
+    achievement = 'ви успішно завершили Річну програму в Українському інституті душеопіки та психотерапії у категорії <strong>Слухач</strong>.';
+  } else {
+    achievement = 'ви успішно завершили Річну програму практичного навчання в Українському інституті душеопіки та психотерапії.';
+  }
 
-  const typeLabel = args.type === 'COURSE' ? 'Сертифікат про завершення курсу' : 'Сертифікат Річної програми';
+  const typeLabel =
+    args.type === 'COURSE'
+      ? 'Сертифікат про завершення курсу'
+      : args.type === 'SUPERVISION'
+        ? 'Сертифікат супервізії'
+        : 'Сертифікат Річної програми';
 
   return `
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; color: #1f2937;">

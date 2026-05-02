@@ -11,6 +11,7 @@ import type { FontKey } from './fonts';
 import type { TemplateKey } from './templateConfig';
 import { drawMedallion as drawMedallionEl, drawSeal as drawSealEl } from './elements';
 import { drawCourseTemplate } from './drawCourseTemplate';
+import { drawSupervisionTemplate } from './drawSupervisionTemplate';
 
 /// Витягнуто з template щоб не повторювати API кожен раз — медальйон/печатка
 /// винесені в elements.ts і отримують logoPng з assets.
@@ -59,7 +60,13 @@ export async function drawBaseTemplate(
   page: PDFPage,
   templateKey: TemplateKey,
   assets: BaseTemplateAssets,
-  opts: { courseName?: string; categoryLabel?: string; year?: number; recipientName?: string } = {},
+  opts: {
+    courseName?: string;
+    categoryLabel?: string;
+    year?: number;
+    recipientName?: string;
+    supervisionDate?: string;
+  } = {},
 ) {
   /// COURSE-сертифікат має кардинально інший layout (двопанельний sidebar +
   /// main panel) — делегуємо у dedicated renderer.
@@ -76,6 +83,27 @@ export async function drawBaseTemplate(
     });
     return;
   }
+
+  /// SUPERVISION має власну унікальну композицію 1280×900 (без medallion-у зверху,
+  /// з прозовою body-частиною та deep-green wax sealом з UIMP логотипом).
+  /// Делегуємо у dedicated renderer.
+  if (templateKey === 'SUPERVISION') {
+    if (!assets.logoGoldPng) {
+      throw new Error('SUPERVISION renderer requires logoGoldPng asset');
+    }
+    drawSupervisionTemplate(page, {
+      fonts: assets.fonts,
+      signaturePng: assets.signaturePng,
+      logoGoldPng: assets.logoGoldPng,
+    }, {
+      courseName: opts.courseName,
+      supervisionDate: opts.supervisionDate,
+      recipientName: opts.recipientName,
+    });
+    return;
+  }
+
+  /// YEARLY_PRACTICAL / YEARLY_LISTENER → симетрична академічна композиція 1280×960.
 
   const W = page.getWidth();
   const H = page.getHeight();

@@ -30,6 +30,8 @@ export type CertGenerationInput = {
   verificationUrl: string;
   courseName?: string;
   category?: 'LISTENER' | 'PRACTICAL';
+  /// Тільки для SUPERVISION — DD.MM.YYYY (вже відформатовано). Друкується у body.
+  supervisionDate?: string;
 };
 
 export async function generateCertificatePdf(input: CertGenerationInput): Promise<Uint8Array> {
@@ -92,6 +94,7 @@ export async function generateCertificatePdf(input: CertGenerationInput): Promis
     categoryLabel,
     year: input.issueYear,
     recipientName: input.recipientName,
+    supervisionDate: input.supervisionDate,
   });
 
   /// Overlay динамічних полів (ім'я, рік, cert#)

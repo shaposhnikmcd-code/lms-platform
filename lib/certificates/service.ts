@@ -207,9 +207,24 @@ export async function issueYearlyCertificate(input: IssueYearlyCertInput): Promi
   return prisma.certificate.findUniqueOrThrow({ where: { id: certificate.id } });
 }
 
+/// Форматує дату супервізії як «12 травня 2026 року» — для тіла PDF та email.
+/// Цей формат читається елегантніше в академічному документі, ніж "12.05.2026".
+function formatSupervisionDate(d: Date | null | undefined): string | undefined {
+  if (!d) return undefined;
+  const formatted = new Date(d).toLocaleDateString('uk-UA', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+  /// Прибираємо trailing " р." якщо locale його додає, щоб контрольовано додати "року".
+  return formatted.replace(/\s*р\.?$/, '').trim() + ' року';
+}
+
 /// Внутрішній helper — генерує PDF і шле лист. Оновлює emailStatus у БД і пише event.
 async function sendCertificateEmail(cert: Certificate, actor: Actor, isResend: boolean): Promise<void> {
   try {
+    const supervisionDateStr = formatSupervisionDate(cert.supervisionDate);
+
     const pdfBytes = await generateCertificatePdf({
       templateKey: templateKeyFor(cert.type, cert.category),
       recipientName: cert.recipientName,
@@ -218,6 +233,7 @@ async function sendCertificateEmail(cert: Certificate, actor: Actor, isResend: b
       verificationUrl: verificationUrl(cert.verificationToken),
       courseName: cert.courseName ?? undefined,
       category: cert.category ?? undefined,
+      supervisionDate: supervisionDateStr,
     });
 
     const pdfHash = hashPdfBytes(pdfBytes);
@@ -228,6 +244,7 @@ async function sendCertificateEmail(cert: Certificate, actor: Actor, isResend: b
       type: cert.type,
       category: cert.category ?? undefined,
       courseName: cert.courseName ?? undefined,
+      supervisionDate: supervisionDateStr,
       certNumber: cert.certNumber,
       verificationUrl: verificationUrl(cert.verificationToken),
       issueYear: cert.issueYear,
@@ -239,6 +256,7 @@ async function sendCertificateEmail(cert: Certificate, actor: Actor, isResend: b
       type: cert.type,
       category: cert.category ?? undefined,
       courseName: cert.courseName ?? undefined,
+      supervisionDate: supervisionDateStr,
       certNumber: cert.certNumber,
       verificationUrl: verificationUrl(cert.verificationToken),
       issueYear: cert.issueYear,
@@ -315,6 +333,83 @@ export async function revokeCertificate(certificateId: string, actor: Actor, rea
   await logEvent(certificateId, 'REVOKED', actor, reason ?? 'Без коментаря');
 }
 
+/// Видача сертифіката супервізії. Менеджер вписує тему, дату (опційно) і email отримувача.
+/// Якщо юзера з таким email немає — створюємо новий запис User (як у course/manual).
+/// Дублі НЕ блокуємо на рівні БД (partial unique index не покриває SUPERVISION з NULL courseId);
+/// один учасник може відвідати кілька різних супервізій → це нормально.
+export type IssueSupervisionCertInput = {
+  recipientName: string;
+  recipientEmail: string;
+  /// Тема супервізії — друкується як subject у позиції courseName на шаблоні.
+  topic: string;
+  /// Дата проведення супервізійного заняття. Опційна — якщо не задана, body показує
+  /// generic рядок "в Українському інституті..."
+  supervisionDate: Date | null;
+  actor: Actor;
+};
+
+export async function issueSupervisionCertificate(
+  input: IssueSupervisionCertInput,
+): Promise<Certificate> {
+  const email = input.recipientEmail.trim().toLowerCase();
+  const recipientName = input.recipientName.trim();
+  const topic = input.topic.trim();
+  if (!recipientName) throw new Error("Ім'я обов'язкове");
+  if (!email) throw new Error("Email обов'язковий");
+  if (!topic) throw new Error('Тема супервізії обовʼязкова');
+
+  /// Лук-ап юзера case-insensitive, бо email зберігаємо в різному регістрі.
+  let user = await prisma.user.findFirst({
+    where: { email: { equals: email, mode: 'insensitive' } },
+    select: { id: true, name: true, email: true, deletedAt: true },
+  });
+  if (user?.deletedAt) {
+    throw new Error(`Юзер з email ${user.email} в архіві. Відновіть або вкажіть інший email.`);
+  }
+  if (!user) {
+    user = await prisma.user.create({
+      data: { email, name: recipientName },
+      select: { id: true, name: true, email: true, deletedAt: true },
+    });
+  }
+
+  const issueYear = new Date().getUTCFullYear();
+  const certNumber = await generateCertNumber('SUPERVISION', issueYear);
+  const verificationToken = newVerificationToken();
+
+  const certificate = await prisma.certificate.create({
+    data: {
+      certNumber,
+      verificationToken,
+      type: 'SUPERVISION',
+      userId: user.id,
+      courseId: null,
+      subscriptionId: null,
+      recipientName,
+      recipientEmail: user.email,
+      courseName: topic,
+      supervisionDate: input.supervisionDate,
+      issueYear,
+      issuedManually: true,
+      issuedByUserId: input.actor?.id ?? null,
+      issuedByName: input.actor?.name ?? null,
+      issuedByEmail: input.actor?.email ?? null,
+      emailStatus: 'PENDING',
+    },
+  });
+
+  await logEvent(
+    certificate.id,
+    'GENERATED',
+    input.actor,
+    `Видано вручну (Супервізія: ${topic})`,
+  );
+
+  await sendCertificateEmail(certificate, input.actor, false);
+
+  return prisma.certificate.findUniqueOrThrow({ where: { id: certificate.id } });
+}
+
 /// Регенерація PDF за існуючим certRecord — для download endpoints. Без відправки листа.
 export async function regeneratePdfBytes(cert: Certificate): Promise<Uint8Array> {
   return generateCertificatePdf({
@@ -325,5 +420,6 @@ export async function regeneratePdfBytes(cert: Certificate): Promise<Uint8Array>
     verificationUrl: verificationUrl(cert.verificationToken),
     courseName: cert.courseName ?? undefined,
     category: cert.category ?? undefined,
+    supervisionDate: formatSupervisionDate(cert.supervisionDate),
   });
 }

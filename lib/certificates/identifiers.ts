@@ -15,13 +15,13 @@ export function newVerificationToken(): string {
   return generateToken();
 }
 
-/// Cert number формату: UIMP-COURSE-2026-00042 / UIMP-YEAR-2026-00007
+/// Cert number формату: UIMP-COURSE-2026-00042 / UIMP-YEAR-2026-00007 / UIMP-SUPER-2026-00012
 /// Номер — це кількість certs того ж type + року + 1, padded до 5 цифр.
 export async function generateCertNumber(
   type: CertificateType,
   issueYear: number,
 ): Promise<string> {
-  const prefix = type === 'COURSE' ? 'COURSE' : 'YEAR';
+  const prefix = type === 'COURSE' ? 'COURSE' : type === 'SUPERVISION' ? 'SUPER' : 'YEAR';
 
   const startOfYear = new Date(Date.UTC(issueYear, 0, 1));
   const startOfNextYear = new Date(Date.UTC(issueYear + 1, 0, 1));
