@@ -124,8 +124,8 @@ const SUPERVISION_TEMPLATE: TemplateConfig = {
   fields: [
     /// Ім'я отримувача — italic caligraphic, центр. Auto-shrink якщо довге.
     {
-      xPct: 0.5, yPct: 0.460, slot: 'recipientName',
-      size: 50, font: 'cormorantItalic', color: UIMP_GREEN, align: 'center',
+      xPct: 0.5, yPct: 0.420, slot: 'recipientName',
+      size: 46, font: 'cormorantItalic', color: UIMP_GREEN, align: 'center',
       maxWidthPct: 0.55,
     },
     /// Cert number — tiny у самому нижньому правому куті (під QR)

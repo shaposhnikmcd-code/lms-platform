@@ -216,8 +216,8 @@ function formatSupervisionDate(d: Date | null | undefined): string | undefined {
     month: 'long',
     year: 'numeric',
   });
-  /// Прибираємо trailing " р." якщо locale його додає, щоб контрольовано додати "року".
-  return formatted.replace(/\s*р\.?$/, '').trim() + ' року';
+  /// Прибираємо trailing " р." / " року" — modern editorial-форматування дати на сертифікаті.
+  return formatted.replace(/\s*р(оку)?\.?$/i, '').trim();
 }
 
 /// Внутрішній helper — генерує PDF і шле лист. Оновлює emailStatus у БД і пише event.

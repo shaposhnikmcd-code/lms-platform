@@ -8,8 +8,12 @@
 ///   - Heading «Супервізія» Cormorant Regular non-italic, темно-зелений.
 ///   - Subtitle «— Сертифікат про участь —» tracked caps, gold-deep.
 ///   - Diamond-divider (родинна риса UIMP).
-///   - «ВИДАЄТЬСЯ» tracked + recipient italic name (overlay).
-///   - Body proza: lead-italic + topic «...» italic dark green + when italic green-mid.
+///   - Intro «цей сертифікат засвідчує, що» (italic green-mid) — субординативне «що»
+///     дозволяє лишити імʼя в Nominative без відмінювання.
+///   - Recipient italic name (overlay) + тонка золота rule під ним.
+///   - Body: lead «взяв/взяла участь у супервізійному занятті на тему» (інклюзивна
+///     слеш-форма) + тема «...» italic green + дата italic gold-deep. Граматично
+///     повне речення з імʼям у Nominative.
 ///   - Footer: signature.png + thin gold rule + non-italic Cormorant name + italic role,
 ///     центральна печатка (deep green wax + multi-layer gold rim + UIMP логотип),
 ///     QR справа, cert-номер у самому нижньому-правому куті.
@@ -25,8 +29,6 @@ import {
 } from './elements';
 
 const GREEN_MID = { r: 45, g: 74, b: 58 };
-const GREY = { r: 74, g: 74, b: 66 };
-const GREY_LIGHT = { r: 140, g: 140, b: 130 };
 
 export type SupervisionTemplateAssets = {
   fonts: Record<FontKey, PDFFont>;
@@ -56,7 +58,7 @@ export function drawSupervisionTemplate(
   drawHeading(page, W, H, assets.fonts);
   drawSubtitle(page, W, H, assets.fonts);
   drawDiamondDivider(page, W, H);
-  drawAwardPhrase(page, W, H, assets.fonts);
+  drawCertificationIntro(page, W, H, assets.fonts);
   drawRecipientUnderline(page, W, H, assets.fonts, opts.recipientName);
   drawBodyProse(page, W, H, assets.fonts, opts.courseName, opts.supervisionDate);
   drawSignatureBlock(page, W, H, assets);
@@ -119,7 +121,7 @@ function drawInstituteLockup(
   fonts: Record<FontKey, PDFFont>,
 ) {
   const cx = W / 2;
-  const size = Math.min(W, H) * 0.045;   // ~40pt
+  const size = Math.min(W, H) * 0.044;   // ~40pt
   const font = fonts.cormorantRegular;
 
   /// Лінія 1
@@ -157,7 +159,7 @@ function drawUimpMark(
   const cx = W / 2;
   const cy = H * 0.774;
   /// Малий, ввічливий розмір — мета mark-а у quiet confidence, не в presence
-  const size = Math.min(W, H) * 0.028;
+  const size = Math.min(W, H) * 0.030;
   /// Дуже широкий tracking (0.78) — editorial типографіка, літери розставлено
   const tracking = size * 0.78;
   const font = fonts.cinzel;
@@ -221,12 +223,12 @@ function drawUimpMark(
 /// «Супервізія» — Cormorant Regular non-italic, темно-зелений. Faux-bold через triple-draw.
 function drawHeading(page: PDFPage, W: number, H: number, fonts: Record<FontKey, PDFFont>) {
   const text = 'Супервізія';
-  const size = Math.min(W, H) * 0.085;   // ~76pt
+  const size = Math.min(W, H) * 0.086;   // ~77pt
   const font = fonts.cormorantRegular;
 
   const textW = font.widthOfTextAtSize(text, size);
   const x = W / 2 - textW / 2;
-  const y = H * 0.665;
+  const y = H * 0.600;
 
   page.drawText(text, { x, y, size, font, color: c(GREEN) });
   page.drawText(text, { x: x + 0.9, y, size, font, color: c(GREEN) });
@@ -236,7 +238,7 @@ function drawHeading(page: PDFPage, W: number, H: number, fonts: Record<FontKey,
 function drawSubtitle(page: PDFPage, W: number, H: number, fonts: Record<FontKey, PDFFont>) {
   const text = '— Сертифікат про участь —';
   const size = Math.min(W, H) * 0.013;
-  drawCenteredTracked(page, text, W / 2, H * 0.600, size, 4.0, fonts.interSemiBold, c(GOLD_DEEP));
+  drawCenteredTracked(page, text, W / 2, H * 0.550, size, 4.0, fonts.interSemiBold, c(GOLD_DEEP));
 }
 
 /* ----------------------------------------------------------------------- */
@@ -244,7 +246,7 @@ function drawSubtitle(page: PDFPage, W: number, H: number, fonts: Record<FontKey
 /* ----------------------------------------------------------------------- */
 
 function drawDiamondDivider(page: PDFPage, W: number, H: number) {
-  const cy = H * 0.580;
+  const cy = H * 0.510;
   const spanHalf = W * 0.18;
   const left = W / 2 - spanHalf;
   const right = W / 2 + spanHalf;
@@ -269,14 +271,34 @@ function drawDiamond(
 }
 
 /* ----------------------------------------------------------------------- */
-/*                          AWARD + UNDERLINE                              */
+/*                          CERTIFICATION INTRO                            */
 /* ----------------------------------------------------------------------- */
 
-function drawAwardPhrase(page: PDFPage, W: number, H: number, fonts: Record<FontKey, PDFFont>) {
-  const text = 'ВИДАЄТЬСЯ';
-  const size = Math.min(W, H) * 0.0125;
-  drawCenteredTracked(page, text, W / 2, H * 0.530, size, 4.2, fonts.interMedium, c(GREY));
+/// Інтро-рядок над імʼям: «цей сертифікат засвідчує, що». Граматичне рішення —
+/// субординативне «що» вводить підрядну клаузу, в якій імʼя в Nominative і
+/// апозиція «учасник(-ця)...» (без дієслова, через zero-copula) — імʼя НЕ
+/// потрібно відмінювати під рід чи відмінок, менеджер вписує «Ігор Шапошник»
+/// як є, граматика лишається коректною.
+function drawCertificationIntro(
+  page: PDFPage,
+  W: number,
+  H: number,
+  fonts: Record<FontKey, PDFFont>,
+) {
+  const cx = W / 2;
+  const text = 'цей сертифікат засвідчує, що';
+  const size = Math.min(W, H) * 0.020;
+  const font = fonts.cormorantItalic;
+  const w = font.widthOfTextAtSize(text, size);
+  page.drawText(text, {
+    x: cx - w / 2, y: H * 0.480,
+    size, font, color: c(GREEN_MID),
+  });
 }
+
+/* ----------------------------------------------------------------------- */
+/*                          RECIPIENT UNDERLINE                            */
+/* ----------------------------------------------------------------------- */
 
 function drawRecipientUnderline(
   page: PDFPage,
@@ -288,23 +310,25 @@ function drawRecipientUnderline(
   const cx = W / 2;
   let lineW = W * 0.30;
   if (recipientName && recipientName.length > 0) {
-    const naturalW = fonts.cormorantItalic.widthOfTextAtSize(recipientName, 50);
+    const naturalW = fonts.cormorantItalic.widthOfTextAtSize(recipientName, 46);
     const maxW = W * 0.55;
     const displayedW = Math.min(naturalW, maxW);
     lineW = displayedW + 40;
   }
   page.drawLine({
-    start: { x: cx - lineW / 2, y: H * 0.435 },
-    end: { x: cx + lineW / 2, y: H * 0.435 },
+    start: { x: cx - lineW / 2, y: H * 0.395 },
+    end: { x: cx + lineW / 2, y: H * 0.395 },
     thickness: 0.6, color: c(GOLD), opacity: 0.55,
   });
 }
 
 /* ----------------------------------------------------------------------- */
-/*                          BODY PROSE (lead + topic + when)               */
+/*                          BODY (lead + topic + date)                     */
 /* ----------------------------------------------------------------------- */
 
-/// Три центровані рядки прозою — без form-полів «Тема»/«Дата».
+/// Editorial body: lead-апозиція «учасник(-ця) супервізійного заняття на тему»
+/// граматично описує роль імʼя (через zero-copula), потім тема в «лапках» і дата.
+/// Гендер маркуємо нейтральним парентетичним «(-ця)» — інклюзивно й коректно.
 function drawBodyProse(
   page: PDFPage,
   W: number,
@@ -316,16 +340,20 @@ function drawBodyProse(
   const cx = W / 2;
   const italic = fonts.cormorantItalic;
 
-  /// Lead
-  const leadText = 'за участь у супервізійному занятті на тему';
-  const leadSize = Math.min(W, H) * 0.022;
+  /// Lead — повне речення з дієсловом: «взяв/взяла участь у супервізійному занятті на тему».
+  /// Слеш-форма «взяв/взяла» — стандарт сучасної української інклюзивної офіційної мови
+  /// (замість парентетики «(-ла)» — компактніше й читабельніше). Імʼя [overlay вище]
+  /// в Nominative — менеджеру не потрібно нічого відмінювати.
+  /// Звʼязка «на тему» в кінці рядка для smooth flow до topic нижче.
+  const leadText = 'взяв/взяла участь у супервізійному занятті на тему';
+  const leadSize = Math.min(W, H) * 0.020;
   const leadW = italic.widthOfTextAtSize(leadText, leadSize);
   page.drawText(leadText, {
-    x: cx - leadW / 2, y: H * 0.385,
-    size: leadSize, font: italic, color: c(GREY),
+    x: cx - leadW / 2, y: H * 0.355,
+    size: leadSize, font: italic, color: c(GREEN_MID),
   });
 
-  /// Topic «...» з auto-shrink на 70% ширини
+  /// Тема в «лапках» — italic Cormorant deep-green, з auto-shrink на 74% ширини cert-у.
   if (topic && topic.trim().length > 0) {
     const topicText = `«${topic.trim()}»`;
     const baseSize = Math.min(W, H) * 0.030;
@@ -335,19 +363,20 @@ function drawBodyProse(
     if (naturalW > maxW) size = baseSize * (maxW / naturalW);
     const w = italic.widthOfTextAtSize(topicText, size);
     page.drawText(topicText, {
-      x: cx - w / 2, y: H * 0.330,
+      x: cx - w / 2, y: H * 0.305,
       size, font: italic, color: c(GREEN),
     });
   }
 
-  /// When ("що відбулося ... року") — лише якщо менеджер задав дату
+  /// Дата — italic Cormorant gold-deep, малий кегль. Просто «29 квітня 2026»
+  /// без архаїчного «що відбулося ... року». Gold-deep tonally pairs with
+  /// gold underline above і gold seal внизу.
   if (whenDate && whenDate.trim().length > 0) {
-    const whenText = `що відбулося ${whenDate.trim()}`;
-    const whenSize = Math.min(W, H) * 0.022;
-    const whenW = italic.widthOfTextAtSize(whenText, whenSize);
-    page.drawText(whenText, {
-      x: cx - whenW / 2, y: H * 0.282,
-      size: whenSize, font: italic, color: c(GREEN_MID),
+    const dateSize = Math.min(W, H) * 0.020;
+    const dateW = italic.widthOfTextAtSize(whenDate.trim(), dateSize);
+    page.drawText(whenDate.trim(), {
+      x: cx - dateW / 2, y: H * 0.260,
+      size: dateSize, font: italic, color: c(GOLD_DEEP),
     });
   }
 }
@@ -369,7 +398,7 @@ function drawSignatureBlock(
   const aspect = sig.height / sig.width;
   const sigH = sigTargetW * aspect;
   const sigX = W * 0.110;
-  const sigY = H * 0.155;
+  const sigY = H * 0.115;
 
   page.drawImage(sig, {
     x: sigX, y: sigY,
@@ -377,7 +406,7 @@ function drawSignatureBlock(
     opacity: 0.95,
   });
 
-  const lineY = H * 0.148;
+  const lineY = H * 0.108;
   const lineHalfW = W * 0.075;
   const nameX = sigX + sigTargetW / 2;
 
@@ -398,15 +427,14 @@ function drawSignatureBlock(
     size: nameSize, font: nameFont, color: c(GREEN),
   });
 
-  /// Роль: Cormorant Italic, green-mid (гармонізує з body-прозою).
-  const roleFont = assets.fonts.cormorantItalic;
-  const roleSize = Math.min(W, H) * 0.018;
-  const roleText = 'Президентка UIMP';
-  const roleW = roleFont.widthOfTextAtSize(roleText, roleSize);
-  page.drawText(roleText, {
-    x: nameX - roleW / 2, y: lineY - nameSize * 1.05 - roleSize * 1.5,
-    size: roleSize, font: roleFont, color: c(GREEN_MID),
-  });
+  /// Роль: editorial tracked SmallCaps gold-deep — business-card естетика.
+  /// Inter SemiBold, gold-deep tonally pairs з subtitle і date (всі троє у gold-системі);
+  /// середня крапка «·» — editorial-розділювач, ритм без зайвих декорацій.
+  const roleFont = assets.fonts.interSemiBold;
+  const roleSize = Math.min(W, H) * 0.011;
+  const roleText = 'ПРЕЗИДЕНТКА · UIMP';
+  const roleY = lineY - nameSize * 1.05 - roleSize * 2.2;
+  drawCenteredTracked(page, roleText, nameX, roleY, roleSize, 2.8, roleFont, c(GOLD_DEEP));
 }
 
 /* ----------------------------------------------------------------------- */
@@ -423,7 +451,7 @@ function drawSupervisionSeal(
   logoGoldPng: PDFImage,
 ) {
   const cx = W / 2;
-  const cy = H * 0.142;
+  const cy = H * 0.122;
   const rOuter = Math.min(W, H) * 0.072;   // ~65pt радіус → ~130pt діаметр
 
   /// Drop shadow — 3 розпорошених шари
