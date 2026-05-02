@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import prisma from '@/lib/prisma';
 import { isYearlyProgramOrderRef, YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
-import { lookupStudentIdByEmail, openAccessViaEvent } from '@/lib/sendpulse';
+import { sendYearlyProgramWelcomeEmail } from '@/lib/yearlyProgramWelcomeEmail';
 import { timingSafeEqualStr } from '@/lib/authTiming';
 import { getYearlyProgramSettings } from '@/lib/yearlyProgramSettings';
 import { provisionPayment } from '@/lib/paymentProvisioning';
@@ -853,72 +853,36 @@ async function handleYearlyProgramCallback(args: {
         : 'monthly-once';
   actions.push(`yearly:${planLabel}:+${flipResult.durationDays}d`);
 
-  // Відкриваємо доступ у SendPulse тільки якщо cohort уже запущений (launchedAt set)
-  // АБО підписка не прив'язана до cohort (legacy). Для запущеного cohort-у нові оплати
-  // → миттєвий доступ. Для cohort-у, який ще не стартував — оплата фіксується, але доступ
-  // відкриється централізовано в момент `🚀 Запустити програму`.
-  const cohortLaunched = sub.cohort?.launchedAt != null;
-  const shouldOpenAccessNow = !sub.cohort || cohortLaunched;
-
-  if (!shouldOpenAccessNow) {
-    actions.push('sendpulse:deferred_until_cohort_launch');
-    return {
-      prevStatus,
-      skipped: false,
-      skipReason: null,
-      errorMsg: null,
-      actions,
-      sendpulseSlugs,
-    };
-  }
-
-  try {
-    await openAccessViaEvent(
-      user.email,
-      YEARLY_PROGRAM_CONFIG.sendpulseEventSlug,
-      payment.amount,
-    );
-    sendpulseSlugs.push(YEARLY_PROGRAM_CONFIG.sendpulseEventSlug);
-    actions.push('sendpulse:event_sent');
-
-    if (!sub.sendpulseAccessOpenedAt) {
-      await prisma.yearlyProgramSubscription.update({
-        where: { id: sub.id },
-        data: { sendpulseAccessOpenedAt: new Date(), sendpulseAccessClosedAt: null },
+  // На оплату Річної програми SendPulse-event НЕ викликається — доступ до платформи
+  // (логін/пароль) відкривається централізовано в момент масової розсилки на запуск
+  // програми (`executeLaunchLoop`) або через extra-launch для пізніх приєднанців.
+  // На оплату шлемо ТІЛЬКИ наш generic welcome lett (без креденшилз).
+  if (flipResult.wasFirstPayment) {
+    try {
+      const result = await sendYearlyProgramWelcomeEmail({
+        to: user.email,
+        name: user.name ?? null,
+        plan: sub.plan,
+        autoRenew: sub.autoRenew,
       });
-      await prisma.yearlyProgramSubscriptionEvent.create({
-        data: {
-          subscriptionId: sub.id,
-          type: 'access_opened',
-          message: `SendPulse event sent (${YEARLY_PROGRAM_CONFIG.sendpulseEventSlug})`,
-        },
-      });
-    }
-
-    // Лукапимо SendPulse studentId, якщо його ще нема і сконфігуровано courseId.
-    // Це може не спрацювати одразу (воронка створює Student async), тому не блокуючи.
-    if (!sub.sendpulseStudentId && YEARLY_PROGRAM_CONFIG.sendpulseCourseId) {
-      try {
-        const studentId = await lookupStudentIdByEmail(
-          YEARLY_PROGRAM_CONFIG.sendpulseCourseId,
-          user.email,
-        );
-        if (studentId) {
-          await prisma.yearlyProgramSubscription.update({
-            where: { id: sub.id },
-            data: { sendpulseStudentId: studentId },
-          });
-          actions.push(`sendpulse:student_id:${studentId}`);
-        } else {
-          actions.push('sendpulse:student_id:not_found_yet');
-        }
-      } catch (e) {
-        actions.push(`sendpulse:lookup_err:${(e as Error).message.slice(0, 40)}`);
+      if (result.ok) {
+        actions.push('email:welcome_sent');
+        await prisma.yearlyProgramSubscriptionEvent.create({
+          data: {
+            subscriptionId: sub.id,
+            type: 'admin_action',
+            message: 'Welcome lett sent (no credentials — credentials follow on launch)',
+          },
+        });
+      } else {
+        actions.push(`email:welcome_err:${(result.error ?? 'unknown').slice(0, 40)}`);
       }
+    } catch (e) {
+      actions.push(`email:welcome_err:${(e as Error).message.slice(0, 40)}`);
     }
-  } catch (e) {
-    actions.push(`sendpulse:event_err:${(e as Error).message.slice(0, 40)}`);
   }
+
+  actions.push('sendpulse:deferred_until_launch');
 
   return {
     prevStatus,
