@@ -1510,10 +1510,15 @@ function SupervisionTab({
         <IssueSupervisionDialog
           theme={theme}
           onClose={() => setShowIssue(false)}
-          onIssued={() => {
+          onIssued={(count) => {
             setShowIssue(false);
             fetchList();
-            pushToast({ type: 'success', msg: 'Сертифікат видано та відправлено' });
+            pushToast({
+              type: 'success',
+              msg: count === 1
+                ? 'Сертифікат видано та відправлено'
+                : `Видано ${count} сертифікатів та відправлено`,
+            });
           }}
           onError={(msg) => pushToast({ type: 'error', msg })}
         />
@@ -2375,7 +2380,7 @@ function PreviewPane({
 
   return (
     <>
-      <div className={`rounded-xl border overflow-hidden flex flex-col h-full min-h-[480px] ${dark ? 'border-white/[0.08] bg-black/40' : 'border-stone-200 bg-stone-50'}`}>
+      <div className={`rounded-xl border overflow-hidden flex flex-col min-h-[380px] ${dark ? 'border-white/[0.08] bg-black/40' : 'border-stone-200 bg-stone-50'}`}>
         <div className={`px-4 py-2.5 flex items-center justify-between border-b ${dark ? 'border-white/[0.06] bg-gradient-to-b from-white/[0.04] to-transparent' : 'border-stone-200/70 bg-gradient-to-b from-white to-stone-50/40'}`}>
           <div className="flex items-center gap-2">
             <HiOutlineEye className={`w-4 h-4 ${dark ? 'text-amber-400/80' : 'text-amber-600/90'}`} />
@@ -3249,12 +3254,51 @@ function IssueYearlyManualDialog({
 
 /* --------------------------- IssueSupervisionDialog --------------------------- */
 
-/// Модалка видачі сертифіката супервізії. Менеджер вписує:
-///   - Ім'я отримувача (як буде надруковано)
-///   - Email (на який піде PDF; якщо такого юзера ще немає — створюється)
-///   - Тема супервізії (друкується замість назви курсу)
-///   - Дата супервізії (опційно — друкується у body)
-/// Live-превью оновлюється debounced 500мс.
+/// Модалка пакетної видачі сертифікатів супервізії. Один POST = одне заняття,
+/// спільна тема + дата, список учасників (1-100). API обробляє їх паралельно через
+/// Promise.allSettled. Часткові помилки тримають модалку відкритою — невдалі
+/// рядки лишаються у формі для виправлення і повторної відправки.
+type SupervisionRecipient = { id: string; name: string; email: string };
+type SupervisionFailed = { name: string; email: string; error: string };
+
+const SUPERVISION_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/// Витяг email-у з довільного рядка bulk-paste — для парсингу строк виду
+/// "Іван Петренко <ivan@x.com>" або "Іван Петренко, ivan@x.com" або просто "Ivan ivan@x.com"
+const SUPERVISION_EMAIL_EXTRACT_RE = /[^\s,;<>"'()]+@[^\s,;<>"'()]+\.[^\s,;<>"'()]+/;
+
+function newSupervisionRecipient(): SupervisionRecipient {
+  return {
+    id: typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : Math.random().toString(36).slice(2, 11),
+    name: '',
+    email: '',
+  };
+}
+
+/// Авто-капіталізація: перша буква кожного слова (після пробілу/дефіса/апострофа).
+function autoCapName(value: string): string {
+  return value.replace(/(^|[\s\-'’])(\p{L})/gu, (_m, sep, ch) => sep + ch.toUpperCase());
+}
+
+/// Парсинг bulk-textarea: одна строка = один учасник. Витягуємо email регексом,
+/// решта — імʼя (з очищенням розділювачів). Порожні строки пропускаємо.
+function parseSupervisionBulk(text: string): SupervisionRecipient[] {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((line) => {
+      const emailMatch = line.match(SUPERVISION_EMAIL_EXTRACT_RE);
+      const email = emailMatch ? emailMatch[0] : '';
+      const rawName = email
+        ? line.replace(email, '').replace(/[<>,;"']/g, '').trim()
+        : line;
+      const name = autoCapName(rawName);
+      return { ...newSupervisionRecipient(), name, email };
+    });
+}
+
 function IssueSupervisionDialog({
   theme,
   onClose,
@@ -3263,16 +3307,18 @@ function IssueSupervisionDialog({
 }: {
   theme: Theme;
   onClose: () => void;
-  onIssued: () => void;
+  onIssued: (count: number) => void;
   onError: (msg: string) => void;
 }) {
   const dark = theme === 'dark';
   const [fromEmail, setFromEmail] = useState<string | null>(null);
-  const [recipientName, setRecipientName] = useState('');
-  const [recipientEmail, setRecipientEmail] = useState('');
   const [topic, setTopic] = useState('');
   const [supervisionDate, setSupervisionDate] = useState('');
+  const [recipients, setRecipients] = useState<SupervisionRecipient[]>(() => [newSupervisionRecipient()]);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkText, setBulkText] = useState('');
   const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState<SupervisionFailed[] | null>(null);
 
   useEffect(() => {
     fetch('/api/admin/mailer-config')
@@ -3283,28 +3329,112 @@ function IssueSupervisionDialog({
       .catch(() => {});
   }, []);
 
-  const canSubmit =
-    !busy &&
-    recipientName.trim().length > 0 &&
-    recipientEmail.trim().length > 0 &&
-    topic.trim().length > 0;
+  /// Лічильник валідних учасників: і імʼя, і email мають пройти валідацію
+  const validCount = useMemo(
+    () =>
+      recipients.filter(
+        (r) => r.name.trim().length > 0 && SUPERVISION_EMAIL_RE.test(r.email.trim()),
+      ).length,
+    [recipients],
+  );
+
+  /// Дублі по email (case-insensitive) — підсвічуємо у формі, не блокуємо submit
+  /// (бекенд видасть кілька сертифікатів з різними certNumber, це валідно за бізнес-логікою).
+  const duplicateEmails = useMemo(() => {
+    const seen = new Map<string, number>();
+    for (const r of recipients) {
+      const key = r.email.trim().toLowerCase();
+      if (!key) continue;
+      seen.set(key, (seen.get(key) ?? 0) + 1);
+    }
+    return new Set([...seen.entries()].filter(([, n]) => n > 1).map(([e]) => e));
+  }, [recipients]);
+
+  const canSubmit = !busy && topic.trim().length > 0 && validCount > 0;
+
+  /// Превʼю тягнеться для ПЕРШОГО валідного учасника — щоб менеджер бачив, як
+  /// виглядатиме сертифікат, без 50-рендерів одночасно.
+  const previewRecipient = recipients.find(
+    (r) => r.name.trim().length > 0 && SUPERVISION_EMAIL_RE.test(r.email.trim()),
+  );
+
+  function updateRecipient(id: string, patch: Partial<Pick<SupervisionRecipient, 'name' | 'email'>>) {
+    setRecipients((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  }
+
+  function addRecipient() {
+    setRecipients((prev) => [...prev, newSupervisionRecipient()]);
+  }
+
+  function removeRecipient(id: string) {
+    setRecipients((prev) => {
+      const next = prev.filter((r) => r.id !== id);
+      /// Завжди лишаємо принаймні 1 пустий рядок — щоб форма не «зникала»
+      return next.length === 0 ? [newSupervisionRecipient()] : next;
+    });
+  }
+
+  function applyBulkPaste() {
+    const parsed = parseSupervisionBulk(bulkText);
+    if (parsed.length === 0) return;
+    setRecipients((prev) => {
+      /// Зберігаємо існуючі НЕ-порожні рядки + додаємо нові
+      const keep = prev.filter((r) => r.name.trim() || r.email.trim());
+      return [...keep, ...parsed];
+    });
+    setBulkText('');
+    setBulkOpen(false);
+  }
+
+  function clearAll() {
+    setRecipients([newSupervisionRecipient()]);
+    setFailed(null);
+  }
 
   async function submit() {
     setBusy(true);
+    setFailed(null);
     try {
+      /// Передаємо лише валідних — невалідні (порожні рядки) ігноруємо при submit-і
+      const payloadRecipients = recipients
+        .filter((r) => r.name.trim().length > 0 && SUPERVISION_EMAIL_RE.test(r.email.trim()))
+        .map((r) => ({ name: r.name.trim(), email: r.email.trim() }));
+
       const res = await fetch('/api/admin/certificates/supervision', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          recipientName: recipientName.trim(),
-          recipientEmail: recipientEmail.trim(),
           topic: topic.trim(),
           supervisionDate: supervisionDate || null,
+          recipients: payloadRecipients,
         }),
       });
-      const data = await res.json();
+      const data = (await res.json()) as {
+        issued?: number;
+        failed?: SupervisionFailed[];
+        error?: string;
+      };
       if (!res.ok) throw new Error(data?.error ?? 'Помилка');
-      onIssued();
+
+      const failedList = Array.isArray(data.failed) ? data.failed : [];
+      const issuedCount = typeof data.issued === 'number' ? data.issued : 0;
+
+      if (failedList.length === 0) {
+        /// Усе видано → закриваємо модалку, parent ховає toast
+        onIssued(issuedCount);
+        return;
+      }
+
+      /// Часткова невдача: лишаємо у формі ЛИШЕ ті рядки, що впали — щоб менеджер
+      /// міг виправити (наприклад, юзер у архіві → інший email) і відправити ще раз
+      /// без ризику задвоїти сертифікати тим, кому вже видано.
+      const failedKeys = new Set(failedList.map((f) => f.email.trim().toLowerCase()));
+      setRecipients((prev) => {
+        const keptFailed = prev.filter((r) => failedKeys.has(r.email.trim().toLowerCase()));
+        return keptFailed.length > 0 ? keptFailed : [newSupervisionRecipient()];
+      });
+      setFailed(failedList);
+      onError(`${issuedCount} видано, ${failedList.length} з помилкою — залишились у списку`);
     } catch (err) {
       onError(err instanceof Error ? err.message : 'Помилка');
     } finally {
@@ -3312,10 +3442,18 @@ function IssueSupervisionDialog({
     }
   }
 
+  const submitLabel = busy
+    ? 'Видаю…'
+    : validCount === 0
+      ? 'Видати і відправити'
+      : validCount === 1
+        ? 'Видати і відправити'
+        : `Видати ${validCount} сертифікатів`;
+
   return (
     <ModalShell
       theme={theme}
-      title="Видати сертифікат супервізії"
+      title="Видати сертифікати супервізії"
       onClose={onClose}
       wide
       expandable
@@ -3329,97 +3467,212 @@ function IssueSupervisionDialog({
             disabled={!canSubmit}
             className="px-4 py-2 rounded-lg bg-amber-500 text-white text-[13px] font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {busy ? 'Видаю…' : 'Видати і відправити'}
+            {submitLabel}
           </button>
         </>
       }
     >
-      <div className="grid grid-cols-1 lg:grid-cols-[0.82fr_1.18fr] gap-5 h-full min-h-[560px]">
-        <div className="space-y-4">
-          <div>
-            <label className={`block text-[11px] uppercase tracking-wider mb-1 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
-              Ім&apos;я (як надрукувати)
-            </label>
-            <input
-              autoFocus
-              value={recipientName}
-              onChange={(e) => setRecipientName(e.target.value.replace(/(^|[\s\-'’])(\p{L})/gu, (_m, sep, ch) => sep + ch.toUpperCase()))}
-              placeholder="Ім'я та Прізвище"
-              className={`w-full px-3 py-2 rounded-lg border text-[13px] ${dark ? 'bg-white/[0.04] border-white/[0.1] text-white placeholder-slate-500' : 'bg-white border-stone-300 text-stone-900'}`}
-            />
-          </div>
-
-          <div>
-            <label className={`block text-[11px] uppercase tracking-wider mb-1 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
-              Email
-            </label>
-            <input
-              type="email"
-              value={recipientEmail}
-              onChange={(e) => setRecipientEmail(e.target.value)}
-              placeholder="name@example.com"
-              className={`w-full px-3 py-2 rounded-lg border text-[13px] ${dark ? 'bg-white/[0.04] border-white/[0.1] text-white placeholder-slate-500' : 'bg-white border-stone-300 text-stone-900'}`}
-            />
-            <p className={`text-[11px] mt-1 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
-              Якщо такого юзера ще немає — буде створено новий запис.
-            </p>
-          </div>
-
-          <div>
-            <label className={`block text-[11px] uppercase tracking-wider mb-1 ${dark ? 'text-slate-500' : 'text-stone-400'}`}>
-              Лист надійде з
-            </label>
-            <input
-              type="text"
-              readOnly
-              disabled
-              value={fromEmail ?? 'Завантаження…'}
-              title="Адреса відправника листа. Змінити можна тільки через RESEND_FROM_EMAIL у env."
-              className={`w-full px-3 py-2 rounded-lg border text-[13px] cursor-not-allowed ${
-                dark
-                  ? 'bg-white/[0.02] border-white/[0.06] text-slate-500'
-                  : 'bg-stone-100 border-stone-200 text-stone-500'
-              }`}
-            />
-          </div>
-
-          <div>
+      <div className="grid grid-cols-1 lg:grid-cols-[0.82fr_1.18fr] gap-5">
+        <div className="flex flex-col">
+          {/* Тема */}
+          <div className="mb-3">
             <label className={`block text-[11px] uppercase tracking-wider mb-1 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
               Тема супервізії
             </label>
             <input
+              autoFocus
               value={topic}
               onChange={(e) => setTopic(e.target.value)}
               placeholder="Напр.: Робота з проєкціями у клієнтсько-терапевтичних відносинах"
               className={`w-full px-3 py-2 rounded-lg border text-[13px] ${dark ? 'bg-white/[0.04] border-white/[0.1] text-white placeholder-slate-500' : 'bg-white border-stone-300 text-stone-900'}`}
             />
-            <p className={`text-[11px] mt-1 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
-              Друкується на сертифікаті як назва.
-            </p>
           </div>
 
-          <div>
-            <label className={`block text-[11px] uppercase tracking-wider mb-1 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
-              Дата супервізії <span className="normal-case text-stone-400">(опційно)</span>
-            </label>
-            <input
-              type="date"
-              value={supervisionDate}
-              onChange={(e) => setSupervisionDate(e.target.value)}
-              className={`w-full px-3 py-2 rounded-lg border text-[13px] ${dark ? 'bg-white/[0.04] border-white/[0.1] text-white' : 'bg-white border-stone-300 text-stone-900'}`}
-            />
-            <p className={`text-[11px] mt-1 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
-              Якщо вказана — друкується у body сертифіката як дата проведення заняття.
-            </p>
+          {/* Дата + Лист надійде з: 2 cols */}
+          <div className="grid grid-cols-2 gap-3 mb-3">
+            <div>
+              <label className={`block text-[11px] uppercase tracking-wider mb-1 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
+                Дата <span className="normal-case text-stone-400">(опційно)</span>
+              </label>
+              <input
+                type="date"
+                value={supervisionDate}
+                onChange={(e) => setSupervisionDate(e.target.value)}
+                className={`w-full px-3 py-2 rounded-lg border text-[13px] ${dark ? 'bg-white/[0.04] border-white/[0.1] text-white' : 'bg-white border-stone-300 text-stone-900'}`}
+              />
+            </div>
+            <div>
+              <label className={`block text-[11px] uppercase tracking-wider mb-1 ${dark ? 'text-slate-500' : 'text-stone-400'}`}>
+                Лист надійде з
+              </label>
+              <input
+                type="text"
+                readOnly
+                disabled
+                value={fromEmail ?? 'Завантаження…'}
+                title="Адреса відправника листа. Змінити можна тільки через RESEND_FROM_EMAIL у env."
+                className={`w-full px-3 py-2 rounded-lg border text-[13px] cursor-not-allowed ${
+                  dark
+                    ? 'bg-white/[0.02] border-white/[0.06] text-slate-500'
+                    : 'bg-stone-100 border-stone-200 text-stone-500'
+                }`}
+              />
+            </div>
           </div>
+
+          {/* Учасники: header + scrollable list + add button */}
+          <div className={`flex flex-col rounded-lg border ${dark ? 'border-white/[0.08] bg-white/[0.02]' : 'border-stone-200 bg-stone-50/40'}`}>
+            <div className={`px-3 py-2 flex items-center justify-between border-b ${dark ? 'border-white/[0.06]' : 'border-stone-200'}`}>
+              <div className="flex items-center gap-2">
+                <span className={`text-[11px] uppercase tracking-wider font-medium ${dark ? 'text-slate-300' : 'text-stone-700'}`}>
+                  Учасники
+                </span>
+                <span className={`text-[11px] px-1.5 py-0.5 rounded ${
+                  validCount === 0
+                    ? (dark ? 'bg-stone-500/15 text-stone-400' : 'bg-stone-200 text-stone-500')
+                    : (dark ? 'bg-amber-500/15 text-amber-300' : 'bg-amber-100 text-amber-800')
+                }`}>
+                  {validCount} валідних{recipients.filter(r => r.name.trim() || r.email.trim()).length !== validCount && ` / ${recipients.filter(r => r.name.trim() || r.email.trim()).length}`}
+                </span>
+              </div>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setBulkOpen((v) => !v)}
+                  className={`text-[11px] px-2 py-1 rounded-md transition-colors ${
+                    bulkOpen
+                      ? (dark ? 'bg-amber-500/20 text-amber-300' : 'bg-amber-100 text-amber-800')
+                      : (dark ? 'text-slate-300 hover:bg-white/[0.05]' : 'text-stone-600 hover:bg-stone-100')
+                  }`}
+                >
+                  ⌬ Вставити список
+                </button>
+                {recipients.some((r) => r.name.trim() || r.email.trim()) && (
+                  <button
+                    type="button"
+                    onClick={clearAll}
+                    title="Очистити всіх"
+                    className={`text-[11px] px-2 py-1 rounded-md transition-colors ${dark ? 'text-slate-400 hover:text-red-300 hover:bg-red-500/10' : 'text-stone-500 hover:text-red-600 hover:bg-red-50'}`}
+                  >
+                    Очистити
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {bulkOpen && (
+              <div className={`px-3 py-2 border-b ${dark ? 'border-white/[0.06] bg-white/[0.02]' : 'border-stone-200 bg-amber-50/30'}`}>
+                <textarea
+                  value={bulkText}
+                  onChange={(e) => setBulkText(e.target.value)}
+                  rows={4}
+                  placeholder={"Один рядок — один учасник. Підтримує:\nІван Петренко, ivan@example.com\nОлена Коваль <olena@example.com>\nМикола Іваненко mykola@example.com"}
+                  className={`w-full px-2.5 py-2 rounded-md border text-[12px] font-mono leading-relaxed ${dark ? 'bg-black/30 border-white/[0.1] text-slate-200 placeholder-slate-500' : 'bg-white border-stone-300 text-stone-800 placeholder-stone-400'}`}
+                />
+                <div className="flex items-center justify-end gap-2 mt-2">
+                  <button
+                    type="button"
+                    onClick={() => { setBulkText(''); setBulkOpen(false); }}
+                    className={`text-[11px] px-2 py-1 rounded-md ${dark ? 'text-slate-400 hover:bg-white/[0.05]' : 'text-stone-500 hover:bg-stone-100'}`}
+                  >
+                    Скасувати
+                  </button>
+                  <button
+                    type="button"
+                    onClick={applyBulkPaste}
+                    disabled={!bulkText.trim()}
+                    className="text-[11px] px-3 py-1 rounded-md bg-amber-500 text-white font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Розпарсити
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="max-h-[300px] overflow-y-auto p-2 space-y-1.5">
+              {recipients.map((r, idx) => {
+                const nameTrim = r.name.trim();
+                const emailTrim = r.email.trim();
+                const emailValid = emailTrim.length === 0 || SUPERVISION_EMAIL_RE.test(emailTrim);
+                const isDup = emailTrim && duplicateEmails.has(emailTrim.toLowerCase());
+                const baseInputCls = `px-2.5 py-1.5 rounded-md border text-[12.5px] ${dark ? 'bg-white/[0.04] text-white placeholder-slate-500' : 'bg-white text-stone-900 placeholder-stone-400'}`;
+                const nameBorder = nameTrim
+                  ? (dark ? 'border-white/[0.1]' : 'border-stone-300')
+                  : (dark ? 'border-white/[0.06]' : 'border-stone-200');
+                const emailBorder = !emailValid
+                  ? 'border-red-500/60'
+                  : isDup
+                    ? 'border-amber-500/50'
+                    : emailTrim
+                      ? (dark ? 'border-white/[0.1]' : 'border-stone-300')
+                      : (dark ? 'border-white/[0.06]' : 'border-stone-200');
+                return (
+                  <div key={r.id} className="flex items-center gap-1.5">
+                    <span className={`text-[10px] w-5 text-right tabular-nums shrink-0 ${dark ? 'text-slate-500' : 'text-stone-400'}`}>
+                      {idx + 1}.
+                    </span>
+                    <input
+                      type="text"
+                      value={r.name}
+                      onChange={(e) => updateRecipient(r.id, { name: autoCapName(e.target.value) })}
+                      placeholder="Імʼя та Прізвище"
+                      className={`flex-1 min-w-0 ${baseInputCls} ${nameBorder}`}
+                    />
+                    <input
+                      type="email"
+                      value={r.email}
+                      onChange={(e) => updateRecipient(r.id, { email: e.target.value })}
+                      placeholder="email@example.com"
+                      title={!emailValid ? 'Невалідний email' : isDup ? 'Цей email повторюється у списку' : ''}
+                      className={`flex-1 min-w-0 ${baseInputCls} ${emailBorder}`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeRecipient(r.id)}
+                      title="Видалити"
+                      className={`shrink-0 w-7 h-7 flex items-center justify-center rounded-md transition-colors ${dark ? 'text-slate-500 hover:text-red-300 hover:bg-red-500/10' : 'text-stone-400 hover:text-red-600 hover:bg-red-50'}`}
+                    >
+                      <HiOutlineTrash className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className={`px-2 py-2 border-t ${dark ? 'border-white/[0.06]' : 'border-stone-200'}`}>
+              <button
+                type="button"
+                onClick={addRecipient}
+                className={`w-full text-[12px] py-1.5 rounded-md border-dashed border transition-colors ${dark ? 'border-white/[0.1] text-slate-300 hover:bg-white/[0.05] hover:border-white/[0.2]' : 'border-stone-300 text-stone-600 hover:bg-stone-100 hover:border-stone-400'}`}
+              >
+                + Додати учасника
+              </button>
+            </div>
+          </div>
+
+          {failed && failed.length > 0 && (
+            <div className={`mt-3 rounded-lg border px-3 py-2 ${dark ? 'border-red-500/30 bg-red-500/10' : 'border-red-200 bg-red-50'}`}>
+              <div className={`text-[11px] uppercase tracking-wider font-semibold mb-1.5 ${dark ? 'text-red-300' : 'text-red-700'}`}>
+                Помилки ({failed.length})
+              </div>
+              <ul className={`text-[11.5px] space-y-0.5 max-h-24 overflow-y-auto ${dark ? 'text-red-200' : 'text-red-800'}`}>
+                {failed.map((f, i) => (
+                  <li key={i}>
+                    <span className="font-mono">{f.email}</span>
+                    <span className="opacity-70"> — {f.error}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
 
         <PreviewPane
           theme={theme}
-          disabled={!recipientName.trim() || !topic.trim()}
+          disabled={!previewRecipient || !topic.trim()}
           params={{
             type: 'SUPERVISION',
-            recipientName: recipientName.trim(),
+            recipientName: previewRecipient?.name?.trim() ?? '',
             courseName: topic.trim(),
             supervisionDate: supervisionDate || undefined,
           }}
