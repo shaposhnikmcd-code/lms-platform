@@ -8,16 +8,33 @@ import { buildRegularPurchaseFlags, removeRegularSchedule, getWayforpayCreds } f
 import { applyPromoServerSide, resolveServerPricing } from '@/lib/paymentPricing';
 import { checkRateLimit } from '@/lib/ratelimit';
 import { lastAutopayChargeDate, maxAutopayChargeCount } from '@/lib/yearlyProgramAccess';
+import { verifyInvite, type InvitePayload } from '@/lib/yearlyProgramInvite';
 
 export async function POST(req: NextRequest) {
   try {
     const rl = await checkRateLimit(req, 'payment');
     if (!rl.ok) return rl.response!;
 
-    const { orderReference, clientEmail, clientName, clientPhone, courseId, promoCode, selectedFreeSlugs, recurring } = await req.json();
+    const { orderReference, clientEmail, clientName, clientPhone, courseId, promoCode, selectedFreeSlugs, recurring, invite } = await req.json();
 
     if (typeof orderReference !== 'string' || !orderReference) {
       return NextResponse.json({ error: 'Missing orderReference' }, { status: 400 });
+    }
+
+    // Manual-add invite: менеджер заздалегідь згенерував signed token із email/plan/cohortId.
+    // Якщо token валідний — primary email/plan/autoRenew йдуть з token-у, не з body
+    // (захист від підміни клієнтом). Підписка створюється з manuallyAddedAt + прив'язується
+    // до cohort-у з token-у замість поточного `isCurrent`.
+    let invitePayload: InvitePayload | null = null;
+    if (typeof invite === 'string' && invite.length > 0) {
+      invitePayload = verifyInvite(invite);
+      if (!invitePayload) {
+        return NextResponse.json({ error: 'Invite-посилання недійсне або застаріло' }, { status: 400 });
+      }
+      // Email з body має співпадати з email у token-і — захист від підміни на стороні браузера.
+      if (typeof clientEmail === 'string' && clientEmail.trim().toLowerCase() !== invitePayload.email) {
+        return NextResponse.json({ error: 'Email не співпадає з invite-посиланням' }, { status: 400 });
+      }
     }
 
     const creds = getWayforpayCreds();
@@ -148,11 +165,25 @@ export async function POST(req: NextRequest) {
       // Для річної програми — знаходимо/створюємо підписку і лінкуємо Payment
       let yearlyProgramSubscriptionId: string | null = null;
       if (yearlyKind) {
-        const currentCohort = await prisma.yearlyProgramCohort.findFirst({
-          where: { isCurrent: true },
-          select: { id: true },
-        });
-        currentCohortId = currentCohort?.id ?? null;
+        // Invite-flow: cohortId беремо з token-у замість поточного `isCurrent`. Дозволяє
+        // менеджеру додати студента в конкретний cohort, навіть якщо він не isCurrent.
+        if (invitePayload) {
+          // Перевіряємо що cohort з invite ще існує (менеджер не видалив після генерації token-у).
+          const inviteCohort = await prisma.yearlyProgramCohort.findUnique({
+            where: { id: invitePayload.cohortId },
+            select: { id: true },
+          });
+          if (!inviteCohort) {
+            return NextResponse.json({ error: 'Cohort з invite-посилання не існує' }, { status: 400 });
+          }
+          currentCohortId = inviteCohort.id;
+        } else {
+          const currentCohort = await prisma.yearlyProgramCohort.findFirst({
+            where: { isCurrent: true },
+            select: { id: true },
+          });
+          currentCohortId = currentCohort?.id ?? null;
+        }
         const plan = yearlyKind === 'yearly' ? 'YEARLY' : 'MONTHLY';
         const existing = await prisma.yearlyProgramSubscription.findFirst({
           where: {
@@ -252,8 +283,29 @@ export async function POST(req: NextRequest) {
               status: 'PENDING',
               autoRenew,
               cohortId: currentCohortId,
+              ...(invitePayload
+                ? {
+                    manuallyAddedAt: new Date(),
+                    manuallyAddedBy: invitePayload.invitedBy,
+                  }
+                : {}),
             },
           });
+          if (invitePayload) {
+            await prisma.yearlyProgramSubscriptionEvent.create({
+              data: {
+                subscriptionId: created.id,
+                type: 'admin_action',
+                message: `Manual-add via invite by ${invitePayload.invitedBy}`,
+                metadata: {
+                  invitedBy: invitePayload.invitedBy,
+                  cohortId: invitePayload.cohortId,
+                  plan: invitePayload.plan,
+                  autoRenew: invitePayload.autoRenew,
+                },
+              },
+            });
+          }
           yearlyProgramSubscriptionId = created.id;
         }
         paymentCourseId = null;

@@ -2,8 +2,9 @@
 ///
 /// Дизайн (HTML-референс: `public/Certificates/supervision-mockups.html`):
 ///   - Подвійна тонка золота смужка зверху (без medallion-у).
-///   - Великий 2-рядковий брендовий блок: «Український інститут душеопіки / та психотерапії UIMP»
-///     (Cormorant Regular non-italic, UIMP — біле з зеленою тінню).
+///   - UIMP-знак (Variant 5: Minimalist Modern) — тонкий tracked Cinzel deep-gold
+///     з fade-rule фланкерами, у коридорі між назвою інституту та heading. Editorial
+///     quiet luxury: жодних декорацій, лише типографіка + лінії що тануть у папір.
 ///   - Heading «Супервізія» Cormorant Regular non-italic, темно-зелений.
 ///   - Subtitle «— Сертифікат про участь —» tracked caps, gold-deep.
 ///   - Diamond-divider (родинна риса UIMP).
@@ -49,6 +50,9 @@ export function drawSupervisionTemplate(
   drawCreamBackground(page, W, H);
   drawTopGoldStripes(page, W, H);
   drawInstituteLockup(page, W, H, assets.fonts);
+  /// UIMP-знак (minimalist modern): тонкий tracked-Cinzel у gold-deep з fade-rule
+  /// фланкерами; чисто розміщений у коридорі між назвою інституту та heading.
+  drawUimpMark(page, W, H, assets.fonts);
   drawHeading(page, W, H, assets.fonts);
   drawSubtitle(page, W, H, assets.fonts);
   drawDiamondDivider(page, W, H);
@@ -105,9 +109,9 @@ function drawTopGoldStripes(page: PDFPage, W: number, H: number) {
 /*                          INSTITUTE LOCKUP (brand-блок зверху)           */
 /* ----------------------------------------------------------------------- */
 
-/// Дворядкова назва інституту: «Український інститут душеопіки / та психотерапії UIMP».
-/// Cormorant Regular (non-italic), темно-зелений. UIMP — біле з зеленою тінню для
-/// контрасту на cream-фоні (так само як у HTML-референсі).
+/// Дворядкова назва інституту: «Український інститут душеопіки / та психотерапії».
+/// Cormorant Regular (non-italic), темно-зелений. Сидить ПОВЕРХ великого UIMP-watermark
+/// (drawUimpWatermark, рендериться окремо до цієї функції в orchestrator).
 function drawInstituteLockup(
   page: PDFPage,
   W: number,
@@ -126,32 +130,88 @@ function drawInstituteLockup(
     size, font, color: c(GREEN),
   });
 
-  /// Лінія 2: "та психотерапії " + "UIMP" (UIMP — біле з зеленою тінню)
-  const prefix = 'та психотерапії ';
-  const uimp = 'UIMP';
-  const wPrefix = font.widthOfTextAtSize(prefix, size);
-  const wUimp = font.widthOfTextAtSize(uimp, size);
-  const totalW = wPrefix + wUimp;
-  const x0 = cx - totalW / 2;
-  const y2 = H * 0.815;
-
-  page.drawText(prefix, {
-    x: x0, y: y2,
+  /// Лінія 2: тільки "та психотерапії" — UIMP винесено окремо як брендмарк нижче.
+  const line2 = 'та психотерапії';
+  const w2 = font.widthOfTextAtSize(line2, size);
+  page.drawText(line2, {
+    x: cx - w2 / 2, y: H * 0.815,
     size, font, color: c(GREEN),
   });
 
-  /// UIMP — тонка зелена тінь під ним (для читабельності на cream)
-  page.drawText(uimp, {
-    x: x0 + wPrefix + 0.6, y: y2 - 0.6,
-    size, font, color: c(GREEN_DEEP),
-    opacity: 0.35,
-  });
-  /// Білий UIMP зверху
-  page.drawText(uimp, {
-    x: x0 + wPrefix, y: y2,
-    size, font,
-    color: rgb(1, 1, 1),
-  });
+  /// UIMP-watermark рендериться окремо ДО цього функції (drawUimpWatermark в orchestrator),
+  /// тому тут лочкап лише для назви інституту — без UIMP-марки.
+}
+
+/// UIMP-знак (Variant 5: Minimalist Modern) — тонкий typographic mark у коридорі між
+/// назвою інституту та heading. Editorial / quiet luxury: жодних декорацій, лише
+/// широко tracked Cinzel deep-gold + fade-rule фланкери, що тануть у cream-папір.
+///
+/// Геометрія коридору: y 0.804 (descent line 2) → 0.744 (cap top heading) = 60px зона.
+/// UIMP центрований по 0.774, висота літер ~18px → 18px clearance зверху і знизу.
+function drawUimpMark(
+  page: PDFPage,
+  W: number,
+  H: number,
+  fonts: Record<FontKey, PDFFont>,
+) {
+  const cx = W / 2;
+  const cy = H * 0.774;
+  /// Малий, ввічливий розмір — мета mark-а у quiet confidence, не в presence
+  const size = Math.min(W, H) * 0.028;
+  /// Дуже широкий tracking (0.78) — editorial типографіка, літери розставлено
+  const tracking = size * 0.78;
+  const font = fonts.cinzel;
+
+  const text = 'UIMP';
+  let textW = 0;
+  for (const ch of text) textW += font.widthOfTextAtSize(ch, size) + tracking;
+  textW -= tracking;
+
+  /// Cinzel сидить нижче власного baseline — піднімаємо щоб візуально центрувати на cy
+  const yText = cy - size * 0.34;
+
+  /// UIMP літери — gold-deep (saturated amber), Cinzel Regular. Без faux-bold, без shadow:
+  /// мінімалістична чистота. Колір достатньо темний щоб впевнено читатись на cream.
+  let x = cx - textW / 2;
+  for (const ch of text) {
+    const cw = font.widthOfTextAtSize(ch, size);
+    page.drawText(ch, { x, y: yText, size, font, color: c(GOLD_DEEP) });
+    x += cw + tracking;
+  }
+
+  /// Fade-rule фланкери — горизонтальні gold-лінії з обох боків UIMP, що тануть назовні
+  /// (від transparent до 0.9 opacity ближче до тексту). Pdf-lib не підтримує градієнт
+  /// штриха, тому імітуємо через 14 коротких сегментів з лінійно-зростаючою opacity.
+  const rulePadding = size * 1.4;       /// gap від тексту до початку лінії
+  const ruleLength = size * 4.0;        /// довжина кожної лінії
+  const ruleSegments = 14;
+  const ruleSegW = ruleLength / ruleSegments;
+
+  /// LEFT rule: outer (далекий) кінець майже прозорий, inner (близький до тексту) — solid
+  const leftOuter = cx - textW / 2 - rulePadding - ruleLength;
+  for (let i = 0; i < ruleSegments; i++) {
+    const opacity = 0.04 + (i / (ruleSegments - 1)) * 0.86;
+    page.drawLine({
+      start: { x: leftOuter + ruleSegW * i, y: cy },
+      end: { x: leftOuter + ruleSegW * (i + 1), y: cy },
+      thickness: 0.6,
+      color: c(GOLD),
+      opacity,
+    });
+  }
+
+  /// RIGHT rule: дзеркально, inner solid → outer прозорий
+  const rightInner = cx + textW / 2 + rulePadding;
+  for (let i = 0; i < ruleSegments; i++) {
+    const opacity = 0.90 - (i / (ruleSegments - 1)) * 0.86;
+    page.drawLine({
+      start: { x: rightInner + ruleSegW * i, y: cy },
+      end: { x: rightInner + ruleSegW * (i + 1), y: cy },
+      thickness: 0.6,
+      color: c(GOLD),
+      opacity,
+    });
+  }
 }
 
 /* ----------------------------------------------------------------------- */
@@ -166,7 +226,7 @@ function drawHeading(page: PDFPage, W: number, H: number, fonts: Record<FontKey,
 
   const textW = font.widthOfTextAtSize(text, size);
   const x = W / 2 - textW / 2;
-  const y = H * 0.685;
+  const y = H * 0.665;
 
   page.drawText(text, { x, y, size, font, color: c(GREEN) });
   page.drawText(text, { x: x + 0.9, y, size, font, color: c(GREEN) });
@@ -176,7 +236,7 @@ function drawHeading(page: PDFPage, W: number, H: number, fonts: Record<FontKey,
 function drawSubtitle(page: PDFPage, W: number, H: number, fonts: Record<FontKey, PDFFont>) {
   const text = '— Сертифікат про участь —';
   const size = Math.min(W, H) * 0.013;
-  drawCenteredTracked(page, text, W / 2, H * 0.620, size, 4.0, fonts.interSemiBold, c(GOLD_DEEP));
+  drawCenteredTracked(page, text, W / 2, H * 0.600, size, 4.0, fonts.interSemiBold, c(GOLD_DEEP));
 }
 
 /* ----------------------------------------------------------------------- */

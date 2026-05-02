@@ -27,6 +27,15 @@ type Props = {
   yearlyPrice: number;
   monthlyPrice: number;
   registrationOpen: boolean;
+  /// Invite-flow: якщо передано — активна ТІЛЬКИ карточка плану, що збігається з invite.
+  /// Друга карточка disabled з підказкою. Token + prefill пересилаються в CoursePurchaseModal.
+  invite?: {
+    token: string;
+    email: string;
+    name: string | null;
+    plan: 'YEARLY' | 'MONTHLY';
+    autoRenew: boolean;
+  } | null;
 };
 
 const TOTAL_MONTHLY_PAYMENTS = 9;
@@ -45,10 +54,14 @@ function DisabledButton({ label, variant }: { label: string; variant: 'light' | 
   );
 }
 
-export default function PricingSection({ t, yearlyPrice, monthlyPrice, registrationOpen }: Props) {
+export default function PricingSection({ t, yearlyPrice, monthlyPrice, registrationOpen, invite }: Props) {
   const open = registrationOpen;
   const totalMonthly = monthlyPrice * TOTAL_MONTHLY_PAYMENTS;
   const premium = totalMonthly - yearlyPrice;
+  const yearlyAvailable = open && (!invite || invite.plan === 'YEARLY');
+  const monthlyAvailable = open && (!invite || invite.plan === 'MONTHLY');
+  const yearlyInvite = invite && invite.plan === 'YEARLY' ? invite : null;
+  const monthlyInvite = invite && invite.plan === 'MONTHLY' ? invite : null;
 
   return (
     <section id="price" className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-14">
@@ -90,13 +103,20 @@ export default function PricingSection({ t, yearlyPrice, monthlyPrice, registrat
               </ul>
 
               <div className="mt-auto">
-                {open ? (
+                {yearlyAvailable ? (
                   <CoursePurchaseModal
                     courseName={t.courseNameYear}
                     price={yearlyPrice}
                     courseId={YEARLY_PROGRAM.courseId}
                     currency={t.currency}
                     buttonLabel={t.btnYear}
+                    inviteToken={yearlyInvite?.token}
+                    invitePrefill={yearlyInvite ? {
+                      email: yearlyInvite.email,
+                      name: yearlyInvite.name,
+                      plan: 'YEARLY',
+                      autoRenew: false,
+                    } : undefined}
                   />
                 ) : (
                   <DisabledButton label={t.btnYear} variant="dark" />
@@ -126,7 +146,7 @@ export default function PricingSection({ t, yearlyPrice, monthlyPrice, registrat
             <div className="w-16 h-px bg-gray-200 mx-auto mb-5" />
 
             <div className="mt-auto">
-              {open ? (
+              {monthlyAvailable ? (
                 <CoursePurchaseModal
                   courseName={t.courseNameMonth}
                   price={monthlyPrice}
@@ -134,6 +154,13 @@ export default function PricingSection({ t, yearlyPrice, monthlyPrice, registrat
                   currency={t.currency}
                   buttonLabel={t.btnMonth}
                   allowRecurringChoice
+                  inviteToken={monthlyInvite?.token}
+                  invitePrefill={monthlyInvite ? {
+                    email: monthlyInvite.email,
+                    name: monthlyInvite.name,
+                    plan: 'MONTHLY',
+                    autoRenew: monthlyInvite.autoRenew,
+                  } : undefined}
                 />
               ) : (
                 <DisabledButton label={t.btnMonth} variant="light" />

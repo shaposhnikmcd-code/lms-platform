@@ -38,6 +38,7 @@ export default async function AdminYearlyProgramPage() {
     startDate: c.startDate.toISOString(),
     endDate: c.endDate.toISOString(),
     launchedAt: c.launchedAt?.toISOString() ?? null,
+    launchScheduledFor: c.launchScheduledFor?.toISOString() ?? null,
     emailScheduledFor: c.emailScheduledFor?.toISOString() ?? null,
     emailSentAt: c.emailSentAt?.toISOString() ?? null,
     launchEmailSubject: c.launchEmailSubject,
@@ -84,6 +85,8 @@ export default async function AdminYearlyProgramPage() {
       sendpulseAccessClosedAt: s.sendpulseAccessClosedAt?.toISOString() ?? null,
       paymentsCount: paidPayments.length,
       totalPaid,
+      manuallyAddedAt: s.manuallyAddedAt?.toISOString() ?? null,
+      manuallyAddedBy: s.manuallyAddedBy ?? null,
     };
   });
 

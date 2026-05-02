@@ -2254,12 +2254,15 @@ function ModalShell({
   }, [onClose]);
 
   const sizeClasses = expanded
-    ? 'max-w-none w-screen max-h-none h-screen rounded-none border-0'
+    ? 'max-w-none w-screen max-h-none h-[calc(100vh-4rem)] rounded-none border-0'
     : `${wide ? 'max-w-[1100px]' : 'max-w-2xl'} max-h-[92vh] rounded-2xl border`;
   const wrapperPadding = expanded ? 'p-0' : 'p-4';
+  /// У розгорнутому режимі зсуваємо контейнер на висоту dashboard-хедеру (h-16 = 4rem),
+  /// щоб title-bar модалки вплотну приклеювався до header bottom, а не ховався за ним.
+  const wrapperPosition = expanded ? 'fixed left-0 right-0 bottom-0 top-16' : 'fixed inset-0';
 
   return (
-    <div className={`fixed inset-0 z-50 flex items-center justify-center bg-black/50 ${wrapperPadding}`}>
+    <div className={`${wrapperPosition} z-50 flex items-center justify-center bg-black/50 ${wrapperPadding}`}>
       <div
         className={`w-full ${sizeClasses} overflow-hidden flex flex-col ${dark ? 'bg-[#14171f] border-white/[0.1]' : 'bg-white border-stone-200'}`}
       >
@@ -2372,7 +2375,7 @@ function PreviewPane({
 
   return (
     <>
-      <div className={`rounded-xl border overflow-hidden flex flex-col ${dark ? 'border-white/[0.08] bg-black/40' : 'border-stone-200 bg-stone-50'}`}>
+      <div className={`rounded-xl border overflow-hidden flex flex-col h-full min-h-[480px] ${dark ? 'border-white/[0.08] bg-black/40' : 'border-stone-200 bg-stone-50'}`}>
         <div className={`px-4 py-2.5 flex items-center justify-between border-b ${dark ? 'border-white/[0.06] bg-gradient-to-b from-white/[0.04] to-transparent' : 'border-stone-200/70 bg-gradient-to-b from-white to-stone-50/40'}`}>
           <div className="flex items-center gap-2">
             <HiOutlineEye className={`w-4 h-4 ${dark ? 'text-amber-400/80' : 'text-amber-600/90'}`} />
@@ -2389,15 +2392,17 @@ function PreviewPane({
             </button>
           )}
         </div>
-        {/* Wrapper з flex-1 + items-center центрує сертифікат вертикально, коли
-            висота лівої колонки (форма) перевищує природну висоту preview-а */}
-        <div className="flex-1 flex items-center justify-center min-h-0">
+        {/* Bulletproof центрування через absolute inset-0:
+            inner-wrapper отримує гарантовану висоту = висота parent flex-1,
+            незалежно від ланцюжка flex/grid sizing. */}
+        <div className="flex-1 min-h-0 relative" data-cert-preview-area>
+          <div className="absolute inset-0 flex items-center justify-center p-3">
           <button
             type="button"
             onClick={() => src && setExpanded(true)}
             disabled={!src}
             style={{ aspectRatio: pageAspect }}
-            className="w-full flex items-center justify-center relative p-0 m-0 border-0 cursor-zoom-in disabled:cursor-default bg-transparent"
+            className="block w-full max-w-full max-h-full relative p-0 m-0 border-0 cursor-zoom-in disabled:cursor-default bg-transparent"
           >
             {!params.recipientName.trim() ? (
               <div className={`text-[13px] p-4 text-center ${dark ? 'text-slate-500' : 'text-stone-400'}`}>
@@ -2435,6 +2440,7 @@ function PreviewPane({
               </div>
             )}
           </button>
+          </div>
         </div>
       </div>
 
@@ -2600,7 +2606,7 @@ function IssueCourseDialog({
             <input
               autoFocus
               value={recipientName}
-              onChange={(e) => setRecipientName(e.target.value)}
+              onChange={(e) => setRecipientName(e.target.value.replace(/(^|[\s\-'’])(\p{L})/gu, (_m, sep, ch) => sep + ch.toUpperCase()))}
               placeholder="Ім'я та Прізвище"
               className={`w-full px-3 py-2 rounded-lg border text-[13px] ${dark ? 'bg-white/[0.04] border-white/[0.1] text-white placeholder-slate-500' : 'bg-white border-stone-300 text-stone-900'}`}
             />
@@ -2908,7 +2914,7 @@ function IssueYearlyDialog({
           </label>
           <input
             value={recipientName}
-            onChange={(e) => setRecipientName(e.target.value)}
+            onChange={(e) => setRecipientName(e.target.value.replace(/(^|[\s\-'’])(\p{L})/gu, (_m, sep, ch) => sep + ch.toUpperCase()))}
             placeholder="Повне ім'я учасника"
             className={`w-full px-3 py-2 rounded-lg border text-[14px] ${dark ? 'bg-white/[0.04] border-white/[0.1] text-white' : 'bg-white border-stone-300 text-stone-900'}`}
           />
@@ -3145,7 +3151,7 @@ function IssueYearlyManualDialog({
             <input
               autoFocus
               value={recipientName}
-              onChange={(e) => setRecipientName(e.target.value)}
+              onChange={(e) => setRecipientName(e.target.value.replace(/(^|[\s\-'’])(\p{L})/gu, (_m, sep, ch) => sep + ch.toUpperCase()))}
               placeholder="Ім'я та Прізвище"
               className={`w-full px-3 py-2 rounded-lg border text-[13px] ${dark ? 'bg-white/[0.04] border-white/[0.1] text-white placeholder-slate-500' : 'bg-white border-stone-300 text-stone-900'}`}
             />
@@ -3328,7 +3334,7 @@ function IssueSupervisionDialog({
         </>
       }
     >
-      <div className="grid grid-cols-1 lg:grid-cols-[0.82fr_1.18fr] gap-5">
+      <div className="grid grid-cols-1 lg:grid-cols-[0.82fr_1.18fr] gap-5 h-full min-h-[560px]">
         <div className="space-y-4">
           <div>
             <label className={`block text-[11px] uppercase tracking-wider mb-1 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
@@ -3337,7 +3343,7 @@ function IssueSupervisionDialog({
             <input
               autoFocus
               value={recipientName}
-              onChange={(e) => setRecipientName(e.target.value)}
+              onChange={(e) => setRecipientName(e.target.value.replace(/(^|[\s\-'’])(\p{L})/gu, (_m, sep, ch) => sep + ch.toUpperCase()))}
               placeholder="Ім'я та Прізвище"
               className={`w-full px-3 py-2 rounded-lg border text-[13px] ${dark ? 'bg-white/[0.04] border-white/[0.1] text-white placeholder-slate-500' : 'bg-white border-stone-300 text-stone-900'}`}
             />

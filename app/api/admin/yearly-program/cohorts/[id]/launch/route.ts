@@ -1,19 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { isAdmin, getAdminActor } from '@/lib/adminAuth';
-import { openAccessViaEvent, lookupStudentIdByEmail } from '@/lib/sendpulse';
-import { YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
-import { calculateAccessUntil } from '@/lib/yearlyProgramAccess';
+import { executeLaunchLoop } from '@/lib/yearlyProgramLaunch';
 
-/// 🚀 Запустити програму. Дія менеджера в адмінці:
-/// 1. Знаходить усі підписки cohort-у з оплачуваним статусом (PENDING/ACTIVE з PAID-платежами).
-/// 2. Відкриває доступ у SendPulse (event → funnel) для кожної.
-/// 3. Перераховує expiresAt по новій логіці (cohort-aware).
-/// 4. Фіксує `launchedAt` на cohort-і.
-/// 5. Зберігає лог у YearlyProgramSubscriptionEvent (`access_opened` + metadata).
+/// 🚀 Запустити програму. Дія менеджера в адмінці. Три режими:
 ///
-/// Розсилка welcome-листа НЕ виконується тут — це окремий endpoint /send-emails
-/// (менеджер може запустити її окремо, навіть до launchedAt).
+/// 1. Negайний запуск (body порожній або без `scheduledAt`):
+///    a. Атомарно забирає `launchedAt = now()` (concurrency lock).
+///    b. Знаходить усі підписки cohort-у з PAID-платежем.
+///    c. Відкриває доступ у SendPulse (event → funnel) для кожної.
+///    d. Перераховує expiresAt (cohort-aware).
+///    e. Зберігає лог у YearlyProgramSubscriptionEvent (`access_opened`).
+///
+/// 2. Запланований запуск ({ scheduledAt: ISO } у body):
+///    Виставляє `launchScheduledFor` без виконання роботи. Cron yearly-subscriptions
+///    щодоби перевіряє і виконує реальний запуск, коли launchScheduledFor <= now.
+///
+/// 3. Скасування запланованого ({ cancelScheduled: true }):
+///    Очищує `launchScheduledFor` (якщо ще не виконано).
+///
+/// 4. Retry для часткового запуску (?retry=1): пройти sub-loop ще раз для тих,
+///    у кого sendpulseAccessOpenedAt все ще null. Ідемпотентно.
+///
+/// Розсилка welcome-листа НЕ виконується тут — це окремий endpoint /send-emails.
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -25,130 +34,94 @@ export async function POST(
   const actorLabel = actor?.email ?? actor?.name ?? 'admin';
   const { id } = await params;
 
+  const url = new URL(req.url);
+  const isRetry = url.searchParams.get('retry') === '1';
+
+  const body = (await req.json().catch(() => ({}))) as {
+    scheduledAt?: string;
+    cancelScheduled?: boolean;
+  };
+
   const cohort = await prisma.yearlyProgramCohort.findUnique({ where: { id } });
   if (!cohort) {
     return NextResponse.json({ error: 'Cohort not found' }, { status: 404 });
   }
-  if (cohort.launchedAt) {
-    return NextResponse.json({ error: 'Програма вже запущена' }, { status: 400 });
+
+  // === Скасування запланованого запуску ===
+  if (body.cancelScheduled) {
+    if (cohort.launchedAt) {
+      return NextResponse.json({ error: 'Програма вже запущена — скасувати неможливо' }, { status: 400 });
+    }
+    if (!cohort.launchScheduledFor) {
+      return NextResponse.json({ error: 'Запланованого запуску немає' }, { status: 400 });
+    }
+    await prisma.yearlyProgramCohort.update({
+      where: { id },
+      data: { launchScheduledFor: null },
+    });
+    return NextResponse.json({ ok: true, mode: 'cancelled' });
   }
 
-  // Беремо всі підписки cohort-у з PAID-платежем (PENDING без оплати — пропускаємо).
-  const subs = await prisma.yearlyProgramSubscription.findMany({
-    where: {
-      cohortId: id,
-      status: { in: ['PENDING', 'ACTIVE', 'GRACE'] },
-    },
-    include: {
-      user: { select: { id: true, email: true } },
-      payments: { select: { amount: true, status: true, paidAt: true, createdAt: true } },
-    },
-  });
-
-  type Result = {
-    subscriptionId: string;
-    email: string;
-    accessOpened: boolean;
-    expiresAt: string | null;
-    error?: string;
-  };
-  const results: Result[] = [];
-
-  // Послідовно (не паралельно), бо openAccessViaEvent → external SendPulse webhook
-  // — обмеження rate-limit. Можемо batch-нути по 5 при 100+ підписників.
-  for (const s of subs) {
-    if (!s.user?.email) continue;
-    const paidPayments = s.payments.filter((p) => p.status === 'PAID');
-    if (paidPayments.length === 0) {
-      results.push({ subscriptionId: s.id, email: s.user.email, accessOpened: false, expiresAt: null, error: 'no_paid_payments' });
-      continue;
+  // === Запланований запуск ===
+  if (body.scheduledAt) {
+    if (cohort.launchedAt) {
+      return NextResponse.json({ error: 'Програма вже запущена' }, { status: 400 });
     }
-
-    let openedNow = false;
-    let openErr: string | null = null;
-    if (!s.sendpulseAccessOpenedAt) {
-      try {
-        await openAccessViaEvent(
-          s.user.email,
-          YEARLY_PROGRAM_CONFIG.sendpulseEventSlug,
-          paidPayments[0]!.amount,
-        );
-        openedNow = true;
-        // SendPulse студент створюється async — лукапимо студент-ID best-effort.
-        if (!s.sendpulseStudentId && YEARLY_PROGRAM_CONFIG.sendpulseCourseId) {
-          try {
-            const studentId = await lookupStudentIdByEmail(
-              YEARLY_PROGRAM_CONFIG.sendpulseCourseId,
-              s.user.email,
-            );
-            if (studentId) {
-              await prisma.yearlyProgramSubscription.update({
-                where: { id: s.id },
-                data: { sendpulseStudentId: studentId },
-              });
-            }
-          } catch {
-            // ignore lookup err
-          }
-        }
-      } catch (e) {
-        openErr = (e as Error).message;
-      }
-    } else {
-      openedNow = true; // вже відкрито раніше — для звітності рахуємо як ok
+    const at = new Date(body.scheduledAt);
+    if (Number.isNaN(at.getTime())) {
+      return NextResponse.json({ error: 'Невірний формат дати' }, { status: 400 });
     }
-
-    const newExpiresAt = calculateAccessUntil({
-      plan: s.plan,
-      autoRenew: s.autoRenew,
-      cohort: { startDate: cohort.startDate, endDate: cohort.endDate },
-      payments: s.payments,
+    if (at.getTime() <= Date.now()) {
+      return NextResponse.json({ error: 'Дата запуску має бути у майбутньому' }, { status: 400 });
+    }
+    if (cohort.endDate.getTime() < at.getTime()) {
+      return NextResponse.json({ error: 'Дата запуску після завершення cohort-у' }, { status: 400 });
+    }
+    await prisma.yearlyProgramCohort.update({
+      where: { id },
+      data: { launchScheduledFor: at },
     });
-
-    await prisma.yearlyProgramSubscription.update({
-      where: { id: s.id },
-      data: {
-        status: 'ACTIVE',
-        startDate: s.startDate ?? cohort.startDate,
-        expiresAt: newExpiresAt,
-        ...(openedNow && !s.sendpulseAccessOpenedAt
-          ? { sendpulseAccessOpenedAt: new Date(), sendpulseAccessClosedAt: null }
-          : {}),
-      },
-    });
-
-    await prisma.yearlyProgramSubscriptionEvent.create({
-      data: {
-        subscriptionId: s.id,
-        type: openedNow && !s.sendpulseAccessOpenedAt ? 'access_opened' : 'admin_action',
-        message: openErr
-          ? `Cohort launch · access open FAILED: ${openErr.slice(0, 200)}`
-          : `Cohort launch by ${actorLabel} · expiresAt=${newExpiresAt?.toISOString().slice(0, 10) ?? 'null'}`,
-        metadata: { cohortId: id, openedNow, openErr },
-      },
-    });
-
-    results.push({
-      subscriptionId: s.id,
-      email: s.user.email,
-      accessOpened: openedNow && !openErr,
-      expiresAt: newExpiresAt?.toISOString() ?? null,
-      error: openErr ?? undefined,
+    return NextResponse.json({
+      ok: true,
+      mode: 'scheduled',
+      launchScheduledFor: at.toISOString(),
     });
   }
 
-  await prisma.yearlyProgramCohort.update({
-    where: { id },
-    data: { launchedAt: new Date() },
-  });
+  // === Негайний запуск (з concurrency lock + retry) ===
+  // #14 Concurrency lock: атомарно забираємо launchedAt у одному запиті, щоб два паралельних
+  // кліки не запустили роботу двічі. Перший виграє — другий бачить count=0 і отримує 409.
+  // #15 Retry: для повторного запуску (?retry=1) cohort вже має launchedAt — пропускаємо claim;
+  // sub-loop сам по собі ідемпотентний (skip-ить тих, у кого sendpulseAccessOpenedAt вже є).
+  if (isRetry) {
+    if (!cohort.launchedAt) {
+      return NextResponse.json({ error: 'Cohort ще не запущено — використай звичайний запуск' }, { status: 400 });
+    }
+  } else {
+    if (cohort.launchedAt) {
+      return NextResponse.json({ error: 'Програма вже запущена' }, { status: 400 });
+    }
+    const claim = await prisma.yearlyProgramCohort.updateMany({
+      where: { id, launchedAt: null },
+      data: { launchedAt: new Date(), launchScheduledFor: null },
+    });
+    if (claim.count === 0) {
+      return NextResponse.json({ error: 'Програма вже запущена або зараз запускається' }, { status: 409 });
+    }
+  }
 
-  const okCount = results.filter((r) => r.accessOpened).length;
-  const failCount = results.filter((r) => !r.accessOpened).length;
+  // launchedAt вже виставлений атомарним claim-ом вище (для першого запуску) або був раніше (retry).
+  const summary = await executeLaunchLoop(
+    { id, startDate: cohort.startDate, endDate: cohort.endDate },
+    actorLabel,
+  );
 
   return NextResponse.json({
     ok: true,
-    launchedAt: new Date().toISOString(),
-    summary: { total: results.length, opened: okCount, failed: failCount },
-    results,
+    mode: 'launched',
+    launchedAt: cohort.launchedAt?.toISOString() ?? new Date().toISOString(),
+    retry: isRetry,
+    summary: { total: summary.total, opened: summary.opened, failed: summary.failed },
+    results: summary.results,
   });
 }

@@ -843,6 +843,12 @@ model YearlyProgramCohort {
   /// оплаченим підпискам у cohort, перераховує доступ. null = ще не запущено.
   launchedAt DateTime?
 
+  /// Запланований запуск. Менеджер може запустити негайно (launchedAt=now) АБО
+  /// запланувати на майбутнє (launchScheduledFor=future, launchedAt=null). Cron
+  /// yearly-subscriptions щодоби перевіряє і виконує запуск коли час прийшов.
+  /// Після фактичного запуску launchScheduledFor очищається, launchedAt = реальний момент.
+  launchScheduledFor DateTime?
+
   /// Розклад welcome-розсилки. emailScheduledFor у майбутньому — cron обробить пізніше;
   /// emailScheduledFor у минулому без emailSentAt — ще не оброблено (буде у наступному cron-tick).
   emailScheduledFor DateTime?

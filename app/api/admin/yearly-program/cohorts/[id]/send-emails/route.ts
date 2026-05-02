@@ -28,6 +28,15 @@ export async function POST(
   const body = (await req.json().catch(() => ({}))) as {
     mode?: 'now' | 'schedule';
     at?: string;
+    /// Якщо передано — шлемо тільки цим підпискам (ignore dedup за замовчуванням, бо це
+    /// явний вибір менеджера). Використовується для повторної відправки конкретній людині
+    /// з RecipientsBlock у SendEmailsModal.
+    subscriptionIds?: string[];
+    /// Bulk override: шле ВСІМ, ігноруючи `launch_email_sent` event (повторна розсилка цілому
+    /// cohort-у). Без цього прапорця dedup стандартно блокує тих, хто вже отримав.
+    force?: boolean;
+    /// З `mode: 'schedule'` — скасування поточного `emailScheduledFor` (без планування нової дати).
+    cancel?: boolean;
   };
 
   const cohort = await prisma.yearlyProgramCohort.findUnique({ where: { id } });
@@ -36,6 +45,16 @@ export async function POST(
   }
 
   if (body.mode === 'schedule') {
+    if (body.subscriptionIds || body.force) {
+      return NextResponse.json({ error: 'Планування підтримує лише повну розсилку cohort-у' }, { status: 400 });
+    }
+    if (body.cancel) {
+      await prisma.yearlyProgramCohort.update({
+        where: { id },
+        data: { emailScheduledFor: null },
+      });
+      return NextResponse.json({ ok: true, cancelled: true });
+    }
     if (!body.at) {
       return NextResponse.json({ error: 'Дата планування обов\'язкова' }, { status: 400 });
     }
@@ -51,7 +70,12 @@ export async function POST(
   }
 
   // mode = now — відправляємо одразу.
-  return sendNowImpl(id, cohort, actorLabel);
+  // Якщо передані subscriptionIds — це per-recipient resend, ignore dedup автоматично.
+  const force = body.force === true || (Array.isArray(body.subscriptionIds) && body.subscriptionIds.length > 0);
+  const targetIds = Array.isArray(body.subscriptionIds) && body.subscriptionIds.length > 0
+    ? body.subscriptionIds
+    : null;
+  return sendNowImpl(id, cohort, actorLabel, { force, targetIds });
 }
 
 async function sendNowImpl(
@@ -64,11 +88,13 @@ async function sendNowImpl(
     launchEmailBody: string | null;
   },
   actorLabel: string,
+  opts: { force: boolean; targetIds: string[] | null } = { force: false, targetIds: null },
 ) {
   const subs = await prisma.yearlyProgramSubscription.findMany({
     where: {
       cohortId,
       status: { in: ['PENDING', 'ACTIVE', 'GRACE'] },
+      ...(opts.targetIds ? { id: { in: opts.targetIds } } : {}),
     },
     include: {
       user: { select: { name: true, email: true } },
@@ -90,12 +116,13 @@ async function sendNowImpl(
       results.push({ subscriptionId: s.id, email: '', sent: false, skipped: 'no_email' });
       continue;
     }
-    // Dedup: якщо для цього cohort-у вже надсилали — пропускаємо.
+    // Dedup: якщо для цього cohort-у вже надсилали — пропускаємо. Для force=true (per-recipient
+    // resend або bulk override) dedup ігноруємо — менеджер свідомо хоче повторно надіслати.
     const alreadySent = s.events.some((ev) => {
       const m = ev.metadata as { cohortId?: string } | null;
       return m?.cohortId === cohortId;
     });
-    if (alreadySent) {
+    if (alreadySent && !opts.force) {
       results.push({ subscriptionId: s.id, email: s.user.email, sent: false, skipped: 'already_sent' });
       continue;
     }
@@ -134,10 +161,15 @@ async function sendNowImpl(
     }
   }
 
-  await prisma.yearlyProgramCohort.update({
-    where: { id: cohortId },
-    data: { emailSentAt: new Date(), emailScheduledFor: null },
-  });
+  // emailSentAt позначає момент повної bulk-розсилки cohort-у. Для per-recipient resend
+  // (targetIds) не оновлюємо — інакше історія показувала б "вся розсилка свіжа" хоча
+  // насправді надіслали тільки одній людині.
+  if (!opts.targetIds) {
+    await prisma.yearlyProgramCohort.update({
+      where: { id: cohortId },
+      data: { emailSentAt: new Date(), emailScheduledFor: null },
+    });
+  }
 
   return NextResponse.json({
     ok: true,

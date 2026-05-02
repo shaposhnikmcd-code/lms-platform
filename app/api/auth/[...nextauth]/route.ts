@@ -6,7 +6,9 @@ import type { NextRequest } from "next/server";
 // can serve multiple domains (e.g. www.uimp.com.ua and pre.uimp.com.ua).
 async function handler(req: NextRequest, ctx: { params: Promise<{ nextauth: string[] }> }) {
   const host = req.headers.get("x-forwarded-host") || req.headers.get("host");
-  const proto = req.headers.get("x-forwarded-proto") || "https";
+  // x-forwarded-proto виставляє Vercel/proxy; localhost dev його не має — там завжди http.
+  const isLocalhost = host?.startsWith("localhost") || host?.startsWith("127.0.0.1");
+  const proto = req.headers.get("x-forwarded-proto") || (isLocalhost ? "http" : "https");
   if (host) {
     process.env.NEXTAUTH_URL = `${proto}://${host}`;
   }

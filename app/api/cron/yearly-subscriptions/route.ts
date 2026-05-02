@@ -51,6 +51,7 @@ export async function GET(req: NextRequest) {
 
   const results: StepResult[] = [];
 
+  results.push(await runScheduledCohortLaunches());
   results.push(await transitionActiveToGrace());
   results.push(await expireGraceSubscriptions());
   results.push(await sendManualBeforeExpiryReminders());
@@ -61,6 +62,51 @@ export async function GET(req: NextRequest) {
   results.push(await syncYearlyCourseProgress());
 
   return NextResponse.json({ ok: true, results, timestamp: new Date().toISOString() });
+}
+
+/// Запланований запуск cohort-у. Менеджер міг натиснути 🚀 Запустити з відстрочкою —
+/// `launchScheduledFor` у майбутньому. Cron перевіряє: коли launchScheduledFor <= now
+/// AND launchedAt IS NULL → атомарно claim-имо launchedAt і запускаємо executeLaunchLoop
+/// (відкриття SendPulse + перерахунок expiresAt + лог events). Idempotent через атомарний
+/// claim — якщо інший процес встиг раніше, цей пропускає.
+async function runScheduledCohortLaunches(): Promise<StepResult> {
+  const errors: string[] = [];
+  const now = new Date();
+  const cohorts = await prisma.yearlyProgramCohort.findMany({
+    where: {
+      launchScheduledFor: { lte: now },
+      launchedAt: null,
+    },
+    select: { id: true, name: true, startDate: true, endDate: true, launchScheduledFor: true },
+  });
+  if (cohorts.length === 0) return { step: 'runScheduledCohortLaunches', processed: 0, errors };
+
+  const { executeLaunchLoop } = await import('@/lib/yearlyProgramLaunch');
+
+  let processed = 0;
+  for (const c of cohorts) {
+    try {
+      // Атомарний claim, аналогічно до launch-route — захищає від паралельного запуску.
+      const claim = await prisma.yearlyProgramCohort.updateMany({
+        where: { id: c.id, launchedAt: null },
+        data: { launchedAt: now, launchScheduledFor: null },
+      });
+      if (claim.count === 0) continue; // інший процес уже claim-ив
+
+      const summary = await executeLaunchLoop(
+        { id: c.id, startDate: c.startDate, endDate: c.endDate },
+        'scheduled-cron',
+      );
+      processed++;
+      if (summary.failed > 0) {
+        errors.push(`${c.name}: ${summary.failed}/${summary.total} failed`);
+      }
+    } catch (e) {
+      errors.push(`cohort ${c.id}: ${(e as Error).message.slice(0, 200)}`);
+    }
+  }
+
+  return { step: 'runScheduledCohortLaunches', processed, errors };
 }
 
 /// Запланована welcome-розсилка cohort-у. Менеджер міг натиснути "✉️ Запустити розсилку"

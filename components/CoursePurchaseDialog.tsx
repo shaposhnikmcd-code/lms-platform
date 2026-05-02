@@ -17,6 +17,15 @@ export interface CoursePurchaseDialogProps {
   selectedFreeSlugs?: string[];
   /// Якщо true — показати toggle "Разова / Циклічна 9 міс." (для yearly-program-monthly).
   allowRecurringChoice?: boolean;
+  /// Invite-flow: signed token від менеджера. Прив'язує оплату до конкретного cohort-у
+  /// й маркує підписку як manually-added у callback-у.
+  inviteToken?: string;
+  invitePrefill?: {
+    email: string;
+    name?: string | null;
+    plan?: 'YEARLY' | 'MONTHLY';
+    autoRenew?: boolean;
+  };
   /// Закриття діалогу (викликається на Esc, backdrop-клік, кнопці "×").
   onClose: () => void;
 }
@@ -28,6 +37,8 @@ export default function CoursePurchaseDialog({
   currency = 'грн',
   selectedFreeSlugs,
   allowRecurringChoice = false,
+  inviteToken,
+  invitePrefill,
   onClose,
 }: CoursePurchaseDialogProps) {
   const t = useTranslations('PurchaseModal');
@@ -45,9 +56,16 @@ export default function CoursePurchaseDialog({
   /// Синхронний inflight-гард: блокує подвійний клік у вікно між onClick і setLoading(true).
   const inFlightRef = useRef(false);
 
-  const [email, setEmail] = useState(() => session?.user?.email || '');
-  const [firstName, setFirstName] = useState(() => session?.user?.name?.split(' ')[0] || '');
-  const [lastName, setLastName] = useState(() => session?.user?.name?.split(' ').slice(1).join(' ') || '');
+  // Invite-flow: prefill email + ім'я з token-у (від менеджера). Email lock-нутий, name теж prefill,
+  // але редагований (якщо менеджер не вказав, або помилився).
+  const inviteName = invitePrefill?.name?.trim() ?? '';
+  const inviteFirstName = inviteName ? inviteName.split(' ')[0] : '';
+  const inviteLastName = inviteName ? inviteName.split(' ').slice(1).join(' ') : '';
+  const inviteAutoRenew = invitePrefill?.autoRenew ?? null;
+
+  const [email, setEmail] = useState(() => invitePrefill?.email || session?.user?.email || '');
+  const [firstName, setFirstName] = useState(() => inviteFirstName || session?.user?.name?.split(' ')[0] || '');
+  const [lastName, setLastName] = useState(() => inviteLastName || session?.user?.name?.split(' ').slice(1).join(' ') || '');
   const [phone, setPhone] = useState('');
   const [phoneCountry, setPhoneCountry] = useState('UA');
   const [promoCode, setPromoCode] = useState('');
@@ -55,7 +73,8 @@ export default function CoursePurchaseDialog({
   const [promoError, setPromoError] = useState('');
   const [finalPrice, setFinalPrice] = useState(effectivePrice);
   /// Циклічна (true) vs разова (false). null = не обрано (блокує оплату при allowRecurringChoice).
-  const [isRecurring, setIsRecurring] = useState<boolean | null>(null);
+  /// Invite-flow з autoRenew у token — перепризначаємо одразу і не даємо змінити.
+  const [isRecurring, setIsRecurring] = useState<boolean | null>(inviteAutoRenew);
   type FieldErrors = Partial<Record<'email' | 'firstName' | 'lastName' | 'phone' | 'payType' | 'general', string>>;
   const [errors, setErrors] = useState<FieldErrors>({});
   const clearError = (k: keyof FieldErrors) =>
@@ -168,6 +187,7 @@ export default function CoursePurchaseDialog({
           promoCode: promoApplied ? promoCode.trim() : undefined,
           selectedFreeSlugs: selectedFreeSlugs && selectedFreeSlugs.length > 0 ? selectedFreeSlugs : undefined,
           recurring: allowRecurringChoice ? isRecurring === true : undefined,
+          invite: inviteToken,
         }),
       });
       if (!response.ok) {
@@ -258,12 +278,22 @@ export default function CoursePurchaseDialog({
                 placeholder="username@gmail.com"
                 autoComplete="email"
                 aria-invalid={!!errors.email}
+                readOnly={!!inviteToken}
+                disabled={!!inviteToken}
                 className={`w-full px-4 py-3 border rounded-lg outline-none text-gray-900 transition-colors ${
                   errors.email
                     ? 'border-red-400 bg-red-50/30 focus:ring-2 focus:ring-red-300 focus:border-red-400'
-                    : 'border-gray-300 focus:ring-2 focus:ring-[#D4A017] focus:border-transparent'
+                    : inviteToken
+                      ? 'border-amber-300 bg-amber-50/40 cursor-not-allowed'
+                      : 'border-gray-300 focus:ring-2 focus:ring-[#D4A017] focus:border-transparent'
                 }`}
               />
+              {inviteToken && (
+                <p className="mt-1.5 text-xs text-amber-700 flex items-center gap-1">
+                  <span aria-hidden>📨</span>
+                  Запрошення від менеджера UIMP — email зафіксований
+                </p>
+              )}
               {errors.email && <p className="mt-1.5 text-xs text-red-600 flex items-center gap-1"><span aria-hidden>•</span>{errors.email}</p>}
             </div>
 

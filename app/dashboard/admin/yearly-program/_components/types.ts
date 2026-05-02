@@ -32,6 +32,10 @@ export interface Row {
   sendpulseAccessClosedAt: string | null;
   paymentsCount: number;
   totalPaid: number;
+  /// Manual-add: коли менеджер створив підписку через invite-link (замість звичайної реєстрації).
+  /// Якщо != null → показуємо пілюлю "Додано вручну" + дозволяємо "Екстра Запуск".
+  manuallyAddedAt: string | null;
+  manuallyAddedBy: string | null;
 }
 
 export interface SummaryData {
@@ -49,6 +53,8 @@ export interface CohortListItem {
   startDate: string;
   endDate: string;
   launchedAt: string | null;
+  /// Запланований запуск (cron виконає коли час прийде). null якщо запуск миттєвий або не запланований.
+  launchScheduledFor: string | null;
   emailScheduledFor: string | null;
   emailSentAt: string | null;
   launchEmailSubject: string | null;

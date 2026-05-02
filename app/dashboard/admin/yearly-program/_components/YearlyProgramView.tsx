@@ -13,6 +13,7 @@ import {
   HiOutlineChevronUp,
   HiOutlineChevronLeft,
   HiOutlineChevronRight,
+  HiOutlineCheck,
   HiOutlineEnvelope,
   HiOutlineCurrencyDollar,
   HiOutlineArrowRightCircle,
@@ -25,6 +26,7 @@ import CohortHeader from './CohortHeader';
 import CohortActions from './CohortActions';
 import CreateCohortModal from './CreateCohortModal';
 import MoveCohortBtn from './MoveCohortBtn';
+import { UIFeedbackProvider, useUIFeedback } from './UIFeedback';
 
 export type { Row, SubStatus, Plan, SummaryData };
 
@@ -92,14 +94,7 @@ interface ProgramDefaults {
   registrationOpen: boolean;
 }
 
-export default function YearlyProgramView({
-  rows,
-  summary,
-  cohorts,
-  graceDays,
-  programSettings,
-  programDefaults,
-}: {
+export default function YearlyProgramView(props: {
   rows: Row[];
   summary: SummaryData;
   cohorts: CohortListItem[];
@@ -108,8 +103,35 @@ export default function YearlyProgramView({
   programDefaults: ProgramDefaults;
 }) {
   const { theme, setTheme } = useAdminTheme();
+  return (
+    <UIFeedbackProvider theme={theme}>
+      <YearlyProgramViewInner {...props} theme={theme} setTheme={setTheme} />
+    </UIFeedbackProvider>
+  );
+}
+
+function YearlyProgramViewInner({
+  rows,
+  summary,
+  cohorts,
+  graceDays,
+  programSettings,
+  programDefaults,
+  theme,
+  setTheme,
+}: {
+  rows: Row[];
+  summary: SummaryData;
+  cohorts: CohortListItem[];
+  graceDays: number;
+  programSettings: YearlyProgramSettings;
+  programDefaults: ProgramDefaults;
+  theme: Theme;
+  setTheme: (t: Theme) => void;
+}) {
   const dark = theme === 'dark';
   const router = useRouter();
+  const { toast, confirm } = useUIFeedback();
 
   // Cohort UI: за замовчуванням обираємо поточний cohort, якщо є; інакше null = усі підписки.
   const initialCohortId = cohorts.find((c) => c.isCurrent)?.id ?? cohorts[0]?.id ?? null;
@@ -173,7 +195,13 @@ export default function YearlyProgramView({
   }
 
   async function runAction(id: string, action: string, payload?: Record<string, unknown>, confirmMsg?: string) {
-    if (confirmMsg && !window.confirm(confirmMsg)) return;
+    if (confirmMsg) {
+      const ok = await confirm({
+        title: confirmMsg,
+        destructive: action === 'cancel' || action === 'close_access' || action === 'delete',
+      });
+      if (!ok) return;
+    }
     setBusyId(id);
     try {
       const res = await fetch(`/api/admin/yearly-program/${id}`, {
@@ -183,20 +211,22 @@ export default function YearlyProgramView({
       });
       const data = await res.json();
       if (!res.ok) {
-        alert(`Помилка: ${data.error ?? res.statusText}`);
+        toast('error', data.error ?? res.statusText);
       } else {
-        // Перезавантажуємо сторінку, щоб оновити серверну таблицю.
         router.refresh();
-        // Та оновлюємо деталі якщо вони відкриті
         setDetails((d) => {
           const copy = { ...d };
           delete copy[id];
           return copy;
         });
-        if (data.wfpError) alert(`Виконано, але: ${data.wfpError}`);
+        if (data.wfpError) {
+          toast('info', `Виконано, але: ${data.wfpError}`);
+        } else {
+          toast('success', 'Дію виконано');
+        }
       }
     } catch (e) {
-      alert(`Помилка: ${(e as Error).message}`);
+      toast('error', (e as Error).message);
     } finally {
       setBusyId(null);
     }
@@ -211,16 +241,54 @@ export default function YearlyProgramView({
       subtitle="Платежі та доступ до Річної програми (SendPulse). Місячна підписка — з автосписанням, річна — одна оплата на рік."
       maxWidth="max-w-7xl"
     >
-      <CohortHeader
-        cohorts={cohorts}
-        activeCohortId={activeCohortId}
-        onSelect={setActiveCohortId}
-        onCreate={() => setCreateCohortOpen(true)}
-        theme={theme}
-      />
-      {activeCohort && (
-        <CohortActions cohort={activeCohort} theme={theme} />
-      )}
+      {/* Workspace card: cohort header + actions + KPI strip — об'єднані в один блок з
+          внутрішніми розділювачами, щоб не виглядали як 3 окремі картки. Program-налаштування
+          (Вартість/Grace/Email) — в правому верхньому куті workspace, окремо від фільтрів таблиці. */}
+      <AdminPanel theme={theme} padding="p-0" className="mb-5 max-w-4xl">
+        <CohortHeader
+          cohorts={cohorts}
+          activeCohortId={activeCohortId}
+          onSelect={setActiveCohortId}
+          onCreate={() => setCreateCohortOpen(true)}
+          theme={theme}
+        />
+        {activeCohort && (
+          <>
+            <div className={dark ? 'border-t border-white/[0.06]' : 'border-t border-stone-300/40'} />
+            <CohortActions cohort={activeCohort} theme={theme} />
+          </>
+        )}
+        <div className={dark ? 'border-t border-white/[0.06]' : 'border-t border-stone-300/40'} />
+        <div className="px-5 py-3 flex items-center gap-x-5 gap-y-2 flex-wrap">
+          <KpiInline theme={theme} icon={HiOutlineUserGroup} label="Підписок" value={summary.total.toLocaleString()} />
+          <KpiDot dark={dark} />
+          <KpiInline theme={theme} icon={HiOutlineCheckCircle} label="Активних" value={summary.active.toLocaleString()} tone="success" />
+          <KpiDot dark={dark} />
+          <KpiInline
+            theme={theme}
+            icon={HiOutlineClock}
+            label={`Grace (${graceDays}${graceDays === 1 ? ' день' : graceDays >= 2 && graceDays <= 4 ? ' дні' : ' днів'})`}
+            value={summary.grace.toLocaleString()}
+            tone="warning"
+          />
+          <KpiDot dark={dark} />
+          <KpiInline
+            theme={theme}
+            icon={HiOutlineXCircle}
+            label="Прострочено / скасовано"
+            value={(summary.expired + summary.cancelled).toLocaleString()}
+          />
+          <div className="ml-auto" />
+          <KpiInline
+            theme={theme}
+            icon={HiOutlineBanknotes}
+            label="Дохід"
+            value={`${summary.revenueTotal.toLocaleString()} ₴`}
+            tone="success"
+            big
+          />
+        </div>
+      </AdminPanel>
       {createCohortOpen && (
         <CreateCohortModal
           theme={theme}
@@ -228,100 +296,46 @@ export default function YearlyProgramView({
           onCreated={(id) => setActiveCohortId(id)}
         />
       )}
-      <div
-        className={`mb-6 rounded-2xl grid grid-cols-2 lg:grid-cols-5 overflow-hidden backdrop-blur-sm border divide-y lg:divide-y-0 lg:divide-x ${
-          dark
-            ? 'bg-white/[0.03] border-white/[0.06] divide-white/[0.06]'
-            : 'bg-white/55 border-stone-300/50 divide-stone-300/40 shadow-[0_1px_2px_rgba(68,64,60,0.04)]'
-        }`}
-      >
-        <Kpi theme={theme} icon={HiOutlineUserGroup} label="Всього підписок" value={summary.total.toLocaleString()} />
-        <Kpi theme={theme} icon={HiOutlineCheckCircle} label="Активних" value={summary.active.toLocaleString()} tone="success" />
-        <Kpi theme={theme} icon={HiOutlineClock} label={`Grace (${graceDays} ${graceDays === 1 ? 'день' : graceDays >= 2 && graceDays <= 4 ? 'дні' : 'днів'})`} value={summary.grace.toLocaleString()} tone="warning" />
-        <Kpi theme={theme} icon={HiOutlineXCircle} label="Прострочено / скасовано" value={(summary.expired + summary.cancelled).toLocaleString()} />
-        <Kpi
-          theme={theme}
-          icon={HiOutlineBanknotes}
-          label="Загальний дохід"
-          value={`${summary.revenueTotal.toLocaleString()} ₴`}
-          tone="success"
-        />
-      </div>
 
-      <AdminPanel theme={theme} padding="p-4" className="mb-5">
-        <div className="flex items-center gap-3 flex-wrap">
-          <FilterGroup
-            theme={theme}
-            label="План"
-            options={PLAN_OPTIONS}
-            value={planFilter}
-            onChange={(v) => setPlanFilter(v as PlanFilter)}
-          />
-          <FilterGroup
-            theme={theme}
-            label="Статус"
-            options={STATUS_OPTIONS}
-            value={statusFilter}
-            onChange={(v) => setStatusFilter(v as 'ALL' | SubStatus)}
-          />
+      {/* Search-row + program-налаштування. План і Статус перенесено у фільтри в шапці таблиці.
+          Налаштування — зліва, пошук — справа. */}
+      <AdminPanel theme={theme} padding="p-3" className="mb-5 max-w-4xl">
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1">
+            <ProgramSettingButton
+              theme={theme}
+              icon={<HiOutlineCurrencyDollar className="text-base" />}
+              label="Вартість"
+              title="Налаштувати ціни, текст кнопок реєстрації та інформацію про програму"
+              onClick={() => setPricingModalOpen(true)}
+              badge={!programSettings.registrationOpen ? 'закрито' : null}
+            />
+            <ProgramSettingButton
+              theme={theme}
+              icon={<HiOutlineClock className="text-base" />}
+              label={`GRACE · ${graceDays}д`}
+              title="Налаштувати тривалість grace-періоду"
+              onClick={() => setGraceModalOpen(true)}
+            />
+            <ProgramSettingButton
+              theme={theme}
+              icon={<HiOutlineEnvelope className="text-base" />}
+              label="Нагадування"
+              title="Налаштувати email-нагадування користувачам"
+              onClick={() => setEmailModalOpen(true)}
+            />
+          </div>
           <input
             type="search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Пошук за email або імʼям"
-            className={`ml-auto flex-1 min-w-[220px] max-w-[320px] px-3 py-1.5 rounded-lg border text-[12px] outline-none transition-colors ${
+            className={`ml-auto flex-1 min-w-[200px] max-w-[320px] px-3 py-1.5 rounded-lg border text-[12px] outline-none transition-colors ${
               dark
                 ? 'bg-white/[0.04] border-white/[0.08] text-slate-200 placeholder:text-slate-600 focus:border-amber-400/40'
                 : 'bg-white/80 border-stone-300/60 text-stone-800 placeholder:text-stone-400 focus:border-amber-600/50'
             }`}
           />
-          <button
-            type="button"
-            onClick={() => setPricingModalOpen(true)}
-            title="Налаштувати ціни, текст кнопок реєстрації та інформацію про програму"
-            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[12px] font-medium transition-colors ${
-              dark
-                ? 'bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.08] hover:text-white hover:border-amber-400/40'
-                : 'bg-white/80 border-stone-300/60 text-stone-700 hover:bg-stone-100 hover:border-amber-600/50'
-            }`}
-          >
-            <HiOutlineCurrencyDollar className="text-base" />
-            Вартість програми
-            {!programSettings.registrationOpen && (
-              <span
-                className={`ml-1 text-[10px] uppercase tracking-wider font-semibold rounded-full px-1.5 py-0.5 ${
-                  dark ? 'bg-rose-500/15 text-rose-300' : 'bg-rose-100 text-rose-700'
-                }`}
-              >
-                закрито
-              </span>
-            )}
-          </button>
-          <button
-            type="button"
-            onClick={() => setGraceModalOpen(true)}
-            title="Налаштувати тривалість grace-періоду"
-            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[12px] font-medium transition-colors ${
-              dark
-                ? 'bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.08] hover:text-white hover:border-amber-400/40'
-                : 'bg-white/80 border-stone-300/60 text-stone-700 hover:bg-stone-100 hover:border-amber-600/50'
-            }`}
-          >
-            <HiOutlineClock className="text-base" />
-            GRACE · {graceDays}д
-          </button>
-          <button
-            type="button"
-            onClick={() => setEmailModalOpen(true)}
-            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[12px] font-medium transition-colors ${
-              dark
-                ? 'bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.08] hover:text-white hover:border-amber-400/40'
-                : 'bg-white/80 border-stone-300/60 text-stone-700 hover:bg-stone-100 hover:border-amber-600/50'
-            }`}
-          >
-            <HiOutlineEnvelope className="text-base" />
-            Нагадування по Email
-          </button>
         </div>
       </AdminPanel>
       {emailModalOpen && <EmailRemindersModal theme={theme} onClose={() => setEmailModalOpen(false)} />}
@@ -349,8 +363,26 @@ export default function YearlyProgramView({
                 <Th theme={theme}>{''}</Th>
                 <Th theme={theme}>Створено</Th>
                 <Th theme={theme}>Користувач</Th>
-                <Th theme={theme} align="center">Підписка</Th>
-                <Th theme={theme} align="center">Статус</Th>
+                <Th theme={theme} align="center">
+                  <ColumnFilter
+                    theme={theme}
+                    label="Підписка"
+                    align="center"
+                    options={PLAN_OPTIONS}
+                    value={planFilter}
+                    onChange={(v) => setPlanFilter(v as PlanFilter)}
+                  />
+                </Th>
+                <Th theme={theme} align="center">
+                  <ColumnFilter
+                    theme={theme}
+                    label="Статус"
+                    align="center"
+                    options={STATUS_OPTIONS}
+                    value={statusFilter}
+                    onChange={(v) => setStatusFilter(v as 'ALL' | SubStatus)}
+                  />
+                </Th>
                 <Th theme={theme}>Дата оплати</Th>
                 <Th theme={theme}>Початок програми</Th>
                 <Th theme={theme}>Доступ до</Th>
@@ -553,6 +585,16 @@ function RowBlock({
         <td className="px-4 py-2.5">
           <div className={`text-[12px] font-medium ${dark ? 'text-slate-200' : 'text-stone-800'}`}>{r.userName ?? '—'}</div>
           <div className={`text-[10px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>{r.userEmail}</div>
+          {r.manuallyAddedAt && (
+            <span
+              className={`mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wider ${
+                dark ? 'bg-rose-500/12 text-rose-200 border border-rose-400/25' : 'bg-rose-50 text-rose-800 border border-rose-300/40'
+              }`}
+              title={`Додано вручну: ${new Date(r.manuallyAddedAt).toLocaleString('uk-UA')}${r.manuallyAddedBy ? ` · ${r.manuallyAddedBy}` : ''}`}
+            >
+              ✋ Додано вручну
+            </span>
+          )}
         </td>
         <td className="px-4 py-2.5 text-center"><PlanBadge theme={theme} plan={r.plan} autoRenew={r.autoRenew} /></td>
         <td className="px-4 py-2.5 text-center"><StatusBadge theme={theme} status={r.status} /></td>
@@ -631,7 +673,47 @@ function ExpandedRowContent({
   onAction: (action: string, payload?: Record<string, unknown>, confirm?: string) => void;
 }) {
   const dark = theme === 'dark';
+  const { toast, confirm } = useUIFeedback();
+  const router = useRouter();
   const [helpOpen, setHelpOpen] = useState(false);
+  const [extraLaunching, setExtraLaunching] = useState(false);
+
+  async function runExtraLaunch() {
+    const ok = await confirm({
+      title: 'Екстра Запуск нового студента?',
+      description: 'Виконує те саме, що 🚀 Запустити програму, але для одного цього студента.',
+      bullets: [
+        { icon: '🔓', text: 'Відкриває доступ у SendPulse' },
+        { icon: '📅', text: 'Розраховує "Доступ до" по cohort-логіці' },
+        { icon: '✉️', text: 'Шле welcome-лист (той самий шаблон cohort-у)' },
+      ],
+      confirmLabel: 'Запустити',
+    });
+    if (!ok) return;
+    setExtraLaunching(true);
+    try {
+      const res = await fetch(`/api/admin/yearly-program/${row.id}/extra-launch`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) {
+        toast('error', data.error ?? res.statusText);
+        return;
+      }
+      const emailNote = data.email?.sent
+        ? ' · welcome-лист надіслано'
+        : data.email?.skipped
+          ? ' · лист уже відправлявся раніше'
+          : data.email?.error
+            ? ` · лист FAILED: ${data.email.error}`
+            : '';
+      toast('success', `🎯 Екстра Запуск виконано${emailNote}`);
+      router.refresh();
+    } catch (e) {
+      toast('error', (e as Error).message);
+    } finally {
+      setExtraLaunching(false);
+    }
+  }
+
   if (details === 'loading' || !details) {
     return <div className={`text-[12px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>Завантаження деталей…</div>;
   }
@@ -660,6 +742,22 @@ function ExpandedRowContent({
           </button>
         </div>
         <div className="flex flex-col gap-2">
+          {row.cohortLaunched && !row.sendpulseAccessOpenedAt && row.status !== 'ARCHIVED' && row.status !== 'CANCELLED' && (
+            <button
+              type="button"
+              onClick={runExtraLaunch}
+              disabled={busy || extraLaunching}
+              className={`px-3 py-1.5 text-[11px] font-semibold rounded-lg border transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-left flex items-center gap-2 ${
+                dark
+                  ? 'bg-rose-500/10 border-rose-400/30 text-rose-200 hover:bg-rose-500/20 hover:border-rose-400/50'
+                  : 'bg-rose-50 border-rose-300/60 text-rose-900 hover:bg-rose-100 hover:border-rose-400/70'
+              }`}
+              title="Відкрити SendPulse + welcome-лист для цього студента"
+            >
+              <span className="text-base">🎯</span>
+              {extraLaunching ? 'Запускаю…' : 'Екстра Запуск нового студента'}
+            </button>
+          )}
           <ActionBtn theme={theme} disabled={busy || row.status === 'EXPIRED' || row.status === 'ARCHIVED'} onClick={() => {
             const days = window.prompt('На скільки днів продовжити?', '30');
             const n = Number(days);
@@ -694,7 +792,7 @@ function ExpandedRowContent({
             );
             if (!typed) return;
             if (typed.trim().toLowerCase() !== expectedEmail.toLowerCase()) {
-              alert('Email не співпадає — дію скасовано.');
+              toast('error', 'Email не співпадає — дію скасовано.');
               return;
             }
             onAction('delete');
@@ -898,82 +996,175 @@ function Th({
   );
 }
 
-function Kpi({
+/// Фільтр у шапці колонки таблиці. Текст-лейбл + chevron + крапка-індикатор активного фільтра;
+/// клік відкриває dropdown з опціями. ALL-значення (перша опція) не вважається активним.
+function ColumnFilter<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+  theme,
+  align = 'left',
+}: {
+  label: string;
+  value: T;
+  options: { value: T; label: string }[];
+  onChange: (v: T) => void;
+  theme: Theme;
+  align?: 'left' | 'center' | 'right';
+}) {
+  const dark = theme === 'dark';
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDocClick);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDocClick);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  const allValue = options[0]?.value;
+  const isFiltered = value !== allValue;
+  const menuAlign = align === 'center' ? 'left-1/2 -translate-x-1/2' : align === 'right' ? 'right-0' : 'left-0';
+
+  return (
+    <div ref={wrapRef} className="relative inline-block">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className={`inline-flex items-center gap-1 transition-colors ${
+          dark
+            ? isFiltered ? 'text-amber-300' : 'text-slate-500 hover:text-slate-300'
+            : isFiltered ? 'text-amber-800' : 'text-stone-500 hover:text-stone-700'
+        }`}
+      >
+        {label}
+        {isFiltered && (
+          <span className={`inline-block w-1.5 h-1.5 rounded-full ${dark ? 'bg-amber-400' : 'bg-amber-500'}`} />
+        )}
+        <HiOutlineChevronDown className={`text-[11px] transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div
+          className={`absolute z-40 mt-1.5 min-w-[180px] rounded-lg border shadow-2xl overflow-hidden ${menuAlign} ${
+            dark ? 'bg-zinc-900 border-white/10' : 'bg-white border-stone-200'
+          }`}
+        >
+          {options.map((o) => {
+            const selected = o.value === value;
+            return (
+              <button
+                key={o.value}
+                type="button"
+                onClick={() => {
+                  onChange(o.value);
+                  setOpen(false);
+                }}
+                className={`w-full px-3 py-2 text-left flex items-center justify-between gap-3 text-[12px] normal-case tracking-normal transition-colors ${
+                  selected
+                    ? dark ? 'bg-amber-400/10 text-amber-200' : 'bg-amber-50 text-amber-900'
+                    : dark ? 'text-slate-200 hover:bg-white/[0.06]' : 'text-stone-800 hover:bg-stone-100'
+                }`}
+              >
+                <span>{o.label}</span>
+                {selected && <HiOutlineCheck className="text-sm" />}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/// Компактний inline-KPI для горизонтального summary-strip всередині workspace-карточки.
+/// Менший за Kpi і без власної комірки/border-у — підходить для одного рядка.
+function KpiInline({
   label,
   value,
   icon: Icon,
   tone = 'neutral',
   theme,
+  big = false,
 }: {
   label: string;
   value: string;
   icon: React.ComponentType<{ className?: string }>;
   tone?: 'neutral' | 'success' | 'warning' | 'danger';
   theme: Theme;
+  big?: boolean;
 }) {
   const dark = theme === 'dark';
   const toneColor = {
-    neutral: dark ? 'text-white' : 'text-stone-900',
-    success: dark ? 'text-emerald-300' : 'text-emerald-800',
-    warning: dark ? 'text-amber-300' : 'text-amber-800',
+    neutral: dark ? 'text-slate-100' : 'text-stone-900',
+    success: dark ? 'text-emerald-300' : 'text-emerald-700',
+    warning: dark ? 'text-amber-300' : 'text-amber-700',
     danger: dark ? 'text-rose-300' : 'text-rose-700',
   }[tone];
   return (
-    <div className="px-5 py-5">
-      <div className="flex items-center gap-2 mb-2">
-        <Icon className={`text-sm ${dark ? 'text-slate-500' : 'text-stone-500'}`} />
-        <div className={`text-[10px] uppercase tracking-[0.18em] font-medium ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
-          {label}
-        </div>
-      </div>
-      <div className={`text-[24px] font-semibold tabular-nums leading-none ${toneColor}`}>{value}</div>
+    <div className="inline-flex items-baseline gap-1.5">
+      <Icon className={`shrink-0 self-center text-[13px] ${dark ? 'text-slate-500' : 'text-stone-500'}`} />
+      <span className={`text-[11px] uppercase tracking-[0.14em] font-medium ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
+        {label}
+      </span>
+      <span className={`tabular-nums font-semibold ${big ? 'text-[16px]' : 'text-[14px]'} ${toneColor}`}>{value}</span>
     </div>
   );
 }
 
-function FilterGroup<T extends string>({
-  label,
-  options,
-  value,
-  onChange,
+function KpiDot({ dark }: { dark: boolean }) {
+  return <span className={`shrink-0 select-none text-[10px] ${dark ? 'text-white/[0.15]' : 'text-stone-300'}`}>•</span>;
+}
+
+/// Маленька кнопка program-level налаштувань (Вартість/GRACE/Нагадування) для top-toolbar
+/// у workspace-карточці. Стиль "ghost icon-text" щоб не конкурувати з основною дією.
+function ProgramSettingButton({
   theme,
+  icon,
+  label,
+  title,
+  onClick,
+  badge,
 }: {
-  label: string;
-  options: { value: T; label: string }[];
-  value: T;
-  onChange: (v: T) => void;
   theme: Theme;
+  icon: React.ReactNode;
+  label: string;
+  title?: string;
+  onClick: () => void;
+  badge?: string | null;
 }) {
   const dark = theme === 'dark';
   return (
-    <div className="flex items-center gap-2">
-      <span className={`text-[10px] uppercase tracking-[0.18em] font-medium ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
-        {label}
-      </span>
-      <div className={`inline-flex rounded-lg p-0.5 border ${dark ? 'bg-black/30 border-white/[0.06]' : 'bg-stone-100/80 border-stone-300/50'}`}>
-        {options.map((o) => {
-          const active = o.value === value;
-          return (
-            <button
-              key={o.value}
-              type="button"
-              onClick={() => onChange(o.value)}
-              className={`px-2.5 py-1 text-[11px] font-medium rounded transition-colors ${
-                active
-                  ? dark
-                    ? 'bg-white/10 text-white'
-                    : 'bg-stone-900 text-white'
-                  : dark
-                    ? 'text-slate-500 hover:text-slate-200'
-                    : 'text-stone-500 hover:text-stone-800'
-              }`}
-            >
-              {o.label}
-            </button>
-          );
-        })}
-      </div>
-    </div>
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12px] font-medium transition-colors ${
+        dark
+          ? 'text-slate-400 hover:bg-white/[0.06] hover:text-amber-300'
+          : 'text-stone-600 hover:bg-stone-100 hover:text-amber-800'
+      }`}
+    >
+      {icon}
+      {label}
+      {badge && (
+        <span
+          className={`ml-0.5 text-[9px] uppercase tracking-wider font-semibold rounded-full px-1.5 py-0.5 ${
+            dark ? 'bg-rose-500/15 text-rose-300' : 'bg-rose-100 text-rose-700'
+          }`}
+        >
+          {badge}
+        </span>
+      )}
+    </button>
   );
 }
 
@@ -1463,6 +1654,7 @@ function ProgramPricingModal({
 }) {
   const router = useRouter();
   const dark = theme === 'dark';
+  const { confirm } = useUIFeedback();
   const [mounted, setMounted] = useState(false);
   const [yearlyPrice, setYearlyPrice] = useState<string>(String(initial.yearlyPrice));
   const [monthlyPrice, setMonthlyPrice] = useState<string>(String(initial.monthlyPrice));
@@ -1538,7 +1730,13 @@ function ProgramPricingModal({
 
   async function resetAll() {
     if (resetting) return;
-    if (!window.confirm('Скинути всі поля до значень за замовчуванням?')) return;
+    const ok = await confirm({
+      title: 'Скинути всі поля до значень за замовчуванням?',
+      description: 'Налаштування цін, тривалості, тексту кнопки і реєстрації повернуться до дефолтних значень коду.',
+      confirmLabel: 'Скинути',
+      destructive: true,
+    });
+    if (!ok) return;
     setResetting(true);
     setError(null);
     try {

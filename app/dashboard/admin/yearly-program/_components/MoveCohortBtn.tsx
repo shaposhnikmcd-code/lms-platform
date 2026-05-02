@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { HiOutlineArrowRightCircle } from 'react-icons/hi2';
 import type { Theme } from '../../_components/adminTheme';
 import type { Row, CohortListItem } from './types';
+import { HoverInfo } from './UIFeedback';
 
 /// Кнопка "Перенести в інший запуск" для рядка підписки. Доступно тільки якщо поточний
 /// cohort підписки ще НЕ запущений. При натисненні відкривається select зі списком
@@ -85,19 +86,28 @@ export default function MoveCohortBtn({
 
   return (
     <>
-      <button
-        type="button"
-        onClick={openModal}
-        disabled={disabled}
-        className={`px-3 py-1.5 text-[11px] font-medium rounded-lg border transition-colors disabled:opacity-40 disabled:cursor-not-allowed text-left flex items-center gap-2 ${
-          dark
-            ? 'bg-white/[0.04] border-white/[0.1] text-slate-300 hover:bg-white/[0.08]'
-            : 'bg-white/70 border-stone-300/60 text-stone-700 hover:bg-white'
-        }`}
-      >
-        <HiOutlineArrowRightCircle className="text-base" />
-        Перенести в інший запуск
-      </button>
+      <div className="flex items-center gap-1.5">
+        <button
+          type="button"
+          onClick={openModal}
+          disabled={disabled}
+          className={`px-3 py-1.5 text-[11px] font-medium rounded-lg border transition-colors disabled:opacity-40 disabled:cursor-not-allowed text-left flex items-center gap-2 ${
+            dark
+              ? 'bg-white/[0.04] border-white/[0.1] text-slate-300 hover:bg-white/[0.08]'
+              : 'bg-white/70 border-stone-300/60 text-stone-700 hover:bg-white'
+          }`}
+        >
+          <HiOutlineArrowRightCircle className="text-base" />
+          Перенести в інший запуск
+        </button>
+        <HoverInfo
+          theme={theme}
+          title="Коли можна переносити"
+          body={'Тільки до натискання 🚀 Запустити програму на cohort-і.\n\nПісля запуску підписка прив\'язується до доступу в SendPulse — перенос вже не безпечний.\n\nПри переносі "Доступ до" автоматично перерахується для нового запуску.'}
+          side="top"
+          align="start"
+        />
+      </div>
       {mounted && open && createPortal(
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4" role="dialog" aria-modal="true">
           <div className="absolute inset-0 bg-black/60" onClick={() => setOpen(false)} />

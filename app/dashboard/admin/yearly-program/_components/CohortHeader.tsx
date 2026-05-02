@@ -2,9 +2,10 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { HiOutlineSparkles, HiOutlinePlus, HiOutlineChevronDown, HiOutlineCheck } from 'react-icons/hi2';
+import { HiOutlineSparkles, HiOutlinePlus, HiOutlineChevronDown, HiOutlineCheck, HiOutlineRocketLaunch, HiOutlineInformationCircle } from 'react-icons/hi2';
 import type { Theme } from '../../_components/adminTheme';
 import type { CohortListItem } from './types';
+import CohortInfoModal from './CohortInfoModal';
 
 /// Шапка зі списком cohort-ів — селектор + "+ Новий запуск".
 /// Назва обраного cohort-у показується великим заголовком.
@@ -14,25 +15,75 @@ export default function CohortHeader({
   onSelect,
   onCreate,
   theme,
+  rightSlot,
 }: {
   cohorts: CohortListItem[];
   activeCohortId: string | null;
   onSelect: (id: string | null) => void;
   onCreate: () => void;
   theme: Theme;
+  /// Додаткові кнопки/контроли праворуч від "+ Новий запуск" (program-level налаштування).
+  rightSlot?: React.ReactNode;
 }) {
   const dark = theme === 'dark';
   const [open, setOpen] = useState(false);
+  const [infoOpen, setInfoOpen] = useState(false);
   const active = cohorts.find((c) => c.id === activeCohortId) ?? null;
 
+  if (cohorts.length === 0) {
+    return (
+      <div className={`mb-6 rounded-2xl border px-6 py-10 text-center ${
+        dark
+          ? 'bg-gradient-to-br from-amber-400/[0.04] to-white/[0.02] border-amber-400/20'
+          : 'bg-gradient-to-br from-amber-50/60 to-white border-amber-200/60 shadow-[0_1px_2px_rgba(68,64,60,0.04)]'
+      }`}>
+        <div className={`inline-flex items-center justify-center w-14 h-14 rounded-full mb-3 ${
+          dark ? 'bg-amber-400/15 text-amber-300 border border-amber-400/30' : 'bg-amber-100 text-amber-700 border border-amber-300/60'
+        }`}>
+          <HiOutlineRocketLaunch className="text-2xl" />
+        </div>
+        <h2 className={`text-[18px] font-bold mb-1.5 ${dark ? 'text-white' : 'text-stone-900'}`}>
+          Створи перший запуск Річної програми
+        </h2>
+        <p className={`text-[13px] max-w-md mx-auto mb-5 leading-relaxed ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
+          Запуск (cohort) — це навчальна когорта з фіксованими датами старту й завершення.
+          Усі нові оплати потраплятимуть у поточний запуск.
+        </p>
+        <button
+          type="button"
+          onClick={onCreate}
+          className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-[14px] font-semibold border transition-colors ${
+            dark
+              ? 'bg-gradient-to-br from-amber-400/20 to-amber-500/30 border-amber-400/40 text-amber-100 hover:from-amber-400/30 hover:to-amber-500/40 shadow-[0_0_20px_rgba(212,168,67,0.15)]'
+              : 'bg-gradient-to-br from-amber-300 to-amber-400 border-amber-400/60 text-amber-950 hover:from-amber-400 hover:to-amber-500 shadow-[0_4px_14px_rgba(212,168,67,0.30)]'
+          }`}
+        >
+          <HiOutlinePlus />
+          Створити перший запуск
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <div className={`mb-6 rounded-2xl border overflow-hidden ${
-      dark ? 'bg-white/[0.03] border-white/[0.06]' : 'bg-white/55 border-stone-300/50 shadow-[0_1px_2px_rgba(68,64,60,0.04)]'
-    }`}>
+    <div className="overflow-visible">
       <div className="flex items-stretch flex-wrap">
         <div className="flex-1 px-5 py-4 min-w-[280px]">
-          <div className={`text-[10px] uppercase tracking-[0.18em] font-medium mb-1 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+          <div className={`text-[10px] uppercase tracking-[0.18em] font-medium mb-1 flex items-center gap-1.5 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
             Запуск програми
+            <button
+              type="button"
+              onClick={() => setInfoOpen(true)}
+              aria-label="Повний довідник"
+              title="Повний довідник про систему запусків"
+              className={`w-5 h-5 rounded-full flex items-center justify-center text-[14px] transition-colors ${
+                dark
+                  ? 'text-slate-500 hover:bg-white/[0.06] hover:text-amber-300'
+                  : 'text-stone-400 hover:bg-stone-100 hover:text-amber-800'
+              }`}
+            >
+              <HiOutlineInformationCircle />
+            </button>
           </div>
           <div className="flex items-center gap-3 flex-wrap">
             <button
@@ -120,7 +171,8 @@ export default function CohortHeader({
             </div>
           )}
         </div>
-        <div className="flex items-center gap-2 px-5 py-4">
+        <div className="flex items-center gap-2 px-5 py-4 flex-wrap">
+          {rightSlot}
           <button
             type="button"
             onClick={onCreate}
@@ -135,6 +187,7 @@ export default function CohortHeader({
           </button>
         </div>
       </div>
+      {infoOpen && <CohortInfoModal theme={theme} onClose={() => setInfoOpen(false)} />}
     </div>
   );
 }

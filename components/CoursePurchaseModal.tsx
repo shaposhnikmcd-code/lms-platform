@@ -25,6 +25,15 @@ interface CoursePurchaseModalProps {
   disabled?: boolean;
   /// Якщо true — показати toggle "Разова / Циклічна 9 міс." (для yearly-program-monthly).
   allowRecurringChoice?: boolean;
+  /// Invite-token від менеджера (signed). Якщо переданий — модалка prefill-ить email/name
+  /// і блокує email (студент не може змінити). Token пересилається в /api/wayforpay.
+  inviteToken?: string;
+  invitePrefill?: {
+    email: string;
+    name?: string | null;
+    plan?: 'YEARLY' | 'MONTHLY';
+    autoRenew?: boolean;
+  };
 }
 
 export default function CoursePurchaseModal({
@@ -37,6 +46,8 @@ export default function CoursePurchaseModal({
   selectedFreeSlugs,
   disabled = false,
   allowRecurringChoice = false,
+  inviteToken,
+  invitePrefill,
 }: CoursePurchaseModalProps) {
   const t = useTranslations('PurchaseModal');
   const [isOpen, setIsOpen] = useState(false);
@@ -62,6 +73,8 @@ export default function CoursePurchaseModal({
           compact={compact}
           selectedFreeSlugs={selectedFreeSlugs}
           allowRecurringChoice={allowRecurringChoice}
+          inviteToken={inviteToken}
+          invitePrefill={invitePrefill}
           onClose={() => setIsOpen(false)}
         />
       )}
