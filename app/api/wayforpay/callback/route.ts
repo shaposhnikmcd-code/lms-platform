@@ -4,11 +4,12 @@ import prisma from '@/lib/prisma';
 import { isYearlyProgramOrderRef, YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
 import { sendYearlyProgramWelcomeEmail } from '@/lib/yearlyProgramWelcomeEmail';
 import { sendYearlyProgramPlanChangedEmail } from '@/lib/yearlyProgramPlanChangedEmail';
+import { sendYearlyProgramPaymentReceiptEmail } from '@/lib/yearlyProgramPaymentReceiptEmail';
 import { timingSafeEqualStr } from '@/lib/authTiming';
 import { getYearlyProgramSettings } from '@/lib/yearlyProgramSettings';
 import { provisionPayment } from '@/lib/paymentProvisioning';
 import { getWayforpayCreds } from '@/lib/wayforpay';
-import { calculateAccessUntil } from '@/lib/yearlyProgramAccess';
+import { calculateAccessUntil, maxAutopayChargeCount } from '@/lib/yearlyProgramAccess';
 
 function getClientIp(req: NextRequest): string {
   const xff = req.headers.get('x-forwarded-for');
@@ -930,6 +931,50 @@ async function handleYearlyProgramCallback(args: {
             });
           } else {
             actions.push(`email:plan_changed_err:${(result.error ?? 'unknown').slice(0, 40)}`);
+          }
+        } else if (sub.plan === 'MONTHLY') {
+          // Receipt-лист: повторне MONTHLY-списання (autopay charge або ручна разова
+          // продовження). Не для YEARLY (там тільки 1 платіж = welcome). Не для
+          // плану-зміни (вище). Не для першої оплати (там welcome).
+          let chargeProgress: { current: number; total: number } | null = null;
+          if (sub.autoRenew && sub.cohort) {
+            // Для autopay рахуємо порядковий номер списання у графіку cohort-у.
+            const paidPayments = await prisma.payment.count({
+              where: { yearlyProgramSubscriptionId: sub.id, status: 'PAID' },
+            });
+            const firstPaid = await prisma.payment.findFirst({
+              where: { yearlyProgramSubscriptionId: sub.id, status: 'PAID' },
+              orderBy: { paidAt: 'asc' },
+              select: { paidAt: true, createdAt: true },
+            });
+            const firstPaymentDate = firstPaid?.paidAt ?? firstPaid?.createdAt ?? sub.startDate ?? null;
+            if (firstPaymentDate) {
+              const total = maxAutopayChargeCount({
+                firstPaymentDate,
+                cohortEndDate: sub.cohort.endDate,
+              });
+              chargeProgress = { current: paidPayments, total };
+            }
+          }
+          const result = await sendYearlyProgramPaymentReceiptEmail({
+            to: user.email,
+            name: user.name ?? null,
+            amount: payment.amount,
+            autoRenew: sub.autoRenew,
+            newExpiresAt: flipResult.newExpiresAt,
+            chargeProgress,
+          });
+          if (result.ok) {
+            actions.push('email:receipt_sent');
+            await prisma.yearlyProgramSubscriptionEvent.create({
+              data: {
+                subscriptionId: sub.id,
+                type: 'admin_action',
+                message: `Payment receipt lett sent (${sub.autoRenew ? 'autopay' : 'one-time renewal'})`,
+              },
+            });
+          } else {
+            actions.push(`email:receipt_err:${(result.error ?? 'unknown').slice(0, 40)}`);
           }
         }
       }
