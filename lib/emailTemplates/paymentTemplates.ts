@@ -20,8 +20,12 @@ export type PaymentTemplateKey =
   | 'admin-archived'
   | 'admin-access-closed';
 
+export type PaymentTemplateGroup = 'payment' | 'plan-change' | 'admin-end';
+
 export interface PaymentTemplateMeta {
   key: PaymentTemplateKey;
+  /// Логічна група для UI: payment / plan-change / admin-end.
+  group: PaymentTemplateGroup;
   /// Назва для адмін-UI.
   title: string;
   /// Коли шлеться (для документації в UI).
@@ -35,6 +39,12 @@ export interface PaymentTemplateMeta {
   defaultBodyHtml: string;
 }
 
+export const PAYMENT_TEMPLATE_GROUPS: { id: PaymentTemplateGroup; title: string; description: string }[] = [
+  { id: 'payment', title: '💳 Оплата', description: 'Welcome на першу оплату + receipt на кожне успішне списання.' },
+  { id: 'plan-change', title: '🔄 Зміна плану', description: 'Коли користувач переключається між разовою/автоплатежем.' },
+  { id: 'admin-end', title: '🚪 Закриття менеджером', description: 'Коли менеджер скасовує/архівує/закриває доступ.' },
+];
+
 const layout = (innerHtml: string): string =>
   `
 <div style="font-family: Arial, Helvetica, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; color: #1a1a1a; line-height: 1.6;">
@@ -47,6 +57,7 @@ ${innerHtml}
 export const PAYMENT_TEMPLATES: Record<PaymentTemplateKey, PaymentTemplateMeta> = {
   'welcome': {
     key: 'welcome',
+    group: 'payment',
     title: '🎓 Welcome — перша оплата',
     when: 'Перша оплата YEARLY або MONTHLY (wasFirstPayment=true). Без креденшилз — креденшилз видаються при launch cohort-у.',
     placeholders: ['greeting', 'plan', 'autoRenewBullet'],
@@ -68,6 +79,7 @@ export const PAYMENT_TEMPLATES: Record<PaymentTemplateKey, PaymentTemplateMeta> 
   },
   'plan-changed-upgrade': {
     key: 'plan-changed-upgrade',
+    group: 'plan-change',
     title: '⬆ Plan-changed — Upgrade на автоплатіж',
     when: 'Користувач переключився з MONTHLY-разова на MONTHLY-автоплатіж через нову оплату.',
     placeholders: ['greeting', 'expiresLine'],
@@ -90,6 +102,7 @@ export const PAYMENT_TEMPLATES: Record<PaymentTemplateKey, PaymentTemplateMeta> 
   },
   'plan-changed-downgrade': {
     key: 'plan-changed-downgrade',
+    group: 'plan-change',
     title: '⬇ Plan-changed — Downgrade на разову',
     when: 'Користувач переключився з MONTHLY-автоплатіж на MONTHLY-разова. У поточних бізнес-правилах це шлях рідкісний (Rule 2 блокує autoRenew=true → разова, треба спочатку cancel autopay).',
     placeholders: ['greeting', 'expiresLine'],
@@ -112,6 +125,7 @@ export const PAYMENT_TEMPLATES: Record<PaymentTemplateKey, PaymentTemplateMeta> 
   },
   'receipt-autopay': {
     key: 'receipt-autopay',
+    group: 'payment',
     title: '🧾 Receipt — Автосписання',
     when: 'Кожне successful автосписання MONTHLY autoRenew=true (окрім першої оплати = welcome).',
     placeholders: ['greeting', 'amount', 'expiresAt', 'progressLine'],
@@ -137,6 +151,7 @@ export const PAYMENT_TEMPLATES: Record<PaymentTemplateKey, PaymentTemplateMeta> 
   },
   'receipt-one-time': {
     key: 'receipt-one-time',
+    group: 'payment',
     title: '🧾 Receipt — Разова оплата (продовження)',
     when: 'Повторна MONTHLY-разова оплата (продовжує доступ ще на місяць). Не для першої оплати = welcome.',
     placeholders: ['greeting', 'amount', 'expiresAt'],
@@ -159,6 +174,7 @@ export const PAYMENT_TEMPLATES: Record<PaymentTemplateKey, PaymentTemplateMeta> 
   },
   'admin-cancelled': {
     key: 'admin-cancelled',
+    group: 'admin-end',
     title: '🚫 Admin — Cancel (підписку скасовано)',
     when: 'Менеджер натиснув Cancel у адмінці. Доступ зберігається до expiresAt, autopay знято (якщо був).',
     placeholders: ['greeting', 'autoRenewBullet', 'expiresLine'],
@@ -179,6 +195,7 @@ export const PAYMENT_TEMPLATES: Record<PaymentTemplateKey, PaymentTemplateMeta> 
   },
   'admin-archived': {
     key: 'admin-archived',
+    group: 'admin-end',
     title: '🗑 Admin — Archive (доступ закрито незворотно)',
     when: 'Менеджер натиснув Архівувати у адмінці. SP-доступ закрито, autopay знято, відновити не можна.',
     placeholders: ['greeting', 'autoRenewBullet'],
@@ -197,6 +214,7 @@ export const PAYMENT_TEMPLATES: Record<PaymentTemplateKey, PaymentTemplateMeta> 
   },
   'admin-access-closed': {
     key: 'admin-access-closed',
+    group: 'admin-end',
     title: '✕ Admin — Close access (доступ тимчасово закрито)',
     when: 'Менеджер натиснув Закрити доступ у SendPulse. Можна відновити через "Відкрити знову". Autopay знято.',
     placeholders: ['greeting', 'autoRenewBullet'],

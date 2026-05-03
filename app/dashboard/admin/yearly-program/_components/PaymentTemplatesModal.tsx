@@ -6,6 +6,7 @@ type Theme = 'light' | 'dark';
 
 interface TemplateItem {
   key: string;
+  group: string;
   title: string;
   when: string;
   placeholders: string[];
@@ -17,6 +18,12 @@ interface TemplateItem {
   isCustomized: boolean;
   updatedAt: string | null;
   updatedBy: string | null;
+}
+
+interface GroupItem {
+  id: string;
+  title: string;
+  description: string;
 }
 
 /// Модалка "Листи платежів" — редагує транзакційні email-шаблони Річної програми.
@@ -32,6 +39,7 @@ export default function PaymentTemplatesModal({
   const dark = theme === 'dark';
   const [mounted, setMounted] = useState(false);
   const [items, setItems] = useState<TemplateItem[] | null>(null);
+  const [groups, setGroups] = useState<GroupItem[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
 
@@ -47,8 +55,12 @@ export default function PaymentTemplatesModal({
     fetch('/api/admin/yearly-program/payment-templates')
       .then((r) => r.json())
       .then((data) => {
-        if (Array.isArray(data?.items)) setItems(data.items);
-        else setLoadError(data?.error ?? 'Не вдалось завантажити шаблони');
+        if (Array.isArray(data?.items)) {
+          setItems(data.items);
+          if (Array.isArray(data?.groups)) setGroups(data.groups);
+        } else {
+          setLoadError(data?.error ?? 'Не вдалось завантажити шаблони');
+        }
       })
       .catch((e) => setLoadError((e as Error).message));
   }, []);
@@ -94,7 +106,7 @@ export default function PaymentTemplatesModal({
           )}
 
           {items && !selected && (
-            <TemplateList theme={theme} items={items} onSelect={setSelectedKey} />
+            <TemplateList theme={theme} items={items} groups={groups} onSelect={setSelectedKey} />
           )}
 
           {items && selected && (
@@ -114,40 +126,65 @@ export default function PaymentTemplatesModal({
 function TemplateList({
   theme,
   items,
+  groups,
   onSelect,
 }: {
   theme: Theme;
   items: TemplateItem[];
+  groups: GroupItem[];
   onSelect: (key: string) => void;
 }) {
   const dark = theme === 'dark';
+  // Якщо API чомусь не повернув groups (legacy) — fallback на flat list по items.
+  const groupList = groups.length > 0
+    ? groups
+    : Array.from(new Set(items.map((i) => i.group))).map((id) => ({ id, title: id, description: '' }));
+
   return (
-    <div className="space-y-2">
-      <p className={`text-[12px] mb-3 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
-        Транзакційні листи Річної програми, які шлемо автоматично. Натисни на шаблон щоб переглянути або відредагувати.
+    <div className="space-y-3">
+      <p className={`text-[12px] ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
+        Транзакційні листи Річної програми, які шлемо автоматично. Розбито за типом події. Натисни на шаблон щоб переглянути або відредагувати.
       </p>
-      {items.map((item) => (
-        <button
-          key={item.key}
-          type="button"
-          onClick={() => onSelect(item.key)}
-          className={`w-full text-left p-3 rounded-lg border transition-colors ${
-            dark ? 'border-white/10 bg-white/[0.03] hover:bg-white/[0.06]' : 'border-stone-200 bg-stone-50/50 hover:bg-stone-100'
-          }`}
-        >
-          <div className="flex items-center justify-between gap-3">
-            <div className="text-[13px] font-bold">{item.title}</div>
-            {item.isCustomized && (
-              <span className={`shrink-0 text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded ${
-                dark ? 'bg-amber-500/15 text-amber-300' : 'bg-amber-100 text-amber-800'
-              }`}>
-                Змінено
-              </span>
-            )}
-          </div>
-          <p className={`text-[11px] mt-1 leading-snug ${dark ? 'text-slate-400' : 'text-stone-600'}`}>{item.when}</p>
-        </button>
-      ))}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {groupList.map((g) => {
+          const groupItems = items.filter((i) => i.group === g.id);
+          if (groupItems.length === 0) return null;
+          return (
+            <div key={g.id} className={`rounded-xl p-3 border flex flex-col gap-2 ${
+              dark ? 'border-white/10 bg-white/[0.02]' : 'border-stone-200 bg-stone-50/40'
+            }`}>
+              <div className="mb-1">
+                <div className="text-[12px] font-bold">{g.title}</div>
+                {g.description && (
+                  <p className={`text-[10.5px] leading-snug mt-0.5 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>{g.description}</p>
+                )}
+              </div>
+              {groupItems.map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => onSelect(item.key)}
+                  className={`w-full text-left p-2.5 rounded-lg border transition-colors ${
+                    dark ? 'border-white/10 bg-white/[0.04] hover:bg-white/[0.08]' : 'border-stone-200 bg-white hover:bg-stone-100'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="text-[12px] font-bold leading-snug">{item.title}</div>
+                    {item.isCustomized && (
+                      <span className={`shrink-0 text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded ${
+                        dark ? 'bg-amber-500/15 text-amber-300' : 'bg-amber-100 text-amber-800'
+                      }`}>
+                        Змінено
+                      </span>
+                    )}
+                  </div>
+                  <p className={`text-[10.5px] mt-1 leading-snug ${dark ? 'text-slate-400' : 'text-stone-600'}`}>{item.when}</p>
+                </button>
+              ))}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

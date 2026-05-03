@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { isAdmin } from '@/lib/adminAuth';
-import { PAYMENT_TEMPLATES, type PaymentTemplateKey } from '@/lib/emailTemplates/paymentTemplates';
+import { PAYMENT_TEMPLATES, PAYMENT_TEMPLATE_GROUPS, type PaymentTemplateKey } from '@/lib/emailTemplates/paymentTemplates';
 
 /// GET — список усіх payment-template-ів з поточними значеннями (custom з БД або дефолт)
 /// + метаінформацією (placeholders, sampleData, when). Використовується UI-модалкою
@@ -19,6 +19,7 @@ export async function GET(req: NextRequest) {
     const custom = customByKey.get(key);
     return {
       key: meta.key,
+      group: meta.group,
       title: meta.title,
       when: meta.when,
       placeholders: meta.placeholders,
@@ -33,5 +34,5 @@ export async function GET(req: NextRequest) {
     };
   });
 
-  return NextResponse.json({ items });
+  return NextResponse.json({ items, groups: PAYMENT_TEMPLATE_GROUPS });
 }
