@@ -760,6 +760,9 @@ async function handleYearlyProgramCallback(args: {
 
       // Cohort-aware розрахунок expiresAt. Якщо у sub є cohort — використовуємо його межі;
       // без cohort (legacy) — стара логіка `last_payment + N днів`.
+      // Поточний Payment уже флипнутий у PAID на line вище (claim updateMany), тож він
+      // ВЖЕ є в allPayments. Не пушимо newPaymentAt, інакше платіж рахується двічі
+      // (Bug 2026-05-03: давало 2×30=60 днів замість 30 при першій оплаті).
       const allPayments = await tx.payment.findMany({
         where: { yearlyProgramSubscriptionId: sub.id, status: 'PAID' },
         select: { amount: true, status: true, paidAt: true, createdAt: true },
@@ -769,7 +772,6 @@ async function handleYearlyProgramCallback(args: {
         autoRenew: sub.autoRenew,
         cohort: sub.cohort ? { startDate: sub.cohort.startDate, endDate: sub.cohort.endDate } : null,
         payments: allPayments,
-        newPaymentAt: now,
       }) ?? now;
       const durationDays = Math.round((newExpiresAt.getTime() - (sub.expiresAt ?? now).getTime()) / (24 * 60 * 60 * 1000));
 
