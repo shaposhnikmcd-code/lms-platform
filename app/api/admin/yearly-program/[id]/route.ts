@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { isAdmin, getAdminActor } from '@/lib/adminAuth';
 import { closeAccessInCourse, lookupStudentIdByEmail, openAccessViaEvent } from '@/lib/sendpulse';
-import { removeRegularSchedule } from '@/lib/wayforpay';
+import { removeSubscriptionAutopay } from '@/lib/yearlyProgramAutopay';
 import { YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
 import { getYearlyProgramSettings } from '@/lib/yearlyProgramSettings';
 
@@ -54,50 +54,8 @@ type SubWithUser = Awaited<ReturnType<typeof prisma.yearlyProgramSubscription.fi
 };
 
 async function handleCancel(sub: NonNullable<SubWithUser>, actor: string, reason?: string) {
-  // Якщо план MONTHLY — пробуємо зняти ВСІ активні WFP-регулярки.
-  // У клієнта може бути одночасно >1 активна регулярка (наприклад, картка + Apple Pay):
-  // кожна прив'язана до свого orderRef першого autopay-платежу. Тому ітеруємо ВСІ
-  // PAID платежі підписки і не break-имо після першого успіху.
-  let wfpRemovedCount = 0;
-  let wfpAttemptedCount = 0;
-  let wfpError: string | null = null;
-
-  if (sub.plan === 'MONTHLY') {
-    try {
-      const merchantAccount = process.env.WAYFORPAY_MERCHANT_LOGIN!;
-      const merchantPassword = process.env.WAYFORPAY_MERCHANT_PASSWORD;
-      if (!merchantPassword) {
-        wfpError = 'WAYFORPAY_MERCHANT_PASSWORD не налаштовано';
-      } else {
-        const paidPayments = await prisma.payment.findMany({
-          where: { yearlyProgramSubscriptionId: sub.id, status: 'PAID' },
-          orderBy: { paidAt: 'desc' },
-        });
-        wfpAttemptedCount = paidPayments.length;
-        const realErrors: string[] = [];
-        for (const p of paidPayments) {
-          const result = await removeRegularSchedule({
-            merchantAccount,
-            merchantPassword,
-            orderReference: p.orderReference,
-          });
-          if (result.ok) {
-            wfpRemovedCount++;
-          } else if (result.raw.reasonCode !== 4102) {
-            // 4102 "Rule is not found" — означає що для цього orderRef регулярки НЕ було
-            // (нормально, якщо це cyclical-Payment або РАЗОВА у цій підписці).
-            // Все інше — справжня помилка від WFP, варто залогувати.
-            realErrors.push(`${p.orderReference}: code=${result.raw.reasonCode} reason=${String(result.raw.reason ?? '').slice(0, 80)}`);
-          }
-        }
-        if (realErrors.length > 0) {
-          wfpError = realErrors.join(' | ').slice(0, 600);
-        }
-      }
-    } catch (e) {
-      wfpError = (e as Error).message;
-    }
-  }
+  const { removed: wfpRemovedCount, attempted: wfpAttemptedCount, error: wfpError } =
+    await removeSubscriptionAutopay(sub.id);
 
   await prisma.yearlyProgramSubscription.update({
     where: { id: sub.id },
@@ -162,6 +120,10 @@ async function handleCloseAccess(sub: NonNullable<SubWithUser>, actor: string) {
     return NextResponse.json({ error: `SendPulse close: ${(e as Error).message}` }, { status: 500 });
   }
 
+  // Закриття доступу = підписка більше не активна. Знімаємо WFP-регулярки, щоб
+  // автосписання не йшло до архівованих/закритих студентів (orphan-charges).
+  const autopay = await removeSubscriptionAutopay(sub.id);
+
   const now = new Date();
   await prisma.yearlyProgramSubscription.update({
     where: { id: sub.id },
@@ -170,15 +132,23 @@ async function handleCloseAccess(sub: NonNullable<SubWithUser>, actor: string) {
       sendpulseAccessClosedAt: now,
     },
   });
+  const wfpSummary = sub.plan === 'MONTHLY'
+    ? ` · WFP REMOVE: ${autopay.removed}/${autopay.attempted}${autopay.error ? ` (errors: ${autopay.error.slice(0, 200)})` : ''}`
+    : '';
   await prisma.yearlyProgramSubscriptionEvent.create({
     data: {
       subscriptionId: sub.id,
       type: 'access_closed',
-      message: `Closed by ${actor} · DELETE /students/${studentId}/${courseId}`,
+      message: `Closed by ${actor} · DELETE /students/${studentId}/${courseId}${wfpSummary}`,
+      metadata: {
+        wfpRemovedCount: autopay.removed,
+        wfpAttemptedCount: autopay.attempted,
+        wfpError: autopay.error,
+      },
     },
   });
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, autopay });
 }
 
 async function handleReopenAccess(sub: NonNullable<SubWithUser>, actor: string) {
@@ -266,9 +236,12 @@ async function handleExtend(sub: NonNullable<SubWithUser>, daysToAdd: number, ac
 }
 
 async function handleDelete(sub: NonNullable<SubWithUser>, actor: string) {
-  // Soft-archive: закриваємо доступ у SendPulse, чистимо technical sendpulseStudentId,
-  // ставимо статус ARCHIVED. Картка лишається в адмінці як архівний запис; reopen заборонений.
-  // Payment-и лишаються нерушеними з лінком на цю підписку.
+  // Soft-archive: знімаємо WFP-регулярки (інакше autopay-списання продовжаться навіть
+  // після архіву = orphan charges), закриваємо доступ у SendPulse, чистимо technical
+  // sendpulseStudentId, ставимо статус ARCHIVED. Картка лишається в адмінці як архівний
+  // запис; reopen заборонений. Payment-и лишаються нерушеними з лінком на цю підписку.
+  const autopay = await removeSubscriptionAutopay(sub.id);
+
   let sendpulseClosed = false;
   let sendpulseError: string | null = null;
 
@@ -303,14 +276,23 @@ async function handleDelete(sub: NonNullable<SubWithUser>, actor: string) {
     },
   });
 
+  const wfpSummary = sub.plan === 'MONTHLY'
+    ? ` · WFP REMOVE: ${autopay.removed}/${autopay.attempted}${autopay.error ? ` (errors: ${autopay.error.slice(0, 200)})` : ''}`
+    : '';
   await prisma.yearlyProgramSubscriptionEvent.create({
     data: {
       subscriptionId: sub.id,
       type: 'admin_action',
-      message: `Archived by ${actor}${sendpulseClosed ? ' · SendPulse access closed' : (sendpulseError ? ` · SendPulse: ${sendpulseError}` : '')}`,
-      metadata: { sendpulseClosed, sendpulseError },
+      message: `Archived by ${actor}${sendpulseClosed ? ' · SendPulse access closed' : (sendpulseError ? ` · SendPulse: ${sendpulseError}` : '')}${wfpSummary}`,
+      metadata: {
+        sendpulseClosed,
+        sendpulseError,
+        wfpRemovedCount: autopay.removed,
+        wfpAttemptedCount: autopay.attempted,
+        wfpError: autopay.error,
+      },
     },
   });
 
-  return NextResponse.json({ ok: true, sendpulseClosed, sendpulseError });
+  return NextResponse.json({ ok: true, sendpulseClosed, sendpulseError, autopay });
 }

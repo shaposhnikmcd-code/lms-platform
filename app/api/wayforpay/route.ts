@@ -4,10 +4,11 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
 import { isYearlyProgramOrderRef, YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
-import { buildRegularPurchaseFlags, removeRegularSchedule, getWayforpayCreds } from '@/lib/wayforpay';
+import { buildRegularPurchaseFlags, getWayforpayCreds } from '@/lib/wayforpay';
 import { applyPromoServerSide, resolveServerPricing } from '@/lib/paymentPricing';
 import { checkRateLimit } from '@/lib/ratelimit';
 import { lastAutopayChargeDate, maxAutopayChargeCount } from '@/lib/yearlyProgramAccess';
+import { removeSubscriptionAutopay } from '@/lib/yearlyProgramAutopay';
 import { verifyInvite, type InvitePayload } from '@/lib/yearlyProgramInvite';
 
 export async function POST(req: NextRequest) {
@@ -254,45 +255,10 @@ export async function POST(req: NextRequest) {
             // Downgrade: знімаємо ВСІ WFP-регулярки existing підписки перед UPDATE.
             // Якщо REMOVE впаде — все одно мутимо БД, щоб уникнути неконсистентного стану;
             // помилку логуємо в subscription event для діагностики.
-            // У клієнта може бути >1 активна регулярка (картка + Apple Pay), кожна на
-            // своєму orderRef першого autopay-платежу — тому ітеруємо ВСІ і не break-имо
-            // після першого успіху. 4102 "Rule is not found" не вважаємо помилкою —
-            // це orderRef без активної регулярки (РАЗОВА чи cyclical-Payment).
-            let wfpRemoveError: string | null = null;
-            let wfpRemovedCount = 0;
-            let wfpAttemptedCount = 0;
-            if (!desiredAutoRenew && existing.autoRenew) {
-              try {
-                const merchantPassword = process.env.WAYFORPAY_MERCHANT_PASSWORD;
-                if (!merchantPassword) {
-                  wfpRemoveError = 'WAYFORPAY_MERCHANT_PASSWORD не налаштовано';
-                } else {
-                  const paidPayments = await prisma.payment.findMany({
-                    where: { yearlyProgramSubscriptionId: existing.id, status: 'PAID' },
-                    orderBy: { paidAt: 'desc' },
-                  });
-                  wfpAttemptedCount = paidPayments.length;
-                  const realErrors: string[] = [];
-                  for (const p of paidPayments) {
-                    const result = await removeRegularSchedule({
-                      merchantAccount: merchantLogin,
-                      merchantPassword,
-                      orderReference: p.orderReference,
-                    });
-                    if (result.ok) {
-                      wfpRemovedCount++;
-                    } else if (result.raw.reasonCode !== 4102) {
-                      realErrors.push(`${p.orderReference}: code=${result.raw.reasonCode} reason=${String(result.raw.reason ?? '').slice(0, 80)}`);
-                    }
-                  }
-                  if (realErrors.length > 0) {
-                    wfpRemoveError = realErrors.join(' | ').slice(0, 600);
-                  }
-                }
-              } catch (e) {
-                wfpRemoveError = (e as Error).message;
-              }
-            }
+            const downgrade = !desiredAutoRenew && existing.autoRenew;
+            const autopay = downgrade
+              ? await removeSubscriptionAutopay(existing.id)
+              : { removed: 0, attempted: 0, error: null };
 
             await prisma.yearlyProgramSubscription.update({
               where: { id: existing.id },
@@ -306,8 +272,12 @@ export async function POST(req: NextRequest) {
                 type: desiredAutoRenew ? 'autorenew_upgraded' : 'autorenew_downgraded',
                 message: desiredAutoRenew
                   ? 'Upgraded to АВТОПЛАТІЖ on new payment'
-                  : `Downgraded to РАЗОВА on new payment · WFP REMOVE: ${wfpRemovedCount}/${wfpAttemptedCount}${wfpRemoveError ? ` (errors: ${wfpRemoveError.slice(0, 200)})` : ''}`,
-                metadata: { wfpRemovedCount, wfpAttemptedCount, wfpRemoveError },
+                  : `Downgraded to РАЗОВА on new payment · WFP REMOVE: ${autopay.removed}/${autopay.attempted}${autopay.error ? ` (errors: ${autopay.error.slice(0, 200)})` : ''}`,
+                metadata: {
+                  wfpRemovedCount: autopay.removed,
+                  wfpAttemptedCount: autopay.attempted,
+                  wfpRemoveError: autopay.error,
+                },
               },
             });
           }

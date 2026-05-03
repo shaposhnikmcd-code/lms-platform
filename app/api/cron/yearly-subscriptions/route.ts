@@ -6,6 +6,7 @@ import {
   closeAccessInCourse,
   lookupStudentIdByEmail,
 } from '@/lib/sendpulse';
+import { removeSubscriptionAutopay } from '@/lib/yearlyProgramAutopay';
 import { syncYearlyProgress } from '@/lib/certificates/syncYearlyProgress';
 import { verifyBearer } from '@/lib/authTiming';
 import {
@@ -277,6 +278,15 @@ async function expireGraceSubscriptions(): Promise<StepResult> {
         }
       }
 
+      // Знімаємо WFP-регулярки перш ніж позначити EXPIRED — інакше autopay-списання
+      // продовжаться навіть після закриття доступу (orphan charges). Робимо до SP-close
+      // і до flip-у, щоб у випадку SP-помилки нижче (return без flip) регулярки все ж
+      // були зняті — захист від ситуації де доступу нема, а гроші продовжують списуватись.
+      const autopay = await removeSubscriptionAutopay(sub.id);
+      const wfpSummary = sub.plan === 'MONTHLY'
+        ? ` · WFP REMOVE: ${autopay.removed}/${autopay.attempted}${autopay.error ? ` (errors: ${autopay.error.slice(0, 200)})` : ''}`
+        : '';
+
       if (courseId && studentId) {
         try {
           await closeAccessInCourse(studentId, courseId);
@@ -291,7 +301,12 @@ async function expireGraceSubscriptions(): Promise<StepResult> {
             data: {
               subscriptionId: sub.id,
               type: 'access_closed',
-              message: `SendPulse DELETE /students/${studentId}/${courseId}`,
+              message: `SendPulse DELETE /students/${studentId}/${courseId}${wfpSummary}`,
+              metadata: {
+                wfpRemovedCount: autopay.removed,
+                wfpAttemptedCount: autopay.attempted,
+                wfpError: autopay.error,
+              },
             },
           });
         } catch (e) {
@@ -309,9 +324,14 @@ async function expireGraceSubscriptions(): Promise<StepResult> {
           data: {
             subscriptionId: sub.id,
             type: 'access_closed',
-            message: courseId
+            message: (courseId
               ? 'Marked EXPIRED without SendPulse closure — studentId not found'
-              : 'Marked EXPIRED locally — SENDPULSE_YEARLY_COURSE_ID not configured',
+              : 'Marked EXPIRED locally — SENDPULSE_YEARLY_COURSE_ID not configured') + wfpSummary,
+            metadata: {
+              wfpRemovedCount: autopay.removed,
+              wfpAttemptedCount: autopay.attempted,
+              wfpError: autopay.error,
+            },
           },
         });
       }
