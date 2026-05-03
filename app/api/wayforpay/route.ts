@@ -183,6 +183,15 @@ export async function POST(req: NextRequest) {
             select: { id: true },
           });
           currentCohortId = currentCohort?.id ?? null;
+          // Без активного cohort-у не продаємо доступ — бо немає від чого рахувати дати
+          // (cohort.startDate / cohort.endDate). Це жорсткий контракт продукту: реєстрація
+          // відкрита тільки коли менеджер створив cohort з фіксованими датами.
+          if (!currentCohortId) {
+            return NextResponse.json({
+              error: 'Реєстрація на Річну програму поки закрита. Очікуйте оголошення наступного запуску — ми повідомимо.',
+              code: 'no_current_cohort',
+            }, { status: 409 });
+          }
         }
         const plan = yearlyKind === 'yearly' ? 'YEARLY' : 'MONTHLY';
 

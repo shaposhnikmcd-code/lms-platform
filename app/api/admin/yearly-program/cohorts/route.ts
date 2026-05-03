@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { isAdmin } from '@/lib/adminAuth';
+import { revalidateLocalized } from '@/lib/revalidatePaths';
 import { getDefaultCohortValues, DEFAULT_LAUNCH_EMAIL_BODY, DEFAULT_LAUNCH_EMAIL_SUBJECT } from '@/lib/yearlyProgramCohort';
 
 /// GET — список усіх cohort-ів (Річних програм) з агрегованими лічильниками підписок.
@@ -97,6 +98,10 @@ export async function POST(req: NextRequest) {
       },
     });
   });
+
+  // Публічна `/yearly-program` гейтить кнопки оплати на наявності isCurrent cohort-у —
+  // інвалідуємо ISR-кеш, щоб новий cohort одразу відкрив реєстрацію без 1h затримки.
+  revalidateLocalized('/yearly-program');
 
   return NextResponse.json({
     id: created.id,

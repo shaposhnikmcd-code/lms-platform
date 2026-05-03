@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { isAdmin } from '@/lib/adminAuth';
+import { revalidateLocalized } from '@/lib/revalidatePaths';
 import { calculateAccessUntil } from '@/lib/yearlyProgramAccess';
 
 /// GET — деталі cohort-у з підписками й платежами для деталізованого view.
@@ -133,6 +134,9 @@ export async function PATCH(
     }
   });
 
+  // Зміна isCurrent / dates впливає на публічну сторінку → інвалідуємо ISR-кеш.
+  revalidateLocalized('/yearly-program');
+
   return NextResponse.json({ ok: true });
 }
 
@@ -159,5 +163,6 @@ export async function DELETE(
     );
   }
   await prisma.yearlyProgramCohort.delete({ where: { id } });
+  revalidateLocalized('/yearly-program');
   return NextResponse.json({ ok: true });
 }

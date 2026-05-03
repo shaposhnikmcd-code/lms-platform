@@ -37,9 +37,13 @@ export default async function YearlyProgramPage({
 }) {
   const { locale } = await params;
   const { invite: inviteToken } = await searchParams;
-  const [c, settings] = await Promise.all([
+  const [c, settings, currentCohort] = await Promise.all([
     getContent(locale) as Promise<any>,
     getYearlyProgramSettings(prisma),
+    prisma.yearlyProgramCohort.findFirst({
+      where: { isCurrent: true },
+      select: { id: true },
+    }),
   ]);
 
   // Invite-flow: парсимо token (якщо є). Якщо валідний — підтягуємо назву cohort-у
@@ -59,9 +63,13 @@ export default async function YearlyProgramPage({
   }
 
   const btnLabel = settings.btnLabel;
-  // Invite override: registration може бути closed для широкої аудиторії, але invite-link
-  // ВІДКРИВАЄ оплату для конкретного запрошеного студента (це і є його сенс).
-  const registrationOpenForUser = settings.registrationOpen || !!invitePayload;
+  // Реєстрація відкрита для широкої аудиторії ТІЛЬКИ коли:
+  // 1) admin увімкнув `registrationOpen` у налаштуваннях, І
+  // 2) існує `isCurrent` cohort (від чого рахувати startDate/endDate доступу).
+  // Invite-flow обходить обидва пункти — invite-cohort береться з самого token-у, тому
+  // запрошений студент може оплатити навіть коли широка реєстрація закрита.
+  const hasCurrentCohort = !!currentCohort;
+  const registrationOpenForUser = (settings.registrationOpen && hasCurrentCohort) || !!invitePayload;
 
   return (
     <main className={`min-h-screen bg-white ${inter.className}`}>
