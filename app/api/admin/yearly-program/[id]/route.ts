@@ -3,6 +3,7 @@ import prisma from '@/lib/prisma';
 import { isAdmin, getAdminActor } from '@/lib/adminAuth';
 import { closeAccessInCourse, lookupStudentIdByEmail, openAccessViaEvent } from '@/lib/sendpulse';
 import { removeSubscriptionAutopay } from '@/lib/yearlyProgramAutopay';
+import { sendYearlyProgramAdminEndedEmail, type AdminEndKind } from '@/lib/yearlyProgramAdminEndedEmail';
 import { YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
 import { getYearlyProgramSettings } from '@/lib/yearlyProgramSettings';
 
@@ -53,7 +54,48 @@ type SubWithUser = Awaited<ReturnType<typeof prisma.yearlyProgramSubscription.fi
   user: { email: string; name: string | null } | null;
 };
 
+/// Шлемо лист користувачу про admin-action термінацію + логуємо в subscription event
+/// (success/error). Email-помилка не валить сам admin action — фактичний flip уже
+/// застосований у БД, лист — це best-effort повідомлення.
+async function notifyUserSubscriptionEnded(
+  sub: NonNullable<SubWithUser>,
+  kind: AdminEndKind,
+  hadAutoRenew: boolean,
+  expiresAt: Date | null,
+): Promise<void> {
+  if (!sub.user?.email) return;
+  try {
+    const result = await sendYearlyProgramAdminEndedEmail({
+      to: sub.user.email,
+      name: sub.user.name ?? null,
+      kind,
+      expiresAt,
+      hadAutoRenew,
+    });
+    await prisma.yearlyProgramSubscriptionEvent.create({
+      data: {
+        subscriptionId: sub.id,
+        type: 'admin_action',
+        message: result.ok
+          ? `User notified: ${kind}`
+          : `User notify failed (${kind}): ${(result.error ?? 'unknown').slice(0, 80)}`,
+        metadata: { emailKind: kind, ok: result.ok, error: result.error ?? null },
+      },
+    });
+  } catch (e) {
+    await prisma.yearlyProgramSubscriptionEvent.create({
+      data: {
+        subscriptionId: sub.id,
+        type: 'admin_action',
+        message: `User notify error (${kind}): ${(e as Error).message.slice(0, 80)}`,
+        metadata: { emailKind: kind, ok: false, error: (e as Error).message },
+      },
+    });
+  }
+}
+
 async function handleCancel(sub: NonNullable<SubWithUser>, actor: string, reason?: string) {
+  const hadAutoRenew = sub.autoRenew;
   const { removed: wfpRemovedCount, attempted: wfpAttemptedCount, error: wfpError } =
     await removeSubscriptionAutopay(sub.id);
 
@@ -78,6 +120,8 @@ async function handleCancel(sub: NonNullable<SubWithUser>, actor: string, reason
       metadata: { wfpRemovedCount, wfpAttemptedCount, wfpError, reason },
     },
   });
+
+  await notifyUserSubscriptionEnded(sub, 'cancelled', hadAutoRenew, sub.expiresAt ?? null);
 
   return NextResponse.json({
     ok: true,
@@ -122,6 +166,7 @@ async function handleCloseAccess(sub: NonNullable<SubWithUser>, actor: string) {
 
   // Закриття доступу = підписка більше не активна. Знімаємо WFP-регулярки, щоб
   // автосписання не йшло до архівованих/закритих студентів (orphan-charges).
+  const hadAutoRenew = sub.autoRenew;
   const autopay = await removeSubscriptionAutopay(sub.id);
 
   const now = new Date();
@@ -147,6 +192,8 @@ async function handleCloseAccess(sub: NonNullable<SubWithUser>, actor: string) {
       },
     },
   });
+
+  await notifyUserSubscriptionEnded(sub, 'access_closed', hadAutoRenew, null);
 
   return NextResponse.json({ ok: true, autopay });
 }
@@ -240,6 +287,7 @@ async function handleDelete(sub: NonNullable<SubWithUser>, actor: string) {
   // після архіву = orphan charges), закриваємо доступ у SendPulse, чистимо technical
   // sendpulseStudentId, ставимо статус ARCHIVED. Картка лишається в адмінці як архівний
   // запис; reopen заборонений. Payment-и лишаються нерушеними з лінком на цю підписку.
+  const hadAutoRenew = sub.autoRenew;
   const autopay = await removeSubscriptionAutopay(sub.id);
 
   let sendpulseClosed = false;
@@ -293,6 +341,8 @@ async function handleDelete(sub: NonNullable<SubWithUser>, actor: string) {
       },
     },
   });
+
+  await notifyUserSubscriptionEnded(sub, 'archived', hadAutoRenew, null);
 
   return NextResponse.json({ ok: true, sendpulseClosed, sendpulseError, autopay });
 }
