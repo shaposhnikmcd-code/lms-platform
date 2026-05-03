@@ -194,6 +194,25 @@ export async function POST(req: NextRequest) {
           orderBy: { createdAt: 'desc' },
         });
         if (existing) {
+          // Блок: одна людина = одна YEARLY-підписка. Якщо вже оплачено (ACTIVE/GRACE,
+          // або PENDING з хоча б одним PAID-платежем) — не пускаємо на повторну оплату.
+          // PENDING без PAID = абандонована спроба (відкрив форму, не оплатив) → дозволяємо retry.
+          if (plan === 'YEARLY') {
+            let alreadyPaid = existing.status === 'ACTIVE' || existing.status === 'GRACE';
+            if (!alreadyPaid && existing.status === 'PENDING') {
+              const paidPayment = await prisma.payment.findFirst({
+                where: { yearlyProgramSubscriptionId: existing.id, status: 'PAID' },
+                select: { id: true },
+              });
+              alreadyPaid = !!paidPayment;
+            }
+            if (alreadyPaid) {
+              return NextResponse.json({
+                error: 'Ви вже оплатили Річну програму. Якщо потрібна допомога — напишіть на edu@uimp.com.ua',
+                code: 'yearly_already_purchased',
+              }, { status: 409 });
+            }
+          }
           // Захист від подвійного списання: якщо MONTHLY у стані GRACE з failedChargeCount>0
           // (автоплатіж не пройшов, чекаємо ручної оплати) — блокуємо повторний вибір АВТОПЛАТІЖ.
           // Існуюча WFP-регулярка може у grace-вікні самостійно повторно спробувати списати,
