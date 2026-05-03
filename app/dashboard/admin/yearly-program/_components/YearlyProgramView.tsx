@@ -785,18 +785,9 @@ function ExpandedRowContent({
           }>
             ✓ Відкрити доступ до SendPulse знову
           </ActionBtn>
-          <ActionBtn theme={theme} disabled={busy || row.status === 'ARCHIVED'} tone="danger" onClick={() => {
-            const expectedEmail = row.userEmail ?? '';
-            const typed = window.prompt(
-              `Архівація: закриваємо доступ у SendPulse, статус → ARCHIVED, очищаємо технічні поля. Картка лишається в адмінці, але ВІДКРИТИ ЗНОВУ вже не вийде.\n\nДля підтвердження введи email користувача (${expectedEmail}):`,
-            );
-            if (!typed) return;
-            if (typed.trim().toLowerCase() !== expectedEmail.toLowerCase()) {
-              toast('error', 'Email не співпадає — дію скасовано.');
-              return;
-            }
-            onAction('delete');
-          }}>
+          <ActionBtn theme={theme} disabled={busy || row.status === 'ARCHIVED'} tone="danger" onClick={() =>
+            onAction('delete', undefined, `Архівувати запис ${row.userEmail ?? ''}? Закриємо доступ у SendPulse, статус → ARCHIVED, очистимо технічні поля. ВІДКРИТИ ЗНОВУ вже не вийде.`)
+          }>
             🗑 Архівувати запис
           </ActionBtn>
           {!row.cohortLaunched && (
@@ -1301,6 +1292,20 @@ function HelpModal({ theme, onClose }: { theme: Theme; onClose: () => void }) {
                   <p className={`text-[11px] leading-snug ${dark ? 'text-slate-400' : 'text-stone-600'}`}>{a.desc}</p>
                 </div>
               ))}
+            </div>
+          </section>
+
+          <section>
+            <h4 className="text-[12px] uppercase tracking-wider font-semibold mb-2 opacity-60">Повторна купівля YEARLY</h4>
+            <div className={`p-3 rounded-lg border ${dark ? 'border-white/10 bg-white/[0.03]' : 'border-stone-200 bg-stone-50/50'}`}>
+              <p className={`text-[12px] leading-snug ${dark ? 'text-slate-300' : 'text-stone-700'}`}>
+                Один користувач = одна активна Річна підписка. Якщо людина намагається купити YEARLY вдруге зі статусом{' '}
+                <span className="font-semibold">PENDING</span>, <span className="font-semibold">ACTIVE</span> або{' '}
+                <span className="font-semibold">GRACE</span> — отримує помилку{' '}
+                <span className="italic">«Ви вже оплатили Річну програму»</span> і не пускається на оплату. Купити наступну YEARLY можна лише після того, як попередня перейде в{' '}
+                <span className="font-semibold">EXPIRED</span> (через 7 днів grace після завершення), або менеджер вручну поставить{' '}
+                <span className="font-semibold">CANCELLED</span> / <span className="font-semibold">ARCHIVED</span>. На MONTHLY-плани не діє — місячні платежі за дизайном переюзають підписку для продовження доступу.
+              </p>
             </div>
           </section>
         </div>
