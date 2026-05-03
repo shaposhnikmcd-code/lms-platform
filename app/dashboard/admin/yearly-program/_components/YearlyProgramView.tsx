@@ -80,7 +80,7 @@ const STATUS_OPTIONS: { value: 'ALL' | SubStatus; label: string }[] = [
   { value: 'ALL', label: 'Усі' },
   { value: 'ACTIVE', label: 'Активний' },
   { value: 'GRACE', label: 'Grace (7 днів)' },
-  { value: 'EXPIRED', label: 'Прострочено' },
+  { value: 'EXPIRED', label: 'Доступ закрито' },
   { value: 'CANCELLED', label: 'Скасовано' },
   { value: 'PENDING', label: 'Очікує' },
   { value: 'ARCHIVED', label: 'Архів' },
@@ -277,7 +277,7 @@ function YearlyProgramViewInner({
           <KpiInline
             theme={theme}
             icon={HiOutlineXCircle}
-            label="Прострочено / скасовано"
+            label="Доступ закрито / скасовано"
             value={(summary.expired + summary.cancelled).toLocaleString()}
           />
           <div className="ml-auto" />
@@ -1199,7 +1199,7 @@ function StatusBadge({ status, theme }: { status: SubStatus; theme: Theme }) {
   const map: Record<SubStatus, { label: string; dark: string; light: string }> = {
     ACTIVE:    { label: 'Активний',    dark: 'bg-emerald-500/15 text-emerald-300 border-emerald-400/20', light: 'bg-emerald-100 text-emerald-800 border-emerald-300/50' },
     GRACE:     { label: 'Grace (7 днів)', dark: 'bg-amber-500/15 text-amber-300 border-amber-400/20',       light: 'bg-amber-100 text-amber-800 border-amber-300/50' },
-    EXPIRED:   { label: 'Прострочено', dark: 'bg-rose-500/15 text-rose-300 border-rose-400/20',          light: 'bg-rose-100 text-rose-800 border-rose-300/50' },
+    EXPIRED:   { label: 'Доступ закрито', dark: 'bg-rose-500/15 text-rose-300 border-rose-400/20',          light: 'bg-rose-100 text-rose-800 border-rose-300/50' },
     CANCELLED: { label: 'Скасовано',   dark: 'bg-slate-500/15 text-slate-300 border-slate-400/20',      light: 'bg-stone-200 text-stone-700 border-stone-300/60' },
     PENDING:   { label: 'Очікує',      dark: 'bg-slate-500/15 text-slate-400 border-slate-400/10',      light: 'bg-stone-100 text-stone-600 border-stone-300/50' },
     ARCHIVED:  { label: 'Архів',       dark: 'bg-zinc-700/30 text-zinc-400 border-zinc-500/20',         light: 'bg-zinc-200 text-zinc-600 border-zinc-300/60' },
@@ -1256,7 +1256,7 @@ function HelpModal({ theme, onClose }: { theme: Theme; onClose: () => void }) {
     { badge: 'PENDING',   name: 'Очікує',     desc: 'Підписка створена, але оплата ще не надійшла. Доступу немає.', cls: dark ? 'bg-slate-500/15 text-slate-400' : 'bg-stone-100 text-stone-600' },
     { badge: 'ACTIVE',    name: 'Активний',   desc: 'Все добре — оплата пройшла, доступ відкрито, користувач навчається.', cls: dark ? 'bg-emerald-500/15 text-emerald-300' : 'bg-emerald-100 text-emerald-800' },
     { badge: 'GRACE',     name: 'Grace',      desc: 'Термін доступу закінчився, але є 7 днів пільгового періоду — встигнемо продовжити без втрати доступу.', cls: dark ? 'bg-amber-500/15 text-amber-300' : 'bg-amber-100 text-amber-800' },
-    { badge: 'EXPIRED',   name: 'Прострочено', desc: 'Термін доступу + grace вийшли. Доступ автоматично закрито в SendPulse.', cls: dark ? 'bg-rose-500/15 text-rose-300' : 'bg-rose-100 text-rose-800' },
+    { badge: 'EXPIRED',   name: 'Доступ закрито', desc: 'Доступ до курсу в SendPulse закрито — автоматично після grace-періоду або вручну менеджером.', cls: dark ? 'bg-rose-500/15 text-rose-300' : 'bg-rose-100 text-rose-800' },
     { badge: 'CANCELLED', name: 'Скасовано',  desc: 'Користувач/адмін скасував підписку. Для MONTHLY автосписання зупинено. Доступ зберігається до кінця оплаченого періоду.', cls: dark ? 'bg-slate-500/15 text-slate-300' : 'bg-stone-200 text-stone-700' },
     { badge: 'ARCHIVED',  name: 'Архів',      desc: 'Адмін заархівував. Доступ у SendPulse закрито, технічні поля очищено. Картка лишається як історичний запис, але відновити не можна.', cls: dark ? 'bg-zinc-700/30 text-zinc-400' : 'bg-zinc-200 text-zinc-600' },
   ];
