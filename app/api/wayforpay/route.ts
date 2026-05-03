@@ -185,49 +185,58 @@ export async function POST(req: NextRequest) {
           currentCohortId = currentCohort?.id ?? null;
         }
         const plan = yearlyKind === 'yearly' ? 'YEARLY' : 'MONTHLY';
-        const existing = await prisma.yearlyProgramSubscription.findFirst({
+
+        // Беремо ВСІ активні (не-термінальні) підписки користувача — потрібно для крос-плановий
+        // блок-логіки: одна людина = одна активна Річна-програма (з нюансами).
+        const activeSubs = await prisma.yearlyProgramSubscription.findMany({
           where: {
             userId: user.id,
-            plan,
             status: { in: ['PENDING', 'ACTIVE', 'GRACE'] },
           },
           orderBy: { createdAt: 'desc' },
         });
+        // PENDING без PAID-платежу = абандон (відкрив форму, не оплатив) → не блокуємо retry.
+        const subIsPaid = async (s: { id: string; status: string }) => {
+          if (s.status === 'ACTIVE' || s.status === 'GRACE') return true;
+          const p = await prisma.payment.findFirst({
+            where: { yearlyProgramSubscriptionId: s.id, status: 'PAID' },
+            select: { id: true },
+          });
+          return !!p;
+        };
+        const yearlySub = activeSubs.find((s) => s.plan === 'YEARLY') ?? null;
+        const monthlySub = activeSubs.find((s) => s.plan === 'MONTHLY') ?? null;
+        const yearlyPaid = yearlySub ? await subIsPaid(yearlySub) : false;
+        const monthlyPaid = monthlySub ? await subIsPaid(monthlySub) : false;
+
+        // Rule 1: активна YEARLY → блокує будь-яку нову оплату (YEARLY/MONTHLY/автоплатіж).
+        if (yearlyPaid) {
+          return NextResponse.json({
+            error: 'Ви вже маєте Річну підписку. Якщо потрібна допомога — напишіть на edu@uimp.com.ua',
+            code: 'yearly_already_purchased',
+          }, { status: 409 });
+        }
+        // Rule 2: активний MONTHLY автоплатіж → блокує все. Спочатку треба скасувати
+        // автосписання, потім зможе купити заново.
+        if (monthlyPaid && monthlySub!.autoRenew) {
+          return NextResponse.json({
+            error: 'У вас активна Місячна підписка з автосписанням. Спочатку скасуйте автосписання, потім зможете оформити нову оплату. Допомога: edu@uimp.com.ua',
+            code: 'monthly_autopay_active',
+          }, { status: 409 });
+        }
+        // Rule 3: активна MONTHLY разова (autoRenew=false) → блокує лише YEARLY. На місячну
+        // (разова чи апгрейд на автоплатіж) — допускаємо через існуючий reuse-флоу нижче.
+        if (monthlyPaid && !monthlySub!.autoRenew && plan === 'YEARLY') {
+          return NextResponse.json({
+            error: 'У вас активна Місячна підписка. Перейти на Річну можна після завершення місячного періоду. Допомога: edu@uimp.com.ua',
+            code: 'monthly_blocks_yearly',
+          }, { status: 409 });
+        }
+
+        // Reuse абандонованої PENDING-спроби або того ж same-plan-у. YEARLY-paid вже відсіяний
+        // Rule 1, тут лишається лише YEARLY-PENDING-без-PAID (retry) і MONTHLY same-plan.
+        const existing = plan === 'YEARLY' ? yearlySub : monthlySub;
         if (existing) {
-          // Блок: одна людина = одна YEARLY-підписка. Якщо вже оплачено (ACTIVE/GRACE,
-          // або PENDING з хоча б одним PAID-платежем) — не пускаємо на повторну оплату.
-          // PENDING без PAID = абандонована спроба (відкрив форму, не оплатив) → дозволяємо retry.
-          if (plan === 'YEARLY') {
-            let alreadyPaid = existing.status === 'ACTIVE' || existing.status === 'GRACE';
-            if (!alreadyPaid && existing.status === 'PENDING') {
-              const paidPayment = await prisma.payment.findFirst({
-                where: { yearlyProgramSubscriptionId: existing.id, status: 'PAID' },
-                select: { id: true },
-              });
-              alreadyPaid = !!paidPayment;
-            }
-            if (alreadyPaid) {
-              return NextResponse.json({
-                error: 'Ви вже оплатили Річну програму. Якщо потрібна допомога — напишіть на edu@uimp.com.ua',
-                code: 'yearly_already_purchased',
-              }, { status: 409 });
-            }
-          }
-          // Захист від подвійного списання: якщо MONTHLY у стані GRACE з failedChargeCount>0
-          // (автоплатіж не пройшов, чекаємо ручної оплати) — блокуємо повторний вибір АВТОПЛАТІЖ.
-          // Існуюча WFP-регулярка може у grace-вікні самостійно повторно спробувати списати,
-          // що + manual autopay-платіж = два списання. Дозволяємо лише РАЗОВА.
-          if (
-            plan === 'MONTHLY'
-            && existing.status === 'GRACE'
-            && (existing.failedChargeCount ?? 0) > 0
-            && recurring === true
-          ) {
-            return NextResponse.json({
-              error: 'Будь ласка, оберіть РАЗОВА для відновлення підписки. Автосписання буде відновлено наступним стандартним циклом.',
-              code: 'autopay_blocked_in_grace',
-            }, { status: 400 });
-          }
           yearlyProgramSubscriptionId = existing.id;
           // Sync autoRenew з recurring у обидва боки. Без цього БД залишається "разова"
           // навіть коли юзер апгрейдиться на АВТОПЛАТІЖ (callback пише monthly-once у логи).

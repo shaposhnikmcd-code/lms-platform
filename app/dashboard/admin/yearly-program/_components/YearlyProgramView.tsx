@@ -1296,15 +1296,18 @@ function HelpModal({ theme, onClose }: { theme: Theme; onClose: () => void }) {
           </section>
 
           <section>
-            <h4 className="text-[12px] uppercase tracking-wider font-semibold mb-2 opacity-60">Повторна купівля YEARLY</h4>
-            <div className={`p-3 rounded-lg border ${dark ? 'border-white/10 bg-white/[0.03]' : 'border-stone-200 bg-stone-50/50'}`}>
+            <h4 className="text-[12px] uppercase tracking-wider font-semibold mb-2 opacity-60">Блокування повторної купівлі</h4>
+            <div className={`p-3 rounded-lg border space-y-2 ${dark ? 'border-white/10 bg-white/[0.03]' : 'border-stone-200 bg-stone-50/50'}`}>
               <p className={`text-[12px] leading-snug ${dark ? 'text-slate-300' : 'text-stone-700'}`}>
-                Один користувач = одна активна Річна підписка. Якщо людина намагається купити YEARLY вдруге зі статусом{' '}
-                <span className="font-semibold">PENDING</span>, <span className="font-semibold">ACTIVE</span> або{' '}
-                <span className="font-semibold">GRACE</span> — отримує помилку{' '}
-                <span className="italic">«Ви вже оплатили Річну програму»</span> і не пускається на оплату. Купити наступну YEARLY можна лише після того, як попередня перейде в{' '}
-                <span className="font-semibold">EXPIRED</span> (через 7 днів grace після завершення), або менеджер вручну поставить{' '}
-                <span className="font-semibold">CANCELLED</span> / <span className="font-semibold">ARCHIVED</span>. На MONTHLY-плани не діє — місячні платежі за дизайном переюзають підписку для продовження доступу.
+                Поки в користувача є активна підписка (статуси <span className="font-semibold">PENDING</span> / <span className="font-semibold">ACTIVE</span> / <span className="font-semibold">GRACE</span> з принаймні однією PAID-оплатою), нові оплати блокуються за такими правилами:
+              </p>
+              <ul className={`text-[12px] leading-snug list-disc pl-5 space-y-1 ${dark ? 'text-slate-300' : 'text-stone-700'}`}>
+                <li><span className="font-semibold">YEARLY активна</span> → блокує все (нову YEARLY, MONTHLY разову, MONTHLY автоплатіж).</li>
+                <li><span className="font-semibold">MONTHLY автоплатіж активна</span> (autoRenew=true) → блокує все. Спочатку треба скасувати автосписання.</li>
+                <li><span className="font-semibold">MONTHLY разова активна</span> (autoRenew=false) → блокує тільки YEARLY. На місячну (разова чи апгрейд на автоплатіж) дозволяє через стандартний reuse.</li>
+              </ul>
+              <p className={`text-[12px] leading-snug ${dark ? 'text-slate-300' : 'text-stone-700'}`}>
+                Розблоковується тільки коли підписка переходить у <span className="font-semibold">EXPIRED</span> / <span className="font-semibold">CANCELLED</span> / <span className="font-semibold">ARCHIVED</span> (автоматично через grace або вручну менеджером).
               </p>
             </div>
           </section>
