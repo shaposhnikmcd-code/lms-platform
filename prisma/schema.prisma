@@ -980,3 +980,17 @@ model YearlyProgramSetting {
   registrationOpen Boolean  @default(true)
   updatedAt        DateTime @updatedAt
 }
+
+/// Шаблони транзакційних листів, які можна редагувати з адмінки без деплою.
+/// `templateKey` — стабільний ідентифікатор (welcome, plan-changed-upgrade, receipt-autopay, ...).
+/// `subject` і `bodyHtml` містять placeholder-и виду `{name}`, `{plan}`, які підставляються
+/// у момент відправки. Якщо запис відсутній — fallback на дефолт із коду
+/// (`lib/emailTemplates/paymentDefaults.ts`). Це дозволяє коду продовжувати працювати
+/// навіть якщо менеджер ще не зайшов в адмінку.
+model EmailTemplate {
+  templateKey String   @id
+  subject     String
+  bodyHtml    String   @db.Text
+  updatedAt   DateTime @updatedAt
+  updatedBy   String?
+}

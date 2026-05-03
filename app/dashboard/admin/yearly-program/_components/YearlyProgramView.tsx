@@ -27,6 +27,7 @@ import CohortActions from './CohortActions';
 import CreateCohortModal from './CreateCohortModal';
 import MoveCohortBtn from './MoveCohortBtn';
 import { UIFeedbackProvider, useUIFeedback } from './UIFeedback';
+import PaymentTemplatesModal from './PaymentTemplatesModal';
 
 export type { Row, SubStatus, Plan, SummaryData };
 
@@ -148,6 +149,7 @@ function YearlyProgramViewInner({
   const [pageSize, setPageSize] = useState<number>(25);
   const [page, setPage] = useState<number>(1);
   const [emailModalOpen, setEmailModalOpen] = useState(false);
+  const [paymentTemplatesOpen, setPaymentTemplatesOpen] = useState(false);
   const [graceModalOpen, setGraceModalOpen] = useState(false);
   const [pricingModalOpen, setPricingModalOpen] = useState(false);
 
@@ -324,6 +326,13 @@ function YearlyProgramViewInner({
               title="Налаштувати email-нагадування користувачам"
               onClick={() => setEmailModalOpen(true)}
             />
+            <ProgramSettingButton
+              theme={theme}
+              icon={<HiOutlineEnvelope className="text-base" />}
+              label="Листи платежів"
+              title="Редагувати транзакційні листи (welcome, receipt, plan-changed, admin-actions)"
+              onClick={() => setPaymentTemplatesOpen(true)}
+            />
           </div>
           <input
             type="search"
@@ -339,6 +348,7 @@ function YearlyProgramViewInner({
         </div>
       </AdminPanel>
       {emailModalOpen && <EmailRemindersModal theme={theme} onClose={() => setEmailModalOpen(false)} />}
+      {paymentTemplatesOpen && <PaymentTemplatesModal theme={theme} onClose={() => setPaymentTemplatesOpen(false)} />}
       {graceModalOpen && (
         <GraceSettingsModal
           theme={theme}
