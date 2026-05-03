@@ -95,6 +95,11 @@ async function notifyUserSubscriptionEnded(
 }
 
 async function handleCancel(sub: NonNullable<SubWithUser>, actor: string, reason?: string) {
+  if (sub.plan !== 'MONTHLY' || !sub.autoRenew) {
+    return NextResponse.json({
+      error: 'Скасування доступне тільки для місячних підписок з активним автоплатежем. Для дострокового закриття доступу використай "Закрити доступ у SendPulse" або "Архівувати".',
+    }, { status: 400 });
+  }
   const hadAutoRenew = sub.autoRenew;
   const { removed: wfpRemovedCount, attempted: wfpAttemptedCount, error: wfpError } =
     await removeSubscriptionAutopay(sub.id);
@@ -132,6 +137,11 @@ async function handleCancel(sub: NonNullable<SubWithUser>, actor: string, reason
 }
 
 async function handleCloseAccess(sub: NonNullable<SubWithUser>, actor: string) {
+  if (!sub.sendpulseAccessOpenedAt) {
+    return NextResponse.json({
+      error: 'Доступ у SendPulse ще не відкривався — нема що закривати. Використай "Архівувати запис".',
+    }, { status: 400 });
+  }
   const courseId = YEARLY_PROGRAM_CONFIG.sendpulseCourseId;
   if (!courseId) {
     return NextResponse.json({
@@ -207,6 +217,11 @@ async function handleReopenAccess(sub: NonNullable<SubWithUser>, actor: string) 
       { error: 'Підписка заархівована — відкрити доступ знову не можна. Створіть нову.' },
       { status: 400 },
     );
+  }
+  if (!sub.sendpulseAccessOpenedAt) {
+    return NextResponse.json({
+      error: 'Доступ у SendPulse ще не відкривався — "відкрити знову" неможливо. Запусти cohort.',
+    }, { status: 400 });
   }
 
   // Передаємо реальну суму плану — щоб у CRM SendPulse запис мав коректну ціну

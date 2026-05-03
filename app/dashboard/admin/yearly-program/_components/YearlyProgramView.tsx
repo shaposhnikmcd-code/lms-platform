@@ -775,26 +775,28 @@ function ExpandedRowContent({
           }}>
             ⏱ Продовжити…
           </ActionBtn>
-          <ActionBtn theme={theme} disabled={busy || row.status === 'CANCELLED' || row.status === 'ARCHIVED'} tone="warning" onClick={() => {
-            const isMonthly = row.plan === 'MONTHLY';
-            const confirmMsg = isMonthly
-              ? 'Скасувати автосписання на WFP і позначити підписку як CANCELLED?'
-              : 'Позначити підписку як CANCELLED? Доступ зберігається до кінця оплаченого року.';
-            const reason = window.prompt('Причина (необовʼязково):') ?? undefined;
-            onAction('cancel', { reason }, confirmMsg);
-          }}>
-            {row.plan === 'MONTHLY' ? '🚫 Скасувати автосписання' : '🚫 Позначити як скасовану'}
-          </ActionBtn>
-          <ActionBtn theme={theme} disabled={busy || row.status === 'EXPIRED' || row.status === 'ARCHIVED' || !!row.sendpulseAccessClosedAt} tone="danger" onClick={() =>
-            onAction('close_access', undefined, 'Закрити доступ до SendPulse курсу?')
-          }>
-            ✕ Закрити доступ у SendPulse
-          </ActionBtn>
-          <ActionBtn theme={theme} disabled={busy || row.status === 'ARCHIVED'} tone="success" onClick={() =>
-            onAction('reopen_access', undefined, 'Відкрити доступ до SendPulse знову (через event)?')
-          }>
-            ✓ Відкрити доступ до SendPulse знову
-          </ActionBtn>
+          {row.plan === 'MONTHLY' && row.autoRenew && (
+            <ActionBtn theme={theme} disabled={busy || row.status === 'CANCELLED' || row.status === 'ARCHIVED'} tone="warning" onClick={() => {
+              const reason = window.prompt('Причина (необовʼязково):') ?? undefined;
+              onAction('cancel', { reason }, 'Скасувати автосписання на WFP? Доступ зберігається до кінця оплаченого місяця.');
+            }}>
+              🚫 Скасувати автосписання
+            </ActionBtn>
+          )}
+          {!!row.sendpulseAccessOpenedAt && (
+            <ActionBtn theme={theme} disabled={busy || row.status === 'EXPIRED' || row.status === 'ARCHIVED' || !!row.sendpulseAccessClosedAt} tone="danger" onClick={() =>
+              onAction('close_access', undefined, 'Закрити доступ до SendPulse курсу?')
+            }>
+              ✕ Закрити доступ у SendPulse
+            </ActionBtn>
+          )}
+          {!!row.sendpulseAccessOpenedAt && (
+            <ActionBtn theme={theme} disabled={busy || row.status === 'ARCHIVED'} tone="success" onClick={() =>
+              onAction('reopen_access', undefined, 'Відкрити доступ до SendPulse знову (через event)?')
+            }>
+              ✓ Відкрити доступ до SendPulse знову
+            </ActionBtn>
+          )}
           <ActionBtn theme={theme} disabled={busy || row.status === 'ARCHIVED'} tone="danger" onClick={() =>
             onAction('delete', undefined, `Архівувати запис ${row.userEmail ?? ''}? Закриємо доступ у SendPulse, статус → ARCHIVED, очистимо технічні поля. ВІДКРИТИ ЗНОВУ вже не вийде.`)
           }>
@@ -1261,7 +1263,7 @@ function HelpModal({ theme, onClose }: { theme: Theme; onClose: () => void }) {
 
   const actions: { icon: string; name: string; desc: string }[] = [
     { icon: '⏱', name: 'Продовжити', desc: 'Додає вказану кількість днів до поточного терміну доступу. Корисно для бонусів, подарунків чи компенсацій.' },
-    { icon: '🚫', name: 'Скасувати автосписання (MONTHLY) / Позначити як скасовану (YEARLY)', desc: 'MONTHLY: зупиняє автоматичні списання з картки на боці WayForPay. YEARLY: лише ставить статус CANCELLED — доступ працює до кінця оплаченого року.' },
+    { icon: '🚫', name: 'Скасувати автосписання', desc: 'Зупиняє автоматичні списання з картки на боці WayForPay і ставить статус CANCELLED. Доступ зберігається до кінця оплаченого місяця. Кнопка з\'являється тільки для місячних підписок з активним автоплатежем — для річних і одноразових місячних її нема.' },
     { icon: '✕', name: 'Закрити доступ у SendPulse', desc: 'Миттєво забирає доступ до курсу в SendPulse. Підписка стає EXPIRED. Можна потім "Відкрити знову".' },
     { icon: '✓', name: 'Відкрити доступ до SendPulse знову', desc: 'Відновлює доступ у SendPulse + продовжує термін згідно плану (YEARLY +365д, MONTHLY +30д). Не працює для ARCHIVED.' },
     { icon: '🗑', name: 'Архівувати запис', desc: 'Назавжди закриває доступ у SendPulse, очищає технічні поля (studentId), ставить статус ARCHIVED. Картка лишається в адмінці як архів. Відновити не можна. Для підтвердження треба ввести email.' },
