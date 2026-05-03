@@ -15,38 +15,12 @@ export default function BundleRowSync({
     const root = rootRef.current;
     if (!root) return;
 
-    const compute = () => {
-      const titles = Array.from(root.querySelectorAll<HTMLElement>('[data-bundle-title]'));
-      titles.forEach((el) => {
-        el.style.minHeight = '';
-      });
-    };
-
-    compute();
-
-    const ro = new ResizeObserver(() => compute());
-    const observeTitles = () => {
-      ro.disconnect();
-      root
-        .querySelectorAll<HTMLElement>('[data-bundle-title]')
-        .forEach((el) => ro.observe(el));
-    };
-    observeTitles();
-
-    const mo = new MutationObserver(() => {
-      observeTitles();
-      compute();
-    });
-    mo.observe(root, { childList: true, subtree: true });
-
-    const onResize = () => compute();
-    window.addEventListener('resize', onResize);
-
-    return () => {
-      ro.disconnect();
-      mo.disconnect();
-      window.removeEventListener('resize', onResize);
-    };
+    // Rule #37: h3-sync minHeight ВІДКЛЮЧЕНО. Лишаємо один-разовий reset застарілого
+    // minHeight (на випадок SSR-залишків) і виходимо. RO/MO ловили innerHTML mutations
+    // від autoTuner equalizeH4 → MutationObserver fire → можливий loop із синхронізацією.
+    root
+      .querySelectorAll<HTMLElement>('[data-bundle-title]')
+      .forEach((el) => { el.style.minHeight = ''; });
   }, []);
 
   return (

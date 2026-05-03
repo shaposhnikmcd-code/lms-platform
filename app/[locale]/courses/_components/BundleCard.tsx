@@ -306,28 +306,20 @@ export default function BundleCard({
       raf = requestAnimationFrame(() => autoTuneBundle(root));
     };
     tune();
-    // Initial RAF може спрацювати ДО того як завантажились шрифти/картинки → Rule #43
-    // (cross-bundle row-sync) бачить ще-не-фінальні висоти і нічого не синхронізує.
-    // Перезапускаємо тюнер після стабілізації layout, щоб row-sync отримав фінальні
-    // розміри. fonts.ready + window.load + ResizeObserver покриває всі сценарії.
+    // Re-tune після стабілізації layout (шрифти/картинки), щоб row-sync (Rule #43)
+    // отримав фінальні висоти. RO на root НЕ використовуємо — adjustBundleSpacing
+    // робить sub-pixel зміни в children → RO fire → loop ("пружина" на сайті).
     if (typeof document !== 'undefined' && document.fonts?.ready) {
       document.fonts.ready.then(tune).catch(() => {});
     }
     if (typeof document !== 'undefined' && document.readyState !== 'complete') {
       window.addEventListener('load', tune, { once: true });
     }
-    // ResizeObserver на root: будь-які подальші зміни висоти (lazy image, choice-toggle,
-    // переклад) триггерять tune. Idempotent: якщо tune не змінює layout — observer не
-    // fire-иться повторно (no observable mutation), тож зациклення нема.
-    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => tune()) : null;
-    ro?.observe(root);
-    // Resize listener потрібен і для miniature (scale не змінюється але viewport може).
     window.addEventListener('resize', tune);
     return () => {
       if (raf) cancelAnimationFrame(raf);
       window.removeEventListener('resize', tune);
       window.removeEventListener('load', tune);
-      ro?.disconnect();
     };
   }, [miniature]);
 
