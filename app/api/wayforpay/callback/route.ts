@@ -857,32 +857,62 @@ async function handleYearlyProgramCallback(args: {
         : 'monthly-once';
   actions.push(`yearly:${planLabel}:+${flipResult.durationDays}d`);
 
-  // На оплату Річної програми SendPulse-event НЕ викликається — доступ до платформи
-  // (логін/пароль) відкривається централізовано в момент масової розсилки на запуск
-  // програми (`executeLaunchLoop`) або через extra-launch для пізніх приєднанців.
-  // На оплату шлемо ТІЛЬКИ наш generic welcome lett (без креденшилз).
+  // На оплату Річної програми SendPulse-event НЕ викликається в загальному випадку — доступ
+  // до платформи (логін/пароль) відкривається централізовано в момент масової розсилки на
+  // запуск програми (`executeLaunchLoop`).
+  // ВИНЯТОК: якщо cohort вже launched (студент платить ПІСЛЯ запуску), автоматично
+  // викликаємо `runExtraLaunchForSubscription` — це відкриває SP-доступ + шле cohort launch
+  // lett, без ручного "🎯 Екстра Запуск" кліку менеджера. Запасний ручний шлях все одно
+  // лишається на випадок збою SP API під час оплати.
+  // Інакше (звичайний flow до launch) — шлемо тільки наш generic welcome lett (без креденшилз).
   if (flipResult.wasFirstPayment) {
-    try {
-      const result = await sendYearlyProgramWelcomeEmail({
-        to: user.email,
-        name: user.name ?? null,
-        plan: sub.plan,
-        autoRenew: sub.autoRenew,
-      });
-      if (result.ok) {
-        actions.push('email:welcome_sent');
-        await prisma.yearlyProgramSubscriptionEvent.create({
-          data: {
-            subscriptionId: sub.id,
-            type: 'admin_action',
-            message: 'Welcome lett sent (no credentials — credentials follow on launch)',
-          },
-        });
-      } else {
-        actions.push(`email:welcome_err:${(result.error ?? 'unknown').slice(0, 40)}`);
+    const cohortAlreadyLaunched = !!sub.cohort?.launchedAt;
+    if (cohortAlreadyLaunched) {
+      try {
+        const { runExtraLaunchForSubscription } = await import('@/lib/yearlyProgramLaunch');
+        const extraResult = await runExtraLaunchForSubscription(sub.id, 'system:auto-late-payer');
+        if (extraResult.ok) {
+          actions.push('extra_launch:auto_triggered');
+          if (extraResult.email.sent) actions.push('email:launch_sent');
+          else if (extraResult.email.error) actions.push(`email:launch_err:${extraResult.email.error.slice(0, 40)}`);
+        } else {
+          actions.push(`extra_launch:auto_failed:${extraResult.reason ?? 'unknown'}`);
+          // Fallback на звичайний welcome lett — щоб користувач хоча б щось отримав на оплату.
+          await sendYearlyProgramWelcomeEmail({
+            to: user.email,
+            name: user.name ?? null,
+            plan: sub.plan,
+            autoRenew: sub.autoRenew,
+          }).then((r) => {
+            if (r.ok) actions.push('email:welcome_sent_fallback');
+          }).catch(() => { /* swallow */ });
+        }
+      } catch (e) {
+        actions.push(`extra_launch:auto_err:${(e as Error).message.slice(0, 40)}`);
       }
-    } catch (e) {
-      actions.push(`email:welcome_err:${(e as Error).message.slice(0, 40)}`);
+    } else {
+      try {
+        const result = await sendYearlyProgramWelcomeEmail({
+          to: user.email,
+          name: user.name ?? null,
+          plan: sub.plan,
+          autoRenew: sub.autoRenew,
+        });
+        if (result.ok) {
+          actions.push('email:welcome_sent');
+          await prisma.yearlyProgramSubscriptionEvent.create({
+            data: {
+              subscriptionId: sub.id,
+              type: 'admin_action',
+              message: 'Welcome lett sent (no credentials — credentials follow on launch)',
+            },
+          });
+        } else {
+          actions.push(`email:welcome_err:${(result.error ?? 'unknown').slice(0, 40)}`);
+        }
+      } catch (e) {
+        actions.push(`email:welcome_err:${(e as Error).message.slice(0, 40)}`);
+      }
     }
   } else {
     // Не перша оплата — перевіряємо чи в межах поточної покупки відбулась зміна autoRenew

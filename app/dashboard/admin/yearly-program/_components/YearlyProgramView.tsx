@@ -689,11 +689,13 @@ function ExpandedRowContent({
   const [extraLaunching, setExtraLaunching] = useState(false);
 
   async function runExtraLaunch() {
+    const cohortName = row.cohortName ?? 'поточну програму';
+    const studentLabel = row.userEmail ?? row.userName ?? 'цього студента';
     const ok = await confirm({
       title: 'Екстра Запуск нового студента?',
-      description: 'Виконує те саме, що 🚀 Запустити програму, але для одного цього студента.',
+      description: `Додасть студента ${studentLabel} у програму "${cohortName}". Виконує те саме, що 🚀 Запустити програму, але точково для цієї підписки.`,
       bullets: [
-        { icon: '🔓', text: 'Відкриває доступ у SendPulse' },
+        { icon: '🔓', text: `Відкриває доступ у SendPulse до курсу "${cohortName}"` },
         { icon: '📅', text: 'Розраховує "Доступ до" по cohort-логіці' },
         { icon: '✉️', text: 'Шле welcome-лист (той самий шаблон cohort-у)' },
       ],
@@ -759,8 +761,8 @@ function ExpandedRowContent({
               disabled={busy || extraLaunching}
               className={`px-3 py-1.5 text-[11px] font-semibold rounded-lg border transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-left flex items-center gap-2 ${
                 dark
-                  ? 'bg-rose-500/10 border-rose-400/30 text-rose-200 hover:bg-rose-500/20 hover:border-rose-400/50'
-                  : 'bg-rose-50 border-rose-300/60 text-rose-900 hover:bg-rose-100 hover:border-rose-400/70'
+                  ? 'bg-sky-500/10 border-sky-400/30 text-sky-200 hover:bg-sky-500/20 hover:border-sky-400/50'
+                  : 'bg-sky-50 border-sky-300/60 text-sky-900 hover:bg-sky-100 hover:border-sky-400/70'
               }`}
               title="Відкрити SendPulse + welcome-лист для цього студента"
             >
