@@ -15,14 +15,18 @@ export async function GET(req: NextRequest) {
     orderBy: { startDate: 'desc' },
   });
 
-  // Лічильники підписок по cohort-у одним groupBy.
-  const counts = await prisma.yearlyProgramSubscription.groupBy({
-    by: ['cohortId'],
-    _count: { _all: true },
+  // Лічильник лише launch-eligible підписок: PENDING/ACTIVE/GRACE + хоч один PAID-платіж.
+  // Логіка має 1-в-1 збігатись з executeLaunchLoop у lib/yearlyProgramLaunch.ts.
+  const eligibleSubs = await prisma.yearlyProgramSubscription.findMany({
+    where: {
+      status: { in: ['PENDING', 'ACTIVE', 'GRACE'] },
+      payments: { some: { status: 'PAID' } },
+    },
+    select: { cohortId: true },
   });
   const countByCohort = new Map<string | null, number>();
-  for (const c of counts) {
-    countByCohort.set(c.cohortId, c._count._all);
+  for (const s of eligibleSubs) {
+    countByCohort.set(s.cohortId, (countByCohort.get(s.cohortId) ?? 0) + 1);
   }
 
   return NextResponse.json({

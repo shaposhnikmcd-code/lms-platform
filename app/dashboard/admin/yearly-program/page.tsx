@@ -25,12 +25,20 @@ export default async function AdminYearlyProgramPage() {
     }),
   ]);
 
-  const cohortSubsCount = await prisma.yearlyProgramSubscription.groupBy({
-    by: ['cohortId'],
-    _count: { _all: true },
+  // Рахуємо тільки підписки, які eligible для launch: PENDING/ACTIVE/GRACE + є хоч один PAID-платіж.
+  // Логіка має 1-в-1 збігатись з executeLaunchLoop у lib/yearlyProgramLaunch.ts (інакше counter
+  // у LaunchProgramModal буде брехати).
+  const eligibleSubs = await prisma.yearlyProgramSubscription.findMany({
+    where: {
+      status: { in: ['PENDING', 'ACTIVE', 'GRACE'] },
+      payments: { some: { status: 'PAID' } },
+    },
+    select: { cohortId: true },
   });
   const countByCohort = new Map<string | null, number>();
-  for (const c of cohortSubsCount) countByCohort.set(c.cohortId, c._count._all);
+  for (const s of eligibleSubs) {
+    countByCohort.set(s.cohortId, (countByCohort.get(s.cohortId) ?? 0) + 1);
+  }
 
   const cohortList: CohortListItem[] = cohorts.map((c) => ({
     id: c.id,
