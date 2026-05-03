@@ -22,9 +22,24 @@ export interface ConfirmOptions {
   destructive?: boolean;
 }
 
+export interface PromptOptions {
+  title: string;
+  description?: string;
+  inputLabel: string;
+  placeholder?: string;
+  required?: boolean;
+  minLength?: number;
+  multiline?: boolean;
+  initialValue?: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  destructive?: boolean;
+}
+
 interface UIFeedbackContextValue {
   toast: (variant: ToastVariant, message: string) => void;
   confirm: (opts: ConfirmOptions) => Promise<boolean>;
+  prompt: (opts: PromptOptions) => Promise<string | null>;
 }
 
 const Ctx = createContext<UIFeedbackContextValue | null>(null);
@@ -38,6 +53,7 @@ export function useUIFeedback() {
 export function UIFeedbackProvider({ theme, children }: { theme: Theme; children: React.ReactNode }) {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [confirmState, setConfirmState] = useState<(ConfirmOptions & { resolve: (v: boolean) => void }) | null>(null);
+  const [promptState, setPromptState] = useState<(PromptOptions & { resolve: (v: string | null) => void }) | null>(null);
   const idRef = useRef(0);
 
   const toast = useCallback((variant: ToastVariant, message: string) => {
@@ -54,6 +70,12 @@ export function UIFeedbackProvider({ theme, children }: { theme: Theme; children
     });
   }, []);
 
+  const prompt = useCallback((opts: PromptOptions) => {
+    return new Promise<string | null>((resolve) => {
+      setPromptState({ ...opts, resolve });
+    });
+  }, []);
+
   const closeConfirm = useCallback((result: boolean) => {
     setConfirmState((s) => {
       if (s) s.resolve(result);
@@ -61,8 +83,15 @@ export function UIFeedbackProvider({ theme, children }: { theme: Theme; children
     });
   }, []);
 
+  const closePrompt = useCallback((result: string | null) => {
+    setPromptState((s) => {
+      if (s) s.resolve(result);
+      return null;
+    });
+  }, []);
+
   return (
-    <Ctx.Provider value={{ toast, confirm }}>
+    <Ctx.Provider value={{ toast, confirm, prompt }}>
       {children}
       <ToastStack toasts={toasts} onDismiss={(id) => setToasts((a) => a.filter((t) => t.id !== id))} theme={theme} />
       {confirmState && (
@@ -71,6 +100,14 @@ export function UIFeedbackProvider({ theme, children }: { theme: Theme; children
           options={confirmState}
           onConfirm={() => closeConfirm(true)}
           onCancel={() => closeConfirm(false)}
+        />
+      )}
+      {promptState && (
+        <PromptDialog
+          theme={theme}
+          options={promptState}
+          onConfirm={(v) => closePrompt(v)}
+          onCancel={() => closePrompt(null)}
         />
       )}
     </Ctx.Provider>
@@ -310,6 +347,166 @@ function ConfirmDialog({
             onClick={onConfirm}
             autoFocus
             className={`px-4 py-2 rounded-lg text-[13px] font-semibold border transition-colors ${
+              destructive
+                ? dark
+                  ? 'bg-rose-500/15 text-rose-200 border-rose-400/30 hover:bg-rose-500/25'
+                  : 'bg-rose-100 text-rose-900 border-rose-300/70 hover:bg-rose-200'
+                : dark
+                  ? 'bg-amber-400/15 text-amber-200 border-amber-400/30 hover:bg-amber-400/25'
+                  : 'bg-amber-100 text-amber-900 border-amber-300/60 hover:bg-amber-200'
+            }`}
+          >
+            {confirmLabel}
+          </button>
+        </div>
+        <style>{`
+          @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+          @keyframes dlgIn { from { opacity: 0; transform: translateY(8px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+        `}</style>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+function PromptDialog({
+  theme,
+  options,
+  onConfirm,
+  onCancel,
+}: {
+  theme: Theme;
+  options: PromptOptions;
+  onConfirm: (value: string) => void;
+  onCancel: () => void;
+}) {
+  const dark = theme === 'dark';
+  const [mounted, setMounted] = useState(false);
+  const [value, setValue] = useState(options.initialValue ?? '');
+  const [touched, setTouched] = useState(false);
+  const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
+
+  useEffect(() => { setMounted(true); }, []);
+  useEffect(() => {
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = ''; };
+  }, []);
+  useEffect(() => {
+    const t = setTimeout(() => inputRef.current?.focus(), 30);
+    return () => clearTimeout(t);
+  }, []);
+
+  const trimmed = value.trim();
+  const required = options.required ?? false;
+  const minLength = options.minLength ?? (required ? 1 : 0);
+  const tooShort = trimmed.length < minLength;
+  const error = touched && tooShort
+    ? (minLength > 1 ? `Мінімум ${minLength} символів` : 'Поле обов\'язкове')
+    : null;
+  const canSubmit = !tooShort;
+
+  function submit() {
+    setTouched(true);
+    if (!canSubmit) {
+      inputRef.current?.focus();
+      return;
+    }
+    onConfirm(trimmed);
+  }
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCancel();
+      if (e.key === 'Enter' && !options.multiline && !e.shiftKey) {
+        e.preventDefault();
+        submit();
+      }
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        submit();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  });
+
+  if (!mounted) return null;
+
+  const destructive = !!options.destructive;
+  const confirmLabel = options.confirmLabel ?? (destructive ? 'Підтвердити' : 'OK');
+  const cancelLabel = options.cancelLabel ?? 'Скасувати';
+
+  const inputClasses = `w-full rounded-lg border px-3 py-2 text-[13px] outline-none transition-colors ${
+    error
+      ? dark
+        ? 'bg-rose-500/5 border-rose-400/50 text-rose-100 focus:border-rose-400'
+        : 'bg-rose-50 border-rose-300 text-rose-900 focus:border-rose-400'
+      : dark
+        ? 'bg-white/[0.04] border-white/10 text-slate-100 focus:border-amber-400/60'
+        : 'bg-white border-stone-300 text-stone-800 focus:border-amber-400'
+  }`;
+
+  return createPortal(
+    <div className="fixed inset-0 z-[250] flex items-center justify-center p-4" role="dialog" aria-modal="true">
+      <div className="absolute inset-0 bg-black/60 animate-[fadeIn_0.15s_ease-out]" onClick={onCancel} />
+      <div
+        className={`relative max-w-md w-full rounded-2xl shadow-2xl animate-[dlgIn_0.2s_ease-out] ${
+          dark ? 'bg-zinc-900 border border-white/10 text-slate-200' : 'bg-white border border-stone-200 text-stone-800'
+        }`}
+      >
+        <div className={`px-5 pt-5 pb-3 ${dark ? 'border-b border-white/10' : 'border-b border-stone-200'}`}>
+          <h3 className="text-base font-bold leading-tight">{options.title}</h3>
+          {options.description && (
+            <p className={`mt-2 text-[13px] leading-snug ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
+              {options.description}
+            </p>
+          )}
+        </div>
+        <div className="px-5 py-4">
+          <label className={`block text-[12px] font-semibold mb-1.5 ${dark ? 'text-slate-300' : 'text-stone-700'}`}>
+            {options.inputLabel}
+            {required && <span className={`ml-1 ${dark ? 'text-rose-300' : 'text-rose-600'}`}>*</span>}
+          </label>
+          {options.multiline ? (
+            <textarea
+              ref={(el) => { inputRef.current = el; }}
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              onBlur={() => setTouched(true)}
+              placeholder={options.placeholder}
+              rows={4}
+              className={inputClasses}
+            />
+          ) : (
+            <input
+              ref={(el) => { inputRef.current = el; }}
+              type="text"
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              onBlur={() => setTouched(true)}
+              placeholder={options.placeholder}
+              className={inputClasses}
+            />
+          )}
+          {error && (
+            <p className={`mt-1.5 text-[12px] ${dark ? 'text-rose-300' : 'text-rose-600'}`}>{error}</p>
+          )}
+        </div>
+        <div className={`flex items-center justify-end gap-2 px-5 py-3 ${dark ? 'border-t border-white/10' : 'border-t border-stone-200'}`}>
+          <button
+            type="button"
+            onClick={onCancel}
+            className={`px-3.5 py-2 rounded-lg text-[13px] font-medium ${
+              dark ? 'text-slate-300 hover:bg-white/[0.06]' : 'text-stone-700 hover:bg-stone-100'
+            }`}
+          >
+            {cancelLabel}
+          </button>
+          <button
+            type="button"
+            onClick={submit}
+            disabled={touched && !canSubmit}
+            className={`px-4 py-2 rounded-lg text-[13px] font-semibold border transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
               destructive
                 ? dark
                   ? 'bg-rose-500/15 text-rose-200 border-rose-400/30 hover:bg-rose-500/25'

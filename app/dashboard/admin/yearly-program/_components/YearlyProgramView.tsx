@@ -683,7 +683,7 @@ function ExpandedRowContent({
   onAction: (action: string, payload?: Record<string, unknown>, confirm?: string) => void;
 }) {
   const dark = theme === 'dark';
-  const { toast, confirm } = useUIFeedback();
+  const { toast, confirm, prompt } = useUIFeedback();
   const router = useRouter();
   const [helpOpen, setHelpOpen] = useState(false);
   const [extraLaunching, setExtraLaunching] = useState(false);
@@ -778,9 +778,21 @@ function ExpandedRowContent({
             ⏱ Продовжити…
           </ActionBtn>
           {row.plan === 'MONTHLY' && row.autoRenew && (
-            <ActionBtn theme={theme} disabled={busy || row.status === 'CANCELLED' || row.status === 'ARCHIVED'} tone="warning" onClick={() => {
-              const reason = window.prompt('Причина (необовʼязково):') ?? undefined;
-              onAction('cancel', { reason }, 'Скасувати автосписання на WFP? Доступ зберігається до кінця оплаченого місяця.');
+            <ActionBtn theme={theme} disabled={busy || row.status === 'CANCELLED' || row.status === 'ARCHIVED'} tone="warning" onClick={async () => {
+              const reason = await prompt({
+                title: 'Скасувати автосписання?',
+                description: 'WFP більше не списуватиме картку. Доступ зберігається до кінця оплаченого місяця. Причина зберігається в журналі підписки.',
+                inputLabel: 'Причина скасування',
+                placeholder: 'Напр.: студент написав у підтримку',
+                required: true,
+                minLength: 3,
+                multiline: true,
+                confirmLabel: 'Скасувати автосписання',
+                cancelLabel: 'Не скасовувати',
+                destructive: true,
+              });
+              if (reason === null) return;
+              onAction('cancel', { reason });
             }}>
               🚫 Скасувати автосписання
             </ActionBtn>
