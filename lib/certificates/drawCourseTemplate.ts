@@ -6,9 +6,9 @@
 ///
 ///   Main panel (right 75% = 960pt): cream BG, thin gold inset frame, "ОФІЦІЙНИЙ
 ///   СЕРТИФІКАТ" + top rule, "Сертифікат" italic heading, "ОНЛАЙН-КУРСУ" amber
-///   subtitle, courseName italic line, diamond divider, "ВРУЧАЄТЬСЯ", recipient
-///   name slot (overlay), body text про "успішне завершення онлайн-курсу", bottom
-///   row з signature / small seal / year.
+///   subtitle, courseName italic line, diamond divider, intro label "цей сертифікат
+///   засвідчує, що", recipient name slot (overlay), body text про успішне завершення
+///   курсу, bottom row з signature / small seal / year.
 ///
 /// Динамічні поля (recipientName, year, certNumber, QR) рендеряться overlay-ем у
 /// generatePdf.ts через TEMPLATES.COURSE field positions.
@@ -80,7 +80,7 @@ function drawSidebar(
 
   /// Великий медальйон зверху (приблизно у верхньому третині sidebar-у)
   const medR = sidebarW * 0.16;
-  const medCY = H * 0.685;
+  const medCY = H * 0.715;
   drawSidebarMedallion(page, fonts, cx, medCY, medR, logoGoldPng);
 
   /// "UIMP" — gold caps під медальйоном
@@ -142,20 +142,14 @@ function drawMainPanel(
   /// Тонка золота inset-рамка — двошарова (товста зовнішня + волосна внутрішня)
   drawInsetFrame(page, panelX, panelW, H);
 
-  /// === Top: ОФІЦІЙНИЙ СЕРТИФІКАТ + top rule ===
-  const topRuleY = H * 0.870;
-  drawTopRule(page, cx, topRuleY, panelW * 0.135);
-  drawCenteredTracked(
-    page, 'ОФІЦІЙНИЙ СЕРТИФІКАТ', cx, H * 0.835,
-    H * 0.0145, 3.6, assets.fonts.interSemiBold, c(SIDEBAR_GREEN),
-  );
+  /// (Pretitle «ОФІЦІЙНИЙ СЕРТИФІКАТ» + top rule прибрано — дублювало «Сертифікат» нижче)
 
   /// === Heading: "Сертифікат" big italic ===
   const headingSize = H * 0.085;
   const headingFont = assets.fonts.cormorantItalic;
   const headingText = 'Сертифікат';
   const headingW = headingFont.widthOfTextAtSize(headingText, headingSize);
-  const headingY = H * 0.715;
+  const headingY = H * 0.760;
   /// Faux-bold через triple-draw з x-offset (BoldItalic недоступний у pdf-lib)
   page.drawText(headingText, {
     x: cx - headingW / 2 + 0.4, y: headingY,
@@ -170,36 +164,43 @@ function drawMainPanel(
     size: headingSize, font: headingFont, color: c(GREEN),
   });
 
-  /// === Subtitle: ОНЛАЙН-КУРСУ amber tracked caps ===
-  const subSize = H * 0.025;
+  /// === Eyebrow: ОНЛАЙН-КУРСУ amber tracked caps (прямо над назвою курсу) ===
+  const subSize = H * 0.0171;
   drawCenteredTracked(
-    page, 'ОНЛАЙН-КУРСУ', cx, H * 0.640,
+    page, 'ОНЛАЙН-КУРСУ', cx, H * 0.580,
     subSize, 5.2, assets.fonts.cormorantRegular, c(GOLD_DEEP),
   );
 
-  /// === Course name (dynamic) — italic, dark green, центр ===
+  /// === Course name (dynamic) — Cormorant Regular non-italic + faux-bold ===
+  /// Senior-designer rationale: «Сертифікат» (italic, hero) і «Тетяна Шапошник»
+  /// (italic, калігр. honoree) обидва italic. Якщо назва курсу теж italic у тому
+  /// ж кольорі — ієрархія розмивається. Non-italic Regular з faux-bold чітко
+  /// маркує «об'єкт/тему» сертифіката, ламає italic-монотонію без зміни палітри.
   if (opts.courseName) {
-    const courseFont = assets.fonts.cormorantItalic;
-    const courseSize = H * 0.026;
+    const courseFont = assets.fonts.cormorantRegular;
+    const courseSize = H * 0.0473;
     const courseText = opts.courseName.trim();
-    /// Auto-fit якщо назва довша за 80% ширини панелі
-    const maxW = panelW * 0.78;
+    const maxW = panelW * 0.92;
     const naturalW = courseFont.widthOfTextAtSize(courseText, courseSize);
     const finalSize = naturalW > maxW ? courseSize * (maxW / naturalW) : courseSize;
     const finalW = courseFont.widthOfTextAtSize(courseText, finalSize);
-    page.drawText(courseText, {
-      x: cx - finalW / 2, y: H * 0.580,
-      size: finalSize, font: courseFont, color: c(SIDEBAR_GREEN),
-    });
+    const courseY = H * 0.545;
+    /// Faux-bold через triple-draw з x-offset
+    for (const dx of [-0.35, 0, 0.35]) {
+      page.drawText(courseText, {
+        x: cx - finalW / 2 + dx, y: courseY,
+        size: finalSize, font: courseFont, color: c(SIDEBAR_GREEN),
+      });
+    }
   }
 
   /// === Diamond divider ===
-  drawDiamondDivider(page, cx, H * 0.510, panelW * 0.165);
+  drawDiamondDivider(page, cx, H * 0.525, panelW * 0.165);
 
-  /// === ВРУЧАЄТЬСЯ tracked caps ===
+  /// === Intro label ===
   drawCenteredTracked(
-    page, 'ВРУЧАЄТЬСЯ', cx, H * 0.448,
-    H * 0.0125, 3.2, assets.fonts.interMedium, c(GREY),
+    page, 'цей сертифікат засвідчує, що', cx, H * 0.455,
+    H * 0.0125, 0.5, assets.fonts.interMedium, c(GREY),
   );
 
   /// === Recipient name — overlay field малюється у generatePdf через TEMPLATES.COURSE ===
@@ -207,31 +208,47 @@ function drawMainPanel(
   /// на maxWidthPct=0.55 з templateConfig). Якщо recipientName не передано —
   /// fallback на 32% ширини панелі.
   const nameLineY = H * 0.355;
-  let nameLineSpan = panelW * 0.32;
+  let nameLineSpan = panelW * 0.18;
   if (opts.recipientName) {
     const pageW = panelX + panelW;
-    const naturalW = assets.fonts.cormorantItalic.widthOfTextAtSize(opts.recipientName, 46);
+    /// Розмір тут має збігатися з COURSE_TEMPLATE.recipientName.size у templateConfig.ts
+    const recipientFontSize = 25;
+    const naturalW = assets.fonts.cormorantItalic.widthOfTextAtSize(opts.recipientName, recipientFontSize);
     const maxW = pageW * 0.55;
     const displayedW = Math.min(naturalW, maxW);
-    nameLineSpan = displayedW / 2 + 24;
+    nameLineSpan = displayedW / 2 + 8;
   }
-  page.drawLine({
-    start: { x: cx - nameLineSpan, y: nameLineY },
-    end: { x: cx + nameLineSpan, y: nameLineY },
-    thickness: 0.6, color: c(GREY_LIGHT),
-  });
+  /// Tapered gold fade-rule (та сама мова, що під назвою курсу)
+  {
+    const segments = 14;
+    const segLen = nameLineSpan / segments;
+    const drawFade = (dir: 1 | -1) => {
+      for (let i = 0; i < segments; i++) {
+        const opacity = 0.85 - (i / (segments - 1)) * 0.78;
+        const x0 = cx + dir * (i * segLen);
+        const x1 = cx + dir * ((i + 1) * segLen);
+        page.drawLine({
+          start: { x: x0, y: nameLineY },
+          end: { x: x1, y: nameLineY },
+          thickness: 0.55, color: c(GOLD_DEEP), opacity,
+        });
+      }
+    };
+    drawFade(1);
+    drawFade(-1);
+  }
 
   /// === Body: 2 рядки тексту про завершення курсу ===
   const bodyFont = assets.fonts.interRegular;
   const bodySize = H * 0.0155;
   const bodyColor = c(GREY);
   drawCenteredTracked(
-    page, 'за успішне завершення онлайн-курсу',
-    cx, H * 0.290, bodySize, 0.5, bodyFont, bodyColor,
+    page, 'успішно завершив(ла) онлайн-курс в',
+    cx, H * 0.315, bodySize, 0.5, bodyFont, bodyColor,
   );
   drawCenteredTracked(
-    page, 'з душеопіки та психотерапії в Українському інституті UIMP',
-    cx, H * 0.260, bodySize, 0.5, bodyFont, bodyColor,
+    page, 'Українському інституті Душеопіки та Психотерапії (UIMP)',
+    cx, H * 0.285, bodySize, 0.5, bodyFont, bodyColor,
   );
 
   /// === Bottom row: signature (left) | small seal (center) | year (right) ===
@@ -289,11 +306,11 @@ function drawBottomRow(
   /// === LEFT: signature image + president line ===
   const sigCX = cx - colOffset;
   const sigImg = assets.signaturePng;
-  const sigH = H * 0.058;
+  const sigH = H * 0.078;
   const sigW = sigH * (sigImg.width / sigImg.height);
   page.drawImage(sigImg, {
     x: sigCX - sigW / 2,
-    y: rowY + 4,
+    y: rowY + 12,
     width: sigW, height: sigH,
   });
   /// "Тетяна Шапошник" — italic під підписом
@@ -312,10 +329,10 @@ function drawBottomRow(
     end: { x: sigCX + sigLineHalf, y: rowY - 16 },
     thickness: 0.4, color: c(GREY_LIGHT),
   });
-  /// "ПРЕЗИДЕНТКА UIMP" tracked caps
+  /// "ПРЕЗИДЕНТКА · UIMP" tracked caps (узгоджено зі SUPERVISION шаблоном)
   drawCenteredTracked(
-    page, 'ПРЕЗИДЕНТКА UIMP', sigCX, rowY - 32,
-    H * 0.0115, 2.4, assets.fonts.interMedium, c(GREY),
+    page, 'ПРЕЗИДЕНТКА · UIMP', sigCX, rowY - 32,
+    H * 0.011, 2.8, assets.fonts.interSemiBold, c(GOLD_DEEP),
   );
 
   /// === CENTER: sphere seal (растерізований медальйон-куля) ===

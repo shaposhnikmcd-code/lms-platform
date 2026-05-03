@@ -40,7 +40,8 @@ export type TemplateKey = 'COURSE' | 'YEARLY_PRACTICAL' | 'YEARLY_LISTENER' | 'S
 /// SUPERVISION має власну унікальну композицію 1280×900 (трохи коротша за yearly,
 /// без medallion-у зверху, з акцентом-блоками "ТЕМА" + "ДАТА ПРОВЕДЕННЯ").
 export const PAGE_SIZES: Record<TemplateKey, { w: number; h: number }> = {
-  COURSE: { w: 1280, h: 760 },
+  /// A4 landscape (297×210mm у PDF-pt = 842×595) — друкується точно на A4 без скалювання.
+  COURSE: { w: 842, h: 595 },
   YEARLY_PRACTICAL: { w: 1280, h: 960 },
   YEARLY_LISTENER: { w: 1280, h: 960 },
   SUPERVISION: { w: 1280, h: 900 },
@@ -100,7 +101,7 @@ const COURSE_TEMPLATE: TemplateConfig = {
     /// xPct=0.645 = центр main-panel при SIDEBAR_FRAC=0.290 (sidebar=29% + 35.5%).
     {
       xPct: 0.645, yPct: 0.367, slot: 'recipientName',
-      size: 46, font: 'cormorantItalic',
+      size: 25, font: 'cormorantItalic',
       color: { r: 16, g: 40, b: 32 },     // SIDEBAR_GREEN — глибокий dark green
       align: 'center', maxWidthPct: 0.55,
     },

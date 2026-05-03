@@ -188,7 +188,9 @@ export function drawWaxPressedUIMP(
 /*                       DIAMOND DIVIDER                                   */
 /* ======================================================================= */
 
-/// Горизонтальний divider — дві короткі gold-лінії з gold-ромбом центром.
+/// Горизонтальний divider — одна непеперервна tapered hairline-rule.
+/// Solid у центрі, тане симетрично до обох країв через 14 сегментів спадної
+/// opacity. Без ромба, без end-cap сфер — editorial restraint.
 ///
 /// @param cx       центр divider-а по горизонталі
 /// @param y        baseline divider-а
@@ -199,33 +201,24 @@ export function drawDiamondDivider(
   y: number,
   spanHalf: number,
 ) {
-  const gold = c(GOLD);
-  const goldLight = c(GOLD_LIGHT);
-  const goldPale = c(GOLD_PALE);
-  const diamondR = 5.5;
-
-  /// Лівий і правий сегменти (з відступом від центрального ромба)
-  const gap = diamondR + 4;
-  page.drawLine({
-    start: { x: cx - spanHalf, y },
-    end: { x: cx - gap, y },
-    thickness: 0.8, color: gold, opacity: 0.85,
-  });
-  page.drawLine({
-    start: { x: cx + gap, y },
-    end: { x: cx + spanHalf, y },
-    thickness: 0.8, color: gold, opacity: 0.85,
-  });
-
-  /// Маленькі сферички на кінцях лінії (subtle end-caps)
-  page.drawCircle({ x: cx - spanHalf, y, size: 1.2, color: gold, borderWidth: 0 });
-  page.drawCircle({ x: cx + spanHalf, y, size: 1.2, color: gold, borderWidth: 0 });
-
-  /// Центральний ромб — double layer (halo + core)
-  drawDiamondShape(page, cx, y, diamondR + 1.5, goldPale);
-  drawDiamondShape(page, cx, y, diamondR, goldLight);
-  /// Тонкий внутрішній stroke (engraved-look)
-  drawDiamondOutline(page, cx, y, diamondR - 1.5, c(GOLD_DEEP), 0.5);
+  const goldDeep = c(GOLD_DEEP);
+  const segments = 14;
+  const segLen = spanHalf / segments;
+  /// Малюємо від центра до краю: i=0 центр (solid), i=segments-1 край (faded)
+  const drawFade = (dir: 1 | -1) => {
+    for (let i = 0; i < segments; i++) {
+      const opacity = 0.85 - (i / (segments - 1)) * 0.78;
+      const x0 = cx + dir * (i * segLen);
+      const x1 = cx + dir * ((i + 1) * segLen);
+      page.drawLine({
+        start: { x: x0, y },
+        end: { x: x1, y },
+        thickness: 0.55, color: goldDeep, opacity,
+      });
+    }
+  };
+  drawFade(1);
+  drawFade(-1);
 }
 
 /* ======================================================================= */
