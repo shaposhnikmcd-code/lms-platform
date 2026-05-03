@@ -95,7 +95,7 @@ export default async function AdminYearlyProgramPage() {
       by: ['status'],
       _count: { _all: true },
     }),
-    prisma.yearlyProgramSubscription.count(),
+    prisma.yearlyProgramSubscription.count({ where: { status: { not: 'ARCHIVED' } } }),
     prisma.payment.aggregate({
       where: { status: 'PAID', yearlyProgramSubscriptionId: { not: null } },
       _sum: { amount: true },
