@@ -125,7 +125,7 @@ function drawInstituteLockup(
   const font = fonts.cormorantRegular;
 
   /// Лінія 1
-  const line1 = 'Український інститут душеопіки';
+  const line1 = 'Український інститут Душеопіки';
   const w1 = font.widthOfTextAtSize(line1, size);
   page.drawText(line1, {
     x: cx - w1 / 2, y: H * 0.870,
@@ -133,7 +133,7 @@ function drawInstituteLockup(
   });
 
   /// Лінія 2: тільки "та психотерапії" — UIMP винесено окремо як брендмарк нижче.
-  const line2 = 'та психотерапії';
+  const line2 = 'та Психотерапії';
   const w2 = font.widthOfTextAtSize(line2, size);
   page.drawText(line2, {
     x: cx - w2 / 2, y: H * 0.815,

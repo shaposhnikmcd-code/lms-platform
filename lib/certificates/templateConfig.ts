@@ -42,9 +42,9 @@ export type TemplateKey = 'COURSE' | 'YEARLY_PRACTICAL' | 'YEARLY_LISTENER' | 'S
 export const PAGE_SIZES: Record<TemplateKey, { w: number; h: number }> = {
   /// A4 landscape (297×210mm у PDF-pt = 842×595) — друкується точно на A4 без скалювання.
   COURSE: { w: 842, h: 595 },
-  YEARLY_PRACTICAL: { w: 1280, h: 960 },
-  YEARLY_LISTENER: { w: 1280, h: 960 },
-  SUPERVISION: { w: 1280, h: 900 },
+  YEARLY_PRACTICAL: { w: 842, h: 595 },
+  YEARLY_LISTENER: { w: 842, h: 595 },
+  SUPERVISION: { w: 842, h: 595 },
 };
 
 /// Маппінг (type, category) → TemplateKey. Не дублюй цю логіку — імпортуй сюди.
@@ -66,16 +66,16 @@ export type TemplateConfig = {
 /// різниця лише у категорії-subtitle, яку малює drawTemplate.ts).
 const YEARLY_TEMPLATE: TemplateConfig = {
   fields: [
-    /// Ім'я отримувача — italic caligraphic, центр
+    /// Ім'я отримувача — italic caligraphic, центр (масштабовано під A4 595pt)
     {
       xPct: 0.5, yPct: 0.380, slot: 'recipientName',
-      size: 46, font: 'cormorantItalic', color: UIMP_GREEN, align: 'center',
+      size: 29, font: 'cormorantItalic', color: UIMP_GREEN, align: 'center',
       maxWidthPct: 0.55,
     },
     /// Рік видачі — italic над "РІК ВИДАЧІ"
     {
       xPct: 0.795, yPct: 0.195, slot: 'issueYear',
-      size: 26, font: 'cormorantItalic', color: UIMP_GREEN, align: 'center',
+      size: 16, font: 'cormorantItalic', color: UIMP_GREEN, align: 'center',
     },
     /// Cert number — tiny у нижньому-правому куті, прижатий до нижньої лінії inset.
     {
@@ -123,10 +123,10 @@ const COURSE_TEMPLATE: TemplateConfig = {
 /// Рік видачі НЕ друкується явно — він вшитий у certNumber (UIMP-SUPER-2026-XXXXX).
 const SUPERVISION_TEMPLATE: TemplateConfig = {
   fields: [
-    /// Ім'я отримувача — italic caligraphic, центр. Auto-shrink якщо довге.
+    /// Ім'я отримувача — italic caligraphic, центр. Auto-shrink якщо довге. (A4: 595pt)
     {
       xPct: 0.5, yPct: 0.420, slot: 'recipientName',
-      size: 46, font: 'cormorantItalic', color: UIMP_GREEN, align: 'center',
+      size: 29, font: 'cormorantItalic', color: UIMP_GREEN, align: 'center',
       maxWidthPct: 0.55,
     },
     /// Cert number — tiny у самому нижньому правому куті (під QR)
