@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import prisma from '@/lib/prisma';
 import { isYearlyProgramOrderRef, YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
 import { sendYearlyProgramWelcomeEmail } from '@/lib/yearlyProgramWelcomeEmail';
+import { sendYearlyProgramPlanChangedEmail } from '@/lib/yearlyProgramPlanChangedEmail';
 import { timingSafeEqualStr } from '@/lib/authTiming';
 import { getYearlyProgramSettings } from '@/lib/yearlyProgramSettings';
 import { provisionPayment } from '@/lib/paymentProvisioning';
@@ -881,6 +882,59 @@ async function handleYearlyProgramCallback(args: {
       }
     } catch (e) {
       actions.push(`email:welcome_err:${(e as Error).message.slice(0, 40)}`);
+    }
+  } else {
+    // Не перша оплата — перевіряємо чи в межах поточної покупки відбулась зміна autoRenew
+    // (upgrade разова→автоплатіж або downgrade автоплатіж→разова). Маркер — наявність
+    // `autorenew_upgraded` / `autorenew_downgraded` event-у, створеного після paidAt
+    // попереднього PAID-платежу цієї підписки.
+    try {
+      const previousPayment = await prisma.payment.findFirst({
+        where: {
+          yearlyProgramSubscriptionId: sub.id,
+          status: 'PAID',
+          id: { not: payment.id },
+        },
+        orderBy: { paidAt: 'desc' },
+        select: { paidAt: true, createdAt: true },
+      });
+      const previousAt = previousPayment?.paidAt ?? previousPayment?.createdAt ?? sub.startDate ?? null;
+      if (previousAt) {
+        const recentAutorenewEvent = await prisma.yearlyProgramSubscriptionEvent.findFirst({
+          where: {
+            subscriptionId: sub.id,
+            type: { in: ['autorenew_upgraded', 'autorenew_downgraded'] },
+            createdAt: { gt: previousAt },
+          },
+          orderBy: { createdAt: 'desc' },
+          select: { type: true },
+        });
+        if (recentAutorenewEvent) {
+          const direction: 'upgrade' | 'downgrade' = recentAutorenewEvent.type === 'autorenew_upgraded'
+            ? 'upgrade'
+            : 'downgrade';
+          const result = await sendYearlyProgramPlanChangedEmail({
+            to: user.email,
+            name: user.name ?? null,
+            direction,
+            expiresAt: flipResult.newExpiresAt,
+          });
+          if (result.ok) {
+            actions.push(`email:plan_changed_${direction}`);
+            await prisma.yearlyProgramSubscriptionEvent.create({
+              data: {
+                subscriptionId: sub.id,
+                type: 'admin_action',
+                message: `Plan-changed lett sent (${direction})`,
+              },
+            });
+          } else {
+            actions.push(`email:plan_changed_err:${(result.error ?? 'unknown').slice(0, 40)}`);
+          }
+        }
+      }
+    } catch (e) {
+      actions.push(`email:plan_changed_err:${(e as Error).message.slice(0, 40)}`);
     }
   }
 
