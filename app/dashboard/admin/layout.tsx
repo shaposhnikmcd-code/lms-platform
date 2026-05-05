@@ -10,7 +10,13 @@ const themeInitScript = `(function(){try{var s=localStorage.getItem('admin-theme
 
 /// CSS scoped до `.admin-root`-обгортки: задає bg ДО того, як React встигне
 /// відрендерити AdminShell. Тримає тему під час mounted-gate в AdminShell.
-const themeBgCss = `html[data-admin-theme="dark"] .admin-root{background-color:#0b0d12}html[data-admin-theme="light"] .admin-root{background-color:#f4eee1}`;
+/// `color-scheme` ставимо на html ТІЛЬКИ коли рендериться `.admin-root` (через
+/// `:has()`). Інакше native dropdown у select-ах усередині модалок (через
+/// createPortal у document.body, тобто поза .admin-root) не успадковує темну
+/// схему і Chromium малює popup білим. `:has()` гарантує, що при client-side
+/// навігації з адмінки на клієнтські сторінки правило знімається разом із
+/// розмонтуванням `.admin-root`.
+const themeBgCss = `html[data-admin-theme="dark"]:has(.admin-root){color-scheme:dark}html[data-admin-theme="light"]:has(.admin-root){color-scheme:light}html[data-admin-theme="dark"] .admin-root{background-color:#0b0d12}html[data-admin-theme="light"] .admin-root{background-color:#f4eee1}`;
 
 export default async function AdminLayout({
   children,
