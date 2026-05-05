@@ -97,7 +97,10 @@ export function AdminShell({
     return <div className="min-h-[calc(100vh-4rem)]" />;
   }
   return (
-    <div className={`relative min-h-[calc(100vh-4rem)] overflow-hidden ${dark ? 'bg-[#0b0d12]' : 'bg-[#f4eee1]'}`}>
+    <div
+      className={`relative min-h-[calc(100vh-4rem)] overflow-hidden ${dark ? 'bg-[#0b0d12]' : 'bg-[#f4eee1]'}`}
+      style={{ colorScheme: dark ? 'dark' : 'light' }}
+    >
       {/* Ambient glow */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         <div

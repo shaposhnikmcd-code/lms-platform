@@ -2308,9 +2308,12 @@ function ModalShell({
   /// AdminPanel (`backdrop-blur-sm`) створює: без портала `position: fixed` ловиться
   /// панеллю, і expanded-режим з `top-16` рахує 16 від верху панелі, а не viewport-у.
   return createPortal(
-    <div className={`${wrapperPosition} z-50 flex items-center justify-center bg-black/50 ${wrapperPadding}`}>
+    <div
+      className={`${wrapperPosition} z-50 flex items-center justify-center bg-black/50 ${wrapperPadding}`}
+      style={{ colorScheme: dark ? 'dark' : 'light' }}
+    >
       <div
-        className={`w-full ${sizeClasses} overflow-hidden flex flex-col ${dark ? 'bg-[#14171f] border-white/[0.1]' : 'bg-white border-stone-200'}`}
+        className={`w-full ${sizeClasses} overflow-hidden flex flex-col ${dark ? 'bg-[#14171f] border-white/[0.1] text-slate-100' : 'bg-white border-stone-200 text-stone-900'}`}
       >
         <div className={`px-5 py-4 border-b flex items-center justify-between ${dark ? 'border-white/[0.08]' : 'border-stone-200'}`}>
           <h3 className="text-[16px] font-semibold">{title}</h3>
