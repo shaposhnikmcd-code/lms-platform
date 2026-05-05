@@ -2,12 +2,13 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { HiOutlineRocketLaunch, HiOutlineEnvelopeOpen, HiOutlineArrowPath, HiOutlineUserPlus } from 'react-icons/hi2';
+import { HiOutlineRocketLaunch, HiOutlineEnvelopeOpen, HiOutlineArrowPath, HiOutlineUserPlus, HiOutlineMap } from 'react-icons/hi2';
 import type { Theme } from '../../_components/adminTheme';
 import type { CohortListItem } from './types';
 import SendEmailsModal from './SendEmailsModal';
 import AddStudentModal from './AddStudentModal';
 import LaunchProgramModal from './LaunchProgramModal';
+import WorkflowModal from './WorkflowModal';
 import MailerFromBadge from '../../_components/MailerFromBadge';
 import { useUIFeedback, HoverInfo } from './UIFeedback';
 
@@ -26,6 +27,7 @@ export default function CohortActions({
   const [sendModalOpen, setSendModalOpen] = useState(false);
   const [addStudentOpen, setAddStudentOpen] = useState(false);
   const [launchModalOpen, setLaunchModalOpen] = useState(false);
+  const [workflowOpen, setWorkflowOpen] = useState(false);
   // Кількість підписок, яким при запуску не вдалося відкрити доступ. Лишаємо від запуску, поки
   // менеджер не повторить — кнопка "Повторити запуск" з'являється поряд.
   const [failedCount, setFailedCount] = useState<number>(0);
@@ -190,8 +192,24 @@ export default function CohortActions({
             }
           />
         </div>
+
+        <button
+          type="button"
+          onClick={() => setWorkflowOpen(true)}
+          className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-[13px] font-semibold border transition-colors ${
+            dark
+              ? 'bg-white/[0.03] border-white/[0.08] text-slate-300 hover:bg-amber-400/10 hover:border-amber-400/30 hover:text-amber-200'
+              : 'bg-white/70 border-stone-300/50 text-stone-700 hover:bg-amber-50 hover:border-amber-300/60 hover:text-amber-900'
+          }`}
+        >
+          <HiOutlineMap className="text-base" />
+          Флоу роботи Річної програми
+        </button>
       </div>
 
+      {workflowOpen && (
+        <WorkflowModal theme={theme} onClose={() => setWorkflowOpen(false)} />
+      )}
       {sendModalOpen && (
         <SendEmailsModal
           cohort={cohort}

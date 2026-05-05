@@ -396,7 +396,7 @@ function YearlyProgramViewInner({
                 <Th theme={theme}>Дата оплати</Th>
                 <Th theme={theme}>Початок програми</Th>
                 <Th theme={theme}>Доступ до</Th>
-                <Th theme={theme}>Платежів</Th>
+                <Th theme={theme} align="center" className="!px-2 w-[64px]">Платежів</Th>
                 <Th theme={theme}>Сплачено</Th>
                 <Th theme={theme}>SendPulse</Th>
               </tr>
@@ -643,7 +643,7 @@ function RowBlock({
             <span className={dark ? 'text-slate-600' : 'text-stone-400'}>—</span>
           )}
         </td>
-        <td className={`px-4 py-2.5 text-[12px] tabular-nums text-center ${dark ? 'text-slate-300' : 'text-stone-700'}`}>{r.paymentsCount}</td>
+        <td className={`px-2 py-2.5 text-[12px] tabular-nums text-center w-[64px] ${dark ? 'text-slate-300' : 'text-stone-700'}`}>{r.paymentsCount}</td>
         <td className={`px-4 py-2.5 text-[12px] tabular-nums whitespace-nowrap ${dark ? 'text-slate-200' : 'text-stone-800'}`}>
           {r.totalPaid.toLocaleString()} ₴
         </td>
@@ -999,15 +999,17 @@ function Th({
   children,
   theme,
   align = 'left',
+  className = '',
 }: {
   children: React.ReactNode;
   theme: Theme;
   align?: 'left' | 'center' | 'right';
+  className?: string;
 }) {
   const dark = theme === 'dark';
   const alignCls = align === 'center' ? 'text-center' : align === 'right' ? 'text-right' : 'text-left';
   return (
-    <th className={`${alignCls} px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.18em] whitespace-nowrap ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+    <th className={`${alignCls} px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.18em] whitespace-nowrap ${dark ? 'text-slate-500' : 'text-stone-500'} ${className}`}>
       {children}
     </th>
   );

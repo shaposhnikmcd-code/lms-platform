@@ -2,10 +2,9 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { HiOutlineSparkles, HiOutlinePlus, HiOutlineChevronDown, HiOutlineCheck, HiOutlineRocketLaunch, HiOutlineInformationCircle } from 'react-icons/hi2';
+import { HiOutlineSparkles, HiOutlinePlus, HiOutlineChevronDown, HiOutlineCheck, HiOutlineRocketLaunch } from 'react-icons/hi2';
 import type { Theme } from '../../_components/adminTheme';
 import type { CohortListItem } from './types';
-import CohortInfoModal from './CohortInfoModal';
 
 /// Шапка зі списком cohort-ів — селектор + "+ Новий запуск".
 /// Назва обраного cohort-у показується великим заголовком.
@@ -27,7 +26,6 @@ export default function CohortHeader({
 }) {
   const dark = theme === 'dark';
   const [open, setOpen] = useState(false);
-  const [infoOpen, setInfoOpen] = useState(false);
   const active = cohorts.find((c) => c.id === activeCohortId) ?? null;
 
   if (cohorts.length === 0) {
@@ -69,21 +67,8 @@ export default function CohortHeader({
     <div className="overflow-visible">
       <div className="flex items-stretch flex-wrap">
         <div className="flex-1 px-5 py-4 min-w-[280px]">
-          <div className={`text-[10px] uppercase tracking-[0.18em] font-medium mb-1 flex items-center gap-1.5 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+          <div className={`text-[10px] uppercase tracking-[0.18em] font-medium mb-1 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
             Запуск програми
-            <button
-              type="button"
-              onClick={() => setInfoOpen(true)}
-              aria-label="Повний довідник"
-              title="Повний довідник про систему запусків"
-              className={`w-5 h-5 rounded-full flex items-center justify-center text-[14px] transition-colors ${
-                dark
-                  ? 'text-slate-500 hover:bg-white/[0.06] hover:text-amber-300'
-                  : 'text-stone-400 hover:bg-stone-100 hover:text-amber-800'
-              }`}
-            >
-              <HiOutlineInformationCircle />
-            </button>
           </div>
           <div className="flex items-center gap-3 flex-wrap">
             <button
@@ -187,7 +172,6 @@ export default function CohortHeader({
           </button>
         </div>
       </div>
-      {infoOpen && <CohortInfoModal theme={theme} onClose={() => setInfoOpen(false)} />}
     </div>
   );
 }
