@@ -2809,7 +2809,7 @@ function IssueCourseDialog({
     >
       {({ expanded }) => (
       <>
-      <div className={`grid grid-cols-1 ${expanded ? 'lg:grid-cols-[0.5fr_1.5fr]' : 'lg:grid-cols-[1fr_1fr]'} gap-5`}>
+      <div className={`grid grid-cols-1 ${expanded ? 'lg:grid-cols-[0.5fr_1.5fr] lg:h-full' : 'lg:grid-cols-[1fr_1fr]'} gap-5`}>
         <div className="space-y-4">
           {draftRestored && !preselected && (
             <div className={`flex items-center justify-between gap-2 px-3 py-2 rounded-lg border text-[11.5px] ${dark ? 'border-amber-500/25 bg-amber-500/10 text-amber-200' : 'border-amber-300/60 bg-amber-50 text-amber-900'}`}>
@@ -3091,7 +3091,7 @@ function IssueYearlyDialog({
     >
       {({ expanded }) => (
       <>
-      <div className={`grid grid-cols-1 ${expanded ? 'lg:grid-cols-[0.5fr_1.5fr]' : 'lg:grid-cols-[1fr_1fr]'} gap-5`}>
+      <div className={`grid grid-cols-1 ${expanded ? 'lg:grid-cols-[0.5fr_1.5fr] lg:h-full' : 'lg:grid-cols-[1fr_1fr]'} gap-5`}>
         <div className="space-y-4">
         <div className={`rounded-lg p-4 ${dark ? 'bg-white/[0.04]' : 'bg-stone-50'}`}>
           <div className="font-medium">{candidate.userName ?? '—'}</div>
@@ -3400,7 +3400,7 @@ function IssueYearlyManualDialog({
     >
       {({ expanded }) => (
       <>
-      <div className={`grid grid-cols-1 ${expanded ? 'lg:grid-cols-[0.5fr_1.5fr]' : 'lg:grid-cols-[1fr_1fr]'} gap-5`}>
+      <div className={`grid grid-cols-1 ${expanded ? 'lg:grid-cols-[0.5fr_1.5fr] lg:h-full' : 'lg:grid-cols-[1fr_1fr]'} gap-5`}>
         <div className="space-y-4">
           {draftRestored && (
             <div className={`flex items-center justify-between gap-2 px-3 py-2 rounded-lg border text-[11.5px] ${dark ? 'border-amber-500/25 bg-amber-500/10 text-amber-200' : 'border-amber-300/60 bg-amber-50 text-amber-900'}`}>
@@ -3852,7 +3852,7 @@ function IssueSupervisionDialog({
     >
       {({ expanded }) => (
       <>
-      <div className={`grid grid-cols-1 ${expanded ? 'lg:grid-cols-[0.55fr_1.45fr]' : 'lg:grid-cols-[1.1fr_0.9fr]'} gap-5`}>
+      <div className={`grid grid-cols-1 ${expanded ? 'lg:grid-cols-[0.55fr_1.45fr] lg:h-full' : 'lg:grid-cols-[1.1fr_0.9fr]'} gap-5`}>
         <div className="flex flex-col">
           {draftRestored && (
             <div className={`mb-3 flex items-center justify-between gap-2 px-3 py-2 rounded-lg border text-[11.5px] ${dark ? 'border-amber-500/25 bg-amber-500/10 text-amber-200' : 'border-amber-300/60 bg-amber-50 text-amber-900'}`}>
