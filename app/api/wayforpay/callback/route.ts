@@ -10,6 +10,7 @@ import { getYearlyProgramSettings } from '@/lib/yearlyProgramSettings';
 import { provisionPayment } from '@/lib/paymentProvisioning';
 import { getWayforpayCreds } from '@/lib/wayforpay';
 import { calculateAccessUntil, maxAutopayChargeCount } from '@/lib/yearlyProgramAccess';
+import { notifyManagers as notifyConnectorManagers } from '@/lib/connectorNotifications';
 
 function getClientIp(req: NextRequest): string {
   const xff = req.headers.get('x-forwarded-for');
@@ -120,6 +121,16 @@ export async function POST(req: NextRequest) {
         } else {
           actions.push('connector:paid');
           console.log('✅ Конектор оплачено:', orderReference);
+
+          // Сповіщення менеджерам про успішну оплату (best-effort, не блокує WFP-ack).
+          const paidOrder = await prisma.connectorOrder.findUnique({
+            where: { orderReference: orderReference! },
+          });
+          if (paidOrder) {
+            notifyConnectorManagers('paid', paidOrder).catch((e) =>
+              console.error('[wfp callback] connector notifyManagers failed:', e),
+            );
+          }
         }
       } else if (kind === 'yearly' || kind === 'monthly') {
         const result = await handleYearlyProgramCallback({

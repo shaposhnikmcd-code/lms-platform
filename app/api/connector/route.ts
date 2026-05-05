@@ -4,6 +4,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
 import { isPromoWindowActive } from '@/lib/paymentPricing';
+import { notifyManagers } from '@/lib/connectorNotifications';
 
 const CONNECTOR_ORDER_STATUSES = ['NEW', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED'] as const;
 
@@ -70,6 +71,11 @@ export async function POST(req: NextRequest) {
         orderStatus: 'NEW',
       },
     });
+
+    // Сповіщення менеджерам про нову заявку (best-effort, не блокує відповідь клієнту).
+    notifyManagers('new', order).catch((e) =>
+      console.error('[connector POST] notifyManagers failed:', e),
+    );
 
     return NextResponse.json({ success: true, orderId: order.id, orderReference });
   } catch (error) {

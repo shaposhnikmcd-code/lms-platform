@@ -12,10 +12,13 @@ import {
   HiOutlineChevronRight,
   HiOutlineArrowTopRightOnSquare,
   HiOutlinePhone,
+  HiOutlineUserGroup,
+  HiOutlineQueueList,
 } from 'react-icons/hi2';
 import { useAdminTheme, type Theme, type Tone } from '../../_components/adminTheme';
 import { AdminShell, AdminPanel } from '../../_components/AdminShell';
 import SourceBadge, { type SaleSource } from '../../_components/SourceBadge';
+import ManagersTab from './ManagersTab';
 
 export type PaymentStatus = 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED';
 export type OrderStatus = 'NEW' | 'PROCESSING' | 'SHIPPED' | 'DELIVERED' | 'CANCELLED';
@@ -90,6 +93,7 @@ export default function ConnectorView({
   const { theme, setTheme } = useAdminTheme();
   const dark = theme === 'dark';
 
+  const [view, setView] = useState<'orders' | 'managers'>('orders');
   const [orderStatus, setOrderStatus] = useState<'ALL' | OrderStatus>('ALL');
   const [paymentStatus, setPaymentStatus] = useState<'ALL' | PaymentStatus>('ALL');
   const [search, setSearch] = useState('');
@@ -142,6 +146,127 @@ export default function ConnectorView({
         </Link>
       }
     >
+      {/* Tabs */}
+      <div className="mb-5 flex items-center gap-1.5">
+        <TabButton
+          theme={theme}
+          active={view === 'orders'}
+          onClick={() => setView('orders')}
+          icon={<HiOutlineQueueList className="text-base" />}
+          label="Замовлення"
+        />
+        <TabButton
+          theme={theme}
+          active={view === 'managers'}
+          onClick={() => setView('managers')}
+          icon={<HiOutlineUserGroup className="text-base" />}
+          label="Менеджери"
+        />
+      </div>
+
+      {view === 'managers' ? (
+        <ManagersTab theme={theme} />
+      ) : (
+        <OrdersView
+          theme={theme}
+          rows={rows}
+          summary={summary}
+          orderStatus={orderStatus}
+          setOrderStatus={setOrderStatus}
+          paymentStatus={paymentStatus}
+          setPaymentStatus={setPaymentStatus}
+          search={search}
+          setSearch={setSearch}
+          page={page}
+          setPage={setPage}
+          pageSize={pageSize}
+          setPageSize={setPageSize}
+          filtered={filtered}
+          paged={paged}
+          totalPages={totalPages}
+          pageStart={pageStart}
+        />
+      )}
+    </AdminShell>
+  );
+}
+
+function TabButton({
+  theme,
+  active,
+  onClick,
+  icon,
+  label,
+}: {
+  theme: Theme;
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+}) {
+  const dark = theme === 'dark';
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border text-[13px] font-medium transition-colors ${
+        active
+          ? dark
+            ? 'bg-amber-500/15 border-amber-500/30 text-amber-200'
+            : 'bg-amber-600 border-amber-600 text-white'
+          : dark
+            ? 'bg-white/[0.04] border-white/[0.08] text-slate-400 hover:bg-white/[0.08] hover:text-slate-200'
+            : 'bg-white/80 border-stone-300/60 text-stone-600 hover:bg-stone-100 hover:text-stone-900'
+      }`}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+}
+
+interface OrdersViewProps {
+  theme: Theme;
+  rows: Row[];
+  summary: SummaryData;
+  orderStatus: 'ALL' | OrderStatus;
+  setOrderStatus: (v: 'ALL' | OrderStatus) => void;
+  paymentStatus: 'ALL' | PaymentStatus;
+  setPaymentStatus: (v: 'ALL' | PaymentStatus) => void;
+  search: string;
+  setSearch: (v: string) => void;
+  page: number;
+  setPage: (v: number) => void;
+  pageSize: number;
+  setPageSize: (v: number) => void;
+  filtered: Row[];
+  paged: Row[];
+  totalPages: number;
+  pageStart: number;
+}
+
+function OrdersView({
+  theme,
+  rows,
+  summary,
+  orderStatus,
+  setOrderStatus,
+  paymentStatus,
+  setPaymentStatus,
+  search,
+  setSearch,
+  page,
+  setPage,
+  pageSize,
+  setPageSize,
+  filtered,
+  paged,
+  totalPages,
+  pageStart,
+}: OrdersViewProps) {
+  const dark = theme === 'dark';
+  return (
+    <>
       {/* KPI strip */}
       <div
         className={`mb-5 rounded-2xl grid grid-cols-2 lg:grid-cols-5 overflow-hidden backdrop-blur-sm border divide-y lg:divide-y-0 lg:divide-x ${
@@ -257,7 +382,7 @@ export default function ConnectorView({
           />
         )}
       </AdminPanel>
-    </AdminShell>
+    </>
   );
 }
 

@@ -981,6 +981,27 @@ model YearlyProgramSetting {
   updatedAt        DateTime @updatedAt
 }
 
+/// Менеджери, відповідальні за обробку замовлень гри «Конектор».
+/// Кожен запис — окрема людина: можна задати лише email, лише Telegram chat_id, або обидва.
+/// Якщо `enabled = false` — повідомлення не йдуть.
+/// `notifyOnNew` — повідомлення про нову заявку (PENDING).
+/// `notifyOnPaid` — повідомлення про успішну оплату.
+model KonektorManager {
+  id              String   @id @default(cuid())
+  /// Людське ім'я для адмінки (наприклад "Тетяна / основна").
+  label           String
+  email           String?
+  /// Numeric chat_id (отриманий через бот /start). Підтримує і особисті, і групові.
+  telegramChatId  String?
+  enabled         Boolean  @default(true)
+  notifyOnNew     Boolean  @default(true)
+  notifyOnPaid    Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([enabled])
+}
+
 /// Шаблони транзакційних листів, які можна редагувати з адмінки без деплою.
 /// `templateKey` — стабільний ідентифікатор (welcome, plan-changed-upgrade, receipt-autopay, ...).
 /// `subject` і `bodyHtml` містять placeholder-и виду `{name}`, `{plan}`, які підставляються
