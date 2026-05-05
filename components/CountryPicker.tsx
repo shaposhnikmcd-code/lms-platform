@@ -35,6 +35,9 @@ interface Props {
   invalid?: boolean;
   placeholder?: string;
   disabled?: boolean;
+  /// Override вертикального padding (Tailwind class, напр. 'py-[10px]', 'py-2').
+  /// Дефолт — 'py-3'. Використовується для тонкого тюнінгу висоти у формах оплати.
+  paddingY?: string;
 }
 
 /// Searchable dropdown для вибору країни проживання у формі оплати Річної програми.
@@ -46,6 +49,7 @@ export default function CountryPicker({
   invalid = false,
   placeholder = 'Оберіть країну',
   disabled = false,
+  paddingY = 'py-3',
 }: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -96,7 +100,7 @@ export default function CountryPicker({
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-invalid={invalid || undefined}
-        className={`w-full flex items-center gap-3 px-4 py-3 border rounded-lg outline-none transition-colors text-left ${
+        className={`w-full flex items-center gap-3 px-4 ${paddingY} border rounded-lg outline-none transition-colors text-left ${
           invalid
             ? 'border-red-400 bg-red-50/30 focus:ring-2 focus:ring-red-300'
             : 'border-gray-300 bg-white hover:bg-gray-50 focus:ring-2 focus:ring-[#D4A017] focus:border-transparent'

@@ -55,6 +55,19 @@ export default function CoursePurchaseDialog({
   /// Поля "Країна проживання" і "Telegram username" обов'язкові тільки для покупок
   /// Річної програми (yearly + monthly). На звичайні курси/пакети — не показуємо.
   const isYearlyProgram = courseId === 'yearly-program' || courseId === 'yearly-program-monthly';
+  /// Висота полів зменшена в обох yearly-формах, щоб компенсувати додаткові секції
+  /// (Тип оплати в monthly, нижній блок ціни в yearly) і вирівняти загальну висоту:
+  ///   - yearly (одноразова): ~8% менше padding
+  ///   - monthly (з вибором Разова/Автоплатіж): ~15% менше padding
+  let inputPadY = 'py-2.5';
+  let tallPadY = 'py-3';
+  if (courseId === 'yearly-program') {
+    inputPadY = 'py-[7px]';
+    tallPadY = 'py-[9px]';
+  } else if (courseId === 'yearly-program-monthly') {
+    inputPadY = 'py-[4px]';
+    tallPadY = 'py-[6px]';
+  }
 
   const [loading, setLoading] = useState(false);
   const [promoLoading, setPromoLoading] = useState(false);
@@ -74,7 +87,7 @@ export default function CoursePurchaseDialog({
   const [lastName, setLastName] = useState(() => inviteLastName || session?.user?.name?.split(' ').slice(1).join(' ') || '');
   const [phone, setPhone] = useState('');
   const [phoneCountry, setPhoneCountry] = useState('UA');
-  const [residenceCountry, setResidenceCountry] = useState('');
+  const [residenceCountry, setResidenceCountry] = useState('UA');
   const [telegramUsername, setTelegramUsername] = useState('');
   const [promoCode, setPromoCode] = useState('');
   const [promoApplied, setPromoApplied] = useState(false);
@@ -259,7 +272,7 @@ export default function CoursePurchaseDialog({
       <div className="fixed inset-0 bg-black/60" onClick={closeModal} />
 
       {/* Centering wrapper */}
-      <div className="relative min-h-full flex items-center justify-center p-4 sm:p-6" onClick={closeModal}>
+      <div className="relative min-h-full flex items-center justify-center p-3 sm:p-4" onClick={closeModal}>
         {/* Modal card */}
         <div className="relative bg-white rounded-2xl w-full max-w-lg shadow-2xl" onClick={(e) => e.stopPropagation()}>
           {/* Close button */}
@@ -272,19 +285,72 @@ export default function CoursePurchaseDialog({
           </button>
 
           {/* Header */}
-          <div className="px-6 sm:px-8 pt-6 sm:pt-8 pb-2">
-            <h2 className="text-xl sm:text-2xl font-bold text-gray-900 pr-10">{courseName}</h2>
+          <div className="px-6 sm:px-8 pt-4 sm:pt-5 pb-1">
+            <h2 className="text-base sm:text-lg font-bold text-gray-900 pr-10">{courseName}</h2>
             {isAdmin && (
-              <div className="mt-2 inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-amber-100 text-amber-800 text-xs font-semibold border border-amber-300/50">
+              <div className="mt-1.5 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-amber-100 text-amber-800 text-xs font-semibold border border-amber-300/50">
                 {t('testModeBadge', { price: adminTestPrice })}
               </div>
             )}
           </div>
 
           {/* Form fields */}
-          <div className="px-6 sm:px-8 py-4 space-y-4">
+          <div className="px-6 sm:px-8 py-2.5 space-y-2.5">
             <div>
-              <label htmlFor="purchase-email" className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="purchase-firstname" className="block text-sm font-medium text-gray-700 mb-0.5">
+                {t('firstName')} <span className="text-red-500">*</span>
+              </label>
+              <input
+                id="purchase-firstname"
+                type="text"
+                value={firstName}
+                onChange={(e) => { setFirstName(e.target.value); clearError('firstName'); }}
+                placeholder={t('firstNamePlaceholder')}
+                autoComplete="given-name"
+                aria-invalid={!!errors.firstName}
+                className={`w-full px-4 ${inputPadY} border rounded-lg outline-none text-gray-900 transition-colors ${
+                  errors.firstName
+                    ? 'border-red-400 bg-red-50/30 focus:ring-2 focus:ring-red-300 focus:border-red-400'
+                    : 'border-gray-300 focus:ring-2 focus:ring-[#D4A017] focus:border-transparent'
+                }`}
+              />
+              {errors.firstName && <p className="mt-1.5 text-xs text-red-600 flex items-center gap-1"><span aria-hidden>•</span>{errors.firstName}</p>}
+            </div>
+
+            <div>
+              <label htmlFor="purchase-lastname" className="block text-sm font-medium text-gray-700 mb-0.5">
+                {t('lastName')} <span className="text-red-500">*</span>
+              </label>
+              <input
+                id="purchase-lastname"
+                type="text"
+                value={lastName}
+                onChange={(e) => { setLastName(e.target.value); clearError('lastName'); }}
+                placeholder={t('lastNamePlaceholder')}
+                autoComplete="family-name"
+                aria-invalid={!!errors.lastName}
+                className={`w-full px-4 ${inputPadY} border rounded-lg outline-none text-gray-900 transition-colors ${
+                  errors.lastName
+                    ? 'border-red-400 bg-red-50/30 focus:ring-2 focus:ring-red-300 focus:border-red-400'
+                    : 'border-gray-300 focus:ring-2 focus:ring-[#D4A017] focus:border-transparent'
+                }`}
+              />
+              {errors.lastName && <p className="mt-1.5 text-xs text-red-600 flex items-center gap-1"><span aria-hidden>•</span>{errors.lastName}</p>}
+            </div>
+
+            <div>
+              <CoursePhoneInput
+                phoneCountry={phoneCountry}
+                phone={phone}
+                onPhoneCountryChange={setPhoneCountry}
+                onPhoneChange={(v) => { setPhone(v); clearError('phone'); }}
+                paddingY={tallPadY}
+              />
+              {errors.phone && <p className="mt-1.5 text-xs text-red-600 flex items-center gap-1"><span aria-hidden>•</span>{errors.phone}</p>}
+            </div>
+
+            <div>
+              <label htmlFor="purchase-email" className="block text-sm font-medium text-gray-700 mb-0.5">
                 {t('email')} <span className="text-red-500">*</span>
               </label>
               <input
@@ -297,7 +363,7 @@ export default function CoursePurchaseDialog({
                 aria-invalid={!!errors.email}
                 readOnly={!!inviteToken}
                 disabled={!!inviteToken}
-                className={`w-full px-4 py-3 border rounded-lg outline-none text-gray-900 transition-colors ${
+                className={`w-full px-4 ${inputPadY} border rounded-lg outline-none text-gray-900 transition-colors ${
                   errors.email
                     ? 'border-red-400 bg-red-50/30 focus:ring-2 focus:ring-red-300 focus:border-red-400'
                     : inviteToken
@@ -314,79 +380,32 @@ export default function CoursePurchaseDialog({
               {errors.email && <p className="mt-1.5 text-xs text-red-600 flex items-center gap-1"><span aria-hidden>•</span>{errors.email}</p>}
             </div>
 
-            <div>
-              <label htmlFor="purchase-firstname" className="block text-sm font-medium text-gray-700 mb-1">
-                {t('firstName')} <span className="text-red-500">*</span>
-              </label>
-              <input
-                id="purchase-firstname"
-                type="text"
-                value={firstName}
-                onChange={(e) => { setFirstName(e.target.value); clearError('firstName'); }}
-                placeholder={t('firstNamePlaceholder')}
-                autoComplete="given-name"
-                aria-invalid={!!errors.firstName}
-                className={`w-full px-4 py-3 border rounded-lg outline-none text-gray-900 transition-colors ${
-                  errors.firstName
-                    ? 'border-red-400 bg-red-50/30 focus:ring-2 focus:ring-red-300 focus:border-red-400'
-                    : 'border-gray-300 focus:ring-2 focus:ring-[#D4A017] focus:border-transparent'
-                }`}
-              />
-              {errors.firstName && <p className="mt-1.5 text-xs text-red-600 flex items-center gap-1"><span aria-hidden>•</span>{errors.firstName}</p>}
-            </div>
-
-            <div>
-              <label htmlFor="purchase-lastname" className="block text-sm font-medium text-gray-700 mb-1">
-                {t('lastName')} <span className="text-red-500">*</span>
-              </label>
-              <input
-                id="purchase-lastname"
-                type="text"
-                value={lastName}
-                onChange={(e) => { setLastName(e.target.value); clearError('lastName'); }}
-                placeholder={t('lastNamePlaceholder')}
-                autoComplete="family-name"
-                aria-invalid={!!errors.lastName}
-                className={`w-full px-4 py-3 border rounded-lg outline-none text-gray-900 transition-colors ${
-                  errors.lastName
-                    ? 'border-red-400 bg-red-50/30 focus:ring-2 focus:ring-red-300 focus:border-red-400'
-                    : 'border-gray-300 focus:ring-2 focus:ring-[#D4A017] focus:border-transparent'
-                }`}
-              />
-              {errors.lastName && <p className="mt-1.5 text-xs text-red-600 flex items-center gap-1"><span aria-hidden>•</span>{errors.lastName}</p>}
-            </div>
-
-            <div>
-              <CoursePhoneInput
-                phoneCountry={phoneCountry}
-                phone={phone}
-                onPhoneCountryChange={setPhoneCountry}
-                onPhoneChange={(v) => { setPhone(v); clearError('phone'); }}
-              />
-              {errors.phone && <p className="mt-1.5 text-xs text-red-600 flex items-center gap-1"><span aria-hidden>•</span>{errors.phone}</p>}
-            </div>
-
             {isYearlyProgram && (
               <>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-gray-700 mb-0.5">
                     Країна проживання <span className="text-red-500">*</span>
                   </label>
                   <CountryPicker
                     value={residenceCountry}
                     onChange={(c) => { setResidenceCountry(c); clearError('country'); }}
                     invalid={!!errors.country}
+                    paddingY={tallPadY}
                   />
-                  {errors.country && (
+                  {errors.country ? (
                     <p className="mt-1.5 text-xs text-red-600 flex items-center gap-1">
                       <span aria-hidden>•</span>
                       {errors.country}
+                    </p>
+                  ) : (
+                    <p className="mt-1 text-[11px] text-gray-500 leading-snug">
+                      Потрібно, щоб розуміти, в якій ви тайм-зоні — для кращого поділу на групи.
                     </p>
                   )}
                 </div>
 
                 <div>
-                  <label htmlFor="purchase-telegram" className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor="purchase-telegram" className="block text-sm font-medium text-gray-700 mb-0.5">
                     Telegram username <span className="text-red-500">*</span>
                   </label>
                   <div className="relative">
@@ -404,7 +423,7 @@ export default function CoursePurchaseDialog({
                       spellCheck={false}
                       aria-invalid={!!errors.telegram}
                       aria-describedby="purchase-telegram-hint"
-                      className={`w-full pl-10 pr-4 py-3 border rounded-lg outline-none text-gray-900 transition-colors ${
+                      className={`w-full pl-10 pr-4 ${inputPadY} border rounded-lg outline-none text-gray-900 transition-colors ${
                         errors.telegram
                           ? 'border-red-400 bg-red-50/30 focus:ring-2 focus:ring-red-300 focus:border-red-400'
                           : 'border-gray-300 focus:ring-2 focus:ring-[#D4A017] focus:border-transparent'
@@ -417,7 +436,7 @@ export default function CoursePurchaseDialog({
                       {errors.telegram}
                     </p>
                   ) : (
-                    <p id="purchase-telegram-hint" className="mt-1.5 text-[11px] text-gray-500 leading-snug">
+                    <p id="purchase-telegram-hint" className="mt-1 text-[11px] text-gray-500 leading-snug">
                       Додамо вас до закритого Telegram-каналу з організаційними оголошеннями.
                     </p>
                   )}
@@ -427,10 +446,10 @@ export default function CoursePurchaseDialog({
 
             {allowRecurringChoice && (
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
                   {t('payTypeLabel')} <span className="text-red-500">*</span>
                 </label>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-2">
                   {([
                     {
                       value: false as const,
@@ -468,7 +487,7 @@ export default function CoursePurchaseDialog({
                         type="button"
                         onClick={() => { setIsRecurring(opt.value); clearError('payType'); }}
                         aria-pressed={selected}
-                        className={`group relative overflow-hidden rounded-xl px-3 py-2 text-left transition-all duration-300 ${
+                        className={`group relative overflow-hidden rounded-xl px-2.5 py-1.5 text-left transition-all duration-300 ${
                           selected
                             ? 'bg-gradient-to-b from-[#FDF6E0] via-white to-white border-2 border-[#D4A017] shadow-[0_8px_22px_-8px_rgba(212,160,23,0.45)] -translate-y-[1px]'
                             : errored
@@ -476,9 +495,9 @@ export default function CoursePurchaseDialog({
                             : 'bg-gradient-to-br from-[#FDFBF4] to-white border-2 border-[#D4A017]/35 hover:border-[#D4A017] hover:shadow-[0_4px_14px_-4px_rgba(212,160,23,0.25)] hover:-translate-y-[1px]'
                         }`}
                       >
-                        <div className="flex items-center gap-2 mb-1">
+                        <div className="flex items-center gap-2 mb-0.5">
                           <div
-                            className={`w-6 h-6 rounded-md flex items-center justify-center shrink-0 transition-colors ${
+                            className={`w-5 h-5 rounded-md flex items-center justify-center shrink-0 transition-colors ${
                               selected
                                 ? 'bg-[#1C3A2E] text-[#D4A017]'
                                 : 'bg-[#1C3A2E] text-[#D4A017]/90 group-hover:text-[#D4A017]'
@@ -508,13 +527,13 @@ export default function CoursePurchaseDialog({
 
                         <div className="flex items-baseline gap-1 leading-none flex-wrap">
                           <span
-                            className={`text-[19px] font-black tabular-nums ${
+                            className={`text-[16px] font-black tabular-nums ${
                               selected ? 'text-[#1C3A2E]' : 'text-[#1C3A2E]'
                             }`}
                           >
                             {price.toLocaleString('uk-UA')}
                           </span>
-                          <span className="text-[11px] font-bold text-[#1C3A2E]">{t('payCurrency')}</span>
+                          <span className="text-[10px] font-bold text-[#1C3A2E]">{t('payCurrency')}</span>
                           <span
                             className={`text-[10px] font-medium ${
                               selected ? 'text-[#1C3A2E]/70' : 'text-[#1C3A2E]/60'
@@ -523,21 +542,13 @@ export default function CoursePurchaseDialog({
                             {opt.unit}
                           </span>
                         </div>
-
-                        <div
-                          className={`mt-1 text-[10px] leading-tight ${
-                            selected ? 'text-[#1C3A2E]/80' : 'text-[#1C3A2E]/55'
-                          }`}
-                        >
-                          {opt.hint}
-                        </div>
                       </button>
                     );
                   })}
                 </div>
                 {errors.payType && <p className="mt-1.5 text-xs text-red-600 flex items-center gap-1"><span aria-hidden>•</span>{errors.payType}</p>}
                 {isRecurring === true && (
-                  <div className="mt-2 px-3 py-2 rounded-lg bg-[#FDFBF4] border border-[#D4A017]/25 text-[11px] leading-relaxed text-[#1C3A2E]/80 flex gap-2">
+                  <div className="mt-1.5 px-2.5 py-1.5 rounded-lg bg-[#FDFBF4] border border-[#D4A017]/25 text-[11px] leading-snug text-[#1C3A2E]/80 flex gap-2">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5 text-[#D4A017] shrink-0 mt-0.5" aria-hidden>
                       <rect x="3" y="11" width="18" height="10" rx="2" />
                       <path d="M7 11V8a5 5 0 0 1 10 0v3" />
@@ -551,7 +562,7 @@ export default function CoursePurchaseDialog({
             )}
 
             <div>
-              <label htmlFor="purchase-promo" className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="purchase-promo" className="block text-sm font-medium text-gray-700 mb-0.5">
                 {t('promoLabel')}
               </label>
               <div className="flex gap-2">
@@ -572,12 +583,12 @@ export default function CoursePurchaseDialog({
                     }
                   }}
                   placeholder={t('promoPlaceholder')}
-                  className="flex-1 min-w-0 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#D4A017] focus:border-transparent outline-none text-gray-900"
+                  className={`flex-1 min-w-0 px-4 ${inputPadY} border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#D4A017] focus:border-transparent outline-none text-gray-900`}
                 />
                 <button
                   onClick={handlePromoCheck}
                   disabled={promoLoading || !promoCode.trim()}
-                  className="px-4 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium transition-colors disabled:opacity-50 shrink-0"
+                  className={`px-4 ${inputPadY} bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium transition-colors disabled:opacity-50 shrink-0`}
                 >
                   {promoLoading ? (
                     <FaSpinner className="animate-spin" />
@@ -594,22 +605,25 @@ export default function CoursePurchaseDialog({
           </div>
 
           {/* Footer: price + pay button */}
-          <div className="px-6 sm:px-8 pb-6 sm:pb-8 pt-2">
-            <div className="border-t border-gray-200 pt-4 mb-4">
-              <div className="flex items-baseline justify-between">
-                <span className="text-gray-600">{courseName}</span>
-                <div className="flex items-baseline gap-2">
-                  {(promoApplied || isAdmin) && finalPrice !== price && (
-                    <span className="text-base text-gray-400 line-through">
-                      {price} {currency}
+          <div className="px-6 sm:px-8 pb-4 sm:pb-5 pt-1">
+            {!allowRecurringChoice && (
+              <div className="border-t border-gray-200 pt-2.5 mb-2.5">
+                <div className="flex items-baseline justify-between">
+                  <span className="text-gray-600">{courseName}</span>
+                  <div className="flex items-baseline gap-2">
+                    {(promoApplied || isAdmin) && finalPrice !== price && (
+                      <span className="text-base text-gray-400 line-through">
+                        {price} {currency}
+                      </span>
+                    )}
+                    <span className={`text-2xl font-bold ${isAdmin ? 'text-amber-700' : 'text-gray-900'}`}>
+                      {finalPrice} {currency}
                     </span>
-                  )}
-                  <span className={`text-2xl font-bold ${isAdmin ? 'text-amber-700' : 'text-gray-900'}`}>
-                    {finalPrice} {currency}
-                  </span>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
+            {allowRecurringChoice && <div className="border-t border-gray-200 mb-3" />}
 
             {errors.general && (
               <div className="mb-3 px-4 py-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm flex items-start gap-2">
@@ -621,7 +635,7 @@ export default function CoursePurchaseDialog({
             <button
               onClick={handlePay}
               disabled={loading}
-              className="w-full py-4 bg-[#1C3A2E] text-white font-bold rounded-xl hover:bg-[#2a4f3f] transition-all text-lg disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full py-2.5 bg-[#1C3A2E] text-white font-bold rounded-xl hover:bg-[#2a4f3f] transition-all text-base disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? t('loading') : t('btnPay')}
             </button>

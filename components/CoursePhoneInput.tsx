@@ -47,9 +47,12 @@ interface Props {
   phone: string;
   onPhoneCountryChange: (code: string) => void;
   onPhoneChange: (value: string) => void;
+  /// Override вертикального padding (Tailwind class, напр. 'py-[10px]', 'py-2').
+  /// Дефолт — 'py-3'. Використовується для тонкого тюнінгу висоти у формах оплати.
+  paddingY?: string;
 }
 
-export default function CoursePhoneInput({ phoneCountry, phone, onPhoneCountryChange, onPhoneChange }: Props) {
+export default function CoursePhoneInput({ phoneCountry, phone, onPhoneCountryChange, onPhoneChange, paddingY = 'py-3' }: Props) {
   const locale = useLocale();
   const [showDropdown, setShowDropdown] = useState(false);
   const phoneInfo = PHONE_CONFIG[phoneCountry] ?? PHONE_CONFIG['UA'];
@@ -72,7 +75,7 @@ export default function CoursePhoneInput({ phoneCountry, phone, onPhoneCountryCh
             type="button"
             onClick={() => setShowDropdown(prev => !prev)}
             onBlur={() => setTimeout(() => setShowDropdown(false), 150)}
-            className="flex items-center gap-2 px-3 py-3 border border-r-0 border-gray-300 rounded-l-lg bg-gray-50 hover:bg-gray-100 transition-colors h-full"
+            className={`flex items-center gap-2 px-3 ${paddingY} border border-r-0 border-gray-300 rounded-l-lg bg-gray-50 hover:bg-gray-100 transition-colors h-full`}
           >
             <FlagImg code={phoneCountry} />
             <span className="text-sm font-medium text-gray-700">{phoneInfo.prefix}</span>
@@ -107,7 +110,7 @@ export default function CoursePhoneInput({ phoneCountry, phone, onPhoneCountryCh
           }}
           maxLength={phoneInfo.maxDigits ?? 12}
           required
-          className="block w-full px-3 py-3 border border-gray-300 rounded-r-lg focus:outline-none focus:ring-2 focus:ring-[#D4A017] focus:border-transparent"
+          className={`block w-full px-3 ${paddingY} border border-gray-300 rounded-r-lg focus:outline-none focus:ring-2 focus:ring-[#D4A017] focus:border-transparent`}
           placeholder={phoneInfo.placeholder}
         />
       </div>
