@@ -20,6 +20,11 @@ function readInitialTheme(): Theme {
 
 export function useAdminTheme() {
   const [theme, setThemeState] = useState<Theme>(readInitialTheme);
+  /// `mounted` виставляється лише після гідрації — споживачі, які мають свій
+  /// loading-state (Manager dashboard рендериться без AdminShell-обгортки доти,
+  /// поки тягнуться дані), використовують його як hydration-safe gate, щоб не
+  /// малювати dark-bg loading-screen під SSR-render light-у.
+  const [mounted, setMounted] = useState(false);
 
   const setTheme = (t: Theme) => {
     setThemeState(t);
@@ -46,8 +51,9 @@ export function useAdminTheme() {
     } catch {
       // ignore
     }
+    setMounted(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return { theme, setTheme };
+  return { theme, setTheme, mounted };
 }
