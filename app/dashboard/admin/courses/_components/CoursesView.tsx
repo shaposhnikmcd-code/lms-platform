@@ -22,7 +22,7 @@ export default function CoursesView({
     <AdminShell
       theme={theme}
       setTheme={setTheme}
-      maxWidth="max-w-[1266px]"
+      maxWidth="max-w-[1300px]"
       eyebrow="Admin · Курси"
       title="Курси — ціни"
       subtitle="Керуй цінами курсів. Зміни одразу зʼявляються на «Освітні проєкти» та на сторінках курсів."
@@ -59,10 +59,10 @@ export default function CoursesView({
                 <Th theme={theme} width={78} align="center">Стара ціна</Th>
                 <Th theme={theme} width={94} align="center">SP ID</Th>
                 <Th theme={theme} width={86} align="center">Дефолт</Th>
-                <Th theme={theme} width={119} align="center">Промокод 1</Th>
-                <Th theme={theme} width={78} align="center">Ціна 1, ₴</Th>
-                <Th theme={theme} width={119} align="center">Промокод 2</Th>
-                <Th theme={theme} width={78} align="center">Ціна 2, ₴</Th>
+                <Th theme={theme} width={143} align="center">Промокод 1</Th>
+                <Th theme={theme} width={66} align="center">Ціна 1, ₴</Th>
+                <Th theme={theme} width={143} align="center">Промокод 2</Th>
+                <Th theme={theme} width={66} align="center">Ціна 2, ₴</Th>
                 <Th theme={theme} width={125} align="center">Дії</Th>
               </tr>
             </thead>
