@@ -3,9 +3,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useSession } from 'next-auth/react';
-import { FaTimes, FaCheck, FaSpinner } from 'react-icons/fa';
+import { FaTimes, FaCheck, FaSpinner, FaTelegramPlane } from 'react-icons/fa';
 import { useTranslations } from 'next-intl';
 import CoursePhoneInput, { PHONE_CONFIG } from './CoursePhoneInput';
+import CountryPicker from './CountryPicker';
+import { parseTelegramUsername } from '@/lib/telegramUsername';
 
 export interface CoursePurchaseDialogProps {
   courseName: string;
@@ -50,6 +52,10 @@ export default function CoursePurchaseDialog({
   const adminTestPrice = courseId === 'yearly-program' ? 2 : 1;
   const effectivePrice = isAdmin ? adminTestPrice : price;
 
+  /// Поля "Країна проживання" і "Telegram username" обов'язкові тільки для покупок
+  /// Річної програми (yearly + monthly). На звичайні курси/пакети — не показуємо.
+  const isYearlyProgram = courseId === 'yearly-program' || courseId === 'yearly-program-monthly';
+
   const [loading, setLoading] = useState(false);
   const [promoLoading, setPromoLoading] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -68,6 +74,8 @@ export default function CoursePurchaseDialog({
   const [lastName, setLastName] = useState(() => inviteLastName || session?.user?.name?.split(' ').slice(1).join(' ') || '');
   const [phone, setPhone] = useState('');
   const [phoneCountry, setPhoneCountry] = useState('UA');
+  const [residenceCountry, setResidenceCountry] = useState('');
+  const [telegramUsername, setTelegramUsername] = useState('');
   const [promoCode, setPromoCode] = useState('');
   const [promoApplied, setPromoApplied] = useState(false);
   const [promoError, setPromoError] = useState('');
@@ -75,7 +83,7 @@ export default function CoursePurchaseDialog({
   /// Циклічна (true) vs разова (false). null = не обрано (блокує оплату при allowRecurringChoice).
   /// Invite-flow з autoRenew у token — перепризначаємо одразу і не даємо змінити.
   const [isRecurring, setIsRecurring] = useState<boolean | null>(inviteAutoRenew);
-  type FieldErrors = Partial<Record<'email' | 'firstName' | 'lastName' | 'phone' | 'payType' | 'general', string>>;
+  type FieldErrors = Partial<Record<'email' | 'firstName' | 'lastName' | 'phone' | 'country' | 'telegram' | 'payType' | 'general', string>>;
   const [errors, setErrors] = useState<FieldErrors>({});
   const clearError = (k: keyof FieldErrors) =>
     setErrors((prev) => (prev[k] ? { ...prev, [k]: undefined } : prev));
@@ -154,6 +162,13 @@ export default function CoursePurchaseDialog({
     if (!firstName.trim()) next.firstName = t('alertFirstName');
     if (!lastName.trim()) next.lastName = t('alertLastName');
     if (!phone.trim()) next.phone = t('alertPhone');
+    let normalizedTelegram: string | null = null;
+    if (isYearlyProgram) {
+      if (!residenceCountry) next.country = 'Оберіть країну проживання';
+      const tg = parseTelegramUsername(telegramUsername);
+      if (!tg.ok) next.telegram = tg.error ?? 'Вкажіть Telegram username';
+      else normalizedTelegram = tg.normalized;
+    }
     if (allowRecurringChoice && isRecurring === null) next.payType = t('alertPayType');
     if (Object.keys(next).length > 0) {
       setErrors(next);
@@ -188,6 +203,8 @@ export default function CoursePurchaseDialog({
           selectedFreeSlugs: selectedFreeSlugs && selectedFreeSlugs.length > 0 ? selectedFreeSlugs : undefined,
           recurring: allowRecurringChoice ? isRecurring === true : undefined,
           invite: inviteToken,
+          country: isYearlyProgram ? residenceCountry : undefined,
+          telegramUsername: isYearlyProgram ? normalizedTelegram : undefined,
         }),
       });
       if (!response.ok) {
@@ -348,6 +365,65 @@ export default function CoursePurchaseDialog({
               />
               {errors.phone && <p className="mt-1.5 text-xs text-red-600 flex items-center gap-1"><span aria-hidden>•</span>{errors.phone}</p>}
             </div>
+
+            {isYearlyProgram && (
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Країна проживання <span className="text-red-500">*</span>
+                  </label>
+                  <CountryPicker
+                    value={residenceCountry}
+                    onChange={(c) => { setResidenceCountry(c); clearError('country'); }}
+                    invalid={!!errors.country}
+                  />
+                  {errors.country && (
+                    <p className="mt-1.5 text-xs text-red-600 flex items-center gap-1">
+                      <span aria-hidden>•</span>
+                      {errors.country}
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <label htmlFor="purchase-telegram" className="block text-sm font-medium text-gray-700 mb-1">
+                    Telegram username <span className="text-red-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none">
+                      <FaTelegramPlane className="text-[#229ED9] text-sm" aria-hidden />
+                    </span>
+                    <input
+                      id="purchase-telegram"
+                      type="text"
+                      value={telegramUsername}
+                      onChange={(e) => { setTelegramUsername(e.target.value); clearError('telegram'); }}
+                      placeholder="@your_username"
+                      autoComplete="off"
+                      autoCapitalize="off"
+                      spellCheck={false}
+                      aria-invalid={!!errors.telegram}
+                      aria-describedby="purchase-telegram-hint"
+                      className={`w-full pl-10 pr-4 py-3 border rounded-lg outline-none text-gray-900 transition-colors ${
+                        errors.telegram
+                          ? 'border-red-400 bg-red-50/30 focus:ring-2 focus:ring-red-300 focus:border-red-400'
+                          : 'border-gray-300 focus:ring-2 focus:ring-[#D4A017] focus:border-transparent'
+                      }`}
+                    />
+                  </div>
+                  {errors.telegram ? (
+                    <p className="mt-1.5 text-xs text-red-600 flex items-center gap-1">
+                      <span aria-hidden>•</span>
+                      {errors.telegram}
+                    </p>
+                  ) : (
+                    <p id="purchase-telegram-hint" className="mt-1.5 text-[11px] text-gray-500 leading-snug">
+                      Додамо вас до закритого Telegram-каналу з організаційними оголошеннями.
+                    </p>
+                  )}
+                </div>
+              </>
+            )}
 
             {allowRecurringChoice && (
               <div>

@@ -10,13 +10,15 @@ import { checkRateLimit } from '@/lib/ratelimit';
 import { lastAutopayChargeDate, maxAutopayChargeCount } from '@/lib/yearlyProgramAccess';
 import { removeSubscriptionAutopay } from '@/lib/yearlyProgramAutopay';
 import { verifyInvite, type InvitePayload } from '@/lib/yearlyProgramInvite';
+import { isValidCountryCode } from '@/lib/countries';
+import { parseTelegramUsername } from '@/lib/telegramUsername';
 
 export async function POST(req: NextRequest) {
   try {
     const rl = await checkRateLimit(req, 'payment');
     if (!rl.ok) return rl.response!;
 
-    const { orderReference, clientEmail, clientName, clientPhone, courseId, promoCode, selectedFreeSlugs, recurring, invite } = await req.json();
+    const { orderReference, clientEmail, clientName, clientPhone, courseId, promoCode, selectedFreeSlugs, recurring, invite, country, telegramUsername } = await req.json();
 
     if (typeof orderReference !== 'string' || !orderReference) {
       return NextResponse.json({ error: 'Missing orderReference' }, { status: 400 });
@@ -165,6 +167,11 @@ export async function POST(req: NextRequest) {
 
       // Для річної програми — знаходимо/створюємо підписку і лінкуємо Payment
       let yearlyProgramSubscriptionId: string | null = null;
+      // Парсимо нові yearly-only поля з форми. Невалідні значення відкидаємо тихо
+      // (форма вже валідовано на клієнті — це другий захист, не reject цілої оплати).
+      const parsedCountry = yearlyKind && isValidCountryCode(country) ? country : null;
+      const parsedTelegram = yearlyKind ? parseTelegramUsername(telegramUsername) : null;
+      const normalizedTelegramUsername = parsedTelegram?.ok ? parsedTelegram.normalized : null;
       if (yearlyKind) {
         // Invite-flow: cohortId беремо з token-у замість поточного `isCurrent`. Дозволяє
         // менеджеру додати студента в конкретний cohort, навіть якщо він не isCurrent.
@@ -248,6 +255,17 @@ export async function POST(req: NextRequest) {
         const existing = plan === 'YEARLY' ? yearlySub : monthlySub;
         if (existing) {
           yearlyProgramSubscriptionId = existing.id;
+          // Оновлюємо country / telegramUsername при retry-оплаті — користувач міг змінити
+          // країну чи username після абандон-у. Не чіпаємо invite-link якщо вже згенерований.
+          if (parsedCountry || normalizedTelegramUsername) {
+            await prisma.yearlyProgramSubscription.update({
+              where: { id: existing.id },
+              data: {
+                ...(parsedCountry ? { country: parsedCountry } : {}),
+                ...(normalizedTelegramUsername ? { telegramUsername: normalizedTelegramUsername } : {}),
+              },
+            });
+          }
           // Sync autoRenew з recurring у обидва боки. Без цього БД залишається "разова"
           // навіть коли юзер апгрейдиться на АВТОПЛАТІЖ (callback пише monthly-once у логи).
           const desiredAutoRenew = plan === 'MONTHLY' && recurring === true;
@@ -290,6 +308,8 @@ export async function POST(req: NextRequest) {
               status: 'PENDING',
               autoRenew,
               cohortId: currentCohortId,
+              ...(parsedCountry ? { country: parsedCountry } : {}),
+              ...(normalizedTelegramUsername ? { telegramUsername: normalizedTelegramUsername } : {}),
               ...(invitePayload
                 ? {
                     manuallyAddedAt: new Date(),

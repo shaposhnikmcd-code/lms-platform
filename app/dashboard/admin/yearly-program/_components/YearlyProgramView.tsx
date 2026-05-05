@@ -28,11 +28,19 @@ import CreateCohortModal from './CreateCohortModal';
 import MoveCohortBtn from './MoveCohortBtn';
 import { UIFeedbackProvider, useUIFeedback } from './UIFeedback';
 import PaymentTemplatesModal from './PaymentTemplatesModal';
+import TelegramChannelButton, { type TelegramSettingsState } from './TelegramChannelButton';
+import { flagEmoji, getCountryName } from '@/lib/countries';
+import { telegramProfileUrl } from '@/lib/telegramUsername';
 
 export type { Row, SubStatus, Plan, SummaryData };
 
 interface SubscriptionDetails {
   id: string;
+  country: string | null;
+  telegramUsername: string | null;
+  telegramInviteLink: string | null;
+  telegramInvitedAt: string | null;
+  telegramInviteError: string | null;
   user: { id: string; name: string | null; email: string } | null;
   plan: Plan;
   autoRenew: boolean;
@@ -98,6 +106,7 @@ interface ProgramDefaults {
 export default function YearlyProgramView(props: {
   rows: Row[];
   summary: SummaryData;
+  telegramSettings: TelegramSettingsState;
   cohorts: CohortListItem[];
   graceDays: number;
   programSettings: YearlyProgramSettings;
@@ -118,6 +127,7 @@ function YearlyProgramViewInner({
   graceDays,
   programSettings,
   programDefaults,
+  telegramSettings,
   theme,
   setTheme,
 }: {
@@ -127,6 +137,7 @@ function YearlyProgramViewInner({
   graceDays: number;
   programSettings: YearlyProgramSettings;
   programDefaults: ProgramDefaults;
+  telegramSettings: TelegramSettingsState;
   theme: Theme;
   setTheme: (t: Theme) => void;
 }) {
@@ -241,12 +252,12 @@ function YearlyProgramViewInner({
       eyebrow="Admin · Річна програма"
       title="Річна програма"
       subtitle="Платежі та доступ до Річної програми (SendPulse). Місячна підписка — з автосписанням, річна — одна оплата на рік."
-      maxWidth="max-w-[1400px]"
+      maxWidth="max-w-[1640px]"
     >
       {/* Workspace card: cohort header + actions + KPI strip — об'єднані в один блок з
           внутрішніми розділювачами, щоб не виглядали як 3 окремі картки. Program-налаштування
           (Вартість/Grace/Email) — в правому верхньому куті workspace, окремо від фільтрів таблиці. */}
-      <AdminPanel theme={theme} padding="p-0" className="mb-5 max-w-4xl">
+      <AdminPanel theme={theme} padding="p-0" className="mb-5 max-w-5xl">
         <CohortHeader
           cohorts={cohorts}
           activeCohortId={activeCohortId}
@@ -301,7 +312,7 @@ function YearlyProgramViewInner({
 
       {/* Search-row + program-налаштування. План і Статус перенесено у фільтри в шапці таблиці.
           Налаштування — зліва, пошук — справа. */}
-      <AdminPanel theme={theme} padding="p-3" className="mb-5 max-w-4xl">
+      <AdminPanel theme={theme} padding="p-3" className="mb-5 max-w-5xl">
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex items-center gap-1">
             <ProgramSettingButton
@@ -333,6 +344,7 @@ function YearlyProgramViewInner({
               title="Редагувати транзакційні листи (welcome, receipt, plan-changed, admin-actions)"
               onClick={() => setPaymentTemplatesOpen(true)}
             />
+            <TelegramChannelButton theme={theme} initial={telegramSettings} />
           </div>
           <input
             type="search"
@@ -373,6 +385,7 @@ function YearlyProgramViewInner({
                 <Th theme={theme}>{''}</Th>
                 <Th theme={theme}>Створено</Th>
                 <Th theme={theme}>Користувач</Th>
+                <Th theme={theme}>Країна</Th>
                 <Th theme={theme} align="center">
                   <ColumnFilter
                     theme={theme}
@@ -404,7 +417,7 @@ function YearlyProgramViewInner({
             <tbody className={dark ? 'divide-y divide-white/[0.04]' : 'divide-y divide-stone-200/60'}>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className={`px-4 py-14 text-center text-sm ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+                  <td colSpan={12} className={`px-4 py-14 text-center text-sm ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
                     {rows.length === 0 ? 'Поки ніхто не підписався.' : 'Нічого не знайдено за фільтрами.'}
                   </td>
                 </tr>
@@ -595,6 +608,18 @@ function RowBlock({
         <td className="px-4 py-2.5">
           <div className={`text-[12px] font-medium ${dark ? 'text-slate-200' : 'text-stone-800'}`}>{r.userName ?? '—'}</div>
           <div className={`text-[10px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>{r.userEmail}</div>
+          {r.telegramUsername && (
+            <a
+              href={telegramProfileUrl(r.telegramUsername) ?? '#'}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`mt-0.5 inline-flex items-center gap-1 text-[10px] ${dark ? 'text-sky-300 hover:text-sky-200' : 'text-sky-700 hover:text-sky-900'}`}
+              title={`Telegram: ${r.telegramUsername}`}
+            >
+              <span aria-hidden>📨</span>
+              <span className="tabular-nums">{r.telegramUsername}</span>
+            </a>
+          )}
           {r.manuallyAddedAt && (
             <span
               className={`mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wider ${
@@ -604,6 +629,16 @@ function RowBlock({
             >
               ✋ Додано вручну
             </span>
+          )}
+        </td>
+        <td className="px-4 py-2.5">
+          {r.country ? (
+            <span className={`inline-flex items-center gap-1.5 text-[11px] ${dark ? 'text-slate-300' : 'text-stone-700'}`} title={r.country}>
+              <span className="text-base leading-none" aria-hidden>{flagEmoji(r.country)}</span>
+              <span>{getCountryName(r.country, 'uk', r.country)}</span>
+            </span>
+          ) : (
+            <span className={dark ? 'text-slate-600' : 'text-stone-400'}>—</span>
           )}
         </td>
         <td className="px-4 py-2.5 text-center"><PlanBadge theme={theme} plan={r.plan} autoRenew={r.autoRenew} /></td>
@@ -654,7 +689,7 @@ function RowBlock({
 
       {expanded && (
         <tr className={dark ? 'bg-black/20' : 'bg-stone-50/80'}>
-          <td colSpan={11} className="px-6 py-5">
+          <td colSpan={12} className="px-6 py-5">
             <ExpandedRowContent
               theme={theme}
               details={details}
@@ -687,6 +722,42 @@ function ExpandedRowContent({
   const router = useRouter();
   const [helpOpen, setHelpOpen] = useState(false);
   const [extraLaunching, setExtraLaunching] = useState(false);
+  const [tgInviting, setTgInviting] = useState(false);
+
+  async function sendTelegramInvite(force: boolean) {
+    const studentLabel = row.userEmail ?? row.userName ?? 'цього студента';
+    if (force) {
+      const ok = await confirm({
+        title: 'Перегенерувати запрошення?',
+        description: `Існуюче посилання залишиться діючим, але буде створено нове для ${studentLabel}.`,
+      });
+      if (!ok) return;
+    }
+    setTgInviting(true);
+    try {
+      const res = await fetch(`/api/admin/yearly-program/${row.id}/telegram-invite`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ force, sendEmail: true }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast('error', data.error ?? res.statusText);
+        return;
+      }
+      const emailNote = data.email?.sent
+        ? ' · лист надіслано'
+        : data.email?.error
+          ? ` · лист FAILED: ${data.email.error}`
+          : '';
+      toast('success', `Telegram-запрошення згенеровано${emailNote}`);
+      router.refresh();
+    } catch (e) {
+      toast('error', (e as Error).message);
+    } finally {
+      setTgInviting(false);
+    }
+  }
 
   async function runExtraLaunch() {
     const cohortName = row.cohortName ?? 'поточну програму';
@@ -811,6 +882,24 @@ function ExpandedRowContent({
               ✓ Відкрити доступ до SendPulse знову
             </ActionBtn>
           )}
+          <button
+            type="button"
+            onClick={() => sendTelegramInvite(!!details.telegramInviteLink)}
+            disabled={busy || tgInviting}
+            className={`px-3 py-1.5 text-[11px] font-semibold rounded-lg border transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-left flex items-center gap-2 ${
+              dark
+                ? 'bg-sky-500/10 border-sky-400/30 text-sky-200 hover:bg-sky-500/20 hover:border-sky-400/50'
+                : 'bg-sky-50 border-sky-300/60 text-sky-900 hover:bg-sky-100 hover:border-sky-400/70'
+            }`}
+            title={details.telegramInviteLink ? 'Перегенерувати + надіслати лист з новим посиланням' : 'Згенерувати invite-link і надіслати листом'}
+          >
+            <span className="text-base">📨</span>
+            {tgInviting
+              ? 'Генеруємо…'
+              : details.telegramInviteLink
+                ? 'Перенадіслати TG-запрошення'
+                : 'Надіслати TG-запрошення'}
+          </button>
           <ActionBtn theme={theme} disabled={busy || row.status === 'ARCHIVED'} tone="danger" onClick={() =>
             onAction('delete', undefined, `Архівувати запис ${row.userEmail ?? ''}? Закриємо доступ у SendPulse, статус → ARCHIVED, очистимо технічні поля. ВІДКРИТИ ЗНОВУ вже не вийде.`)
           }>
@@ -833,6 +922,16 @@ function ExpandedRowContent({
           }
           if (details.lastChargeError) {
             items.push(['last error', details.lastChargeError]);
+          }
+          if (details.telegramUsername) {
+            items.push(['Telegram', details.telegramUsername]);
+          }
+          if (details.telegramInvitedAt) {
+            const inviteShort = details.telegramInviteLink ? '✓ link є' : '✓';
+            items.push(['TG invite', `${inviteShort} · ${new Date(details.telegramInvitedAt).toLocaleDateString('uk-UA')}`]);
+          }
+          if (details.telegramInviteError) {
+            items.push(['TG err', details.telegramInviteError]);
           }
           const anyReminder = details.reminderSent3d || details.reminderSentExpired;
           if (anyReminder) {

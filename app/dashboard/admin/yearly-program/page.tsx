@@ -4,6 +4,7 @@ import {
   getYearlyProgramSettings,
   YEARLY_PROGRAM_DEFAULTS,
 } from '@/lib/yearlyProgramSettings';
+import { getYearlyProgramTelegramSettings } from '@/lib/yearlyProgramTelegram';
 import YearlyProgramView, { type SummaryData } from './_components/YearlyProgramView';
 import type { Row, CohortListItem } from './_components/types';
 
@@ -95,10 +96,14 @@ export default async function AdminYearlyProgramPage() {
       totalPaid,
       manuallyAddedAt: s.manuallyAddedAt?.toISOString() ?? null,
       manuallyAddedBy: s.manuallyAddedBy ?? null,
+      country: s.country,
+      telegramUsername: s.telegramUsername,
+      telegramInviteLink: s.telegramInviteLink,
+      telegramInvitedAt: s.telegramInvitedAt?.toISOString() ?? null,
     };
   });
 
-  const [statusCounts, totalAggr, revenueAggr, graceDays, programSettings] = await Promise.all([
+  const [statusCounts, totalAggr, revenueAggr, graceDays, programSettings, tgSettings] = await Promise.all([
     prisma.yearlyProgramSubscription.groupBy({
       by: ['status'],
       _count: { _all: true },
@@ -110,6 +115,7 @@ export default async function AdminYearlyProgramPage() {
     }),
     getYearlyGraceDays(prisma),
     getYearlyProgramSettings(prisma),
+    getYearlyProgramTelegramSettings(),
   ]);
   const countByStatus = (st: string) =>
     statusCounts.find((s) => s.status === st)?._count._all ?? 0;
@@ -131,6 +137,14 @@ export default async function AdminYearlyProgramPage() {
       graceDays={graceDays}
       programSettings={programSettings}
       programDefaults={YEARLY_PROGRAM_DEFAULTS}
+      telegramSettings={{
+        chatId: tgSettings.chatId,
+        chatTitle: tgSettings.chatTitle,
+        chatType: tgSettings.chatType,
+        autoAdd: tgSettings.autoAdd,
+        updatedAt: tgSettings.updatedAt?.toISOString() ?? null,
+        updatedBy: tgSettings.updatedBy,
+      }}
     />
   );
 }

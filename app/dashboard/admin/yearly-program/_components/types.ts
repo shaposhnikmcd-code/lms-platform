@@ -36,6 +36,11 @@ export interface Row {
   /// Якщо != null → показуємо пілюлю "Додано вручну" + дозволяємо "Екстра Запуск".
   manuallyAddedAt: string | null;
   manuallyAddedBy: string | null;
+  /// Дані з форми оплати: ISO-2 код країни проживання + Telegram username.
+  country: string | null;
+  telegramUsername: string | null;
+  telegramInviteLink: string | null;
+  telegramInvitedAt: string | null;
 }
 
 export interface SummaryData {

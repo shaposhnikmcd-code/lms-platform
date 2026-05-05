@@ -1,5 +1,6 @@
 import { sendEmail, esc } from '@/lib/mailer';
 import { getPaymentTemplate, renderTemplate } from '@/lib/emailTemplates/paymentTemplates';
+import { renderTelegramInviteEmailBlock } from '@/lib/yearlyProgramTelegram';
 
 /// Generic welcome lett для Річної програми. Шлемо одразу після першої оплати
 /// (`wasFirstPayment=true` у callback-у). НЕ містить логіну/пароля — креденшилз
@@ -15,8 +16,13 @@ export async function sendYearlyProgramWelcomeEmail(args: {
   name: string | null;
   plan: 'YEARLY' | 'MONTHLY';
   autoRenew: boolean;
+  /// Опційний invite-link у Telegram-канал/групу Річної програми. Якщо наданий —
+  /// блок з кнопкою додається в кінець листа (поверх дефолтного/кастомного шаблону).
+  /// Якщо null — нічого не додається. Робимо append, щоб не вимагати редагування
+  /// існуючих кастомних шаблонів менеджером.
+  telegramInviteLink?: string | null;
 }): Promise<{ ok: boolean; error?: string }> {
-  const { to, name, plan, autoRenew } = args;
+  const { to, name, plan, autoRenew, telegramInviteLink } = args;
 
   const greeting = name && name.trim() ? `Доброго дня, ${esc(name.trim())}!` : 'Доброго дня!';
   const planText =
@@ -32,10 +38,12 @@ export async function sendYearlyProgramWelcomeEmail(args: {
   const tpl = await getPaymentTemplate('welcome');
   const vars = { greeting, plan: esc(planText), autoRenewBullet };
 
+  const html = renderTemplate(tpl.bodyHtml, vars) + renderTelegramInviteEmailBlock(telegramInviteLink);
+
   return sendEmail({
     to,
     subject: renderTemplate(tpl.subject, vars),
-    html: renderTemplate(tpl.bodyHtml, vars),
+    html,
     replyTo: 'edu@uimp.com.ua',
   });
 }

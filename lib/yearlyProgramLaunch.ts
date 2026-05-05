@@ -8,6 +8,7 @@ import {
   DEFAULT_LAUNCH_EMAIL_BODY,
   DEFAULT_LAUNCH_EMAIL_SUBJECT,
 } from '@/lib/yearlyProgramCohort';
+import { renderTelegramInviteEmailBlock } from '@/lib/yearlyProgramTelegram';
 
 /// Спільна логіка "запустити cohort": викликається з адмінки (POST .../launch) і з cron-у
 /// (для cohort-ів зі `launchScheduledFor` у минулому). Приймає cohort, який ВЖЕ має
@@ -157,6 +158,7 @@ export interface ExtraLaunchResult {
 export async function runExtraLaunchForSubscription(
   subscriptionId: string,
   actorLabel: string,
+  options: { telegramInviteLink?: string | null } = {},
 ): Promise<ExtraLaunchResult> {
   const sub = await prisma.yearlyProgramSubscription.findUnique({
     where: { id: subscriptionId },
@@ -254,7 +256,8 @@ export async function runExtraLaunchForSubscription(
       },
     });
     try {
-      const res = await sendEmail({ to: sub.user.email, subject, html: body });
+      const fullBody = body + renderTelegramInviteEmailBlock(options.telegramInviteLink ?? sub.telegramInviteLink ?? null);
+      const res = await sendEmail({ to: sub.user.email, subject, html: fullBody });
       if (!res.ok) throw new Error(res.error ?? 'send failed');
       await prisma.yearlyProgramSubscriptionEvent.create({
         data: {

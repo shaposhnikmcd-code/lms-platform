@@ -785,6 +785,20 @@ model YearlyProgramSubscription {
   manuallyAddedAt DateTime?
   manuallyAddedBy String?
 
+  /// Дані з форми оплати (нові поля 2026-05-04).
+  /// country — ISO-3166-1 alpha-2 код країни проживання (UA, PL, DE...). null для legacy.
+  /// telegramUsername — нормалізований TG-handle з префіксом @ (напр. "@ihor"). null якщо не вказано.
+  /// telegramInviteLink — згенероване через Bot API одноразове invite-посилання у канал/групу
+  /// Річної програми. Створюється автоматично при оплаті (якщо auto_add=ON у settings) або
+  /// вручну з адмінки. member_limit=1, expire_date=+30д.
+  /// telegramInvitedAt — момент успішної генерації invite-link.
+  /// telegramInviteError — текст помилки Bot API при невдалій спробі (показується в адмінці).
+  country             String?
+  telegramUsername    String?
+  telegramInviteLink  String?
+  telegramInvitedAt   DateTime?
+  telegramInviteError String?
+
   payments     Payment[]                        @relation("YearlyProgramPayments")
   events       YearlyProgramSubscriptionEvent[]
   certificates Certificate[]
@@ -964,6 +978,28 @@ model AppSetting {
   key       String   @id
   value     Int
   updatedAt DateTime @updatedAt
+}
+
+/// Singleton-конфіг Telegram-каналу/групи Річної програми. Менеджер вводить chatId
+/// (numeric -100... або @username) у адмінці, система резолвить + валідує через
+/// Bot API getChat (бот має бути доданий адміном з правом invite users), зберігає
+/// chatTitle/chatType для UI-відображення.
+/// autoAdd — чи генерувати invite-link автоматично при оплаті Річної програми.
+/// Якщо false — менеджер натискає "Надіслати TG-запрошення" вручну в експандованій
+/// панелі підписки.
+model YearlyProgramTelegramSetting {
+  id        String   @id @default("singleton")
+  /// Зберігається в нормалізованому вигляді: numeric "-100..." або "@username".
+  chatId    String?
+  /// Friendly-title з getChat (показується в адмінці після успішної валідації).
+  chatTitle String?
+  /// "channel" | "supergroup" | "group" — повертає Bot API.
+  chatType  String?
+  /// Якщо true — на кожну успішну оплату Річної програми callback автоматично
+  /// генерує одноразовий invite-link і додає його до welcome-листа.
+  autoAdd   Boolean  @default(false)
+  updatedAt DateTime @updatedAt
+  updatedBy String?
 }
 
 /// Singleton-конфіг сторінки `/yearly-program` (Річна програма), редагований

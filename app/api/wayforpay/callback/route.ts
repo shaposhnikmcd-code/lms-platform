@@ -3,6 +3,10 @@ import crypto from 'crypto';
 import prisma from '@/lib/prisma';
 import { isYearlyProgramOrderRef, YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
 import { sendYearlyProgramWelcomeEmail } from '@/lib/yearlyProgramWelcomeEmail';
+import {
+  generateInviteForSubscription,
+  getYearlyProgramTelegramSettings,
+} from '@/lib/yearlyProgramTelegram';
 import { sendYearlyProgramPlanChangedEmail } from '@/lib/yearlyProgramPlanChangedEmail';
 import { sendYearlyProgramPaymentReceiptEmail } from '@/lib/yearlyProgramPaymentReceiptEmail';
 import { timingSafeEqualStr } from '@/lib/authTiming';
@@ -877,11 +881,42 @@ async function handleYearlyProgramCallback(args: {
   // лишається на випадок збою SP API під час оплати.
   // Інакше (звичайний flow до launch) — шлемо тільки наш generic welcome lett (без креденшилз).
   if (flipResult.wasFirstPayment) {
+    // Auto-add у Telegram-канал перед розсилкою welcome / extra-launch листа.
+    // Якщо settings.autoAdd=ON, є chatId, і користувач надав telegramUsername —
+    // генеруємо одноразовий invite-link і вкладаємо в лист. Помилка генерації
+    // не блокує лист (link просто не з'явиться, error логнеться у sub.telegramInviteError).
+    let tgInviteLink: string | null = null;
+    try {
+      const tgSettings = await getYearlyProgramTelegramSettings();
+      if (tgSettings.autoAdd && tgSettings.chatId && sub.telegramUsername) {
+        const tgRes = await generateInviteForSubscription({
+          subscriptionId: sub.id,
+          triggeredBy: 'system:auto-add-on-payment',
+          prefetched: {
+            id: sub.id,
+            telegramInviteLink: sub.telegramInviteLink ?? null,
+            userEmail: user.email,
+            userName: user.name,
+          },
+        });
+        if (tgRes.ok) {
+          tgInviteLink = tgRes.inviteLink;
+          actions.push('telegram:invite_generated');
+        } else {
+          actions.push(`telegram:invite_err:${(tgRes.error ?? 'unknown').slice(0, 40)}`);
+        }
+      }
+    } catch (e) {
+      actions.push(`telegram:invite_err:${(e as Error).message.slice(0, 40)}`);
+    }
+
     const cohortAlreadyLaunched = !!sub.cohort?.launchedAt;
     if (cohortAlreadyLaunched) {
       try {
         const { runExtraLaunchForSubscription } = await import('@/lib/yearlyProgramLaunch');
-        const extraResult = await runExtraLaunchForSubscription(sub.id, 'system:auto-late-payer');
+        const extraResult = await runExtraLaunchForSubscription(sub.id, 'system:auto-late-payer', {
+          telegramInviteLink: tgInviteLink,
+        });
         if (extraResult.ok) {
           actions.push('extra_launch:auto_triggered');
           if (extraResult.email.sent) actions.push('email:launch_sent');
@@ -894,6 +929,7 @@ async function handleYearlyProgramCallback(args: {
             name: user.name ?? null,
             plan: sub.plan,
             autoRenew: sub.autoRenew,
+            telegramInviteLink: tgInviteLink,
           }).then((r) => {
             if (r.ok) actions.push('email:welcome_sent_fallback');
           }).catch(() => { /* swallow */ });
@@ -908,6 +944,7 @@ async function handleYearlyProgramCallback(args: {
           name: user.name ?? null,
           plan: sub.plan,
           autoRenew: sub.autoRenew,
+          telegramInviteLink: tgInviteLink,
         });
         if (result.ok) {
           actions.push('email:welcome_sent');

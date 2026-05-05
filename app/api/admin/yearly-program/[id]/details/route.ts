@@ -58,6 +58,11 @@ export async function GET(
     sendpulseAccessClosedAt: sub.sendpulseAccessClosedAt?.toISOString() ?? null,
     reminderSent3d: sub.reminderSent3d,
     reminderSentExpired: sub.reminderSentExpired,
+    country: sub.country,
+    telegramUsername: sub.telegramUsername,
+    telegramInviteLink: sub.telegramInviteLink,
+    telegramInvitedAt: sub.telegramInvitedAt?.toISOString() ?? null,
+    telegramInviteError: sub.telegramInviteError,
     createdAt: sub.createdAt.toISOString(),
     updatedAt: sub.updatedAt.toISOString(),
     payments: sub.payments.map((p) => ({
