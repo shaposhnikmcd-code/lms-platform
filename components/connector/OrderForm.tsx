@@ -584,7 +584,7 @@ export default function OrderForm({ isOpen, onClose, labels }: OrderFormProps) {
                 />
               )}
 
-              <DeliveryInfo labels={l} />
+              {!isUkraine && <DeliveryInfo labels={l} />}
 
               <div>
                 <label htmlFor="connector-promo" className="block text-sm font-medium text-gray-700 mb-1">

@@ -541,17 +541,17 @@ function ManagerRow({
             />
             <ToggleChip
               theme={theme}
-              checked={m.notifyOnNew}
-              onChange={(v) => patch({ notifyOnNew: v }, 'new')}
-              label="🆕 Нова заявка"
-              loading={busy === 'new'}
-            />
-            <ToggleChip
-              theme={theme}
               checked={m.notifyOnPaid}
               onChange={(v) => patch({ notifyOnPaid: v }, 'paid')}
               label="✅ Оплачено"
               loading={busy === 'paid'}
+            />
+            <ToggleChip
+              theme={theme}
+              checked={m.notifyOnNew}
+              onChange={(v) => patch({ notifyOnNew: v }, 'new')}
+              label="🆕 Нова заявка"
+              loading={busy === 'new'}
             />
             <InfoButton theme={theme} />
           </div>
@@ -790,12 +790,12 @@ function ManagerForm({
           Активний
         </label>
         <label className={`inline-flex items-center gap-2 text-[13px] cursor-pointer ${dark ? 'text-slate-300' : 'text-stone-700'}`}>
-          <input type="checkbox" checked={notifyOnNew} onChange={(e) => setNotifyOnNew(e.target.checked)} />
-          🆕 Нова заявка
-        </label>
-        <label className={`inline-flex items-center gap-2 text-[13px] cursor-pointer ${dark ? 'text-slate-300' : 'text-stone-700'}`}>
           <input type="checkbox" checked={notifyOnPaid} onChange={(e) => setNotifyOnPaid(e.target.checked)} />
           ✅ Оплачено
+        </label>
+        <label className={`inline-flex items-center gap-2 text-[13px] cursor-pointer ${dark ? 'text-slate-300' : 'text-stone-700'}`}>
+          <input type="checkbox" checked={notifyOnNew} onChange={(e) => setNotifyOnNew(e.target.checked)} />
+          🆕 Нова заявка
         </label>
         <InfoButton theme={theme} />
       </div>
