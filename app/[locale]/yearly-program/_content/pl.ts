@@ -207,7 +207,7 @@ export const learningContent = {
     yearBenefit1: "Jedna płatność — cały kurs na 9 miesięcy",
     yearBenefitSavings: "Oszczędność {amount} UAH",
     btnYear: "Rejestracja wkrótce",
-    courseNameYear: "Terapia biblijna — program roczny",
+    courseNameYear: "Program roczny",
     monthTitle: "Płatność miesięczna",
     monthSubtitle: "Płać miesięcznie w trakcie nauki",
     monthInstallment: "Rozłożenie płatności na 9 miesięcy programu",
@@ -216,7 +216,7 @@ export const learningContent = {
     monthsCalc: "× 9 miesięcy = 19 800 UAH",
     promoText: "Aby zapłacić za jeden miesiąc, użyj kodu promocyjnego:",
     btnMonth: "Rejestracja wkrótce",
-    courseNameMonth: "Terapia biblijna — 1 miesiąc",
+    courseNameMonth: "Program roczny — 1 miesiąc",
   },
 };
 

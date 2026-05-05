@@ -207,7 +207,7 @@ export const learningContent = {
     yearBenefit1: "Одна оплата — весь курс на 9 місяців",
     yearBenefitSavings: "Економія {amount} грн",
     btnYear: "Реєстрація незабаром відкриється",
-    courseNameYear: "Біблійна терапія — річна програма",
+    courseNameYear: "Річна програма",
     monthTitle: "Щомісячна оплата",
     monthSubtitle: "Платіть помісячно протягом навчання",
     monthInstallment: "Розсрочка на 9 місяців програми",
@@ -216,6 +216,6 @@ export const learningContent = {
     monthsCalc: "× 9 місяців = 19 800 грн",
     promoText: "Для оплати одного місяця скористайтеся промокодом:",
     btnMonth: "Реєстрація незабаром відкриється",
-    courseNameMonth: "Біблійна терапія — 1 місяць",
+    courseNameMonth: "Річна програма — 1 місяць",
   },
 };
