@@ -16,6 +16,8 @@ export type Row = {
   createdAt: string;
   clientName: string;
   clientEmail: string;
+  /// Telegram username (тільки для Yearly Program; null для course/bundle/connector). Префікс "@" вже є.
+  clientTelegram?: string | null;
   /// Для course/bundle/connector — назва продукту. Для yearly — "Річна підписка" або "Місячна на 1 міс." / "Місячна Автоплатіж".
   productLabel: string;
   amount: number;
@@ -228,6 +230,12 @@ export default function PaymentsView({ rows }: { rows: Row[] }) {
                               <div>
                                 <p className={`text-[13px] font-medium ${dark ? 'text-slate-100' : 'text-stone-900'}`}>{row.clientName}</p>
                                 <p className={`text-[11px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>{row.clientEmail}</p>
+                                {row.clientTelegram && (
+                                  <p className={`text-[11px] inline-flex items-center gap-1 ${dark ? 'text-sky-300/85' : 'text-sky-700'}`}>
+                                    <span aria-hidden>✈</span>
+                                    <span>{row.clientTelegram}</span>
+                                  </p>
+                                )}
                               </div>
                             </div>
                           </td>
