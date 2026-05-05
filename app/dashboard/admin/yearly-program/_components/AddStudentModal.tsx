@@ -7,11 +7,10 @@ import type { Theme } from '../../_components/adminTheme';
 import type { CohortListItem } from './types';
 import { useUIFeedback } from './UIFeedback';
 
-type Plan = 'YEARLY' | 'MONTHLY';
-
-/// Модалка "Додати студента" — менеджер вводить email/ім'я/план → отримує signed invite-link
+/// Модалка "Додати студента" — менеджер вводить email/ім'я → отримує signed invite-link
 /// (термін дії 7 днів) для відправки студенту, який не встиг купити Річну програму до запуску.
-/// Після оплати по цьому лінку у таблиці з'явиться рядок з пілюлею "✋ Додано вручну" і кнопкою
+/// Студент сам обирає план (Річна / Місячна Автосписання / Місячна Разова) на сторінці.
+/// Після оплати у таблиці з'явиться рядок з пілюлею "✋ Додано вручну" і кнопкою
 /// "🎯 Екстра Запуск нового студента".
 export default function AddStudentModal({
   cohort,
@@ -27,8 +26,6 @@ export default function AddStudentModal({
   const [mounted, setMounted] = useState(false);
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
-  const [plan, setPlan] = useState<Plan>('YEARLY');
-  const [autoRenew, setAutoRenew] = useState<boolean>(true);
   const [generating, setGenerating] = useState(false);
   const [result, setResult] = useState<{ url: string; expiresAt: string } | null>(null);
   const [copied, setCopied] = useState(false);
@@ -57,8 +54,6 @@ export default function AddStudentModal({
         body: JSON.stringify({
           email: email.trim().toLowerCase(),
           name: name.trim() || undefined,
-          plan,
-          autoRenew: plan === 'MONTHLY' ? autoRenew : false,
         }),
       });
       const data = await res.json();
@@ -90,8 +85,6 @@ export default function AddStudentModal({
     setResult(null);
     setEmail('');
     setName('');
-    setPlan('YEARLY');
-    setAutoRenew(true);
     setError(null);
   }
 
@@ -117,7 +110,8 @@ export default function AddStudentModal({
                 dark ? 'bg-amber-500/8 border border-amber-400/20 text-amber-200/90' : 'bg-amber-50 border border-amber-200 text-amber-900'
               }`}>
                 Згенеруємо персональне посилання для студента, який не встиг купити Річну програму. Запуск: <b>{cohort.name}</b>.
-                Token дійсний 7 днів. Після оплати студент з&apos;явиться у таблиці з пілюлею <b>«Додано вручну»</b>.
+                Token дійсний 7 днів. На сторінці студент сам обере план — <b>Річна / Місячна Автосписання / Місячна Разова</b>.
+                Після оплати студент з&apos;явиться у таблиці з пілюлею <b>«Додано вручну»</b>.
               </div>
 
               <Field theme={theme} label="Email студента" required>
@@ -140,34 +134,6 @@ export default function AddStudentModal({
                   className={inputCls(dark)}
                 />
               </Field>
-
-              <Field theme={theme} label="План">
-                <div className="grid grid-cols-2 gap-2">
-                  <PlanPill theme={theme} active={plan === 'YEARLY'} onClick={() => setPlan('YEARLY')}>
-                    <div className="font-semibold text-[13px]">Річна оплата</div>
-                    <div className={`text-[11px] mt-0.5 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>Одна оплата на весь курс</div>
-                  </PlanPill>
-                  <PlanPill theme={theme} active={plan === 'MONTHLY'} onClick={() => setPlan('MONTHLY')}>
-                    <div className="font-semibold text-[13px]">Місячна</div>
-                    <div className={`text-[11px] mt-0.5 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>Розстрочка 9 платежів</div>
-                  </PlanPill>
-                </div>
-              </Field>
-
-              {plan === 'MONTHLY' && (
-                <Field theme={theme} label="Тип місячної оплати">
-                  <div className="grid grid-cols-2 gap-2">
-                    <PlanPill theme={theme} active={autoRenew} onClick={() => setAutoRenew(true)}>
-                      <div className="font-semibold text-[13px]">Автосписання</div>
-                      <div className={`text-[11px] mt-0.5 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>WFP-регулярка, 9 списань</div>
-                    </PlanPill>
-                    <PlanPill theme={theme} active={!autoRenew} onClick={() => setAutoRenew(false)}>
-                      <div className="font-semibold text-[13px]">Разова</div>
-                      <div className={`text-[11px] mt-0.5 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>1 місяць, без авто</div>
-                    </PlanPill>
-                  </div>
-                </Field>
-              )}
 
               {error && (
                 <div className={`px-3 py-2 rounded-lg text-[12px] ${dark ? 'bg-rose-500/10 text-rose-300 border border-rose-400/20' : 'bg-rose-50 text-rose-800 border border-rose-200'}`}>
@@ -283,27 +249,6 @@ function Field({ theme, label, required, children }: { theme: Theme; label: stri
       </label>
       {children}
     </div>
-  );
-}
-
-function PlanPill({ theme, active, onClick, children }: { theme: Theme; active: boolean; onClick: () => void; children: React.ReactNode }) {
-  const dark = theme === 'dark';
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`text-left px-3 py-2.5 rounded-lg border transition-colors ${
-        active
-          ? dark
-            ? 'bg-amber-400/15 border-amber-400/40 text-amber-100'
-            : 'bg-amber-100 border-amber-400/60 text-amber-950'
-          : dark
-            ? 'bg-white/[0.04] border-white/[0.10] text-slate-300 hover:bg-white/[0.08]'
-            : 'bg-white border-stone-300/60 text-stone-700 hover:bg-stone-50'
-      }`}
-    >
-      {children}
-    </button>
   );
 }
 

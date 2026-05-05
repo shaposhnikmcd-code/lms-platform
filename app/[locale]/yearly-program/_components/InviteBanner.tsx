@@ -1,20 +1,11 @@
 type Props = {
   email: string;
-  plan: 'YEARLY' | 'MONTHLY';
-  autoRenew: boolean;
   cohortName: string | null;
 };
 
 /// Банер вгорі сторінки /yearly-program, коли студент перейшов за invite-посиланням
-/// від менеджера. Показує email, план, на який запрошення, і назву cohort-у.
-export default function InviteBanner({ email, plan, autoRenew, cohortName }: Props) {
-  const planLabel =
-    plan === 'YEARLY'
-      ? 'Річна оплата (одноразово)'
-      : autoRenew
-        ? 'Місячна — Автосписання (9 платежів)'
-        : 'Місячна — Разова (1 місяць)';
-
+/// від менеджера. Показує email і назву cohort-у. План студент обирає на сторінці.
+export default function InviteBanner({ email, cohortName }: Props) {
   return (
     <div className="bg-gradient-to-r from-[#1C3A2E] to-[#2a4f3f] border-b border-[#D4A017]/30">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 py-4 flex items-center gap-4">
@@ -29,7 +20,7 @@ export default function InviteBanner({ email, plan, autoRenew, cohortName }: Pro
             ) : null}
           </div>
           <div className="text-[11px] sm:text-xs text-white/70 mt-0.5 truncate">
-            Для <span className="font-medium text-white">{email}</span> · {planLabel}
+            Для <span className="font-medium text-white">{email}</span> · оберіть зручний варіант оплати нижче
           </div>
         </div>
         <div className="hidden sm:block shrink-0 px-3 py-1.5 rounded-full bg-[#D4A017]/15 border border-[#D4A017]/30 text-[11px] font-semibold text-[#D4A017] uppercase tracking-wider">

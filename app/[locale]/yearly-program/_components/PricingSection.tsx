@@ -27,14 +27,13 @@ type Props = {
   yearlyPrice: number;
   monthlyPrice: number;
   registrationOpen: boolean;
-  /// Invite-flow: якщо передано — активна ТІЛЬКИ карточка плану, що збігається з invite.
-  /// Друга карточка disabled з підказкою. Token + prefill пересилаються в CoursePurchaseModal.
+  /// Invite-flow: якщо передано — обидві карточки активні, email pre-filled у формі.
+  /// Студент сам обирає Yearly / Monthly Autopay / Monthly One-time на цьому екрані.
+  /// Token + prefill пересилаються в CoursePurchaseModal.
   invite?: {
     token: string;
     email: string;
     name: string | null;
-    plan: 'YEARLY' | 'MONTHLY';
-    autoRenew: boolean;
   } | null;
 };
 
@@ -58,10 +57,8 @@ export default function PricingSection({ t, yearlyPrice, monthlyPrice, registrat
   const open = registrationOpen;
   const totalMonthly = monthlyPrice * TOTAL_MONTHLY_PAYMENTS;
   const premium = totalMonthly - yearlyPrice;
-  const yearlyAvailable = open && (!invite || invite.plan === 'YEARLY');
-  const monthlyAvailable = open && (!invite || invite.plan === 'MONTHLY');
-  const yearlyInvite = invite && invite.plan === 'YEARLY' ? invite : null;
-  const monthlyInvite = invite && invite.plan === 'MONTHLY' ? invite : null;
+  const yearlyAvailable = open;
+  const monthlyAvailable = open;
 
   return (
     <section id="price" className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-14">
@@ -110,10 +107,10 @@ export default function PricingSection({ t, yearlyPrice, monthlyPrice, registrat
                     courseId={YEARLY_PROGRAM.courseId}
                     currency={t.currency}
                     buttonLabel={t.btnYear}
-                    inviteToken={yearlyInvite?.token}
-                    invitePrefill={yearlyInvite ? {
-                      email: yearlyInvite.email,
-                      name: yearlyInvite.name,
+                    inviteToken={invite?.token}
+                    invitePrefill={invite ? {
+                      email: invite.email,
+                      name: invite.name,
                       plan: 'YEARLY',
                       autoRenew: false,
                     } : undefined}
@@ -154,12 +151,12 @@ export default function PricingSection({ t, yearlyPrice, monthlyPrice, registrat
                   currency={t.currency}
                   buttonLabel={t.btnMonth}
                   allowRecurringChoice
-                  inviteToken={monthlyInvite?.token}
-                  invitePrefill={monthlyInvite ? {
-                    email: monthlyInvite.email,
-                    name: monthlyInvite.name,
+                  inviteToken={invite?.token}
+                  invitePrefill={invite ? {
+                    email: invite.email,
+                    name: invite.name,
                     plan: 'MONTHLY',
-                    autoRenew: monthlyInvite.autoRenew,
+                    autoRenew: true,
                   } : undefined}
                 />
               ) : (

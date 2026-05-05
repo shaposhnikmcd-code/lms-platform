@@ -162,10 +162,10 @@ export default function CertificatesView() {
       eyebrow="Admin · Сертифікати"
       maxWidth="max-w-[1400px]"
     >
-      <div className="mb-4 flex items-center justify-end">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <Tabs theme={theme} active={activeTab} onChange={setActiveTab} />
         <MailerFromBadge theme={theme} />
       </div>
-      <Tabs theme={theme} active={activeTab} onChange={setActiveTab} />
 
       <div className="mt-6">
         {activeTab === 'courses' && <CoursesTab theme={theme} pushToast={setToast} />}
@@ -274,34 +274,55 @@ function StatusBadge({ theme, status, revoked }: { theme: Theme; status: EmailSt
 /// після того дані живуть у localStorage до явного refresh() АБО до закінчення TTL (24 год).
 /// TTL стандартизує "раз на день" — синхронно з добовим SP cron (04:30 UTC). Дає миттєвий
 /// рендер при поверненні протягом дня, але не дозволяє кешу гнити тижнями.
-const CACHE_VERSION = 1;
+///
+/// Окрім списку `items`, fetcher може повертати `meta` — довільні системні поля, які не
+/// є частиною елементів списку (наприклад, `latestSpCheckedAt` — глобальний таймстемп
+/// останнього SP-sync, який не залежить від того, які кандидати в даний момент видимі).
+/// Версія кешу 2: shape змінився з `T[]` на `{ items, meta }`.
+const CACHE_VERSION = 2;
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 години
 
-function readCache<T>(key: string): { items: T[]; lastUpdated: number } | null {
+type CachedPayload<T, M> = { items: T[]; meta: M | null };
+
+function readCache<T, M>(key: string): { payload: CachedPayload<T, M>; lastUpdated: number } | null {
   if (typeof window === 'undefined') return null;
   try {
     const raw = window.localStorage.getItem(key);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as { v?: number; items?: T[]; lastUpdated?: number };
+    const parsed = JSON.parse(raw) as {
+      v?: number;
+      items?: T[];
+      meta?: M | null;
+      lastUpdated?: number;
+    };
     if (parsed.v !== CACHE_VERSION || !Array.isArray(parsed.items) || typeof parsed.lastUpdated !== 'number') {
       return null;
     }
-    return { items: parsed.items, lastUpdated: parsed.lastUpdated };
+    return {
+      payload: { items: parsed.items, meta: (parsed.meta ?? null) as M | null },
+      lastUpdated: parsed.lastUpdated,
+    };
   } catch {
     return null;
   }
 }
 
-function writeCache<T>(key: string, items: T[], lastUpdated: number) {
+function writeCache<T, M>(key: string, payload: CachedPayload<T, M>, lastUpdated: number) {
   if (typeof window === 'undefined') return;
   try {
-    window.localStorage.setItem(key, JSON.stringify({ v: CACHE_VERSION, items, lastUpdated }));
+    window.localStorage.setItem(
+      key,
+      JSON.stringify({ v: CACHE_VERSION, items: payload.items, meta: payload.meta, lastUpdated }),
+    );
   } catch {
     // ignore (quota / private mode)
   }
 }
 
-function useCachedList<T>(cacheKey: string, fetcher: () => Promise<T[]>) {
+function useCachedList<T, M = null>(
+  cacheKey: string,
+  fetcher: () => Promise<CachedPayload<T, M>>,
+) {
   const fetcherRef = useRef(fetcher);
   fetcherRef.current = fetcher;
 
@@ -309,6 +330,7 @@ function useCachedList<T>(cacheKey: string, fetcher: () => Promise<T[]>) {
   /// Тому НЕ читаємо localStorage в useState init. Спочатку null/[]; потім у useEffect (тільки клієнт)
   /// підвантажуємо кеш або стартуємо перший fetch.
   const [items, setItems] = useState<T[]>([]);
+  const [meta, setMeta] = useState<M | null>(null);
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -317,7 +339,8 @@ function useCachedList<T>(cacheKey: string, fetcher: () => Promise<T[]>) {
     try {
       const fresh = await fetcherRef.current();
       const ts = Date.now();
-      setItems(fresh);
+      setItems(fresh.items);
+      setMeta(fresh.meta);
       setLastUpdated(ts);
       writeCache(cacheKey, fresh, ts);
     } finally {
@@ -326,9 +349,10 @@ function useCachedList<T>(cacheKey: string, fetcher: () => Promise<T[]>) {
   }, [cacheKey]);
 
   useEffect(() => {
-    const cached = readCache<T>(cacheKey);
+    const cached = readCache<T, M>(cacheKey);
     if (cached) {
-      setItems(cached.items);
+      setItems(cached.payload.items);
+      setMeta(cached.payload.meta);
       setLastUpdated(cached.lastUpdated);
       /// Якщо кешу > 24 год — фоново оновлюємо. Користувач при цьому одразу бачить кеш,
       /// а свіжі дані прилітають через секунду без скролу loading-екрану.
@@ -346,12 +370,12 @@ function useCachedList<T>(cacheKey: string, fetcher: () => Promise<T[]>) {
   const patchItem = useCallback((predicate: (item: T) => boolean, patch: (item: T) => T) => {
     setItems((prev) => {
       const next = prev.map((item) => (predicate(item) ? patch(item) : item));
-      writeCache(cacheKey, next, lastUpdated ?? Date.now());
+      writeCache(cacheKey, { items: next, meta }, lastUpdated ?? Date.now());
       return next;
     });
-  }, [cacheKey, lastUpdated]);
+  }, [cacheKey, lastUpdated, meta]);
 
-  return { items, loading, lastUpdated, refresh, patchItem, setItems };
+  return { items, meta, loading, lastUpdated, refresh, patchItem, setItems };
 }
 
 function formatAgo(ts: number | null): string {
@@ -581,12 +605,18 @@ function CoursesTab({
   pushToast: (t: { type: 'success' | 'error'; msg: string }) => void;
 }) {
   const dark = theme === 'dark';
-  const { items: candidates, loading, lastUpdated, refresh: fetchList } =
-    useCachedList<CourseCandidate>('cert-courses-v1', async () => {
-      const res = await fetch('/api/admin/certificates/course');
-      const data = await res.json();
-      return (data.candidates ?? []) as CourseCandidate[];
-    });
+  const { items: candidates, meta, loading, lastUpdated, refresh: fetchList } =
+    useCachedList<CourseCandidate, { latestSpCheckedAt: string | null }>(
+      'cert-courses-v2',
+      async () => {
+        const res = await fetch('/api/admin/certificates/course');
+        const data = await res.json();
+        return {
+          items: (data.candidates ?? []) as CourseCandidate[],
+          meta: { latestSpCheckedAt: data.latestSpCheckedAt ?? null },
+        };
+      },
+    );
   const [search, setSearch] = useState('');
   const [issuedFilter, setIssuedFilter] = useState<'all' | 'yes' | 'no'>('all');
   const [courseFilter, setCourseFilter] = useState<string>('all');
@@ -616,18 +646,13 @@ function CoursesTab({
     });
   }, [candidates, search, issuedFilter, courseFilter]);
 
-  /// Останній раз коли тягнули прогрес з SendPulse — максимум `spProgressCheckedAt`
-  /// серед усіх enrollments. null = жоден ще не торкався SP (немає курсів з SP ID).
+  /// Останній SP-sync — системний таймстемп з API (max `spProgressCheckedAt` серед усіх
+  /// живих enrollments із SP-курсами, не залежить від видимості рядків після фільтрів
+  /// чи приховування ADMIN/MANAGER-тестових покупок).
   const latestSpCheck = useMemo<number | null>(() => {
-    let max = 0;
-    for (const c of candidates) {
-      if (c.spProgressCheckedAt) {
-        const t = new Date(c.spProgressCheckedAt).getTime();
-        if (t > max) max = t;
-      }
-    }
-    return max > 0 ? max : null;
-  }, [candidates]);
+    const iso = meta?.latestSpCheckedAt;
+    return iso ? new Date(iso).getTime() : null;
+  }, [meta]);
 
   async function handleResend(certId: string, key: string) {
     setBusyKey(key);
@@ -794,10 +819,10 @@ function CoursesTab({
           </thead>
           <tbody className={dark ? 'divide-y divide-white/[0.04]' : 'divide-y divide-stone-200/60'}>
             {loading && candidates.length === 0 && (
-              <tr><td colSpan={9} className="py-8 text-center text-stone-500">Завантаження…</td></tr>
+              <tr><td colSpan={9} className={`py-8 text-center ${dark ? 'text-slate-400' : 'text-stone-500'}`}>Завантаження…</td></tr>
             )}
             {!loading && lastUpdated !== null && filtered.length === 0 && (
-              <tr><td colSpan={9} className="py-8 text-center text-stone-500">Немає даних</td></tr>
+              <tr><td colSpan={9} className={`py-8 text-center ${dark ? 'text-slate-400' : 'text-stone-500'}`}>Немає даних</td></tr>
             )}
             {filtered.map((c) => {
               const key = `${c.userId}_${c.courseId}`;
@@ -953,12 +978,18 @@ function YearlyTab({
   pushToast: (t: { type: 'success' | 'error'; msg: string }) => void;
 }) {
   const dark = theme === 'dark';
-  const { items: candidates, loading, lastUpdated, refresh: fetchList } =
-    useCachedList<YearlyCandidate>('cert-yearly-v1', async () => {
-      const res = await fetch('/api/admin/certificates/yearly');
-      const data = await res.json();
-      return (data.candidates ?? []) as YearlyCandidate[];
-    });
+  const { items: candidates, meta, loading, lastUpdated, refresh: fetchList } =
+    useCachedList<YearlyCandidate, { latestSpCheckedAt: string | null }>(
+      'cert-yearly-v2',
+      async () => {
+        const res = await fetch('/api/admin/certificates/yearly');
+        const data = await res.json();
+        return {
+          items: (data.candidates ?? []) as YearlyCandidate[],
+          meta: { latestSpCheckedAt: data.latestSpCheckedAt ?? null },
+        };
+      },
+    );
   const [search, setSearch] = useState('');
   const [planFilter, setPlanFilter] = useState<'all' | 'YEARLY' | 'MONTHLY'>('all');
   const [issuedFilter, setIssuedFilter] = useState<'all' | 'yes' | 'no'>('all');
@@ -968,17 +999,13 @@ function YearlyTab({
   const [showInfo, setShowInfo] = useState(false);
   const [runningSp, setRunningSp] = useState(false);
 
-  /// Останнє SP-оновлення — максимум `spProgressCheckedAt` серед усіх підписок.
+  /// Останній SP-sync — системний таймстемп з API (max `spProgressCheckedAt` серед усіх
+  /// живих non-CANCELLED підписок, не залежить від видимості рядків після фільтрів чи
+  /// приховування ADMIN/MANAGER-тестових підписок).
   const latestSpCheck = useMemo<number | null>(() => {
-    let max = 0;
-    for (const c of candidates) {
-      if (c.spProgressCheckedAt) {
-        const t = new Date(c.spProgressCheckedAt).getTime();
-        if (t > max) max = t;
-      }
-    }
-    return max > 0 ? max : null;
-  }, [candidates]);
+    const iso = meta?.latestSpCheckedAt;
+    return iso ? new Date(iso).getTime() : null;
+  }, [meta]);
 
   async function runSpSync() {
     setRunningSp(true);
@@ -1131,14 +1158,14 @@ function YearlyTab({
           <tbody className={dark ? 'divide-y divide-white/[0.04]' : 'divide-y divide-stone-200/60'}>
             {loading && (
               <tr>
-                <td colSpan={12} className="py-8 text-center text-stone-500">
+                <td colSpan={12} className={`py-8 text-center ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
                   Завантаження…
                 </td>
               </tr>
             )}
             {!loading && filtered.length === 0 && (
               <tr>
-                <td colSpan={12} className="py-8 text-center text-stone-500">
+                <td colSpan={12} className={`py-8 text-center ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
                   Немає даних
                 </td>
               </tr>
@@ -1294,10 +1321,13 @@ function SupervisionTab({
 }) {
   const dark = theme === 'dark';
   const { items: certs, loading, refresh: fetchList } =
-    useCachedList<SupervisionCertificate>('cert-supervision-v1', async () => {
+    useCachedList<SupervisionCertificate>('cert-supervision-v2', async () => {
       const res = await fetch('/api/admin/certificates/supervision');
       const data = await res.json();
-      return (data.certificates ?? []) as SupervisionCertificate[];
+      return {
+        items: (data.certificates ?? []) as SupervisionCertificate[],
+        meta: null,
+      };
     });
 
   const [search, setSearch] = useState('');
@@ -1415,10 +1445,10 @@ function SupervisionTab({
           </thead>
           <tbody className={dark ? 'divide-y divide-white/[0.04]' : 'divide-y divide-stone-200/60'}>
             {loading && certs.length === 0 && (
-              <tr><td colSpan={8} className="py-8 text-center text-stone-500">Завантаження…</td></tr>
+              <tr><td colSpan={8} className={`py-8 text-center ${dark ? 'text-slate-400' : 'text-stone-500'}`}>Завантаження…</td></tr>
             )}
             {!loading && filtered.length === 0 && (
-              <tr><td colSpan={8} className="py-8 text-center text-stone-500">Немає виданих сертифікатів</td></tr>
+              <tr><td colSpan={8} className={`py-8 text-center ${dark ? 'text-slate-400' : 'text-stone-500'}`}>Немає виданих сертифікатів</td></tr>
             )}
             {filtered.map((c) => {
               const busy = busyId === c.id;
@@ -1722,10 +1752,10 @@ function HistoryTab({ theme }: { theme: Theme }) {
           </thead>
           <tbody className={dark ? 'divide-y divide-white/[0.04]' : 'divide-y divide-stone-200/60'}>
             {loading && (
-              <tr><td colSpan={7} className="py-8 text-center text-stone-500">Завантаження…</td></tr>
+              <tr><td colSpan={7} className={`py-8 text-center ${dark ? 'text-slate-400' : 'text-stone-500'}`}>Завантаження…</td></tr>
             )}
             {!loading && rows.length === 0 && (
-              <tr><td colSpan={7} className="py-8 text-center text-stone-500">Подій немає</td></tr>
+              <tr><td colSpan={7} className={`py-8 text-center ${dark ? 'text-slate-400' : 'text-stone-500'}`}>Подій немає</td></tr>
             )}
             {rows.map((r) => {
               const status = statusFor(r);
@@ -2027,7 +2057,7 @@ function IssuesTab({
             </thead>
             <tbody className={dark ? 'divide-y divide-white/[0.04]' : 'divide-y divide-stone-200/60'}>
               {loading && (
-                <tr><td colSpan={8} className="py-8 text-center text-stone-500">Завантаження…</td></tr>
+                <tr><td colSpan={8} className={`py-8 text-center ${dark ? 'text-slate-400' : 'text-stone-500'}`}>Завантаження…</td></tr>
               )}
               {!loading && grouped.length === 0 && (
                 <tr>
@@ -2229,6 +2259,13 @@ function Th({ children }: { children: React.ReactNode }) {
 
 /* --------------------------------- Modals --------------------------------- */
 
+/// Тип `children` дозволяє function-render: дитина може взяти стан модалки
+/// (зокрема `expanded`), щоб адаптувати layout до full-screen режиму
+/// (наприклад, перерозподілити пропорції grid-колонок).
+type ModalShellChildren =
+  | React.ReactNode
+  | ((state: { expanded: boolean }) => React.ReactNode);
+
 function ModalShell({
   theme,
   title,
@@ -2240,7 +2277,7 @@ function ModalShell({
 }: {
   theme: Theme;
   title: string;
-  children: React.ReactNode;
+  children: ModalShellChildren;
   onClose: () => void;
   footer?: React.ReactNode;
   wide?: boolean;
@@ -2259,14 +2296,18 @@ function ModalShell({
   }, [onClose]);
 
   const sizeClasses = expanded
-    ? 'max-w-none w-screen max-h-none h-[calc(100vh-4rem)] rounded-none border-0'
+    ? 'max-w-none w-screen max-h-none h-full rounded-none border-0'
     : `${wide ? 'max-w-[1100px]' : 'max-w-2xl'} max-h-[92vh] rounded-2xl border`;
   const wrapperPadding = expanded ? 'p-0' : 'p-4';
   /// У розгорнутому режимі зсуваємо контейнер на висоту dashboard-хедеру (h-16 = 4rem),
   /// щоб title-bar модалки вплотну приклеювався до header bottom, а не ховався за ним.
   const wrapperPosition = expanded ? 'fixed left-0 right-0 bottom-0 top-16' : 'fixed inset-0';
 
-  return (
+  if (typeof document === 'undefined') return null;
+  /// Portal у document.body — щоб escape-нути backdrop-filter containing block, який
+  /// AdminPanel (`backdrop-blur-sm`) створює: без портала `position: fixed` ловиться
+  /// панеллю, і expanded-режим з `top-16` рахує 16 від верху панелі, а не viewport-у.
+  return createPortal(
     <div className={`${wrapperPosition} z-50 flex items-center justify-center bg-black/50 ${wrapperPadding}`}>
       <div
         className={`w-full ${sizeClasses} overflow-hidden flex flex-col ${dark ? 'bg-[#14171f] border-white/[0.1]' : 'bg-white border-stone-200'}`}
@@ -2297,14 +2338,17 @@ function ModalShell({
             </button>
           </div>
         </div>
-        <div className="p-5 overflow-y-auto flex-1">{children}</div>
+        <div className="p-5 overflow-y-auto flex-1">
+          {typeof children === 'function' ? children({ expanded }) : children}
+        </div>
         {footer && (
           <div className={`px-5 py-4 border-t flex items-center justify-end gap-2 ${dark ? 'border-white/[0.08] bg-white/[0.02]' : 'border-stone-200 bg-stone-50/60'}`}>
             {footer}
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -2317,6 +2361,7 @@ function PreviewPane({
   theme,
   params,
   disabled,
+  compact,
 }: {
   theme: Theme;
   params: {
@@ -2328,6 +2373,13 @@ function PreviewPane({
     supervisionDate?: string;
   };
   disabled?: boolean;
+  /// Compact-режим — панель само-збирається до природної висоти сертифіката
+  /// (через aspect-ratio на cert-area), без `flex-1` стретчингу. Використовується
+  /// у не-розгорнутій модалці, де ліва колонка вища: інакше cert-button малий і
+  /// центрується серед пустого тла, що візуально читається як "обрізаний".
+  /// Default false — стара поведінка (стретч на повну висоту колонки) лишається
+  /// для fullscreen-режиму, де cert має фактично заповнювати весь viewport.
+  compact?: boolean;
 }) {
   const dark = theme === 'dark';
   const [baseSrc, setBaseSrc] = useState<string | null>(null);
@@ -2378,9 +2430,48 @@ function PreviewPane({
       : params.type === 'SUPERVISION' ? '1280 / 900'
         : '1280 / 960';
 
+  /// Спінер «Генерую сертифікат…» — спільний для empty-state і loading-overlay.
+  const spinner = (
+    <div className="flex flex-col items-center gap-2">
+      <div className={`w-8 h-8 border-2 rounded-full animate-spin ${dark ? 'border-white/20 border-t-amber-400' : 'border-stone-300 border-t-amber-600'}`} />
+      <div className={`text-[12px] uppercase tracking-wider ${dark ? 'text-slate-300' : 'text-stone-600'}`}>Генерую сертифікат…</div>
+    </div>
+  );
+
+  /// Внутрішній вміст cert-area — однаковий і в compact, і в стретч-режимі.
+  const certInner = !params.recipientName.trim() ? (
+    <div className={`absolute inset-0 flex items-center justify-center text-[13px] p-4 text-center ${dark ? 'text-slate-500' : 'text-stone-400'}`}>
+      Введіть ім'я — з'явиться прев'ю PDF
+    </div>
+  ) : src ? (
+    <>
+      <div className="absolute inset-0 overflow-hidden">
+        <iframe
+          src={src}
+          title="Certificate preview"
+          onLoad={() => setLoading(false)}
+          className={`block border-0 pointer-events-none transition-opacity duration-200 ${loading ? 'opacity-30' : 'opacity-100'}`}
+          style={{
+            width: 'calc(100% + 18px)',
+            height: 'calc(100% + 18px)',
+            marginLeft: '-9px',
+            marginTop: '-9px',
+          }}
+        />
+      </div>
+      {loading && (
+        <div className={`absolute inset-0 flex items-center justify-center pointer-events-none ${dark ? 'bg-black/30' : 'bg-stone-50/60'}`}>
+          {spinner}
+        </div>
+      )}
+    </>
+  ) : (
+    <div className="absolute inset-0 flex items-center justify-center">{spinner}</div>
+  );
+
   return (
     <>
-      <div className={`rounded-xl border overflow-hidden flex flex-col min-h-[380px] ${dark ? 'border-white/[0.08] bg-black/40' : 'border-stone-200 bg-stone-50'}`}>
+      <div className={`rounded-xl border overflow-hidden flex flex-col ${compact ? 'self-start' : 'min-h-[380px]'} ${dark ? 'border-white/[0.08] bg-black/40' : 'border-stone-200 bg-stone-50'}`}>
         <div className={`px-4 py-2.5 flex items-center justify-between border-b ${dark ? 'border-white/[0.06] bg-gradient-to-b from-white/[0.04] to-transparent' : 'border-stone-200/70 bg-gradient-to-b from-white to-stone-50/40'}`}>
           <div className="flex items-center gap-2">
             <HiOutlineEye className={`w-4 h-4 ${dark ? 'text-amber-400/80' : 'text-amber-600/90'}`} />
@@ -2397,86 +2488,86 @@ function PreviewPane({
             </button>
           )}
         </div>
-        {/* Bulletproof центрування через absolute inset-0:
-            inner-wrapper отримує гарантовану висоту = висота parent flex-1,
-            незалежно від ланцюжка flex/grid sizing. */}
-        <div className="flex-1 min-h-0 relative" data-cert-preview-area>
-          <div className="absolute inset-0 flex items-center justify-center p-3">
-          <button
-            type="button"
-            onClick={() => src && setExpanded(true)}
-            disabled={!src}
-            style={{ aspectRatio: pageAspect }}
-            className="block w-full max-w-full max-h-full relative p-0 m-0 border-0 cursor-zoom-in disabled:cursor-default bg-transparent"
-          >
-            {!params.recipientName.trim() ? (
-              <div className={`text-[13px] p-4 text-center ${dark ? 'text-slate-500' : 'text-stone-400'}`}>
-                Введіть ім'я — з'явиться прев'ю PDF
-              </div>
-            ) : src ? (
-              <>
-                <div className="absolute inset-0 overflow-hidden">
-                  <iframe
-                    src={src}
-                    title="Certificate preview"
-                    onLoad={() => setLoading(false)}
-                    className={`block border-0 pointer-events-none transition-opacity duration-200 ${loading ? 'opacity-30' : 'opacity-100'}`}
-                    style={{
-                      width: 'calc(100% + 18px)',
-                      height: 'calc(100% + 18px)',
-                      marginLeft: '-9px',
-                      marginTop: '-9px',
-                    }}
-                  />
-                </div>
-                {loading && (
-                  <div className={`absolute inset-0 flex items-center justify-center pointer-events-none ${dark ? 'bg-black/30' : 'bg-stone-50/60'}`}>
-                    <div className="flex flex-col items-center gap-2">
-                      <div className={`w-8 h-8 border-2 rounded-full animate-spin ${dark ? 'border-white/20 border-t-amber-400' : 'border-stone-300 border-t-amber-600'}`} />
-                      <div className={`text-[12px] uppercase tracking-wider ${dark ? 'text-slate-300' : 'text-stone-600'}`}>Генерую сертифікат…</div>
-                    </div>
-                  </div>
-                )}
-              </>
-            ) : (
-              <div className="flex flex-col items-center gap-2">
-                <div className={`w-8 h-8 border-2 rounded-full animate-spin ${dark ? 'border-white/20 border-t-amber-400' : 'border-stone-300 border-t-amber-600'}`} />
-                <div className={`text-[12px] uppercase tracking-wider ${dark ? 'text-slate-300' : 'text-stone-600'}`}>Генерую сертифікат…</div>
-              </div>
-            )}
-          </button>
-          </div>
-        </div>
-      </div>
-
-      {expanded && src && typeof document !== 'undefined' &&
-        /// Portal у document.body — щоб escape-нути будь-який containing block
-        /// з backdrop-filter / transform / filter (AdminPanel має `backdrop-blur-sm`,
-        /// що тримало fullscreen-overlay позиціонованим відносно панелі замість viewport-у).
-        createPortal(
-          <div
-            className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4 cursor-zoom-out"
-            onClick={() => setExpanded(false)}
-          >
-            <div
-              className="relative w-full max-w-[1400px] h-[92vh] bg-white rounded-lg overflow-hidden"
-              onClick={(e) => e.stopPropagation()}
+        {compact ? (
+          /// Self-fit: cert-area має фіксований aspect = розмір PDF, тож висота
+          /// панелі = ширина-колонки / aspect + header. Самозбирання без пустого тла.
+          <div className="p-3" data-cert-preview-area>
+            <button
+              type="button"
+              onClick={() => src && setExpanded(true)}
+              disabled={!src}
+              style={{ aspectRatio: pageAspect }}
+              className="block w-full relative p-0 m-0 border-0 cursor-zoom-in disabled:cursor-default bg-transparent"
             >
-              <iframe src={src} title="Certificate full" className="w-full h-full border-0" />
+              {certInner}
+            </button>
+          </div>
+        ) : (
+          /// Стретч-режим: cert-area розтягується flex-1 на повну висоту колонки,
+          /// аспект-ratio + max-w/h-full дають object-fit:contain поведінку
+          /// (cert центрується в усьому доступному просторі). Використовується
+          /// у fullscreen-модалці, де колонка займає весь viewport-у.
+          <div className="flex-1 min-h-0 relative" data-cert-preview-area>
+            <div className="absolute inset-0 flex items-center justify-center p-3">
               <button
                 type="button"
-                onClick={() => setExpanded(false)}
-                className="absolute top-3 right-3 w-10 h-10 rounded-full bg-black/70 text-white text-xl flex items-center justify-center hover:bg-black"
-                aria-label="Закрити"
+                onClick={() => src && setExpanded(true)}
+                disabled={!src}
+                style={{ aspectRatio: pageAspect }}
+                className="block w-full max-w-full max-h-full relative p-0 m-0 border-0 cursor-zoom-in disabled:cursor-default bg-transparent"
               >
-                ✕
+                {certInner}
               </button>
             </div>
-          </div>,
-          document.body,
-        )
-      }
+          </div>
+        )}
+      </div>
+
+      {expanded && src && (
+        <CertPreviewFullscreen src={src} onClose={() => setExpanded(false)} />
+      )}
     </>
+  );
+}
+
+/// Fullscreen-overlay з PDF-сертифікатом — впритул до dashboard-хедеру (top-16),
+/// повна ширина viewport-у. Portal у document.body, щоб уникнути containing-block
+/// проблем з backdrop-filter / transform у батьківських елементах. Escape закриває
+/// тільки overlay (capture-фаза + stopPropagation), не зачіпаючи парентову модалку.
+function CertPreviewFullscreen({ src, onClose }: { src: string; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [onClose]);
+
+  if (typeof document === 'undefined') return null;
+  return createPortal(
+    <div
+      className="fixed inset-x-0 bottom-0 top-16 z-[100] bg-black/85 flex flex-col cursor-zoom-out"
+      onClick={onClose}
+    >
+      <div
+        className="relative flex-1 min-h-0 bg-white"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <iframe src={src} title="Certificate full" className="w-full h-full border-0" />
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute top-3 right-3 w-10 h-10 rounded-full bg-black/70 text-white text-xl flex items-center justify-center hover:bg-black"
+          aria-label="Закрити"
+        >
+          ✕
+        </button>
+      </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -2492,6 +2583,89 @@ type ExistingCertSummary = {
   issuedAt: string;
   issuedManually: boolean;
 };
+
+/* ----------------------- Draft helpers (issue dialogs) ---------------------- */
+
+/// Тонкий localStorage-обгортник для чернеток модалок видачі сертифікатів.
+/// Кожна модалка має свій key + parse-функцію, що валідує форму даних і повертає
+/// типізований об'єкт або null. Усі помилки (quota, private mode, JSON parse)
+/// гасяться — неможливість зберегти/прочитати чернетку не повинна ламати UX.
+function readDraft<T>(key: string, parse: (raw: unknown) => T | null): T | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return null;
+    return parse(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+}
+
+function writeDraft(key: string, value: unknown): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // ignore (quota / private mode)
+  }
+}
+
+function clearDraft(key: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.removeItem(key);
+  } catch {
+    // ignore
+  }
+}
+
+/* --------------------- Course manual draft ---------------------- */
+
+const COURSE_MANUAL_DRAFT_KEY = 'cert-course-manual-draft-v1';
+type CourseManualDraft = {
+  recipientName: string;
+  recipientEmail: string;
+  courseId: string;
+};
+
+function loadCourseManualDraft(): CourseManualDraft | null {
+  return readDraft(COURSE_MANUAL_DRAFT_KEY, (raw) => {
+    if (!raw || typeof raw !== 'object') return null;
+    const r = raw as Record<string, unknown>;
+    if (
+      typeof r.recipientName !== 'string' ||
+      typeof r.recipientEmail !== 'string' ||
+      typeof r.courseId !== 'string'
+    ) return null;
+    return { recipientName: r.recipientName, recipientEmail: r.recipientEmail, courseId: r.courseId };
+  });
+}
+
+/* --------------------- Yearly manual draft ---------------------- */
+
+const YEARLY_MANUAL_DRAFT_KEY = 'cert-yearly-manual-draft-v1';
+type YearlyManualDraft = {
+  recipientName: string;
+  recipientEmail: string;
+  category: CertCategory;
+};
+
+function loadYearlyManualDraft(): YearlyManualDraft | null {
+  return readDraft(YEARLY_MANUAL_DRAFT_KEY, (raw) => {
+    if (!raw || typeof raw !== 'object') return null;
+    const r = raw as Record<string, unknown>;
+    if (
+      typeof r.recipientName !== 'string' ||
+      typeof r.recipientEmail !== 'string' ||
+      (r.category !== 'PRACTICAL' && r.category !== 'LISTENER')
+    ) return null;
+    return {
+      recipientName: r.recipientName,
+      recipientEmail: r.recipientEmail,
+      category: r.category as CertCategory,
+    };
+  });
+}
 
 function IssueCourseDialog({
   theme,
@@ -2510,9 +2684,23 @@ function IssueCourseDialog({
   const [courses, setCourses] = useState<CourseOption[]>([]);
   const [loadingCourses, setLoadingCourses] = useState(true);
   const [fromEmail, setFromEmail] = useState<string | null>(null);
-  const [recipientName, setRecipientName] = useState(preselected?.userName ?? '');
-  const [recipientEmail, setRecipientEmail] = useState(preselected?.userEmail ?? '');
-  const [courseId, setCourseId] = useState<string>(preselected?.courseId ?? '');
+  /// Чернетка діє ТІЛЬКИ у manual-режимі (без `preselected`). Коли admin кликає
+  /// «Видати сертифікат» з рядка кандидата, preselected стає source-of-truth, а
+  /// чернетку ігноруємо — інакше попередньо введені дані «перекриють» вибраного юзера.
+  const initialDraft = useMemo(
+    () => (preselected ? null : loadCourseManualDraft()),
+    [preselected],
+  );
+  const [draftRestored, setDraftRestored] = useState<boolean>(() => initialDraft !== null);
+  const [recipientName, setRecipientName] = useState(
+    preselected?.userName ?? initialDraft?.recipientName ?? '',
+  );
+  const [recipientEmail, setRecipientEmail] = useState(
+    preselected?.userEmail ?? initialDraft?.recipientEmail ?? '',
+  );
+  const [courseId, setCourseId] = useState<string>(
+    preselected?.courseId ?? initialDraft?.courseId ?? '',
+  );
   const [busy, setBusy] = useState(false);
   const [existing, setExisting] = useState<ExistingCertSummary | null>(null);
 
@@ -2532,6 +2720,17 @@ function IssueCourseDialog({
       }
     })();
   }, []);
+
+  /// Persist чернетки тільки у manual-режимі.
+  useEffect(() => {
+    if (preselected) return;
+    const isEmpty = !recipientName.trim() && !recipientEmail.trim() && !courseId;
+    if (isEmpty) {
+      clearDraft(COURSE_MANUAL_DRAFT_KEY);
+    } else {
+      writeDraft(COURSE_MANUAL_DRAFT_KEY, { recipientName, recipientEmail, courseId });
+    }
+  }, [preselected, recipientName, recipientEmail, courseId]);
 
   useEffect(() => {
     fetch('/api/admin/mailer-config')
@@ -2573,6 +2772,8 @@ function IssueCourseDialog({
       }
       if (!res.ok) throw new Error(data?.error ?? 'Помилка');
       setExisting(null);
+      /// Чернетку чистимо лише у manual-режимі (preselected не пишеться у чернетку взагалі)
+      if (!preselected) clearDraft(COURSE_MANUAL_DRAFT_KEY);
       onIssued();
     } catch (err) {
       onError(err instanceof Error ? err.message : 'Помилка');
@@ -2587,6 +2788,7 @@ function IssueCourseDialog({
       title="Видати курсовий сертифікат персонально"
       onClose={onClose}
       wide
+      expandable
       footer={
         <>
           <button onClick={onClose} className={`px-4 py-2 rounded-lg text-[13px] ${dark ? 'bg-white/[0.05] text-slate-200' : 'bg-stone-100 text-stone-700'}`}>
@@ -2602,8 +2804,25 @@ function IssueCourseDialog({
         </>
       }
     >
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_1fr] gap-5">
+      {({ expanded }) => (
+      <>
+      <div className={`grid grid-cols-1 ${expanded ? 'lg:grid-cols-[0.5fr_1.5fr]' : 'lg:grid-cols-[1fr_1fr]'} gap-5`}>
         <div className="space-y-4">
+          {draftRestored && !preselected && (
+            <div className={`flex items-center justify-between gap-2 px-3 py-2 rounded-lg border text-[11.5px] ${dark ? 'border-amber-500/25 bg-amber-500/10 text-amber-200' : 'border-amber-300/60 bg-amber-50 text-amber-900'}`}>
+              <span className="inline-flex items-center gap-1.5">
+                <HiOutlineInformationCircle className="w-3.5 h-3.5" />
+                Відновлено чернетку — продовжуйте з того місця, де зупинилися
+              </span>
+              <button
+                type="button"
+                onClick={() => setDraftRestored(false)}
+                className={`text-[11px] px-1.5 py-0.5 rounded ${dark ? 'hover:bg-white/[0.05] text-amber-300/80' : 'hover:bg-amber-100 text-amber-800/80'}`}
+              >
+                Зрозуміло
+              </button>
+            </div>
+          )}
           <div>
             <label className={`block text-[11px] uppercase tracking-wider mb-1 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
               Ім&apos;я (як надрукувати)
@@ -2672,6 +2891,7 @@ function IssueCourseDialog({
         <PreviewPane
           theme={theme}
           disabled={!recipientName.trim() || !selectedCourse}
+          compact={!expanded}
           params={{
             type: 'COURSE',
             recipientName: recipientName.trim(),
@@ -2690,6 +2910,8 @@ function IssueCourseDialog({
           onConfirm={() => void submit(true)}
           busy={busy}
         />
+      )}
+      </>
       )}
     </ModalShell>
   );
@@ -2848,6 +3070,7 @@ function IssueYearlyDialog({
       title="Видати сертифікат Річної програми"
       onClose={onClose}
       wide
+      expandable
       footer={
         <>
           <button onClick={onClose} className={`px-4 py-2 rounded-lg text-[13px] ${dark ? 'bg-white/[0.05] text-slate-200' : 'bg-stone-100 text-stone-700'}`}>
@@ -2863,7 +3086,9 @@ function IssueYearlyDialog({
         </>
       }
     >
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_1fr] gap-5">
+      {({ expanded }) => (
+      <>
+      <div className={`grid grid-cols-1 ${expanded ? 'lg:grid-cols-[0.5fr_1.5fr]' : 'lg:grid-cols-[1fr_1fr]'} gap-5`}>
         <div className="space-y-4">
         <div className={`rounded-lg p-4 ${dark ? 'bg-white/[0.04]' : 'bg-stone-50'}`}>
           <div className="font-medium">{candidate.userName ?? '—'}</div>
@@ -2946,6 +3171,7 @@ function IssueYearlyDialog({
 
         <PreviewPane
           theme={theme}
+          compact={!expanded}
           params={{
             type: 'YEARLY_PROGRAM',
             category,
@@ -2963,6 +3189,8 @@ function IssueYearlyDialog({
           onConfirm={() => void submit()}
           busy={busy}
         />
+      )}
+      </>
       )}
     </ModalShell>
   );
@@ -3076,9 +3304,13 @@ function IssueYearlyManualDialog({
 }) {
   const dark = theme === 'dark';
   const [fromEmail, setFromEmail] = useState<string | null>(null);
-  const [recipientName, setRecipientName] = useState('');
-  const [recipientEmail, setRecipientEmail] = useState('');
-  const [category, setCategory] = useState<CertCategory>('PRACTICAL');
+  /// Чернетка форми зберігається у localStorage — щоб ненавмисне закриття
+  /// не з'їдало введене.
+  const initialDraft = useMemo(() => loadYearlyManualDraft(), []);
+  const [draftRestored, setDraftRestored] = useState<boolean>(() => initialDraft !== null);
+  const [recipientName, setRecipientName] = useState(initialDraft?.recipientName ?? '');
+  const [recipientEmail, setRecipientEmail] = useState(initialDraft?.recipientEmail ?? '');
+  const [category, setCategory] = useState<CertCategory>(initialDraft?.category ?? 'PRACTICAL');
   const [busy, setBusy] = useState(false);
   const [existing, setExisting] = useState<ExistingCertSummary | null>(null);
 
@@ -3090,6 +3322,20 @@ function IssueYearlyManualDialog({
       })
       .catch(() => {});
   }, []);
+
+  /// Persist чернетки на КОЖНУ зміну. Пуста форма (без імені/email і дефолтна
+  /// категорія) → чистимо запис, щоб localStorage не накопичував мусор.
+  useEffect(() => {
+    const isEmpty =
+      !recipientName.trim() &&
+      !recipientEmail.trim() &&
+      category === 'PRACTICAL';
+    if (isEmpty) {
+      clearDraft(YEARLY_MANUAL_DRAFT_KEY);
+    } else {
+      writeDraft(YEARLY_MANUAL_DRAFT_KEY, { recipientName, recipientEmail, category });
+    }
+  }, [recipientName, recipientEmail, category]);
 
   const canSubmit =
     !busy &&
@@ -3116,6 +3362,7 @@ function IssueYearlyManualDialog({
       }
       if (!res.ok) throw new Error(data?.error ?? 'Помилка');
       setExisting(null);
+      clearDraft(YEARLY_MANUAL_DRAFT_KEY);
       onIssued();
     } catch (err) {
       onError(err instanceof Error ? err.message : 'Помилка');
@@ -3132,6 +3379,7 @@ function IssueYearlyManualDialog({
       title="Видати сертифікат Річної програми персонально"
       onClose={onClose}
       wide
+      expandable
       footer={
         <>
           <button onClick={onClose} className={`px-4 py-2 rounded-lg text-[13px] ${dark ? 'bg-white/[0.05] text-slate-200' : 'bg-stone-100 text-stone-700'}`}>
@@ -3147,8 +3395,25 @@ function IssueYearlyManualDialog({
         </>
       }
     >
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_1fr] gap-5">
+      {({ expanded }) => (
+      <>
+      <div className={`grid grid-cols-1 ${expanded ? 'lg:grid-cols-[0.5fr_1.5fr]' : 'lg:grid-cols-[1fr_1fr]'} gap-5`}>
         <div className="space-y-4">
+          {draftRestored && (
+            <div className={`flex items-center justify-between gap-2 px-3 py-2 rounded-lg border text-[11.5px] ${dark ? 'border-amber-500/25 bg-amber-500/10 text-amber-200' : 'border-amber-300/60 bg-amber-50 text-amber-900'}`}>
+              <span className="inline-flex items-center gap-1.5">
+                <HiOutlineInformationCircle className="w-3.5 h-3.5" />
+                Відновлено чернетку — продовжуйте з того місця, де зупинилися
+              </span>
+              <button
+                type="button"
+                onClick={() => setDraftRestored(false)}
+                className={`text-[11px] px-1.5 py-0.5 rounded ${dark ? 'hover:bg-white/[0.05] text-amber-300/80' : 'hover:bg-amber-100 text-amber-800/80'}`}
+              >
+                Зрозуміло
+              </button>
+            </div>
+          )}
           <div>
             <label className={`block text-[11px] uppercase tracking-wider mb-1 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
               Ім&apos;я (як надрукувати)
@@ -3229,6 +3494,7 @@ function IssueYearlyManualDialog({
         <PreviewPane
           theme={theme}
           disabled={!recipientName.trim()}
+          compact={!expanded}
           params={{
             type: 'YEARLY_PROGRAM',
             category,
@@ -3247,6 +3513,8 @@ function IssueYearlyManualDialog({
           onConfirm={() => void submit(true)}
           busy={busy}
         />
+      )}
+      </>
       )}
     </ModalShell>
   );
@@ -3281,6 +3549,85 @@ function autoCapName(value: string): string {
   return value.replace(/(^|[\s\-'’])(\p{L})/gu, (_m, sep, ch) => sep + ch.toUpperCase());
 }
 
+/// Persist-чернетка форми супервізії: тема, дата, список учасників. Зберігається
+/// у localStorage на кожну зміну, щоб ненавмисне закриття модалки не з'їдало
+/// введене. Очищується після успішної відправки (всі сертифікати видані).
+const SUPERVISION_DRAFT_KEY = 'cert-supervision-draft-v1';
+
+type SupervisionDraft = {
+  topic: string;
+  supervisionDate: string;
+  recipients: SupervisionRecipient[];
+};
+
+function loadSupervisionDraft(): SupervisionDraft | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(SUPERVISION_DRAFT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<SupervisionDraft>;
+    if (
+      typeof parsed?.topic !== 'string' ||
+      typeof parsed?.supervisionDate !== 'string' ||
+      !Array.isArray(parsed?.recipients)
+    ) {
+      return null;
+    }
+    const recipients: SupervisionRecipient[] = (parsed.recipients as unknown[])
+      .filter((r): r is Record<string, unknown> => !!r && typeof r === 'object')
+      .map((r) => ({
+        id: typeof r.id === 'string' && r.id.length > 0 ? r.id : newSupervisionRecipient().id,
+        name: typeof r.name === 'string' ? r.name : '',
+        email: typeof r.email === 'string' ? r.email : '',
+      }));
+    return {
+      topic: parsed.topic,
+      supervisionDate: parsed.supervisionDate,
+      recipients: recipients.length > 0 ? recipients : [newSupervisionRecipient()],
+    };
+  } catch {
+    return null;
+  }
+}
+
+function saveSupervisionDraft(draft: SupervisionDraft) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(SUPERVISION_DRAFT_KEY, JSON.stringify(draft));
+  } catch {
+    // ignore quota / private mode
+  }
+}
+
+function clearSupervisionDraft() {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.removeItem(SUPERVISION_DRAFT_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+/// Збираємо URL для PDF-превʼю SUPERVISION-сертифіката для конкретного учасника.
+/// Виносимо в helper, бо викликається і з PreviewPane, і з per-row кнопок «👁».
+function buildSupervisionPreviewSrc({
+  name,
+  topic,
+  supervisionDate,
+}: {
+  name: string;
+  topic: string;
+  supervisionDate: string;
+}): string {
+  const qs = new URLSearchParams({
+    type: 'SUPERVISION',
+    name: name.trim(),
+  });
+  if (topic.trim()) qs.set('courseName', topic.trim());
+  if (supervisionDate) qs.set('supervisionDate', supervisionDate);
+  return `/api/admin/certificates/preview?${qs.toString()}#toolbar=0&navpanes=0&scrollbar=0&statusbar=0&messages=0&view=Fit&zoom=page-fit`;
+}
+
 /// Парсинг bulk-textarea: одна строка = один учасник. Витягуємо email регексом,
 /// решта — імʼя (з очищенням розділювачів). Порожні строки пропускаємо.
 function parseSupervisionBulk(text: string): SupervisionRecipient[] {
@@ -3311,14 +3658,23 @@ function IssueSupervisionDialog({
   onError: (msg: string) => void;
 }) {
   const dark = theme === 'dark';
+  /// Завантажуємо чернетку один раз при mount (модалка рендериться тільки клієнтсько,
+  /// тож SSR-mismatch неможливий) — користувач отримує те, що ввів минулого разу.
+  const initialDraft = useMemo(() => loadSupervisionDraft(), []);
+  const [draftRestored, setDraftRestored] = useState<boolean>(() => initialDraft !== null);
   const [fromEmail, setFromEmail] = useState<string | null>(null);
-  const [topic, setTopic] = useState('');
-  const [supervisionDate, setSupervisionDate] = useState('');
-  const [recipients, setRecipients] = useState<SupervisionRecipient[]>(() => [newSupervisionRecipient()]);
+  const [topic, setTopic] = useState<string>(initialDraft?.topic ?? '');
+  const [supervisionDate, setSupervisionDate] = useState<string>(initialDraft?.supervisionDate ?? '');
+  const [recipients, setRecipients] = useState<SupervisionRecipient[]>(
+    () => initialDraft?.recipients ?? [newSupervisionRecipient()],
+  );
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkText, setBulkText] = useState('');
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState<SupervisionFailed[] | null>(null);
+  /// Який учасник зараз відкритий у fullscreen-overlay (натиснули «👁» у його рядку).
+  /// Використовуємо id, а не індекс — щоб видалення/перевпорядкування рядків не ламали посилання.
+  const [previewRowId, setPreviewRowId] = useState<string | null>(null);
 
   useEffect(() => {
     fetch('/api/admin/mailer-config')
@@ -3328,6 +3684,19 @@ function IssueSupervisionDialog({
       })
       .catch(() => {});
   }, []);
+
+  /// Persist чернетки на КОЖНУ зміну форми. Пуста форма → чистимо запис.
+  useEffect(() => {
+    const isEmpty =
+      !topic.trim() &&
+      !supervisionDate &&
+      recipients.every((r) => !r.name.trim() && !r.email.trim());
+    if (isEmpty) {
+      clearSupervisionDraft();
+    } else {
+      saveSupervisionDraft({ topic, supervisionDate, recipients });
+    }
+  }, [topic, supervisionDate, recipients]);
 
   /// Лічильник валідних учасників: і імʼя, і email мають пройти валідацію
   const validCount = useMemo(
@@ -3387,8 +3756,12 @@ function IssueSupervisionDialog({
   }
 
   function clearAll() {
+    setTopic('');
+    setSupervisionDate('');
     setRecipients([newSupervisionRecipient()]);
     setFailed(null);
+    setDraftRestored(false);
+    clearSupervisionDraft();
   }
 
   async function submit() {
@@ -3420,7 +3793,9 @@ function IssueSupervisionDialog({
       const issuedCount = typeof data.issued === 'number' ? data.issued : 0;
 
       if (failedList.length === 0) {
-        /// Усе видано → закриваємо модалку, parent ховає toast
+        /// Усе видано → закриваємо модалку, parent ховає toast.
+        /// Чернетку чистимо, щоб наступне відкриття форми було порожнім.
+        clearSupervisionDraft();
         onIssued(issuedCount);
         return;
       }
@@ -3472,8 +3847,25 @@ function IssueSupervisionDialog({
         </>
       }
     >
-      <div className="grid grid-cols-1 lg:grid-cols-[0.82fr_1.18fr] gap-5">
+      {({ expanded }) => (
+      <>
+      <div className={`grid grid-cols-1 ${expanded ? 'lg:grid-cols-[0.55fr_1.45fr]' : 'lg:grid-cols-[1.1fr_0.9fr]'} gap-5`}>
         <div className="flex flex-col">
+          {draftRestored && (
+            <div className={`mb-3 flex items-center justify-between gap-2 px-3 py-2 rounded-lg border text-[11.5px] ${dark ? 'border-amber-500/25 bg-amber-500/10 text-amber-200' : 'border-amber-300/60 bg-amber-50 text-amber-900'}`}>
+              <span className="inline-flex items-center gap-1.5">
+                <HiOutlineInformationCircle className="w-3.5 h-3.5" />
+                Відновлено чернетку — продовжуйте з того місця, де зупинилися
+              </span>
+              <button
+                type="button"
+                onClick={() => setDraftRestored(false)}
+                className={`text-[11px] px-1.5 py-0.5 rounded ${dark ? 'hover:bg-white/[0.05] text-amber-300/80' : 'hover:bg-amber-100 text-amber-800/80'}`}
+              >
+                Зрозуміло
+              </button>
+            </div>
+          )}
           {/* Тема */}
           <div className="mb-3">
             <label className={`block text-[11px] uppercase tracking-wider mb-1 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
@@ -3492,7 +3884,7 @@ function IssueSupervisionDialog({
           <div className="grid grid-cols-2 gap-3 mb-3">
             <div>
               <label className={`block text-[11px] uppercase tracking-wider mb-1 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
-                Дата <span className="normal-case text-stone-400">(опційно)</span>
+                Дата <span className={`normal-case ${dark ? 'text-slate-500' : 'text-stone-400'}`}>(опційно)</span>
               </label>
               <input
                 type="date"
@@ -3606,6 +3998,12 @@ function IssueSupervisionDialog({
                     : emailTrim
                       ? (dark ? 'border-white/[0.1]' : 'border-stone-300')
                       : (dark ? 'border-white/[0.06]' : 'border-stone-200');
+                const canPreview = nameTrim.length > 0 && topic.trim().length > 0;
+                const previewTitle = !topic.trim()
+                  ? 'Спочатку введіть тему супервізії'
+                  : !nameTrim
+                    ? 'Спочатку введіть імʼя'
+                    : 'Переглянути персональний сертифікат';
                 return (
                   <div key={r.id} className="flex items-center gap-1.5">
                     <span className={`text-[10px] w-5 text-right tabular-nums shrink-0 ${dark ? 'text-slate-500' : 'text-stone-400'}`}>
@@ -3626,6 +4024,25 @@ function IssueSupervisionDialog({
                       title={!emailValid ? 'Невалідний email' : isDup ? 'Цей email повторюється у списку' : ''}
                       className={`flex-1 min-w-0 ${baseInputCls} ${emailBorder}`}
                     />
+                    <button
+                      type="button"
+                      onClick={() => setPreviewRowId(r.id)}
+                      disabled={!canPreview}
+                      title={previewTitle}
+                      aria-label={previewTitle}
+                      className={`shrink-0 inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md text-[11px] font-medium border transition-all ${
+                        canPreview
+                          ? dark
+                            ? 'bg-amber-500/[0.12] border-amber-400/30 text-amber-200 hover:bg-amber-500/20 hover:border-amber-400/50 hover:text-amber-100 active:bg-amber-500/25'
+                            : 'bg-amber-50 border-amber-300/70 text-amber-800 hover:bg-amber-100 hover:border-amber-400 hover:text-amber-900 active:bg-amber-200/70'
+                          : dark
+                            ? 'bg-transparent border-white/[0.06] text-slate-500 cursor-not-allowed'
+                            : 'bg-transparent border-stone-200 text-stone-400 cursor-not-allowed'
+                      }`}
+                    >
+                      <HiOutlineEye className="w-3.5 h-3.5" />
+                      <span>Перегляд</span>
+                    </button>
                     <button
                       type="button"
                       onClick={() => removeRecipient(r.id)}
@@ -3670,6 +4087,7 @@ function IssueSupervisionDialog({
         <PreviewPane
           theme={theme}
           disabled={!previewRecipient || !topic.trim()}
+          compact={!expanded}
           params={{
             type: 'SUPERVISION',
             recipientName: previewRecipient?.name?.trim() ?? '',
@@ -3678,6 +4096,18 @@ function IssueSupervisionDialog({
           }}
         />
       </div>
+      {(() => {
+        const row = recipients.find((r) => r.id === previewRowId);
+        if (!row || !row.name.trim() || !topic.trim()) return null;
+        const src = buildSupervisionPreviewSrc({
+          name: row.name,
+          topic,
+          supervisionDate,
+        });
+        return <CertPreviewFullscreen src={src} onClose={() => setPreviewRowId(null)} />;
+      })()}
+      </>
+      )}
     </ModalShell>
   );
 }

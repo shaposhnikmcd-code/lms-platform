@@ -76,8 +76,6 @@ export default async function YearlyProgramPage({
       {invitePayload && (
         <InviteBanner
           email={invitePayload.email}
-          plan={invitePayload.plan}
-          autoRenew={invitePayload.autoRenew}
           cohortName={inviteCohortName}
         />
       )}
@@ -114,8 +112,6 @@ export default async function YearlyProgramPage({
           token: inviteToken,
           email: invitePayload.email,
           name: invitePayload.name ?? null,
-          plan: invitePayload.plan,
-          autoRenew: invitePayload.autoRenew,
         } : null}
       />
       <TeacherSection t={c.teacherSection} />

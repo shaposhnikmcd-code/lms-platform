@@ -14,10 +14,10 @@ export interface InvitePayload {
   email: string;
   /// ім'я (опціонально, для prefill)
   name?: string;
-  /// план оплати
-  plan: 'YEARLY' | 'MONTHLY';
-  /// для MONTHLY — true=автосписання, false=одна оплата 30 днів
-  autoRenew: boolean;
+  /// план оплати — опціонально. Якщо null/undefined, студент сам обирає план у формі.
+  plan?: 'YEARLY' | 'MONTHLY' | null;
+  /// для MONTHLY — true=автосписання, false=одна оплата 30 днів. Опціонально.
+  autoRenew?: boolean | null;
   /// cohort, до якого прив'яжеться підписка (потрібно для post-launch invite)
   cohortId: string;
   /// email менеджера, що видав invite (для audit log)
@@ -71,7 +71,7 @@ export function verifyInvite(token: string): InvitePayload | null {
     return null;
   }
   if (typeof payload?.exp !== 'number' || payload.exp * 1000 < Date.now()) return null;
-  if (!payload.email || !payload.cohortId || !payload.plan) return null;
+  if (!payload.email || !payload.cohortId) return null;
   return payload;
 }
 

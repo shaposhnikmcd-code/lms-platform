@@ -307,8 +307,8 @@ export async function POST(req: NextRequest) {
                 metadata: {
                   invitedBy: invitePayload.invitedBy,
                   cohortId: invitePayload.cohortId,
-                  plan: invitePayload.plan,
-                  autoRenew: invitePayload.autoRenew,
+                  plan,
+                  autoRenew,
                 },
               },
             });

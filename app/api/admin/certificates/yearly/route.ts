@@ -34,6 +34,20 @@ export async function GET(req: NextRequest) {
     },
   });
 
+  /// Останній SP-sync — системний факт, не залежний від видимих кандидатів.
+  /// Беремо max `spProgressCheckedAt` серед усіх живих non-CANCELLED підписок (без
+  /// фільтру по ролі), щоб картка "SendPulse" в адмінці завжди показувала факт
+  /// останнього прогону, навіть коли реальних студентів ще нема (тільки ADMIN/MANAGER
+  /// тестові підписки сховані).
+  const latestSpAgg = await prisma.yearlyProgramSubscription.aggregate({
+    where: {
+      status: { not: 'CANCELLED' },
+      user: { deletedAt: null },
+    },
+    _max: { spProgressCheckedAt: true },
+  });
+  const latestSpCheckedAt = latestSpAgg._max.spProgressCheckedAt ?? null;
+
   const candidates = subs
     .filter((s) => !s.user.deletedAt)
     .map((s) => {
@@ -60,7 +74,7 @@ export async function GET(req: NextRequest) {
       };
     });
 
-  return NextResponse.json({ candidates });
+  return NextResponse.json({ candidates, latestSpCheckedAt });
 }
 
 export async function POST(req: NextRequest) {

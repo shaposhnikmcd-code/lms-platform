@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useEffect, useState } from 'react';
 import { HiOutlineSun, HiOutlineMoon, HiOutlineArrowLeft } from 'react-icons/hi2';
 import type { Theme } from './adminTheme';
 
@@ -85,6 +86,16 @@ export function AdminShell({
   children: React.ReactNode;
 }) {
   const dark = theme === 'dark';
+  /// Mounted-gate проти hydration mismatch: SSR не має доступу до localStorage,
+  /// тож рендерить `theme='light'`. На клієнті `useAdminTheme` вже знає правильну
+  /// тему (з data-admin-theme), але якщо одразу віддати її в DOM — буде flash
+  /// з SSR-дефолту. Тримаємо порожній placeholder до mount; bg тримає
+  /// .admin-root-обгортка через CSS у admin/layout.tsx.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  if (!mounted) {
+    return <div className="min-h-[calc(100vh-4rem)]" />;
+  }
   return (
     <div className={`relative min-h-[calc(100vh-4rem)] overflow-hidden ${dark ? 'bg-[#0b0d12]' : 'bg-[#f4eee1]'}`}>
       {/* Ambient glow */}

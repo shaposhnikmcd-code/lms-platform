@@ -82,7 +82,7 @@ export default function CoursesInfoModal({
                 <span>{section.title}</span>
               </h3>
               <div
-                className={`text-[13.5px] leading-[1.65] info-prose ${dark ? 'text-slate-300' : 'text-stone-700'}`}
+                className={`text-[13.5px] leading-[1.65] info-prose ${dark ? 'info-prose-dark text-slate-300' : 'text-stone-700'}`}
               >
                 {section.body}
               </div>
@@ -128,6 +128,9 @@ export default function CoursesInfoModal({
           padding: 1px 5px;
           border-radius: 4px;
           background: rgba(0, 0, 0, 0.06);
+        }
+        .info-prose-dark :global(code) {
+          background: rgba(255, 255, 255, 0.08);
         }
         :global(.courses-info-scroll) {
           scrollbar-width: none;

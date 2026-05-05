@@ -4,13 +4,14 @@ import { isAdmin, getAdminActor } from '@/lib/adminAuth';
 import { signInvite } from '@/lib/yearlyProgramInvite';
 
 /// POST /api/admin/yearly-program/cohorts/[id]/invite
-/// Body: { email, name?, plan: 'YEARLY' | 'MONTHLY', autoRenew?: boolean }
+/// Body: { email, name? }
 /// Повертає: { url: string, token: string, expiresAt: ISO, payload: { ... } }
 ///
 /// Менеджер генерує invite-link для студента, який не встиг купити Річну програму
-/// до запуску. Студент відкриває посилання → стандартна форма Річної програми, але
-/// з prefilled email/plan, які заблоковані для зміни. Після оплати у callback
-/// підписка створюється з `manuallyAddedAt = now()` і прив'язується до cohort-у з invite.
+/// до запуску. Студент відкриває посилання → стандартна форма Річної програми з
+/// prefilled email (locked) і вибором плану (YEARLY / MONTHLY autopay / MONTHLY one-time).
+/// Після оплати у callback підписка створюється з `manuallyAddedAt = now()` і
+/// прив'язується до cohort-у з invite.
 ///
 /// Token валідний 7 днів. Підпис HMAC-SHA256 + NEXTAUTH_SECRET.
 export async function POST(
@@ -26,8 +27,6 @@ export async function POST(
   const body = (await req.json().catch(() => ({}))) as {
     email?: string;
     name?: string;
-    plan?: string;
-    autoRenew?: boolean;
   };
 
   const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
@@ -35,12 +34,6 @@ export async function POST(
     return NextResponse.json({ error: 'Email обов\'язковий і має бути валідним' }, { status: 400 });
   }
 
-  if (body.plan !== 'YEARLY' && body.plan !== 'MONTHLY') {
-    return NextResponse.json({ error: 'plan має бути YEARLY або MONTHLY' }, { status: 400 });
-  }
-
-  const plan = body.plan;
-  const autoRenew = plan === 'MONTHLY' ? body.autoRenew === true : false;
   const name = typeof body.name === 'string' ? body.name.trim() : undefined;
 
   const cohort = await prisma.yearlyProgramCohort.findUnique({
@@ -59,8 +52,6 @@ export async function POST(
   const token = signInvite({
     email,
     name,
-    plan,
-    autoRenew,
     cohortId: cohort.id,
     invitedBy,
   });
@@ -75,7 +66,7 @@ export async function POST(
     ok: true,
     url,
     token,
-    payload: { email, name: name ?? null, plan, autoRenew, cohortId: cohort.id, cohortName: cohort.name },
+    payload: { email, name: name ?? null, cohortId: cohort.id, cohortName: cohort.name },
     expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
   });
 }

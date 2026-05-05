@@ -59,6 +59,20 @@ export async function GET(req: NextRequest) {
     if (!issuedKey.has(key)) issuedKey.set(key, c);
   }
 
+  /// Останній SP-sync — системний факт, не залежний від видимих кандидатів.
+  /// Беремо max `spProgressCheckedAt` серед усіх живих enrollments (без фільтру
+  /// по ролі), щоб картка "SendPulse" відображала останній прогін, навіть коли
+  /// реальні студенти ще не з'явилися (видно тільки тестові ADMIN/MANAGER).
+  const latestSpAgg = await prisma.enrollment.aggregate({
+    where: {
+      ...(courseId ? { courseId } : {}),
+      user: { deletedAt: null },
+      course: { sendpulseCourseId: { not: null } },
+    },
+    _max: { spProgressCheckedAt: true },
+  });
+  const latestSpCheckedAt = latestSpAgg._max.spProgressCheckedAt ?? null;
+
   const candidates = enrollments
     .filter((e) => !e.user.deletedAt && e.course.price > 0)
     .map((e) => {
@@ -87,7 +101,7 @@ export async function GET(req: NextRequest) {
       };
     });
 
-  return NextResponse.json({ candidates });
+  return NextResponse.json({ candidates, latestSpCheckedAt });
 }
 
 export async function POST(req: NextRequest) {

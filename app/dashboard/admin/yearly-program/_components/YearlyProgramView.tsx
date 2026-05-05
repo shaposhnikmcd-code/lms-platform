@@ -241,7 +241,7 @@ function YearlyProgramViewInner({
       eyebrow="Admin · Річна програма"
       title="Річна програма"
       subtitle="Платежі та доступ до Річної програми (SendPulse). Місячна підписка — з автосписанням, річна — одна оплата на рік."
-      maxWidth="max-w-7xl"
+      maxWidth="max-w-[1400px]"
     >
       {/* Workspace card: cohort header + actions + KPI strip — об'єднані в один блок з
           внутрішніми розділювачами, щоб не виглядали як 3 окремі картки. Program-налаштування
@@ -396,7 +396,7 @@ function YearlyProgramViewInner({
                 <Th theme={theme}>Дата оплати</Th>
                 <Th theme={theme}>Початок програми</Th>
                 <Th theme={theme}>Доступ до</Th>
-                <Th theme={theme} align="center" className="!px-2 w-[64px]">Платежів</Th>
+                <Th theme={theme} align="center">Платежів</Th>
                 <Th theme={theme}>Сплачено</Th>
                 <Th theme={theme}>SendPulse</Th>
               </tr>
@@ -643,7 +643,7 @@ function RowBlock({
             <span className={dark ? 'text-slate-600' : 'text-stone-400'}>—</span>
           )}
         </td>
-        <td className={`px-2 py-2.5 text-[12px] tabular-nums text-center w-[64px] ${dark ? 'text-slate-300' : 'text-stone-700'}`}>{r.paymentsCount}</td>
+        <td className={`px-4 py-2.5 text-[12px] tabular-nums text-center ${dark ? 'text-slate-300' : 'text-stone-700'}`}>{r.paymentsCount}</td>
         <td className={`px-4 py-2.5 text-[12px] tabular-nums whitespace-nowrap ${dark ? 'text-slate-200' : 'text-stone-800'}`}>
           {r.totalPaid.toLocaleString()} ₴
         </td>
