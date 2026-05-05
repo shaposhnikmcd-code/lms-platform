@@ -17,6 +17,8 @@ interface ManagerInput {
   email?: unknown;
   telegramChatId?: unknown;
   enabled?: unknown;
+  emailEnabled?: unknown;
+  telegramEnabled?: unknown;
   notifyOnNew?: unknown;
   notifyOnPaid?: unknown;
 }
@@ -101,6 +103,8 @@ export async function POST(req: NextRequest) {
       email,
       telegramChatId,
       enabled: body.enabled === undefined ? true : Boolean(body.enabled),
+      emailEnabled: body.emailEnabled === undefined ? true : Boolean(body.emailEnabled),
+      telegramEnabled: body.telegramEnabled === undefined ? true : Boolean(body.telegramEnabled),
       notifyOnNew: body.notifyOnNew === undefined ? true : Boolean(body.notifyOnNew),
       notifyOnPaid: body.notifyOnPaid === undefined ? true : Boolean(body.notifyOnPaid),
     },

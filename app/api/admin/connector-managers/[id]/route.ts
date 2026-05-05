@@ -47,7 +47,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
 
     const results: { channel: 'email' | 'telegram'; ok: boolean; error?: string }[] = [];
 
-    if (m.email) {
+    if (m.email && m.emailEnabled) {
       try {
         const r = await sendEmail({
           to: m.email,
@@ -66,7 +66,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       }
     }
 
-    if (m.telegramChatId && isConnectorBotConfigured()) {
+    if (m.telegramChatId && m.telegramEnabled && isConnectorBotConfigured()) {
       try {
         await sendConnectorMessage({
           chatId: m.telegramChatId,
@@ -81,7 +81,10 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     }
 
     if (results.length === 0) {
-      return NextResponse.json({ error: 'У менеджера не задано жодного каналу' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'У менеджера не активовано жодного каналу (email і Telegram вимкнено або порожні)' },
+        { status: 400 },
+      );
     }
     return NextResponse.json({ results });
   }
@@ -111,6 +114,8 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     }
   }
   if ('enabled' in body) data.enabled = Boolean(body.enabled);
+  if ('emailEnabled' in body) data.emailEnabled = Boolean(body.emailEnabled);
+  if ('telegramEnabled' in body) data.telegramEnabled = Boolean(body.telegramEnabled);
   if ('notifyOnNew' in body) data.notifyOnNew = Boolean(body.notifyOnNew);
   if ('notifyOnPaid' in body) data.notifyOnPaid = Boolean(body.notifyOnPaid);
 

@@ -27,6 +27,8 @@ interface Manager {
   label: string;
   email: string | null;
   telegramChatId: string | null;
+  emailEnabled: boolean;
+  telegramEnabled: boolean;
   enabled: boolean;
   notifyOnNew: boolean;
   notifyOnPaid: boolean;
@@ -422,6 +424,7 @@ function ManagerRow({
 }) {
   const dark = theme === 'dark';
   const [busy, setBusy] = useState<'enable' | 'new' | 'paid' | 'test' | 'delete' | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   async function patch(payload: Record<string, unknown>, marker: typeof busy) {
     setBusy(marker);
@@ -473,7 +476,7 @@ function ManagerRow({
   }
 
   async function remove() {
-    if (!confirm(`Видалити менеджера "${m.label}"? Цю дію не можна скасувати.`)) return;
+    setConfirmingDelete(false);
     setBusy('delete');
     try {
       const res = await fetch(`/api/admin/connector-managers/${m.id}`, { method: 'DELETE' });
@@ -519,15 +522,27 @@ function ManagerRow({
           </div>
           <div className={`mt-1 flex flex-wrap gap-x-4 gap-y-1 text-[13px] ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
             {m.email && (
-              <span className="inline-flex items-center gap-1">
+              <span
+                className={`inline-flex items-center gap-1 ${
+                  !m.emailEnabled ? `line-through ${dark ? 'text-slate-600' : 'text-stone-400'}` : ''
+                }`}
+                title={!m.emailEnabled ? 'Email-канал вимкнено' : undefined}
+              >
                 <HiOutlineEnvelope className="text-sm" />
                 {m.email}
+                {!m.emailEnabled && <span className="ml-1 text-[10px] no-underline">(вимк.)</span>}
               </span>
             )}
             {m.telegramChatId && (
-              <span className="inline-flex items-center gap-1 font-mono">
+              <span
+                className={`inline-flex items-center gap-1 font-mono ${
+                  !m.telegramEnabled ? `line-through ${dark ? 'text-slate-600' : 'text-stone-400'}` : ''
+                }`}
+                title={!m.telegramEnabled ? 'Telegram-канал вимкнено' : undefined}
+              >
                 <FaTelegram className={`text-sm ${dark ? 'text-sky-400' : 'text-sky-600'}`} />
                 {m.telegramChatId}
+                {!m.telegramEnabled && <span className="ml-1 text-[10px] no-underline">(вимк.)</span>}
               </span>
             )}
           </div>
@@ -587,7 +602,7 @@ function ManagerRow({
           </button>
           <button
             type="button"
-            onClick={remove}
+            onClick={() => setConfirmingDelete(true)}
             disabled={busy !== null}
             title="Видалити"
             className={`p-1.5 rounded-lg border transition-colors ${
@@ -600,7 +615,127 @@ function ManagerRow({
           </button>
         </div>
       </div>
+      {confirmingDelete && (
+        <ConfirmDeletePopup
+          theme={theme}
+          managerLabel={m.label}
+          onCancel={() => setConfirmingDelete(false)}
+          onConfirm={remove}
+        />
+      )}
     </li>
+  );
+}
+
+function ConfirmDeletePopup({
+  theme,
+  managerLabel,
+  onCancel,
+  onConfirm,
+}: {
+  theme: Theme;
+  managerLabel: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const dark = theme === 'dark';
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => setMounted(true), []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCancel();
+      if (e.key === 'Enter') onConfirm();
+    };
+    document.addEventListener('keydown', onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [onCancel, onConfirm]);
+
+  if (!mounted) return null;
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[10000] flex items-center justify-center p-4"
+      onClick={onCancel}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="confirm-delete-title"
+    >
+      {/* Backdrop */}
+      <div
+        className={`absolute inset-0 ${dark ? 'bg-black/70' : 'bg-stone-900/40'} backdrop-blur-sm`}
+        aria-hidden="true"
+      />
+
+      {/* Card */}
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className={`relative w-full max-w-md rounded-2xl border shadow-2xl overflow-hidden ${
+          dark
+            ? 'bg-[#0f1218] border-white/[0.08] text-slate-200'
+            : 'bg-white border-stone-300/70 text-stone-800'
+        }`}
+      >
+        <div className="p-6">
+          <div className="flex items-start gap-3">
+            <div
+              className={`flex-shrink-0 w-11 h-11 rounded-full flex items-center justify-center ${
+                dark ? 'bg-rose-500/15' : 'bg-rose-100'
+              }`}
+            >
+              <HiOutlineTrash className={`text-xl ${dark ? 'text-rose-300' : 'text-rose-600'}`} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <h3 id="confirm-delete-title" className={`text-base font-semibold ${dark ? 'text-slate-100' : 'text-stone-900'}`}>
+                Видалити менеджера?
+              </h3>
+              <p className={`mt-1.5 text-[13px] leading-relaxed ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
+                Менеджер <b className={dark ? 'text-slate-200' : 'text-stone-900'}>«{managerLabel}»</b> більше не отримуватиме сповіщення про замовлення.
+                <br />
+                Цю дію не можна скасувати.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div
+          className={`flex items-center justify-end gap-2 px-6 py-4 border-t ${
+            dark ? 'bg-white/[0.02] border-white/[0.06]' : 'bg-stone-50 border-stone-200'
+          }`}
+        >
+          <button
+            type="button"
+            onClick={onCancel}
+            className={`px-4 py-2 rounded-lg text-[13px] font-medium transition-colors ${
+              dark
+                ? 'bg-white/[0.04] border border-white/[0.08] text-slate-300 hover:bg-white/[0.08]'
+                : 'bg-white border border-stone-300 text-stone-700 hover:bg-stone-100'
+            }`}
+          >
+            Скасувати
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            autoFocus
+            className={`px-4 py-2 rounded-lg text-[13px] font-medium transition-colors ${
+              dark
+                ? 'bg-rose-500/20 border border-rose-500/40 text-rose-200 hover:bg-rose-500/30'
+                : 'bg-rose-600 border border-rose-600 text-white hover:bg-rose-700'
+            }`}
+          >
+            Видалити
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -686,6 +821,8 @@ function ManagerForm({
   const [email, setEmail] = useState(initial?.email ?? '');
   const [chatId, setChatId] = useState(initial?.telegramChatId ?? '');
   const [enabled, setEnabled] = useState(initial?.enabled ?? true);
+  const [emailEnabled, setEmailEnabled] = useState(initial?.emailEnabled ?? true);
+  const [telegramEnabled, setTelegramEnabled] = useState(initial?.telegramEnabled ?? true);
   const [notifyOnNew, setNotifyOnNew] = useState(initial?.notifyOnNew ?? true);
   const [notifyOnPaid, setNotifyOnPaid] = useState(initial?.notifyOnPaid ?? true);
   const [saving, setSaving] = useState(false);
@@ -714,6 +851,8 @@ function ManagerForm({
           email: email.trim() || null,
           telegramChatId: chatId.trim() || null,
           enabled,
+          emailEnabled,
+          telegramEnabled,
           notifyOnNew,
           notifyOnPaid,
         }),
@@ -734,7 +873,7 @@ function ManagerForm({
   return (
     <form
       onSubmit={submit}
-      className={`rounded-xl border p-4 space-y-3 ${
+      className={`mx-auto w-full max-w-md rounded-xl border p-4 space-y-3 ${
         dark ? 'bg-white/[0.02] border-white/[0.06]' : 'bg-white/70 border-stone-300/60'
       }`}
     >
@@ -763,28 +902,47 @@ function ManagerForm({
         />
       </Field>
 
-      <Field theme={theme} label="Email">
+      <ChannelField
+        theme={theme}
+        label="Email"
+        icon={<HiOutlineEnvelope className="text-base" />}
+        channelEnabled={emailEnabled}
+        onChannelToggle={setEmailEnabled}
+        canDisable={Boolean(email.trim())}
+      >
         <input
           type="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           placeholder="manager@example.com"
-          className={inputCls(dark)}
+          className={inputCls(dark, !emailEnabled)}
         />
-      </Field>
+      </ChannelField>
 
-      <Field theme={theme} label="Telegram chat_id" hint={`Отримати: t.me/${BOT_USERNAME} → /start`}>
+      <ChannelField
+        theme={theme}
+        label="Telegram chat_id"
+        icon={<FaTelegram className={`text-base ${dark ? 'text-sky-400' : 'text-sky-600'}`} />}
+        channelEnabled={telegramEnabled}
+        onChannelToggle={setTelegramEnabled}
+        canDisable={Boolean(chatId.trim())}
+        hint={`Отримати: t.me/${BOT_USERNAME} → /start`}
+      >
         <input
           type="text"
           value={chatId}
           onChange={(e) => setChatId(e.target.value)}
           placeholder="напр. 123456789"
           inputMode="numeric"
-          className={`${inputCls(dark)} font-mono`}
+          className={`${inputCls(dark, !telegramEnabled)} font-mono`}
         />
-      </Field>
+      </ChannelField>
 
-      <div className="flex flex-wrap items-center gap-3 pt-1">
+      <div
+        className={`flex flex-wrap items-center gap-x-4 gap-y-2 pt-2 border-t ${
+          dark ? 'border-white/[0.06]' : 'border-stone-200'
+        }`}
+      >
         <label className={`inline-flex items-center gap-2 text-[13px] cursor-pointer ${dark ? 'text-slate-300' : 'text-stone-700'}`}>
           <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
           Активний
@@ -800,7 +958,7 @@ function ManagerForm({
         <InfoButton theme={theme} />
       </div>
 
-      <div className="flex items-center justify-end gap-2 pt-2">
+      <div className="flex items-center justify-end gap-2 pt-1">
         <button
           type="button"
           onClick={onCancel}
@@ -826,6 +984,60 @@ function ManagerForm({
         </button>
       </div>
     </form>
+  );
+}
+
+function ChannelField({
+  theme,
+  label,
+  icon,
+  channelEnabled,
+  onChannelToggle,
+  canDisable,
+  hint,
+  children,
+}: {
+  theme: Theme;
+  label: string;
+  icon: React.ReactNode;
+  channelEnabled: boolean;
+  onChannelToggle: (v: boolean) => void;
+  canDisable: boolean;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  const dark = theme === 'dark';
+  const disabled = !channelEnabled;
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1">
+        <label className={`inline-flex items-center gap-1.5 text-[12px] font-medium ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
+          {icon}
+          {label}
+        </label>
+        <label
+          className={`inline-flex items-center gap-1.5 text-[11px] cursor-pointer select-none ${
+            !canDisable ? 'opacity-50 cursor-not-allowed' : ''
+          } ${
+            channelEnabled
+              ? dark ? 'text-emerald-300' : 'text-emerald-700'
+              : dark ? 'text-slate-500' : 'text-stone-500'
+          }`}
+          title={!canDisable ? 'Поле порожнє — нічого вмикати' : channelEnabled ? 'Вимкнути канал' : 'Увімкнути канал'}
+        >
+          <input
+            type="checkbox"
+            checked={channelEnabled}
+            disabled={!canDisable}
+            onChange={(e) => onChannelToggle(e.target.checked)}
+            className="cursor-pointer"
+          />
+          {channelEnabled ? 'увімкнено' : 'вимкнено'}
+        </label>
+      </div>
+      <div className={disabled ? 'opacity-60' : ''}>{children}</div>
+      {hint && <p className={`mt-1 text-[11px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>{hint}</p>}
+    </div>
   );
 }
 
@@ -855,8 +1067,16 @@ function Field({
   );
 }
 
-function inputCls(dark: boolean): string {
-  return `block w-full px-3 py-2 rounded-lg border text-sm outline-none transition-colors ${
+function inputCls(dark: boolean, muted = false): string {
+  const base = 'block w-full px-3 py-2 rounded-lg border text-sm outline-none transition-colors';
+  if (muted) {
+    return `${base} ${
+      dark
+        ? 'bg-white/[0.02] border-white/[0.06] text-slate-500 placeholder:text-slate-700 focus:border-white/[0.12]'
+        : 'bg-stone-100 border-stone-200 text-stone-500 placeholder:text-stone-400 focus:border-stone-300'
+    }`;
+  }
+  return `${base} ${
     dark
       ? 'bg-white/[0.04] border-white/[0.08] text-slate-200 placeholder:text-slate-600 focus:border-amber-400/40'
       : 'bg-white border-stone-300 text-stone-800 placeholder:text-stone-400 focus:border-amber-600/50'

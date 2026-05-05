@@ -993,6 +993,10 @@ model KonektorManager {
   email           String?
   /// Numeric chat_id (отриманий через бот /start). Підтримує і особисті, і групові.
   telegramChatId  String?
+  /// Per-channel вимикачі. Дозволяють тимчасово відключити email або Telegram
+  /// без видалення значення. Якщо канал false — повідомлення не йде, навіть якщо поле заповнене.
+  emailEnabled    Boolean  @default(true)
+  telegramEnabled Boolean  @default(true)
   enabled         Boolean  @default(true)
   notifyOnNew     Boolean  @default(true)
   notifyOnPaid    Boolean  @default(true)

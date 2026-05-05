@@ -150,6 +150,8 @@ export async function notifyManagers(
     label: string;
     email: string | null;
     telegramChatId: string | null;
+    emailEnabled: boolean;
+    telegramEnabled: boolean;
     notifyOnNew: boolean;
     notifyOnPaid: boolean;
   }>;
@@ -164,6 +166,8 @@ export async function notifyManagers(
         label: true,
         email: true,
         telegramChatId: true,
+        emailEnabled: true,
+        telegramEnabled: true,
         notifyOnNew: true,
         notifyOnPaid: true,
       },
@@ -185,7 +189,7 @@ export async function notifyManagers(
     managers.flatMap((m) => {
       const tasks: Array<Promise<void>> = [];
 
-      if (m.email) {
+      if (m.email && m.emailEnabled) {
         tasks.push(
           (async () => {
             try {
@@ -203,7 +207,7 @@ export async function notifyManagers(
         );
       }
 
-      if (m.telegramChatId && tgEnabled) {
+      if (m.telegramChatId && m.telegramEnabled && tgEnabled) {
         tasks.push(
           (async () => {
             try {
