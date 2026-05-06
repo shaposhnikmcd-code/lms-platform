@@ -6,6 +6,7 @@ import { Block, NewsMeta, blocksToJson, jsonToBlocks } from "./types";
 import EditorCanvas from "./EditorCanvas";
 import MetaSidebar from "./MetaSidebar";
 import NewsLibrarySidebar from "./NewsLibrarySidebar";
+import SlugSidebar from "./SlugSidebar";
 import { NEWS_BLOCK_CSS } from "@/lib/news/render";
 
 // Multi-tab NewsEditor.
@@ -99,6 +100,10 @@ interface BaseProps {
   /** Заблокувати висоту канвасу на minCanvasHeight (не росте під контент).
    *  Для card-builder-а — картка має фіксовані розміри. */
   fixedHeight?: boolean;
+  /** Slim-режим правого бару: тільки Slug-input. Title та imageUrl
+   *  автоматично деривуються з канвасу при збереженні
+   *  (перший heading-блок → title, перший image-блок → imageUrl). */
+  slugOnlyMeta?: boolean;
 }
 
 interface SingleProps extends BaseProps {
@@ -365,6 +370,10 @@ export default function NewsEditor(props: Props) {
       setMessage("Заповніть заголовок і slug");
       return;
     }
+    if (props.slugOnlyMeta && !meta.slug) {
+      setMessage("Заповніть slug у правому барі");
+      return;
+    }
     setMessage("");
 
     // Запам'ятовуємо РЕАЛЬНУ висоту кожного блока активного таба з DOM.
@@ -390,12 +399,27 @@ export default function NewsEditor(props: Props) {
     const mainTabKey = effectiveTabs.find(t => t.key === DEFAULT_TAB_KEY || t.key === "content")?.key || effectiveTabs[0].key;
     const imageUrl = meta.imageUrl || (bakedByTab[mainTabKey] || []).find(b => b.type === "image")?.data.url || "";
 
+    // У slug-only режимі (білдер превʼю-картки) auto-деривуємо title з
+    // першого heading-блока на канвасі, щоб менеджер не дублював його у
+    // правому барі. Контент карток слугує source-of-truth для назви.
+    let effectiveMeta = meta;
+    if (props.slugOnlyMeta) {
+      const firstHeading = (bakedByTab[mainTabKey] || []).find(b => b.type === "heading");
+      const headingHtml = (firstHeading?.data?.text as string | undefined) || "";
+      const headingPlain = headingHtml.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim();
+      if (!headingPlain) {
+        setMessage("Додайте блок-заголовок на картку — з нього беремо назву новини");
+        return;
+      }
+      effectiveMeta = { ...meta, title: headingPlain, imageUrl };
+    }
+
     try {
       if (isMultiTab && "onSaveTabs" in props && props.onSaveTabs) {
-        await props.onSaveTabs({ ...meta, published }, contents, imageUrl);
+        await props.onSaveTabs({ ...effectiveMeta, published }, contents, imageUrl);
       } else if ("onSave" in props && props.onSave) {
         const k = effectiveTabs[0].key;
-        await props.onSave({ ...meta, published }, contents[k], imageUrl);
+        await props.onSave({ ...effectiveMeta, published }, contents[k], imageUrl);
       }
       clearDraft(newsId, mode);
     } catch (e) {
@@ -495,6 +519,8 @@ export default function NewsEditor(props: Props) {
                           .map(b => b.data.newsId)
                       )}
                     />
+                  ) : props.slugOnlyMeta ? (
+                    <SlugSidebar meta={meta} onChange={handleMetaChange} />
                   ) : showMetaSidebar ? (
                     <MetaSidebar meta={meta} onChange={handleMetaChange} onUpload={uploadFile} />
                   ) : null
