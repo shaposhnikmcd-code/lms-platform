@@ -315,9 +315,9 @@ function YearlyProgramViewInner({
         />
       )}
 
-      {/* Програмні налаштування: Вартість+GRACE (верхній ряд) + Листи Нагадування/платежів та пошук (нижній ряд). */}
-      <AdminPanel theme={theme} padding="p-3" className="mb-5 w-fit">
-        <div className="flex items-center gap-1 mb-2">
+      {/* Програмні налаштування: Вартість+GRACE — окремий рядок. */}
+      <AdminPanel theme={theme} padding="p-3" className="mb-3 w-fit">
+        <div className="flex items-center gap-1">
           <ProgramSettingButton
             theme={theme}
             icon={<HiOutlineCurrencyDollar className="text-base" />}
@@ -334,6 +334,10 @@ function YearlyProgramViewInner({
             onClick={() => setGraceModalOpen(true)}
           />
         </div>
+      </AdminPanel>
+
+      {/* Листи Нагадування/Платежів та пошук. */}
+      <AdminPanel theme={theme} padding="p-3" className="mb-5 w-fit">
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex items-center gap-1">
             <ProgramSettingButton

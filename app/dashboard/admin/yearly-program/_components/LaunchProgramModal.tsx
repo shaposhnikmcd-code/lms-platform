@@ -18,7 +18,12 @@ import {
 import type { Theme } from '../../_components/adminTheme';
 import type { CohortListItem } from './types';
 import { useUIFeedback } from './UIFeedback';
-import InlineDateTimePicker from '../../_components/InlineDateTimePicker';
+
+/// Час запуску заздалегідь зафіксований на 03:50 UTC обраної дати — це за 10 хв до cron-у `0 4 * * *`.
+/// Так гарантується, що запуск спрацьовує саме вранці обраного дня (~07:00 за Києвом, з урахуванням DST),
+/// а не зсувається на наступну добу. Користувач обирає лише дату.
+const LAUNCH_HOUR_UTC = 3;
+const LAUNCH_MINUTE_UTC = 50;
 
 /// Модалка "🚀 Запустити програму" — об'єднана дія "відкрити доступ + надіслати welcome-лист".
 ///
@@ -49,12 +54,13 @@ export default function LaunchProgramModal({
 
   // === Mode (now / schedule) ===
   const [mode, setMode] = useState<'now' | 'schedule'>(cohort.launchScheduledFor ? 'schedule' : 'now');
-  const [scheduledFor, setScheduledFor] = useState(() => {
-    if (cohort.launchScheduledFor) return formatDateTimeInput(new Date(cohort.launchScheduledFor));
-    const t = new Date();
-    t.setDate(t.getDate() + 1);
-    t.setHours(9, 0, 0, 0);
-    return formatDateTimeInput(t);
+  // Зберігаємо ISO-час 03:50 UTC обраної дати. Користувач обирає лише дату — час фіксований.
+  const [scheduledFor, setScheduledFor] = useState<string>(() => {
+    if (cohort.launchScheduledFor) {
+      // Нормалізуємо існуючий запис до 03:50 UTC того ж UTC-дня (на випадок старих записів з іншим часом).
+      return buildScheduledISOFromDate(extractDateUTC(new Date(cohort.launchScheduledFor).toISOString()));
+    }
+    return buildScheduledISOFromOffsetDays(1);
   });
 
   // === Welcome email ===
@@ -117,7 +123,11 @@ export default function LaunchProgramModal({
 
   const cohortEnd = useMemo(() => new Date(cohort.endDate), [cohort.endDate]);
   const scheduledDate = useMemo(() => new Date(scheduledFor), [scheduledFor]);
+  // Дата вже у минулому = invalid; також забороняємо обрати після завершення cohort-у.
   const scheduleInvalid = scheduledDate.getTime() <= Date.now() || scheduledDate.getTime() > cohortEnd.getTime();
+  const scheduledDateOnly = extractDateUTC(scheduledFor);
+  const minDateOnly = extractDateUTC(new Date().toISOString());
+  const maxDateOnly = extractDateUTC(new Date(cohort.endDate).toISOString());
 
   async function refreshPreview() {
     setPreviewLoading(true);
@@ -231,8 +241,8 @@ export default function LaunchProgramModal({
         toast(
           'success',
           sendWelcomeEmails
-            ? `📅 Запуск + лист заплановано на ${humanizeWhen(scheduledFor)}`
-            : `📅 Запуск заплановано на ${humanizeWhen(scheduledFor)} (без листа)`,
+            ? `📅 Запуск + лист заплановано на ${humanizeDate(scheduledFor)}`
+            : `📅 Запуск заплановано на ${humanizeDate(scheduledFor)} (без листа)`,
         );
       } else {
         const ls = data.summary;
@@ -323,9 +333,9 @@ export default function LaunchProgramModal({
                   Запуск заплановано{cohort.emailScheduledFor ? ' · з листом' : ' · без листа'}
                 </div>
                 <div className={`text-[13px] ${dark ? 'text-slate-200' : 'text-stone-800'}`}>
-                  {humanizeWhen(formatDateTimeInput(new Date(cohort.launchScheduledFor)))}
+                  {humanizeDate(cohort.launchScheduledFor)}
                   <span className={`ml-2 text-[11px] ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
-                    ({new Date(cohort.launchScheduledFor).toLocaleString('uk-UA')})
+                    ({new Date(cohort.launchScheduledFor).toLocaleDateString('uk-UA')})
                   </span>
                 </div>
               </div>
@@ -368,45 +378,25 @@ export default function LaunchProgramModal({
                 icon={<HiOutlineCalendarDays className="text-2xl" />}
                 accent="indigo"
                 title="Запланувати запуск"
-                subtitle={mode === 'schedule' ? humanizeWhen(scheduledFor) : 'Cron виконає у вибраний день'}
+                subtitle={mode === 'schedule' ? humanizeDate(scheduledFor) : 'Запуститься зранку обраного дня'}
               >
                 {mode === 'schedule' && (
                   <div className="mt-3 space-y-2.5">
-                    <div className="flex flex-wrap gap-1.5">
-                      {LAUNCH_PRESETS.map((p) => {
-                        const presetVal = formatDateTimeInput(new Date(p.compute()));
-                        const selected = scheduledFor === presetVal;
-                        return (
-                          <button
-                            key={p.label}
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setScheduledFor(presetVal);
-                            }}
-                            className={`px-2.5 py-1 text-[11px] font-medium rounded-md border transition-colors ${
-                              selected
-                                ? dark
-                                  ? 'bg-indigo-400/20 border-indigo-400/40 text-indigo-200'
-                                  : 'bg-indigo-100 border-indigo-300/70 text-indigo-900'
-                                : dark
-                                  ? 'bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.08]'
-                                  : 'bg-white border-stone-300/60 text-stone-700 hover:bg-stone-50'
-                            }`}
-                          >
-                            {p.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                    <InlineDateTimePicker
-                      value={scheduledFor}
-                      onChange={setScheduledFor}
-                      theme={theme}
-                      min={formatDateTimeInput(new Date())}
-                      defaultHour={9}
-                      defaultMinute={0}
-                      showNowButton={false}
+                    <input
+                      type="date"
+                      value={scheduledDateOnly}
+                      min={minDateOnly}
+                      max={maxDateOnly}
+                      onChange={(e) => {
+                        e.stopPropagation();
+                        if (e.target.value) setScheduledFor(buildScheduledISOFromDate(e.target.value));
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                      className={`w-full px-3 py-2 rounded-lg border text-[13px] outline-none transition-colors ${
+                        dark
+                          ? 'bg-white/[0.04] border-white/[0.08] text-slate-200 focus:border-indigo-400/40'
+                          : 'bg-white border-stone-300/60 text-stone-800 focus:border-indigo-500/50'
+                      }`}
                     />
                     {scheduleInvalid && (
                       <div className={`text-[11px] flex items-center gap-1 ${dark ? 'text-rose-300' : 'text-rose-700'}`}>
@@ -414,7 +404,7 @@ export default function LaunchProgramModal({
                       </div>
                     )}
                     <div className={`text-[10px] leading-snug ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
-                      ℹ️ Cron перевіряє щодоби о 04:00 UTC. Фактичний запуск може зсунутись на ≤24 години.
+                      ✅ Запуск гарантовано спрацює <strong>зранку обраного дня</strong> (~07:00 за Києвом). Час фіксує система.
                     </div>
                   </div>
                 )}
@@ -653,7 +643,7 @@ function renderSubmitLabel({
   return (
     <>
       <HiOutlineCalendarDays className="text-base" />
-      {isReplan ? 'Перепланувати на' : 'Запланувати на'} {humanizeWhen(scheduledFor, { compact: true })}
+      {isReplan ? 'Перепланувати на' : 'Запланувати на'} {humanizeDate(scheduledFor, { compact: true })}
       {sendWelcomeEmails && <span className="opacity-70">+ лист</span>}
     </>
   );
@@ -906,46 +896,24 @@ function btnCls(dark: boolean, variant: 'neutral-sm' | 'primary-sm' | 'ghost-sm'
   }`;
 }
 
-const LAUNCH_PRESETS: { label: string; compute: () => string }[] = [
-  {
-    label: 'Завтра 09:00',
-    compute: () => {
-      const d = new Date();
-      d.setDate(d.getDate() + 1);
-      d.setHours(9, 0, 0, 0);
-      return d.toISOString();
-    },
-  },
-  {
-    label: 'Понеділок 09:00',
-    compute: () => {
-      const d = new Date();
-      const day = d.getDay();
-      const daysToMonday = day === 1 ? 7 : (8 - day) % 7 || 7;
-      d.setDate(d.getDate() + daysToMonday);
-      d.setHours(9, 0, 0, 0);
-      return d.toISOString();
-    },
-  },
-  {
-    label: 'Через тиждень',
-    compute: () => {
-      const d = new Date();
-      d.setDate(d.getDate() + 7);
-      d.setHours(9, 0, 0, 0);
-      return d.toISOString();
-    },
-  },
-  {
-    label: 'Через 2 тижні',
-    compute: () => {
-      const d = new Date();
-      d.setDate(d.getDate() + 14);
-      d.setHours(9, 0, 0, 0);
-      return d.toISOString();
-    },
-  },
-];
+/// Будує ISO 03:50 UTC обраної дати (формат YYYY-MM-DD).
+function buildScheduledISOFromDate(dateStr: string): string {
+  // dateStr = 'YYYY-MM-DD'
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, (m ?? 1) - 1, d ?? 1, LAUNCH_HOUR_UTC, LAUNCH_MINUTE_UTC, 0));
+  return dt.toISOString();
+}
+
+function buildScheduledISOFromOffsetDays(days: number): string {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() + days);
+  d.setUTCHours(LAUNCH_HOUR_UTC, LAUNCH_MINUTE_UTC, 0, 0);
+  return d.toISOString();
+}
+
+function extractDateUTC(iso: string): string {
+  return iso.slice(0, 10);
+}
 
 function pluralize(n: number, nom1: string, nom2_4: string, gen: string): string {
   const mod10 = n % 10;
@@ -955,39 +923,28 @@ function pluralize(n: number, nom1: string, nom2_4: string, gen: string): string
   return gen;
 }
 
-function formatDateTimeInput(d: Date): string {
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
 function fmtDate(iso: string): string {
   return new Intl.DateTimeFormat('uk-UA', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(iso));
 }
 
-function humanizeWhen(dtLocal: string, opts?: { compact?: boolean }): string {
-  if (!dtLocal) return '—';
-  const d = new Date(dtLocal);
+/// Date-only humanize: "Завтра", "У середу", "01 вересня 2026". Без часу — час фіксований системою.
+function humanizeDate(iso: string | null | undefined, opts?: { compact?: boolean }): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '—';
   const now = new Date();
-  const diffMs = d.getTime() - now.getTime();
-  if (diffMs < 0) return 'у минулому ⚠';
-  const diffMin = Math.round(diffMs / 60_000);
-  const diffHr = Math.round(diffMs / 3_600_000);
-  const time = d.toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' });
+  if (d.getTime() < now.getTime()) return 'у минулому ⚠';
   const today = startOfDay(now);
   const target = startOfDay(d);
   const dayDelta = Math.round((target.getTime() - today.getTime()) / 86_400_000);
-  if (dayDelta === 0) {
-    if (diffMin < 60) return opts?.compact ? `через ${diffMin} хв` : `Сьогодні через ${diffMin} хв (${time})`;
-    return opts?.compact ? `сьогодні ${time}` : `Сьогодні о ${time} (через ~${diffHr} год)`;
-  }
-  if (dayDelta === 1) return opts?.compact ? `завтра ${time}` : `Завтра о ${time}`;
+  if (dayDelta === 0) return 'Сьогодні';
+  if (dayDelta === 1) return 'Завтра';
   if (dayDelta < 7) {
     const wd = d.toLocaleDateString('uk-UA', { weekday: 'long' });
-    return opts?.compact ? `${wd} ${time}` : `У ${wd} о ${time}`;
+    return opts?.compact ? wd : `У ${wd}`;
   }
-  const date = d.toLocaleDateString('uk-UA', { day: '2-digit', month: 'long' });
-  return opts?.compact ? `${date}, ${time}` : `${date} о ${time}`;
+  const date = d.toLocaleDateString('uk-UA', { day: '2-digit', month: 'long', year: 'numeric' });
+  return date;
 }
 
 function startOfDay(d: Date): Date {
