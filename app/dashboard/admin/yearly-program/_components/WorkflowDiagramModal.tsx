@@ -5,26 +5,23 @@ import { createPortal } from 'react-dom';
 import type { Theme } from '../../_components/adminTheme';
 
 /// Модалка "Флоу Річної програми" — менеджер-friendly BA-діаграма (swim lane):
-///   • 7 акторів (рядки): Студент / WayForPay / Наш сайт / Менеджер / SendPulse / Telegram / Листи
+///   • 7 акторів (рядки): Студент / WayForPay / Наш сайт / Менеджер / SendPulse / Telegram (компактний) / Email
 ///   • 6 фаз (колонки): оплата → старт+welcome → навчання → перед кінцем → пільгові → закриття
-///   • Кожен бокс пронумерований (1-21) — видно послідовність і що чим тригериться
-///   • Дії менеджера підсвічені orange + 👆 пілом
-///   • Phase 1 Student box — особливий: 3 варіанти підписки кольоровими позначками
-///   • Phase 2 (старт + welcome) — об'єднано: одна кнопка 🚀 запускає і доступ, і лист
-///   • Telegram lane — invite-link генерується при оплаті (якщо autoAdd ON) і вкладається у welcome-листи
-///   • Тексти: "що відбувається + де це видно в адмінці"
-///   • Палітра — м'яка/преміальна (pale fills, soft borders, neutral lane bg)
+///   • Кожен бокс пронумерований (1-21)
+///   • Дії менеджера підсвічені amber/gold + 👆 пілом — палітра 1:1 з реальною кнопкою «Запустити програму»
+///   • Email-боксы мають чіп «📝 Листи Платежів / Нагадування» — щоб менеджер бачив, де редагується шаблон
+///   • Telegram lane скомпресовано до 64px (всередині лише один бокс — invite-link)
 
 type ActorKind = 'student' | 'wfp' | 'platform' | 'manager' | 'sp' | 'tg' | 'email';
 
-const LANES: { id: ActorKind; label: string; emoji: string }[] = [
+const LANES: { id: ActorKind; label: string; subLabel?: string; emoji: string }[] = [
   { id: 'student',  label: 'Студент',     emoji: '👤' },
   { id: 'wfp',      label: 'WayForPay',   emoji: '💳' },
   { id: 'platform', label: 'Наш сайт',    emoji: '⚙️' },
   { id: 'manager',  label: 'Менеджер',    emoji: '🧑‍💼' },
   { id: 'sp',       label: 'SendPulse',   emoji: '🎓' },
   { id: 'tg',       label: 'Telegram',    emoji: '🤖' },
-  { id: 'email',    label: 'Листи',       emoji: '✉️' },
+  { id: 'email',    label: 'Email',       subLabel: 'шлемо ми', emoji: '✉️' },
 ];
 
 const PHASES = [
@@ -37,9 +34,51 @@ const PHASES = [
 ] as const;
 
 const LANE_TOP = 50;
-const LANE_H = 95;
+const LANE_H_DEFAULT = 96;
+const LANE_H_TG = 64;
 const SVG_W = 1450;
-const SVG_H = LANE_TOP + LANES.length * LANE_H;
+
+const LANE_HEIGHTS: Record<ActorKind, number> = {
+  student: LANE_H_DEFAULT,
+  wfp: LANE_H_DEFAULT,
+  platform: LANE_H_DEFAULT,
+  manager: LANE_H_DEFAULT,
+  sp: LANE_H_DEFAULT,
+  tg: LANE_H_TG,
+  email: LANE_H_DEFAULT,
+};
+
+const LANE_TOPS: Record<ActorKind, number> = (() => {
+  const r = {} as Record<ActorKind, number>;
+  let acc = LANE_TOP;
+  for (const lane of LANES) {
+    r[lane.id] = acc;
+    acc += LANE_HEIGHTS[lane.id];
+  }
+  return r;
+})();
+
+const SVG_H = LANE_TOP + LANES.reduce((s, l) => s + LANE_HEIGHTS[l.id], 0);
+
+const ACTIVITY_H = 60;
+const MGR_H = 66;
+const EMAIL_BOX_H = 76;
+const TG_BOX_H = 44;
+
+const boxH = (kind: ActorKind, isMgr = false): number => {
+  if (isMgr) return MGR_H;
+  if (kind === 'email') return EMAIL_BOX_H;
+  if (kind === 'tg') return TG_BOX_H;
+  return ACTIVITY_H;
+};
+
+// Координати центрів lane-ів (для довідки в edge-d):
+//   student=98 · wfp=194 · platform=290 · manager=386 · sp=482 · tg=562 · email=642
+// Top/bottom боксів:
+//   student PlanBox(84): 56 / 140
+//   wfp(60):    164 / 224       platform(60): 260 / 320
+//   manager(66):353 / 419       sp(60):       452 / 512
+//   tg(44):     540 / 584       email(76):    604 / 680
 
 export default function WorkflowDiagramModal({ theme, onClose }: { theme: Theme; onClose: () => void }) {
   const dark = theme === 'dark';
@@ -105,42 +144,37 @@ export default function WorkflowDiagramModal({ theme, onClose }: { theme: Theme;
                   <path d="M 0 0 L 10 5 L 0 10 z" fill={c.edgeAccent} />
                 </marker>
                 <filter id={managerShadowId} x="-20%" y="-20%" width="140%" height="160%">
-                  <feDropShadow dx="0" dy="2" stdDeviation="3" floodColor="#F97316" floodOpacity={dark ? 0.35 : 0.22} />
+                  <feDropShadow dx="0" dy="2" stdDeviation="3" floodColor="#D4A843" floodOpacity={dark ? 0.40 : 0.30} />
                 </filter>
               </defs>
 
-              {/* Lane backgrounds (very subtle) */}
-              {LANES.map((lane, i) => (
-                <g key={lane.id}>
-                  <rect
-                    x={0}
-                    y={LANE_TOP + i * LANE_H}
-                    width={SVG_W}
-                    height={LANE_H}
-                    fill={c.actor[lane.id].laneBg}
-                  />
-                  {/* Lane header cell */}
-                  <rect
-                    x={0}
-                    y={LANE_TOP + i * LANE_H}
-                    width={90}
-                    height={LANE_H}
-                    fill={c.actor[lane.id].laneHeaderBg}
-                    stroke={c.laneSep}
-                    strokeWidth={1}
-                  />
-                  <text x={45} y={LANE_TOP + i * LANE_H + LANE_H / 2 - 8} textAnchor="middle" fontSize={16} fill={c.actor[lane.id].text} style={{ fontFamily: 'inherit' }}>
-                    {lane.emoji}
-                  </text>
-                  <text x={45} y={LANE_TOP + i * LANE_H + LANE_H / 2 + 14} textAnchor="middle" fontSize={10.5} fontWeight={700} fill={c.actor[lane.id].text} style={{ fontFamily: 'inherit' }}>
-                    {lane.label}
-                  </text>
-                </g>
-              ))}
+              {/* Lane backgrounds + headers (per-lane heights) */}
+              {LANES.map((lane) => {
+                const top = LANE_TOPS[lane.id];
+                const h = LANE_HEIGHTS[lane.id];
+                const palette = c.actor[lane.id];
+                return (
+                  <g key={lane.id}>
+                    <rect x={0} y={top} width={SVG_W} height={h} fill={palette.laneBg} />
+                    <rect x={0} y={top} width={90} height={h} fill={palette.laneHeaderBg} stroke={c.laneSep} strokeWidth={1} />
+                    <text x={45} y={top + h / 2 - (lane.subLabel ? 12 : 8)} textAnchor="middle" fontSize={16} fill={palette.text} style={{ fontFamily: 'inherit' }}>
+                      {lane.emoji}
+                    </text>
+                    <text x={45} y={top + h / 2 + (lane.subLabel ? 6 : 14)} textAnchor="middle" fontSize={10.5} fontWeight={700} fill={palette.text} style={{ fontFamily: 'inherit' }}>
+                      {lane.label}
+                    </text>
+                    {lane.subLabel && (
+                      <text x={45} y={top + h / 2 + 19} textAnchor="middle" fontSize={8.5} fontWeight={500} fill={palette.subText} style={{ fontFamily: 'inherit' }}>
+                        {lane.subLabel}
+                      </text>
+                    )}
+                  </g>
+                );
+              })}
 
               {/* Lane separators */}
-              {LANES.map((_, i) => i > 0 && (
-                <line key={`lsep-${i}`} x1={0} x2={SVG_W} y1={LANE_TOP + i * LANE_H} y2={LANE_TOP + i * LANE_H} stroke={c.laneSep} strokeWidth={1} />
+              {LANES.map((lane, i) => i > 0 && (
+                <line key={`lsep-${i}`} x1={0} x2={SVG_W} y1={LANE_TOPS[lane.id]} y2={LANE_TOPS[lane.id]} stroke={c.laneSep} strokeWidth={1} />
               ))}
               <line x1={0} x2={SVG_W} y1={LANE_TOP} y2={LANE_TOP} stroke={c.laneSep} strokeWidth={1} />
               <line x1={0} x2={SVG_W} y1={SVG_H} y2={SVG_H} stroke={c.laneSep} strokeWidth={1} />
@@ -159,93 +193,101 @@ export default function WorkflowDiagramModal({ theme, onClose }: { theme: Theme;
               ))}
 
               {/* ═══════════ EDGES ═══════════ */}
-              {/* 1 · ОПЛАТА */}
-              <Edge d="M 190 135 L 190 161" c={c} arrowId={arrowId} />        {/* 1 → 2 */}
-              <Edge d="M 190 222 L 190 256" c={c} arrowId={arrowId} />        {/* 2 → 3 */}
-              <Edge d="M 190 317 L 190 541" c={c} arrowId={arrowId} dashed /> {/* 3 → 4 (генерує invite, якщо autoAdd) */}
-              <Edge d="M 190 603 L 190 636" c={c} arrowId={arrowId} dashed /> {/* 4 → 5 (вкладає invite у лист про оплату) */}
 
-              {/* стани підписки — основна горизонталь */}
-              <Edge d="M 280 287 L 304 287" c={c} arrowId={arrowAccentId} accent />
+              {/* 1 · ОПЛАТА */}
+              <Edge d="M 190 140 L 190 164" c={c} arrowId={arrowId} />            {/* 1 → 2 */}
+              <Edge d="M 190 224 L 190 260" c={c} arrowId={arrowId} />            {/* 2 → 3 */}
+              <Edge d="M 190 320 L 190 540" c={c} arrowId={arrowId} dashed />     {/* 3 → 4 (генерує invite, якщо autoAdd) */}
+              <Edge d="M 190 584 L 190 604" c={c} arrowId={arrowId} dashed />     {/* 4 → 5 (вкладає invite у лист про оплату) */}
+
+              <Edge d="M 280 290 L 304 290" c={c} arrowId={arrowAccentId} accent />
 
               {/* 2 · СТАРТ ГРУПИ + WELCOME */}
-              <Edge d="M 390 350 L 390 318" c={c} arrowId={arrowId} />        {/* 6 → 8 (Manager триггерить Platform) */}
-              <Edge d="M 390 414 L 390 446" c={c} arrowId={arrowId} />        {/* 6 → 7 (Manager триггерить SP) */}
-              <Edge d="M 390 507 L 390 636" c={c} arrowId={arrowId} />        {/* 7 → 9 (SP open → Welcome email — той самий тригер з чекбокса) */}
-              <Edge d="M 280 572 L 300 636" c={c} arrowId={arrowId} dashed /> {/* 4 → 9 (invite реюзається у welcome-лист, якщо студент мав autoAdd на оплаті) */}
+              <Edge d="M 390 353 L 390 320" c={c} arrowId={arrowId} />            {/* 6 → 8 */}
+              <Edge d="M 390 419 L 390 452" c={c} arrowId={arrowId} />            {/* 6 → 7 */}
+              <Edge d="M 390 512 L 390 604" c={c} arrowId={arrowId} />            {/* 7 → 9 */}
+              <Edge d="M 280 562 L 300 604" c={c} arrowId={arrowId} dashed />     {/* 4 → 9 (invite реюзається у welcome-лист) */}
 
-              <Edge d="M 480 287 L 684 287" c={c} arrowId={arrowAccentId} accent />
+              <Edge d="M 480 290 L 684 290" c={c} arrowId={arrowAccentId} accent />
 
               {/* 3 · НАВЧАННЯ */}
-              <Edge d="M 770 222 L 770 256" c={c} arrowId={arrowId} dashed /> {/* 11 → 12 */}
-              <Edge d="M 770 317 L 770 636" c={c} arrowId={arrowId} dashed /> {/* 12 → 13 (receipt email) */}
+              <Edge d="M 770 224 L 770 260" c={c} arrowId={arrowId} dashed />     {/* 11 → 12 */}
+              <Edge d="M 770 320 L 770 604" c={c} arrowId={arrowId} dashed />     {/* 12 → 13 */}
 
-              <Edge d="M 860 287 L 884 287" c={c} arrowId={arrowAccentId} accent />
+              <Edge d="M 860 290 L 884 290" c={c} arrowId={arrowAccentId} accent />
 
               {/* 4 · ПЕРЕД КІНЦЕМ */}
-              <Edge d="M 970 317 L 970 636" c={c} arrowId={arrowId} dashed /> {/* 14 → 15 */}
+              <Edge d="M 970 320 L 970 604" c={c} arrowId={arrowId} dashed />     {/* 14 → 15 */}
 
-              <Edge d="M 1055 287 L 1069 287" c={c} arrowId={arrowAccentId} accent />
+              <Edge d="M 1055 290 L 1069 290" c={c} arrowId={arrowAccentId} accent />
 
               {/* 5 · ПІЛЬГОВІ 7 ДНІВ */}
-              <Edge d="M 1150 317 L 1150 636" c={c} arrowId={arrowId} dashed /> {/* 16 → 17 */}
+              <Edge d="M 1150 320 L 1150 604" c={c} arrowId={arrowId} dashed />   {/* 16 → 17 */}
 
-              <Edge d="M 1235 287 L 1259 287" c={c} arrowId={arrowAccentId} accent />
+              <Edge d="M 1235 290 L 1259 290" c={c} arrowId={arrowAccentId} accent />
 
               {/* 6 · ЗАКРИТТЯ ДОСТУПУ */}
-              <Edge d="M 1345 257 L 1345 223" c={c} arrowId={arrowId} />     {/* 19 → 18 */}
-              <Edge d="M 1345 317 L 1345 446" c={c} arrowId={arrowId} />     {/* 19 → 20 */}
-              <Edge d="M 1345 507 L 1345 636" c={c} arrowId={arrowId} />     {/* 20 → 21 */}
+              <Edge d="M 1345 260 L 1345 224" c={c} arrowId={arrowId} />          {/* 19 → 18 */}
+              <Edge d="M 1345 320 L 1345 452" c={c} arrowId={arrowId} />          {/* 19 → 20 */}
+              <Edge d="M 1345 512 L 1345 604" c={c} arrowId={arrowId} />          {/* 20 → 21 */}
 
               {/* ═══════════ NODES ═══════════ */}
 
               {/* 1 · ОПЛАТА */}
-              <PlanBox cx={190} cy={92} w={200} h={84} num={1} c={c} title="На сайті купує підписку" plans={[
+              <PlanBox cx={190} cy={98} w={200} h={84} num={1} c={c} title="На сайті купує підписку" plans={[
                 { color: '#3B82F6', label: 'Річна', price: '15 000 ₴ разово' },
                 { color: '#22C55E', label: 'Місячна авто', price: '2 200 ₴ × 9 місяців' },
                 { color: '#F59E0B', label: 'Місячна разова', price: '2 200 ₴ за місяць' },
               ]} />
-              <Activity cx={190} cy={192} w={180} num={2}  kind="wfp"      title="Приймає оплату" sub="запам'ятовує карту (для авто)" c={c} mgrShadowId={managerShadowId} />
-              <Activity cx={190} cy={287} w={180} num={3}  kind="platform" title="Реєструє підписку" sub="у таблиці з'являється студент" c={c} mgrShadowId={managerShadowId} />
-              <Activity cx={190} cy={572} w={180} num={4}  kind="tg"       title="Генерує invite-link" sub="якщо autoAdd ON · одноразовий" c={c} mgrShadowId={managerShadowId} />
-              <Activity cx={190} cy={667} w={180} num={5}  kind="email"    title="Лист про оплату + invite" sub="invite-link вкладено у лист" c={c} mgrShadowId={managerShadowId} />
+              <Activity cx={190} cy={194} w={180} num={2}  kind="wfp"      title="Приймає оплату" sub="запам'ятовує карту (для авто)" c={c} mgrShadowId={managerShadowId} />
+              <Activity cx={190} cy={290} w={180} num={3}  kind="platform" title="Реєструє підписку" sub="у таблиці з'являється студент" c={c} mgrShadowId={managerShadowId} />
+              <Activity cx={190} cy={562} w={180} num={4}  kind="tg"       title="Генерує invite-link" sub="одноразовий · якщо autoAdd ON" c={c} mgrShadowId={managerShadowId} />
+              <Activity cx={190} cy={642} w={180} num={5}  kind="email"    title="Лист про оплату" sub="invite-link вкладено" editLocation="Листи Платежів" c={c} mgrShadowId={managerShadowId} />
 
               {/* 2 · СТАРТ ГРУПИ + WELCOME */}
-              <Activity cx={390} cy={287} w={180} num={8}  kind="platform" title="Підписка стає активною" sub="у таблиці статус «Активна»" c={c} mgrShadowId={managerShadowId} />
-              <Activity cx={390} cy={382} w={200} num={6}  kind="manager"  title="🚀 Запустити + лист" sub="чекбокс ✉️ за замовчуванням ON" c={c} mgrShadowId={managerShadowId} />
-              <Activity cx={390} cy={477} w={180} num={7}  kind="sp"       title="Відкриває доступ до курсу" sub="усім, хто оплатив" c={c} mgrShadowId={managerShadowId} />
-              <Activity cx={390} cy={667} w={180} num={9}  kind="email"    title="Welcome-лист про старт" sub="одночасно з відкриттям доступу" c={c} mgrShadowId={managerShadowId} />
+              <Activity cx={390} cy={290} w={180} num={8}  kind="platform" title="Підписка стає активною" sub="у таблиці статус «Активна»" c={c} mgrShadowId={managerShadowId} />
+              <Activity cx={390} cy={386} w={210} num={6}  kind="manager"  title="🚀 Запустити програму" sub="одразу шле welcome-лист (можна вимкнути)" c={c} mgrShadowId={managerShadowId} />
+              <Activity cx={390} cy={482} w={180} num={7}  kind="sp"       title="Відкриває доступ до курсу" sub="усім, хто оплатив" c={c} mgrShadowId={managerShadowId} />
+              <Activity cx={390} cy={642} w={180} num={9}  kind="email"    title="Welcome-лист про старт" sub="одночасно з відкриттям доступу" editLocation="модалка запуску" c={c} mgrShadowId={managerShadowId} />
 
               {/* 3 · НАВЧАННЯ */}
-              <Activity cx={770} cy={97}  w={180} num={10} kind="student"  title="🎓 Проходить курс" sub="матеріали в SendPulse" c={c} mgrShadowId={managerShadowId} />
-              <Activity cx={770} cy={192} w={180} num={11} kind="wfp"      title="Списує 2 200 ₴ щомісяця" sub="лише при авто · до 9 разів" c={c} mgrShadowId={managerShadowId} />
-              <Activity cx={770} cy={287} w={180} num={12} kind="platform" title="Доступ +30 днів" sub="після кожного успіху" c={c} mgrShadowId={managerShadowId} />
-              <Activity cx={770} cy={667} w={180} num={13} kind="email"    title="Лист-чек про списання" sub="за кожне успішне (тільки місячна)" c={c} mgrShadowId={managerShadowId} />
+              <Activity cx={770} cy={98}  w={180} num={10} kind="student"  title="🎓 Проходить курс" sub="матеріали в SendPulse" c={c} mgrShadowId={managerShadowId} />
+              <Activity cx={770} cy={194} w={180} num={11} kind="wfp"      title="Списує 2 200 ₴ щомісяця" sub="лише при авто · до 9 разів" c={c} mgrShadowId={managerShadowId} />
+              <Activity cx={770} cy={290} w={180} num={12} kind="platform" title="Доступ +30 днів" sub="після кожного успіху" c={c} mgrShadowId={managerShadowId} />
+              <Activity cx={770} cy={642} w={180} num={13} kind="email"    title="Лист-чек про списання" sub="за кожне успішне (тільки місячна)" editLocation="Листи Платежів" c={c} mgrShadowId={managerShadowId} />
 
               {/* 4 · ПЕРЕД КІНЦЕМ */}
-              <Activity cx={970} cy={287} w={170} num={14} kind="platform" title="Автоперевірка щодня" sub="бачить, у кого скоро кінець" c={c} mgrShadowId={managerShadowId} />
-              <Activity cx={970} cy={667} w={170} num={15} kind="email"    title="Нагадування -3д · -1д" sub="ТІЛЬКИ місячна разова" c={c} mgrShadowId={managerShadowId} />
+              <Activity cx={970} cy={290} w={170} num={14} kind="platform" title="Автоперевірка щодня" sub="бачить, у кого скоро кінець" c={c} mgrShadowId={managerShadowId} />
+              <Activity cx={970} cy={642} w={170} num={15} kind="email"    title="Нагадування -3д · -1д" sub="ТІЛЬКИ місячна разова" editLocation="Листи Нагадування" c={c} mgrShadowId={managerShadowId} />
 
               {/* 5 · ПІЛЬГОВІ 7 ДНІВ */}
-              <Activity cx={1150} cy={287} w={170} num={16} kind="platform" title="Підписка → пільгова" sub="у таблиці статус «Пільговий»" c={c} mgrShadowId={managerShadowId} />
-              <Activity cx={1150} cy={667} w={180} num={17} kind="email"    title="Лист пільгового періоду" sub="разова→продовжено · авто→не списав" c={c} mgrShadowId={managerShadowId} />
+              <Activity cx={1150} cy={290} w={170} num={16} kind="platform" title="Підписка → пільгова" sub="у таблиці статус «Пільговий»" c={c} mgrShadowId={managerShadowId} />
+              <Activity cx={1150} cy={642} w={180} num={17} kind="email"    title="Лист пільгового періоду" sub="разова→продовжено · авто→не списав" editLocation="Листи Нагадування" c={c} mgrShadowId={managerShadowId} />
 
               {/* 6 · ЗАКРИТТЯ ДОСТУПУ */}
-              <Activity cx={1345} cy={192} w={180} num={18} kind="wfp"      title="Вимикається автосписання" sub="більше не списує з картки" c={c} mgrShadowId={managerShadowId} />
-              <Activity cx={1345} cy={287} w={180} num={19} kind="platform" title="Підписка закривається" sub="у таблиці статус «Закрита»" c={c} mgrShadowId={managerShadowId} />
-              <Activity cx={1345} cy={477} w={180} num={20} kind="sp"       title="Закриває курс для студента" sub="матеріали стають недоступні" c={c} mgrShadowId={managerShadowId} />
-              <Activity cx={1345} cy={667} w={180} num={21} kind="email"    title="Лист «Доступ закрито»" sub="повідомляємо студента" c={c} mgrShadowId={managerShadowId} />
+              <Activity cx={1345} cy={194} w={180} num={18} kind="wfp"      title="Вимикається автосписання" sub="більше не списує з картки" c={c} mgrShadowId={managerShadowId} />
+              <Activity cx={1345} cy={290} w={180} num={19} kind="platform" title="Підписка закривається" sub="у таблиці статус «Закрита»" c={c} mgrShadowId={managerShadowId} />
+              <Activity cx={1345} cy={482} w={180} num={20} kind="sp"       title="Закриває курс для студента" sub="матеріали стають недоступні" c={c} mgrShadowId={managerShadowId} />
+              <Activity cx={1345} cy={642} w={180} num={21} kind="email"    title="Лист «Доступ закрито»" sub="повідомляємо студента" editLocation="Листи Нагадування" c={c} mgrShadowId={managerShadowId} />
             </svg>
+          </div>
+
+          {/* Легенда email-чіпа */}
+          <div className={`mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
+            <span className="inline-flex items-center gap-1.5">
+              <span className={`inline-block w-3 h-3 rounded ${dark ? 'bg-rose-400/30 border border-rose-400/40' : 'bg-rose-100 border border-rose-300'}`} />
+              Email-бокс має чіп <strong className="font-semibold">📝 …</strong> — це назва кнопки в адмінці, де редагується шаблон листа.
+            </span>
           </div>
 
           {/* ═══════════ КНОПКИ МЕНЕДЖЕРА ═══════════ */}
           <div className="mt-8">
             <div className="flex items-baseline gap-2 mb-1">
-              <h4 className={`text-[14px] font-bold ${dark ? 'text-orange-200' : 'text-orange-900'}`}>
+              <h4 className={`text-[14px] font-bold ${dark ? 'text-amber-200' : 'text-amber-900'}`}>
                 🧑‍💼 Кнопки менеджера · де які
               </h4>
               <span className={`text-[11px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
-                всі помаранчеві дії з діаграми + додаткові
+                всі золоті дії з діаграми + додаткові
               </span>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 mt-3">
@@ -258,8 +300,8 @@ export default function WorkflowDiagramModal({ theme, onClose }: { theme: Theme;
               <ButtonCard dark={dark} emoji="🔄" name="Перенести в наступний запуск" where="у рядку підписки (тільки до запуску групи)" when="якщо студент хоче відкласти участь" what="міняє запуск підписки + перераховує дати доступу" />
             </div>
             <p className={`mt-3 text-[11.5px] ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
-              <strong className={dark ? 'text-slate-200' : 'text-stone-900'}>Додатково:</strong>&nbsp;
-              <span>⚙️ Налаштування → шаблони листів · 📧 Повторно надіслати лист одному (у модалці «Дослати лист») · ❌ Скасувати підписку (у рядку підписки).</span>
+              <strong className={dark ? 'text-slate-200' : 'text-stone-900'}>Шаблони листів:</strong>&nbsp;
+              <span>📝 кнопка <em>«Листи Нагадування»</em> (нагадування -3д/-1д, пільговий, закриття) · 📝 кнопка <em>«Листи Платежів»</em> (welcome, чек, plan-changed, admin-actions) — обидві у програмних налаштуваннях. Welcome-лист cohort-launch — у модалці кнопки 🚀.</span>
             </p>
           </div>
 
@@ -290,7 +332,7 @@ export default function WorkflowDiagramModal({ theme, onClose }: { theme: Theme;
               { who: 'manager', what: 'надсилає посилання студенту' },
               { who: 'student', what: 'переходить, форма вже заповнена, оплачує' },
               { who: 'platform', what: 'позначає «додано вручну». Якщо група запущена — auto extra-launch' },
-            ]} accent="orange" />
+            ]} accent="amber" />
             <ScenarioCard dark={dark} c={c} emoji="🔁" title="Повторити запуск" trigger="Частина підписок не отримала доступ при першому запуску" steps={[
               { who: 'platform', what: 'позначає, скільком студентам не вдалося відкрити доступ' },
               { who: 'manager', what: 'натискає 🔁 «Повторити запуск (N)»' },
@@ -367,7 +409,7 @@ export default function WorkflowDiagramModal({ theme, onClose }: { theme: Theme;
           <div className={`mt-6 rounded-lg border-l-4 px-4 py-3 ${dark ? 'bg-white/[0.02] border-amber-400/40' : 'bg-amber-50/40 border-amber-400'}`}>
             <p className={`text-[12px] leading-relaxed ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
               <strong className={dark ? 'text-slate-200' : 'text-stone-900'}>Місячний з автосписанням:</strong> якщо WayForPay не зміг списати з карти — наступного дня студенту йде лист «не вдалося списати», ще через 3 дні — другий лист, далі підписка переходить у пільговий період і потім закривається.&nbsp;
-              <strong className={dark ? 'text-slate-200' : 'text-stone-900'}>Місячний разовий (без автосписання):</strong> ті ж самі нагадування, але платіж не намагається списатися автоматично — студент має оплатити сам. Повний текстовий опис — у сусідній кнопці.
+              <strong className={dark ? 'text-slate-200' : 'text-stone-900'}>Місячний разовий (без автосписання):</strong> ті ж самі нагадування, але платіж не намагається списатися автоматично — студент має оплатити сам.
             </p>
           </div>
         </div>
@@ -402,13 +444,13 @@ type Colors = {
   bg: string;
 };
 
-// Soft / premium palette — lighter fills, gentler borders, neutral lane bg
+// Soft / premium palette — manager = золотий amber (1:1 з реальною кнопкою «Запустити програму»)
 const lightColors: Colors = {
   actor: {
     student:  { fill: '#F0F9FF', stroke: '#BFDBFE', text: '#1E3A8A', subText: '#475569', badgeFill: '#60A5FA', badgeText: '#FFFFFF', laneBg: '#FAFCFF', laneHeaderBg: '#EFF6FF' },
     wfp:      { fill: '#FAF5FF', stroke: '#E9D5FF', text: '#5B21B6', subText: '#475569', badgeFill: '#A78BFA', badgeText: '#FFFFFF', laneBg: '#FCFAFF', laneHeaderBg: '#F5F3FF' },
     platform: { fill: '#F8FAFC', stroke: '#E2E8F0', text: '#334155', subText: '#64748B', badgeFill: '#94A3B8', badgeText: '#FFFFFF', laneBg: '#FCFCFD', laneHeaderBg: '#F1F5F9' },
-    manager:  { fill: '#FFEDD5', stroke: '#FB923C', text: '#7C2D12', subText: '#9A3412', badgeFill: '#EA580C', badgeText: '#FFFFFF', laneBg: '#FFFBF5', laneHeaderBg: '#FED7AA' },
+    manager:  { fill: '#FEF3C7', stroke: '#D4A843', text: '#78350F', subText: '#92400E', badgeFill: '#D97706', badgeText: '#FFFFFF', laneBg: '#FFFCF5', laneHeaderBg: '#FDE68A' },
     sp:       { fill: '#ECFDF5', stroke: '#BBF7D0', text: '#065F46', subText: '#475569', badgeFill: '#34D399', badgeText: '#FFFFFF', laneBg: '#F8FFFB', laneHeaderBg: '#D1FAE5' },
     tg:       { fill: '#ECFEFF', stroke: '#A5F3FC', text: '#155E75', subText: '#475569', badgeFill: '#06B6D4', badgeText: '#FFFFFF', laneBg: '#F8FEFF', laneHeaderBg: '#CFFAFE' },
     email:    { fill: '#FFF1F2', stroke: '#FECDD3', text: '#9F1239', subText: '#475569', badgeFill: '#FB7185', badgeText: '#FFFFFF', laneBg: '#FFFAFA', laneHeaderBg: '#FFE4E6' },
@@ -428,7 +470,7 @@ const darkColors: Colors = {
     student:  { fill: 'rgba(96,165,250,0.10)', stroke: 'rgba(96,165,250,0.4)',  text: '#BFDBFE', subText: '#CBD5E1', badgeFill: '#60A5FA', badgeText: '#0F172A', laneBg: 'rgba(96,165,250,0.025)', laneHeaderBg: 'rgba(96,165,250,0.08)' },
     wfp:      { fill: 'rgba(167,139,250,0.10)',stroke: 'rgba(167,139,250,0.4)', text: '#DDD6FE', subText: '#CBD5E1', badgeFill: '#A78BFA', badgeText: '#0F172A', laneBg: 'rgba(167,139,250,0.025)',laneHeaderBg: 'rgba(167,139,250,0.08)' },
     platform: { fill: 'rgba(148,163,184,0.10)',stroke: 'rgba(148,163,184,0.35)',text: '#CBD5E1', subText: '#94A3B8', badgeFill: '#94A3B8', badgeText: '#0F172A', laneBg: 'rgba(148,163,184,0.025)',laneHeaderBg: 'rgba(148,163,184,0.08)' },
-    manager:  { fill: 'rgba(251,146,60,0.22)', stroke: 'rgba(251,146,60,0.85)', text: '#FED7AA', subText: '#FDBA74', badgeFill: '#EA580C', badgeText: '#FFFFFF', laneBg: 'rgba(251,146,60,0.05)',  laneHeaderBg: 'rgba(251,146,60,0.16)' },
+    manager:  { fill: 'rgba(251,191,36,0.20)', stroke: 'rgba(212,168,67,0.85)', text: '#FDE68A', subText: '#FCD34D', badgeFill: '#D97706', badgeText: '#FFFFFF', laneBg: 'rgba(251,191,36,0.04)',  laneHeaderBg: 'rgba(251,191,36,0.13)' },
     sp:       { fill: 'rgba(110,231,183,0.10)',stroke: 'rgba(110,231,183,0.4)', text: '#A7F3D0', subText: '#CBD5E1', badgeFill: '#34D399', badgeText: '#0F172A', laneBg: 'rgba(110,231,183,0.025)',laneHeaderBg: 'rgba(110,231,183,0.08)' },
     tg:       { fill: 'rgba(34,211,238,0.10)', stroke: 'rgba(34,211,238,0.4)',  text: '#A5F3FC', subText: '#CBD5E1', badgeFill: '#06B6D4', badgeText: '#0F172A', laneBg: 'rgba(34,211,238,0.025)', laneHeaderBg: 'rgba(34,211,238,0.08)' },
     email:    { fill: 'rgba(251,113,133,0.10)',stroke: 'rgba(251,113,133,0.4)', text: '#FECDD3', subText: '#CBD5E1', badgeFill: '#FB7185', badgeText: '#FFFFFF', laneBg: 'rgba(251,113,133,0.025)',laneHeaderBg: 'rgba(251,113,133,0.08)' },
@@ -479,24 +521,26 @@ function NumberBadge({ x, y, num, palette }: { x: number; y: number; num: number
 }
 
 function Activity({
-  cx, cy, w, num, kind, title, sub, c, mgrShadowId,
+  cx, cy, w, num, kind, title, sub, editLocation, c, mgrShadowId,
 }: {
   cx: number; cy: number; w: number;
   num: number;
   kind: ActorKind;
   title: string; sub?: string;
+  editLocation?: string;
   c: Colors;
   mgrShadowId: string;
 }) {
   const isMgr = kind === 'manager';
   const palette = c.actor[kind];
-  const h = isMgr ? 66 : 60;
+  const h = boxH(kind, isMgr);
   const x = cx - w / 2;
   const y = cy - h / 2;
+  const isEmail = kind === 'email';
 
   return (
     <g>
-      {/* Manager-action "ВАША ДІЯ" pill — only for manager boxes */}
+      {/* Manager-action "ВАША ДІЯ" pill */}
       {isMgr && (
         <g>
           <rect x={cx + w / 2 - 86} y={y - 13} width={82} height={12} rx={6} fill={palette.badgeFill} />
@@ -529,12 +573,11 @@ function Activity({
         filter={isMgr ? `url(#${mgrShadowId})` : undefined}
       />
 
-      {/* Number badge in top-left */}
       <NumberBadge x={x + 14} y={y + 14} num={num} palette={palette} />
 
       <text
         x={cx + 8}
-        y={cy - (sub ? 9 : 0)}
+        y={isEmail ? y + 24 : (cy - (sub ? 9 : 0))}
         textAnchor="middle"
         dominantBaseline="middle"
         fontSize={isMgr ? 12.5 : 11.5}
@@ -547,7 +590,7 @@ function Activity({
       {sub && (
         <text
           x={cx + 8}
-          y={cy + 10}
+          y={isEmail ? y + 41 : (cy + 10)}
           textAnchor="middle"
           dominantBaseline="middle"
           fontSize={10}
@@ -558,6 +601,35 @@ function Activity({
         >
           {sub}
         </text>
+      )}
+      {/* Email edit-source chip — назва кнопки в адмінці, де редагується шаблон */}
+      {editLocation && isEmail && (
+        <g>
+          <rect
+            x={x + 14}
+            y={y + h - 19}
+            width={w - 28}
+            height={14}
+            rx={4}
+            fill={palette.badgeFill}
+            opacity={0.18}
+            stroke={palette.stroke}
+            strokeWidth={0.5}
+          />
+          <text
+            x={cx + 8}
+            y={y + h - 12}
+            textAnchor="middle"
+            dominantBaseline="middle"
+            fontSize={9}
+            fontWeight={700}
+            fill={palette.text}
+            letterSpacing={0.2}
+            style={{ fontFamily: 'inherit' }}
+          >
+            📝 {editLocation}
+          </text>
+        </g>
       )}
     </g>
   );
@@ -658,28 +730,28 @@ function ButtonCard({
   return (
     <div className={`rounded-xl border px-4 py-3 ${
       primary
-        ? dark ? 'bg-orange-500/[0.08] border-orange-400/40' : 'bg-orange-50 border-orange-200'
+        ? dark ? 'bg-amber-500/[0.08] border-amber-400/40' : 'bg-amber-50 border-amber-200'
         : dark ? 'bg-white/[0.02] border-white/10' : 'bg-white border-stone-200'
     }`}>
       <div className="flex items-center gap-2 mb-2">
         <span className={`inline-flex items-center justify-center w-8 h-8 rounded-lg ${
-          dark ? 'bg-orange-500/25 text-orange-100 border border-orange-400/50' : 'bg-orange-100 text-orange-900 border border-orange-300'
+          dark ? 'bg-amber-500/25 text-amber-100 border border-amber-400/50' : 'bg-amber-100 text-amber-900 border border-amber-300'
         }`}>
           {emoji}
         </span>
-        <h5 className={`text-[13px] font-bold leading-tight ${dark ? 'text-orange-100' : 'text-orange-900'}`}>{name}</h5>
+        <h5 className={`text-[13px] font-bold leading-tight ${dark ? 'text-amber-100' : 'text-amber-900'}`}>{name}</h5>
       </div>
       <dl className="space-y-1.5 text-[11.5px] leading-snug">
         <div className="flex gap-1.5">
-          <dt className={`font-mono uppercase text-[9px] tracking-wider mt-[3px] flex-shrink-0 w-12 ${dark ? 'text-orange-300/70' : 'text-orange-700/70'}`}>Де</dt>
+          <dt className={`font-mono uppercase text-[9px] tracking-wider mt-[3px] flex-shrink-0 w-12 ${dark ? 'text-amber-300/70' : 'text-amber-700/70'}`}>Де</dt>
           <dd className={dark ? 'text-slate-300' : 'text-stone-700'}>{where}</dd>
         </div>
         <div className="flex gap-1.5">
-          <dt className={`font-mono uppercase text-[9px] tracking-wider mt-[3px] flex-shrink-0 w-12 ${dark ? 'text-orange-300/70' : 'text-orange-700/70'}`}>Коли</dt>
+          <dt className={`font-mono uppercase text-[9px] tracking-wider mt-[3px] flex-shrink-0 w-12 ${dark ? 'text-amber-300/70' : 'text-amber-700/70'}`}>Коли</dt>
           <dd className={dark ? 'text-slate-300' : 'text-stone-700'}>{when}</dd>
         </div>
         <div className="flex gap-1.5">
-          <dt className={`font-mono uppercase text-[9px] tracking-wider mt-[3px] flex-shrink-0 w-12 ${dark ? 'text-orange-300/70' : 'text-orange-700/70'}`}>Що</dt>
+          <dt className={`font-mono uppercase text-[9px] tracking-wider mt-[3px] flex-shrink-0 w-12 ${dark ? 'text-amber-300/70' : 'text-amber-700/70'}`}>Що</dt>
           <dd className={dark ? 'text-slate-300' : 'text-stone-700'}>{what}</dd>
         </div>
       </dl>
@@ -716,7 +788,7 @@ function ScenarioCard({
     manager:  { label: 'Менеджер',    emoji: '🧑‍💼' },
     sp:       { label: 'SendPulse',   emoji: '🎓' },
     tg:       { label: 'Telegram',    emoji: '🤖' },
-    email:    { label: 'Листи',       emoji: '✉️' },
+    email:    { label: 'Email',       emoji: '✉️' },
   };
 
   return (
@@ -780,4 +852,3 @@ function PlanRow({
     </tr>
   );
 }
-

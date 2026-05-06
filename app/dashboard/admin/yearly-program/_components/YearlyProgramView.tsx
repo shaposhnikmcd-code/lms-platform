@@ -16,6 +16,7 @@ import {
   HiOutlineCheck,
   HiOutlineEnvelope,
   HiOutlineArrowRightCircle,
+  HiOutlineCurrencyDollar,
 } from 'react-icons/hi2';
 import type { YearlyProgramSettings } from '@/lib/yearlyProgramSettings';
 import { useAdminTheme, type Theme } from '../../_components/adminTheme';
@@ -272,10 +273,6 @@ function YearlyProgramViewInner({
               cohort={activeCohort}
               theme={theme}
               telegramSettings={telegramSettings}
-              graceDays={graceDays}
-              registrationOpen={programSettings.registrationOpen}
-              onOpenPricing={() => setPricingModalOpen(true)}
-              onOpenGrace={() => setGraceModalOpen(true)}
             />
           </>
         )}
@@ -318,9 +315,25 @@ function YearlyProgramViewInner({
         />
       )}
 
-      {/* Search-row + program-налаштування. План і Статус перенесено у фільтри в шапці таблиці.
-          Налаштування — зліва, пошук — справа. */}
-      <AdminPanel theme={theme} padding="p-3" className="mb-5 max-w-5xl">
+      {/* Програмні налаштування: Вартість+GRACE (верхній ряд) + Листи Нагадування/платежів та пошук (нижній ряд). */}
+      <AdminPanel theme={theme} padding="p-3" className="mb-5 w-fit">
+        <div className="flex items-center gap-1 mb-2">
+          <ProgramSettingButton
+            theme={theme}
+            icon={<HiOutlineCurrencyDollar className="text-base" />}
+            label="Вартість"
+            title="Налаштувати ціни, текст кнопок реєстрації та інформацію про програму"
+            onClick={() => setPricingModalOpen(true)}
+            badge={!programSettings.registrationOpen ? 'закрито' : null}
+          />
+          <ProgramSettingButton
+            theme={theme}
+            icon={<HiOutlineClock className="text-base" />}
+            label={`GRACE · ${graceDays}д`}
+            title="Налаштувати тривалість grace-періоду"
+            onClick={() => setGraceModalOpen(true)}
+          />
+        </div>
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex items-center gap-1">
             <ProgramSettingButton
@@ -343,7 +356,7 @@ function YearlyProgramViewInner({
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Пошук за email або імʼям"
-            className={`ml-auto flex-1 min-w-[200px] max-w-[320px] px-3 py-1.5 rounded-lg border text-[12px] outline-none transition-colors ${
+            className={`w-[260px] px-3 py-1.5 rounded-lg border text-[12px] outline-none transition-colors ${
               dark
                 ? 'bg-white/[0.04] border-white/[0.08] text-slate-200 placeholder:text-slate-600 focus:border-amber-400/40'
                 : 'bg-white/80 border-stone-300/60 text-stone-800 placeholder:text-stone-400 focus:border-amber-600/50'

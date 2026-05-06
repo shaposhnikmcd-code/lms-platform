@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { HiOutlineRocketLaunch, HiOutlineEnvelopeOpen, HiOutlineArrowPath, HiOutlineUserPlus, HiOutlineSquares2X2, HiOutlineCurrencyDollar, HiOutlineClock } from 'react-icons/hi2';
+import { HiOutlineRocketLaunch, HiOutlineEnvelopeOpen, HiOutlineArrowPath, HiOutlineUserPlus, HiOutlineSquares2X2 } from 'react-icons/hi2';
 import type { Theme } from '../../_components/adminTheme';
 import type { CohortListItem } from './types';
 import SendEmailsModal from './SendEmailsModal';
@@ -10,7 +10,6 @@ import AddStudentModal from './AddStudentModal';
 import LaunchProgramModal from './LaunchProgramModal';
 import WorkflowDiagramModal from './WorkflowDiagramModal';
 import TelegramChannelButton, { type TelegramSettingsState } from './TelegramChannelButton';
-import ProgramSettingButton from './ProgramSettingButton';
 import MailerFromBadge from '../../_components/MailerFromBadge';
 import { useUIFeedback, HoverInfo } from './UIFeedback';
 
@@ -21,18 +20,10 @@ export default function CohortActions({
   cohort,
   theme,
   telegramSettings,
-  graceDays,
-  registrationOpen,
-  onOpenPricing,
-  onOpenGrace,
 }: {
   cohort: CohortListItem;
   theme: Theme;
   telegramSettings: TelegramSettingsState;
-  graceDays: number;
-  registrationOpen: boolean;
-  onOpenPricing: () => void;
-  onOpenGrace: () => void;
 }) {
   const dark = theme === 'dark';
   const router = useRouter();
@@ -219,24 +210,6 @@ export default function CohortActions({
           <HiOutlineSquares2X2 className="text-base" />
           Флоу Річної програми
         </button>
-
-        <div className={`ml-auto flex items-center gap-1 pl-3 ${dark ? 'border-l border-white/[0.06]' : 'border-l border-stone-300/40'}`}>
-          <ProgramSettingButton
-            theme={theme}
-            icon={<HiOutlineCurrencyDollar className="text-base" />}
-            label="Вартість"
-            title="Налаштувати ціни, текст кнопок реєстрації та інформацію про програму"
-            onClick={onOpenPricing}
-            badge={!registrationOpen ? 'закрито' : null}
-          />
-          <ProgramSettingButton
-            theme={theme}
-            icon={<HiOutlineClock className="text-base" />}
-            label={`GRACE · ${graceDays}д`}
-            title="Налаштувати тривалість grace-періоду"
-            onClick={onOpenGrace}
-          />
-        </div>
       </div>
 
       {diagramOpen && (
