@@ -49,6 +49,10 @@ interface Props {
    *  full-page; для маленького card-canvas достатньо 80px (інакше canvas
    *  візуально витягнутий значно більше за реальний контент). */
   bottomSlack?: number;
+  /** Заблокувати висоту канвасу на `minCanvasHeight` (не росте під контент).
+   *  Використовується для card-builder-а — картка має фіксовані розміри.
+   *  Контент, що виходить за межі, обрізається через overflow:hidden. */
+  fixedHeight?: boolean;
 }
 
 export default function EditorCanvas({
@@ -65,11 +69,13 @@ export default function EditorCanvas({
   minCanvasHeight,
   canvasLabel,
   bottomSlack,
+  fixedHeight,
 }: Props) {
   // Локальні константи (були module-scope) тепер залежать від props.
   const PAGE_WIDTH = canvasWidth ?? CANVAS_WIDTH;
   const MIN_CANVAS_H = minCanvasHeight ?? DEFAULT_MIN_CANVAS_H;
-  const BOTTOM_SLACK_PX = bottomSlack ?? 240;
+  // У fixedHeight-режимі drop-zone під контентом не потрібен — канвас не росте.
+  const BOTTOM_SLACK_PX = fixedHeight ? 0 : (bottomSlack ?? 240);
   const [lastAddedId, setLastAddedId] = useState<string | null>(null);
   const setSelectedBlockId = (next: string | null | ((prev: string | null) => string | null)) => {
     if (typeof next === "function") {
@@ -193,16 +199,17 @@ export default function EditorCanvas({
     return TYPE_HEIGHT[b.type] ?? 100;
   }
   // BOTTOM_SLACK — вільний простір під найнижчим блоком, щоб юзер міг легко
-  // drop-нути новий блок нижче (без bottomSlack канвас закінчується ВПРИТУЛ
-  // до останнього блока — нікуди кинути). Default 240px ≈ висота 1-2 типових
-  // блоків; для card-builder-а (360px wide) пробрасується менший (80px).
-  const canvasHeight = Math.max(
-    MIN_CANVAS_H,
-    ...blocks.map(b => (b.y ?? 0) + measureBlockHeight(b) + BOTTOM_SLACK_PX),
-    // НЕ розтягувати canvas під dropPreview — це провокує feedback loop:
-    // canvas росте → browser скролить → rect.top негативніший → cursorY - rectTop росте
-    // → preview Y росте → canvas ще більший. Блок летить у нескінченність.
-  );
+  // У fixedHeight-режимі канвас завжди MIN_CANVAS_H (не росте під контент).
+  // Інакше — росте під blocks + bottomSlack drop-zone.
+  const canvasHeight = fixedHeight
+    ? MIN_CANVAS_H
+    : Math.max(
+        MIN_CANVAS_H,
+        ...blocks.map(b => (b.y ?? 0) + measureBlockHeight(b) + BOTTOM_SLACK_PX),
+        // НЕ розтягувати canvas під dropPreview — це провокує feedback loop:
+        // canvas росте → browser скролить → rect.top негативніший → cursorY - rectTop росте
+        // → preview Y росте → canvas ще більший. Блок летить у нескінченність.
+      );
 
   function clampXY(xPct: number, yPx: number, wPct: number): { x: number; y: number } {
     const clampedX = Math.max(0, Math.min(100 - wPct, xPct));
@@ -1150,6 +1157,9 @@ export default function EditorCanvas({
                   outline: "1px dashed rgba(28,58,46,0.18)",
                   outlineOffset: "0px",
                   borderRadius: "4px",
+                  // У fixedHeight-режимі обрізаємо контент, що вийшов за межі
+                  // канвасу — менеджер бачить «не вмістилось» і пересуває блоки.
+                  overflow: fixedHeight ? "hidden" : "visible",
                   transition: activeId ? "none" : "height 0.2s",
                 }}
                 onDragOver={e => e.preventDefault()}

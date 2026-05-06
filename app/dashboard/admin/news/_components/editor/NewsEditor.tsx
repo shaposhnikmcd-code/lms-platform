@@ -96,6 +96,9 @@ interface BaseProps {
   canvasLabel?: { left: string; right: string };
   /** Запас вільного місця під останнім блоком. Default 240. */
   bottomSlack?: number;
+  /** Заблокувати висоту канвасу на minCanvasHeight (не росте під контент).
+   *  Для card-builder-а — картка має фіксовані розміри. */
+  fixedHeight?: boolean;
 }
 
 interface SingleProps extends BaseProps {
@@ -480,6 +483,7 @@ export default function NewsEditor(props: Props) {
                 minCanvasHeight={props.minCanvasHeight}
                 canvasLabel={props.canvasLabel}
                 bottomSlack={props.bottomSlack}
+                fixedHeight={props.fixedHeight}
                 rightSidebar={
                   mode === "page" ? (
                     <NewsLibrarySidebar

@@ -108,10 +108,10 @@ export default function EditNewsPreviewPage() {
       mode="preview"
       canvasWidth={PREVIEW_CARD_WIDTH}
       minCanvasHeight={400}
-      bottomSlack={80}
+      fixedHeight
       canvasLabel={{
         left: "🃏 Превʼю-картка",
-        right: `${PREVIEW_CARD_WIDTH} × 400 px — стандартний розмір на /news`,
+        right: `${PREVIEW_CARD_WIDTH} × 400 px — фіксовано`,
       }}
       onSave={handleSave}
       onBack={() => router.push("/dashboard/admin/news")}
