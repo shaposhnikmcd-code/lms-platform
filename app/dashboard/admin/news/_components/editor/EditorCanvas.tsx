@@ -13,11 +13,10 @@ import { useBlockManager } from "./hooks/useBlockManager";
 // fallback-висоти. Без цього блок без явної .height виглядає по-різному в білдері та на сайті.
 import { LEGACY_H as TYPE_HEIGHT } from "@/lib/news/render";
 
-const PAGE_WIDTH = CANVAS_WIDTH;
 const PAGE_PAD_X = 32;
 const PAGE_PAD_Y = 32;
 const SNAP = 8;         // px — вертикальний і горизонтальний grid
-const MIN_CANVAS_H = 500;
+const DEFAULT_MIN_CANVAS_H = 500;
 
 // (TYPE_HEIGHT тепер імпортується з @/lib/news/render — див. шапку файла.)
 
@@ -37,9 +36,34 @@ interface Props {
    *  бачили той самий контекст, що й канвас). Для page-mode — NewsLibrarySidebar
    *  з drag-картками новин. Для post-mode — MetaSidebar (статичний; контексту не потребує). */
   rightSidebar?: React.ReactNode;
+  /** Ширина канвасу в px. Default = CANVAS_WIDTH (920) для full-page білдерів.
+   *  Білдер превʼю-картки використовує PREVIEW_CARD_WIDTH (360). */
+  canvasWidth?: number;
+  /** Мінімальна висота канвасу в px. Default 500 (full-page). Для card-builder-а
+   *  даємо менше (480) щоб порожня картка виглядала card-shaped. */
+  minCanvasHeight?: number;
+  /** Кастомні підписи на chrome-смужці канвасу (зверху). Default — текст для
+   *  сторінкового режиму. Для card-builder-а передаємо «🃏 Превʼю-картка». */
+  canvasLabel?: { left: string; right: string };
 }
 
-export default function EditorCanvas({ blocks, onBlocksChange, onUpload, pageBgColor, selectedBlockId, onSelectBlock, extraPaletteBlocks, extraPaletteBlocksTitle, rightSidebar }: Props) {
+export default function EditorCanvas({
+  blocks,
+  onBlocksChange,
+  onUpload,
+  pageBgColor,
+  selectedBlockId,
+  onSelectBlock,
+  extraPaletteBlocks,
+  extraPaletteBlocksTitle,
+  rightSidebar,
+  canvasWidth,
+  minCanvasHeight,
+  canvasLabel,
+}: Props) {
+  // Локальні константи (були module-scope) тепер залежать від props.
+  const PAGE_WIDTH = canvasWidth ?? CANVAS_WIDTH;
+  const MIN_CANVAS_H = minCanvasHeight ?? DEFAULT_MIN_CANVAS_H;
   const [lastAddedId, setLastAddedId] = useState<string | null>(null);
   const setSelectedBlockId = (next: string | null | ((prev: string | null) => string | null)) => {
     if (typeof next === "function") {
@@ -1090,8 +1114,10 @@ export default function EditorCanvas({ blocks, onBlocksChange, onUpload, pageBgC
               textTransform: "uppercase",
               fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
             }}>
-              <span>{"📄 Сторінка новини"}</span>
-              <span style={{ color: "#D4A843" }}>{`${PAGE_WIDTH}px — така ширина на сайті`}</span>
+              <span>{canvasLabel?.left ?? "📄 Сторінка новини"}</span>
+              <span style={{ color: "#D4A843" }}>
+                {canvasLabel?.right ?? `${PAGE_WIDTH}px — така ширина на сайті`}
+              </span>
             </div>
 
             <div

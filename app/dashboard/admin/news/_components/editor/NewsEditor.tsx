@@ -33,23 +33,30 @@ interface DraftPayload {
   savedAt: number;
 }
 
-function draftKey(newsId?: string) {
-  return `uimp_draft_${newsId || "new"}`;
+type DraftMode = "post" | "page" | "preview";
+
+// `mode` у ключі — щоб draft з content-білдера (`/[id]/edit`, mode=post) не
+// перетирався з draft превʼю-картки (`/[id]/preview`, mode=preview) — обидва
+// мають один newsId, але редагують РІЗНІ поля БД (content vs previewContent).
+// Для post лишаємо старий ключ без префікса (backward-compat для in-flight чернеток).
+function draftKey(newsId: string | undefined, mode: DraftMode) {
+  const id = newsId || "new";
+  return mode === "post" ? `uimp_draft_${id}` : `uimp_draft_${mode}_${id}`;
 }
 
-function saveDraft(meta: NewsMeta, blocksByTab: Record<string, Block[]>, newsId?: string) {
+function saveDraft(meta: NewsMeta, blocksByTab: Record<string, Block[]>, newsId: string | undefined, mode: DraftMode) {
   try {
     const payload: DraftPayload = { meta, blocksByTab, savedAt: Date.now() };
-    localStorage.setItem(draftKey(newsId), JSON.stringify(payload));
+    localStorage.setItem(draftKey(newsId, mode), JSON.stringify(payload));
   } catch { /* localStorage недоступний */ }
 }
-function clearDraft(newsId?: string) {
-  try { localStorage.removeItem(draftKey(newsId)); } catch { /* ignore */ }
+function clearDraft(newsId: string | undefined, mode: DraftMode) {
+  try { localStorage.removeItem(draftKey(newsId, mode)); } catch { /* ignore */ }
 }
-function loadDraft(newsId?: string): DraftPayload | null {
+function loadDraft(newsId: string | undefined, mode: DraftMode): DraftPayload | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = localStorage.getItem(draftKey(newsId));
+    const raw = localStorage.getItem(draftKey(newsId, mode));
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!parsed || !parsed.meta) return null;
@@ -77,9 +84,16 @@ interface BaseProps {
    *  "page" — канвас редагує `NewsPage.content` (лендинг /news). */
   mode?: "post" | "page" | "preview";
   /** Чи показувати MetaSidebar (Публікація / Slug / Категорія / Обкладинка / Фон).
-   *  За замовчуванням: post → true (бо /new має створити новину з мета),
-   *  preview → false, page → false. Override-иться явно через props. */
+   *  За замовчуванням: post / preview → true; page → false (там окремий
+   *  NewsLibrarySidebar). Override-иться явно через props. */
   metaSidebar?: boolean;
+  /** Ширина канвасу — пробрасується до EditorCanvas. Default — full-page (920).
+   *  Для білдера превʼю-картки: PREVIEW_CARD_WIDTH (360). */
+  canvasWidth?: number;
+  /** Мінімальна висота канвасу. Default 500 (full-page). */
+  minCanvasHeight?: number;
+  /** Кастомні підписи на chrome-смужці канвасу. */
+  canvasLabel?: { left: string; right: string };
 }
 
 interface SingleProps extends BaseProps {
@@ -100,8 +114,8 @@ type Props = SingleProps | TabbedProps;
 
 export default function NewsEditor(props: Props) {
   const { pageTitle, initialMeta, newsId, saving, mode = "post" } = props;
-  // metaSidebar: явний prop > дефолт по mode (post=true, інакше false).
-  const showMetaSidebar = props.metaSidebar ?? (mode === "post");
+  // metaSidebar: явний prop > дефолт по mode (post/preview=true, page=false).
+  const showMetaSidebar = props.metaSidebar ?? (mode === "post" || mode === "preview");
   void props.onBack;
 
   const def: NewsMeta = { title: "", slug: "", excerpt: "", category: "NEWS", imageUrl: "", published: false };
@@ -120,7 +134,7 @@ export default function NewsEditor(props: Props) {
   const isMultiTab = effectiveTabs.length > 1;
 
   // Відновлення з localStorage при першому маунті.
-  const initialDraft = loadDraft(newsId);
+  const initialDraft = loadDraft(newsId, mode);
 
   const [meta, setMeta] = useState<NewsMeta>(() => initialDraft?.meta ?? { ...def, ...initialMeta });
 
@@ -297,16 +311,16 @@ export default function NewsEditor(props: Props) {
 
   // ── Auto-save draft (300ms debounce + flush on hide/unload) ──────────────
   useEffect(() => {
-    const t = setTimeout(() => saveDraft(meta, blocksByTab, newsId), 300);
+    const t = setTimeout(() => saveDraft(meta, blocksByTab, newsId, mode), 300);
     return () => clearTimeout(t);
-  }, [meta, blocksByTab, newsId]);
+  }, [meta, blocksByTab, newsId, mode]);
 
-  const flushRef = useRef({ meta, blocksByTab, newsId });
-  useEffect(() => { flushRef.current = { meta, blocksByTab, newsId }; }, [meta, blocksByTab, newsId]);
+  const flushRef = useRef({ meta, blocksByTab, newsId, mode });
+  useEffect(() => { flushRef.current = { meta, blocksByTab, newsId, mode }; }, [meta, blocksByTab, newsId, mode]);
   useEffect(() => {
     const flush = () => {
       const s = flushRef.current;
-      saveDraft(s.meta, s.blocksByTab, s.newsId);
+      saveDraft(s.meta, s.blocksByTab, s.newsId, s.mode);
     };
     const onVis = () => { if (document.visibilityState === "hidden") flush(); };
     window.addEventListener("beforeunload", flush);
@@ -378,7 +392,7 @@ export default function NewsEditor(props: Props) {
         const k = effectiveTabs[0].key;
         await props.onSave({ ...meta, published }, contents[k], imageUrl);
       }
-      clearDraft(newsId);
+      clearDraft(newsId, mode);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Невідома помилка збереження";
       setMessage(msg);
@@ -460,6 +474,9 @@ export default function NewsEditor(props: Props) {
                 pageBgColor={meta.pageBgColor || ""}
                 selectedBlockId={selectedByTab[t.key]}
                 onSelectBlock={setSelectedFor(t.key)}
+                canvasWidth={props.canvasWidth}
+                minCanvasHeight={props.minCanvasHeight}
+                canvasLabel={props.canvasLabel}
                 rightSidebar={
                   mode === "page" ? (
                     <NewsLibrarySidebar
