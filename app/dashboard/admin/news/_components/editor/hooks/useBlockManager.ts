@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { Block, BlockAlign, BlockWidth } from "../types";
+import { Block, BlockAlign, BlockVAlign, BlockWidth } from "../types";
 
 export function useBlockManager(initial: Block[], onChange: (blocks: Block[]) => void) {
   const [previewWidths, setPreviewWidths] = useState<Record<string, number>>({});
@@ -58,6 +58,9 @@ export function useBlockManager(initial: Block[], onChange: (blocks: Block[]) =>
   const setAlign = useCallback((id: string, a: BlockAlign) =>
     onChange(initial.map(b => b.id === id ? { ...b, align: a } : b)), [initial, onChange]);
 
+  const setVAlign = useCallback((id: string, v: BlockVAlign) =>
+    onChange(initial.map(b => b.id === id ? { ...b, vAlign: v } : b)), [initial, onChange]);
+
   const setBg = useCallback((id: string, c: string) =>
     onChange(initial.map(b => b.id === id ? { ...b, bgColor: c } : b)), [initial, onChange]);
 
@@ -85,7 +88,7 @@ export function useBlockManager(initial: Block[], onChange: (blocks: Block[]) =>
   return {
     previewWidths, previewXs, previewHeights, blockHeights,
     updateBlock, deleteBlock, moveBlock, duplicateBlock,
-    setWidth, setWidthAndData, setAlign, setBg,
+    setWidth, setWidthAndData, setAlign, setVAlign, setBg,
     setPreview, clearPreview, setPreviewX, clearPreviewX,
     setPreviewHeight, clearPreviewHeight, reportHeight,
   };

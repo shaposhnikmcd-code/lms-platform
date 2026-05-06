@@ -14,6 +14,7 @@ export const BLOCK_PREVIEW_HEIGHTS: Record<BlockType, number> = {
   image:   40 + 28 + 160,
   youtube: 40 + 28 + 52,
   card:    40 + 28 + 200,
+  newsCard: 40 + 28 + 320,
 };
 
 export const BLOCK_ICONS: Record<BlockType, string> = {
@@ -24,6 +25,7 @@ export const BLOCK_ICONS: Record<BlockType, string> = {
   image:   "🖼",
   youtube: "▶",
   card:    "▭",
+  newsCard: "📰",
 };
 
 export const BLOCK_LABELS: Record<BlockType, string> = {
@@ -34,6 +36,7 @@ export const BLOCK_LABELS: Record<BlockType, string> = {
   image:   "Фото",
   youtube: "YouTube",
   card:    "Картка",
+  newsCard: "Новина",
 };
 
 interface Props {

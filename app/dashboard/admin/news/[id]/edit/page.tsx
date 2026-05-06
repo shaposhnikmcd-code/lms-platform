@@ -5,7 +5,6 @@ import dynamic from "next/dynamic";
 import { useRouter, useParams } from "next/navigation";
 import { NewsMeta } from "../../_components/editor/types";
 
-// Lazy-load Tiptap editor (~200KB) — skeleton while chunk loads.
 const NewsEditor = dynamic(() => import("../../_components/editor/NewsEditor"), {
   ssr: false,
   loading: () => (
@@ -25,6 +24,7 @@ export default function EditNewsPage() {
   const [error, setError] = useState("");
   const [initialMeta, setInitialMeta] = useState<Partial<NewsMeta>>({});
   const [initialContent, setInitialContent] = useState("");
+  const [initialPreviewContent, setInitialPreviewContent] = useState("");
 
   useEffect(() => {
     if (!id) return;
@@ -41,18 +41,25 @@ export default function EditNewsPage() {
           published: d.published || false,
         });
         setInitialContent(d.content || "");
+        setInitialPreviewContent(d.previewContent || "");
         setLoading(false);
       })
       .catch(e => { setError("Помилка завантаження: " + e.message); setLoading(false); });
   }, [id]);
 
-  const handleSave = async (meta: NewsMeta, content: string, imageUrl: string) => {
+  // Multi-tab save: PATCH news з content + previewContent одночасно.
+  const handleSaveTabs = async (meta: NewsMeta, contents: Record<string, string>, imageUrl: string) => {
     setSaving(true);
     try {
       const res = await fetch("/api/admin/news/" + id, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...meta, content, imageUrl }),
+        body: JSON.stringify({
+          ...meta,
+          content: contents.content ?? "",
+          previewContent: contents.preview ?? "",
+          imageUrl,
+        }),
       });
       if (res.ok) {
         router.push("/dashboard/admin/news");
@@ -82,9 +89,12 @@ export default function EditNewsPage() {
     <NewsEditor
       pageTitle={"Редагування новини"}
       initialMeta={initialMeta}
-      initialContent={initialContent}
       newsId={id}
-      onSave={handleSave}
+      tabs={[
+        { key: "preview", label: "Превʼю картки", initialContent: initialPreviewContent },
+        { key: "content", label: "Контент новини", initialContent: initialContent },
+      ]}
+      onSaveTabs={handleSaveTabs}
       onBack={() => router.push("/dashboard/admin/news")}
       saving={saving}
     />

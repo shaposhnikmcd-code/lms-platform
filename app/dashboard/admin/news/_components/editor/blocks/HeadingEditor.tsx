@@ -11,7 +11,7 @@ import Highlight from "@tiptap/extension-highlight";
 import FontFamily from "@tiptap/extension-font-family";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { Block } from "../types";
+import { Block, BlockVAlign } from "../types";
 import {
   ff,
   Section,
@@ -30,6 +30,8 @@ interface Props {
   block: Block;
   onChange: (data: Record<string, string>) => void;
   selected?: boolean;
+  /** Сетер vAlign на рівні блока. Передається з BlockItem (там же, що в BlockItemHeader). */
+  onSetVAlign?: (v: BlockVAlign) => void;
 }
 
 function escapeHtml(s: string): string {
@@ -42,9 +44,9 @@ function headingInitialHtml(data: Record<string, string>): string {
   return t ? `<p>${escapeHtml(t)}</p>` : "";
 }
 
-export default function HeadingEditor({ block, onChange, selected = false }: Props) {
+export default function HeadingEditor({ block, onChange, selected = false, onSetVAlign }: Props) {
   const [studioOpen, setStudioOpen] = useState(false);
-  const level = block.data.level || "2";
+  const level = (block.data.level || "2") as "1" | "2" | "3";
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -126,17 +128,35 @@ export default function HeadingEditor({ block, onChange, selected = false }: Pro
   return (
     <>
       {settingsSlot && createPortal(sidebarPanel, settingsSlot)}
-      {/* data-news-block-type + data-level — застосовується NEWS_BLOCK_CSS,
-          щоб font-size H1/H2/H3 збігався з public. */}
-      <div data-news-block-type="heading" data-level={level} style={{ width: "100%" }}>
-        <EditorContent editor={editor} />
-      </div>
+      {/* Flex-обгортка ТІЛЬКИ якщо vAlign явно не-дефолтний (center/bottom) — щоб
+          не ламати рендер у блоках без явної висоти. Дзеркало логіки з render.tsx. */}
+      {(() => {
+        const inner = (
+          <div data-news-block-type="heading" data-level={level} style={{ width: "100%" }}>
+            <EditorContent editor={editor} />
+          </div>
+        );
+        const vAlign = block.vAlign;
+        if (vAlign === "center" || vAlign === "bottom") {
+          const flexAlign = vAlign === "center" ? "center" : "flex-end";
+          return (
+            <div style={{ display: "flex", width: "100%", height: "100%", alignItems: flexAlign }}>
+              {inner}
+            </div>
+          );
+        }
+        return inner;
+      })()}
       {studioOpen && (
         <TextStudioModal
           title="Редактор заголовка"
           icon="H"
           blockType="heading"
           initialHtml={headingInitialHtml(block.data)}
+          headingLevel={level}
+          onHeadingLevelChange={(l) => onChange({ ...block.data, level: l })}
+          vAlign={block.vAlign || "top"}
+          onVAlignChange={onSetVAlign}
           onCancel={() => setStudioOpen(false)}
           onSave={(html) => {
             onChange({ ...block.data, html });

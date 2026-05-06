@@ -13,8 +13,33 @@ import FontFamily from "@tiptap/extension-font-family";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import SectionedTextToolbar from "./TextToolbar";
-import { ff } from "./_settingsPrimitives";
+import { ff, Section, SectionLabel, ToggleBtn } from "./_settingsPrimitives";
 import { NEWS_BLOCK_CSS } from "@/lib/news/render";
+import type { BlockVAlign } from "../types";
+
+type HeadingLevel = "1" | "2" | "3";
+
+// SVG-гліфи для VAlign — дзеркало BlockItemHeader VALIGN_GLYPHS, без зайвої залежності.
+const VALIGN_GLYPHS: Record<BlockVAlign, React.ReactElement> = {
+  top: (
+    <svg width="10" height="14" viewBox="0 0 10 14" fill="none">
+      <rect x="0" y="0" width="10" height="1.6" rx="0.8" fill="currentColor" />
+      <rect x="2" y="2.6" width="6" height="1.6" rx="0.8" fill="currentColor" />
+    </svg>
+  ),
+  center: (
+    <svg width="10" height="14" viewBox="0 0 10 14" fill="none">
+      <rect x="0" y="5.2" width="10" height="1.6" rx="0.8" fill="currentColor" />
+      <rect x="2" y="7.8" width="6" height="1.6" rx="0.8" fill="currentColor" />
+    </svg>
+  ),
+  bottom: (
+    <svg width="10" height="14" viewBox="0 0 10 14" fill="none">
+      <rect x="2" y="10.4" width="6" height="1.6" rx="0.8" fill="currentColor" />
+      <rect x="0" y="13" width="10" height="1.6" rx="0.8" fill="currentColor" />
+    </svg>
+  ),
+};
 
 interface Props {
   initialHtml: string;
@@ -27,6 +52,12 @@ interface Props {
   /** Тип блока для CSS-cascade — щоб NEWS_BLOCK_CSS показав текст у редакторі
    *  у тих самих розмірах як public. "text" | "heading" | "quote". */
   blockType?: "text" | "heading" | "quote";
+  /** Heading-only: поточний рівень H1/H2/H3. Якщо передано, у sidebar з'являється секція "Рівень". */
+  headingLevel?: HeadingLevel;
+  onHeadingLevelChange?: (level: HeadingLevel) => void;
+  /** Heading-only: поточний vAlign. Якщо передано, у sidebar з'являється секція "Вертикаль". */
+  vAlign?: BlockVAlign;
+  onVAlignChange?: (v: BlockVAlign) => void;
 }
 
 // Fullscreen-редактор для блоків Текст / Заголовок / Цитата. Аналог
@@ -37,6 +68,10 @@ export default function TextStudioModal({
   title = "Редактор тексту",
   icon = "¶",
   blockType = "text",
+  headingLevel,
+  onHeadingLevelChange,
+  vAlign,
+  onVAlignChange,
 }: Props) {
   const [mounted, setMounted] = useState(false);
 
@@ -163,6 +198,42 @@ export default function TextStudioModal({
             overflowY: "auto",
             paddingBottom: "16px",
           }}>
+            {blockType === "heading" && headingLevel && onHeadingLevelChange && (
+              <Section>
+                <SectionLabel>Рівень</SectionLabel>
+                <div style={{ display: "flex", gap: "5px" }}>
+                  {(["1", "2", "3"] as const).map(l => (
+                    <ToggleBtn
+                      key={l}
+                      flex
+                      active={headingLevel === l}
+                      onClick={() => onHeadingLevelChange(l)}
+                      title={`Заголовок ${l}-го рівня`}
+                    >
+                      <span style={{ fontWeight: 700 }}>{`H${l}`}</span>
+                    </ToggleBtn>
+                  ))}
+                </div>
+              </Section>
+            )}
+            {blockType === "heading" && vAlign && onVAlignChange && (
+              <Section padTop={0}>
+                <SectionLabel>Вертикаль</SectionLabel>
+                <div style={{ display: "flex", gap: "5px" }}>
+                  {(["top", "center", "bottom"] as BlockVAlign[]).map(v => (
+                    <ToggleBtn
+                      key={v}
+                      flex
+                      active={vAlign === v}
+                      onClick={() => onVAlignChange(v)}
+                      title={v === "top" ? "По верхньому краю" : v === "bottom" ? "По нижньому краю" : "По центру (вертикально)"}
+                    >
+                      {VALIGN_GLYPHS[v]}
+                    </ToggleBtn>
+                  ))}
+                </div>
+              </Section>
+            )}
             {editor && <SectionedTextToolbar editor={editor} />}
           </div>
 

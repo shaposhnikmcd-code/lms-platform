@@ -1,8 +1,9 @@
-export type BlockType = "text" | "heading" | "image" | "youtube" | "quote" | "divider" | "card";
+export type BlockType = "text" | "heading" | "image" | "youtube" | "quote" | "divider" | "card" | "newsCard";
 // BlockWidth — рядок з числом відсотків (1..100). Тримаємо як string для сумісності
 // зі старими записами та з JSON-серіалізацією. Крок resize — 1%.
 export type BlockWidth = string;
 export type BlockAlign = "left" | "center" | "right";
+export type BlockVAlign = "top" | "center" | "bottom";
 
 export interface Block {
   id: string;
@@ -10,6 +11,7 @@ export interface Block {
   data: Record<string, string>;
   width: BlockWidth;          // % ширини канваса (1..100)
   align: BlockAlign;
+  vAlign?: BlockVAlign;       // вертикальне вирівнювання (поки що тільки для heading)
   bgColor: string;
   x?: number;                 // % від лівого краю канваса (0..100-width)
   y?: number;                 // px від верху канваса
@@ -63,12 +65,15 @@ export function jsonToBlocks(content: string): Block[] {
   try {
     const parsed = JSON.parse(content);
     if (Array.isArray(parsed)) {
-      const normalized: Block[] = parsed.map(b => ({
-        width: "100" as BlockWidth,
-        align: "left" as BlockAlign,
-        bgColor: "",
-        ...b,
-      }));
+      const normalized: Block[] = parsed
+        // Відсіюємо застарілі типи блоків (newsList — видалено в новій моделі).
+        .filter((b: { type?: string }) => b?.type !== "newsList")
+        .map(b => ({
+          width: "100" as BlockWidth,
+          align: "left" as BlockAlign,
+          bgColor: "",
+          ...b,
+        }));
       return autoLayout(normalized);
     }
     return [];

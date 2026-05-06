@@ -1,12 +1,19 @@
-import Image from "next/image";
-import Link from "next/link";
 import prisma from "@/lib/prisma";
-import { FaCalendar, FaUser } from "react-icons/fa";
 import { getTranslatedContent } from "@/lib/translate";
 import { newsContent } from "./_content/uk";
+import {
+  AbsoluteBlockRender,
+  SequentialBlockRender,
+  NEWS_BLOCK_CSS,
+  CANVAS_WIDTH,
+  canvasHeight,
+  parseBlocks,
+  type Block,
+  type NewsListItemForBlock,
+} from "@/lib/news/render";
 
-// ISR: 60s. Раніше — без revalidate → повний SSR з Prisma findMany на КОЖЕН запит (~1-2с).
-// Миттєве оновлення після публікації — через `revalidatePath('/news')` у admin-мутаціях.
+// ISR: 60s. Адмінські мутації PATCH /api/admin/news/page-content і admin/news/[id]
+// викликають revalidatePath('/news') → миттєве оновлення.
 export const revalidate = 60;
 
 const getContent = getTranslatedContent(newsContent, "news-page", {
@@ -14,33 +21,91 @@ const getContent = getTranslatedContent(newsContent, "news-page", {
   pl: () => import("./_content/pl").then(m => m.default),
 });
 
-const CATEGORY_COLORS: Record<string, string> = {
-  NEWS: "bg-blue-100 text-blue-700",
-  ANNOUNCEMENT: "bg-yellow-100 text-yellow-700",
-  ARTICLE: "bg-green-100 text-green-700",
-  EVENT: "bg-pink-100 text-pink-700",
-};
-
 export default async function NewsPage({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
   const c = await getContent(locale);
 
+  // Тягнемо паралельно: NewsPage layout + всі published новини (для join-у в newsCard блоках).
+  // Фільтр suspendedAt/resumeAt тут НЕ застосовуємо: видимість на /news listing визначає
+  // ЛИШЕ білдер сторінки (розміщення newsCard блока + per-block visibleFrom/Until). News-level
+  // suspendedAt — це окремий контроль для детальної сторінки /news/[slug] (чи доступна окрема стаття).
   const now = new Date();
-  const news = await prisma.news.findMany({
-    where: {
-      published: true,
-      OR: [
-        { suspendedAt: null },
-        { suspendedAt: { gt: now } }, // заплановане призупинення ще не настало
-        { resumeAt: { lte: now } },   // суспенс вже завершився
-      ],
-    },
-    orderBy: { createdAt: "desc" },
-    include: { author: { select: { name: true } } },
+  const [pageRow, publishedNews] = await Promise.all([
+    prisma.newsPage.findUnique({ where: { key: "default" } }),
+    prisma.news.findMany({
+      where: { published: true },
+      orderBy: { createdAt: "desc" },
+      include: { author: { select: { name: true } } },
+    }),
+  ]);
+
+  const newsItemsForBlocks: NewsListItemForBlock[] = publishedNews.map(n => ({
+    id: n.id,
+    title: n.title,
+    titleEn: n.titleEn,
+    titlePl: n.titlePl,
+    slug: n.slug,
+    excerpt: n.excerpt,
+    excerptEn: n.excerptEn,
+    excerptPl: n.excerptPl,
+    imageUrl: n.imageUrl,
+    category: n.category,
+    createdAt: n.createdAt.toISOString(),
+    authorName: n.author?.name ?? null,
+    // Контент потрібен для newsCard блоків з displayMode="expanded" — повний інлайн-рендер.
+    content: n.content,
+    contentEn: n.contentEn,
+    contentPl: n.contentPl,
+    // Кастомний layout превʼю-картки — для displayMode="preview".
+    previewContent: n.previewContent,
+    previewContentEn: n.previewContentEn,
+    previewContentPl: n.previewContentPl,
+    pageBgColor: n.pageBgColor,
+  }));
+
+  // Сторінка публікується тільки якщо адмін активував її через toggle на /dashboard/admin/news.
+  // Без цього /news показує empty state — навіть якщо layout є в БД (це чернетка).
+  const isActive = !!pageRow?.published;
+
+  let blocks: Block[] = [];
+  if (isActive && pageRow?.content) {
+    const localized =
+      locale === "en" && pageRow.contentEn ? pageRow.contentEn :
+      locale === "pl" && pageRow.contentPl ? pageRow.contentPl :
+      pageRow.content;
+    const parsed = parseBlocks(localized);
+    if (parsed.isJson) blocks = parsed.blocks;
+  }
+
+  // Per-block schedule: відсіюємо newsCard блоки, чий час "Зʼявиться" ще не настав
+  // або "Зникне" вже минув. Інші типи блоків (heading/text/image тощо) лишаються завжди.
+  // Також фільтруємо newsCard, у яких прикріплена новина не доступна (не published чи suspended).
+  const visibleBlocks = blocks.filter((b) => {
+    if (b.type === "newsCard") {
+      const newsId = b.data.newsId || "";
+      if (!newsItemsForBlocks.some((n) => n.id === newsId)) return false;
+
+      const fromStr = b.data.visibleFrom || "";
+      const untilStr = b.data.visibleUntil || "";
+      if (fromStr) {
+        const from = new Date(fromStr);
+        if (!Number.isNaN(from.getTime()) && from > now) return false;
+      }
+      if (untilStr) {
+        const until = new Date(untilStr);
+        if (!Number.isNaN(until.getTime()) && until <= now) return false;
+      }
+    }
+    return true;
   });
 
+  const useBuilderLayout = visibleBlocks.length > 0;
+  const pageBg = pageRow?.pageBgColor || undefined;
+  const canvasH = useBuilderLayout ? canvasHeight(visibleBlocks) : 0;
+
   return (
-    <main className="min-h-screen bg-gray-50">
+    <main className="min-h-screen" style={{ background: pageBg || "#F9FAFB" }}>
+      <style>{NEWS_BLOCK_CSS}</style>
       <section className="bg-gradient-to-br from-[#1C3A2E] to-[#2a4f3f] text-white py-20">
         <div className="max-w-5xl mx-auto px-4 text-center">
           <h1 className="text-4xl md:text-5xl font-bold mb-4">{c.title}</h1>
@@ -49,62 +114,45 @@ export default async function NewsPage({ params }: { params: Promise<{ locale: s
       </section>
 
       <section className="max-w-5xl mx-auto px-4 py-16">
-        {news.length === 0 ? (
+        {useBuilderLayout ? (
+          <>
+            {/* Desktop — абсолютний canvas; Mobile — sequential stack. */}
+            <div
+              className="hidden md:block relative mx-auto"
+              style={{ width: CANVAS_WIDTH, height: canvasH }}
+            >
+              {visibleBlocks.map(b => (
+                <AbsoluteBlockRender
+                  key={b.id}
+                  block={b}
+                  newsItems={newsItemsForBlocks}
+                  locale={locale}
+                />
+              ))}
+            </div>
+            <div className="md:hidden">
+              {visibleBlocks.map(b => (
+                <SequentialBlockRender
+                  key={b.id}
+                  block={b}
+                  newsItems={newsItemsForBlocks}
+                  locale={locale}
+                />
+              ))}
+            </div>
+          </>
+        ) : (
+          // Empty state: жодного newsCard на сторінці білдера. Раніше тут була авто-сітка
+          // з усіх published новин — тепер ні (видимість на /news диктує білдер).
+          // Якщо є published новини але вони не розміщені — нагадуємо адміну. Інакше —
+          // загальний "новин ще немає".
           <div className="text-center py-20">
             <div className="text-6xl mb-4">{"📰"}</div>
             <p className="text-gray-500 text-lg">{c.empty}</p>
-          </div>
-        ) : (
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {news.map((item) => {
-              const title = locale === "en" ? (item.titleEn ?? item.title)
-                : locale === "pl" ? (item.titlePl ?? item.title)
-                : item.title;
-              const excerpt = locale === "en" ? (item.excerptEn ?? item.excerpt)
-                : locale === "pl" ? (item.excerptPl ?? item.excerpt)
-                : item.excerpt;
-              return (
-              <Link key={item.id} href={`/news/${item.slug}`}
-                className="bg-white rounded-2xl shadow-sm hover:shadow-md transition-all overflow-hidden group">
-                {item.imageUrl ? (
-                  <div className="relative w-full h-48 overflow-hidden">
-                    <Image src={item.imageUrl} alt={title} fill sizes="(max-width: 768px) 100vw, (max-width: 1024px) 50vw, 33vw" className="object-cover group-hover:scale-105 transition-transform duration-300" />
-                  </div>
-                ) : (
-                  <div className="w-full h-48 bg-gradient-to-br from-[#1C3A2E] to-[#2a4f3f] flex items-center justify-center">
-                    <span className="text-5xl">{"📰"}</span>
-                  </div>
-                )}
-                <div className="p-6">
-                  <div className="flex items-center gap-2 mb-3">
-                    <span className={`text-xs px-2 py-1 rounded-full font-medium ${CATEGORY_COLORS[item.category]}`}>
-                      {c.categories[item.category as keyof typeof c.categories] ?? item.category}
-                    </span>
-                  </div>
-                  <h2 className="font-bold text-[#1C3A2E] text-lg mb-2 group-hover:text-[#D4A843] transition-colors line-clamp-2">
-                    {title}
-                  </h2>
-                  {excerpt && (
-                    <p className="text-gray-500 text-sm mb-4 line-clamp-3">{excerpt}</p>
-                  )}
-                  <div className="flex items-center gap-4 text-xs text-gray-400">
-                    <span className="flex items-center gap-1">
-                      <FaCalendar />
-                      {new Date(item.createdAt).toLocaleDateString(locale === "uk" ? "uk-UA" : locale === "pl" ? "pl-PL" : "en-US")}
-                    </span>
-                    {item.author?.name && (
-                      <span className="flex items-center gap-1">
-                        <FaUser />
-                        {item.author.name}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </Link>
-            );})}
           </div>
         )}
       </section>
     </main>
   );
 }
+

@@ -30,9 +30,16 @@ interface Props {
   // слідкувати за позицією вибраного блока поза EditorCanvas.
   selectedBlockId: string | null;
   onSelectBlock: (id: string | null) => void;
+  /** Додаткові блоки в палітрі (page-builder сторінки /news або інші режими). */
+  extraPaletteBlocks?: typeof PALETTE_BLOCKS;
+  extraPaletteBlocksTitle?: string;
+  /** Правий сайдбар, що рендериться ВСЕРЕДИНІ DndContext (щоб draggable у ньому
+   *  бачили той самий контекст, що й канвас). Для page-mode — NewsLibrarySidebar
+   *  з drag-картками новин. Для post-mode — MetaSidebar (статичний; контексту не потребує). */
+  rightSidebar?: React.ReactNode;
 }
 
-export default function EditorCanvas({ blocks, onBlocksChange, onUpload, pageBgColor, selectedBlockId, onSelectBlock }: Props) {
+export default function EditorCanvas({ blocks, onBlocksChange, onUpload, pageBgColor, selectedBlockId, onSelectBlock, extraPaletteBlocks, extraPaletteBlocksTitle, rightSidebar }: Props) {
   const [lastAddedId, setLastAddedId] = useState<string | null>(null);
   const setSelectedBlockId = (next: string | null | ((prev: string | null) => string | null)) => {
     if (typeof next === "function") {
@@ -134,7 +141,7 @@ export default function EditorCanvas({ blocks, onBlocksChange, onUpload, pageBgC
   const {
     previewWidths, previewXs, previewHeights, blockHeights,
     updateBlock, deleteBlock, moveBlock, duplicateBlock,
-    setWidth, setWidthAndData, setAlign, setBg,
+    setWidth, setWidthAndData, setAlign, setVAlign, setBg,
     setPreview, clearPreview, setPreviewX, clearPreviewX,
     setPreviewHeight, clearPreviewHeight, reportHeight,
   } = useBlockManager(blocks, onBlocksChange);
@@ -693,8 +700,23 @@ export default function EditorCanvas({ blocks, onBlocksChange, onUpload, pageBgC
           bg: "rgba(212,168,67,0.08)",
         };
       } else {
-        activePaletteRef.current = PALETTE_BLOCKS.find(b => `palette:${b.type}` === idStr) || null;
+        activePaletteRef.current =
+          PALETTE_BLOCKS.find(b => `palette:${b.type}` === idStr) ||
+          (extraPaletteBlocks ?? []).find(b => `palette:${b.type}` === idStr) ||
+          null;
       }
+    } else if (idStr.startsWith("news-card:")) {
+      // Drag з NewsLibrarySidebar — перетягуємо існуючу новину на канвас.
+      // Ghost-block використовує newsCard метадані для preview.
+      activePaletteRef.current = {
+        type: "newsCard" as const,
+        label: "Новина",
+        icon: "📰",
+        desc: "Картка зі списку",
+        color: "#D4A843",
+        colorDim: "rgba(212,168,67,0.18)",
+        bg: "rgba(212,168,67,0.08)",
+      };
     }
   }, [updateCanvasRect]);
 
@@ -708,18 +730,21 @@ export default function EditorCanvas({ blocks, onBlocksChange, onUpload, pageBgC
     setIsOverCanvas(over);
 
     const idStr = String(event.active.id);
-    if (idStr.startsWith("palette:") && over) {
+    const isFromPalette = idStr.startsWith("palette:") || idStr.startsWith("news-card:");
+    if (isFromPalette && over) {
       // Ghost показує реальний slot: Y = cursor Y, width підганяється під вільну
       // горизонтальну прорізку (100% якщо порожньо, менше якщо поруч сусіди).
+      // Дефолтна ширина для newsCard — 33% (≈1 з 3 у ряду), для решти — 100%.
+      const defaultW = idStr.startsWith("news-card:") ? 33 : 100;
       const xPx = cursorX - rect.left;
       const yPx = cursorY - rect.top;
       const cursorXPct = (xPx / rect.width) * 100;
-      const slot = findDropSlot(null, cursorXPct, yPx, 100);
+      const slot = findDropSlot(null, cursorXPct, yPx, defaultW);
       const clamped = clampXY(slot.x, slot.y, slot.width);
       const final = { x: clamped.x, y: clamped.y, width: slot.width };
       dropPreviewRef.current = final;
       setDropPreview(final);
-    } else if (!idStr.startsWith("palette:")) {
+    } else if (!isFromPalette) {
       // Існуючий блок — ghost йде за курсором + edge-snap до сусідніх блоків.
       const b = blocks.find(x => x.id === idStr);
       if (b) {
@@ -869,6 +894,8 @@ export default function EditorCanvas({ blocks, onBlocksChange, onUpload, pageBgC
   const handleDragEnd = useCallback((event: DragEndEvent) => {
     const idStr = String(event.active.id);
     const isPalette = idStr.startsWith("palette:");
+    const isNewsCard = idStr.startsWith("news-card:");
+    const isFromPalette = isPalette || isNewsCard;
     const preview = dropPreviewRef.current;
     const rect = canvasRectRef.current;
 
@@ -879,7 +906,7 @@ export default function EditorCanvas({ blocks, onBlocksChange, onUpload, pageBgC
     setAlignGuides([]);
     setSizeMatches([]);
 
-    if (isPalette) {
+    if (isFromPalette) {
       if (!rect) return;
       const ev = event.activatorEvent as MouseEvent;
       const cursorX = ev.clientX + (event.delta?.x || 0);
@@ -916,7 +943,8 @@ export default function EditorCanvas({ blocks, onBlocksChange, onUpload, pageBgC
         return;
       }
 
-      const type = idStr.replace("palette:", "") as BlockType;
+      const type: BlockType = isNewsCard ? "newsCard" : (idStr.replace("palette:", "") as BlockType);
+      const droppedNewsId = isNewsCard ? idStr.replace("news-card:", "") : "";
       const newId = uid();
       const estH = TYPE_HEIGHT[type] ?? 80;
 
@@ -940,8 +968,11 @@ export default function EditorCanvas({ blocks, onBlocksChange, onUpload, pageBgC
         );
       }
 
+      // Дефолтні data: для newsCard — ID конкретної новини (з drag-payload з правого бару).
+      const defaultData: Record<string, string> =
+        type === "newsCard" ? { newsId: droppedNewsId } : {};
       const newBlock: Block = {
-        id: newId, type, data: {},
+        id: newId, type, data: defaultData,
         width: String(roundW(width)), align: "left", bgColor: "",
         x: clamped.x, y: clamped.y,
         // ⚠️ Явна height ОБОВ'ЯЗКОВА: інакше wrapper стає auto, content всередині
@@ -977,7 +1008,9 @@ export default function EditorCanvas({ blocks, onBlocksChange, onUpload, pageBgC
     onBlocksChange(next);
   }, [blocks, onBlocksChange, clearPreview, canvasHeight]);
 
-  const paletteBlock = activeId?.startsWith("palette:") ? activePaletteRef.current : null;
+  const paletteBlock = (activeId?.startsWith("palette:") || activeId?.startsWith("news-card:"))
+    ? activePaletteRef.current
+    : null;
 
   function blockWidthPct(b: Block): number {
     const preview = previewWidths[b.id];
@@ -1020,6 +1053,8 @@ export default function EditorCanvas({ blocks, onBlocksChange, onUpload, pageBgC
       >
         <div style={{ display: "flex", gap: "20px", alignItems: "stretch" }}>
           <BlockPalette
+            extraBlocks={extraPaletteBlocks}
+            extraBlocksTitle={extraPaletteBlocksTitle}
             selectedBlockY={(() => {
               if (!selectedBlockId) return null;
               const sel = blocks.find(b => b.id === selectedBlockId);
@@ -1175,6 +1210,7 @@ export default function EditorCanvas({ blocks, onBlocksChange, onUpload, pageBgC
                       onSetWidth={handleSetWidth}
                       onSetWidthAndData={handleSetWidthAndData}
                       onSetAlign={setAlign}
+                      onSetVAlign={setVAlign}
                       onSetBg={setBg}
                       onUpload={onUpload}
                       onPreviewWidth={handlePreviewWidth}
@@ -1207,6 +1243,28 @@ export default function EditorCanvas({ blocks, onBlocksChange, onUpload, pageBgC
               {"Тягніть блоки за хедер куди завгодно на сторінці. Край → resize. Snap 8px."}
             </div>
           </div>
+
+          {/* Правий сайдбар. ВСЕРЕДИНІ DndContext щоб draggable у ньому (картки новин з
+              NewsLibrarySidebar) поділяли той самий контекст з канвасом. Sticky — щоб
+              слідував за скролом, як ліва палітра. */}
+          {rightSidebar && (
+            <div
+              className="news-palette-scroll"
+              style={{
+                position: "sticky",
+                top: "80px",
+                alignSelf: "flex-start",
+                maxHeight: "calc(100vh - 100px)",
+                overflowY: "auto",
+                overflowX: "hidden",
+                scrollbarWidth: "none",
+                msOverflowStyle: "none",
+                flexShrink: 0,
+              }}
+            >
+              {rightSidebar}
+            </div>
+          )}
         </div>
 
         <DragOverlay dropAnimation={null}>
@@ -1398,6 +1456,7 @@ function AbsoluteBlock(props: {
   onSetWidth: (id: string, w: string) => void;
   onSetWidthAndData: (id: string, w: string, data: Record<string, string>, height?: number) => void;
   onSetAlign: (id: string, a: "left" | "center" | "right") => void;
+  onSetVAlign: (id: string, v: "top" | "center" | "bottom") => void;
   onSetBg: (id: string, c: string) => void;
   onUpload: (file: File) => Promise<string>;
   onPreviewWidth: (id: string, pct: number) => void;
@@ -1496,6 +1555,7 @@ function AbsoluteBlock(props: {
         onSetWidth={props.onSetWidth}
         onSetWidthAndData={props.onSetWidthAndData}
         onSetAlign={props.onSetAlign}
+        onSetVAlign={props.onSetVAlign}
         onSetBg={props.onSetBg}
         onUpload={props.onUpload}
         containerWidthPx={canvasWidthPx}

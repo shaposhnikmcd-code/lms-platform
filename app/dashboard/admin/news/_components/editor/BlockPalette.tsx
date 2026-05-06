@@ -128,6 +128,10 @@ interface PaletteProps {
   /** Y-координата вибраного блока (px відносно canvas-top). Settings-секція
    *  vertically вирівнюється сюди — щоб "відкривалась" поряд з блоком. */
   selectedBlockY?: number | null;
+  /** Додаткові блоки палітри для контексту "page-builder" (наприклад, newsList). */
+  extraBlocks?: typeof PALETTE_BLOCKS;
+  /** Заголовок секції під додатковими блоками. */
+  extraBlocksTitle?: string;
 }
 
 // Draggable handle для overlay-tool — drop на image-блок створює overlay у точці drop.
@@ -236,7 +240,7 @@ function ImageOverlayPaletteItem({ onAddImageOverlay }: { onAddImageOverlay: () 
   );
 }
 
-export default function BlockPalette({ onAddImageOverlay, selectedBlockY }: PaletteProps = {}) {
+export default function BlockPalette({ onAddImageOverlay, selectedBlockY, extraBlocks, extraBlocksTitle }: PaletteProps = {}) {
   // selectedBlockY більше не потрібний для геометрії — settings завжди на верху palette
   // (стандартний Figma/Webflow паттерн). Зберігаємо параметр для майбутньої сумісності.
   void selectedBlockY;
@@ -329,6 +333,28 @@ export default function BlockPalette({ onAddImageOverlay, selectedBlockY }: Pale
 
       <div style={{ display: "flex", flexDirection: "column", gap: "5px" }}>
         {PALETTE_BLOCKS.map(b => <PaletteItem key={b.type} {...b} />)}
+
+        {/* Контекстні блоки (наприклад, newsList) — тільки для page-builder сторінки /news */}
+        {extraBlocks && extraBlocks.length > 0 && (
+          <>
+            <div style={{
+              height: "1px",
+              background: "rgba(255,255,255,0.08)",
+              margin: "10px 4px 8px",
+            }} />
+            <div style={{
+              fontSize: "9px",
+              fontWeight: 700,
+              color: "rgba(212,168,67,0.6)",
+              letterSpacing: "0.18em",
+              textTransform: "uppercase",
+              fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
+              paddingLeft: "4px",
+              marginBottom: "6px",
+            }}>{extraBlocksTitle || "Динамічні"}</div>
+            {extraBlocks.map(b => <PaletteItem key={b.type} {...b} />)}
+          </>
+        )}
 
         {/* Subgroup — інструменти для існуючого блоку Фото (не самостійні блоки) */}
         {onAddImageOverlay && (

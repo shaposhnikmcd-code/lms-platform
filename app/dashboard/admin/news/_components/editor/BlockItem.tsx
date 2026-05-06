@@ -2,16 +2,18 @@
 
 import React, { useState } from "react";
 import { createPortal } from "react-dom";
-import { Block, BlockAlign, BlockWidth } from "./types";
+import { Block, BlockAlign, BlockVAlign, BlockWidth } from "./types";
 import TextEditor from "./blocks/TextEditor";
 import HeadingEditor from "./blocks/HeadingEditor";
 import ImageEditor from "./blocks/ImageEditor";
 import YoutubeEditor from "./blocks/YoutubeEditor";
 import QuoteEditor from "./blocks/QuoteEditor";
 import CardEditor from "./blocks/CardEditor";
+import NewsCardEditor from "./blocks/NewsCardEditor";
 import BlockItemHeader from "./BlockItemHeader";
 import BlockItemSnapGuide from "./BlockItemSnapGuide";
 import { useBlockResize } from "./hooks/useBlockResize";
+import { canvasHeight as innerCanvasHeight, parseBlocks as parseInnerBlocks } from "@/lib/news/render";
 
 interface Props {
   block: Block;
@@ -28,6 +30,7 @@ interface Props {
   onSetWidth: (id: string, w: BlockWidth) => void;
   onSetWidthAndData: (id: string, w: BlockWidth, data: Record<string, string>, height?: number) => void;
   onSetAlign: (id: string, a: BlockAlign) => void;
+  onSetVAlign: (id: string, v: BlockVAlign) => void;
   onSetBg: (id: string, c: string) => void;
   onUpload: (file: File) => Promise<string>;
   containerWidthPx: number;
@@ -50,7 +53,7 @@ export default function BlockItem({
   block, index, selected = false, canMoveUp, canMoveDown,
   dragAttributes, dragListeners,
   onChange, onMoveUp, onMoveDown, onDuplicate,
-  onSetWidth, onSetWidthAndData, onSetAlign, onSetBg,
+  onSetWidth, onSetWidthAndData, onSetAlign, onSetVAlign, onSetBg,
   onUpload, containerWidthPx, onPreviewWidth, onClearPreview,
   onPreviewHeight, onClearPreviewHeight, previewHeight,
   onReportHeight, getSameRowHeights, snapThreshold,
@@ -134,6 +137,77 @@ export default function BlockItem({
     }
   }, [block.type, block.data.aspectRatio, block.width, block.height, block.id, block.data, containerWidthPx, onSetWidthAndData]);
 
+  // Авто-висота + ширина для newsCard:
+  //   - displayMode="expanded": висота = canvasHeight(news.content), ШИРИНА = 100%
+  //     (бо контент новини авторовано на повний canvas; вузький блок змалював би
+  //     текст/зображення з overlap-ом і неправильним внутрішнім лейаутом).
+  //   - displayMode="preview" з кастомним previewContent: висота = canvasHeight(previewContent)
+  //   - displayMode="preview" без previewContent: лишаємо auto-card (висота керується вручну)
+  const lastNewsExpandedKeyRef = React.useRef<string>("");
+  React.useEffect(() => {
+    if (block.type !== "newsCard") return;
+    const mode = (block.data.displayMode || "preview") as "preview" | "expanded";
+    const newsId = block.data.newsId || "";
+    if (!newsId) return;
+    if (containerWidthPx <= 0) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch("/api/admin/news/library");
+        if (!r.ok) return;
+        const list = await r.json() as { id: string; content?: string | null; previewContent?: string | null }[];
+        if (!Array.isArray(list)) return;
+        const it = list.find(x => x.id === newsId);
+        if (!it) return;
+
+        let total = 0;
+        let targetWidth = block.width;
+        if (mode === "expanded") {
+          const parsed = parseInnerBlocks(it.content || "");
+          const innerH = parsed.isJson ? innerCanvasHeight(parsed.blocks) : 0;
+          total = innerH > 0 ? innerH + 20 : 240;
+          // Розгорнута новина має займати повну ширину канвасу — інакше абсолютно
+          // позиціоновані внутрішні блоки виглядають криво (контент авторовано на
+          // 100% canvas-у). Force-set один раз при переключенні в expanded.
+          targetWidth = "100";
+        } else if (mode === "preview" && it.previewContent) {
+          const parsed = parseInnerBlocks(it.previewContent);
+          const innerH = parsed.isJson ? innerCanvasHeight(parsed.blocks) : 0;
+          if (innerH > 0) total = innerH + 8;
+        } else {
+          // mode === "preview" БЕЗ кастомного previewContent — auto-card. Якщо блок
+          // зараз "роздутий" від попереднього expanded стану (100% × велика висота),
+          // повертаємо дефолтні розміри auto-картки. Інакше — лишаємо як є (юзер
+          // міг сам ресайзити).
+          const isOversized = (Number(block.width) || 100) >= 90 && (block.height || 0) > 420;
+          if (isOversized) {
+            targetWidth = "33";
+            total = 380;
+          } else {
+            return; // preview default — auto-card, не чіпаємо
+          }
+        }
+        if (total === 0) return;
+
+        const widthChanged = targetWidth !== block.width;
+        const heightChanged = Math.abs((block.height || 0) - total) > 8;
+        const key = `${newsId}|${mode}|${targetWidth}|${total}`;
+        if (lastNewsExpandedKeyRef.current === key) return;
+        if (cancelled) return;
+        lastNewsExpandedKeyRef.current = key;
+
+        if (widthChanged || heightChanged) {
+          onSetWidthAndData(block.id, targetWidth, block.data, total);
+        }
+      } catch {
+        /* network/parse fail — лишаємо поточну висоту */
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [block.type, block.data.displayMode, block.data.newsId, block.width, block.height, block.id, block.data, containerWidthPx, onSetWidthAndData]);
+
   const isSnapping = snapGuideH !== null;
   const textColor = (block.bgColor === "#1C3A2E" || block.bgColor === "#1a1a1a") ? "#FAF6F0" : "#1C3A2E";
   // Червоний "aspectBroken" індикатор прибрано — auto-aspect resize і так тримає
@@ -205,6 +279,7 @@ export default function BlockItem({
           blockId={block.id}
           blockType={block.type}
           blockAlign={block.align}
+          blockVAlign={block.vAlign || "top"}
           blockBgColor={block.bgColor}
           displayPct={displayPct}
           hov={false}
@@ -213,6 +288,7 @@ export default function BlockItem({
           dragAttributes={{}}
           dragListeners={undefined}
           onSetAlign={onSetAlign}
+          onSetVAlign={onSetVAlign}
           onSetBg={onSetBg}
           onMoveUp={onMoveUp}
           onMoveDown={onMoveDown}
@@ -243,7 +319,11 @@ export default function BlockItem({
           // Контекстні toolbar-и (overlay тексту-на-фото, alt-input) винесені у портал
           // у праву sidebar-панель — див. ImageEditor.tsx + NewsEditor.tsx (slot
           // #news-overlay-toolbar-slot). Так нічого не накладається на канвасі.
-          overflow: "hidden",
+          // Виняток: newsCard з displayMode="expanded" АБО з displayMode="preview"+
+          // кастомним previewContent — там контент може зрости поза block.height,
+          // а auto-resize ефект досі не встиг вирівняти — тому дозволяємо visible,
+          // щоб користувач бачив весь контент одразу.
+          overflow: (block.type === "newsCard" && (block.data.displayMode === "expanded" || block.data.displayMode === "preview")) ? "visible" : "hidden",
           position: "relative",
           transition: resizingW || resizingH || resizingD ? "none" : "outline-color 0.15s",
         }}
@@ -253,11 +333,12 @@ export default function BlockItem({
         )}
 
         {block.type === "text"    && <TextEditor    block={block} onChange={d => onChange(block.id, d)} selected={selected} />}
-        {block.type === "heading" && <HeadingEditor block={block} onChange={d => onChange(block.id, d)} selected={selected} />}
+        {block.type === "heading" && <HeadingEditor block={block} onChange={d => onChange(block.id, d)} selected={selected} onSetVAlign={v => onSetVAlign(block.id, v)} />}
         {block.type === "image"   && <ImageEditor   block={block} onChange={d => onChange(block.id, d)} onUpload={onUpload} previewHeight={previewHeight} selected={selected} onSelectBlock={onSelectBlock} onOverlayActiveChange={setOverlayActive} />}
         {block.type === "youtube" && <YoutubeEditor block={block} onChange={d => onChange(block.id, d)} selected={selected} />}
         {block.type === "quote"   && <QuoteEditor   block={block} onChange={d => onChange(block.id, d)} selected={selected} />}
         {block.type === "card"    && <CardEditor    block={block} onChange={d => onChange(block.id, d)} onUpload={onUpload} />}
+        {block.type === "newsCard"&& <NewsCardEditor block={block} onChange={d => onChange(block.id, d)} selected={selected} />}
         {block.type === "divider" && <hr style={{ border: "none", borderTopWidth: "2px", borderTopStyle: "solid", borderTopColor: "#D4A843", margin: "8px 0" }} />}
       </div>
 

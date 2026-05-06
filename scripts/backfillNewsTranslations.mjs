@@ -99,7 +99,13 @@ async function translateNewsContent(content, lang) {
 async function main() {
   const news = await prisma.news.findMany({
     where: {
-      OR: [{ titleEn: null }, { titlePl: null }, { contentEn: null }, { contentPl: null }],
+      OR: [
+        { titleEn: null }, { titlePl: null },
+        { contentEn: null }, { contentPl: null },
+        // previewContent: перекладаємо тільки якщо оригінал заданий і EN/PL ще нема.
+        { AND: [{ NOT: { previewContent: null } }, { previewContentEn: null }] },
+        { AND: [{ NOT: { previewContent: null } }, { previewContentPl: null }] },
+      ],
     },
   });
   console.log(`Found ${news.length} news items needing translation.`);
@@ -113,10 +119,20 @@ async function main() {
       const excerptPl = n.excerptPl ?? (n.excerpt ? await translateString(n.excerpt, 'pl') : null);
       const contentEn = n.contentEn ?? await translateNewsContent(n.content, 'en');
       const contentPl = n.contentPl ?? await translateNewsContent(n.content, 'pl');
+      const previewContentEn = n.previewContent && !n.previewContentEn
+        ? await translateNewsContent(n.previewContent, 'en')
+        : (n.previewContentEn ?? null);
+      const previewContentPl = n.previewContent && !n.previewContentPl
+        ? await translateNewsContent(n.previewContent, 'pl')
+        : (n.previewContentPl ?? null);
 
       await prisma.news.update({
         where: { id: n.id },
-        data: { titleEn, titlePl, excerptEn, excerptPl, contentEn, contentPl },
+        data: {
+          titleEn, titlePl, excerptEn, excerptPl,
+          contentEn, contentPl,
+          previewContentEn, previewContentPl,
+        },
       });
       console.log(`  ✓ updated`);
     } catch (e) {

@@ -1,76 +1,148 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { HiOutlineCheckCircle } from "react-icons/hi2";
 import { Block, NewsMeta, blocksToJson, jsonToBlocks } from "./types";
 import EditorCanvas from "./EditorCanvas";
 import MetaSidebar from "./MetaSidebar";
+import NewsLibrarySidebar from "./NewsLibrarySidebar";
 import { NEWS_BLOCK_CSS } from "@/lib/news/render";
 
-// Settings slot тепер живе ВСЕРЕДИНІ BlockPalette (внизу палітри) — щоб усе ліве меню
-// було в одному компоненті, без floating overlay.
-
-function saveDraft(meta: NewsMeta, blocks: Block[], newsId?: string) {
-  try { localStorage.setItem(`uimp_draft_${newsId || "new"}`, JSON.stringify({ meta, blocks, savedAt: Date.now() })); } catch {}
-}
-function clearDraft(newsId?: string) {
-  try { localStorage.removeItem(`uimp_draft_${newsId || "new"}`); } catch {}
-}
-function loadDraft(newsId?: string): { meta: NewsMeta; blocks: Block[]; savedAt?: number } | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = localStorage.getItem(`uimp_draft_${newsId || "new"}`);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (parsed && parsed.meta && Array.isArray(parsed.blocks)) return parsed;
-  } catch {}
-  return null;
-}
+// Multi-tab NewsEditor.
+// Backward-compat: одиночний контент (initialContent + onSave) працює як раніше.
+// Новий режим: tabs[] — по канвасу на кожен таб (контент / превʼю / тощо).
+// Кожна вкладка має:
+//   - власні блоки state
+//   - власну історію undo/redo
+//   - власний selection
+// Спільні: meta, save кнопка, палітра/MetaSidebar.
 
 const HISTORY_CAP = 80;
 const HISTORY_DEBOUNCE_MS = 350;
+const DEFAULT_TAB_KEY = "main";
+
+interface TabConfig {
+  key: string;
+  label: string;
+  initialContent: string;
+}
+
+interface DraftPayload {
+  meta: NewsMeta;
+  blocksByTab: Record<string, Block[]>;
+  savedAt: number;
+}
+
+function draftKey(newsId?: string) {
+  return `uimp_draft_${newsId || "new"}`;
+}
+
+function saveDraft(meta: NewsMeta, blocksByTab: Record<string, Block[]>, newsId?: string) {
+  try {
+    const payload: DraftPayload = { meta, blocksByTab, savedAt: Date.now() };
+    localStorage.setItem(draftKey(newsId), JSON.stringify(payload));
+  } catch { /* localStorage недоступний */ }
+}
+function clearDraft(newsId?: string) {
+  try { localStorage.removeItem(draftKey(newsId)); } catch { /* ignore */ }
+}
+function loadDraft(newsId?: string): DraftPayload | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(draftKey(newsId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || !parsed.meta) return null;
+    // Backward compat: старий формат {meta, blocks}.
+    if (Array.isArray(parsed.blocks)) {
+      return { meta: parsed.meta, blocksByTab: { [DEFAULT_TAB_KEY]: parsed.blocks }, savedAt: parsed.savedAt || 0 };
+    }
+    if (parsed.blocksByTab && typeof parsed.blocksByTab === "object") {
+      return parsed as DraftPayload;
+    }
+    return null;
+  } catch { return null; }
+}
 
 interface HistorySnap { meta: NewsMeta; blocks: Block[] }
 
-export default function NewsEditor({
-  pageTitle, initialMeta, initialContent, newsId, onSave, onBack, saving,
-}: {
+interface BaseProps {
   pageTitle: string;
   initialMeta?: Partial<NewsMeta>;
-  initialContent?: string;
   newsId?: string;
-  onSave: (meta: NewsMeta, content: string, imageUrl: string) => Promise<void>;
   onBack: () => void;
   saving: boolean;
-}) {
-  void onBack;
+  /** "post" — звичайна новина (MetaSidebar з title/slug/excerpt/cover).
+   *  "page" — білдер сторінки /news (NewsLibrarySidebar з картками новин).
+   *  "preview" — соло-білдер превʼю-картки конкретної новини (без правого бару). */
+  mode?: "post" | "page" | "preview";
+}
+
+interface SingleProps extends BaseProps {
+  initialContent?: string;
+  onSave: (meta: NewsMeta, content: string, imageUrl: string) => Promise<void>;
+  tabs?: undefined;
+  onSaveTabs?: undefined;
+}
+
+interface TabbedProps extends BaseProps {
+  tabs: TabConfig[];
+  onSaveTabs: (meta: NewsMeta, contents: Record<string, string>, imageUrl: string) => Promise<void>;
+  initialContent?: undefined;
+  onSave?: undefined;
+}
+
+type Props = SingleProps | TabbedProps;
+
+export default function NewsEditor(props: Props) {
+  const { pageTitle, initialMeta, newsId, saving, mode = "post" } = props;
+  void props.onBack;
+
   const def: NewsMeta = { title: "", slug: "", excerpt: "", category: "NEWS", imageUrl: "", published: false };
 
-  // Спробуємо відновити чернетку з localStorage одразу при маунті,
-  // щоб якщо користувач перезавантажив сторінку — напрацювання не зникли.
-  const initialDraft = loadDraft(newsId);
-  const draftRestoredRef = useRef(!!initialDraft);
+  // Нормалізуємо tabs — single-tab caller автоматом отримує один таб "main".
+  const effectiveTabs: TabConfig[] = useMemo(() => {
+    if ("tabs" in props && props.tabs && props.tabs.length > 0) return props.tabs;
+    return [{ key: DEFAULT_TAB_KEY, label: "", initialContent: ("initialContent" in props ? props.initialContent : "") || "" }];
+    // initialContent зміни приходять через окремий ефект нижче (синхронізація з parent fetch).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    "tabs" in props ? props.tabs : null,
+    "initialContent" in props ? props.initialContent : null,
+  ]);
 
-  const [meta, setMeta] = useState<NewsMeta>(() =>
-    initialDraft?.meta ?? { ...def, ...initialMeta }
-  );
-  const [blocks, setBlocks] = useState<Block[]>(() =>
-    initialDraft?.blocks ?? jsonToBlocks(initialContent || "")
-  );
+  const isMultiTab = effectiveTabs.length > 1;
+
+  // Відновлення з localStorage при першому маунті.
+  const initialDraft = loadDraft(newsId);
+
+  const [meta, setMeta] = useState<NewsMeta>(() => initialDraft?.meta ?? { ...def, ...initialMeta });
+
+  // blocksByTab — Record<TabKey, Block[]>. Якщо в драфті є ключ — беремо звідти, інакше з initialContent.
+  const [blocksByTab, setBlocksByTab] = useState<Record<string, Block[]>>(() => {
+    const out: Record<string, Block[]> = {};
+    for (const t of effectiveTabs) {
+      const draftBlocks = initialDraft?.blocksByTab?.[t.key];
+      out[t.key] = draftBlocks ?? jsonToBlocks(t.initialContent || "");
+    }
+    return out;
+  });
+
+  // Selection per tab — щоб перемикання табів не "переносило" виділення між канвасами.
+  const [selectedByTab, setSelectedByTab] = useState<Record<string, string | null>>(() => {
+    const out: Record<string, string | null> = {};
+    for (const t of effectiveTabs) out[t.key] = null;
+    return out;
+  });
+
+  const [activeTab, setActiveTab] = useState<string>(effectiveTabs[0].key);
+
   const [message, setMessage] = useState("");
   const [uploading, setUploading] = useState(false);
-  // Selection піднято з EditorCanvas сюди — щоб FloatingBlockSettings (фіксована
-  // panel зліва, що слідкує за вибраним блоком) могла читати selection.
-  const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
 
-  // Page zoom через Ctrl+колесо. Браузер за замовчуванням на Ctrl+wheel робить
-  // власний UI-zoom (всю сторінку разом з шапкою браузера), що тут небажано —
-  // потрібно зумити саме контент editor-а. Тому ловимо wheel non-passive і
-  // preventDefault, далі скейлимо обгортку через CSS `zoom` (на відміну від
-  // transform: scale, він коректно перераховує scroll-area).
+  // ── Page zoom (Ctrl+wheel) ───────────────────────────────────────────────
   const [zoom, setZoom] = useState(1);
   const editorRootRef = useRef<HTMLDivElement>(null);
-
   useEffect(() => {
     const el = editorRootRef.current;
     if (!el) return;
@@ -83,8 +155,6 @@ export default function NewsEditor({
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
   }, []);
-
-  // Ctrl+0 — скинути zoom до 100%.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey)) return;
@@ -99,94 +169,104 @@ export default function NewsEditor({
     return () => document.removeEventListener("keydown", onKey);
   }, []);
 
-  // ── Undo/Redo (Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y) ────────────────────────────
-  const historyRef = useRef<HistorySnap[]>([]);
-  const pointerRef = useRef(-1);
-  const skipPushRef = useRef(false);
-  const pushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [historyTick, setHistoryTick] = useState(0); // тригер ре-рендеру для disabled-стану кнопок
+  // ── Undo/Redo per tab ────────────────────────────────────────────────────
+  // Map<tabKey, {history, pointer}>. Тригер ре-рендеру disabled-стану — historyTick.
+  const histRef = useRef<Map<string, { history: HistorySnap[]; pointer: number }>>(new Map());
+  const skipPushRef = useRef<Set<string>>(new Set());
+  const pushTimerRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const [historyTick, setHistoryTick] = useState(0);
+  void historyTick;
 
-  // Відстежуємо попередній initialContent щоб НЕ перезаписувати state при
-  // повторних викликах useEffect-у з тим самим значенням (React 18 strict-mode
-  // double-mount, parent re-render тощо). Стейт скидається ТІЛЬКИ якщо parent
-  // реально передав НОВИЙ initialContent (наприклад, юзер перейшов на іншу новину).
-  const prevInitialContentRef = useRef<string | undefined>(undefined);
+  // Sync state from parent (initialContent / tabs.initialContent) — ТІЛЬКИ коли реально змінилось.
+  // Зберігаємо попередні значення в ref щоб не перезаписувати state на double-mount React 18.
+  const prevInitialRef = useRef<string>("");
   useEffect(() => {
-    // Перший запуск — нічого не робимо: useState lazy-init вже виставив state
-    // (з draft або initialContent). Просто запам'ятовуємо значення.
-    if (prevInitialContentRef.current === undefined) {
-      prevInitialContentRef.current = initialContent;
-      return;
-    }
-    // Те саме значення → strict-mode чи інший no-op re-render → не чіпаємо state.
-    if (prevInitialContentRef.current === initialContent) return;
-    // Реальна зміна → застосовуємо нову DB-версію.
+    const sig = JSON.stringify(effectiveTabs.map(t => ({ k: t.key, c: t.initialContent })));
+    if (!prevInitialRef.current) { prevInitialRef.current = sig; return; }
+    if (prevInitialRef.current === sig) return;
+    prevInitialRef.current = sig;
+    // Реальна зміна (інша новина) — ресет state до нових значень.
     setMeta({ ...def, ...initialMeta });
-    setBlocks(jsonToBlocks(initialContent || ""));
-    prevInitialContentRef.current = initialContent;
-    historyRef.current = [];
-    pointerRef.current = -1;
-    skipPushRef.current = false;
-    if (pushTimerRef.current) { clearTimeout(pushTimerRef.current); pushTimerRef.current = null; }
+    const next: Record<string, Block[]> = {};
+    for (const t of effectiveTabs) next[t.key] = jsonToBlocks(t.initialContent || "");
+    setBlocksByTab(next);
+    histRef.current.clear();
+    skipPushRef.current.clear();
+    pushTimerRef.current.forEach(clearTimeout);
+    pushTimerRef.current.clear();
     setHistoryTick(t => t + 1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialContent]);
+  }, [effectiveTabs]);
 
+  // History push для активного таба — debounce.
   useEffect(() => {
-    if (skipPushRef.current) { skipPushRef.current = false; return; }
-    if (historyRef.current.length === 0) {
-      // Baseline-снапшот (без debounce)
-      historyRef.current = [{ meta, blocks }];
-      pointerRef.current = 0;
+    const tab = activeTab;
+    if (skipPushRef.current.has(tab)) { skipPushRef.current.delete(tab); return; }
+    let entry = histRef.current.get(tab);
+    if (!entry) {
+      entry = { history: [{ meta, blocks: blocksByTab[tab] || [] }], pointer: 0 };
+      histRef.current.set(tab, entry);
       setHistoryTick(t => t + 1);
       return;
     }
-    if (pushTimerRef.current) clearTimeout(pushTimerRef.current);
-    pushTimerRef.current = setTimeout(() => {
-      const h = historyRef.current.slice(0, pointerRef.current + 1);
-      const last = h[h.length - 1];
-      // Пропускаємо якщо нічого не змінилось (dedupe)
-      if (last && last.meta === meta && last.blocks === blocks) return;
-      h.push({ meta, blocks });
-      if (h.length > HISTORY_CAP) h.shift();
-      historyRef.current = h;
-      pointerRef.current = h.length - 1;
+    const existing = pushTimerRef.current.get(tab);
+    if (existing) clearTimeout(existing);
+    const timer = setTimeout(() => {
+      const cur = histRef.current.get(tab);
+      if (!cur) return;
+      const trimmed = cur.history.slice(0, cur.pointer + 1);
+      const last = trimmed[trimmed.length - 1];
+      if (last && last.meta === meta && last.blocks === blocksByTab[tab]) return;
+      trimmed.push({ meta, blocks: blocksByTab[tab] || [] });
+      if (trimmed.length > HISTORY_CAP) trimmed.shift();
+      cur.history = trimmed;
+      cur.pointer = trimmed.length - 1;
       setHistoryTick(t => t + 1);
     }, HISTORY_DEBOUNCE_MS);
-  }, [meta, blocks]);
+    pushTimerRef.current.set(tab, timer);
+  }, [meta, blocksByTab, activeTab]);
 
   const undo = useCallback(() => {
-    // Якщо є pending debounced push — закомічу його негайно, щоб undo повернув попередній стан
-    if (pushTimerRef.current) {
-      clearTimeout(pushTimerRef.current);
-      pushTimerRef.current = null;
-      const h = historyRef.current.slice(0, pointerRef.current + 1);
-      const last = h[h.length - 1];
-      if (!last || last.meta !== meta || last.blocks !== blocks) {
-        h.push({ meta, blocks });
-        if (h.length > HISTORY_CAP) h.shift();
-        historyRef.current = h;
-        pointerRef.current = h.length - 1;
+    const tab = activeTab;
+    // Flush pending debounce — щоб undo повернув попередній стан, не той що щойно ввели.
+    const pendingTimer = pushTimerRef.current.get(tab);
+    if (pendingTimer) {
+      clearTimeout(pendingTimer);
+      pushTimerRef.current.delete(tab);
+      const entry = histRef.current.get(tab);
+      if (entry) {
+        const trimmed = entry.history.slice(0, entry.pointer + 1);
+        const last = trimmed[trimmed.length - 1];
+        const curBlocks = blocksByTab[tab] || [];
+        if (!last || last.meta !== meta || last.blocks !== curBlocks) {
+          trimmed.push({ meta, blocks: curBlocks });
+          if (trimmed.length > HISTORY_CAP) trimmed.shift();
+          entry.history = trimmed;
+          entry.pointer = trimmed.length - 1;
+        }
       }
     }
-    if (pointerRef.current <= 0) return;
-    pointerRef.current -= 1;
-    const snap = historyRef.current[pointerRef.current];
-    skipPushRef.current = true;
+    const entry = histRef.current.get(tab);
+    if (!entry || entry.pointer <= 0) return;
+    entry.pointer -= 1;
+    const snap = entry.history[entry.pointer];
+    skipPushRef.current.add(tab);
     setMeta(snap.meta);
-    setBlocks(snap.blocks);
+    setBlocksByTab(prev => ({ ...prev, [tab]: snap.blocks }));
     setHistoryTick(t => t + 1);
-  }, [meta, blocks]);
+  }, [activeTab, meta, blocksByTab]);
 
   const redo = useCallback(() => {
-    if (pointerRef.current >= historyRef.current.length - 1) return;
-    pointerRef.current += 1;
-    const snap = historyRef.current[pointerRef.current];
-    skipPushRef.current = true;
+    const tab = activeTab;
+    const entry = histRef.current.get(tab);
+    if (!entry || entry.pointer >= entry.history.length - 1) return;
+    entry.pointer += 1;
+    const snap = entry.history[entry.pointer];
+    skipPushRef.current.add(tab);
     setMeta(snap.meta);
-    setBlocks(snap.blocks);
+    setBlocksByTab(prev => ({ ...prev, [tab]: snap.blocks }));
     setHistoryTick(t => t + 1);
-  }, []);
+  }, [activeTab]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -195,19 +275,12 @@ export default function NewsEditor({
       if (!cmd) return;
       const key = e.key.toLowerCase();
       if (key !== "z" && key !== "y") return;
-
-      // Якщо фокус всередині input/textarea/contenteditable (TipTap ProseMirror) —
-      // не перехоплюємо: хай нативний/TipTap undo обробить редагування тексту.
-      // Документо-рівневий undo спрацює лише коли користувач не друкує/редагує.
       const target = e.target as HTMLElement | null;
       if (target) {
         const tag = target.tagName;
         if (tag === "INPUT" || tag === "TEXTAREA") return;
         if (target.isContentEditable) return;
       }
-
-      // Документо-рівневий undo — для дій над блоками (додавання/видалення,
-      // drag, resize), як у Notion / Figma / Google Docs.
       e.preventDefault();
       if (key === "z" && !e.shiftKey) undo();
       else redo();
@@ -216,30 +289,18 @@ export default function NewsEditor({
     return () => document.removeEventListener("keydown", onKey, { capture: true });
   }, [undo, redo]);
 
-  const canUndo = pointerRef.current > 0;
-  const canRedo = pointerRef.current < historyRef.current.length - 1;
-  void historyTick; // ре-рендер прив'язаний до state, історія — ref
-
-  const autoSave = useCallback(() => {
-    saveDraft(meta, blocks, newsId);
-  }, [meta, blocks, newsId]);
-
+  // ── Auto-save draft (300ms debounce + flush on hide/unload) ──────────────
   useEffect(() => {
-    // Швидший debounce — щоб якщо юзер натисне F5 одразу після зміни,
-    // чернетка вже встигла потрапити у localStorage.
-    const t = setTimeout(autoSave, 300);
+    const t = setTimeout(() => saveDraft(meta, blocksByTab, newsId), 300);
     return () => clearTimeout(t);
-  }, [meta, blocks]);
+  }, [meta, blocksByTab, newsId]);
 
-  // Flush на refresh/close: коли вкладка ховається або сторінка закривається —
-  // ОДРАЗУ синхронно зберігаємо чернетку у localStorage, не чекаючи debounce.
-  // Без цього дрібні зміни (зроблені за <300мс до F5) гублять.
-  const flushRef = useRef({ meta, blocks, newsId });
-  useEffect(() => { flushRef.current = { meta, blocks, newsId }; }, [meta, blocks, newsId]);
+  const flushRef = useRef({ meta, blocksByTab, newsId });
+  useEffect(() => { flushRef.current = { meta, blocksByTab, newsId }; }, [meta, blocksByTab, newsId]);
   useEffect(() => {
     const flush = () => {
       const s = flushRef.current;
-      saveDraft(s.meta, s.blocks, s.newsId);
+      saveDraft(s.meta, s.blocksByTab, s.newsId);
     };
     const onVis = () => { if (document.visibilityState === "hidden") flush(); };
     window.addEventListener("beforeunload", flush);
@@ -252,6 +313,7 @@ export default function NewsEditor({
     };
   }, []);
 
+  // ── File upload helper ───────────────────────────────────────────────────
   const uploadFile = async (file: File): Promise<string> => {
     setUploading(true);
     try {
@@ -260,56 +322,75 @@ export default function NewsEditor({
       const res = await fetch("/api/upload", { method: "POST", body: fd });
       if (res.ok) { const { url } = await res.json(); return url; }
       let detail = `${res.status}`;
-      try { const j = await res.json(); if (j?.error) detail = j.error; } catch {}
+      try { const j = await res.json(); if (j?.error) detail = j.error; } catch { /* ignore */ }
       setMessage(`Помилка завантаження: ${detail}`);
       return "";
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setMessage(`Помилка завантаження: ${msg}`);
       return "";
-    } finally {
-      setUploading(false);
-    }
+    } finally { setUploading(false); }
   };
 
+  // ── Save: серіалізуємо blocks для кожного таба, кличемо відповідний колбек ─
   const handleSave = async (published: boolean) => {
-    if (!meta.title || !meta.slug) { setMessage("Заповніть заголовок і slug"); return; }
+    if (mode === "post" && (!meta.title || !meta.slug)) {
+      setMessage("Заповніть заголовок і slug");
+      return;
+    }
     setMessage("");
-    // Запам'ятовуємо РЕАЛЬНУ висоту кожного блока з DOM перед збереженням —
-    // public сторінка використовує її для розрахунку висоти контейнера, інакше
-    // блоки можуть рендеритись поза ним (наприклад під футером).
-    const baked = blocks.map(b => {
-      if (typeof document === "undefined") return b;
-      const el = document.querySelector(`[data-block-id="${b.id}"]`) as HTMLElement | null;
-      const measured = el?.offsetHeight;
-      if (measured && measured > 0) return { ...b, height: measured };
-      return b;
-    });
-    const content = blocksToJson(baked);
-    const imageUrl = meta.imageUrl || baked.find(b => b.type === "image")?.data.url || "";
+
+    // Запам'ятовуємо РЕАЛЬНУ висоту кожного блока активного таба з DOM.
+    // Для неактивних табів heights з пам'яті — їх wrapper не примонтований до DOM
+    // у display:none гілці, але CSS ховання через position+visibility зберігає offsetHeight
+    // (нижче ми ховаємо через height:0+overflow:hidden, тож для неактивних беремо з state).
+    const bakedByTab: Record<string, Block[]> = {};
+    for (const t of effectiveTabs) {
+      const blocks = blocksByTab[t.key] || [];
+      bakedByTab[t.key] = blocks.map(b => {
+        if (typeof document === "undefined") return b;
+        const el = document.querySelector(`[data-tab-key="${t.key}"] [data-block-id="${b.id}"]`) as HTMLElement | null;
+        const measured = el?.offsetHeight;
+        if (measured && measured > 0) return { ...b, height: measured };
+        return b;
+      });
+    }
+
+    const contents: Record<string, string> = {};
+    for (const t of effectiveTabs) contents[t.key] = blocksToJson(bakedByTab[t.key]);
+
+    // Cover fallback з content-таба, як раніше.
+    const mainTabKey = effectiveTabs.find(t => t.key === DEFAULT_TAB_KEY || t.key === "content")?.key || effectiveTabs[0].key;
+    const imageUrl = meta.imageUrl || (bakedByTab[mainTabKey] || []).find(b => b.type === "image")?.data.url || "";
+
     try {
-      await onSave({ ...meta, published }, content, imageUrl);
+      if (isMultiTab && "onSaveTabs" in props && props.onSaveTabs) {
+        await props.onSaveTabs({ ...meta, published }, contents, imageUrl);
+      } else if ("onSave" in props && props.onSave) {
+        const k = effectiveTabs[0].key;
+        await props.onSave({ ...meta, published }, contents[k], imageUrl);
+      }
       clearDraft(newsId);
     } catch (e) {
-      // Помилку (наприклад, дублікат slug, мережа, 500) показуємо юзеру явно
-      // замість silent fail — інакше кнопка просто повертається з "Збереження…"
-      // і нічого не відбувається, як було раніше.
       const msg = e instanceof Error ? e.message : "Невідома помилка збереження";
       setMessage(msg);
     }
   };
 
+  // Обмежуємо setMeta-через MetaSidebar до one-shot (інакше TS infers any).
+  const handleMetaChange = (m: NewsMeta) => setMeta(m);
+
+  // Helpers per tab.
+  const setBlocksFor = (tabKey: string) => (next: Block[]) =>
+    setBlocksByTab(prev => ({ ...prev, [tabKey]: next }));
+  const setSelectedFor = (tabKey: string) => (id: string | null) =>
+    setSelectedByTab(prev => ({ ...prev, [tabKey]: id }));
+
   return (
     <div ref={editorRootRef} className="min-h-screen bg-slate-100" style={{ zoom }}>
-      {/* Спільна типографіка блоків — щоб білдер відображав текст/заголовки/цитату
-          ідентично з public-сторінкою (font-size, italic-цитата, list-style ul/ol). */}
       <style>{NEWS_BLOCK_CSS}</style>
       <div className="max-w-[1520px] mx-auto px-6 py-10">
-        {/* Top header — eyebrow + title. Дії (Save / Undo / Redo / Чернетка) винесені:
-            - Save → floating-кнопка зліва від back-стрілки (внизу файлу)
-            - Undo/Redo → доступні гарячими клавішами Ctrl+Z / Ctrl+Shift+Z
-            - "Чернетка" окремо тут не потрібна: localStorage сам автозберігає
-              кожні 300мс + при закритті вкладки. */}
+        {/* Header */}
         <div className="mb-6">
           <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-violet-600 mb-1.5">
             Admin · Новини
@@ -331,49 +412,74 @@ export default function NewsEditor({
           )}
         </div>
 
-        {/* Editor row — Palette | Canvas | Sidebar, всі стартують на одному Y.
-            gap-5 (20px) синхронізовано з внутрішнім gap між BlockPalette і canvas
-            у EditorCanvas — щоб page була візуально по центру між обома барами. */}
-        <div className="flex flex-col lg:flex-row gap-5 items-start">
-          <div className="flex-1 min-w-0 w-full">
-            <EditorCanvas
-              blocks={blocks}
-              onBlocksChange={setBlocks}
-              onUpload={uploadFile}
-              pageBgColor={meta.pageBgColor || ""}
-              selectedBlockId={selectedBlockId}
-              onSelectBlock={setSelectedBlockId}
-            />
+        {/* Tab switcher (тільки в multi-tab режимі) */}
+        {isMultiTab && (
+          <div className="mb-5 inline-flex items-center gap-1 p-1 rounded-xl bg-white shadow-sm border border-stone-200">
+            {effectiveTabs.map(t => {
+              const active = t.key === activeTab;
+              return (
+                <button
+                  key={t.key}
+                  type="button"
+                  onClick={() => setActiveTab(t.key)}
+                  className={`px-4 py-2 text-[13px] font-semibold rounded-lg transition-all ${
+                    active
+                      ? "bg-[#1C3A2E] text-[#D4A843] shadow-sm"
+                      : "text-stone-600 hover:bg-stone-100"
+                  }`}
+                >
+                  {t.label}
+                </button>
+              );
+            })}
           </div>
+        )}
 
-          {/* Sticky-сайдбар з внутрішнім скролом — точно як ліва палітра BlockPalette
-              (sticky top:80, maxHeight calc(100vh-100), overflow-y auto, scrollbar hidden).
-              Інлайн стилі, не Tailwind lg:* — щоб уникнути пропуску класів і гарантувати
-              ідентичну поведінку обом барам. */}
-          <div
-            className="news-palette-scroll"
-            style={{
-              position: "sticky",
-              top: "80px",
-              alignSelf: "flex-start",
-              maxHeight: "calc(100vh - 100px)",
-              overflowY: "auto",
-              overflowX: "hidden",
-              scrollbarWidth: "none",
-              msOverflowStyle: "none",
-              flexShrink: 0,
-            }}
-          >
-            <MetaSidebar meta={meta} onChange={setMeta} onUpload={uploadFile} />
-          </div>
-        </div>
+        {/* Канвас на кожен таб. Display:none для неактивних — щоб state, history,
+            selection, draft зберігались і не мігрували між табами. */}
+        {effectiveTabs.map(t => {
+          const isActive = t.key === activeTab;
+          return (
+            <div
+              key={t.key}
+              data-tab-key={t.key}
+              style={{ display: isActive ? "block" : "none" }}
+            >
+              <EditorCanvas
+                blocks={blocksByTab[t.key] || []}
+                onBlocksChange={setBlocksFor(t.key)}
+                onUpload={uploadFile}
+                pageBgColor={meta.pageBgColor || ""}
+                selectedBlockId={selectedByTab[t.key]}
+                onSelectBlock={setSelectedFor(t.key)}
+                rightSidebar={
+                  mode === "page" ? (
+                    <NewsLibrarySidebar
+                      meta={meta}
+                      onChange={handleMetaChange}
+                      placedNewsIds={new Set(
+                        (blocksByTab[t.key] || [])
+                          .filter(b => b.type === "newsCard" && b.data.newsId)
+                          .map(b => b.data.newsId)
+                      )}
+                    />
+                  ) : mode === "preview" ? (
+                    null
+                  ) : (
+                    // У "post" mode MetaSidebar показуємо ТІЛЬКИ на табі контенту новини
+                    // (не на табі превʼю — щоб не плутати: meta редагується в одному місці).
+                    t.key === "preview" ? null : (
+                      <MetaSidebar meta={meta} onChange={handleMetaChange} onUpload={uploadFile} />
+                    )
+                  )
+                }
+              />
+            </div>
+          );
+        })}
       </div>
 
-      {/* Settings slot тепер живе всередині BlockPalette — як темна card-секція палітри. */}
-
-      {/* Floating Save — закріплена fixed зліва від back-стрілки (DashboardBackButton:
-          fixed top-20 right-5 w-14). Зміщення right: 5+14+3 = 22 (Tailwind units).
-          Щоб користувач міг зберегти з будь-якої точки сторінки без прокрутки нагору. */}
+      {/* Floating Save */}
       <button
         type="button"
         onClick={() => handleSave(true)}
@@ -397,16 +503,11 @@ export default function NewsEditor({
         <span>{saving ? "Збереження…" : "Зберегти"}</span>
       </button>
 
-      {/* Floating toast з помилкою — з'являється під кнопкою Зберегти, щоб користувач
-          одразу бачив причину невдалого збереження (раніше повідомлення було під заголовком
-          сторінки в лівому верхньому куті, далеко від кнопки — його не помічали). */}
       {message && (
         <div
           role="alert"
           className="fixed top-[152px] right-[88px] z-40 max-w-[360px] flex items-start gap-2.5 px-4 py-3 rounded-xl bg-rose-50 border border-rose-300 shadow-lg animate-[slideInDown_0.2s_ease-out]"
-          style={{
-            boxShadow: "0 8px 24px -6px rgba(244, 63, 94, 0.35), 0 2px 6px rgba(0,0,0,0.08)",
-          }}
+          style={{ boxShadow: "0 8px 24px -6px rgba(244, 63, 94, 0.35), 0 2px 6px rgba(0,0,0,0.08)" }}
         >
           <span className="flex-shrink-0 inline-flex items-center justify-center w-5 h-5 rounded-full bg-rose-500 text-white text-[12px] font-bold mt-0.5">!</span>
           <p className="text-[13px] font-medium text-rose-900 leading-snug flex-1">{message}</p>

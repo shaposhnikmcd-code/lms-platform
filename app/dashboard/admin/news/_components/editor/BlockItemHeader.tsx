@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { BlockAlign, UIMP_COLORS } from "./types";
+import { BlockAlign, BlockVAlign, UIMP_COLORS } from "./types";
 import { requestCrop } from "./blocks/ImageEditor";
 
 const ff = "-apple-system, BlinkMacSystemFont, sans-serif";
@@ -26,6 +26,7 @@ interface Props {
   blockId: string;
   blockType: string;
   blockAlign: BlockAlign;
+  blockVAlign: BlockVAlign;
   blockBgColor: string;
   displayPct: number;
   hov: boolean;
@@ -34,6 +35,7 @@ interface Props {
   dragAttributes: React.HTMLAttributes<HTMLElement>;
   dragListeners: React.HTMLAttributes<HTMLElement> | undefined;
   onSetAlign: (id: string, a: BlockAlign) => void;
+  onSetVAlign: (id: string, v: BlockVAlign) => void;
   onSetBg: (id: string, c: string) => void;
   onMoveUp: (id: string) => void;
   onMoveDown: (id: string) => void;
@@ -67,6 +69,29 @@ const ALIGN_GLYPHS: Record<BlockAlign, React.ReactElement> = {
   ),
 };
 
+// Гліфи для вертикального вирівнювання — три горизонтальні смужки на висоті 14px,
+// що показують positioning тексту в колонці (top / center / bottom).
+const VALIGN_GLYPHS: Record<BlockVAlign, React.ReactElement> = {
+  top: (
+    <svg width="10" height="14" viewBox="0 0 10 14" fill="none">
+      <rect x="0" y="0" width="10" height="1.6" rx="0.8" fill="currentColor" />
+      <rect x="2" y="2.6" width="6" height="1.6" rx="0.8" fill="currentColor" />
+    </svg>
+  ),
+  center: (
+    <svg width="10" height="14" viewBox="0 0 10 14" fill="none">
+      <rect x="0" y="5.2" width="10" height="1.6" rx="0.8" fill="currentColor" />
+      <rect x="2" y="7.8" width="6" height="1.6" rx="0.8" fill="currentColor" />
+    </svg>
+  ),
+  bottom: (
+    <svg width="10" height="14" viewBox="0 0 10 14" fill="none">
+      <rect x="2" y="10.4" width="6" height="1.6" rx="0.8" fill="currentColor" />
+      <rect x="0" y="13" width="10" height="1.6" rx="0.8" fill="currentColor" />
+    </svg>
+  ),
+};
+
 function AlignBtn({ a, active, onClick }: { a: BlockAlign; active: boolean; onClick: () => void }) {
   const [hov, setHov] = useState(false);
   return (
@@ -91,6 +116,33 @@ function AlignBtn({ a, active, onClick }: { a: BlockAlign; active: boolean; onCl
         transition: "all 0.12s",
       }}
     >{ALIGN_GLYPHS[a]}</button>
+  );
+}
+
+function VAlignBtn({ v, active, onClick }: { v: BlockVAlign; active: boolean; onClick: () => void }) {
+  const [hov, setHov] = useState(false);
+  return (
+    <button
+      type="button"
+      title={v === "top" ? "По верхньому краю" : v === "bottom" ? "По нижньому краю" : "По центру (вертикально)"}
+      onClick={onClick}
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => setHov(false)}
+      style={{
+        flex: 1,
+        height: "22px",
+        borderRadius: "5px",
+        border: `1px solid ${active ? "#D4A843" : "#E8D5B7"}`,
+        background: active ? "#1C3A2E" : hov ? "#FAF6F0" : "#FFFFFF",
+        color: active ? "#D4A843" : "#1C3A2E",
+        cursor: "pointer",
+        padding: 0,
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        transition: "all 0.12s",
+      }}
+    >{VALIGN_GLYPHS[v]}</button>
   );
 }
 
@@ -123,11 +175,14 @@ function ActionBtn({ title, onClick, children }: { title: string; onClick: () =>
 }
 
 export default function BlockItemHeader({
-  blockId, blockType, blockAlign, blockBgColor, displayPct,
-  onSetAlign, onSetBg, onDuplicate,
+  blockId, blockType, blockAlign, blockVAlign, blockBgColor, displayPct,
+  onSetAlign, onSetVAlign, onSetBg, onDuplicate,
 }: Props) {
   // Прозорий "Без фону" варіант + UIMP кольори. Для divider align не має сенсу — приховаємо.
   const showAlign = blockType !== "divider";
+  // Вертикальне вирівнювання має сенс тільки коли блок має фіксовану висоту і простір
+  // зверху/знизу від тексту — поки що тільки для heading.
+  const showVAlign = blockType === "heading";
   const showBg = blockType !== "divider";
 
   return (
@@ -183,6 +238,17 @@ export default function BlockItemHeader({
           <div style={{ display: "flex", gap: "5px" }}>
             {(["left", "center", "right"] as BlockAlign[]).map(a => (
               <AlignBtn key={a} a={a} active={blockAlign === a} onClick={() => onSetAlign(blockId, a)} />
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {showVAlign && (
+        <Section padTop={0}>
+          <SectionLabel>Вертикаль</SectionLabel>
+          <div style={{ display: "flex", gap: "5px" }}>
+            {(["top", "center", "bottom"] as BlockVAlign[]).map(v => (
+              <VAlignBtn key={v} v={v} active={blockVAlign === v} onClick={() => onSetVAlign(blockId, v)} />
             ))}
           </div>
         </Section>

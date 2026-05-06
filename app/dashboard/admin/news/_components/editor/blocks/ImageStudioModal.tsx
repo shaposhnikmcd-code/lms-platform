@@ -20,6 +20,10 @@ interface Props {
   /** Якщо true — модалка відкривається одразу в режимі обрізання
    *  (для тригера ✂ з BlockItemHeader). */
   initialCropMode?: boolean;
+  /** Cover-режим для обкладинки новини: ховає секцію заокруглення кутів
+   *  (cover рендериться у фреймворк-обгортці з власним radius) і форсує
+   *  crop aspect 16/9 щоб зберегти єдине співвідношення сторін. */
+  coverMode?: boolean;
   onCancel: () => void;
   /** Якщо blob є — потрібно перезавантажити фото (картинка змінилася через crop або chroma).
    *  newAspect — новий aspect ratio після crop, потрібен для перерахунку висоти блока. */
@@ -55,7 +59,7 @@ export function buildCornerRadiusCss(radius: number, cornersStr: string | undefi
 }
 
 export default function ImageStudioModal({
-  imageUrl, initialRadius, initialTolerance, initialCorners, initialCropMode = false, onCancel, onSave,
+  imageUrl, initialRadius, initialTolerance, initialCorners, initialCropMode = false, coverMode = false, onCancel, onSave,
 }: Props) {
   const [mounted, setMounted] = useState(false);
   const [radius, setRadius] = useState(initialRadius);
@@ -425,6 +429,7 @@ export default function ImageStudioModal({
                     onChange={(_, percentCrop) => setCrop(percentCrop)}
                     onComplete={(c) => setCompletedCrop(c)}
                     ruleOfThirds
+                    aspect={coverMode ? 16 / 9 : undefined}
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
@@ -507,7 +512,8 @@ export default function ImageStudioModal({
             </div>
           </Section>
 
-          {/* Border radius */}
+          {/* Border radius — приховано у coverMode (cover має власну рамку у listing/page) */}
+          {!coverMode && (
           <Section>
             <Label>Заокруглення кутів</Label>
             <div style={{ display: "flex", gap: "5px", marginBottom: "10px" }}>
@@ -571,6 +577,7 @@ export default function ImageStudioModal({
               </div>
             </div>
           </Section>
+          )}
 
           {/* Chroma-key */}
           <Section>

@@ -18,7 +18,8 @@ export type BlockType =
   | "youtube"
   | "quote"
   | "divider"
-  | "card";
+  | "card"
+  | "newsCard";
 
 export interface Block {
   id: string;
@@ -29,6 +30,7 @@ export interface Block {
   y?: number;
   height?: number;
   align?: "left" | "center" | "right";
+  vAlign?: "top" | "center" | "bottom";
   bgColor?: string;
 }
 
@@ -116,6 +118,7 @@ export const LEGACY_H: Record<BlockType, number> = {
   quote: 120,
   divider: 40,
   card: 280,
+  newsCard: 380, // одна картка (image 16:9 + texts), висота природно ~370px при 32% width
 };
 
 // Конвертує будь-який вживаний YouTube URL у embed-URL для <iframe>.
@@ -188,6 +191,34 @@ export function repairBlocks(localized: Block[], original: Block[]): Block[] {
   });
 }
 
+// Прев'ю-дані новини для блока `newsCard` (передаються згори, з server-prefetch).
+// Лежать тут, а не в БД-моделі, бо рендеримо як на public, так і в адмін-превʼю
+// (білдер сторінки /news), де дані можуть бути undefined → показуємо placeholder.
+export interface NewsListItemForBlock {
+  id: string;
+  title: string;
+  titleEn?: string | null;
+  titlePl?: string | null;
+  slug: string;
+  excerpt: string | null;
+  excerptEn?: string | null;
+  excerptPl?: string | null;
+  imageUrl: string | null;
+  category: string;
+  createdAt: string | Date;
+  authorName?: string | null;
+  /** JSON-блоки новини (lib/news/render формат). Потрібно для displayMode="expanded" — інлайн-рендер. */
+  content?: string | null;
+  contentEn?: string | null;
+  contentPl?: string | null;
+  /** Кастомний layout превʼю-картки (білдер /news/[id]/preview). Якщо задано — використовується
+   *  замість дефолтного auto-card layout у newsCard з displayMode="preview". */
+  previewContent?: string | null;
+  previewContentEn?: string | null;
+  previewContentPl?: string | null;
+  pageBgColor?: string | null;
+}
+
 interface OverlayShape {
   id: string;
   text: string;
@@ -213,7 +244,19 @@ interface OverlayShape {
 // Рендер ВНУТРІШНОСТІ блока (без обгортки з padding/border). Викликається з
 // AbsoluteBlockRender і SequentialBlockRender. Тут — ВСІ типи блоків,
 // включно з overlays на image, card-кнопкою, youtube-embed.
-export function BlockInner({ block }: { block: Block }) {
+//
+// Опціональні parents-параметри:
+//  - newsItems / locale — для блока `newsCard` (рендер карток новин на сторінці /news).
+//    Передаються з server-prefetch у public; у білдері — мікро-фетч у NewsCardEditor.
+export function BlockInner({
+  block,
+  newsItems,
+  locale,
+}: {
+  block: Block;
+  newsItems?: NewsListItemForBlock[];
+  locale?: string;
+}) {
   const align = block.align || "left";
   const textColor =
     block.bgColor === "#1C3A2E" || block.bgColor === "#1a1a1a"
@@ -239,11 +282,12 @@ export function BlockInner({ block }: { block: Block }) {
       const customColor = block.data.color || "";
       const customFamily = block.data.fontFamily || "";
       const customSize = Number(block.data.fontSize) || 0;
-      return (
+      const headingTag = (
         <Tag
           data-news-block-type="heading"
           data-level={level}
           style={{
+            width: "100%",
             color: customColor || textColor,
             textAlign: align,
             fontFamily: customFamily || undefined,
@@ -258,6 +302,19 @@ export function BlockInner({ block }: { block: Block }) {
           {!html ? block.data.text : null}
         </Tag>
       );
+      // Flex-обгортка для vertical-align ЛИШЕ якщо vAlign явно не дефолтний.
+      // Інакше рендер як в старій версії — без зайвої обгортки → жодних
+      // регресій у sequential/mobile рендері (де у блока може не бути висоти).
+      const vAlign = block.vAlign;
+      if (vAlign === "center" || vAlign === "bottom") {
+        const flexAlign = vAlign === "center" ? "center" : "flex-end";
+        return (
+          <div style={{ display: "flex", width: "100%", height: "100%", alignItems: flexAlign }}>
+            {headingTag}
+          </div>
+        );
+      }
+      return headingTag;
     }
 
     case "image": {
@@ -567,6 +624,167 @@ export function BlockInner({ block }: { block: Block }) {
       );
     }
 
+    case "newsCard": {
+      const newsId = block.data.newsId || "";
+      const displayMode = block.data.displayMode === "expanded" ? "expanded" : "preview";
+      const item = newsItems?.find((n) => n.id === newsId);
+      const lc = locale || "uk";
+      const title = (n: NewsListItemForBlock) =>
+        lc === "en" ? (n.titleEn ?? n.title) : lc === "pl" ? (n.titlePl ?? n.title) : n.title;
+      const excerpt = (n: NewsListItemForBlock) =>
+        lc === "en" ? (n.excerptEn ?? n.excerpt) : lc === "pl" ? (n.excerptPl ?? n.excerpt) : n.excerpt;
+      const dateFmt = (d: string | Date) =>
+        new Date(d).toLocaleDateString(lc === "uk" ? "uk-UA" : lc === "pl" ? "pl-PL" : "en-US");
+
+      // Білдер: даних може не бути взагалі або newsId ще не вибрано → placeholder.
+      if (!item) {
+        return (
+          <div
+            style={{
+              width: "100%",
+              height: "100%",
+              minHeight: 240,
+              borderRadius: 16,
+              border: "1.5px dashed #E8D5B7",
+              background: "rgba(212,168,67,0.04)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: "#9B7C45",
+              fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
+              fontSize: 13,
+              padding: 16,
+              textAlign: "center",
+              boxSizing: "border-box",
+            }}
+          >
+            {newsId ? "Новина не знайдена або не опублікована" : "Перетягніть новину з правого бару"}
+          </div>
+        );
+      }
+
+      // ── EXPANDED — рендеримо ВИКЛЮЧНО блоки новини, як вони були зверстані в білдері.
+      // Без cover/title/meta header-а і без footer-лінка — це повна репліка білдера новини.
+      // Фон сторінки новини застосовуємо, бо її блоки могли бути зверстані з ним в розрахунку.
+      if (displayMode === "expanded") {
+        const localizedContent =
+          lc === "en" && item.contentEn ? item.contentEn :
+          lc === "pl" && item.contentPl ? item.contentPl :
+          (item.content || "");
+        const parsed = parseBlocks(localizedContent);
+        const innerBlocks = parsed.isJson ? parsed.blocks : [];
+        const newsBg = item.pageBgColor || "transparent";
+        const innerCanvasH = innerBlocks.length > 0 ? canvasHeight(innerBlocks) : 0;
+
+        if (innerBlocks.length === 0) {
+          return (
+            <div style={{ color: "#9CA3AF", fontSize: 13, padding: "12px", textAlign: "center" }}>
+              Контент новини порожній.
+            </div>
+          );
+        }
+
+        return (
+          <div
+            style={{
+              position: "relative",
+              width: "100%",
+              height: `${innerCanvasH}px`,
+              background: newsBg,
+            }}
+          >
+            {innerBlocks.map((b) => (
+              <AbsoluteBlockRender
+                key={b.id}
+                block={b}
+                newsItems={newsItems}
+                locale={lc}
+              />
+            ))}
+          </div>
+        );
+      }
+
+      // ── PREVIEW ──
+      // Якщо адмін зверстав кастомний layout превʼю в /dashboard/admin/news/[id]/preview —
+      // рендеримо ті блоки 1-в-1 (повна свобода компоновки). Інакше — дефолтний auto-card.
+      const localizedPreview =
+        lc === "en" && item.previewContentEn ? item.previewContentEn :
+        lc === "pl" && item.previewContentPl ? item.previewContentPl :
+        item.previewContent;
+      if (localizedPreview) {
+        const previewParsed = parseBlocks(localizedPreview);
+        if (previewParsed.isJson && previewParsed.blocks.length > 0) {
+          const previewH = canvasHeight(previewParsed.blocks);
+          return (
+            <a
+              href={`/${lc}/news/${item.slug}`}
+              style={{
+                display: "block",
+                position: "relative",
+                width: "100%",
+                height: `${previewH}px`,
+                background: "transparent",
+                textDecoration: "none",
+                color: "inherit",
+              }}
+            >
+              {previewParsed.blocks.map((b) => (
+                <AbsoluteBlockRender key={b.id} block={b} newsItems={newsItems} locale={lc} />
+              ))}
+            </a>
+          );
+        }
+      }
+
+      // Дефолтна auto-картка — як у класичному /news.
+      return (
+        <a
+          href={`/${lc}/news/${item.slug}`}
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            width: "100%",
+            height: "100%",
+            background: "#fff",
+            borderRadius: 16,
+            overflow: "hidden",
+            boxShadow: "0 1px 6px rgba(0,0,0,0.06)",
+            textDecoration: "none",
+            color: "inherit",
+          }}
+        >
+          {item.imageUrl ? (
+            <div style={{ width: "100%", aspectRatio: "16 / 9", overflow: "hidden", background: "#F3F0E8", flexShrink: 0 }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={item.imageUrl} alt={title(item) || ""} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+            </div>
+          ) : (
+            <div style={{ width: "100%", aspectRatio: "16 / 9", background: "linear-gradient(135deg,#1C3A2E,#2a4f3f)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 40, flexShrink: 0 }}>
+              📰
+            </div>
+          )}
+          <div style={{ padding: 20, flex: 1, display: "flex", flexDirection: "column" }}>
+            <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "#9B7C45", marginBottom: 8 }}>
+              {item.category}
+            </div>
+            <div style={{ fontSize: 17, fontWeight: 700, color: "#1C3A2E", lineHeight: 1.3, marginBottom: 8 }}>
+              {title(item)}
+            </div>
+            {excerpt(item) && (
+              <div style={{ fontSize: 13, color: "#6B7280", lineHeight: 1.5, marginBottom: 10, display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+                {excerpt(item)}
+              </div>
+            )}
+            <div style={{ fontSize: 11, color: "#9CA3AF", marginTop: "auto" }}>
+              {dateFmt(item.createdAt)}
+              {item.authorName ? ` · ${item.authorName}` : ""}
+            </div>
+          </div>
+        </a>
+      );
+    }
+
     default:
       return null;
   }
@@ -575,7 +793,15 @@ export function BlockInner({ block }: { block: Block }) {
 // Обгортка блока для AbsoluteCanvas (desktop). Розмір — за x/y/width/height блока.
 // Padding ідентичний з editor/BlockItem.tsx (тільки 16px по горизонталі — header у білдері
 // плаває absolute поза блоком, тому вертикального padding теж немає).
-export function AbsoluteBlockRender({ block }: { block: Block }) {
+export function AbsoluteBlockRender({
+  block,
+  newsItems,
+  locale,
+}: {
+  block: Block;
+  newsItems?: NewsListItemForBlock[];
+  locale?: string;
+}) {
   const w = Number(block.width) || 100;
   const x = block.x ?? 0;
   const y = block.y ?? 0;
@@ -593,17 +819,28 @@ export function AbsoluteBlockRender({ block }: { block: Block }) {
         borderRadius: block.bgColor ? "8px" : 0,
         padding: "0 16px",
         boxSizing: "border-box",
-        overflow: "hidden",
+        // newsCard у будь-якому режимі може мати динамічний контент (expanded — повне тіло;
+        // preview — кастомний layout з білдера превʼю). Дозволяємо overflow:visible щоб
+        // блок ріс під природній розмір.
+        overflow: block.type === "newsCard" ? "visible" : "hidden",
       }}
     >
-      <BlockInner block={block} />
+      <BlockInner block={block} newsItems={newsItems} locale={locale} />
     </div>
   );
 }
 
 // Послідовний рендер для mobile / fallback (коли в блоків немає x/y).
 // Стікає вертикально, ігноруючи width%.
-export function SequentialBlockRender({ block }: { block: Block }) {
+export function SequentialBlockRender({
+  block,
+  newsItems,
+  locale,
+}: {
+  block: Block;
+  newsItems?: NewsListItemForBlock[];
+  locale?: string;
+}) {
   return (
     <div
       style={{
@@ -613,7 +850,7 @@ export function SequentialBlockRender({ block }: { block: Block }) {
         padding: block.bgColor ? "10px 14px" : 0,
       }}
     >
-      <BlockInner block={block} />
+      <BlockInner block={block} newsItems={newsItems} locale={locale} />
     </div>
   );
 }

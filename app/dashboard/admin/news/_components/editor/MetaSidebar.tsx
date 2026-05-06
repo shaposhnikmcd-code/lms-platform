@@ -2,6 +2,7 @@
 
 import React, { useRef, useState } from "react";
 import { NewsMeta, UIMP_COLORS } from "./types";
+import ImageStudioModal from "./blocks/ImageStudioModal";
 
 const ff = "-apple-system, BlinkMacSystemFont, sans-serif";
 
@@ -68,6 +69,8 @@ interface Props {
 export default function MetaSidebar({ meta, onChange, onUpload }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  const [studioOpen, setStudioOpen] = useState(false);
+  const [studioInitialCropMode, setStudioInitialCropMode] = useState(false);
 
   const generateSlug = (text: string) =>
     text.toLowerCase().trim()
@@ -196,16 +199,43 @@ export default function MetaSidebar({ meta, onChange, onUpload }: Props) {
         <div style={cardHeaderStyle}>{"Обкладинка"}</div>
         <div style={cardBodyStyle}>
           {meta.imageUrl ? (
-            <div style={{ position: "relative" }}>
-              <img
-                src={meta.imageUrl}
-                alt="cover"
-                style={{ width: "100%", borderRadius: "8px", display: "block" }}
-              />
-              <button
-                onClick={() => onChange({ ...meta, imageUrl: "" })}
-                style={{ position: "absolute", top: "6px", right: "6px", background: "#EF4444", color: "#fff", border: "none", borderRadius: "5px", padding: "3px 8px", cursor: "pointer", fontSize: "11px", fontWeight: 700 }}
-              >{"✕"}</button>
+            // 16:9 + object-cover — точний WYSIWYG зі списком адмінки і публічним /news.
+            // Так що завантажив, те і скрізь — без раптової вертикальної обрізки.
+            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+              <div style={{ position: "relative", width: "100%", aspectRatio: "16 / 9", borderRadius: "8px", overflow: "hidden", background: "#F3F0E8" }}>
+                <img
+                  src={meta.imageUrl}
+                  alt="cover"
+                  style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+                />
+                <button
+                  onClick={() => onChange({ ...meta, imageUrl: "" })}
+                  title="Прибрати обкладинку"
+                  style={{ position: "absolute", top: "6px", right: "6px", background: "#EF4444", color: "#fff", border: "none", borderRadius: "5px", padding: "3px 8px", cursor: "pointer", fontSize: "11px", fontWeight: 700 }}
+                >{"✕"}</button>
+              </div>
+              <div style={{ display: "flex", gap: "5px" }}>
+                <button
+                  type="button"
+                  onClick={() => { setStudioInitialCropMode(true); setStudioOpen(true); }}
+                  style={{
+                    flex: 1, padding: "6px 8px", borderRadius: "6px",
+                    border: "1px solid #D4A843", background: "#FFFFFF",
+                    color: "#1C3A2E", fontSize: "11px", fontWeight: 600,
+                    cursor: "pointer", fontFamily: ff,
+                  }}
+                >{"✂ Обрізати"}</button>
+                <button
+                  type="button"
+                  onClick={() => { setStudioInitialCropMode(false); setStudioOpen(true); }}
+                  style={{
+                    flex: 1, padding: "6px 8px", borderRadius: "6px",
+                    border: "1px solid #D4A843", background: "#1C3A2E",
+                    color: "#D4A843", fontSize: "11px", fontWeight: 700,
+                    cursor: "pointer", fontFamily: ff,
+                  }}
+                >{"🖼 Редактор"}</button>
+              </div>
             </div>
           ) : (
             <div
@@ -218,6 +248,26 @@ export default function MetaSidebar({ meta, onChange, onUpload }: Props) {
           <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleCoverUpload} />
         </div>
       </div>
+
+      {studioOpen && meta.imageUrl && (
+        <ImageStudioModal
+          imageUrl={meta.imageUrl}
+          initialRadius={0}
+          initialTolerance={0}
+          initialCropMode={studioInitialCropMode}
+          coverMode
+          onCancel={() => setStudioOpen(false)}
+          onSave={async ({ blob }) => {
+            if (blob) {
+              const ext = blob.type === "image/png" ? "png" : "jpg";
+              const file = new File([blob], `cover.${ext}`, { type: blob.type });
+              const url = await onUpload(file);
+              if (url) onChange({ ...meta, imageUrl: url });
+            }
+            setStudioOpen(false);
+          }}
+        />
+      )}
     </div>
   );
 }

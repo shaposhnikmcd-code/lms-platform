@@ -499,6 +499,38 @@ model BookingOrder {
   @@index([status, createdAt])
 }
 
+/// Сторінка-список новин /news. Зберігає блоки (heading/text/image/newsCard тощо),
+/// якими користувач у білдері формує саму сторінку. Singleton key="default";
+/// підтримуємо key для майбутніх категорійних landing-сторінок.
+model NewsPage {
+  id          String   @id @default(cuid())
+  key         String   @unique @default("default")
+  /// JSON-масив блоків у тому ж форматі що й News.content (lib/news/render).
+  content     String
+  contentEn   String?
+  contentPl   String?
+  /// Колір фону сторінки (за замовчуванням — поточний gray-50).
+  pageBgColor String?
+  /// Чи опублікована сторінка на /news. false (default) → /news показує empty state,
+  /// незалежно від наявності блоків. Адмін активує через кнопку на /dashboard/admin/news.
+  published   Boolean  @default(false)
+  /// Staged-копія для запланованого оновлення сторінки. Менеджер редагує "Наступну сторінку"
+  /// у білдері /page-builder/next і виставляє nextPublishAt — у той момент cron копіює
+  /// next* → live (content/contentEn/contentPl/pageBgColor) і чистить next* поля.
+  /// null означає що staged-версії немає (єдина live-сторінка).
+  nextContent     String?
+  nextContentEn   String?
+  nextContentPl   String?
+  nextPageBgColor String?
+  nextPublishAt   DateTime?
+  /// Хто і коли востаннє редагував staged. Допомагає у адмінці показати "редаговано Х годин тому".
+  nextUpdatedAt   DateTime?
+  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now())
+
+  @@index([nextPublishAt])
+}
+
 model News {
   id          String       @id @default(cuid())
   title       String
@@ -511,6 +543,12 @@ model News {
   excerptPl   String?
   contentEn   String?
   contentPl   String?
+  /// Окремий JSON-білдер превʼю-картки для сторінки /news. null = використовується дефолтний
+  /// рендер (cover + title + excerpt + date). Якщо задано — повна свобода компонування через
+  /// білдер /dashboard/admin/news/[id]/preview.
+  previewContent String?
+  previewContentEn String?
+  previewContentPl String?
   imageUrl    String?
   /// Колір фону внутрішньої "сторінки новини" (білий контейнер з блоками). null = дефолтний білий.
   pageBgColor String?
