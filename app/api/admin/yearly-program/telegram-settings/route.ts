@@ -4,13 +4,15 @@ import {
   getYearlyProgramTelegramSettings,
   validateAndSaveChatId,
   setAutoAddFlag,
+  setJoinRequestModeFlag,
   clearChatId,
 } from '@/lib/yearlyProgramTelegram';
 
 /// GET — повертає поточні налаштування Telegram-каналу.
 /// POST — body: `{ action: "save", chatId: string }` — резолвить через Bot API getChat і зберігає.
 ///        body: `{ action: "toggle-auto", autoAdd: boolean }` — перемикач auto-add.
-///        body: `{ action: "clear" }` — скидає chatId і вимикає autoAdd.
+///        body: `{ action: "toggle-join-request", joinRequestMode: boolean }` — режим заявок на вступ.
+///        body: `{ action: "clear" }` — скидає chatId і вимикає autoAdd + joinRequestMode.
 
 export async function GET(req: NextRequest) {
   if (!(await isAdmin(req))) {
@@ -61,6 +63,23 @@ export async function POST(req: NextRequest) {
       }
     }
     const settings = await setAutoAddFlag(body.autoAdd, adminEmail);
+    return NextResponse.json({ settings });
+  }
+
+  if (action === 'toggle-join-request') {
+    if (typeof body.joinRequestMode !== 'boolean') {
+      return NextResponse.json({ error: 'joinRequestMode має бути boolean' }, { status: 400 });
+    }
+    if (body.joinRequestMode) {
+      const current = await getYearlyProgramTelegramSettings();
+      if (!current.chatId) {
+        return NextResponse.json(
+          { error: 'Спочатку налаштуйте Telegram-канал, потім вмикайте режим заявок.' },
+          { status: 400 },
+        );
+      }
+    }
+    const settings = await setJoinRequestModeFlag(body.joinRequestMode, adminEmail);
     return NextResponse.json({ settings });
   }
 

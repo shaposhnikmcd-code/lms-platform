@@ -12,6 +12,7 @@ export interface TelegramSettingsState {
   chatTitle: string | null;
   chatType: string | null;
   autoAdd: boolean;
+  joinRequestMode: boolean;
   updatedAt: string | null;
   updatedBy: string | null;
 }
@@ -34,6 +35,7 @@ export default function TelegramChannelButton({ theme, initial }: Props) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [autoLoading, setAutoLoading] = useState(false);
+  const [jrLoading, setJrLoading] = useState(false);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const [popoverPos, setPopoverPos] = useState<{ top: number; right: number } | null>(null);
@@ -125,6 +127,28 @@ export default function TelegramChannelButton({ theme, initial }: Props) {
       toast('error', (e as Error).message);
     } finally {
       setAutoLoading(false);
+    }
+  }
+
+  async function handleToggleJoinRequest(checked: boolean) {
+    setJrLoading(true);
+    try {
+      const res = await fetch('/api/admin/yearly-program/telegram-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'toggle-join-request', joinRequestMode: checked }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast('error', data.error ?? 'Не вдалося оновити');
+        return;
+      }
+      setState(normalizeSettings(data.settings));
+      toast('success', checked ? 'Режим заявок увімкнено' : 'Режим заявок вимкнено');
+    } catch (e) {
+      toast('error', (e as Error).message);
+    } finally {
+      setJrLoading(false);
     }
   }
 
@@ -301,6 +325,37 @@ export default function TelegramChannelButton({ theme, initial }: Props) {
               {autoLoading && <FaSpinner className="animate-spin text-xs mt-1" />}
             </label>
 
+            <label
+              className={`flex items-start gap-3 px-3 py-3 rounded-lg border cursor-pointer transition-colors ${
+                state.joinRequestMode
+                  ? dark
+                    ? 'bg-sky-500/10 border-sky-400/30'
+                    : 'bg-sky-50 border-sky-300/50'
+                  : dark
+                    ? 'bg-white/[0.02] border-white/[0.06] hover:bg-white/[0.04]'
+                    : 'bg-stone-50 border-stone-200 hover:bg-stone-100'
+              } ${!hasChannel ? 'opacity-60 cursor-not-allowed' : ''}`}
+            >
+              <input
+                type="checkbox"
+                checked={state.joinRequestMode}
+                disabled={jrLoading || !hasChannel}
+                onChange={(e) => handleToggleJoinRequest(e.target.checked)}
+                className="mt-0.5"
+              />
+              <div className="flex-1">
+                <div className={`text-[12px] font-medium ${dark ? 'text-slate-100' : 'text-stone-800'}`}>
+                  Канал у режимі заявок на вступ
+                </div>
+                <div className={`text-[11px] mt-0.5 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
+                  Клієнт натискає invite → автоматично потрапляє в канал (без додаткових кліків). Не з Річної — заявка автоматично відхиляється.
+                  <br />
+                  <b>Передумова:</b> у каналі ввімкнено «Заявки на вступ» (Telegram → Адмін → Запрошення → Підтвердження адміна).
+                </div>
+              </div>
+              {jrLoading && <FaSpinner className="animate-spin text-xs mt-1" />}
+            </label>
+
             {state.updatedAt && (
               <div className={`text-[10px] ${dark ? 'text-slate-600' : 'text-stone-400'}`}>
                 Оновлено {new Date(state.updatedAt).toLocaleString('uk-UA')}
@@ -341,6 +396,7 @@ function normalizeSettings(raw: {
   chatTitle?: string | null;
   chatType?: string | null;
   autoAdd?: boolean;
+  joinRequestMode?: boolean;
   updatedAt?: string | Date | null;
   updatedBy?: string | null;
 }): TelegramSettingsState {
@@ -349,6 +405,7 @@ function normalizeSettings(raw: {
     chatTitle: raw.chatTitle ?? null,
     chatType: raw.chatType ?? null,
     autoAdd: !!raw.autoAdd,
+    joinRequestMode: !!raw.joinRequestMode,
     updatedAt: raw.updatedAt ? (typeof raw.updatedAt === 'string' ? raw.updatedAt : raw.updatedAt.toISOString()) : null,
     updatedBy: raw.updatedBy ?? null,
   };

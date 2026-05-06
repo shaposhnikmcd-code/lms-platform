@@ -100,6 +100,7 @@ export default async function AdminYearlyProgramPage() {
       telegramUsername: s.telegramUsername,
       telegramInviteLink: s.telegramInviteLink,
       telegramInvitedAt: s.telegramInvitedAt?.toISOString() ?? null,
+      telegramJoinedAt: s.telegramJoinedAt?.toISOString() ?? null,
     };
   });
 
@@ -142,6 +143,7 @@ export default async function AdminYearlyProgramPage() {
         chatTitle: tgSettings.chatTitle,
         chatType: tgSettings.chatType,
         autoAdd: tgSettings.autoAdd,
+        joinRequestMode: tgSettings.joinRequestMode,
         updatedAt: tgSettings.updatedAt?.toISOString() ?? null,
         updatedBy: tgSettings.updatedBy,
       }}

@@ -831,11 +831,14 @@ model YearlyProgramSubscription {
   /// вручну з адмінки. member_limit=1, expire_date=+30д.
   /// telegramInvitedAt — момент успішної генерації invite-link.
   /// telegramInviteError — текст помилки Bot API при невдалій спробі (показується в адмінці).
+  /// telegramJoinedAt — момент, коли клієнт реально приєднався в канал/групу
+  /// (у режимі joinRequestMode webhook ставить це після `approveChatJoinRequest`).
   country             String?
   telegramUsername    String?
   telegramInviteLink  String?
   telegramInvitedAt   DateTime?
   telegramInviteError String?
+  telegramJoinedAt    DateTime?
 
   payments     Payment[]                        @relation("YearlyProgramPayments")
   events       YearlyProgramSubscriptionEvent[]
@@ -1036,6 +1039,13 @@ model YearlyProgramTelegramSetting {
   /// Якщо true — на кожну успішну оплату Річної програми callback автоматично
   /// генерує одноразовий invite-link і додає його до welcome-листа.
   autoAdd   Boolean  @default(false)
+  /// Якщо true — invite-посилання створюються з `creates_join_request=true`
+  /// (без member_limit, бо API їх не дозволяє разом). Канал/група має бути в
+  /// режимі "Заявки на вступ" (Telegram → Адмін → Запрошення → Підтвердження).
+  /// Webhook `/api/telegram/yearly-program-webhook` автоматично approve-ить
+  /// заявки від клієнтів Річної (за збігом invite_link із підпискою) і
+  /// decline-ить решту.
+  joinRequestMode Boolean  @default(false)
   updatedAt DateTime @updatedAt
   updatedBy String?
 }

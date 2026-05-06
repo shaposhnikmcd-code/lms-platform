@@ -20,6 +20,7 @@ export interface YearlyProgramTelegramSettings {
   chatTitle: string | null;
   chatType: string | null;
   autoAdd: boolean;
+  joinRequestMode: boolean;
   updatedAt: Date | null;
   updatedBy: string | null;
 }
@@ -30,6 +31,7 @@ const DEFAULTS: YearlyProgramTelegramSettings = {
   chatTitle: null,
   chatType: null,
   autoAdd: false,
+  joinRequestMode: false,
   updatedAt: null,
   updatedBy: null,
 };
@@ -44,6 +46,7 @@ export async function getYearlyProgramTelegramSettings(): Promise<YearlyProgramT
     chatTitle: row.chatTitle,
     chatType: row.chatType,
     autoAdd: row.autoAdd,
+    joinRequestMode: row.joinRequestMode,
     updatedAt: row.updatedAt,
     updatedBy: row.updatedBy,
   };
@@ -67,6 +70,26 @@ export async function setAutoAddFlag(autoAdd: boolean, updatedBy: string | null)
     chatTitle: row.chatTitle,
     chatType: row.chatType,
     autoAdd: row.autoAdd,
+    joinRequestMode: row.joinRequestMode,
+    updatedAt: row.updatedAt,
+    updatedBy: row.updatedBy,
+  };
+}
+
+/// Зберігає тільки joinRequestMode. Менеджер вмикає його коли в каналі/групі
+/// активований режим "Заявки на вступ" (Approve new members).
+export async function setJoinRequestModeFlag(joinRequestMode: boolean, updatedBy: string | null): Promise<YearlyProgramTelegramSettings> {
+  const row = await prisma.yearlyProgramTelegramSetting.upsert({
+    where: { id: SINGLETON_ID },
+    create: { id: SINGLETON_ID, joinRequestMode, updatedBy },
+    update: { joinRequestMode, updatedBy },
+  });
+  return {
+    chatId: row.chatId,
+    chatTitle: row.chatTitle,
+    chatType: row.chatType,
+    autoAdd: row.autoAdd,
+    joinRequestMode: row.joinRequestMode,
     updatedAt: row.updatedAt,
     updatedBy: row.updatedBy,
   };
@@ -127,25 +150,27 @@ export async function validateAndSaveChatId(
       chatTitle: row.chatTitle,
       chatType: row.chatType,
       autoAdd: row.autoAdd,
+      joinRequestMode: row.joinRequestMode,
       updatedAt: row.updatedAt,
       updatedBy: row.updatedBy,
     },
   };
 }
 
-/// Очищає chatId / chatTitle / chatType (autoAdd теж скидається у false щоб уникнути
-/// "auto-add ON, але каналу немає" неконсистентного стану).
+/// Очищає chatId / chatTitle / chatType (autoAdd і joinRequestMode теж скидаються у false
+/// щоб уникнути "auto-add ON, але каналу немає" неконсистентного стану).
 export async function clearChatId(updatedBy: string | null): Promise<YearlyProgramTelegramSettings> {
   const row = await prisma.yearlyProgramTelegramSetting.upsert({
     where: { id: SINGLETON_ID },
-    create: { id: SINGLETON_ID, chatId: null, chatTitle: null, chatType: null, autoAdd: false, updatedBy },
-    update: { chatId: null, chatTitle: null, chatType: null, autoAdd: false, updatedBy },
+    create: { id: SINGLETON_ID, chatId: null, chatTitle: null, chatType: null, autoAdd: false, joinRequestMode: false, updatedBy },
+    update: { chatId: null, chatTitle: null, chatType: null, autoAdd: false, joinRequestMode: false, updatedBy },
   });
   return {
     chatId: row.chatId,
     chatTitle: row.chatTitle,
     chatType: row.chatType,
     autoAdd: row.autoAdd,
+    joinRequestMode: row.joinRequestMode,
     updatedAt: row.updatedAt,
     updatedBy: row.updatedBy,
   };
@@ -213,7 +238,12 @@ export async function generateInviteForSubscription(args: {
       chatId: settings.chatId,
       // Назва бачиться лише адмінам каналу — для diagnostics.
       name: sub.userEmail ? `UIMP ${sub.userEmail}`.slice(0, 32) : 'UIMP yearly',
-      memberLimit: 1,
+      // joinRequestMode → invite з creates_join_request=true (без member_limit, бо
+      // API їх не дозволяє разом). Webhook потім робить approve/decline.
+      // Стандарт → member_limit=1, миттєвий вступ.
+      ...(settings.joinRequestMode
+        ? { createsJoinRequest: true }
+        : { memberLimit: 1 }),
       expireSeconds: 30 * 24 * 60 * 60,
     });
     await prisma.yearlyProgramSubscription.update({

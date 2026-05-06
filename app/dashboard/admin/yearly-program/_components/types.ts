@@ -41,6 +41,10 @@ export interface Row {
   telegramUsername: string | null;
   telegramInviteLink: string | null;
   telegramInvitedAt: string | null;
+  /// telegramJoinedAt — момент, коли клієнт реально потрапив у канал
+  /// (`approveChatJoinRequest` від webhook у режимі joinRequestMode).
+  /// null якщо ще не приєднався.
+  telegramJoinedAt: string | null;
 }
 
 export interface SummaryData {

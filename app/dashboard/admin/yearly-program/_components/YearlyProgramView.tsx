@@ -42,6 +42,7 @@ interface SubscriptionDetails {
   telegramInviteLink: string | null;
   telegramInvitedAt: string | null;
   telegramInviteError: string | null;
+  telegramJoinedAt: string | null;
   user: { id: string; name: string | null; email: string } | null;
   plan: Plan;
   autoRenew: boolean;
@@ -938,6 +939,11 @@ function ExpandedRowContent({
           if (details.telegramInvitedAt) {
             const inviteShort = details.telegramInviteLink ? '✓ link є' : '✓';
             items.push(['TG invite', `${inviteShort} · ${new Date(details.telegramInvitedAt).toLocaleDateString('uk-UA')}`]);
+          }
+          if (details.telegramJoinedAt) {
+            items.push(['TG приєднався', `✅ ${new Date(details.telegramJoinedAt).toLocaleString('uk-UA', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`]);
+          } else if (details.telegramInvitedAt) {
+            items.push(['TG приєднався', '⏳ запрошення надіслане']);
           }
           if (details.telegramInviteError) {
             items.push(['TG err', details.telegramInviteError]);

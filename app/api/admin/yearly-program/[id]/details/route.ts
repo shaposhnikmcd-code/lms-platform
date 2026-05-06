@@ -63,6 +63,7 @@ export async function GET(
     telegramInviteLink: sub.telegramInviteLink,
     telegramInvitedAt: sub.telegramInvitedAt?.toISOString() ?? null,
     telegramInviteError: sub.telegramInviteError,
+    telegramJoinedAt: sub.telegramJoinedAt?.toISOString() ?? null,
     createdAt: sub.createdAt.toISOString(),
     updatedAt: sub.updatedAt.toISOString(),
     payments: sub.payments.map((p) => ({

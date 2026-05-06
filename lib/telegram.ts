@@ -85,21 +85,72 @@ export interface TgChatInviteLink {
   creates_join_request?: boolean;
 }
 
-/// Створює одноразове invite-посилання у чат через бота (бот має бути адміном
-/// з can_invite_users=true). За замовчуванням member_limit=1 і expire_date=+30 днів.
+/// Створює invite-посилання у чат через бота (бот має бути адміном з can_invite_users=true).
+/// Дві взаємовиключні стратегії — Telegram API не дозволяє їх разом:
+///   • `createsJoinRequest=true` → join-request flow: користувач кликає, потрапляє в "очікує
+///     адмін-підтвердження". Webhook на `chat_join_request` робить approve/decline.
+///     `member_limit` і `creates_join_request` НЕ можна одночасно.
+///   • інакше → стандарт: `member_limit=1`, юзер заходить миттєво.
+/// За замовчуванням expire_date = +30 днів.
 export async function createChatInviteLink(args: {
   chatId: string | number;
   name?: string;
   memberLimit?: number;
   expireSeconds?: number;
+  createsJoinRequest?: boolean;
 }): Promise<TgChatInviteLink> {
   const expire = Math.floor(Date.now() / 1000) + (args.expireSeconds ?? 30 * 24 * 60 * 60);
-  return call<TgChatInviteLink>('createChatInviteLink', {
+  const payload: Record<string, unknown> = {
     chat_id: args.chatId,
     name: args.name?.slice(0, 32),
-    member_limit: args.memberLimit ?? 1,
     expire_date: expire,
+  };
+  if (args.createsJoinRequest) {
+    payload.creates_join_request = true;
+  } else {
+    payload.member_limit = args.memberLimit ?? 1;
+  }
+  return call<TgChatInviteLink>('createChatInviteLink', payload);
+}
+
+/// Підтверджує join-request (юзер з'являється в чаті як учасник).
+/// Бот має бути адміном з can_invite_users=true.
+export async function approveChatJoinRequest(chatId: string | number, userId: number): Promise<true> {
+  return call<true>('approveChatJoinRequest', { chat_id: chatId, user_id: userId });
+}
+
+/// Відхиляє join-request (юзер бачить "Запит відхилено", приєднання не відбувається).
+export async function declineChatJoinRequest(chatId: string | number, userId: number): Promise<true> {
+  return call<true>('declineChatJoinRequest', { chat_id: chatId, user_id: userId });
+}
+
+/// Реєструє webhook для бота. Telegram буде POST-ити update-и на `url`,
+/// з заголовком `X-Telegram-Bot-Api-Secret-Token: <secretToken>`.
+/// `allowedUpdates` — массив типів, які нам цікаві (інші Telegram не присилатиме).
+export async function setWebhook(args: {
+  url: string;
+  secretToken: string;
+  allowedUpdates: string[];
+  dropPendingUpdates?: boolean;
+}): Promise<true> {
+  return call<true>('setWebhook', {
+    url: args.url,
+    secret_token: args.secretToken,
+    allowed_updates: args.allowedUpdates,
+    drop_pending_updates: args.dropPendingUpdates ?? false,
   });
+}
+
+/// Повертає поточний webhook-стан бота. Корисно для діагностики "чому не приходять update-и".
+export async function getWebhookInfo(): Promise<{
+  url: string;
+  has_custom_certificate: boolean;
+  pending_update_count: number;
+  last_error_date?: number;
+  last_error_message?: string;
+  allowed_updates?: string[];
+}> {
+  return call('getWebhookInfo', {});
 }
 
 /// Нормалізує введений з адмінки chatId. Допускає:
