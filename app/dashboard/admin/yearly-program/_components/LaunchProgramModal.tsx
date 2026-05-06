@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import {
@@ -18,6 +18,49 @@ import {
 import type { Theme } from '../../_components/adminTheme';
 import type { CohortListItem } from './types';
 import { useUIFeedback } from './UIFeedback';
+import WysiwygEmailEditor from './WysiwygEmailEditor';
+import {
+  EmailPreviewFrame,
+  PlaceholderLegend,
+  RemovedPlaceholderAlert,
+  extractUsedPlaceholders,
+} from './EmailEditorParts';
+
+/// Опис кожного поля cohort welcome-листа — для довідника й попереджень при видаленні.
+/// Cohort використовує double-curly формат `{{name}}`, відмінний від payment/reminder (`{name}`).
+const COHORT_PLACEHOLDER_DESCRIPTIONS: Record<string, { what: string; consequence: string }> = {
+  name: {
+    what: 'Імʼя отримувача (з форми оплати) — наприклад «Іван Петренко». Якщо порожнє — підставиться «учаснику».',
+    consequence: 'БЕЗ цього поля привітання буде безособовим.',
+  },
+  email: {
+    what: 'Email-адреса отримувача — наприклад «ivan@example.com».',
+    consequence: 'БЕЗ цього поля у листі не буде email-у адресата (якщо потрібен для login-довідки).',
+  },
+  startDate: {
+    what: 'Дата старту групи — наприклад «01.09.2026».',
+    consequence: 'БЕЗ цього поля отримувач не побачить коли починається навчання.',
+  },
+  endDate: {
+    what: 'Дата завершення групи — наприклад «31.05.2027».',
+    consequence: 'БЕЗ цього поля отримувач не побачить коли закінчується навчальний рік.',
+  },
+  cohortName: {
+    what: 'Назва групи запуску — наприклад «Річна 2026/27».',
+    consequence: 'БЕЗ цього поля отримувач не побачить до якої саме групи він приєднується.',
+  },
+};
+
+/// Sample-data для довідника прев\'ю — щоб менеджер бачив реальний приклад значення.
+const COHORT_SAMPLE_DATA: Record<string, string> = {
+  name: 'Іван Петренко',
+  email: 'ivan@example.com',
+  startDate: '01.09.2026',
+  endDate: '31.05.2027',
+  cohortName: 'Річна 2026/27',
+};
+
+const COHORT_PLACEHOLDERS = ['name', 'email', 'startDate', 'endDate', 'cohortName'];
 
 /// Час запуску заздалегідь зафіксований на 03:50 UTC обраної дати — це за 10 хв до cron-у `0 4 * * *`.
 /// Так гарантується, що запуск спрацьовує саме вранці обраного дня (~07:00 за Києвом, з урахуванням DST),
@@ -78,6 +121,8 @@ export default function LaunchProgramModal({
   const [editing, setEditing] = useState(false);
   const [preview, setPreview] = useState<{ subject: string; body: string } | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewHeight, setPreviewHeight] = useState<number>(420);
+  const previewIframeRef = useRef<HTMLIFrameElement | null>(null);
   const [savingTpl, setSavingTpl] = useState(false);
   const [testInlineOpen, setTestInlineOpen] = useState(false);
   const [testEmail, setTestEmail] = useState('');
@@ -88,6 +133,44 @@ export default function LaunchProgramModal({
     [subject, body, cohort.launchEmailSubject, cohort.launchEmailBody],
   );
 
+  // Детектор видалення `{{плейсхолдерів}}` у тексті — попередження з кнопкою «Повернути».
+  const prevUsedRef = useRef<Set<string>>(extractUsedPlaceholders(cohort.launchEmailBody ?? ''));
+  const [removedPlaceholder, setRemovedPlaceholder] = useState<string | null>(null);
+  const [dismissedRemovals, setDismissedRemovals] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    const current = extractUsedPlaceholders(body);
+    const prev = prevUsedRef.current;
+    for (const ph of prev) {
+      if (!current.has(ph) && COHORT_PLACEHOLDERS.includes(ph) && !dismissedRemovals.has(ph)) {
+        setRemovedPlaceholder(ph);
+        break;
+      }
+    }
+    if (removedPlaceholder && current.has(removedPlaceholder)) {
+      setRemovedPlaceholder(null);
+    }
+    prevUsedRef.current = current;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [body]);
+
+  const restorePlaceholder = (name: string) => {
+    const token = `{{${name}}}`;
+    if (!body.includes(token)) {
+      setBody((b) => `${b}<p>${token}</p>`);
+    }
+    setRemovedPlaceholder(null);
+  };
+
+  const dismissPlaceholderRemoval = (name: string) => {
+    setDismissedRemovals((s) => {
+      const n = new Set(s);
+      n.add(name);
+      return n;
+    });
+    setRemovedPlaceholder(null);
+  };
+
   useEffect(() => { setMounted(true); }, []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -96,30 +179,31 @@ export default function LaunchProgramModal({
     return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = ''; };
   }, [onClose]);
 
-  // Preview підвантажується ТІЛЬКИ якщо менеджер тримає лист увімкненим — інакше зайва робота.
+  // Real-time preview при зміні тексту або теми (350ms debounce).
+  // Шлемо поточний draft → API підставляє sample-data → setPreview({subject, body}) → iframe оновлюється.
+  const previewDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (!sendWelcomeEmails) return;
-    if (preview) return; // вже завантажено
-    let cancelled = false;
+    if (previewDebounceRef.current) clearTimeout(previewDebounceRef.current);
     setPreviewLoading(true);
-    (async () => {
+    previewDebounceRef.current = setTimeout(async () => {
       try {
         const res = await fetch(`/api/admin/yearly-program/cohorts/${cohort.id}/preview`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ subject: subject || undefined, body: body || undefined }),
         });
-        if (cancelled) return;
         if (res.ok) setPreview(await res.json());
       } catch {
-        // ignore — UI покаже стан помилки
+        // ignore
       } finally {
-        if (!cancelled) setPreviewLoading(false);
+        setPreviewLoading(false);
       }
-    })();
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sendWelcomeEmails]);
+    }, 350);
+    return () => {
+      if (previewDebounceRef.current) clearTimeout(previewDebounceRef.current);
+    };
+  }, [sendWelcomeEmails, subject, body, cohort.id]);
 
   const cohortEnd = useMemo(() => new Date(cohort.endDate), [cohort.endDate]);
   const scheduledDate = useMemo(() => new Date(scheduledFor), [scheduledFor]);
@@ -481,34 +565,84 @@ export default function LaunchProgramModal({
               <div className="mt-3 space-y-3">
                 {editing ? (
                   <>
-                    <div className="grid md:grid-cols-2 gap-4">
-                      <div className="space-y-3">
-                        <div>
-                          <Label theme={theme}>Тема листа</Label>
-                          <input
-                            type="text"
-                            value={subject}
-                            onChange={(e) => setSubject(e.target.value)}
-                            placeholder="Ласкаво просимо до {{cohortName}}…"
-                            className={inputCls(dark)}
-                          />
-                        </div>
-                        <div>
-                          <Label theme={theme}>Текст листа (HTML)</Label>
-                          <textarea
-                            value={body}
-                            onChange={(e) => setBody(e.target.value)}
-                            rows={14}
-                            placeholder="<p>Вітаємо, {{name}}!</p>…"
-                            className={`${inputCls(dark)} font-mono text-[12px]`}
-                          />
-                          <div className={`mt-1 text-[10px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
-                            Плейсхолдери: <code>{'{{name}}'}</code> · <code>{'{{email}}'}</code> · <code>{'{{startDate}}'}</code> · <code>{'{{endDate}}'}</code> · <code>{'{{cohortName}}'}</code>
-                          </div>
-                        </div>
-                      </div>
-                      <PreviewPanel theme={theme} preview={preview} loading={previewLoading} />
+                    {/* Тема */}
+                    <div>
+                      <Label theme={theme}>Тема листа</Label>
+                      <input
+                        type="text"
+                        value={subject}
+                        onChange={(e) => setSubject(e.target.value)}
+                        placeholder="Ласкаво просимо до {{cohortName}}…"
+                        className={inputCls(dark)}
+                      />
                     </div>
+
+                    {/* Прев'ю — як буде виглядати лист у пошті */}
+                    <div>
+                      <Label theme={theme}>Прев'ю — так лист побачить отримувач</Label>
+                      <EmailPreviewFrame
+                        dark={dark}
+                        subject={preview?.subject ?? subject}
+                        loading={previewLoading}
+                        loadingHeight={previewHeight}
+                      >
+                        <iframe
+                          ref={previewIframeRef}
+                          key={cohort.id}
+                          srcDoc={preview?.body ?? ''}
+                          title="Прев'ю welcome-листа"
+                          scrolling="no"
+                          onLoad={() => {
+                            const ifr = previewIframeRef.current;
+                            if (!ifr) return;
+                            try {
+                              const doc = ifr.contentDocument;
+                              if (!doc) return;
+                              const h = Math.max(doc.documentElement.scrollHeight, doc.body.scrollHeight);
+                              if (h > 0) setPreviewHeight(h + 4);
+                            } catch {
+                              /* same-origin → safe */
+                            }
+                          }}
+                          style={{ height: `${previewHeight}px` }}
+                          className={`w-full bg-white border-0 block transition-opacity duration-200 ${previewLoading ? 'opacity-0' : 'opacity-100'}`}
+                        />
+                      </EmailPreviewFrame>
+                    </div>
+
+                    {/* Warning при видаленні плейсхолдера */}
+                    {removedPlaceholder && (
+                      <RemovedPlaceholderAlert
+                        dark={dark}
+                        placeholder={removedPlaceholder}
+                        descriptions={COHORT_PLACEHOLDER_DESCRIPTIONS}
+                        format="double"
+                        onRestore={() => restorePlaceholder(removedPlaceholder)}
+                        onDismiss={() => dismissPlaceholderRemoval(removedPlaceholder)}
+                      />
+                    )}
+
+                    {/* WYSIWYG-редактор тіла листа */}
+                    <div>
+                      <Label theme={theme}>Текст листа</Label>
+                      <WysiwygEmailEditor
+                        value={body}
+                        onChange={setBody}
+                        theme={theme}
+                        placeholders={COHORT_PLACEHOLDERS}
+                        placeholderFormat="double"
+                      />
+                    </div>
+
+                    {/* Довідник полів */}
+                    <PlaceholderLegend
+                      dark={dark}
+                      placeholders={COHORT_PLACEHOLDERS}
+                      sampleData={COHORT_SAMPLE_DATA}
+                      descriptions={COHORT_PLACEHOLDER_DESCRIPTIONS}
+                      format="double"
+                    />
+
                     <div className="flex items-center justify-end gap-1.5">
                       <button
                         type="button"
@@ -528,7 +662,7 @@ export default function LaunchProgramModal({
                         disabled={previewLoading}
                         className={btnCls(dark, 'neutral-sm')}
                       >
-                        <HiOutlineEye className="text-sm" /> Оновити
+                        <HiOutlineEye className="text-sm" /> Оновити прев'ю
                       </button>
                       <button
                         type="button"
@@ -536,7 +670,7 @@ export default function LaunchProgramModal({
                         disabled={savingTpl || !dirty}
                         className={btnCls(dark, 'primary-sm')}
                       >
-                        <HiOutlineCheck className="text-sm" /> {savingTpl ? 'Зберігаю…' : 'Зберегти'}
+                        <HiOutlineCheck className="text-sm" /> {savingTpl ? 'Зберігаю…' : 'Зберегти шаблон'}
                       </button>
                     </div>
                   </>
@@ -766,43 +900,6 @@ function ModeCard({
         </div>
       </div>
       {children && <div onClick={(e) => e.stopPropagation()}>{children}</div>}
-    </div>
-  );
-}
-
-function PreviewPanel({
-  theme,
-  preview,
-  loading,
-}: {
-  theme: Theme;
-  preview: { subject: string; body: string } | null;
-  loading: boolean;
-}) {
-  const dark = theme === 'dark';
-  return (
-    <div className={`rounded-lg border min-h-[400px] ${dark ? 'bg-white/[0.02] border-white/[0.06]' : 'bg-stone-50 border-stone-300/50'}`}>
-      {loading && !preview ? (
-        <div className={`px-4 py-8 text-center text-[12px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
-          Рендерю…
-        </div>
-      ) : preview ? (
-        <div className="p-4">
-          <div className={`pb-3 mb-3 border-b text-[12px] ${dark ? 'border-white/[0.06] text-slate-300' : 'border-stone-200 text-stone-700'}`}>
-            <div className={dark ? 'text-slate-500' : 'text-stone-500'}>Тема:</div>
-            <div className="font-semibold">{preview.subject}</div>
-          </div>
-          <div
-            className="prose prose-sm max-w-none"
-            style={{ color: dark ? '#cbd5e1' : '#1c1917' }}
-            dangerouslySetInnerHTML={{ __html: preview.body }}
-          />
-        </div>
-      ) : (
-        <div className={`px-4 py-8 text-center text-[12px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
-          Не вдалося завантажити preview
-        </div>
-      )}
     </div>
   );
 }
