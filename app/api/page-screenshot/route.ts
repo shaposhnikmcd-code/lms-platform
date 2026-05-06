@@ -55,7 +55,19 @@ export async function POST(req: NextRequest) {
       deviceScaleFactor: 2, // retina-якість для скрінів
     });
     const page = await context.newPage();
-    await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
+    // Двофазне очікування. networkidle (вся мережа стихла) — найкраща якість
+    // скріна, але багато сайтів його не досягають через analytics/chat-widgets/
+    // long-polling. Тому чекаємо load (DOM + статика завантажились) як hard
+    // gate, потім "best effort" namагаємось networkidle на 8с — якщо не встиг,
+    // ігноримо і робимо скрін все одно. Так замість 30с timeout-у отримуємо
+    // успішний скрін за ~10-12с навіть на проблемних сайтах.
+    await page.goto(url, { waitUntil: "load", timeout: 30000 });
+    try {
+      await page.waitForLoadState("networkidle", { timeout: 8000 });
+    } catch {
+      // networkidle не настав — ОК, продовжуємо. Це нормально для сайтів з
+      // постійними фоновими запитами (heatmap, чат, аналітика).
+    }
     if (waitMs > 0) await page.waitForTimeout(waitMs);
 
     const buffer = await page.screenshot({ type: "png", fullPage, omitBackground: false });
