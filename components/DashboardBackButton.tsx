@@ -37,11 +37,14 @@ export default function DashboardBackButton() {
       router.push("/");
       return;
     }
-    // Navigate up one level in the path. For `.../{id}/edit` patterns, skip
-    // two segments because the dynamic-id level has no page and would 404.
-    const segments = pathname.replace(/\/$/, "").split("/");
+    // Navigate up one level in the path. Деякі URL-патерни мають лиш-листові
+    // ендпоінти (`/[id]/edit`, `/[id]/preview`) — їх dynamic-id level не має
+    // page.tsx і дав би 404, тож skip-имо ще один сегмент.
+    const normalizedPath = pathname.replace(/\/$/, "");
+    const SKIP_TWO_SUFFIXES = ["/edit", "/preview"];
+    const segments = normalizedPath.split("/");
     segments.pop();
-    if (pathname.replace(/\/$/, "").endsWith("/edit")) {
+    if (SKIP_TWO_SUFFIXES.some(s => normalizedPath.endsWith(s))) {
       segments.pop();
     }
     const parentPath = segments.join("/") || "/dashboard";
