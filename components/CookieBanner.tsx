@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useTranslations } from 'next-intl';
+import { useSession } from 'next-auth/react';
 import { Link } from '@/i18n/navigation';
 
 export default function CookieBanner() {
@@ -14,15 +15,56 @@ export default function CookieBanner() {
     advertising: false
   });
   const t = useTranslations('CookieBanner');
+  const { data: session, status } = useSession();
+  const role = session?.user?.role;
+  const activeRole = session?.user?.activeRole;
+  const isStaff = role === 'ADMIN' || role === 'MANAGER' || activeRole === 'ADMIN' || activeRole === 'MANAGER';
 
   useEffect(() => {
+    // У development cookie-банер ніколи не показується — він заважає тестувати
+    // публічні сторінки і не релевантний на localhost (стандартна практика для
+    // dev-середовищ). На проді поведінка нижче — повноцінна.
+    if (process.env.NODE_ENV !== 'production') {
+      setShowBanner(false);
+      return;
+    }
+
+    // Link-preview screenshots: Facebook/Twitter/LinkedIn/Slack/Telegram/Discord/WhatsApp
+    // bots часто рендерять сторінку у headless-браузері для генерації превʼю-картинки.
+    // Cookie-банер на превʼю-скріні виглядає як спам — ховаємо його за UA-детектом
+    // або за query-флагом ?preview=1 (можна руками тригернути для тесту).
+    if (typeof window !== 'undefined') {
+      const ua = navigator.userAgent || '';
+      const isBot = /facebookexternalhit|Facebot|Twitterbot|LinkedInBot|Slackbot|TelegramBot|WhatsApp|Discordbot|Pinterest|SkypeUriPreview|Embedly|Googlebot|bingbot|Applebot|vkShare|redditbot|Mastodon/i.test(ua);
+      const isPreview = new URLSearchParams(window.location.search).get('preview') === '1';
+      if (isBot || isPreview) {
+        setShowBanner(false);
+        return;
+      }
+    }
+
+    // Поки сесія тільки завантажується — не показуємо банер взагалі (інакше
+    // він мигає на 100мс перед тим як ми зрозуміємо що користувач — адмін).
+    if (status === 'loading') { setShowBanner(false); return; }
+
+    // ADMIN/MANAGER працюють у білдерах; їм банер не показуємо — він перекриває
+    // нижню частину сторінки і заважає тестувати публічний рендер.
+    if (isStaff) {
+      setShowBanner(false);
+      if (!localStorage.getItem('cookiePreferences')) {
+        localStorage.setItem('cookiePreferences', JSON.stringify({
+          necessary: true, performance: true, functional: true, advertising: true,
+        }));
+      }
+      return;
+    }
     const saved = localStorage.getItem('cookiePreferences');
     if (!saved) {
       setShowBanner(true);
     } else {
       setPreferences(JSON.parse(saved));
     }
-  }, []);
+  }, [isStaff, status]);
 
   useEffect(() => {
     const handleOpenSettings = () => {
