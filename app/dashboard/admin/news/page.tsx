@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import {
   FaPlus,
@@ -131,6 +132,41 @@ export default function AdminNewsPage() {
   const [scheduleInput, setScheduleInput] = useState<string>(''); // YYYY-MM-DD
   const [scheduleSaveState, setScheduleSaveState] = useState<'idle' | 'saving' | 'saved'>('idle');
   const scheduleDebounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Date-picker popover рендериться через portal до body — щоб не клипатись
+  // overflow:hidden батьківської staged-панелі. Координати рахуємо з рефу
+  // trigger-а; при resize/scroll переоцінюємо.
+  const dateTriggerRef = useRef<HTMLButtonElement>(null);
+  const [datePickerPos, setDatePickerPos] = useState<{ top: number; left: number } | null>(null);
+  useLayoutEffect(() => {
+    if (!datePickerOpen) { setDatePickerPos(null); return; }
+    const recalc = () => {
+      const el = dateTriggerRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      setDatePickerPos({ top: r.bottom + 6, left: r.left });
+    };
+    recalc();
+    window.addEventListener('resize', recalc);
+    window.addEventListener('scroll', recalc, true);
+    return () => {
+      window.removeEventListener('resize', recalc);
+      window.removeEventListener('scroll', recalc, true);
+    };
+  }, [datePickerOpen]);
+  // Закриваємо popover при click outside.
+  useEffect(() => {
+    if (!datePickerOpen) return;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (dateTriggerRef.current?.contains(t)) return;
+      const pop = document.getElementById('news-date-popover');
+      if (pop?.contains(t)) return;
+      setDatePickerOpen(false);
+    };
+    window.addEventListener('mousedown', onDown);
+    return () => window.removeEventListener('mousedown', onDown);
+  }, [datePickerOpen]);
 
   // Live tick для countdown — оновлюємо раз на годину (днева точність).
   const [, setNowTick] = useState(0);
@@ -366,7 +402,7 @@ export default function AdminNewsPage() {
             <span className={`inline-block w-1.5 h-1.5 rounded-full ${
               pagePublished ? 'bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.6)]' : 'bg-stone-400'
             }`} />
-            <span className="text-[11px] font-bold tracking-[0.12em] uppercase">Поточна сторінка</span>
+            <span className="text-[11px] font-bold tracking-[0.12em] uppercase">Поточна сторінка Новин</span>
             <span className={`text-[10px] font-normal opacity-70 normal-case tracking-normal`}>
               {pagePublished === null ? '' : pagePublished ? '· live' : '· неактивна'}
             </span>
@@ -517,7 +553,7 @@ export default function AdminNewsPage() {
                     : 'bg-amber-500 shadow-[0_0_6px_rgba(251,191,36,0.6)]'
                   : 'bg-stone-400'
               }`} />
-              <span className="text-[11px] font-bold tracking-[0.12em] uppercase">Наступна сторінка</span>
+              <span className="text-[11px] font-bold tracking-[0.12em] uppercase">Наступна сторінка Новин</span>
               <span className={`text-[10px] font-normal opacity-70 normal-case tracking-normal`}>
                 {hasStaged ? '· чернетка готова' : '· немає чернетки'}
               </span>
@@ -556,11 +592,12 @@ export default function AdminNewsPage() {
                   {/* Один рядок: date-pill (з ✕ для скидання) + ⚡ Опублікувати зараз.
                       Календар відкривається випадаючим меню під date-pill —
                       компактний (240px), щоб не розпирав панель. */}
-                  <div className="relative mb-2">
+                  <div className="mb-2">
                     <div className="flex items-center gap-2">
                       <div className="flex-1 flex items-center gap-1.5 min-w-0">
                         <button
                           type="button"
+                          ref={dateTriggerRef}
                           onClick={() => setDatePickerOpen(o => !o)}
                           className={`flex-1 min-w-0 inline-flex items-center justify-between gap-2 px-3 py-2 text-[12px] rounded-lg border transition-colors ${
                             dark
@@ -602,9 +639,17 @@ export default function AdminNewsPage() {
                       >{stagedActionPending === 'publishNow' ? '...' : '⚡ Опублікувати зараз'}</button>
                     </div>
 
-                    {datePickerOpen && (
+                    {datePickerOpen && datePickerPos && typeof document !== 'undefined' && createPortal(
                       <div
-                        className={`absolute left-0 top-full z-30 mt-1.5 w-[240px] rounded-lg shadow-xl overflow-hidden ${
+                        id="news-date-popover"
+                        style={{
+                          position: 'fixed',
+                          top: datePickerPos.top,
+                          left: datePickerPos.left,
+                          width: 240,
+                          zIndex: 70,
+                        }}
+                        className={`rounded-lg shadow-xl overflow-hidden ${
                           dark ? 'bg-[#1a1d26]' : 'bg-white'
                         }`}
                       >
@@ -617,7 +662,8 @@ export default function AdminNewsPage() {
                         <p className={`px-2.5 pb-2 -mt-1 text-[10px] leading-snug ${dark ? 'text-amber-200/55' : 'text-amber-800/65'}`}>
                           Заміна вранці обраного дня (06:00 Київ).
                         </p>
-                      </div>
+                      </div>,
+                      document.body,
                     )}
                   </div>
 
