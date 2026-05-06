@@ -2,32 +2,46 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { HiOutlineRocketLaunch, HiOutlineEnvelopeOpen, HiOutlineArrowPath, HiOutlineUserPlus, HiOutlineMap } from 'react-icons/hi2';
+import { HiOutlineRocketLaunch, HiOutlineEnvelopeOpen, HiOutlineArrowPath, HiOutlineUserPlus, HiOutlineSquares2X2, HiOutlineCurrencyDollar, HiOutlineClock } from 'react-icons/hi2';
 import type { Theme } from '../../_components/adminTheme';
 import type { CohortListItem } from './types';
 import SendEmailsModal from './SendEmailsModal';
 import AddStudentModal from './AddStudentModal';
 import LaunchProgramModal from './LaunchProgramModal';
-import WorkflowModal from './WorkflowModal';
+import WorkflowDiagramModal from './WorkflowDiagramModal';
+import TelegramChannelButton, { type TelegramSettingsState } from './TelegramChannelButton';
+import ProgramSettingButton from './ProgramSettingButton';
 import MailerFromBadge from '../../_components/MailerFromBadge';
 import { useUIFeedback, HoverInfo } from './UIFeedback';
 
-/// Великі кнопки дій над cohort-ом: 🚀 Запустити · ✉️ Запустити розсилку · 📧 E-mail · ℹ️
+/// Великі кнопки дій над cohort-ом. Запуск і welcome-розсилка об'єднані в одну кнопку
+/// 🚀 — у модалці є чекбокс «Надіслати лист одночасно» (default ON). Окрема кнопка
+/// ✉️ Дослати лист з'являється ПІСЛЯ запуску — для resend (per-recipient або bulk-override).
 export default function CohortActions({
   cohort,
   theme,
+  telegramSettings,
+  graceDays,
+  registrationOpen,
+  onOpenPricing,
+  onOpenGrace,
 }: {
   cohort: CohortListItem;
   theme: Theme;
+  telegramSettings: TelegramSettingsState;
+  graceDays: number;
+  registrationOpen: boolean;
+  onOpenPricing: () => void;
+  onOpenGrace: () => void;
 }) {
   const dark = theme === 'dark';
   const router = useRouter();
   const { toast, confirm } = useUIFeedback();
   const [busy, setBusy] = useState(false);
-  const [sendModalOpen, setSendModalOpen] = useState(false);
+  const [resendModalOpen, setResendModalOpen] = useState(false);
   const [addStudentOpen, setAddStudentOpen] = useState(false);
   const [launchModalOpen, setLaunchModalOpen] = useState(false);
-  const [workflowOpen, setWorkflowOpen] = useState(false);
+  const [diagramOpen, setDiagramOpen] = useState(false);
   // Кількість підписок, яким при запуску не вдалося відкрити доступ. Лишаємо від запуску, поки
   // менеджер не повторить — кнопка "Повторити запуск" з'являється поряд.
   const [failedCount, setFailedCount] = useState<number>(0);
@@ -84,7 +98,7 @@ export default function CohortActions({
             {cohort.launchedAt
               ? 'Програма запущена'
               : cohort.launchScheduledFor
-                ? `Запуск ${humanizeShortRelative(cohort.launchScheduledFor)}`
+                ? `Запуск ${humanizeShortRelative(cohort.launchScheduledFor)}${cohort.emailScheduledFor ? ' + лист' : ''}`
                 : 'Запустити програму'}
           </button>
           <HoverInfo
@@ -92,13 +106,57 @@ export default function CohortActions({
             title={cohort.launchedAt ? 'Програма вже запущена' : cohort.launchScheduledFor ? 'Запуск заплановано' : 'Що відбудеться при запуску'}
             body={
               cohort.launchedAt
-                ? `Запущено: ${new Date(cohort.launchedAt).toLocaleString('uk-UA')}\n\nПовторно запустити вже не можна. Нові оплати не приймаються в цей запуск.\n\nЯкщо потрібно додати студента вручну — скористуйтесь кнопкою "Додати студента" поряд.`
+                ? `Запущено: ${new Date(cohort.launchedAt).toLocaleString('uk-UA')}\n\nПовторно запустити вже не можна. Нові оплати не приймаються в цей запуск.\n\nЯкщо потрібно надіслати welcome-лист тим, кому не дійшло — кнопка "✉️ Дослати лист" поряд.`
                 : cohort.launchScheduledFor
-                  ? `Заплановано на: ${new Date(cohort.launchScheduledFor).toLocaleString('uk-UA')}\n\nCron перевіряє щодоби о 04:00 UTC. Фактичний запуск може зсунутись на ≤24h після цієї дати.\n\nКлік на кнопку — щоб перепланувати, скасувати або запустити одразу.`
-                  : '🔓 Відкриває доступ у SendPulse усім, хто оплатив\n📅 Перераховує "Доступ до" по новій логіці (від дати запуску)\n🚀 Фіксує дату фактичного запуску\n\nДва режими: запустити одразу або запланувати на дату.\n\nWelcome-листи тут НЕ йдуть — це окрема кнопка ✉️ Запустити розсилку.'
+                  ? `Заплановано на: ${new Date(cohort.launchScheduledFor).toLocaleString('uk-UA')}${cohort.emailScheduledFor ? '\nWelcome-лист: на ту саму дату.' : '\nWelcome-лист: НЕ заплановано.'}\n\nCron перевіряє щодоби о 04:00 UTC. Фактичний запуск може зсунутись на ≤24h після цієї дати.\n\nКлік на кнопку — щоб перепланувати, скасувати або запустити одразу.`
+                  : '🔓 Відкриває доступ у SendPulse усім, хто оплатив\n📅 Перераховує "Доступ до" по новій логіці (від дати запуску)\n🚀 Фіксує дату фактичного запуску\n✉️ За замовчуванням одразу надсилає welcome-лист (можна вимкнути в модалці)\n\nДва режими: запустити одразу або запланувати на дату.'
             }
           />
         </div>
+
+        {cohort.launchedAt && (
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setResendModalOpen(true)}
+              disabled={busy}
+              className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-[13px] font-semibold border transition-colors disabled:opacity-50 ${
+                dark
+                  ? 'bg-white/[0.04] border-white/[0.1] text-slate-200 hover:bg-white/[0.08]'
+                  : 'bg-white/80 border-stone-300/60 text-stone-800 hover:bg-stone-50'
+              }`}
+            >
+              <HiOutlineEnvelopeOpen className="text-base" />
+              Дослати лист
+              {cohort.emailSentAt ? (
+                <span className={`ml-1 px-1.5 py-0.5 rounded text-[9px] font-semibold ${
+                  dark ? 'bg-emerald-500/20 text-emerald-300' : 'bg-emerald-100 text-emerald-800'
+                }`}>
+                  ✓ {new Date(cohort.emailSentAt).toLocaleString('uk-UA', { day: '2-digit', month: '2-digit' })}
+                </span>
+              ) : null}
+            </button>
+            <HoverInfo
+              theme={theme}
+              title="Дослати welcome-лист"
+              body={
+                <div className="space-y-3">
+                  <div className="whitespace-pre-line">
+                    {cohort.emailSentAt
+                      ? 'Bulk-розсилка вже виконана при запуску. Ця кнопка — для тих, кому лист не дійшов або хто потрапив до cohort-у пізніше.\n\nУ модалці видно список одержувачів — можна або повторити для всіх, або вибрати окремих людей.\n\nДублі виключено: тим, хто вже отримав, повторно не надсилає (якщо явно не запросити).'
+                      : 'Запуск був без листа (галочка знята в модалці запуску). Тут можна надіслати welcome-лист зараз або запланувати.\n\nУ модалці одразу видно сам лист — можна відредагувати, надіслати тестовий, потім запустити.\n\nДублі виключено.'}
+                  </div>
+                  <div className={`pt-2 border-t ${dark ? 'border-white/[0.08]' : 'border-stone-200'}`}>
+                    <div className={`text-[10px] uppercase tracking-[0.18em] font-medium mb-1.5 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+                      Відправляємо з
+                    </div>
+                    <MailerFromBadge theme={theme} variant="compact" />
+                  </div>
+                </div>
+              }
+            />
+          </div>
+        )}
 
         {cohort.launchedAt && (
           <div className="flex items-center gap-1.5">
@@ -147,74 +205,48 @@ export default function CohortActions({
           </div>
         )}
 
-        <div className="flex items-center gap-1.5">
-          <button
-            type="button"
-            onClick={() => setSendModalOpen(true)}
-            disabled={busy}
-            className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-[13px] font-semibold border transition-colors disabled:opacity-50 ${
-              dark
-                ? 'bg-white/[0.04] border-white/[0.1] text-slate-200 hover:bg-white/[0.08]'
-                : 'bg-white/80 border-stone-300/60 text-stone-800 hover:bg-stone-50'
-            }`}
-          >
-            <HiOutlineEnvelopeOpen className="text-base" />
-            Запустити розсилку
-            {cohort.emailScheduledFor ? (
-              <span className={`ml-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold ${
-                dark ? 'bg-indigo-500/20 text-indigo-200' : 'bg-indigo-100 text-indigo-900'
-              }`}>
-                📅 {new Date(cohort.emailScheduledFor).toLocaleString('uk-UA', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
-              </span>
-            ) : cohort.emailSentAt ? (
-              <span className={`ml-1 px-1.5 py-0.5 rounded text-[9px] font-semibold ${
-                dark ? 'bg-emerald-500/20 text-emerald-300' : 'bg-emerald-100 text-emerald-800'
-              }`}>
-                ✓ {new Date(cohort.emailSentAt).toLocaleString('uk-UA', { day: '2-digit', month: '2-digit' })}
-              </span>
-            ) : null}
-          </button>
-          <HoverInfo
-            theme={theme}
-            title="Як працює розсилка"
-            body={
-              <div className="space-y-3">
-                <div className="whitespace-pre-line">
-                  {'Welcome-листи всім підписникам цього запуску.\n\nУ модалці розсилки одразу видно сам лист — можна відредагувати, надіслати тестовий, потім запустити.\n\n· Зараз — миттєва послідовна відправка\n· Запланувати — cron щодоби о 04:00 UTC надсилає в призначений день\n\nДублі виключено: тим, хто вже отримав, повторно не надсилає.'}
-                </div>
-                <div className={`pt-2 border-t ${dark ? 'border-white/[0.08]' : 'border-stone-200'}`}>
-                  <div className={`text-[10px] uppercase tracking-[0.18em] font-medium mb-1.5 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
-                    Відправляємо з
-                  </div>
-                  <MailerFromBadge theme={theme} variant="compact" />
-                </div>
-              </div>
-            }
-          />
-        </div>
+        <TelegramChannelButton theme={theme} initial={telegramSettings} />
 
         <button
           type="button"
-          onClick={() => setWorkflowOpen(true)}
+          onClick={() => setDiagramOpen(true)}
           className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-[13px] font-semibold border transition-colors ${
             dark
               ? 'bg-white/[0.03] border-white/[0.08] text-slate-300 hover:bg-amber-400/10 hover:border-amber-400/30 hover:text-amber-200'
               : 'bg-white/70 border-stone-300/50 text-stone-700 hover:bg-amber-50 hover:border-amber-300/60 hover:text-amber-900'
           }`}
         >
-          <HiOutlineMap className="text-base" />
-          Флоу роботи Річної програми
+          <HiOutlineSquares2X2 className="text-base" />
+          Флоу Річної програми
         </button>
+
+        <div className={`ml-auto flex items-center gap-1 pl-3 ${dark ? 'border-l border-white/[0.06]' : 'border-l border-stone-300/40'}`}>
+          <ProgramSettingButton
+            theme={theme}
+            icon={<HiOutlineCurrencyDollar className="text-base" />}
+            label="Вартість"
+            title="Налаштувати ціни, текст кнопок реєстрації та інформацію про програму"
+            onClick={onOpenPricing}
+            badge={!registrationOpen ? 'закрито' : null}
+          />
+          <ProgramSettingButton
+            theme={theme}
+            icon={<HiOutlineClock className="text-base" />}
+            label={`GRACE · ${graceDays}д`}
+            title="Налаштувати тривалість grace-періоду"
+            onClick={onOpenGrace}
+          />
+        </div>
       </div>
 
-      {workflowOpen && (
-        <WorkflowModal theme={theme} onClose={() => setWorkflowOpen(false)} />
+      {diagramOpen && (
+        <WorkflowDiagramModal theme={theme} onClose={() => setDiagramOpen(false)} />
       )}
-      {sendModalOpen && (
+      {resendModalOpen && (
         <SendEmailsModal
           cohort={cohort}
           theme={theme}
-          onClose={() => setSendModalOpen(false)}
+          onClose={() => setResendModalOpen(false)}
         />
       )}
       {addStudentOpen && (

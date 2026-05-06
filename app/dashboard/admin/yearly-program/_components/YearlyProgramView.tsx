@@ -15,7 +15,6 @@ import {
   HiOutlineChevronRight,
   HiOutlineCheck,
   HiOutlineEnvelope,
-  HiOutlineCurrencyDollar,
   HiOutlineArrowRightCircle,
 } from 'react-icons/hi2';
 import type { YearlyProgramSettings } from '@/lib/yearlyProgramSettings';
@@ -28,7 +27,8 @@ import CreateCohortModal from './CreateCohortModal';
 import MoveCohortBtn from './MoveCohortBtn';
 import { UIFeedbackProvider, useUIFeedback } from './UIFeedback';
 import PaymentTemplatesModal from './PaymentTemplatesModal';
-import TelegramChannelButton, { type TelegramSettingsState } from './TelegramChannelButton';
+import ProgramSettingButton from './ProgramSettingButton';
+import { type TelegramSettingsState } from './TelegramChannelButton';
 import { flagEmoji, getCountryName } from '@/lib/countries';
 import { telegramProfileUrl } from '@/lib/telegramUsername';
 
@@ -268,7 +268,15 @@ function YearlyProgramViewInner({
         {activeCohort && (
           <>
             <div className={dark ? 'border-t border-white/[0.06]' : 'border-t border-stone-300/40'} />
-            <CohortActions cohort={activeCohort} theme={theme} />
+            <CohortActions
+              cohort={activeCohort}
+              theme={theme}
+              telegramSettings={telegramSettings}
+              graceDays={graceDays}
+              registrationOpen={programSettings.registrationOpen}
+              onOpenPricing={() => setPricingModalOpen(true)}
+              onOpenGrace={() => setGraceModalOpen(true)}
+            />
           </>
         )}
         <div className={dark ? 'border-t border-white/[0.06]' : 'border-t border-stone-300/40'} />
@@ -317,23 +325,8 @@ function YearlyProgramViewInner({
           <div className="flex items-center gap-1">
             <ProgramSettingButton
               theme={theme}
-              icon={<HiOutlineCurrencyDollar className="text-base" />}
-              label="Вартість"
-              title="Налаштувати ціни, текст кнопок реєстрації та інформацію про програму"
-              onClick={() => setPricingModalOpen(true)}
-              badge={!programSettings.registrationOpen ? 'закрито' : null}
-            />
-            <ProgramSettingButton
-              theme={theme}
-              icon={<HiOutlineClock className="text-base" />}
-              label={`GRACE · ${graceDays}д`}
-              title="Налаштувати тривалість grace-періоду"
-              onClick={() => setGraceModalOpen(true)}
-            />
-            <ProgramSettingButton
-              theme={theme}
               icon={<HiOutlineEnvelope className="text-base" />}
-              label="Нагадування"
+              label="Листи Нагадування"
               title="Налаштувати email-нагадування користувачам"
               onClick={() => setEmailModalOpen(true)}
             />
@@ -344,7 +337,6 @@ function YearlyProgramViewInner({
               title="Редагувати транзакційні листи (welcome, receipt, plan-changed, admin-actions)"
               onClick={() => setPaymentTemplatesOpen(true)}
             />
-            <TelegramChannelButton theme={theme} initial={telegramSettings} />
           </div>
           <input
             type="search"
@@ -1240,50 +1232,6 @@ function KpiInline({
 
 function KpiDot({ dark }: { dark: boolean }) {
   return <span className={`shrink-0 select-none text-[10px] ${dark ? 'text-white/[0.15]' : 'text-stone-300'}`}>•</span>;
-}
-
-/// Маленька кнопка program-level налаштувань (Вартість/GRACE/Нагадування) для top-toolbar
-/// у workspace-карточці. Стиль "ghost icon-text" щоб не конкурувати з основною дією.
-function ProgramSettingButton({
-  theme,
-  icon,
-  label,
-  title,
-  onClick,
-  badge,
-}: {
-  theme: Theme;
-  icon: React.ReactNode;
-  label: string;
-  title?: string;
-  onClick: () => void;
-  badge?: string | null;
-}) {
-  const dark = theme === 'dark';
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={title}
-      className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12px] font-medium transition-colors ${
-        dark
-          ? 'text-slate-400 hover:bg-white/[0.06] hover:text-amber-300'
-          : 'text-stone-600 hover:bg-stone-100 hover:text-amber-800'
-      }`}
-    >
-      {icon}
-      {label}
-      {badge && (
-        <span
-          className={`ml-0.5 text-[9px] uppercase tracking-wider font-semibold rounded-full px-1.5 py-0.5 ${
-            dark ? 'bg-rose-500/15 text-rose-300' : 'bg-rose-100 text-rose-700'
-          }`}
-        >
-          {badge}
-        </span>
-      )}
-    </button>
-  );
 }
 
 function PlanBadge({ plan, autoRenew, theme }: { plan: Plan; autoRenew: boolean; theme: Theme }) {
