@@ -24,7 +24,6 @@ export default function EditNewsPage() {
   const [error, setError] = useState("");
   const [initialMeta, setInitialMeta] = useState<Partial<NewsMeta>>({});
   const [initialContent, setInitialContent] = useState("");
-  const [initialPreviewContent, setInitialPreviewContent] = useState("");
 
   useEffect(() => {
     if (!id) return;
@@ -41,25 +40,21 @@ export default function EditNewsPage() {
           published: d.published || false,
         });
         setInitialContent(d.content || "");
-        setInitialPreviewContent(d.previewContent || "");
         setLoading(false);
       })
       .catch(e => { setError("Помилка завантаження: " + e.message); setLoading(false); });
   }, [id]);
 
-  // Multi-tab save: PATCH news з content + previewContent одночасно.
-  const handleSaveTabs = async (meta: NewsMeta, contents: Record<string, string>, imageUrl: string) => {
+  // Save: ТІЛЬКИ `content`. Meta + previewContent редагуються окремо у
+  // `/[id]/preview` — щоб два білдери не перетирали зміни одне одного
+  // (lost-update). Параметри meta/imageUrl ігноруємо навмисно.
+  const handleSave = async (_meta: NewsMeta, content: string) => {
     setSaving(true);
     try {
       const res = await fetch("/api/admin/news/" + id, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...meta,
-          content: contents.content ?? "",
-          previewContent: contents.preview ?? "",
-          imageUrl,
-        }),
+        body: JSON.stringify({ content }),
       });
       if (res.ok) {
         router.push("/dashboard/admin/news");
@@ -89,12 +84,10 @@ export default function EditNewsPage() {
     <NewsEditor
       pageTitle={"Редагування новини"}
       initialMeta={initialMeta}
+      initialContent={initialContent}
       newsId={id}
-      tabs={[
-        { key: "preview", label: "Превʼю картки", initialContent: initialPreviewContent },
-        { key: "content", label: "Контент новини", initialContent: initialContent },
-      ]}
-      onSaveTabs={handleSaveTabs}
+      metaSidebar={false}
+      onSave={handleSave}
       onBack={() => router.push("/dashboard/admin/news")}
       saving={saving}
     />

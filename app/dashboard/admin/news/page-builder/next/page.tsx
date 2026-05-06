@@ -1,16 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { NewsMeta } from "../../_components/editor/types";
+import InlineDatePicker, { formatDateChip } from "../../../_components/InlineDatePicker";
+import { useAdminTheme } from "../../../_components/adminTheme";
 
 // Білдер "Наступної сторінки" /news. Працює з staged-копією (next* поля
 // NewsPage). При відкритті — якщо staged ще нема, /api/admin/news/page-content/next
 // віддає live як стартовий стан, щоб менеджер міг внести точкові правки замість
-// верстати з нуля. При збереженні зберігається у staged + `nextPublishAt` —
-// далі cron `/api/cron/news-page-publish` (раз на годину) копіює staged → live
-// коли настає час публікації.
+// верстати з нуля. При збереженні зберігається у staged + `nextPublishAt`
+// (06:00 Київ обраного дня в UTC). Cron `/api/cron/news-publish` щоранку
+// (04:00 UTC = 06:00–07:00 Київ) робить swap; read-time auto-publish
+// в `app/[locale]/news/page.tsx` лишається як safety-net.
 
 const NewsEditor = dynamic(() => import("../../_components/editor/NewsEditor"), {
   ssr: false,
@@ -23,33 +26,28 @@ const NewsEditor = dynamic(() => import("../../_components/editor/NewsEditor"), 
 
 const ff = "-apple-system, BlinkMacSystemFont, sans-serif";
 
-// Перетворює ISO у формат datetime-local (YYYY-MM-DDTHH:mm) — input того
-// типу не приймає TZ. Працюємо в локальній зоні менеджера, БД зберігає UTC.
-function isoToLocalInput(iso: string | null): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-function localInputToIso(s: string): string | null {
-  if (!s) return null;
-  const d = new Date(s);
-  if (Number.isNaN(d.getTime())) return null;
-  return d.toISOString();
-}
-
 export default function NewsPageBuilderNext() {
   const router = useRouter();
+  const { theme } = useAdminTheme();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [initialMeta, setInitialMeta] = useState<Partial<NewsMeta>>({});
   const [initialContent, setInitialContent] = useState("");
   const [hasStaged, setHasStaged] = useState(false);
-  const [publishAtLocal, setPublishAtLocal] = useState("");
+  const [publishOn, setPublishOn] = useState(""); // YYYY-MM-DD
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [actionPending, setActionPending] = useState<null | "publishNow" | "discard">(null);
   const [toast, setToast] = useState<{ message: string; type: "error" | "success" } | null>(null);
+
+  const minDate = useMemo(() => {
+    const fmt = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Europe/Kyiv",
+      year: "numeric", month: "2-digit", day: "2-digit",
+    });
+    const [y, m, d] = fmt.format(new Date()).split("-").map(Number);
+    return fmt.format(new Date(Date.UTC(y, m - 1, d + 1)));
+  }, []);
 
   useEffect(() => {
     fetch("/api/admin/news/page-content/next")
@@ -72,7 +70,7 @@ export default function NewsPageBuilderNext() {
             }
           } catch {/* not JSON */}
           setInitialContent(cleaned);
-          setPublishAtLocal(isoToLocalInput(d.publishAt));
+          setPublishOn(d.publishOn || "");
         } else {
           setInitialMeta({ title: "", slug: "", excerpt: "", category: "NEWS", imageUrl: "", pageBgColor: "", published: true });
           setInitialContent("");
@@ -97,7 +95,7 @@ export default function NewsPageBuilderNext() {
         body: JSON.stringify({
           content,
           pageBgColor: meta.pageBgColor || null,
-          publishAt: localInputToIso(publishAtLocal),
+          publishOn: publishOn || null,
         }),
       });
       if (res.ok) {
@@ -189,32 +187,59 @@ export default function NewsPageBuilderNext() {
           </div>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: "8px", marginLeft: "auto", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", marginLeft: "auto", flexWrap: "wrap", position: "relative" }}>
           <label style={{ fontSize: "11px", fontWeight: 600, color: "#1C3A2E" }}>
             Опублікувати:
           </label>
-          <input
-            type="datetime-local"
-            value={publishAtLocal}
-            onChange={(e) => setPublishAtLocal(e.target.value)}
+          <button
+            type="button"
+            onClick={() => setDatePickerOpen(o => !o)}
             style={{
-              padding: "6px 10px", borderRadius: "8px",
+              padding: "6px 12px", borderRadius: "8px",
               border: "1.5px solid #E8D5B7", background: "#FFFFFF",
               fontSize: "12px", color: "#1C3A2E", fontFamily: ff,
-              outline: "none",
+              cursor: "pointer", fontWeight: 600,
+              display: "inline-flex", alignItems: "center", gap: "8px",
             }}
-          />
-          {publishAtLocal && (
+          >
+            <span aria-hidden>📅</span>
+            <span>{publishOn ? formatDateChip(publishOn) : "Обрати дату"}</span>
+            {publishOn && (
+              <span style={{ fontSize: "10px", color: "#9B7C45", fontWeight: 500 }}>· 06:00 Київ</span>
+            )}
+          </button>
+          {publishOn && (
             <button
               type="button"
-              onClick={() => setPublishAtLocal("")}
-              title="Прибрати таймер — чернетка не публікуватиметься автоматично"
+              onClick={() => { setPublishOn(""); setDatePickerOpen(false); }}
+              title="Прибрати дату — чернетка не публікуватиметься автоматично"
               style={{
                 width: "28px", height: "28px", borderRadius: "6px",
                 border: "1px solid #E8D5B7", background: "#FFFFFF",
                 color: "#9B7C45", cursor: "pointer", fontSize: "12px",
               }}
             >✕</button>
+          )}
+          {datePickerOpen && (
+            <div
+              style={{
+                position: "absolute", top: "calc(100% + 8px)", right: 0, zIndex: 40,
+                width: "280px", background: "#FFFFFF",
+                border: "1px solid #E8D5B7", borderRadius: "12px",
+                boxShadow: "0 12px 32px rgba(28,58,46,0.18)",
+                padding: "10px",
+              }}
+            >
+              <InlineDatePicker
+                value={publishOn}
+                onChange={(v) => { setPublishOn(v); setDatePickerOpen(false); }}
+                theme={theme}
+                min={minDate}
+              />
+              <p style={{ marginTop: "8px", fontSize: "10px", color: "#9B7C45", lineHeight: 1.4 }}>
+                Заміна сторінки відбудеться вранці обраного дня (06:00 Київ).
+              </p>
+            </div>
           )}
           <span style={{ width: "1px", height: "22px", background: "#E8D5B7", margin: "0 4px" }} />
           {hasStaged && (

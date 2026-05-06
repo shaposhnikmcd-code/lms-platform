@@ -1,4 +1,5 @@
 import prisma from "@/lib/prisma";
+import { revalidatePath } from "next/cache";
 
 const KEY = "default";
 
@@ -42,17 +43,31 @@ export async function publishStagedNewsPage(): Promise<PublishResult> {
     },
   });
 
+  // Інвалідуємо ISR-кеш /news щоб новий контент з'явився одразу — і для cron
+  // (server context), і для read-time (request context). `revalidatePath`
+  // безпечно викликати з обох — Next.js no-op-ить за межами цих контекстів.
+  try {
+    revalidatePath("/uk/news");
+    revalidatePath("/en/news");
+    revalidatePath("/pl/news");
+    revalidatePath("/news");
+  } catch {
+    /* поза server-context — ок */
+  }
+
   return { published: true, publishedAt: now.toISOString() };
 }
 
 /**
- * Read-time auto-publish: перший хіт на /news (або адмінський виклик) після
- * `nextPublishAt` автоматично виконує swap. Той самий патерн що
- * News.suspendedAt/resumeAt — без cron-ів, перевірка інлайн при читанні.
+ * Auto-publish якщо `nextPublishAt <= now()`. Викликається з трьох місць:
+ *   — cron `/api/cron/news-publish` (04:00 UTC ≈ 06:00–07:00 Київ) — primary;
+ *   — read-time у `app/[locale]/news/page.tsx` — safety-net на випадок коли
+ *     cron не відпрацював (Vercel quiet-period, мережеві глюки);
+ *   — адмінські GET-и на staged endpoint — синхронізує адмінку.
  *
- * Безпечно викликати скрізь — early-return якщо таймер ще не настав або
- * чернетки немає. Атомарність гарантується самим update-ом (Prisma
- * робить SQL UPDATE одним statement).
+ * Безпечно викликати скрізь: early-return якщо таймер ще не настав або
+ * чернетки немає. Подвійна публікація неможлива — `nextContent === null`
+ * після першого swap-у.
  */
 export async function maybeAutoPublishStagedNewsPage(): Promise<boolean> {
   const page = await prisma.newsPage.findUnique({

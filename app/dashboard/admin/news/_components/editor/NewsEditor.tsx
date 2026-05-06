@@ -72,10 +72,14 @@ interface BaseProps {
   newsId?: string;
   onBack: () => void;
   saving: boolean;
-  /** "post" — звичайна новина (MetaSidebar з title/slug/excerpt/cover).
-   *  "page" — білдер сторінки /news (NewsLibrarySidebar з картками новин).
-   *  "preview" — соло-білдер превʼю-картки конкретної новини (без правого бару). */
+  /** "post" — канвас редагує `News.content` (повний контент сторінки новини).
+   *  "preview" — канвас редагує `News.previewContent` (картка-превʼю для /news).
+   *  "page" — канвас редагує `NewsPage.content` (лендинг /news). */
   mode?: "post" | "page" | "preview";
+  /** Чи показувати MetaSidebar (Публікація / Slug / Категорія / Обкладинка / Фон).
+   *  За замовчуванням: post → true (бо /new має створити новину з мета),
+   *  preview → false, page → false. Override-иться явно через props. */
+  metaSidebar?: boolean;
 }
 
 interface SingleProps extends BaseProps {
@@ -96,6 +100,8 @@ type Props = SingleProps | TabbedProps;
 
 export default function NewsEditor(props: Props) {
   const { pageTitle, initialMeta, newsId, saving, mode = "post" } = props;
+  // metaSidebar: явний prop > дефолт по mode (post=true, інакше false).
+  const showMetaSidebar = props.metaSidebar ?? (mode === "post");
   void props.onBack;
 
   const def: NewsMeta = { title: "", slug: "", excerpt: "", category: "NEWS", imageUrl: "", published: false };
@@ -334,7 +340,9 @@ export default function NewsEditor(props: Props) {
 
   // ── Save: серіалізуємо blocks для кожного таба, кличемо відповідний колбек ─
   const handleSave = async (published: boolean) => {
-    if (mode === "post" && (!meta.title || !meta.slug)) {
+    // Валідація заголовка/slug — там, де менеджер реально їх редагує
+    // (MetaSidebar видимий). У content-only edit це не його зона.
+    if (showMetaSidebar && (!meta.title || !meta.slug)) {
       setMessage("Заповніть заголовок і slug");
       return;
     }
@@ -463,15 +471,9 @@ export default function NewsEditor(props: Props) {
                           .map(b => b.data.newsId)
                       )}
                     />
-                  ) : mode === "preview" ? (
-                    null
-                  ) : (
-                    // У "post" mode MetaSidebar показуємо ТІЛЬКИ на табі контенту новини
-                    // (не на табі превʼю — щоб не плутати: meta редагується в одному місці).
-                    t.key === "preview" ? null : (
-                      <MetaSidebar meta={meta} onChange={handleMetaChange} onUpload={uploadFile} />
-                    )
-                  )
+                  ) : showMetaSidebar ? (
+                    <MetaSidebar meta={meta} onChange={handleMetaChange} onUpload={uploadFile} />
+                  ) : null
                 }
               />
             </div>

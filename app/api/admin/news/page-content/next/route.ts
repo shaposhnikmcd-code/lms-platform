@@ -4,6 +4,12 @@ import { isAdmin } from "@/lib/adminAuth";
 import { revalidatePath } from "next/cache";
 import { translateNewsContent } from "@/lib/translate";
 import { maybeAutoPublishStagedNewsPage } from "@/lib/newsPagePublish";
+import {
+  KYIV_PUBLISH_HOUR,
+  isIsoDate,
+  kyivDateAtHourToUTC,
+  utcToKyivDateStr,
+} from "@/lib/timezone";
 
 // API для білдера "Наступної сторінки" /news.
 // Live-версія сторінки лишається в /api/admin/news/page-content. Цей роут
@@ -12,10 +18,12 @@ import { maybeAutoPublishStagedNewsPage } from "@/lib/newsPagePublish";
 // Workflow:
 //   1) Менеджер відкриває білдер /next; якщо nextContent ще не існує — клонуємо live як стартову точку.
 //   2) Зберігається через PATCH тут, у next*. Live не торкається.
-//   3) Менеджер виставляє nextPublishAt → перший хіт на /news (або адмінку)
-//      після цього часу автоматично swap-ить через `maybeAutoPublishStagedNewsPage`
-//      (read-time pattern, без cron-ів).
-//   4) Альтернативно адмін може опублікувати негайно: POST з action="publish-now".
+//   3) Менеджер виставляє `publishOn` (тільки дата YYYY-MM-DD). Бекенд кладе
+//      `nextPublishAt = 06:00 Europe/Kyiv` цього дня (UTC). Cron
+//      `/api/cron/news-publish` (04:00 UTC ≈ 06:00–07:00 Київ) щоранку
+//      робить swap; read-time `maybeAutoPublishStagedNewsPage` лишається
+//      як safety-net (тригериться при відвідуванні /news).
+//   4) Опублікувати негайно — POST.
 //   5) Скасувати чернетку — DELETE.
 
 const KEY = "default";
@@ -40,6 +48,9 @@ export async function GET(req: NextRequest) {
     contentEn: page.nextContentEn ?? page.contentEn,
     contentPl: page.nextContentPl ?? page.contentPl,
     pageBgColor: page.nextPageBgColor ?? page.pageBgColor,
+    // `publishOn` — Київ-календарна дата (YYYY-MM-DD). UI працює тільки з нею.
+    // `publishAt` — повний UTC-інстант для довідкових рендерів (countdown).
+    publishOn: utcToKyivDateStr(page.nextPublishAt),
     publishAt: page.nextPublishAt ? page.nextPublishAt.toISOString() : null,
     nextUpdatedAt: page.nextUpdatedAt ? page.nextUpdatedAt.toISOString() : null,
   });
@@ -51,18 +62,35 @@ export async function PATCH(req: NextRequest) {
   }
   const body = await req.json();
 
-  // Парсимо publishAt: ISO рядок → Date | null. Невалідне значення → null.
+  // Дата публікації приходить як `publishOn: "YYYY-MM-DD"` (Київ-календарна
+  // дата). Бекенд кладе у БД як 06:00 Europe/Kyiv цього дня в UTC. `null`/""
+  // → таймер прибрано, чернетка чекає ручної публікації.
   let publishAt: Date | null = null;
-  if (typeof body.publishAt === "string" && body.publishAt) {
-    const d = new Date(body.publishAt);
-    if (!Number.isNaN(d.getTime())) publishAt = d;
+  const hasPublishOnKey = Object.prototype.hasOwnProperty.call(body, "publishOn");
+  if (hasPublishOnKey) {
+    const v = body.publishOn;
+    if (v === null || v === "") {
+      publishAt = null;
+    } else if (isIsoDate(v)) {
+      publishAt = kyivDateAtHourToUTC(v, KYIV_PUBLISH_HOUR);
+    } else {
+      return NextResponse.json(
+        { error: "publishOn має бути 'YYYY-MM-DD' або null" },
+        { status: 400 },
+      );
+    }
   }
 
-  // Партіальний апдейт (тільки publishAt, без content) — використовується inline-пікером
-  // у адмінці щоб менеджер міг швидко змінити дату публікації, не заходячи в білдер.
-  // Не торкаємось nextContent/Pl/En/PageBgColor.
+  // Партіальний апдейт (тільки publishOn, без content) — використовується
+  // inline date-пікером у адмінці. Не торкаємось nextContent/Pl/En/PageBgColor.
   const isScheduleOnly = body.content === undefined;
   if (isScheduleOnly) {
+    if (!hasPublishOnKey) {
+      return NextResponse.json(
+        { error: "Очікується publishOn або content" },
+        { status: 400 },
+      );
+    }
     const existing = await prisma.newsPage.findUnique({ where: { key: KEY } });
     if (!existing || existing.nextContent === null) {
       return NextResponse.json(
@@ -98,26 +126,26 @@ export async function PATCH(req: NextRequest) {
 
   // Live-сторінку має існувати щоб писати staged (інакше відкатуватись нема куди).
   // Якщо запис ще не створено — створюємо порожній, потім patch-имо staged.
+  // `nextPublishAt` оновлюємо ТІЛЬКИ якщо клієнт явно передав `publishOn` —
+  // інакше зберігаємо попередній таймер (білдер може save-ити лише контент).
+  const baseUpdate = {
+    nextContent: content,
+    nextContentEn: contentEn,
+    nextContentPl: contentPl,
+    nextPageBgColor: pageBgColor,
+    nextUpdatedAt: new Date(),
+  };
   await prisma.newsPage.upsert({
     where: { key: KEY },
-    update: {
-      nextContent: content,
-      nextContentEn: contentEn,
-      nextContentPl: contentPl,
-      nextPageBgColor: pageBgColor,
-      nextPublishAt: publishAt,
-      nextUpdatedAt: new Date(),
-    },
+    update: hasPublishOnKey
+      ? { ...baseUpdate, nextPublishAt: publishAt }
+      : baseUpdate,
     create: {
       key: KEY,
       content: "",
       published: false,
-      nextContent: content,
-      nextContentEn: contentEn,
-      nextContentPl: contentPl,
-      nextPageBgColor: pageBgColor,
-      nextPublishAt: publishAt,
-      nextUpdatedAt: new Date(),
+      ...baseUpdate,
+      nextPublishAt: hasPublishOnKey ? publishAt : null,
     },
   });
 

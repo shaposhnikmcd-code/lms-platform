@@ -8,17 +8,13 @@ import {
   FaTrash,
   FaImage,
   FaChevronDown,
+  FaExpand,
+  FaTimes,
 } from 'react-icons/fa';
 import { useAdminTheme } from '../_components/adminTheme';
 import { AdminShell, AdminPanel } from '../_components/AdminShell';
-import NewsPublishButton from './_components/NewsPublishButton';
-import CategoryPicker from './_components/CategoryPicker';
-import StatusPicker from './_components/StatusPicker';
-import ScheduledTimerPill from './_components/ScheduledTimerPill';
-import { sanitizeHtml } from '@/lib/sanitizeHtml';
-import { parseBlocks } from '@/lib/news/render';
-import ScaledNewsPreview from '@/lib/news/ScaledNewsPreview';
 import NewsPagePreview from './_components/NewsPagePreview';
+import InlineDatePicker, { formatDateChip } from '../_components/InlineDatePicker';
 
 interface NewsItem {
   id: string;
@@ -86,18 +82,12 @@ function parseContentPreview(content: string): { text: string; firstImage: strin
   return { text: textParts.join(' ').slice(0, 500), firstImage };
 }
 
-// Експанд-превью новини в адмін-списку рендериться через <ScaledNewsPreview/>
-// (lib/news/ScaledNewsPreview.tsx) — це точна копія public-рендера, масштабована
-// під доступну ширину картки. НЕ повертай сюди локальний рендер — він drift-итиме
-// від builder/public. Рендер блоків — у lib/news/render.tsx.
-
 export default function AdminNewsPage() {
   const { theme, setTheme } = useAdminTheme();
   const dark = theme === 'dark';
 
   const [news, setNews] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -107,61 +97,85 @@ export default function AdminNewsPage() {
   const [togglingPublish, setTogglingPublish] = useState(false);
   const [pagePreviewOpen, setPagePreviewOpen] = useState(false);
 
+  // Превʼю окремої новини — або превʼю-картки в контексті /news, або
+  // повної сторінки статті /news/{slug}. Iframe-режим — точна копія
+  // публічного рендера (без drift).
+  const [itemPreview, setItemPreview] = useState<
+    | { kind: 'card' | 'article'; slug: string; title: string }
+    | null
+  >(null);
+
+  // Esc + body-scroll lock для будь-якої з двох превʼю-модалок.
+  const anyModalOpen = pagePreviewOpen || itemPreview !== null;
+  useEffect(() => {
+    if (!anyModalOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (itemPreview) setItemPreview(null);
+      else if (pagePreviewOpen) setPagePreviewOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [anyModalOpen, pagePreviewOpen, itemPreview]);
+
   // Staged ("Наступна сторінка") стан — для countdown і дій у адмінці.
-  const [staged, setStaged] = useState<{ hasStaged: boolean; publishAt: string | null; nextUpdatedAt: string | null } | null>(null);
+  // `publishOn` — Київ-календарна дата (YYYY-MM-DD); час фіксований 06:00 Київ.
+  const [staged, setStaged] = useState<{ hasStaged: boolean; publishOn: string | null; nextUpdatedAt: string | null } | null>(null);
   const [stagedActionPending, setStagedActionPending] = useState<null | 'publishNow' | 'discard'>(null);
-  // Inline пікер дати публікації (datetime-local). Зберігається з debounce
-  // ~700мс після останньої зміни — без зайвих кнопок "Save".
-  const [scheduleInput, setScheduleInput] = useState<string>('');
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
+  const [scheduleInput, setScheduleInput] = useState<string>(''); // YYYY-MM-DD
   const [scheduleSaveState, setScheduleSaveState] = useState<'idle' | 'saving' | 'saved'>('idle');
   const scheduleDebounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Live tick для countdown — оновлюємо раз на хвилину (точність достатня).
+  // Live tick для countdown — оновлюємо раз на годину (днева точність).
   const [, setNowTick] = useState(0);
   useEffect(() => {
-    const t = setInterval(() => setNowTick(n => n + 1), 60_000);
+    const t = setInterval(() => setNowTick(n => n + 1), 3_600_000);
     return () => clearInterval(t);
   }, []);
 
-  // Helpers для datetime-local <-> ISO. datetime-local не приймає TZ —
-  // менеджер працює в локальній зоні, БД зберігає UTC.
-  const isoToLocalInput = (iso: string | null): string => {
-    if (!iso) return '';
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return '';
-    const pad = (n: number) => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  };
-  const localInputToIso = (s: string): string | null => {
-    if (!s) return null;
-    const d = new Date(s);
-    return Number.isNaN(d.getTime()) ? null : d.toISOString();
-  };
+  // Завтрашня дата в Київ-зоні (мінімум для пікера). Розраховуємо клієнтсько
+  // через Intl — без залежності від рантайм-таймзони браузера.
+  const minDate = React.useMemo(() => {
+    const fmt = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Europe/Kyiv',
+      year: 'numeric', month: '2-digit', day: '2-digit',
+    });
+    const todayKyiv = fmt.format(new Date());
+    const [y, m, d] = todayKyiv.split('-').map(Number);
+    const tomorrow = new Date(Date.UTC(y, m - 1, d + 1));
+    return fmt.format(tomorrow);
+  }, []);
 
   const refreshStaged = () => {
     fetch('/api/admin/news/page-content/next')
       .then(r => r.ok ? r.json() : null)
       .then(d => {
         if (d && d.hasStaged) {
-          setStaged({ hasStaged: true, publishAt: d.publishAt, nextUpdatedAt: d.nextUpdatedAt });
-          setScheduleInput(isoToLocalInput(d.publishAt));
+          setStaged({ hasStaged: true, publishOn: d.publishOn, nextUpdatedAt: d.nextUpdatedAt });
+          setScheduleInput(d.publishOn || '');
         } else {
-          setStaged({ hasStaged: false, publishAt: null, nextUpdatedAt: null });
+          setStaged({ hasStaged: false, publishOn: null, nextUpdatedAt: null });
           setScheduleInput('');
         }
       })
-      .catch(() => setStaged({ hasStaged: false, publishAt: null, nextUpdatedAt: null }));
+      .catch(() => setStaged({ hasStaged: false, publishOn: null, nextUpdatedAt: null }));
   };
 
-  // Auto-save scheduleInput з debounce 700мс. Не запускається на перший рендер
-  // (коли input ще порожній і staged ще не завантажений).
+  // Auto-save scheduleInput з debounce 700мс. Тригериться лише при реальній
+  // зміні (не на перший рендер після завантаження staged).
   const lastSavedScheduleRef = React.useRef<string | null>(null);
   useEffect(() => {
     if (!staged?.hasStaged) return;
-    const targetIso = localInputToIso(scheduleInput);
-    const currentSavedIso = staged.publishAt;
-    if (targetIso === currentSavedIso) return;
-    if (lastSavedScheduleRef.current === targetIso) return;
+    const target = scheduleInput || null;
+    const current = staged.publishOn;
+    if (target === current) return;
+    if (lastSavedScheduleRef.current === target) return;
     if (scheduleDebounceRef.current) clearTimeout(scheduleDebounceRef.current);
     scheduleDebounceRef.current = setTimeout(async () => {
       setScheduleSaveState('saving');
@@ -169,20 +183,20 @@ export default function AdminNewsPage() {
         const res = await fetch('/api/admin/news/page-content/next', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ publishAt: targetIso }),
+          body: JSON.stringify({ publishOn: target }),
         });
         if (res.ok) {
-          lastSavedScheduleRef.current = targetIso;
-          setStaged(s => s ? { ...s, publishAt: targetIso } : s);
+          lastSavedScheduleRef.current = target;
+          setStaged(s => s ? { ...s, publishOn: target } : s);
           setScheduleSaveState('saved');
           setTimeout(() => setScheduleSaveState('idle'), 1500);
         } else {
           const body = await res.json().catch(() => ({}));
-          setToast({ message: body?.error || 'Не вдалось зберегти час', type: 'error' });
+          setToast({ message: body?.error || 'Не вдалось зберегти дату', type: 'error' });
           setScheduleSaveState('idle');
         }
       } catch {
-        setToast({ message: 'Помилка мережі при збереженні часу', type: 'error' });
+        setToast({ message: 'Помилка мережі при збереженні дати', type: 'error' });
         setScheduleSaveState('idle');
       }
     }, 700);
@@ -217,7 +231,7 @@ export default function AdminNewsPage() {
   };
 
   const discardStaged = async () => {
-    if (!confirm('Видалити чернетку наступної сторінки?')) return;
+    if (!confirm('Очистити чернетку «Наступної сторінки»? Контент і дату публікації буде видалено.')) return;
     setStagedActionPending('discard');
     try {
       const res = await fetch('/api/admin/news/page-content/next', { method: 'DELETE' });
@@ -284,30 +298,6 @@ export default function AdminNewsPage() {
     })();
   }, []);
 
-  const updateNewsLocal = (id: string, patch: Partial<NewsItem>) => {
-    setNews(prev => prev.map(n => (n.id === id ? { ...n, ...patch } : n)));
-  };
-
-  const changeCategory = async (id: string, oldCategory: string, next: string) => {
-    if (next === oldCategory) return;
-    updateNewsLocal(id, { category: next });
-    try {
-      const res = await fetch(`/api/admin/news/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ category: next }),
-      });
-      if (!res.ok) {
-        updateNewsLocal(id, { category: oldCategory });
-        const data = await res.json().catch(() => ({}));
-        setToast({ message: data.error || 'Не вдалося змінити категорію', type: 'error' });
-      }
-    } catch {
-      updateNewsLocal(id, { category: oldCategory });
-      setToast({ message: 'Помилка запиту', type: 'error' });
-    }
-  };
-
   const performDelete = async () => {
     if (!deleteTarget) return;
     const { id } = deleteTarget;
@@ -320,7 +310,6 @@ export default function AdminNewsPage() {
         return;
       }
       setNews(news.filter(n => n.id !== id));
-      if (expandedId === id) setExpandedId(null);
       setToast({ message: 'Новину видалено', type: 'success' });
       setDeleteTarget(null);
     } catch {
@@ -340,7 +329,7 @@ export default function AdminNewsPage() {
       eyebrow="Admin · Новини"
       title="Новини"
       subtitle={`Всього: ${news.length} · Опубліковано: ${publishedCount}`}
-      maxWidth="max-w-7xl"
+      maxWidth="max-w-[1640px]"
     >
       {/* Toast */}
       {toast && (
@@ -359,9 +348,12 @@ export default function AdminNewsPage() {
         </div>
       )}
 
-      {/* Двоколонковий лейаут (lg+): зліва — операції зі сторінкою /news,
-          справа — список новин. На вузьких екранах стекаємо в одну колонку. */}
-      <div className="grid grid-cols-1 xl:grid-cols-[420px_minmax(0,1fr)] gap-6 items-start">
+      {/* Триколонковий лейаут (xl+) з ОДНАКОВОЮ шириною всіх трьох колонок.
+            — зліва: операції зі сторінкою /news (live + staged);
+            — посередині: «Превʼю Новин» — список карток-превʼю (`/[id]/preview`);
+            — справа: «Новини» — список новин (`/[id]/edit`).
+          На вузьких екранах (<1280px) стек в одну колонку. */}
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
         {/* ╭─ ЛІВА КОЛОНКА: операції зі сторінкою /news ─────────────────╮ */}
         <aside className="min-w-0">
           <div className={`flex items-center gap-2 mb-4 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
@@ -400,12 +392,12 @@ export default function AdminNewsPage() {
                 : 'bg-gradient-to-r from-amber-500/0 via-amber-500/70 to-amber-500/0'
             }`} />
 
-            {/* Header — клік розгортає інлайн-превʼю; chevron-індикатор наявний */}
+            {/* Header — клік відкриває превʼю на повний екран. */}
             <div
               className={`flex items-center justify-between gap-3 px-5 py-3.5 cursor-pointer select-none transition-colors ${
                 dark ? 'hover:bg-white/[0.02]' : 'hover:bg-white/40'
               }`}
-              onClick={() => setPagePreviewOpen(o => !o)}
+              onClick={() => setPagePreviewOpen(true)}
             >
               <div className="flex items-center gap-2.5 min-w-0">
                 {/* Статус-pill з іконкою і коротким лейблом */}
@@ -431,54 +423,42 @@ export default function AdminNewsPage() {
               <div className="flex items-center gap-1.5 flex-shrink-0" onClick={e => e.stopPropagation()}>
                 <button
                   type="button"
-                  onClick={togglePagePublish}
-                  disabled={pagePublished === null || togglingPublish}
-                  className={`inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-[12px] font-medium rounded-lg transition-all disabled:opacity-50 ${
-                    pagePublished
-                      ? dark
-                        ? 'bg-rose-500/15 text-rose-200 border border-rose-400/30 hover:bg-rose-500/25'
-                        : 'bg-rose-100/70 text-rose-800 border border-rose-300/60 hover:bg-rose-100'
-                      : dark
-                        ? 'bg-emerald-400/90 text-stone-900 hover:bg-emerald-300 shadow-[0_0_14px_-4px_rgba(16,185,129,0.5)]'
-                        : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm'
-                  }`}
-                >
-                  {togglingPublish ? '...' : pagePublished ? 'Деактивувати' : 'Активувати'}
-                </button>
-                <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); setPagePreviewOpen(o => !o); }}
-                  title={pagePreviewOpen ? 'Згорнути превʼю' : 'Розгорнути превʼю на сайті'}
-                  className={`inline-flex items-center justify-center w-7 h-7 rounded-lg border transition-all ${
+                  onClick={(e) => { e.stopPropagation(); setPagePreviewOpen(true); }}
+                  title="Відкрити превʼю на повний екран"
+                  className={`inline-flex items-center gap-1.5 px-2.5 h-7 rounded-lg border transition-all text-[11px] font-medium ${
                     dark
-                      ? 'bg-white/[0.04] border-white/[0.08] text-slate-400 hover:bg-white/[0.08] hover:text-slate-200'
-                      : 'bg-white/70 border-stone-300/60 text-stone-500 hover:bg-white hover:text-stone-700'
+                      ? 'bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.08] hover:text-slate-100'
+                      : 'bg-white/70 border-stone-300/60 text-stone-700 hover:bg-white hover:text-stone-900'
                   }`}
                 >
-                  <FaChevronDown className={`text-[10px] transition-transform ${pagePreviewOpen ? 'rotate-180' : ''}`} />
+                  <FaExpand className="text-[9px]" />
+                  <span>Превʼю</span>
                 </button>
               </div>
             </div>
 
-        {pagePreviewOpen && (
-          <div className="p-4">
-            <div
-              className={`rounded-lg overflow-hidden border ${
-                dark ? 'border-white/[0.06]' : 'border-stone-300/50'
-              }`}
-              style={{ background: '#FFFFFF' }}
-            >
-              <NewsPagePreview />
-            </div>
-          </div>
-        )}
-
-        {/* Footer-CTA: «Редагувати поточну» — основна дія для live-сторінки.
-            Тримаємо в межах того самого блоку (одна логічна одиниця "Поточна
-            сторінка"). Тонкий border-t розділяє action-зону від статус-секції. */}
-        <div className={`px-5 py-3 border-t flex items-center justify-end ${
+        {/* Footer-панель: зліва — Активувати/Деактивувати (toggle видимості
+            сторінки на сайті), справа — основний CTA «Редагувати поточну». */}
+        <div className={`px-5 py-3 border-t flex items-center justify-between gap-3 ${
           dark ? 'border-white/[0.04] bg-white/[0.015]' : 'border-stone-200/50 bg-white/40'
         }`}>
+          <button
+            type="button"
+            onClick={togglePagePublish}
+            disabled={pagePublished === null || togglingPublish}
+            title={pagePublished ? 'Прибрати сторінку з сайту (показуватиметься empty state)' : 'Показати сторінку на сайті'}
+            className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-full text-[12px] font-medium border transition-colors disabled:opacity-50 ${
+              pagePublished
+                ? dark
+                  ? 'bg-rose-500/10 text-rose-200 border-rose-400/30 hover:bg-rose-500/20'
+                  : 'bg-rose-100/60 text-rose-800 border-rose-300/60 hover:bg-rose-100'
+                : dark
+                  ? 'bg-emerald-400/90 text-stone-900 border-transparent hover:bg-emerald-300 shadow-[0_0_14px_-4px_rgba(16,185,129,0.5)]'
+                  : 'bg-emerald-600 text-white border-transparent hover:bg-emerald-700 shadow-sm'
+            }`}
+          >
+            {togglingPublish ? '...' : pagePublished ? 'Деактивувати' : 'Активувати'}
+          </button>
           <Link
             href="/dashboard/admin/news/page-builder"
             className={`group relative inline-flex items-center gap-2 px-4 py-2 rounded-full text-[12px] font-medium transition-all duration-300 overflow-hidden border ${
@@ -503,21 +483,28 @@ export default function AdminNewsPage() {
       {/* ─── Підсекція 2: НАСТУПНА (staged) ─── */}
       {(() => {
         const hasStaged = !!staged?.hasStaged;
-        const now = new Date();
-        const at = staged?.publishAt ? new Date(staged.publishAt) : null;
+        const publishOn = staged?.publishOn || null;
+
+        // Дневна різниця в Київ-зоні. publishOn зберігається як YYYY-MM-DD,
+        // тому порівнюємо саме календарні дати, без розрахунків часу.
         let countdown = '';
         let overdue = false;
-        if (at) {
-          const diff = at.getTime() - now.getTime();
-          if (diff <= 0) { overdue = true; countdown = 'час настав — публікується найближчим cron-тиком'; }
-          else {
-            const min = Math.floor(diff / 60_000);
-            const h = Math.floor(min / 60);
-            const d = Math.floor(h / 24);
-            if (d >= 1) countdown = `через ${d} ${d === 1 ? 'день' : d < 5 ? 'дні' : 'днів'} ${h % 24} год`;
-            else if (h >= 1) countdown = `через ${h} год ${min % 60} хв`;
-            else countdown = `через ${min} хв`;
-          }
+        if (publishOn) {
+          // Різниця у Київ-календарних днях. Якщо publishOn раніше за today —
+          // overdue (cron колись захопить, або read-time при візиті).
+          const [py, pm, pd] = publishOn.split('-').map(Number);
+          const fmt = new Intl.DateTimeFormat('en-CA', {
+            timeZone: 'Europe/Kyiv', year: 'numeric', month: '2-digit', day: '2-digit',
+          });
+          const [ty, tm, td] = fmt.format(new Date()).split('-').map(Number);
+          const days = Math.round(
+            (Date.UTC(py, pm - 1, pd) - Date.UTC(ty, tm - 1, td)) / 86_400_000,
+          );
+          const formatted = formatDateChip(publishOn);
+          if (days < 0) { overdue = true; countdown = `минула дата — опублікується при наступному відвідуванні /news`; }
+          else if (days === 0) countdown = `сьогодні зранку (${formatted})`;
+          else if (days === 1) countdown = `завтра зранку (${formatted})`;
+          else countdown = `через ${days} ${days < 5 ? 'дні' : 'днів'} (${formatted})`;
         }
 
         return (
@@ -552,7 +539,7 @@ export default function AdminNewsPage() {
                         Запланована публікація
                       </div>
                       <div className={`text-[11px] ${dark ? 'text-amber-200/70' : 'text-amber-800/75'}`}>
-                        {at ? countdown : 'таймер не встановлено — чекає ручної публікації'}
+                        {publishOn ? countdown : 'дату не встановлено — чекає ручної публікації'}
                       </div>
                     </div>
                     {scheduleSaveState !== 'idle' && (
@@ -566,66 +553,93 @@ export default function AdminNewsPage() {
                     )}
                   </div>
 
-                  {/* Inline datetime пікер. Авто-зберігається з debounce 700мс
-                      (без зайвої кнопки "Save"). ✕ — скинути таймер. */}
-                  <div className="flex items-center gap-2 mb-3">
-                    <input
-                      type="datetime-local"
-                      value={scheduleInput}
-                      onChange={(e) => setScheduleInput(e.target.value)}
-                      className={`flex-1 px-3 py-1.5 text-[12px] rounded-lg border transition-colors focus:outline-none ${
-                        dark
-                          ? 'bg-white/[0.06] text-amber-100 border-amber-300/30 focus:border-amber-300/60'
-                          : 'bg-white text-amber-900 border-amber-500/40 focus:border-amber-700'
-                      }`}
-                    />
-                    {scheduleInput && (
+                  {/* Один рядок: date-pill (з ✕ для скидання) + ⚡ Опублікувати зараз.
+                      Календар відкривається випадаючим меню під date-pill —
+                      компактний (240px), щоб не розпирав панель. */}
+                  <div className="relative mb-2">
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 flex items-center gap-1.5 min-w-0">
+                        <button
+                          type="button"
+                          onClick={() => setDatePickerOpen(o => !o)}
+                          className={`flex-1 min-w-0 inline-flex items-center justify-between gap-2 px-3 py-2 text-[12px] rounded-lg border transition-colors ${
+                            dark
+                              ? 'bg-white/[0.06] text-amber-100 border-amber-300/30 hover:border-amber-300/60'
+                              : 'bg-white text-amber-900 border-amber-500/40 hover:border-amber-700'
+                          }`}
+                        >
+                          <span className="inline-flex items-center gap-2 min-w-0">
+                            <span aria-hidden>📅</span>
+                            <span className="font-medium truncate">
+                              {scheduleInput ? formatDateChip(scheduleInput) : 'Обрати дату'}
+                            </span>
+                          </span>
+                          <FaChevronDown className={`text-[9px] flex-shrink-0 transition-transform ${datePickerOpen ? 'rotate-180' : ''}`} />
+                        </button>
+                        {scheduleInput && (
+                          <button
+                            type="button"
+                            onClick={() => { setScheduleInput(''); setDatePickerOpen(false); }}
+                            title="Прибрати дату — чернетка чекатиме ручної публікації"
+                            className={`flex-shrink-0 inline-flex items-center justify-center w-7 h-7 rounded-lg border transition-colors text-[11px] ${
+                              dark
+                                ? 'bg-white/[0.04] text-amber-200 border-white/[0.10] hover:bg-white/[0.10]'
+                                : 'bg-white/70 text-amber-800 border-stone-300/60 hover:bg-white'
+                            }`}
+                          >✕</button>
+                        )}
+                      </div>
                       <button
                         type="button"
-                        onClick={() => setScheduleInput('')}
-                        title="Прибрати таймер — чернетка чекатиме ручної публікації"
-                        className={`flex-shrink-0 inline-flex items-center justify-center w-7 h-7 rounded-lg border transition-colors text-[12px] ${
+                        onClick={publishStagedNow}
+                        disabled={stagedActionPending !== null}
+                        title="Опублікувати чернетку негайно (без очікування дати)"
+                        className={`flex-shrink-0 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-[12px] font-semibold rounded-lg transition-all disabled:opacity-50 ${
                           dark
-                            ? 'bg-white/[0.04] text-amber-200 border-white/[0.10] hover:bg-white/[0.10]'
-                            : 'bg-white/70 text-amber-800 border-stone-300/60 hover:bg-white'
+                            ? 'bg-emerald-400/90 text-stone-900 hover:bg-emerald-300 shadow-[0_0_14px_-4px_rgba(16,185,129,0.5)]'
+                            : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm'
                         }`}
-                      >✕</button>
+                      >{stagedActionPending === 'publishNow' ? '...' : '⚡ Опублікувати зараз'}</button>
+                    </div>
+
+                    {datePickerOpen && (
+                      <div
+                        className={`absolute left-0 top-full z-30 mt-1.5 w-[240px] rounded-lg shadow-xl overflow-hidden ${
+                          dark ? 'bg-[#1a1d26]' : 'bg-white'
+                        }`}
+                      >
+                        <InlineDatePicker
+                          value={scheduleInput}
+                          onChange={(v) => { setScheduleInput(v); setDatePickerOpen(false); }}
+                          theme={theme}
+                          min={minDate}
+                        />
+                        <p className={`px-2.5 pb-2 -mt-1 text-[10px] leading-snug ${dark ? 'text-amber-200/55' : 'text-amber-800/65'}`}>
+                          Заміна вранці обраного дня (06:00 Київ).
+                        </p>
+                      </div>
                     )}
                   </div>
 
-                  {/* Управління чернеткою: Скасувати + ⚡ Опублікувати зараз.
-                      Кнопка "Редагувати" звідси прибрана — її переніс у footer
-                      панелі як основний CTA-pill (одна логічна одиниця). */}
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={discardStaged}
-                      disabled={stagedActionPending !== null}
-                      className={`inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-[12px] font-medium rounded-lg border transition-colors disabled:opacity-50 ${
-                        dark
-                          ? 'bg-rose-500/10 text-rose-200 border-rose-400/25 hover:bg-rose-500/20'
-                          : 'bg-rose-100/70 text-rose-800 border-rose-300/60 hover:bg-rose-100'
-                      }`}
-                    >{stagedActionPending === 'discard' ? '...' : 'Скасувати'}</button>
-                    <button
-                      type="button"
-                      onClick={publishStagedNow}
-                      disabled={stagedActionPending !== null}
-                      className={`inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold rounded-lg transition-all disabled:opacity-50 ${
-                        dark
-                          ? 'bg-emerald-400/90 text-stone-900 hover:bg-emerald-300 shadow-[0_0_14px_-4px_rgba(16,185,129,0.5)]'
-                          : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm'
-                      }`}
-                    >{stagedActionPending === 'publishNow' ? '...' : '⚡ Опублікувати зараз'}</button>
-                  </div>
                 </div>
 
-                {/* Footer-CTA панелі: основний перехід у білдер чернетки.
-                    Той самий патерн що й у "Поточній сторінці" — один блок,
-                    одна навігаційна кнопка-pill зі своїм design-emphasis. */}
-                <div className={`px-5 py-3 border-t flex items-center justify-end ${
+                {/* Footer-панель: зліва — destructive «Очистити чернетку»
+                    (рідкісна дія, але має бути доступна), справа — основний CTA
+                    «Редагувати наступну». */}
+                <div className={`px-5 py-3 border-t flex items-center justify-between gap-3 ${
                   dark ? 'border-white/[0.06] bg-white/[0.02]' : 'border-amber-500/20 bg-amber-50/50'
                 }`}>
+                  <button
+                    type="button"
+                    onClick={discardStaged}
+                    disabled={stagedActionPending !== null}
+                    title="Видалити чернетку: контент і дату публікації буде стерто"
+                    className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-full text-[12px] font-medium border transition-colors disabled:opacity-50 ${
+                      dark
+                        ? 'bg-rose-500/10 text-rose-200 border-rose-400/30 hover:bg-rose-500/20'
+                        : 'bg-rose-100/60 text-rose-800 border-rose-300/60 hover:bg-rose-100'
+                    }`}
+                  >{stagedActionPending === 'discard' ? '...' : 'Очистити чернетку'}</button>
                   <Link
                     href="/dashboard/admin/news/page-builder/next"
                     className={`group relative inline-flex items-center gap-2 px-4 py-2 rounded-full text-[12px] font-medium transition-all duration-300 overflow-hidden border ${
@@ -651,7 +665,7 @@ export default function AdminNewsPage() {
               // Pill тут окремо бо немає панелі-контейнера для footer-у.
               <>
                 <p className={`mb-3 text-[11px] leading-relaxed ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
-                  Створи чернетку наступної версії сторінки /news і виставі дату публікації — у визначений час cron автоматично замінить поточну.
+                  Створи чернетку наступної версії сторінки /news і обери дату публікації — заміна відбудеться вранці того дня (06:00 Київ).
                 </p>
                 <Link
                   href="/dashboard/admin/news/page-builder/next"
@@ -680,10 +694,111 @@ export default function AdminNewsPage() {
         </aside>
         {/* ╰─ кінець лівої колонки ──────────────────────────────────────╯ */}
 
+        {/* ╭─ СЕРЕДНЯ КОЛОНКА: «Превʼю Новин» — компактний список карток ─╮
+            Кожен item → preview-only білдер (`/[id]/preview`).
+            Тут НЕ дублюємо повну функціональність правої колонки (категорії,
+            статуси, видалення) — це окремий focus на редагуванні картки. */}
+        <section className="min-w-0">
+          {/* h-[36px] mb-4 — синхронізована висота section-header-а з правою
+              колонкою (де є CTA-pill «Створити новину»), щоб ряди обох
+              списків стартували на одному baseline-і. */}
+          <div className={`flex items-center gap-3 mb-4 h-[36px] ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
+            <span className="text-[10px] font-bold tracking-[0.18em] uppercase whitespace-nowrap">
+              Превʼю Новин <span className={`font-normal opacity-70`}>· {news.length}</span>
+            </span>
+            <span className={`flex-1 h-px ${dark ? 'bg-white/[0.06]' : 'bg-stone-300/60'}`} />
+          </div>
+
+          {loading ? (
+            <div className="flex items-center justify-center py-16">
+              <div
+                className={`w-8 h-8 border-2 rounded-full animate-spin ${
+                  dark ? 'border-white/[0.1] border-t-amber-300' : 'border-stone-200 border-t-amber-600'
+                }`}
+              />
+            </div>
+          ) : news.length === 0 ? (
+            <AdminPanel theme={theme} className="py-10 text-center">
+              <p className={`text-[12px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+                Спочатку створіть новину справа, потім зможете відредагувати її превʼю.
+              </p>
+            </AdminPanel>
+          ) : (
+            // space-y-3 + h-[124px] на кожному item-і — синхронізуємось 1-в-1
+            // з блоком «Новини» (той самий gap і висота рядка), щоб картки
+            // у двох колонках зливались у пари по горизонталі.
+            <div className="space-y-3">
+              {news.map(item => {
+                const { firstImage: contentImage } = parseContentPreview(item.content);
+                const thumbnail = item.imageUrl || contentImage;
+                return (
+                  <Link
+                    key={item.id}
+                    href={`/dashboard/admin/news/${item.id}/preview`}
+                    title="Редагувати превʼю-картку цієї новини"
+                    className={`group relative flex items-center gap-3 px-4 rounded-xl border backdrop-blur-sm transition-all h-[124px] ${
+                      dark
+                        ? 'bg-white/[0.03] border-white/[0.06] hover:bg-white/[0.05] hover:border-amber-400/30'
+                        : 'bg-white/60 border-stone-300/50 hover:bg-white/85 hover:border-amber-500/40 hover:shadow-[0_2px_10px_-4px_rgba(180,83,9,0.18)]'
+                    }`}
+                  >
+                    <div
+                      className={`flex-shrink-0 w-28 aspect-video rounded-lg overflow-hidden border ${
+                        dark
+                          ? 'bg-white/[0.04] border-white/[0.08]'
+                          : 'bg-stone-100/70 border-stone-300/60'
+                      }`}
+                    >
+                      {thumbnail ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={thumbnail} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        <div className={`w-full h-full flex items-center justify-center ${dark ? 'text-slate-600' : 'text-stone-400'}`}>
+                          <FaImage size={14} />
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className={`text-[12px] font-semibold leading-snug line-clamp-2 ${dark ? 'text-slate-100' : 'text-stone-900'}`}>
+                        {item.title}
+                      </h3>
+                      <span className={`mt-0.5 inline-block text-[10px] ${dark ? 'text-slate-500' : 'text-stone-400'}`}>
+                        {new Date(item.createdAt).toLocaleDateString('uk-UA')}
+                      </span>
+                    </div>
+                    {/* «Превʼю» — окрема кнопка, відкриває fullscreen iframe
+                        сторінки /news (картка показується в реальному контексті
+                        списку). Stop-propagation щоб не тригерити Link. */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setItemPreview({ kind: 'card', slug: item.slug, title: item.title });
+                      }}
+                      title="Переглянути картку у контексті /news"
+                      className={`flex-shrink-0 inline-flex items-center gap-1.5 px-2.5 h-7 rounded-lg border transition-all text-[11px] font-medium ${
+                        dark
+                          ? 'bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.10] hover:text-slate-100'
+                          : 'bg-white/70 border-stone-300/60 text-stone-700 hover:bg-white hover:text-stone-900'
+                      }`}
+                    >
+                      <FaExpand className="text-[9px]" />
+                      Превʼю
+                    </button>
+                  </Link>
+                );
+              })}
+            </div>
+          )}
+        </section>
+        {/* ╰─ кінець середньої колонки ──────────────────────────────────╯ */}
+
         {/* ╭─ ПРАВА КОЛОНКА: список новин + дії над новинами ─────────────╮ */}
         <section className="min-w-0">
-          {/* Section header: лейбл + лічильник + CTA "Створити новину" в одному рядку. */}
-          <div className={`flex items-center gap-3 mb-4 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
+          {/* Section header: лейбл + лічильник + CTA "Створити новину" в одному рядку.
+              h-[36px] — щоб збігалось з section-header-ом блоку «Превʼю Новин». */}
+          <div className={`flex items-center gap-3 mb-4 h-[36px] ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
             <span className="text-[10px] font-bold tracking-[0.18em] uppercase whitespace-nowrap">
               Новини <span className={`font-normal opacity-70`}>· {news.length}</span>
             </span>
@@ -735,57 +850,19 @@ export default function AdminNewsPage() {
             const date = new Date(item.createdAt);
             const dateStr = date.toLocaleDateString('uk-UA');
             const timeStr = date.toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' });
-            const { firstImage: contentImage } = parseContentPreview(item.content);
-            const thumbnail = item.imageUrl || contentImage;
-            const isExpanded = expandedId === item.id;
 
             return (
               <div
                 key={item.id}
-                className={`rounded-xl border backdrop-blur-sm transition-all ${
-                  isExpanded
-                    ? dark
-                      ? 'bg-white/[0.04] border-amber-400/30 shadow-[0_0_24px_-8px_rgba(251,191,36,0.3)]'
-                      : 'bg-white/70 border-amber-500/40 shadow-[0_4px_20px_-8px_rgba(180,83,9,0.2)]'
-                    : dark
-                      ? 'bg-white/[0.03] border-white/[0.06] hover:bg-white/[0.04] hover:border-white/[0.1]'
-                      : 'bg-white/60 border-stone-300/50 hover:bg-white/80 hover:border-stone-300/70'
+                // h-[124px] — синхронізована висота з картками блоку
+                // «Превʼю Новин» зліва (щоб пари вирівнювались по горизонталі).
+                className={`rounded-xl border backdrop-blur-sm transition-all h-[124px] ${
+                  dark
+                    ? 'bg-white/[0.03] border-white/[0.06] hover:bg-white/[0.04] hover:border-white/[0.1]'
+                    : 'bg-white/60 border-stone-300/50 hover:bg-white/80 hover:border-stone-300/70'
                 }`}
               >
-                {/* Header row — always visible, clickable */}
-                <div
-                  className="flex items-center gap-4 px-5 py-4 cursor-pointer select-none"
-                  onClick={() => setExpandedId(isExpanded ? null : item.id)}
-                >
-                  <FaChevronDown
-                    className={`text-xs flex-shrink-0 transition-transform ${
-                      isExpanded ? 'rotate-180' : ''
-                    } ${dark ? 'text-slate-500' : 'text-stone-400'}`}
-                  />
-
-                  {/* Mini thumbnail — 16:9 щоб збігалось з білдером і публічним /news.
-                      Раніше було 80×80 квадрат → бічна обрізка створювала розбіжність із публікою. */}
-                  <div
-                    className={`flex-shrink-0 w-32 aspect-video rounded-lg overflow-hidden border ${
-                      dark
-                        ? 'bg-white/[0.04] border-white/[0.08]'
-                        : 'bg-stone-100/70 border-stone-300/60'
-                    }`}
-                  >
-                    {thumbnail ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={thumbnail} alt="" className="w-full h-full object-cover" />
-                    ) : (
-                      <div
-                        className={`w-full h-full flex items-center justify-center ${
-                          dark ? 'text-slate-600' : 'text-stone-400'
-                        }`}
-                      >
-                        <FaImage size={22} />
-                      </div>
-                    )}
-                  </div>
-
+                <div className="flex items-center gap-4 px-5 h-full">
                   {/* Title + meta */}
                   <div className="flex-1 min-w-0">
                     <h3
@@ -802,49 +879,8 @@ export default function AdminNewsPage() {
                     </div>
                   </div>
 
-                  {/* Category — popup picker */}
-                  <div
-                    onClick={e => e.stopPropagation()}
-                    className="hidden md:flex flex-shrink-0"
-                  >
-                    <CategoryPicker
-                      current={item.category}
-                      theme={theme}
-                      onChange={next => changeCategory(item.id, item.category, next)}
-                    />
-                  </div>
-
-                  {/* Status — popup picker with 3 transitions */}
-                  <div
-                    className="hidden sm:flex flex-row items-center gap-1.5 flex-shrink-0"
-                    onClick={e => e.stopPropagation()}
-                  >
-                    <StatusPicker
-                      newsId={item.id}
-                      published={item.published}
-                      suspendedAt={item.suspendedAt}
-                      resumeAt={item.resumeAt}
-                      theme={theme}
-                      onChange={result => updateNewsLocal(item.id, result)}
-                    />
-                    {((item.suspendedAt && new Date(item.suspendedAt) > new Date()) ||
-                      (item.resumeAt && new Date(item.resumeAt) > new Date())) && (
-                      <ScheduledTimerPill
-                        newsId={item.id}
-                        published={item.published}
-                        suspendedAt={item.suspendedAt}
-                        resumeAt={item.resumeAt}
-                        theme={theme}
-                        onChange={result => updateNewsLocal(item.id, result)}
-                      />
-                    )}
-                  </div>
-
-                  {/* Actions stack */}
-                  <div
-                    className="flex flex-col gap-1.5 items-stretch w-[140px] flex-shrink-0"
-                    onClick={e => e.stopPropagation()}
-                  >
+                  {/* Actions stack — Превʼю + Редагувати + Видалити. */}
+                  <div className="flex flex-col gap-1.5 items-stretch w-[140px] flex-shrink-0">
                     <Link
                       href={`/dashboard/admin/news/${item.id}/edit`}
                       className={`inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-[12px] font-medium rounded-lg transition-all ${
@@ -856,14 +892,19 @@ export default function AdminNewsPage() {
                       <FaEdit className="text-[10px]" />
                       Редагувати
                     </Link>
-                    <NewsPublishButton
-                      newsId={item.id}
-                      published={item.published}
-                      suspendedAt={item.suspendedAt}
-                      resumeAt={item.resumeAt}
-                      theme={theme}
-                      onChange={result => updateNewsLocal(item.id, result)}
-                    />
+                    <button
+                      type="button"
+                      onClick={() => setItemPreview({ kind: 'article', slug: item.slug, title: item.title })}
+                      title="Переглянути сторінку статті /news/{slug} у повноекранному превʼю"
+                      className={`inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-[12px] font-medium rounded-lg border transition-colors ${
+                        dark
+                          ? 'bg-white/[0.04] border-white/[0.10] text-slate-200 hover:bg-white/[0.10]'
+                          : 'bg-white/70 border-stone-300/60 text-stone-800 hover:bg-white'
+                      }`}
+                    >
+                      <FaExpand className="text-[10px]" />
+                      Превʼю
+                    </button>
                     <button
                       type="button"
                       onClick={() => setDeleteTarget({ id: item.id, title: item.title })}
@@ -878,100 +919,6 @@ export default function AdminNewsPage() {
                     </button>
                   </div>
                 </div>
-
-                {/* Expanded full preview */}
-                {isExpanded && (
-                  <div className={`border-t ${dark ? 'border-white/[0.05]' : 'border-stone-300/50'}`}>
-                    <div className="max-w-3xl mx-auto px-6 py-6">
-                      {item.excerpt && (
-                        <p
-                          className={`text-base font-medium mb-4 leading-relaxed ${
-                            dark ? 'text-slate-200' : 'text-stone-800'
-                          }`}
-                        >
-                          {item.excerpt}
-                        </p>
-                      )}
-
-                      {(() => {
-                        const { isJson, blocks } = parseBlocks(item.content);
-                        if (isJson && blocks.length > 0) {
-                          // Expanded preview = масштабована точна копія публічної сторінки.
-                          // Рендериться через спільний модуль з public — drift неможливий.
-                          // Білий фон обгортає preview, щоб блоки на прозорому BG читались
-                          // незалежно від dark/light режиму адмінки.
-                          return (
-                            <>
-                              <div
-                                className="rounded-lg overflow-hidden"
-                                style={{ background: '#FFFFFF', padding: '20px' }}
-                              >
-                                <ScaledNewsPreview blocks={blocks} />
-                              </div>
-                              <style>{`
-                                .news-content { font-family: -apple-system, BlinkMacSystemFont, sans-serif; color: #1C3A2E; line-height: 1.7; font-size: 16px; }
-                                .news-content h1 { font-size: 2rem; font-weight: 700; margin: 1.2em 0 0.5em; }
-                                .news-content h2 { font-size: 1.5rem; font-weight: 700; margin: 1.1em 0 0.5em; }
-                                .news-content h3 { font-size: 1.2rem; font-weight: 600; margin: 1em 0 0.4em; }
-                                .news-content p { margin: 0.6em 0; }
-                                .news-content ul { list-style: disc; padding-left: 1.5em; margin: 0.6em 0; }
-                                .news-content ol { list-style: decimal; padding-left: 1.5em; margin: 0.6em 0; }
-                                .news-content strong { font-weight: 700; }
-                                .news-content em { font-style: italic; }
-                                .news-content blockquote { border-left: 4px solid #D4A843; margin: 1em 0; padding: 0.5em 1em; background: #E8F5E0; border-radius: 0 6px 6px 0; }
-                                .news-content hr { border: none; border-top: 2px solid #D4A843; margin: 1.5em 0; }
-                                .news-content img { max-width: 100%; border-radius: 8px; margin: 1em 0; }
-                              `}</style>
-                            </>
-                          );
-                        }
-                        const rawContent = item.content?.trim();
-                        if (rawContent?.startsWith('<')) {
-                          return (
-                            <div
-                              className={`news-preview-content text-sm ${
-                                dark ? 'text-slate-300' : 'text-stone-700'
-                              }`}
-                              dangerouslySetInnerHTML={{ __html: sanitizeHtml(rawContent) }}
-                            />
-                          );
-                        }
-                        return (
-                          <p
-                            className={`text-sm italic ${
-                              dark ? 'text-slate-500' : 'text-stone-500'
-                            }`}
-                          >
-                            Контент порожній
-                          </p>
-                        );
-                      })()}
-                    </div>
-
-                    <div
-                      className={`flex items-center justify-between px-4 py-3 border-t ${
-                        dark
-                          ? 'bg-white/[0.02] border-white/[0.05]'
-                          : 'bg-stone-50/60 border-stone-300/50'
-                      }`}
-                    >
-                      <div className={`text-[11px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
-                        /news/{item.slug}
-                        {item.author?.name && <span> · {item.author.name}</span>}
-                      </div>
-                      <Link
-                        href={`/dashboard/admin/news/${item.id}/edit`}
-                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium rounded-lg border transition-colors ${
-                          dark
-                            ? 'bg-white/[0.04] border-white/[0.08] text-amber-200 hover:bg-white/[0.08]'
-                            : 'bg-white/70 border-stone-300/60 text-amber-800 hover:bg-white'
-                        }`}
-                      >
-                        <FaEdit size={11} /> Редагувати
-                      </Link>
-                    </div>
-                  </div>
-                )}
               </div>
             );
           })}
@@ -980,6 +927,102 @@ export default function AdminNewsPage() {
         </section>
         {/* ╰─ кінець правої колонки ─────────────────────────────────────╯ */}
       </div>
+
+      {/* Fullscreen-превʼю «Поточної сторінки». Рендериться 1-в-1 публічний
+          /news через NewsPagePreview (auto-scale до доступної ширини). Esc /
+          клік по бекдропу / X — закривають. */}
+      {pagePreviewOpen && (
+        <div
+          className="fixed inset-0 z-[60] flex flex-col bg-stone-900/85 backdrop-blur-md"
+          onClick={() => setPagePreviewOpen(false)}
+        >
+          <div className="flex items-center justify-between px-5 py-3 border-b border-white/10">
+            <div className="flex items-center gap-3 text-white/90">
+              <span className="text-[11px] font-bold tracking-[0.18em] uppercase">
+                Превʼю · /news
+              </span>
+              <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider ${
+                pagePublished
+                  ? 'bg-emerald-500/20 text-emerald-200 border border-emerald-400/30'
+                  : 'bg-amber-500/20 text-amber-200 border border-amber-400/30'
+              }`}>
+                <span className={`inline-block w-1.5 h-1.5 rounded-full ${
+                  pagePublished ? 'bg-emerald-400' : 'bg-amber-400'
+                }`} />
+                {pagePublished === null ? '...' : pagePublished ? 'На сайті' : 'Прихована'}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); setPagePreviewOpen(false); }}
+              title="Закрити (Esc)"
+              className="inline-flex items-center justify-center w-9 h-9 rounded-lg bg-white/[0.06] border border-white/10 text-white/80 hover:bg-white/[0.12] hover:text-white transition-colors"
+            >
+              <FaTimes />
+            </button>
+          </div>
+          <div
+            className="flex-1 overflow-auto p-6"
+            onClick={e => e.stopPropagation()}
+          >
+            <div
+              className="mx-auto rounded-lg overflow-hidden shadow-2xl"
+              style={{ maxWidth: '1280px', background: '#FFFFFF' }}
+            >
+              <NewsPagePreview />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Fullscreen-превʼю окремої новини. Iframe — точна копія публічного
+          рендера (без drift). kind="card" → /uk/news (картка в контексті
+          списку), kind="article" → /uk/news/{slug} (повна сторінка статті). */}
+      {itemPreview && (
+        <div
+          className="fixed inset-0 z-[60] flex flex-col bg-stone-900/85 backdrop-blur-md"
+          onClick={() => setItemPreview(null)}
+        >
+          <div className="flex items-center justify-between px-5 py-3 border-b border-white/10">
+            <div className="flex items-center gap-3 text-white/90 min-w-0">
+              <span className="text-[11px] font-bold tracking-[0.18em] uppercase whitespace-nowrap">
+                Превʼю · {itemPreview.kind === 'article' ? `/news/${itemPreview.slug}` : '/news'}
+              </span>
+              <span className="text-[12px] text-white/60 truncate">
+                {itemPreview.title}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); setItemPreview(null); }}
+              title="Закрити (Esc)"
+              className="inline-flex items-center justify-center w-9 h-9 rounded-lg bg-white/[0.06] border border-white/10 text-white/80 hover:bg-white/[0.12] hover:text-white transition-colors"
+            >
+              <FaTimes />
+            </button>
+          </div>
+          <div
+            className="flex-1 overflow-hidden p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              className="mx-auto h-full rounded-lg overflow-hidden shadow-2xl bg-white"
+              style={{ maxWidth: '1280px' }}
+            >
+              <iframe
+                key={`${itemPreview.kind}:${itemPreview.slug}`}
+                src={
+                  itemPreview.kind === 'article'
+                    ? `/uk/news/${itemPreview.slug}?preview=1`
+                    : `/uk/news?preview=1`
+                }
+                title={`Превʼю · ${itemPreview.title}`}
+                className="w-full h-full border-0"
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Delete modal */}
       {deleteTarget && (
