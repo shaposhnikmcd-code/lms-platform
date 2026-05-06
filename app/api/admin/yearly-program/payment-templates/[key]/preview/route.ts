@@ -4,6 +4,7 @@ import {
   PAYMENT_TEMPLATES,
   renderTemplate,
   getPaymentTemplate,
+  wrapInnerHtml,
   type PaymentTemplateKey,
 } from '@/lib/emailTemplates/paymentTemplates';
 
@@ -62,9 +63,12 @@ export async function POST(
   if (!(key in PAYMENT_TEMPLATES)) {
     return NextResponse.json({ error: 'Unknown template key' }, { status: 404 });
   }
-  const body = (await req.json().catch(() => ({}))) as { subject?: string; bodyHtml?: string };
+  const body = (await req.json().catch(() => ({}))) as { subject?: string; bodyHtml?: string; bodyInnerHtml?: string };
   const subject = typeof body.subject === 'string' ? body.subject : '';
-  const bodyHtml = typeof body.bodyHtml === 'string' ? body.bodyHtml : '';
+  // WYSIWYG-режим: приходить inner-HTML, обгортаємо в стандартний layout перед рендером.
+  const bodyHtml = typeof body.bodyInnerHtml === 'string'
+    ? wrapInnerHtml(body.bodyInnerHtml)
+    : (typeof body.bodyHtml === 'string' ? body.bodyHtml : '');
   const html = await renderHtml(key, subject, bodyHtml);
   return new NextResponse(html, {
     status: 200,

@@ -3,15 +3,18 @@ import prisma from '@/lib/prisma';
 import { isAdmin } from '@/lib/adminAuth';
 import { PAYMENT_TEMPLATES, PAYMENT_TEMPLATE_GROUPS, type PaymentTemplateKey } from '@/lib/emailTemplates/paymentTemplates';
 
-/// GET — список усіх payment-template-ів з поточними значеннями (custom з БД або дефолт)
-/// + метаінформацією (placeholders, sampleData, when). Використовується UI-модалкою
-/// "Листи платежів" в адмінці.
+/// GET — тонкий список усіх payment-template-ів. Тільки meta (без HTML-тіла).
+/// HTML-тіло вантажиться окремо, коли менеджер відкриває конкретний шаблон
+/// через GET /payment-templates/:key. Зменшує payload з ~100 KB до ~3 KB.
 export async function GET(req: NextRequest) {
   if (!(await isAdmin(req))) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
-  const customRows = await prisma.emailTemplate.findMany();
+  // Selecting only meta fields reduces query size and serialization time.
+  const customRows = await prisma.emailTemplate.findMany({
+    select: { templateKey: true, updatedAt: true, updatedBy: true },
+  });
   const customByKey = new Map(customRows.map((r) => [r.templateKey, r]));
 
   const items = (Object.keys(PAYMENT_TEMPLATES) as PaymentTemplateKey[]).map((key) => {
@@ -24,10 +27,6 @@ export async function GET(req: NextRequest) {
       when: meta.when,
       placeholders: meta.placeholders,
       sampleData: meta.sampleData,
-      subject: custom?.subject ?? meta.defaultSubject,
-      bodyHtml: custom?.bodyHtml ?? meta.defaultBodyHtml,
-      defaultSubject: meta.defaultSubject,
-      defaultBodyHtml: meta.defaultBodyHtml,
       isCustomized: !!custom,
       updatedAt: custom?.updatedAt?.toISOString() ?? null,
       updatedBy: custom?.updatedBy ?? null,

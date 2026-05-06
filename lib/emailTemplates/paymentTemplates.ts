@@ -54,6 +54,53 @@ ${innerHtml}
 </div>
 `.trim();
 
+/// Обгортає inner-HTML стандартним layout-wrapper-ом UIMP (для збереження після редагування у WYSIWYG).
+export function wrapInnerHtml(innerHtml: string): string {
+  return layout(innerHtml);
+}
+
+/// Опис кожного відомого плейсхолдера — для довідника у редакторі і попереджень при видаленні.
+/// Показуємо менеджеру у форматі «що з'явиться у листі» простими словами.
+export const PLACEHOLDER_DESCRIPTIONS: Record<string, { what: string; consequence: string }> = {
+  greeting: {
+    what: 'Привітання з імʼям отримувача — наприклад «Доброго дня, Іван Петренко!».',
+    consequence: 'БЕЗ цього поля лист піде без імені — отримувач не побачить персоналізованого звернення.',
+  },
+  plan: {
+    what: 'Назва плану підписки (Річна / Місячна авто / Місячна разова).',
+    consequence: 'БЕЗ цього поля у листі не буде вказано який саме план оплачено.',
+  },
+  amount: {
+    what: 'Сума у гривнях, яку було щойно списано — наприклад «2200».',
+    consequence: 'БЕЗ цього поля отримувач не побачить розмір списання.',
+  },
+  expiresAt: {
+    what: 'Дата, до якої діє доступ — наприклад «2026-08-15».',
+    consequence: 'БЕЗ цього поля отримувач не побачить дату завершення доступу.',
+  },
+  expiresLine: {
+    what: 'Готовий рядок «Доступ діє до: <дата>» (повністю оформлений).',
+    consequence: 'БЕЗ цього поля у листі взагалі не буде дати доступу.',
+  },
+  progressLine: {
+    what: 'Прогрес автосписань — наприклад «Списання 3 з 9».',
+    consequence: 'БЕЗ цього поля отримувач не бачитиме на якому місяці підписки він зараз.',
+  },
+  autoRenewBullet: {
+    what: 'Готовий пункт у списку про автосписання (зʼявляється тільки для планів з автосписанням).',
+    consequence: 'БЕЗ цього поля користувач з автоплатежем не дізнається що автосписання активне.',
+  },
+};
+
+/// Витягує inner-HTML з повного `bodyHtml` (зворотний бік `wrapInnerHtml`). Якщо wrapper не розпізнано —
+/// повертає весь `bodyHtml` як inner (legacy/нестандартні кастомізації). Менеджер у WYSIWYG бачить тільки inner.
+export function extractInnerHtml(fullBodyHtml: string): string {
+  const m = fullBodyHtml.match(
+    /^\s*<div[^>]*style="font-family:\s*Arial[^"]*"[^>]*>([\s\S]*?)<p[^>]*>\s*Якщо є питання[\s\S]*<\/div>\s*$/,
+  );
+  return m ? m[1].trim() : fullBodyHtml;
+}
+
 export const PAYMENT_TEMPLATES: Record<PaymentTemplateKey, PaymentTemplateMeta> = {
   'welcome': {
     key: 'welcome',
