@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { isAdmin } from "@/lib/adminAuth";
 import { revalidatePath } from "next/cache";
 import { translateNewsContent } from "@/lib/translate";
+import { maybeAutoPublishStagedNewsPage } from "@/lib/newsPagePublish";
 
 // API для білдера сторінки /news.
 //   GET   — повертає поточний layout (singleton key="default") або null якщо ще не створено.
@@ -16,6 +17,8 @@ export async function GET(req: NextRequest) {
   if (!(await isAdmin(req))) {
     return NextResponse.json({ error: "Немає доступу" }, { status: 403 });
   }
+  // Якщо staged-копія мала би вже опублікуватись — swap-имо до того як віддати.
+  await maybeAutoPublishStagedNewsPage();
   const page = await prisma.newsPage.findUnique({ where: { key: KEY } });
   return NextResponse.json(page);
 }

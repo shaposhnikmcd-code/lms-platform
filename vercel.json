@@ -16,10 +16,6 @@
     {
       "path": "/api/cron/reconcile-payments",
       "schedule": "45 4 * * *"
-    },
-    {
-      "path": "/api/cron/news-page-publish",
-      "schedule": "0 * * * *"
     }
   ]
 }

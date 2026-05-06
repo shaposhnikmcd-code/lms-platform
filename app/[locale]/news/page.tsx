@@ -1,5 +1,6 @@
 import prisma from "@/lib/prisma";
 import { getTranslatedContent } from "@/lib/translate";
+import { maybeAutoPublishStagedNewsPage } from "@/lib/newsPagePublish";
 import { newsContent } from "./_content/uk";
 import {
   AbsoluteBlockRender,
@@ -24,6 +25,12 @@ const getContent = getTranslatedContent(newsContent, "news-page", {
 export default async function NewsPage({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
   const c = await getContent(locale);
+
+  // Read-time auto-publish: якщо у NewsPage є staged-копія з nextPublishAt що
+  // настав — swap-имо у БД до того як читати live. Pattern як з News.suspendedAt
+  // (без cron-ів, перевірка при читанні). Перший відвідувач /news після часу
+  // публікації тригерить swap; решта читає вже оновлений content.
+  await maybeAutoPublishStagedNewsPage();
 
   // Тягнемо паралельно: NewsPage layout + всі published новини (для join-у в newsCard блоках).
   // Фільтр suspendedAt/resumeAt тут НЕ застосовуємо: видимість на /news listing визначає

@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { isAdmin } from "@/lib/adminAuth";
 import { revalidatePath } from "next/cache";
 import { translateNewsContent } from "@/lib/translate";
+import { maybeAutoPublishStagedNewsPage } from "@/lib/newsPagePublish";
 
 // API для білдера "Наступної сторінки" /news.
 // Live-версія сторінки лишається в /api/admin/news/page-content. Цей роут
@@ -11,8 +12,9 @@ import { translateNewsContent } from "@/lib/translate";
 // Workflow:
 //   1) Менеджер відкриває білдер /next; якщо nextContent ще не існує — клонуємо live як стартову точку.
 //   2) Зберігається через PATCH тут, у next*. Live не торкається.
-//   3) Менеджер виставляє nextPublishAt → cron /api/cron/news-page-publish о nextPublishAt
-//      копіює next* → live і чистить next*.
+//   3) Менеджер виставляє nextPublishAt → перший хіт на /news (або адмінку)
+//      після цього часу автоматично swap-ить через `maybeAutoPublishStagedNewsPage`
+//      (read-time pattern, без cron-ів).
 //   4) Альтернативно адмін може опублікувати негайно: POST з action="publish-now".
 //   5) Скасувати чернетку — DELETE.
 
@@ -22,6 +24,9 @@ export async function GET(req: NextRequest) {
   if (!(await isAdmin(req))) {
     return NextResponse.json({ error: "Немає доступу" }, { status: 403 });
   }
+  // Якщо таймер уже настав — auto-swap. Адмін побачить що чернетка зникла
+  // (вона стала live), staged-секція покаже "немає чернетки".
+  await maybeAutoPublishStagedNewsPage();
   const page = await prisma.newsPage.findUnique({ where: { key: KEY } });
   if (!page) return NextResponse.json(null);
 
@@ -138,8 +143,9 @@ export async function DELETE(req: NextRequest) {
   return NextResponse.json({ ok: true });
 }
 
-// Опублікувати negайно: копіює next* → live, чистить next*. Реалізація у єдиному
-// місці (lib/news/publishStaged) щоб cron і ручний клік йшли тим самим шляхом.
+// Опублікувати негайно: копіює next* → live, чистить next*. Реалізація у єдиному
+// місці (lib/newsPagePublish) — і ручний клік, і read-time auto-publish ходять
+// через ту саму функцію.
 export async function POST(req: NextRequest) {
   if (!(await isAdmin(req))) {
     return NextResponse.json({ error: "Немає доступу" }, { status: 403 });
