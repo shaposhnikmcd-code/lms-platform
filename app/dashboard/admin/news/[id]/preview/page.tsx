@@ -31,7 +31,6 @@ interface Meta {
   category: string;
   imageUrl: string;
   pageBgColor: string;
-  published: boolean;
 }
 
 const DEFAULT_META: Meta = {
@@ -41,7 +40,6 @@ const DEFAULT_META: Meta = {
   category: "NEWS",
   imageUrl: "",
   pageBgColor: "",
-  published: false,
 };
 
 function generateSlug(text: string): string {
@@ -81,7 +79,6 @@ export default function EditNewsPreviewPage() {
           category: d.category || "NEWS",
           imageUrl: d.imageUrl || "",
           pageBgColor: d.pageBgColor || "",
-          published: d.published || false,
         });
         setLoading(false);
       })
@@ -136,7 +133,8 @@ export default function EditNewsPreviewPage() {
       const res = await fetch("/api/admin/news/" + id, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        // PATCH тільки meta — content і previewContent не торкаємо.
+        // PATCH тільки meta — content / previewContent / published не торкаємо
+        // (UI-toggle публікації прибраний; видимість визначає білдер сторінки).
         body: JSON.stringify({
           title: meta.title,
           slug: meta.slug,
@@ -144,7 +142,6 @@ export default function EditNewsPreviewPage() {
           category: meta.category,
           imageUrl: meta.imageUrl,
           pageBgColor: meta.pageBgColor,
-          published: meta.published,
         }),
       });
       if (res.ok) {
@@ -222,12 +219,6 @@ export default function EditNewsPreviewPage() {
       setTheme={setTheme}
       eyebrow="Admin · Новини"
       title="Превʼю картки новини"
-      subtitle={
-        <span className="inline-flex items-center gap-2">
-          <span className={`inline-block w-2 h-2 rounded-full ${meta.published ? "bg-emerald-500" : "bg-amber-400"}`} />
-          {meta.published ? "Опублікована" : "Чернетка"}
-        </span>
-      }
       backHref="/dashboard/admin/news"
       maxWidth="max-w-3xl"
       rightSlot={

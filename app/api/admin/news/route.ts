@@ -45,7 +45,11 @@ export async function POST(req: NextRequest) {
         imageUrl: imageUrl || null,
         pageBgColor: pageBgColor || null,
         category: category || "NEWS",
-        published: published || false,
+        // Видимість на /news диктує білдер (newsCard на сторінці) — UI-toggle
+        // `published` прибрано. Новина одразу `published: true`, інакше публічний
+        // рендер відфільтрував би її навіть з білдера. Параметр у body
+        // лишаємо як override (backward compat для старого UI).
+        published: typeof published === "boolean" ? published : true,
         authorId: user?.id || null,
         ...translations,
       },
