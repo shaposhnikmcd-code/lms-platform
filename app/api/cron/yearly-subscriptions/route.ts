@@ -297,7 +297,7 @@ async function expireGraceSubscriptions(): Promise<StepResult> {
       // Шлемо лист про закриття доступу, якщо ще не слали
       if (sub.user?.email && !sub.reminderSentExpired) {
         try {
-          const { subject, html } = accessClosed({ name: sub.user.name });
+          const { subject, html } = await accessClosed({ name: sub.user.name });
           await resend.emails.send({ from: FROM, to: sub.user.email, subject, html });
           await prisma.yearlyProgramSubscription.update({
             where: { id: sub.id },
@@ -340,7 +340,7 @@ async function sendManualBeforeExpiryReminders(): Promise<StepResult> {
   await processInParallel(subs, async (sub) => {
     try {
       if (!sub.user?.email || !sub.expiresAt) return;
-      const { subject, html } = manualBeforeExpiry({ name: sub.user.name, expiresAt: sub.expiresAt });
+      const { subject, html } = await manualBeforeExpiry({ name: sub.user.name, expiresAt: sub.expiresAt });
       await resend.emails.send({ from: FROM, to: sub.user.email, subject, html });
       await prisma.yearlyProgramSubscription.update({
         where: { id: sub.id },
@@ -385,7 +385,7 @@ async function sendManualOnExpiryReminders(): Promise<StepResult> {
   await processInParallel(subs, async (sub) => {
     try {
       if (!sub.user?.email) return;
-      const { subject, html } = manualOnExpiry({ name: sub.user.name });
+      const { subject, html } = await manualOnExpiry({ name: sub.user.name });
       await resend.emails.send({ from: FROM, to: sub.user.email, subject, html });
       await prisma.yearlyProgramSubscription.update({
         where: { id: sub.id },
@@ -432,8 +432,8 @@ async function sendGraceStartReminders(): Promise<StepResult> {
       if (!isManual && (sub.failedChargeCount ?? 0) === 0) return;
 
       const { subject, html } = isManual
-        ? manualGraceStart({ name: sub.user.name, gracePeriodEndsAt: sub.gracePeriodEndsAt })
-        : cyclicalChargeFailed1({ name: sub.user.name, gracePeriodEndsAt: sub.gracePeriodEndsAt });
+        ? await manualGraceStart({ name: sub.user.name, gracePeriodEndsAt: sub.gracePeriodEndsAt })
+        : await cyclicalChargeFailed1({ name: sub.user.name, gracePeriodEndsAt: sub.gracePeriodEndsAt });
       await resend.emails.send({ from: FROM, to: sub.user.email, subject, html });
       await prisma.yearlyProgramSubscription.update({
         where: { id: sub.id },
@@ -477,7 +477,7 @@ async function sendCyclicalGraceMidReminders(): Promise<StepResult> {
   await processInParallel(subs, async (sub) => {
     try {
       if (!sub.user?.email || !sub.gracePeriodEndsAt) return;
-      const { subject, html } = cyclicalChargeFailed3({ name: sub.user.name, gracePeriodEndsAt: sub.gracePeriodEndsAt });
+      const { subject, html } = await cyclicalChargeFailed3({ name: sub.user.name, gracePeriodEndsAt: sub.gracePeriodEndsAt });
       await resend.emails.send({ from: FROM, to: sub.user.email, subject, html });
       await prisma.yearlyProgramSubscription.update({
         where: { id: sub.id },

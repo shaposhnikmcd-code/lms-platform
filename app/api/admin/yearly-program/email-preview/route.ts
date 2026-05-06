@@ -26,26 +26,26 @@ export async function GET(req: NextRequest) {
   let html = '';
   switch (type) {
     case 'manual-before':
-      html = manualBeforeExpiry({ name: sampleName, expiresAt: in3Days }).html;
+      html = (await manualBeforeExpiry({ name: sampleName, expiresAt: in3Days })).html;
       break;
     case 'manual-on-expiry':
-      html = manualOnExpiry({ name: sampleName }).html;
+      html = (await manualOnExpiry({ name: sampleName })).html;
       break;
     case 'manual-grace-start':
-      html = manualGraceStart({ name: sampleName, gracePeriodEndsAt }).html;
+      html = (await manualGraceStart({ name: sampleName, gracePeriodEndsAt })).html;
       break;
     case 'cyclical-failed-1':
-      html = cyclicalChargeFailed1({ name: sampleName, gracePeriodEndsAt }).html;
+      html = (await cyclicalChargeFailed1({ name: sampleName, gracePeriodEndsAt })).html;
       break;
     case 'cyclical-failed-3':
       // Для 3-го дня залишок 4 дні
-      html = cyclicalChargeFailed3({
+      html = (await cyclicalChargeFailed3({
         name: sampleName,
         gracePeriodEndsAt: new Date(Date.now() + 4 * 24 * 60 * 60 * 1000),
-      }).html;
+      })).html;
       break;
     case 'closed':
-      html = accessClosed({ name: sampleName }).html;
+      html = (await accessClosed({ name: sampleName })).html;
       break;
     default:
       return NextResponse.json({ error: 'Unknown type' }, { status: 400 });

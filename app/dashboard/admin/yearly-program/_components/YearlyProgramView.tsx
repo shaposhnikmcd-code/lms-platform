@@ -15,7 +15,6 @@ import {
   HiOutlineChevronRight,
   HiOutlineCheck,
   HiOutlineEnvelope,
-  HiOutlineArrowRightCircle,
   HiOutlineCurrencyDollar,
 } from 'react-icons/hi2';
 import type { YearlyProgramSettings } from '@/lib/yearlyProgramSettings';
@@ -27,7 +26,7 @@ import CohortActions from './CohortActions';
 import CreateCohortModal from './CreateCohortModal';
 import MoveCohortBtn from './MoveCohortBtn';
 import { UIFeedbackProvider, useUIFeedback } from './UIFeedback';
-import PaymentTemplatesModal from './PaymentTemplatesModal';
+import PaymentTemplatesModal, { RemindersTemplatesModal } from './PaymentTemplatesModal';
 import ProgramSettingButton from './ProgramSettingButton';
 import { type TelegramSettingsState } from './TelegramChannelButton';
 import { flagEmoji, getCountryName } from '@/lib/countries';
@@ -369,7 +368,7 @@ function YearlyProgramViewInner({
           />
         </div>
       </AdminPanel>
-      {emailModalOpen && <EmailRemindersModal theme={theme} onClose={() => setEmailModalOpen(false)} />}
+      {emailModalOpen && <RemindersTemplatesModal theme={theme} onClose={() => setEmailModalOpen(false)} />}
       {paymentTemplatesOpen && <PaymentTemplatesModal theme={theme} onClose={() => setPaymentTemplatesOpen(false)} />}
       {graceModalOpen && (
         <GraceSettingsModal
@@ -1550,201 +1549,6 @@ function GraceSettingsModal({
       </div>
     </div>,
     document.body,
-  );
-}
-
-interface EmailScenario {
-  type: string;
-  title: string;
-  when: string;
-}
-
-const MANUAL_SCENARIOS: EmailScenario[] = [
-  { type: 'manual-before',      title: '📅 За 3 дні до дати закінчення', when: 'Нагадуємо оформити оплату на наступний місяць.' },
-  { type: 'manual-on-expiry',   title: '📆 У дату закінчення',            when: 'Сьогодні останній день — час оплатити.' },
-  { type: 'manual-grace-start', title: '🛟 Наступний день після дати закінчення', when: 'Доступ продовжено на 7 днів grace — встигнути оплатити.' },
-  { type: 'closed',             title: '🔒 Через 7 днів — закриття доступу', when: 'Оплата не надійшла, закрили доступ у SendPulse.' },
-];
-
-const CYCLICAL_SCENARIOS: EmailScenario[] = [
-  { type: 'cyclical-failed-1', title: '⚠ 1-й день після дати закінчення', when: 'WFP не зміг списати — перевірте картку.' },
-  { type: 'cyclical-failed-3', title: '⏳ 3-й день після дати закінчення', when: 'Все ще не списано — лишилось 4 дні до закриття.' },
-  { type: 'closed',            title: '🔒 7-й день — закриття доступу',     when: 'Оплата так і не пройшла, закрили доступ.' },
-];
-
-/// Iframe прев'ю листа з auto-height: висота підлаштовується під контент,
-/// щоб не було внутрішнього скролбара і весь контент модалки скролився одним рухом миші.
-function EmailPreviewFrame({ src, title }: { src: string; title: string }) {
-  const ref = useRef<HTMLIFrameElement | null>(null);
-  const [height, setHeight] = useState(500);
-  const measure = () => {
-    try {
-      const doc = ref.current?.contentDocument;
-      if (doc?.body) {
-        const h = Math.max(doc.body.scrollHeight, doc.documentElement.scrollHeight);
-        if (h > 0) setHeight(h + 8);
-      }
-    } catch {}
-  };
-  return (
-    <iframe
-      ref={ref}
-      src={src}
-      title={title}
-      onLoad={measure}
-      scrolling="no"
-      className="w-full bg-white block"
-      style={{ height, border: 'none' }}
-    />
-  );
-}
-
-function EmailRemindersModal({ theme, onClose }: { theme: Theme; onClose: () => void }) {
-  const dark = theme === 'dark';
-  const [mounted, setMounted] = useState(false);
-  /// Один глобальний обраний тип на обидві колонки — клік на будь-яку кнопку
-  /// перемикає прев'ю внизу на всю ширину.
-  const [activeType, setActiveType] = useState<string | null>(null);
-  useEffect(() => { setMounted(true); }, []);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    document.addEventListener('keydown', onKey);
-    document.body.style.overflow = 'hidden';
-    return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = ''; };
-  }, [onClose]);
-
-  const allScenarios = [...MANUAL_SCENARIOS, ...CYCLICAL_SCENARIOS];
-  const activeScenario = allScenarios.find((s) => s.type === activeType) ?? null;
-  const previewUrl = activeScenario ? `/api/admin/yearly-program/email-preview?type=${activeScenario.type}` : null;
-
-  if (!mounted) return null;
-  return createPortal(
-    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4" role="dialog" aria-modal="true">
-      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
-      <div className={`relative max-w-3xl w-full max-h-[90vh] overflow-y-auto rounded-2xl shadow-2xl [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden ${
-        dark ? 'bg-zinc-900 border border-white/10 text-slate-200' : 'bg-white border border-stone-200 text-stone-800'
-      }`}>
-        <div className={`sticky top-0 z-10 flex items-center justify-between px-5 py-3 border-b ${dark ? 'bg-zinc-900 border-white/10' : 'bg-white border-stone-200'}`}>
-          <h3 className="text-base font-bold">Нагадування по Email — як працюють</h3>
-          <button onClick={onClose} aria-label="Закрити" className={`w-7 h-7 rounded-full flex items-center justify-center ${dark ? 'hover:bg-white/10' : 'hover:bg-stone-100'}`}>✕</button>
-        </div>
-
-        <div className="px-5 py-4 space-y-5">
-          <section>
-            <p className={`text-[12px] leading-relaxed ${dark ? 'text-slate-300' : 'text-stone-700'}`}>
-              Cron щодня о <b>04:00 UTC</b>. Ім'я у листі — з форми оплати клієнта (<code>user.name</code>). Натисни кнопку щоб розгорнути прев'ю.
-            </p>
-          </section>
-
-          {/* Дві колонки: Ручна (4 листи) і Автосписання (3 листи) */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-            <EmailScenarioColumn
-              theme={theme}
-              heading="💳 Ручна оплата"
-              subheading="Клієнт платить сам (4 листи)"
-              headingCls={dark ? 'text-sky-300' : 'text-sky-800'}
-              scenarios={MANUAL_SCENARIOS}
-              activeType={activeType}
-              onToggle={(t) => setActiveType(activeType === t ? null : t)}
-            />
-            <EmailScenarioColumn
-              theme={theme}
-              heading="🔄 Автосписання"
-              subheading="Тільки при помилці списання (3 листи)"
-              headingCls={dark ? 'text-amber-300' : 'text-amber-800'}
-              scenarios={CYCLICAL_SCENARIOS}
-              activeType={activeType}
-              onToggle={(t) => setActiveType(activeType === t ? null : t)}
-            />
-          </div>
-
-          {/* Прев'ю на всю ширину під колонками */}
-          {activeScenario && previewUrl && (
-            <div className={`rounded-xl border overflow-hidden ${dark ? 'border-white/10 bg-white/[0.02]' : 'border-stone-200 bg-stone-50/40'}`}>
-              <div className={`px-4 py-3 border-b flex items-center justify-between ${dark ? 'border-white/10' : 'border-stone-200'}`}>
-                <div>
-                  <div className="text-[13px] font-bold">{activeScenario.title}</div>
-                  <div className={`text-[11px] mt-0.5 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>{activeScenario.when}</div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setActiveType(null)}
-                  aria-label="Згорнути прев'ю"
-                  className={`w-7 h-7 rounded-full flex items-center justify-center text-sm ${dark ? 'hover:bg-white/10 text-slate-400' : 'hover:bg-stone-100 text-stone-500'}`}
-                >
-                  ✕
-                </button>
-              </div>
-              <EmailPreviewFrame key={activeScenario.type} src={previewUrl} title={`Email preview: ${activeScenario.title}`} />
-              <div className={`px-4 py-2 flex items-center gap-3 border-t ${dark ? 'border-white/10' : 'border-stone-200'}`}>
-                <a
-                  href={previewUrl}
-                  download={`email-${activeScenario.type}.html`}
-                  className={`text-[11px] font-medium underline-offset-2 hover:underline ${dark ? 'text-amber-300' : 'text-amber-800'}`}
-                >
-                  ⬇ Завантажити HTML
-                </a>
-                <span className="text-[11px] opacity-50">·</span>
-                <a
-                  href={previewUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={`text-[11px] font-medium underline-offset-2 hover:underline ${dark ? 'text-amber-300' : 'text-amber-800'}`}
-                >
-                  ↗ Відкрити в новій вкладці
-                </a>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>,
-    document.body,
-  );
-}
-
-function EmailScenarioColumn({
-  theme,
-  heading,
-  subheading,
-  headingCls,
-  scenarios,
-  activeType,
-  onToggle,
-}: {
-  theme: Theme;
-  heading: string;
-  subheading: string;
-  headingCls: string;
-  scenarios: EmailScenario[];
-  activeType: string | null;
-  onToggle: (type: string) => void;
-}) {
-  const dark = theme === 'dark';
-  return (
-    <div className={`rounded-xl border p-4 ${dark ? 'border-white/10 bg-white/[0.02]' : 'border-stone-200 bg-stone-50/40'}`}>
-      <h4 className={`text-[14px] font-bold ${headingCls}`}>{heading}</h4>
-      <p className={`text-[11px] mb-3 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>{subheading}</p>
-      <div className="flex flex-col gap-2">
-        {scenarios.map((s) => {
-          const isActive = s.type === activeType;
-          return (
-            <button
-              key={s.type}
-              type="button"
-              onClick={() => onToggle(s.type)}
-              className={`px-3 py-2 rounded-lg text-[12px] font-medium border text-left transition-colors ${
-                isActive
-                  ? dark ? 'bg-amber-400/15 text-amber-200 border-amber-400/40' : 'bg-amber-100 text-amber-800 border-amber-300/60'
-                  : dark ? 'bg-white/[0.04] text-slate-300 border-white/[0.08] hover:bg-white/[0.08]' : 'bg-white/80 text-stone-700 border-stone-300/60 hover:bg-stone-100'
-              }`}
-            >
-              {s.title}
-            </button>
-          );
-        })}
-      </div>
-    </div>
   );
 }
 
