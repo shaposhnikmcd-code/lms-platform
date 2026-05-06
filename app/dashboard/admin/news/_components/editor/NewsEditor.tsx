@@ -94,6 +94,8 @@ interface BaseProps {
   minCanvasHeight?: number;
   /** Кастомні підписи на chrome-смужці канвасу. */
   canvasLabel?: { left: string; right: string };
+  /** Запас вільного місця під останнім блоком. Default 240. */
+  bottomSlack?: number;
 }
 
 interface SingleProps extends BaseProps {
@@ -477,6 +479,7 @@ export default function NewsEditor(props: Props) {
                 canvasWidth={props.canvasWidth}
                 minCanvasHeight={props.minCanvasHeight}
                 canvasLabel={props.canvasLabel}
+                bottomSlack={props.bottomSlack}
                 rightSidebar={
                   mode === "page" ? (
                     <NewsLibrarySidebar

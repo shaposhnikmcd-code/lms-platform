@@ -45,6 +45,10 @@ interface Props {
   /** Кастомні підписи на chrome-смужці канвасу (зверху). Default — текст для
    *  сторінкового режиму. Для card-builder-а передаємо «🃏 Превʼю-картка». */
   canvasLabel?: { left: string; right: string };
+  /** Запас вільного місця під останнім блоком (drop-zone). Default 240px для
+   *  full-page; для маленького card-canvas достатньо 80px (інакше canvas
+   *  візуально витягнутий значно більше за реальний контент). */
+  bottomSlack?: number;
 }
 
 export default function EditorCanvas({
@@ -60,10 +64,12 @@ export default function EditorCanvas({
   canvasWidth,
   minCanvasHeight,
   canvasLabel,
+  bottomSlack,
 }: Props) {
   // Локальні константи (були module-scope) тепер залежать від props.
   const PAGE_WIDTH = canvasWidth ?? CANVAS_WIDTH;
   const MIN_CANVAS_H = minCanvasHeight ?? DEFAULT_MIN_CANVAS_H;
+  const BOTTOM_SLACK_PX = bottomSlack ?? 240;
   const [lastAddedId, setLastAddedId] = useState<string | null>(null);
   const setSelectedBlockId = (next: string | null | ((prev: string | null) => string | null)) => {
     if (typeof next === "function") {
@@ -187,12 +193,12 @@ export default function EditorCanvas({
     return TYPE_HEIGHT[b.type] ?? 100;
   }
   // BOTTOM_SLACK — вільний простір під найнижчим блоком, щоб юзер міг легко
-  // drop-нути новий блок нижче (без BOTTOM_SLACK канвас закінчується ВПРИТУЛ
-  // до останнього блока — нікуди кинути). 240px ≈ висота 1-2 типових блоків.
-  const BOTTOM_SLACK = 240;
+  // drop-нути новий блок нижче (без bottomSlack канвас закінчується ВПРИТУЛ
+  // до останнього блока — нікуди кинути). Default 240px ≈ висота 1-2 типових
+  // блоків; для card-builder-а (360px wide) пробрасується менший (80px).
   const canvasHeight = Math.max(
     MIN_CANVAS_H,
-    ...blocks.map(b => (b.y ?? 0) + measureBlockHeight(b) + BOTTOM_SLACK),
+    ...blocks.map(b => (b.y ?? 0) + measureBlockHeight(b) + BOTTOM_SLACK_PX),
     // НЕ розтягувати canvas під dropPreview — це провокує feedback loop:
     // canvas росте → browser скролить → rect.top негативніший → cursorY - rectTop росте
     // → preview Y росте → canvas ще більший. Блок летить у нескінченність.
