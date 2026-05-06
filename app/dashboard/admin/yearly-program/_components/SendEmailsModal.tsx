@@ -372,7 +372,7 @@ export default function SendEmailsModal({
         <div className={`flex items-center justify-between px-5 py-3 border-b ${dark ? 'border-white/10' : 'border-stone-200'}`}>
           <h3 className="text-base font-bold flex items-center gap-2">
             <HiOutlinePaperAirplane className="text-lg rotate-[-30deg]" />
-            Запустити розсилку · {cohort.name}
+            Дослати welcome-лист · {cohort.name}
           </h3>
           <button onClick={onClose} className={`w-7 h-7 rounded-full flex items-center justify-center ${dark ? 'hover:bg-white/10' : 'hover:bg-stone-100'}`}>✕</button>
         </div>

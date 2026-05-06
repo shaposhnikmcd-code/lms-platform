@@ -10,17 +10,25 @@ import {
   HiOutlineCheck,
   HiOutlineExclamationTriangle,
   HiOutlineXMark,
+  HiOutlineEnvelope,
+  HiOutlinePencilSquare,
+  HiOutlinePaperAirplane,
+  HiOutlineEye,
 } from 'react-icons/hi2';
 import type { Theme } from '../../_components/adminTheme';
 import type { CohortListItem } from './types';
 import { useUIFeedback } from './UIFeedback';
 import InlineDateTimePicker from '../../_components/InlineDateTimePicker';
 
-/// Модалка "🚀 Запустити програму" — два режими: миттєвий запуск або запланований
-/// (cron yearly-subscriptions виконає в призначений день).
+/// Модалка "🚀 Запустити програму" — об'єднана дія "відкрити доступ + надіслати welcome-лист".
 ///
-/// Якщо вже виставлено `cohort.launchScheduledFor` — показуємо стан "Заплановано на DATE"
-/// з кнопками "Запустити одразу" та "Скасувати запланований".
+/// Дві осі вибору:
+///   1. КОЛИ запускати: зараз / запланувати на дату.
+///   2. ЧИ надсилати лист одночасно (default ON): можна редагувати subject/body тут же.
+///      Запланований launch + checkbox ON → emailScheduledFor встановлюється на ту саму дату.
+///
+/// Якщо менеджер хоче передумати після запуску — окрема кнопка "✉️ Дослати лист" у CohortActions
+/// відкриває SendEmailsModal для resend (per-recipient або bulk-override).
 export default function LaunchProgramModal({
   cohort,
   paidPendingCount,
@@ -37,6 +45,9 @@ export default function LaunchProgramModal({
   const router = useRouter();
   const { toast, confirm } = useUIFeedback();
   const [mounted, setMounted] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  // === Mode (now / schedule) ===
   const [mode, setMode] = useState<'now' | 'schedule'>(cohort.launchScheduledFor ? 'schedule' : 'now');
   const [scheduledFor, setScheduledFor] = useState(() => {
     if (cohort.launchScheduledFor) return formatDateTimeInput(new Date(cohort.launchScheduledFor));
@@ -45,7 +56,31 @@ export default function LaunchProgramModal({
     t.setHours(9, 0, 0, 0);
     return formatDateTimeInput(t);
   });
-  const [busy, setBusy] = useState(false);
+
+  // === Welcome email ===
+  // Дефолт: ON. Якщо при попередньому збереженні scheduled launch менеджер зняв галочку
+  // (emailScheduledFor=null при launchScheduledFor!=null) — стартуємо з OFF, щоб поточний
+  // стан UI відповідав збереженому в БД.
+  const [sendWelcomeEmails, setSendWelcomeEmails] = useState(() => {
+    if (cohort.launchScheduledFor) return cohort.emailScheduledFor !== null;
+    return true;
+  });
+
+  // Email editor state (тільки коли sendWelcomeEmails=true)
+  const [subject, setSubject] = useState(cohort.launchEmailSubject ?? '');
+  const [body, setBody] = useState(cohort.launchEmailBody ?? '');
+  const [editing, setEditing] = useState(false);
+  const [preview, setPreview] = useState<{ subject: string; body: string } | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [savingTpl, setSavingTpl] = useState(false);
+  const [testInlineOpen, setTestInlineOpen] = useState(false);
+  const [testEmail, setTestEmail] = useState('');
+  const [testSending, setTestSending] = useState(false);
+
+  const dirty = useMemo(
+    () => subject !== (cohort.launchEmailSubject ?? '') || body !== (cohort.launchEmailBody ?? ''),
+    [subject, body, cohort.launchEmailSubject, cohort.launchEmailBody],
+  );
 
   useEffect(() => { setMounted(true); }, []);
   useEffect(() => {
@@ -55,14 +90,107 @@ export default function LaunchProgramModal({
     return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = ''; };
   }, [onClose]);
 
+  // Preview підвантажується ТІЛЬКИ якщо менеджер тримає лист увімкненим — інакше зайва робота.
+  useEffect(() => {
+    if (!sendWelcomeEmails) return;
+    if (preview) return; // вже завантажено
+    let cancelled = false;
+    setPreviewLoading(true);
+    (async () => {
+      try {
+        const res = await fetch(`/api/admin/yearly-program/cohorts/${cohort.id}/preview`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ subject: subject || undefined, body: body || undefined }),
+        });
+        if (cancelled) return;
+        if (res.ok) setPreview(await res.json());
+      } catch {
+        // ignore — UI покаже стан помилки
+      } finally {
+        if (!cancelled) setPreviewLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sendWelcomeEmails]);
+
   const cohortEnd = useMemo(() => new Date(cohort.endDate), [cohort.endDate]);
   const scheduledDate = useMemo(() => new Date(scheduledFor), [scheduledFor]);
   const scheduleInvalid = scheduledDate.getTime() <= Date.now() || scheduledDate.getTime() > cohortEnd.getTime();
+
+  async function refreshPreview() {
+    setPreviewLoading(true);
+    try {
+      const res = await fetch(`/api/admin/yearly-program/cohorts/${cohort.id}/preview`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subject, body }),
+      });
+      const data = await res.json();
+      if (res.ok) setPreview(data);
+      else toast('error', data.error ?? 'Помилка preview');
+    } catch (e) {
+      toast('error', (e as Error).message);
+    } finally {
+      setPreviewLoading(false);
+    }
+  }
+
+  async function saveTemplate() {
+    setSavingTpl(true);
+    try {
+      const res = await fetch(`/api/admin/yearly-program/cohorts/${cohort.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ launchEmailSubject: subject, launchEmailBody: body }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        toast('error', data.error ?? 'Помилка збереження');
+        return;
+      }
+      toast('success', 'Шаблон збережено');
+      setEditing(false);
+      await refreshPreview();
+      router.refresh();
+    } catch (e) {
+      toast('error', (e as Error).message);
+    } finally {
+      setSavingTpl(false);
+    }
+  }
+
+  async function sendTest() {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(testEmail.trim())) {
+      toast('error', 'Невірний email');
+      return;
+    }
+    setTestSending(true);
+    try {
+      const res = await fetch(`/api/admin/yearly-program/cohorts/${cohort.id}/test-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to: testEmail, subject, body }),
+      });
+      const data = await res.json();
+      if (!res.ok) toast('error', data.error ?? 'Помилка відправки');
+      else toast('success', `Тестовий лист надіслано на ${testEmail}`);
+    } catch (e) {
+      toast('error', (e as Error).message);
+    } finally {
+      setTestSending(false);
+    }
+  }
 
   async function submit() {
     const willSchedule = mode === 'schedule';
     if (willSchedule && scheduleInvalid) {
       toast('error', 'Дата запуску має бути у майбутньому і до завершення cohort-у');
+      return;
+    }
+    if (sendWelcomeEmails && dirty) {
+      toast('info', 'Спочатку збережіть зміни шаблону листа або скасуйте їх');
       return;
     }
 
@@ -75,8 +203,11 @@ export default function LaunchProgramModal({
           { icon: '🔓', text: `Відкриє доступ у SendPulse для ${paidPendingCount} оплачених підписок` },
           { icon: '📅', text: 'Перерахує "Доступ до" по cohort-логіці' },
           { icon: '🚀', text: 'Зафіксує дату фактичного запуску' },
+          ...(sendWelcomeEmails
+            ? [{ icon: '✉️', text: `Одразу надішле welcome-лист (${paidPendingCount} ${pluralize(paidPendingCount, 'студент', 'студенти', 'студентів')})` }]
+            : [{ icon: '🔇', text: 'Welcome-лист НЕ буде надіслано (можна зробити пізніше через "Дослати лист")' }]),
         ],
-        confirmLabel: 'Запустити зараз',
+        confirmLabel: sendWelcomeEmails ? 'Запустити та надіслати' : 'Запустити зараз',
       });
       if (!ok) return;
     }
@@ -86,9 +217,10 @@ export default function LaunchProgramModal({
       const res = await fetch(`/api/admin/yearly-program/cohorts/${cohort.id}/launch`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: willSchedule
-          ? JSON.stringify({ scheduledAt: scheduledDate.toISOString() })
-          : '{}',
+        body: JSON.stringify({
+          ...(willSchedule ? { scheduledAt: scheduledDate.toISOString() } : {}),
+          sendWelcomeEmails,
+        }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -96,13 +228,19 @@ export default function LaunchProgramModal({
         return;
       }
       if (willSchedule) {
-        toast('success', `📅 Запуск заплановано на ${humanizeWhen(scheduledFor)}`);
-      } else {
-        const s = data.summary;
         toast(
-          s.failed > 0 ? 'info' : 'success',
-          `✅ Програму "${cohort.name}" запущено\nДоступ відкрито: ${s.opened}/${s.total}${s.failed > 0 ? ` · Помилок: ${s.failed}` : ''}`,
+          'success',
+          sendWelcomeEmails
+            ? `📅 Запуск + лист заплановано на ${humanizeWhen(scheduledFor)}`
+            : `📅 Запуск заплановано на ${humanizeWhen(scheduledFor)} (без листа)`,
         );
+      } else {
+        const ls = data.summary;
+        const es = data.emailSummary;
+        const launchLine = `Доступ відкрито: ${ls.opened}/${ls.total}${ls.failed > 0 ? ` · Помилок: ${ls.failed}` : ''}`;
+        const emailLine = es ? `Листи: ${es.sent}/${es.total}${es.failed > 0 ? ` · Помилок: ${es.failed}` : ''}` : null;
+        const variant = ls.failed > 0 || (es?.failed ?? 0) > 0 ? 'info' : 'success';
+        toast(variant, `✅ Програму "${cohort.name}" запущено\n${launchLine}${emailLine ? `\n${emailLine}` : ''}`);
       }
       router.refresh();
       onClose();
@@ -116,7 +254,7 @@ export default function LaunchProgramModal({
   async function cancelScheduled() {
     const ok = await confirm({
       title: 'Скасувати запланований запуск?',
-      description: 'Cohort залишиться у стані "не запущений" — оплати будуть надходити, доступ не відкриється.',
+      description: 'Cohort залишиться у стані "не запущений" — оплати будуть надходити, доступ не відкриється. Запланований лист (якщо був) теж скасується.',
       confirmLabel: 'Скасувати запланований',
       destructive: true,
     });
@@ -147,7 +285,7 @@ export default function LaunchProgramModal({
   return createPortal(
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
-      <div className={`relative max-w-2xl w-full rounded-2xl shadow-2xl ${
+      <div className={`relative max-w-3xl w-full max-h-[92vh] flex flex-col rounded-2xl shadow-2xl ${
         dark ? 'bg-zinc-900 border border-white/10 text-slate-200' : 'bg-white border border-stone-200 text-stone-800'
       }`}>
         <div className={`flex items-center justify-between px-6 py-3.5 border-b ${dark ? 'border-white/10' : 'border-stone-200'}`}>
@@ -158,7 +296,7 @@ export default function LaunchProgramModal({
           <button onClick={onClose} aria-label="Закрити" className={`w-7 h-7 rounded-full flex items-center justify-center ${dark ? 'hover:bg-white/10' : 'hover:bg-stone-100'}`}>✕</button>
         </div>
 
-        <div className="px-6 py-5 space-y-4">
+        <div className="px-6 py-5 space-y-4 overflow-y-auto flex-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {/* Інфо-смужка для cohort-у */}
           <div className={`rounded-lg px-3.5 py-2.5 flex items-center gap-3 text-[12px] ${
             dark ? 'bg-amber-500/[0.07] border border-amber-400/20 text-amber-100/90' : 'bg-amber-50 border border-amber-200/70 text-amber-900'
@@ -182,7 +320,7 @@ export default function LaunchProgramModal({
               </div>
               <div className="flex-1 min-w-0">
                 <div className={`text-[12px] font-semibold ${dark ? 'text-indigo-200' : 'text-indigo-900'}`}>
-                  Запуск заплановано
+                  Запуск заплановано{cohort.emailScheduledFor ? ' · з листом' : ' · без листа'}
                 </div>
                 <div className={`text-[13px] ${dark ? 'text-slate-200' : 'text-stone-800'}`}>
                   {humanizeWhen(formatDateTimeInput(new Date(cohort.launchScheduledFor)))}
@@ -204,112 +342,357 @@ export default function LaunchProgramModal({
             </div>
           )}
 
-          {/* Mode picker — дві картки */}
-          <div className="grid sm:grid-cols-2 gap-3">
-            <ModeCard
-              theme={theme}
-              active={mode === 'now'}
-              onClick={() => setMode('now')}
-              icon={<HiOutlineBolt className="text-2xl" />}
-              accent="amber"
-              title="Запустити зараз"
-              subtitle={`Відкрити доступ ${paidPendingCount} підпискам негайно`}
-            >
-              {mode === 'now' && (
-                <div className={`mt-2 text-[11px] leading-snug ${dark ? 'text-amber-200/70' : 'text-amber-900/80'}`}>
-                  ⚡ Послідовне відкриття SendPulse. Welcome-листи — окремою кнопкою «✉ Запустити розсилку».
-                </div>
-              )}
-            </ModeCard>
+          {/* === SECTION 1: Коли запустити === */}
+          <Section theme={theme} num={1} title="Коли запустити" icon={<HiOutlineRocketLaunch />}>
+            <div className="grid sm:grid-cols-2 gap-3">
+              <ModeCard
+                theme={theme}
+                active={mode === 'now'}
+                onClick={() => setMode('now')}
+                icon={<HiOutlineBolt className="text-2xl" />}
+                accent="amber"
+                title="Запустити зараз"
+                subtitle={`Відкрити доступ ${paidPendingCount} підпискам негайно`}
+              >
+                {mode === 'now' && (
+                  <div className={`mt-2 text-[11px] leading-snug ${dark ? 'text-amber-200/70' : 'text-amber-900/80'}`}>
+                    ⚡ Послідовне відкриття SendPulse{sendWelcomeEmails ? ' + одразу welcome-лист' : ' (без листа)'}.
+                  </div>
+                )}
+              </ModeCard>
 
-            <ModeCard
-              theme={theme}
-              active={mode === 'schedule'}
-              onClick={() => setMode('schedule')}
-              icon={<HiOutlineCalendarDays className="text-2xl" />}
-              accent="indigo"
-              title="Запланувати запуск"
-              subtitle={mode === 'schedule' ? humanizeWhen(scheduledFor) : 'Cron виконає у вибраний день'}
-            >
-              {mode === 'schedule' && (
-                <div className="mt-3 space-y-2.5">
-                  <div className="flex flex-wrap gap-1.5">
-                    {LAUNCH_PRESETS.map((p) => {
-                      const presetVal = formatDateTimeInput(new Date(p.compute()));
-                      const selected = scheduledFor === presetVal;
-                      return (
-                        <button
-                          key={p.label}
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setScheduledFor(presetVal);
-                          }}
-                          className={`px-2.5 py-1 text-[11px] font-medium rounded-md border transition-colors ${
-                            selected
-                              ? dark
-                                ? 'bg-indigo-400/20 border-indigo-400/40 text-indigo-200'
-                                : 'bg-indigo-100 border-indigo-300/70 text-indigo-900'
-                              : dark
-                                ? 'bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.08]'
-                                : 'bg-white border-stone-300/60 text-stone-700 hover:bg-stone-50'
-                          }`}
-                        >
-                          {p.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <InlineDateTimePicker
-                    value={scheduledFor}
-                    onChange={setScheduledFor}
-                    theme={theme}
-                    min={formatDateTimeInput(new Date())}
-                    defaultHour={9}
-                    defaultMinute={0}
-                    showNowButton={false}
-                  />
-                  {scheduleInvalid && (
-                    <div className={`text-[11px] flex items-center gap-1 ${dark ? 'text-rose-300' : 'text-rose-700'}`}>
-                      <HiOutlineExclamationTriangle /> Має бути у майбутньому, до {fmtDate(cohort.endDate)}.
+              <ModeCard
+                theme={theme}
+                active={mode === 'schedule'}
+                onClick={() => setMode('schedule')}
+                icon={<HiOutlineCalendarDays className="text-2xl" />}
+                accent="indigo"
+                title="Запланувати запуск"
+                subtitle={mode === 'schedule' ? humanizeWhen(scheduledFor) : 'Cron виконає у вибраний день'}
+              >
+                {mode === 'schedule' && (
+                  <div className="mt-3 space-y-2.5">
+                    <div className="flex flex-wrap gap-1.5">
+                      {LAUNCH_PRESETS.map((p) => {
+                        const presetVal = formatDateTimeInput(new Date(p.compute()));
+                        const selected = scheduledFor === presetVal;
+                        return (
+                          <button
+                            key={p.label}
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setScheduledFor(presetVal);
+                            }}
+                            className={`px-2.5 py-1 text-[11px] font-medium rounded-md border transition-colors ${
+                              selected
+                                ? dark
+                                  ? 'bg-indigo-400/20 border-indigo-400/40 text-indigo-200'
+                                  : 'bg-indigo-100 border-indigo-300/70 text-indigo-900'
+                                : dark
+                                  ? 'bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.08]'
+                                  : 'bg-white border-stone-300/60 text-stone-700 hover:bg-stone-50'
+                            }`}
+                          >
+                            {p.label}
+                          </button>
+                        );
+                      })}
                     </div>
-                  )}
-                  <div className={`text-[10px] leading-snug ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
-                    ℹ️ Cron перевіряє щодоби о 04:00 UTC. Фактичний запуск може зсунутись на ≤24 години після запланованої дати.
+                    <InlineDateTimePicker
+                      value={scheduledFor}
+                      onChange={setScheduledFor}
+                      theme={theme}
+                      min={formatDateTimeInput(new Date())}
+                      defaultHour={9}
+                      defaultMinute={0}
+                      showNowButton={false}
+                    />
+                    {scheduleInvalid && (
+                      <div className={`text-[11px] flex items-center gap-1 ${dark ? 'text-rose-300' : 'text-rose-700'}`}>
+                        <HiOutlineExclamationTriangle /> Має бути у майбутньому, до {fmtDate(cohort.endDate)}.
+                      </div>
+                    )}
+                    <div className={`text-[10px] leading-snug ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+                      ℹ️ Cron перевіряє щодоби о 04:00 UTC. Фактичний запуск може зсунутись на ≤24 години.
+                    </div>
                   </div>
+                )}
+              </ModeCard>
+            </div>
+          </Section>
+
+          {/* === SECTION 2: Welcome-лист === */}
+          <Section
+            theme={theme}
+            num={2}
+            title="Welcome-лист"
+            icon={<HiOutlineEnvelope />}
+            actions={
+              !editing && sendWelcomeEmails && preview ? (
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setTestInlineOpen((v) => !v)}
+                    className={btnCls(dark, 'neutral-sm')}
+                  >
+                    <HiOutlinePaperAirplane className="text-sm rotate-[-30deg]" />
+                    Тестовий лист
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditing(true)}
+                    className={btnCls(dark, 'neutral-sm')}
+                  >
+                    <HiOutlinePencilSquare className="text-sm" />
+                    Редагувати
+                  </button>
                 </div>
-              )}
-            </ModeCard>
-          </div>
+              ) : null
+            }
+          >
+            {/* Toggle row: чекбокс "Надіслати разом" */}
+            <label className={`flex items-start gap-3 px-3.5 py-3 rounded-xl border cursor-pointer transition-colors ${
+              sendWelcomeEmails
+                ? dark
+                  ? 'bg-emerald-500/[0.08] border-emerald-400/30'
+                  : 'bg-emerald-50 border-emerald-300/60'
+                : dark
+                  ? 'bg-white/[0.02] border-white/[0.08] hover:bg-white/[0.04]'
+                  : 'bg-white border-stone-300/60 hover:bg-stone-50'
+            }`}>
+              <input
+                type="checkbox"
+                checked={sendWelcomeEmails}
+                onChange={(e) => setSendWelcomeEmails(e.target.checked)}
+                className="mt-0.5 w-4 h-4 accent-emerald-500"
+              />
+              <div className="flex-1 min-w-0">
+                <div className={`text-[13px] font-semibold ${dark ? 'text-slate-100' : 'text-stone-900'}`}>
+                  ✉️ Надіслати welcome-лист одночасно
+                  {mode === 'schedule' && sendWelcomeEmails && (
+                    <span className={`ml-2 text-[11px] font-medium ${dark ? 'text-emerald-300' : 'text-emerald-700'}`}>
+                      (на ту саму дату)
+                    </span>
+                  )}
+                </div>
+                <div className={`text-[11px] mt-0.5 ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
+                  {sendWelcomeEmails
+                    ? mode === 'now'
+                      ? `Лист піде ${paidPendingCount} студентам одразу після відкриття доступу.`
+                      : `Cron надішле лист у вибрану дату — після відкриття доступу.`
+                    : 'Запуск без листа. Надіслати пізніше можна через "✉️ Дослати лист".'}
+                </div>
+              </div>
+            </label>
+
+            {/* Editor / preview — тільки коли чекбокс ON */}
+            {sendWelcomeEmails && (
+              <div className="mt-3 space-y-3">
+                {editing ? (
+                  <>
+                    <div className="grid md:grid-cols-2 gap-4">
+                      <div className="space-y-3">
+                        <div>
+                          <Label theme={theme}>Тема листа</Label>
+                          <input
+                            type="text"
+                            value={subject}
+                            onChange={(e) => setSubject(e.target.value)}
+                            placeholder="Ласкаво просимо до {{cohortName}}…"
+                            className={inputCls(dark)}
+                          />
+                        </div>
+                        <div>
+                          <Label theme={theme}>Текст листа (HTML)</Label>
+                          <textarea
+                            value={body}
+                            onChange={(e) => setBody(e.target.value)}
+                            rows={14}
+                            placeholder="<p>Вітаємо, {{name}}!</p>…"
+                            className={`${inputCls(dark)} font-mono text-[12px]`}
+                          />
+                          <div className={`mt-1 text-[10px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+                            Плейсхолдери: <code>{'{{name}}'}</code> · <code>{'{{email}}'}</code> · <code>{'{{startDate}}'}</code> · <code>{'{{endDate}}'}</code> · <code>{'{{cohortName}}'}</code>
+                          </div>
+                        </div>
+                      </div>
+                      <PreviewPanel theme={theme} preview={preview} loading={previewLoading} />
+                    </div>
+                    <div className="flex items-center justify-end gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSubject(cohort.launchEmailSubject ?? '');
+                          setBody(cohort.launchEmailBody ?? '');
+                          setEditing(false);
+                        }}
+                        disabled={savingTpl}
+                        className={btnCls(dark, 'ghost-sm')}
+                      >
+                        Скасувати
+                      </button>
+                      <button
+                        type="button"
+                        onClick={refreshPreview}
+                        disabled={previewLoading}
+                        className={btnCls(dark, 'neutral-sm')}
+                      >
+                        <HiOutlineEye className="text-sm" /> Оновити
+                      </button>
+                      <button
+                        type="button"
+                        onClick={saveTemplate}
+                        disabled={savingTpl || !dirty}
+                        className={btnCls(dark, 'primary-sm')}
+                      >
+                        <HiOutlineCheck className="text-sm" /> {savingTpl ? 'Зберігаю…' : 'Зберегти'}
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <CompactPreview theme={theme} preview={preview} loading={previewLoading} />
+                )}
+
+                {testInlineOpen && !editing && (
+                  <div className={`rounded-lg border p-3 flex items-end gap-2 ${
+                    dark ? 'bg-amber-500/[0.06] border-amber-400/20' : 'bg-amber-50/60 border-amber-200/70'
+                  }`}>
+                    <div className="flex-1">
+                      <Label theme={theme}>Надіслати тестовий лист на</Label>
+                      <input
+                        type="email"
+                        value={testEmail}
+                        onChange={(e) => setTestEmail(e.target.value)}
+                        placeholder="email@example.com"
+                        className={inputCls(dark)}
+                        autoFocus
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={sendTest}
+                      disabled={testSending || !testEmail}
+                      className={btnCls(dark, 'primary-sm')}
+                    >
+                      {testSending ? 'Шлю…' : 'Відправити'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTestInlineOpen(false)}
+                      className={`shrink-0 w-8 h-8 rounded-lg flex items-center justify-center ${
+                        dark ? 'text-slate-400 hover:bg-white/[0.06]' : 'text-stone-500 hover:bg-stone-100'
+                      }`}
+                      aria-label="Закрити"
+                    >
+                      <HiOutlineXMark />
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </Section>
         </div>
 
-        <div className={`flex items-center justify-end gap-2 px-6 py-4 border-t ${dark ? 'border-white/10 bg-white/[0.02]' : 'border-stone-200 bg-stone-50/50'}`}>
-          <button
-            onClick={onClose}
-            disabled={busy}
-            className={`px-3.5 py-2 rounded-lg text-[12px] font-medium ${dark ? 'text-slate-300 hover:bg-white/[0.06]' : 'text-stone-700 hover:bg-stone-100'}`}
-          >
-            Закрити
-          </button>
-          <button
-            onClick={submit}
-            disabled={busy || (mode === 'schedule' && scheduleInvalid)}
-            className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-[14px] font-bold border transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-              dark
-                ? 'bg-gradient-to-br from-amber-400/20 to-amber-500/30 border-amber-400/40 text-amber-100 hover:from-amber-400/30 hover:to-amber-500/40 shadow-[0_0_20px_rgba(212,168,67,0.15)]'
-                : 'bg-gradient-to-br from-amber-300 to-amber-400 border-amber-400/60 text-amber-950 hover:from-amber-400 hover:to-amber-500 shadow-[0_4px_14px_rgba(212,168,67,0.30)]'
-            }`}
-          >
-            {busy
-              ? 'Виконую…'
-              : mode === 'now'
-                ? <><HiOutlineBolt className="text-base" /> Запустити зараз ({paidPendingCount})</>
-                : <><HiOutlineCalendarDays className="text-base" /> {cohort.launchScheduledFor ? 'Перепланувати на' : 'Запланувати на'} {humanizeWhen(scheduledFor, { compact: true })}</>}
-          </button>
+        <div className={`flex items-center justify-between gap-3 px-6 py-4 border-t ${dark ? 'border-white/10 bg-white/[0.02]' : 'border-stone-200 bg-stone-50/50'}`}>
+          <div className={`text-[11px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+            {dirty
+              ? <span className={dark ? 'text-amber-300' : 'text-amber-700'}>⚠ Зміни шаблону не збережено — натисни «Зберегти» вище.</span>
+              : null}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onClose}
+              disabled={busy}
+              className={`px-3.5 py-2 rounded-lg text-[12px] font-medium ${dark ? 'text-slate-300 hover:bg-white/[0.06]' : 'text-stone-700 hover:bg-stone-100'}`}
+            >
+              Закрити
+            </button>
+            <button
+              onClick={submit}
+              disabled={busy || (mode === 'schedule' && scheduleInvalid) || (sendWelcomeEmails && dirty)}
+              className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-[14px] font-bold border transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                dark
+                  ? 'bg-gradient-to-br from-amber-400/20 to-amber-500/30 border-amber-400/40 text-amber-100 hover:from-amber-400/30 hover:to-amber-500/40 shadow-[0_0_20px_rgba(212,168,67,0.15)]'
+                  : 'bg-gradient-to-br from-amber-300 to-amber-400 border-amber-400/60 text-amber-950 hover:from-amber-400 hover:to-amber-500 shadow-[0_4px_14px_rgba(212,168,67,0.30)]'
+              }`}
+            >
+              {busy ? 'Виконую…' : renderSubmitLabel({ mode, scheduledFor, sendWelcomeEmails, paidPendingCount, isReplan: !!cohort.launchScheduledFor })}
+            </button>
+          </div>
         </div>
       </div>
     </div>,
     document.body,
+  );
+}
+
+function renderSubmitLabel({
+  mode,
+  scheduledFor,
+  sendWelcomeEmails,
+  paidPendingCount,
+  isReplan,
+}: {
+  mode: 'now' | 'schedule';
+  scheduledFor: string;
+  sendWelcomeEmails: boolean;
+  paidPendingCount: number;
+  isReplan: boolean;
+}) {
+  if (mode === 'now') {
+    return (
+      <>
+        <HiOutlineBolt className="text-base" />
+        {sendWelcomeEmails
+          ? `Запустити та надіслати (${paidPendingCount})`
+          : `Запустити зараз (${paidPendingCount})`}
+      </>
+    );
+  }
+  return (
+    <>
+      <HiOutlineCalendarDays className="text-base" />
+      {isReplan ? 'Перепланувати на' : 'Запланувати на'} {humanizeWhen(scheduledFor, { compact: true })}
+      {sendWelcomeEmails && <span className="opacity-70">+ лист</span>}
+    </>
+  );
+}
+
+function Section({
+  theme,
+  num,
+  title,
+  icon,
+  actions,
+  children,
+}: {
+  theme: Theme;
+  num: number;
+  title: string;
+  icon?: React.ReactNode;
+  actions?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  const dark = theme === 'dark';
+  return (
+    <section>
+      <div className="flex items-center justify-between mb-2.5 gap-3">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className={`shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold border ${
+            dark ? 'bg-amber-400/15 border-amber-400/30 text-amber-200' : 'bg-amber-100 border-amber-300/60 text-amber-900'
+          }`}>
+            {num}
+          </div>
+          <h4 className={`text-[14px] font-bold flex items-center gap-1.5 ${dark ? 'text-slate-100' : 'text-stone-900'}`}>
+            {icon && <span className={`text-[15px] ${dark ? 'text-slate-400' : 'text-stone-500'}`}>{icon}</span>}
+            {title}
+          </h4>
+        </div>
+        {actions}
+      </div>
+      {children}
+    </section>
   );
 }
 
@@ -355,7 +738,6 @@ function ModeCard({
     : dark
       ? 'bg-white/[0.04] text-slate-400 border-white/[0.08]'
       : 'bg-stone-100 text-stone-500 border-stone-300/60';
-  // <div role="button"> бо вкладені діти містять <button> (presets) — HTML забороняє nested-<button>.
   const handleKey = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
@@ -396,6 +778,132 @@ function ModeCard({
       {children && <div onClick={(e) => e.stopPropagation()}>{children}</div>}
     </div>
   );
+}
+
+function PreviewPanel({
+  theme,
+  preview,
+  loading,
+}: {
+  theme: Theme;
+  preview: { subject: string; body: string } | null;
+  loading: boolean;
+}) {
+  const dark = theme === 'dark';
+  return (
+    <div className={`rounded-lg border min-h-[400px] ${dark ? 'bg-white/[0.02] border-white/[0.06]' : 'bg-stone-50 border-stone-300/50'}`}>
+      {loading && !preview ? (
+        <div className={`px-4 py-8 text-center text-[12px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+          Рендерю…
+        </div>
+      ) : preview ? (
+        <div className="p-4">
+          <div className={`pb-3 mb-3 border-b text-[12px] ${dark ? 'border-white/[0.06] text-slate-300' : 'border-stone-200 text-stone-700'}`}>
+            <div className={dark ? 'text-slate-500' : 'text-stone-500'}>Тема:</div>
+            <div className="font-semibold">{preview.subject}</div>
+          </div>
+          <div
+            className="prose prose-sm max-w-none"
+            style={{ color: dark ? '#cbd5e1' : '#1c1917' }}
+            dangerouslySetInnerHTML={{ __html: preview.body }}
+          />
+        </div>
+      ) : (
+        <div className={`px-4 py-8 text-center text-[12px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+          Не вдалося завантажити preview
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CompactPreview({
+  theme,
+  preview,
+  loading,
+}: {
+  theme: Theme;
+  preview: { subject: string; body: string } | null;
+  loading: boolean;
+}) {
+  const dark = theme === 'dark';
+  if (loading && !preview) {
+    return (
+      <div className={`rounded-xl border px-4 py-8 text-center text-[12px] ${
+        dark ? 'bg-white/[0.02] border-white/[0.06] text-slate-500' : 'bg-stone-50 border-stone-300/50 text-stone-500'
+      }`}>
+        Рендерю preview…
+      </div>
+    );
+  }
+  if (!preview) {
+    return (
+      <div className={`rounded-xl border px-4 py-8 text-center text-[12px] ${
+        dark ? 'bg-white/[0.02] border-white/[0.06] text-rose-300' : 'bg-stone-50 border-stone-300/50 text-rose-700'
+      }`}>
+        Не вдалося завантажити preview
+      </div>
+    );
+  }
+  return (
+    <div className={`rounded-xl border overflow-hidden ${dark ? 'bg-white/[0.02] border-white/[0.06]' : 'bg-white border-stone-200'}`}>
+      <div className={`px-4 py-2.5 border-b text-[12px] flex items-baseline gap-2 ${dark ? 'border-white/[0.06] bg-white/[0.02]' : 'border-stone-200 bg-stone-50/60'}`}>
+        <span className={`text-[10px] uppercase tracking-[0.18em] font-medium shrink-0 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>Тема</span>
+        <span className={`font-semibold truncate ${dark ? 'text-slate-100' : 'text-stone-900'}`}>{preview.subject}</span>
+      </div>
+      <div className="relative">
+        <div
+          className="prose prose-sm max-w-none px-4 py-3 max-h-[200px] overflow-y-auto"
+          style={{ color: dark ? '#cbd5e1' : '#1c1917' }}
+          dangerouslySetInnerHTML={{ __html: preview.body }}
+        />
+        <div
+          className="pointer-events-none absolute bottom-0 left-0 right-0 h-12"
+          style={{
+            background: dark
+              ? 'linear-gradient(to bottom, transparent, rgba(24,24,27,0.95))'
+              : 'linear-gradient(to bottom, transparent, rgba(255,255,255,0.95))',
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function Label({ theme, children }: { theme: Theme; children: React.ReactNode }) {
+  const dark = theme === 'dark';
+  return (
+    <label className={`block text-[10px] uppercase tracking-[0.18em] font-medium mb-1 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+      {children}
+    </label>
+  );
+}
+
+function inputCls(dark: boolean): string {
+  return `w-full px-3 py-2 rounded-lg border text-[13px] outline-none transition-colors ${
+    dark
+      ? 'bg-white/[0.04] border-white/[0.08] text-slate-200 focus:border-amber-400/40'
+      : 'bg-white border-stone-300/60 text-stone-800 focus:border-amber-600/50'
+  }`;
+}
+
+function btnCls(dark: boolean, variant: 'neutral-sm' | 'primary-sm' | 'ghost-sm'): string {
+  const sizeBase = 'px-2.5 py-1 text-[11px]';
+  if (variant === 'primary-sm') {
+    return `inline-flex items-center gap-1.5 rounded-lg font-semibold transition-colors disabled:opacity-50 ${sizeBase} ${
+      dark
+        ? 'bg-amber-400/15 text-amber-200 border border-amber-400/30 hover:bg-amber-400/20'
+        : 'bg-amber-100 text-amber-900 border border-amber-300/60 hover:bg-amber-200'
+    }`;
+  }
+  if (variant === 'ghost-sm') {
+    return `${sizeBase} rounded-lg ${dark ? 'text-slate-400 hover:bg-white/[0.06]' : 'text-stone-600 hover:bg-stone-100'}`;
+  }
+  return `inline-flex items-center gap-1.5 rounded-lg font-medium transition-colors disabled:opacity-50 ${sizeBase} ${
+    dark
+      ? 'bg-white/[0.04] border border-white/[0.1] text-slate-300 hover:bg-white/[0.08]'
+      : 'bg-white border border-stone-300/60 text-stone-700 hover:bg-stone-50'
+  }`;
 }
 
 const LAUNCH_PRESETS: { label: string; compute: () => string }[] = [
@@ -439,6 +947,14 @@ const LAUNCH_PRESETS: { label: string; compute: () => string }[] = [
   },
 ];
 
+function pluralize(n: number, nom1: string, nom2_4: string, gen: string): string {
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return nom1;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return nom2_4;
+  return gen;
+}
+
 function formatDateTimeInput(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
@@ -479,4 +995,3 @@ function startOfDay(d: Date): Date {
   c.setHours(0, 0, 0, 0);
   return c;
 }
-

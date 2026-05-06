@@ -2,27 +2,31 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { isAdmin, getAdminActor } from '@/lib/adminAuth';
 import { executeLaunchLoop } from '@/lib/yearlyProgramLaunch';
+import { sendCohortLaunchEmails } from '@/lib/yearlyProgramSendEmails';
 
-/// 🚀 Запустити програму. Дія менеджера в адмінці. Три режими:
+/// 🚀 Запустити програму. Дія менеджера в адмінці. Об'єднує два кроки в один:
+/// відкриття доступу + (опціонально) розсилка welcome-листа.
 ///
-/// 1. Negайний запуск (body порожній або без `scheduledAt`):
+/// 1. Negайний запуск (`{}` або без `scheduledAt`):
 ///    a. Атомарно забирає `launchedAt = now()` (concurrency lock).
 ///    b. Знаходить усі підписки cohort-у з PAID-платежем.
 ///    c. Відкриває доступ у SendPulse (event → funnel) для кожної.
 ///    d. Перераховує expiresAt (cohort-aware).
 ///    e. Зберігає лог у YearlyProgramSubscriptionEvent (`access_opened`).
+///    f. Якщо `sendWelcomeEmails: true` — одразу розсилає welcome-лист (sequential через
+///       Resend, dedup по `launch_email_sent` event). Failure окремих листів не зриває launch.
 ///
-/// 2. Запланований запуск ({ scheduledAt: ISO } у body):
-///    Виставляє `launchScheduledFor` без виконання роботи. Cron yearly-subscriptions
-///    щодоби перевіряє і виконує реальний запуск, коли launchScheduledFor <= now.
+/// 2. Запланований запуск (`{ scheduledAt: ISO, sendWelcomeEmails?: bool }`):
+///    Виставляє `launchScheduledFor` без виконання роботи. Якщо `sendWelcomeEmails=true` —
+///    одночасно виставляє `emailScheduledFor` на ту саму дату. Cron yearly-subscriptions
+///    щодоби виконує спочатку launch, далі розсилку (порядок викликів у GET handler гарантує
+///    обидва спрацюють у тому ж проході).
 ///
-/// 3. Скасування запланованого ({ cancelScheduled: true }):
-///    Очищує `launchScheduledFor` (якщо ще не виконано).
+/// 3. Скасування запланованого (`{ cancelScheduled: true }`): чистить обидва таймстемпи.
 ///
-/// 4. Retry для часткового запуску (?retry=1): пройти sub-loop ще раз для тих,
-///    у кого sendpulseAccessOpenedAt все ще null. Ідемпотентно.
-///
-/// Розсилка welcome-листа НЕ виконується тут — це окремий endpoint /send-emails.
+/// 4. Retry для часткового запуску (`?retry=1`): пройти sub-loop ще раз для тих,
+///    у кого sendpulseAccessOpenedAt все ще null. Ідемпотентно. Не торкається листів —
+///    для повторної розсилки є окрема кнопка "Дослати лист" у CohortActions.
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -40,6 +44,9 @@ export async function POST(
   const body = (await req.json().catch(() => ({}))) as {
     scheduledAt?: string;
     cancelScheduled?: boolean;
+    /// При true (default ON у LaunchProgramModal) — після відкриття доступу одразу шле
+    /// welcome-листи. Для запланованого launch виставляє `emailScheduledFor=scheduledAt`.
+    sendWelcomeEmails?: boolean;
   };
 
   const cohort = await prisma.yearlyProgramCohort.findUnique({ where: { id } });
@@ -55,9 +62,10 @@ export async function POST(
     if (!cohort.launchScheduledFor) {
       return NextResponse.json({ error: 'Запланованого запуску немає' }, { status: 400 });
     }
+    // Розриваємо парну зв'язку: scheduled launch + scheduled email завжди узгоджені.
     await prisma.yearlyProgramCohort.update({
       where: { id },
-      data: { launchScheduledFor: null },
+      data: { launchScheduledFor: null, emailScheduledFor: null },
     });
     return NextResponse.json({ ok: true, mode: 'cancelled' });
   }
@@ -79,12 +87,18 @@ export async function POST(
     }
     await prisma.yearlyProgramCohort.update({
       where: { id },
-      data: { launchScheduledFor: at },
+      data: {
+        launchScheduledFor: at,
+        // Якщо менеджер хоче лист одночасно — плануємо на ту саму дату.
+        // Якщо знімає галочку — чистимо попереднє планування (могло бути від попередніх дій).
+        emailScheduledFor: body.sendWelcomeEmails ? at : null,
+      },
     });
     return NextResponse.json({
       ok: true,
       mode: 'scheduled',
       launchScheduledFor: at.toISOString(),
+      emailScheduledFor: body.sendWelcomeEmails ? at.toISOString() : null,
     });
   }
 
@@ -111,17 +125,42 @@ export async function POST(
   }
 
   // launchedAt вже виставлений атомарним claim-ом вище (для першого запуску) або був раніше (retry).
-  const summary = await executeLaunchLoop(
+  const launchSummary = await executeLaunchLoop(
     { id, startDate: cohort.startDate, endDate: cohort.endDate },
     actorLabel,
   );
+
+  // Опціональна розсилка welcome-листа одразу після відкриття доступу.
+  // На retry емейли НЕ шлемо — це окрема дія через "Дослати лист".
+  let emailSummary: Awaited<ReturnType<typeof sendCohortLaunchEmails>> | null = null;
+  if (!isRetry && body.sendWelcomeEmails) {
+    emailSummary = await sendCohortLaunchEmails(
+      {
+        id,
+        name: cohort.name,
+        startDate: cohort.startDate,
+        endDate: cohort.endDate,
+        launchEmailSubject: cohort.launchEmailSubject,
+        launchEmailBody: cohort.launchEmailBody,
+      },
+      { actorLabel, source: 'launch' },
+    );
+  }
 
   return NextResponse.json({
     ok: true,
     mode: 'launched',
     launchedAt: cohort.launchedAt?.toISOString() ?? new Date().toISOString(),
     retry: isRetry,
-    summary: { total: summary.total, opened: summary.opened, failed: summary.failed },
-    results: summary.results,
+    summary: { total: launchSummary.total, opened: launchSummary.opened, failed: launchSummary.failed },
+    results: launchSummary.results,
+    emailSummary: emailSummary
+      ? {
+          total: emailSummary.total,
+          sent: emailSummary.sent,
+          skipped: emailSummary.skipped,
+          failed: emailSummary.failed,
+        }
+      : null,
   });
 }
