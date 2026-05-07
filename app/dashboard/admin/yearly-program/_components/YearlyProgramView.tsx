@@ -41,7 +41,7 @@ const RemindersTemplatesModal = dynamic(
 );
 import ProgramSettingButton from './ProgramSettingButton';
 import { type TelegramSettingsState } from './TelegramChannelButton';
-import { flagEmoji, getCountryName } from '@/lib/countries';
+import { getCountryName } from '@/lib/countries';
 import { telegramProfileUrl } from '@/lib/telegramUsername';
 
 export type { Row, SubStatus, Plan, SummaryData };
@@ -454,15 +454,16 @@ function YearlyProgramViewInner({
                 <Th theme={theme}>Дата оплати</Th>
                 <Th theme={theme}>Початок програми</Th>
                 <Th theme={theme}>Доступ до</Th>
-                <Th theme={theme} align="center">Платежів</Th>
+                <Th theme={theme} align="center" className="px-2">№</Th>
                 <Th theme={theme}>Сплачено</Th>
                 <Th theme={theme}>SendPulse</Th>
+                <Th theme={theme}>Telegram</Th>
               </tr>
             </thead>
             <tbody className={dark ? 'divide-y divide-white/[0.04]' : 'divide-y divide-stone-200/60'}>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={12} className={`px-4 py-14 text-center text-sm ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+                  <td colSpan={13} className={`px-4 py-14 text-center text-sm ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
                     {rows.length === 0 ? 'Поки ніхто не підписався.' : 'Нічого не знайдено за фільтрами.'}
                   </td>
                 </tr>
@@ -681,9 +682,8 @@ function RowBlock({
         </td>
         <td className="px-4 py-2.5">
           {r.country ? (
-            <span className={`inline-flex items-center gap-1.5 text-[11px] ${dark ? 'text-slate-300' : 'text-stone-700'}`} title={r.country}>
-              <span className="text-base leading-none" aria-hidden>{flagEmoji(r.country)}</span>
-              <span>{getCountryName(r.country, 'uk', r.country)}</span>
+            <span className={`text-[11px] ${dark ? 'text-slate-300' : 'text-stone-700'}`} title={r.country}>
+              {getCountryName(r.country, 'uk', r.country)}
             </span>
           ) : (
             <span className={dark ? 'text-slate-600' : 'text-stone-400'}>—</span>
@@ -692,7 +692,14 @@ function RowBlock({
         <td className="px-4 py-2.5 text-center"><PlanBadge theme={theme} plan={r.plan} autoRenew={r.autoRenew} /></td>
         <td className="px-4 py-2.5 text-center"><StatusBadge theme={theme} status={r.status} graceDays={graceDays} /></td>
         <td className={`px-4 py-2.5 text-[11px] tabular-nums whitespace-nowrap ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
-          {r.firstPaymentAt ? fmtDate(r.firstPaymentAt) : <span className={dark ? 'text-slate-600' : 'text-stone-400'}>—</span>}
+          {r.firstPaymentAt ? (
+            <>
+              <div>{fmtDateShort(r.firstPaymentAt)}</div>
+              <div className={`text-[10px] ${dark ? 'text-slate-600' : 'text-stone-500'}`}>{fmtTime(r.firstPaymentAt)}</div>
+            </>
+          ) : (
+            <span className={dark ? 'text-slate-600' : 'text-stone-400'}>—</span>
+          )}
         </td>
         <td className={`px-4 py-2.5 text-[11px] tabular-nums whitespace-nowrap ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
           {r.cohortStartDate ? (
@@ -726,12 +733,15 @@ function RowBlock({
             <span className={dark ? 'text-slate-600' : 'text-stone-400'}>—</span>
           )}
         </td>
-        <td className={`px-4 py-2.5 text-[12px] tabular-nums text-center ${dark ? 'text-slate-300' : 'text-stone-700'}`}>{r.paymentsCount}</td>
+        <td className={`px-2 py-2.5 text-[12px] tabular-nums text-center ${dark ? 'text-slate-300' : 'text-stone-700'}`}>{r.paymentsCount}</td>
         <td className={`px-4 py-2.5 text-[12px] tabular-nums whitespace-nowrap ${dark ? 'text-slate-200' : 'text-stone-800'}`}>
           {r.totalPaid.toLocaleString()} ₴
         </td>
         <td className="px-4 py-2.5">
           <SendpulseBadge theme={theme} openedAt={r.sendpulseAccessOpenedAt} closedAt={r.sendpulseAccessClosedAt} studentId={r.sendpulseStudentId} />
+        </td>
+        <td className="px-4 py-2.5">
+          <TelegramAccessBadge theme={theme} row={r} />
         </td>
       </tr>
 
@@ -1151,12 +1161,23 @@ const KYIV_DATE_FMT = new Intl.DateTimeFormat('sv-SE', {
   day: '2-digit',
 });
 
+const KYIV_TIME_FMT = new Intl.DateTimeFormat('sv-SE', {
+  timeZone: 'Europe/Kyiv',
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+});
+
 function fmtDate(iso: string): string {
   return KYIV_DATETIME_FMT.format(new Date(iso)).replace(',', '');
 }
 
 function fmtDateShort(iso: string): string {
   return KYIV_DATE_FMT.format(new Date(iso));
+}
+
+function fmtTime(iso: string): string {
+  return KYIV_TIME_FMT.format(new Date(iso));
 }
 
 function Th({
@@ -1377,6 +1398,46 @@ function SendpulseBadge({
   return <span className={`text-[10px] ${dark ? 'text-slate-600' : 'text-stone-400'}`}>—</span>;
 }
 
+/// Pill для Telegram-доступу. Три стани:
+///   ✓ у каналі (зелений) — webhook зафіксував approve або chat_member→member
+///   ✕ покинув (червоний) — chat_member→left/kicked
+///   ⏳ запрошення (амбер) — invite згенеровано, але не приєднався
+///   — (сірий) — нічого не зроблено
+function TelegramAccessBadge({ theme, row }: { theme: Theme; row: Row }) {
+  const dark = theme === 'dark';
+  if (row.telegramLeftAt) {
+    return (
+      <span
+        className={`text-[10px] ${dark ? 'text-rose-400' : 'text-rose-700'}`}
+        title={`Покинув: ${fmtDate(row.telegramLeftAt)}`}
+      >
+        ✕ покинув
+      </span>
+    );
+  }
+  if (row.telegramJoinedAt) {
+    return (
+      <span
+        className={`text-[10px] ${dark ? 'text-emerald-300' : 'text-emerald-700'}`}
+        title={`У каналі з: ${fmtDate(row.telegramJoinedAt)}`}
+      >
+        ✓ у каналі
+      </span>
+    );
+  }
+  if (row.telegramInvitedAt) {
+    return (
+      <span
+        className={`text-[10px] ${dark ? 'text-amber-300' : 'text-amber-700'}`}
+        title={`Запрошення надіслано: ${fmtDate(row.telegramInvitedAt)}`}
+      >
+        ⏳ запрошення
+      </span>
+    );
+  }
+  return <span className={`text-[10px] ${dark ? 'text-slate-600' : 'text-stone-400'}`}>—</span>;
+}
+
 function HelpModal({ theme, graceDays, onClose }: { theme: Theme; graceDays: number; onClose: () => void }) {
   const dark = theme === 'dark';
   const [mounted, setMounted] = useState(false);
@@ -1491,7 +1552,10 @@ function GraceSettingsModal({
   const [days, setDays] = useState<string>(String(initialDays));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const MIN = 1;
+  // MIN=2 — при grace=1 cron-розклад не має сенсу: «start» (день +1) і «закриття» (день +2)
+  // йдуть поспіль за 24h, студент отримує плутанину «доступ продовжено на 1 день» → одразу
+  // «доступ закрито». Мінімум 2 дні дають хоча б один день тиші між повідомленнями.
+  const MIN = 2;
   const MAX = 30;
   const PRESETS = [3, 5, 7, 14, 30];
 
