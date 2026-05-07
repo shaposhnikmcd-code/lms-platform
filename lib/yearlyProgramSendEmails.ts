@@ -133,11 +133,22 @@ export async function sendCohortLaunchEmails(
       });
       results.push({ subscriptionId: s.id, email: s.user.email, sent: true });
     } catch (e) {
+      const errMsg = (e as Error).message.slice(0, 200);
+      // Persistent failure event — потрібно для issue-tracker-а, щоб збій дійшов
+      // у вкладку "Помилки", а не зник у тому самому HTTP-respnse-і.
+      await prisma.yearlyProgramSubscriptionEvent.create({
+        data: {
+          subscriptionId: s.id,
+          type: 'launch_email_failed',
+          message: `Welcome email FAILED: ${errMsg}`,
+          metadata: { cohortId: cohort.id, source: opts.source, error: errMsg },
+        },
+      });
       results.push({
         subscriptionId: s.id,
         email: s.user.email,
         sent: false,
-        error: (e as Error).message.slice(0, 200),
+        error: errMsg,
       });
     }
   }

@@ -234,7 +234,7 @@ export default function AddStudentModal({
             </div>
 
             {/* Студентські дані */}
-            <div className={`rounded-xl border ${dark ? 'border-white/10 bg-zinc-900' : 'border-stone-200 bg-white'}`}>
+            <div className={`rounded-xl border max-w-2xl ${dark ? 'border-white/10 bg-zinc-900' : 'border-stone-200 bg-white'}`}>
               <div className={`px-4 py-2.5 border-b ${dark ? 'border-white/[0.06] bg-white/[0.02]' : 'border-stone-200/70 bg-stone-50/60'}`}>
                 <div className={`text-[11.5px] font-bold uppercase tracking-wider ${dark ? 'text-slate-300' : 'text-stone-700'}`}>
                   Дані студента

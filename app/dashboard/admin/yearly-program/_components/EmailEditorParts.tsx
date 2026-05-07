@@ -134,19 +134,25 @@ export function extractUsedPlaceholders(html: string): Set<string> {
   return set;
 }
 
-/// Рамка-«вікно поштового клієнта» з шапкою (subject) — щоб iframe виглядав як справжній лист.
+/// Рамка-«вікно поштового клієнта» з шапкою (subject + sender) — щоб iframe виглядав
+/// як справжній лист у Inbox-і. Chrome — 2 смужки (browser-bar з темою + sender-bar з
+/// адресою відправника), парні до 2-ох смужок toolbar-а у WysiwygEmailEditor (форматування
+/// + плейсхолдери). Це гарантує що body листа в прев'ю стартує на тій самій висоті, що
+/// і body редактора — менеджер бачить дзеркальний layout.
 export function EmailPreviewFrame({
-  dark, subject, loading, loadingHeight, children,
+  dark, subject, loading, loadingHeight, fromAddress = 'UIMP <edu@uimp.com.ua>', children,
 }: {
   dark: boolean;
   subject: string;
   loading?: boolean;
   loadingHeight?: number;
+  /// Адреса відправника, показується у 2-ій смужці chrome. За замовчуванням — uimp@.
+  fromAddress?: string;
   children: React.ReactNode;
 }) {
   return (
     <div className={`rounded-lg border overflow-hidden shadow-sm ${dark ? 'border-white/10 bg-zinc-950' : 'border-stone-300 bg-white'}`}>
-      {/* Browser/Email title bar */}
+      {/* Chrome row 1 — browser-style title bar з темою */}
       <div className={`flex items-center gap-2 px-3 py-2 border-b ${
         dark ? 'border-white/[0.06] bg-zinc-900' : 'border-stone-200 bg-stone-100'
       }`}>
@@ -169,6 +175,15 @@ export function EmailPreviewFrame({
             : <><span className="w-1.5 h-1.5 rounded-full bg-current" /> Live</>
           }
         </span>
+      </div>
+      {/* Chrome row 2 — sender-bar (мiрор для placeholders-смужки editor-а) */}
+      <div className={`flex items-center gap-1.5 px-3 py-1.5 border-b text-[10.5px] ${
+        dark ? 'border-white/[0.06] bg-white/[0.015] text-slate-400' : 'border-stone-200/70 bg-stone-50/40 text-stone-600'
+      }`}>
+        <span className={`shrink-0 inline-flex items-center text-[10px] uppercase tracking-wider font-semibold mr-1 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+          Від:
+        </span>
+        <span className="truncate font-medium">{fromAddress}</span>
       </div>
       <div className="relative bg-white">
         {children}

@@ -839,6 +839,7 @@ export function TemplateEditor({
             </button>
           )}
           {extraFooterAction}
+          {(dirty || saving) && (
           <button
             type="button"
             onClick={onSave}
@@ -852,6 +853,7 @@ export function TemplateEditor({
             <HiOutlineCheck className="text-[14px]" />
             {saving ? 'Зберігаю…' : 'Зберегти'}
           </button>
+          )}
         </div>
       </div>
     </div>

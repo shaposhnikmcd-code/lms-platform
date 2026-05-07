@@ -40,5 +40,21 @@ export async function POST(
     },
   });
 
-  return NextResponse.json(rendered);
+  // Iframe srcdoc: загортаємо launch-email body у стандартний UIMP email-layout (Arial,
+  // max-width 600px, padding 24px) — щоб прев'ю виглядало 1-в-1 як решта прев'ю
+  // (TemplateEditor). Body padding 12px (CSS) + layout padding 24px = 36px content offset,
+  // парний з editor outer py-3 + inner py-6 = 36px. Реальні sent launch-листи поки не
+  // мають цього wrapper-а — окремий тех-борг за межами поточного фіксу.
+  const wrapped = `<div style="font-family: Arial, Helvetica, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; color: #1a1a1a; line-height: 1.6;">${rendered.body}</div>`;
+  const html = `<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>body{margin:0;padding:12px 0 0;background:#fff;font-family:Arial,Helvetica,sans-serif;}</style>
+</head>
+<body>${wrapped}</body>
+</html>`;
+
+  return NextResponse.json({ subject: rendered.subject, body: html });
 }

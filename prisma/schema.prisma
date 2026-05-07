@@ -864,6 +864,7 @@ model YearlyProgramSubscription {
   payments     Payment[]                        @relation("YearlyProgramPayments")
   events       YearlyProgramSubscriptionEvent[]
   certificates Certificate[]
+  issueDismissals YearlyProgramIssueDismissal[]
 
   @@index([userId])
   @@index([status])
@@ -884,6 +885,7 @@ model YearlyProgramSubscriptionEvent {
   /// | "access_opened" | "access_closed" | "reminder_3d" | "reminder_1d" | "reminder_expired"
   /// | "cancelled" | "reactivated" | "admin_action"
   /// | "autorenew_upgraded" | "autorenew_downgraded"
+  /// | "launch_email_sent" | "launch_email_failed"
   type           String
   message        String?
   metadata       Json?
@@ -892,6 +894,24 @@ model YearlyProgramSubscriptionEvent {
   @@index([subscriptionId])
   @@index([createdAt])
   @@index([type])
+}
+
+/// Заглушений issue (subscription, kind) — менеджер позначив що проблема вирішена поза
+/// системою або несуттєва. Issue не показується в активних поки не виникне нова failure-подія
+/// після `dismissedAt` — тоді auto-вилазить (compare lastOccurredAt > dismissedAt у collector-і).
+/// `kind` — стабільний enum, синхронізується з IssueKind у lib/yearlyProgramIssues.ts.
+model YearlyProgramIssueDismissal {
+  id             String                    @id @default(cuid())
+  subscriptionId String
+  subscription   YearlyProgramSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  kind           String
+  dismissedAt    DateTime                  @default(now())
+  dismissedBy    String
+  reason         String?
+
+  @@unique([subscriptionId, kind])
+  @@index([subscriptionId])
+  @@index([kind])
 }
 
 enum YearlyProgramPlan {

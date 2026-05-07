@@ -115,10 +115,16 @@ export async function executeLaunchLoop(
       },
     });
 
+    // Тип події точно відображає семантику: success → "access_opened", failure → "access_open_failed".
+    // Issue-tracker полюється на ці типи, плюс старі записи (legacy "admin_action" з FAILED у message)
+    // ловить regex-fallback у classifyEvent.
+    const eventType = openErr
+      ? 'access_open_failed'
+      : (openedNow && !s.sendpulseAccessOpenedAt ? 'access_opened' : 'admin_action');
     await prisma.yearlyProgramSubscriptionEvent.create({
       data: {
         subscriptionId: s.id,
-        type: openedNow && !s.sendpulseAccessOpenedAt ? 'access_opened' : 'admin_action',
+        type: eventType,
         message: openErr
           ? `Cohort launch · access open FAILED: ${openErr.slice(0, 200)}`
           : `Cohort launch by ${actorLabel} · expiresAt=${newExpiresAt?.toISOString().slice(0, 10) ?? 'null'}`,

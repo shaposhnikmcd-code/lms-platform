@@ -18,16 +18,16 @@ async function renderHtml(key: string, subject: string, bodyHtml: string): Promi
   const meta = PAYMENT_TEMPLATES[key as PaymentTemplateKey];
   const renderedSubject = renderTemplate(subject, meta.sampleData);
   const renderedBody = renderTemplate(bodyHtml, meta.sampleData);
+  // Тема не дублюється в iframe — EmailPreviewFrame показує її в chrome рамці.
   return `<!DOCTYPE html>
 <html lang="uk">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${renderedSubject.replace(/[<>"']/g, '')}</title>
-<style>body{margin:0;padding:0;background:#f6f6f6;font-family:Arial,Helvetica,sans-serif;}.subj{padding:8px 16px;background:#fff;border-bottom:1px solid #e5e5e5;font-size:13px;color:#555;}</style>
+<style>body{margin:0;padding:12px 0 0;background:#fff;font-family:Arial,Helvetica,sans-serif;}</style>
 </head>
 <body>
-<div class="subj"><b>Тема:</b> ${renderedSubject}</div>
 ${renderedBody}
 </body>
 </html>`;

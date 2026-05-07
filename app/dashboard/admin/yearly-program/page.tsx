@@ -7,6 +7,7 @@ import {
 import { getYearlyProgramTelegramSettings } from '@/lib/yearlyProgramTelegram';
 import { buildYearlyProgramAdminPrewarm } from '@/lib/yearlyProgramAdminPrefetch';
 import { isSuperAdmin } from '@/lib/superAdmin';
+import { collectAllIssues } from '@/lib/yearlyProgramIssues';
 import YearlyProgramView, { type SummaryData } from './_components/YearlyProgramView';
 import type { Row, CohortListItem } from './_components/types';
 
@@ -112,7 +113,7 @@ export default async function AdminYearlyProgramPage() {
   // Клієнт записує ці дані в module-level кеш модалок при mount → відкриття без skeleton.
   const launchedCohortIds = cohortList.filter((c) => c.launchedAt !== null).map((c) => c.id);
 
-  const [statusCounts, totalAggr, revenueAggr, graceDays, programSettings, tgSettings, prewarm, superAdmin] = await Promise.all([
+  const [statusCounts, totalAggr, revenueAggr, graceDays, programSettings, tgSettings, prewarm, superAdmin, issuesPayload] = await Promise.all([
     prisma.yearlyProgramSubscription.groupBy({
       by: ['status'],
       _count: { _all: true },
@@ -127,6 +128,7 @@ export default async function AdminYearlyProgramPage() {
     getYearlyProgramTelegramSettings(),
     buildYearlyProgramAdminPrewarm(launchedCohortIds),
     isSuperAdmin(),
+    collectAllIssues(),
   ]);
   const countByStatus = (st: string) =>
     statusCounts.find((s) => s.status === st)?._count._all ?? 0;
@@ -159,6 +161,7 @@ export default async function AdminYearlyProgramPage() {
       }}
       prewarm={prewarm}
       isSuperAdmin={superAdmin}
+      initialIssuesTotal={issuesPayload.activeTotal}
     />
   );
 }

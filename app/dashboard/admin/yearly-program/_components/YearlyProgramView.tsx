@@ -17,6 +17,7 @@ import {
   HiOutlineCheck,
   HiOutlineEnvelope,
   HiOutlineCurrencyDollar,
+  HiOutlineExclamationTriangle,
 } from 'react-icons/hi2';
 import type { YearlyProgramSettings } from '@/lib/yearlyProgramSettings';
 import { useAdminTheme, type Theme } from '../../_components/adminTheme';
@@ -39,6 +40,7 @@ const RemindersTemplatesModal = dynamic(
   () => import('./PaymentTemplatesModal').then((m) => ({ default: m.RemindersTemplatesModal })),
   { ssr: false },
 );
+const IssuesModal = dynamic(() => import('./IssuesModal'), { ssr: false });
 import ProgramSettingButton from './ProgramSettingButton';
 import { type TelegramSettingsState } from './TelegramChannelButton';
 import { getCountryName } from '@/lib/countries';
@@ -133,6 +135,9 @@ export default function YearlyProgramView(props: {
   /// Чи поточний користувач — super-admin (env-allowlist). Розблоковує rare-операції
   /// типу «Відмінити Запуск програми» у CohortActions.
   isSuperAdmin: boolean;
+  /// SSR-pre-computed загальна кількість активних issue-ів — для red-badge на кнопці
+  /// «🚨 Помилки» без HTTP-roundtrip-у при першому render-і.
+  initialIssuesTotal: number;
 }) {
   const { theme, setTheme } = useAdminTheme();
 
@@ -176,6 +181,7 @@ function YearlyProgramViewInner({
   theme,
   setTheme,
   isSuperAdmin,
+  initialIssuesTotal,
 }: {
   rows: Row[];
   summary: SummaryData;
@@ -187,6 +193,7 @@ function YearlyProgramViewInner({
   theme: Theme;
   setTheme: (t: Theme) => void;
   isSuperAdmin: boolean;
+  initialIssuesTotal: number;
   // prewarm проходить через spread у props, але тут не використовується — кеш заповнюється
   // у YearlyProgramView (parent) до mount-у inner-а.
   prewarm?: YearlyProgramAdminPrewarm;
@@ -213,6 +220,11 @@ function YearlyProgramViewInner({
   const [paymentTemplatesOpen, setPaymentTemplatesOpen] = useState(false);
   const [graceModalOpen, setGraceModalOpen] = useState(false);
   const [pricingModalOpen, setPricingModalOpen] = useState(false);
+  const [issuesOpen, setIssuesOpen] = useState(false);
+  /// Лічильник active issues — оновлюється при відкритті/закритті модалки помилок,
+  /// показується як red-badge на кнопці. Initial = 0; перший fetch виконує модалка
+  /// при відкритті, а потім callback оновлює badge для toolbar-а без відкриття модалки.
+  const [issuesActiveTotal, setIssuesActiveTotal] = useState<number>(initialIssuesTotal);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -419,6 +431,36 @@ function YearlyProgramViewInner({
             />
           </div>
         </AdminPanel>
+
+        <AdminPanel theme={theme} padding="p-3" className="w-fit">
+          <button
+            type="button"
+            onClick={() => setIssuesOpen(true)}
+            title="Логи помилок Річної програми (запуски, листи, Telegram, автоплатіж, SP)"
+            className={`relative inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[12px] font-semibold transition-colors ${
+              issuesActiveTotal > 0
+                ? dark
+                  ? 'bg-rose-500/12 border-rose-400/35 text-rose-200 hover:bg-rose-500/20'
+                  : 'bg-rose-50 border-rose-300/60 text-rose-900 hover:bg-rose-100'
+                : dark
+                  ? 'bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.08]'
+                  : 'bg-white/80 border-stone-300/60 text-stone-700 hover:bg-stone-50'
+            }`}
+          >
+            <HiOutlineExclamationTriangle className="text-base" />
+            Помилки
+            {issuesActiveTotal > 0 && (
+              <span
+                className={`ml-0.5 inline-flex items-center justify-center min-w-[20px] h-5 px-1 rounded-full text-[10px] font-bold tabular-nums ${
+                  dark ? 'bg-rose-500/30 text-rose-100' : 'bg-rose-600 text-white'
+                }`}
+                aria-label={`Активних помилок: ${issuesActiveTotal}`}
+              >
+                {issuesActiveTotal}
+              </span>
+            )}
+          </button>
+        </AdminPanel>
       </div>
       {emailModalOpen && <RemindersTemplatesModal theme={theme} onClose={() => setEmailModalOpen(false)} />}
       {paymentTemplatesOpen && <PaymentTemplatesModal theme={theme} onClose={() => setPaymentTemplatesOpen(false)} />}
@@ -435,6 +477,43 @@ function YearlyProgramViewInner({
           initial={programSettings}
           defaults={programDefaults}
           onClose={() => setPricingModalOpen(false)}
+        />
+      )}
+      {issuesOpen && (
+        <IssuesModal
+          theme={theme}
+          onClose={async () => {
+            setIssuesOpen(false);
+            // Refresh badge-count після закриття модалки (у ній могли заглушити/повернути).
+            try {
+              const res = await fetch('/api/admin/yearly-program/issues', { cache: 'no-store' });
+              if (res.ok) {
+                const data = await res.json() as { activeTotal?: number };
+                if (typeof data.activeTotal === 'number') setIssuesActiveTotal(data.activeTotal);
+              }
+            } catch { /* badge тимчасово не оновиться — некритично */ }
+          }}
+          onOpenSubscription={(subId) => {
+            // Очищаємо всі фільтри щоб гарантовано вивести рядок у `filtered`.
+            // Потім обчислюємо сторінку, на якій він знаходиться (rows впорядковані createdAt desc,
+            // filtered зберігає цей порядок), і перемикаємось на неї.
+            setSearch('');
+            setPlanFilter('ALL');
+            setStatusFilter('ALL');
+            setActiveCohortId(null);
+            const idx = rows.findIndex((row) => row.id === subId);
+            if (idx >= 0) setPage(Math.floor(idx / pageSize) + 1);
+            setExpandedId(subId);
+            // Чекаємо два render-tick-и (стейт → filtered → paged → DOM) перед scrollIntoView.
+            setTimeout(() => {
+              const el = document.querySelector<HTMLElement>(`[data-sub-row="${subId}"]`);
+              if (el) {
+                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                el.classList.add('ring-2', 'ring-amber-400/60');
+                setTimeout(() => el.classList.remove('ring-2', 'ring-amber-400/60'), 2000);
+              }
+            }, 150);
+          }}
         />
       )}
 
@@ -654,7 +733,7 @@ function RowBlock({
   const dark = theme === 'dark';
   return (
     <>
-      <tr className={dark ? 'hover:bg-white/[0.02]' : 'hover:bg-stone-50/60'}>
+      <tr data-sub-row={r.id} className={`transition-shadow ${dark ? 'hover:bg-white/[0.02]' : 'hover:bg-stone-50/60'}`}>
         <td className="px-3 py-2.5">
           <button
             type="button"
