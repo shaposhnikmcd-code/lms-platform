@@ -360,59 +360,60 @@ function YearlyProgramViewInner({
         />
       )}
 
-      {/* Програмні налаштування: Вартість+GRACE — окремий рядок. */}
-      <AdminPanel theme={theme} padding="p-3" className="mb-3 w-fit">
-        <div className="flex items-center gap-1">
-          <ProgramSettingButton
-            theme={theme}
-            icon={<HiOutlineCurrencyDollar className="text-base" />}
-            label="Вартість"
-            title="Налаштувати ціни, текст кнопок реєстрації та інформацію про програму"
-            onClick={() => setPricingModalOpen(true)}
-            badge={!programSettings.registrationOpen ? 'закрито' : null}
-          />
-          <ProgramSettingButton
-            theme={theme}
-            icon={<HiOutlineClock className="text-base" />}
-            label={`GRACE · ${graceDays}д`}
-            title="Налаштувати тривалість grace-періоду"
-            onClick={() => setGraceModalOpen(true)}
-          />
-        </div>
-      </AdminPanel>
-
-      {/* Листи Нагадування/Платежів та пошук. */}
-      <AdminPanel theme={theme} padding="p-3" className="mb-5 w-fit">
-        <div className="flex items-center gap-2 flex-wrap">
+      {/* Програмні налаштування: Вартість+GRACE та Листи/Пошук — один ряд, окремі підблоки. */}
+      <div className="flex items-start gap-3 mb-5 flex-wrap">
+        <AdminPanel theme={theme} padding="p-3" className="w-fit">
           <div className="flex items-center gap-1">
             <ProgramSettingButton
               theme={theme}
-              icon={<HiOutlineEnvelope className="text-base" />}
-              label="Листи Нагадування"
-              title="Налаштувати email-нагадування користувачам"
-              onClick={() => setEmailModalOpen(true)}
+              icon={<HiOutlineCurrencyDollar className="text-base" />}
+              label="Вартість"
+              title="Налаштувати ціни, текст кнопок реєстрації та інформацію про програму"
+              onClick={() => setPricingModalOpen(true)}
+              badge={!programSettings.registrationOpen ? 'закрито' : null}
             />
             <ProgramSettingButton
               theme={theme}
-              icon={<HiOutlineEnvelope className="text-base" />}
-              label="Листи платежів"
-              title="Редагувати транзакційні листи (welcome, receipt, plan-changed, admin-actions)"
-              onClick={() => setPaymentTemplatesOpen(true)}
+              icon={<HiOutlineClock className="text-base" />}
+              label={`GRACE · ${graceDays}д`}
+              title="Налаштувати тривалість grace-періоду"
+              onClick={() => setGraceModalOpen(true)}
             />
           </div>
-          <input
-            type="search"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Пошук за email або імʼям"
-            className={`w-[260px] px-3 py-1.5 rounded-lg border text-[12px] outline-none transition-colors ${
-              dark
-                ? 'bg-white/[0.04] border-white/[0.08] text-slate-200 placeholder:text-slate-600 focus:border-amber-400/40'
-                : 'bg-white/80 border-stone-300/60 text-stone-800 placeholder:text-stone-400 focus:border-amber-600/50'
-            }`}
-          />
-        </div>
-      </AdminPanel>
+        </AdminPanel>
+
+        <AdminPanel theme={theme} padding="p-3" className="w-fit">
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-1">
+              <ProgramSettingButton
+                theme={theme}
+                icon={<HiOutlineEnvelope className="text-base" />}
+                label="Листи Нагадування"
+                title="Налаштувати email-нагадування користувачам"
+                onClick={() => setEmailModalOpen(true)}
+              />
+              <ProgramSettingButton
+                theme={theme}
+                icon={<HiOutlineEnvelope className="text-base" />}
+                label="Листи платежів"
+                title="Редагувати транзакційні листи (welcome, receipt, plan-changed, admin-actions)"
+                onClick={() => setPaymentTemplatesOpen(true)}
+              />
+            </div>
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Пошук за email або імʼям"
+              className={`w-[260px] px-3 py-1.5 rounded-lg border text-[12px] outline-none transition-colors ${
+                dark
+                  ? 'bg-white/[0.04] border-white/[0.08] text-slate-200 placeholder:text-slate-600 focus:border-amber-400/40'
+                  : 'bg-white/80 border-stone-300/60 text-stone-800 placeholder:text-stone-400 focus:border-amber-600/50'
+              }`}
+            />
+          </div>
+        </AdminPanel>
+      </div>
       {emailModalOpen && <RemindersTemplatesModal theme={theme} onClose={() => setEmailModalOpen(false)} />}
       {paymentTemplatesOpen && <PaymentTemplatesModal theme={theme} onClose={() => setPaymentTemplatesOpen(false)} />}
       {graceModalOpen && (
