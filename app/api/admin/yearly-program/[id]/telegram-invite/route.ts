@@ -75,12 +75,14 @@ export async function POST(
   <p style="margin: 0 0 16px;">Долучайтесь до нашого Telegram-каналу Річної програми Українського інституту Душеопіки та Психотерапії (UIMP) — там ми ділимось новинами, нагадуваннями та відповідаємо на питання щодо організації навчання.</p>
 </div>`.trim();
     const fullHtml = intro + renderTelegramInviteEmailBlock(result.inviteLink);
-    // TEMP DIAG
-    console.log('[yearly-tg-resend-diag] html length=', fullHtml.length, 'firstChars=', fullHtml.slice(0, 200));
+    // Унікалізуємо subject timestamp-ом, щоб Gmail не схлопнув кілька resend-листів
+    // у thread як "процитований контент" (виглядає як "..." у тілі для отримувача).
+    const now = new Date();
+    const stamp = `${String(now.getDate()).padStart(2, '0')}.${String(now.getMonth() + 1).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
     try {
       const r = await sendEmail({
         to: sub.user.email,
-        subject: 'Запрошення до Telegram-каналу Річної програми',
+        subject: `Запрошення до Telegram-каналу Річної програми · ${stamp}`,
         html: fullHtml,
         replyTo: 'edu@uimp.com.ua',
       });

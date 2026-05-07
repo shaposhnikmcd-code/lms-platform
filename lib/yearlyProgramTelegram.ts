@@ -233,13 +233,6 @@ export async function generateInviteForSubscription(args: {
     return { ok: false, inviteLink: null, error: err, subscriptionId };
   }
 
-  // TEMP DIAG — видалити після тесту
-  console.log('[yearly-tg-diag] generateInviteForSubscription settings:', {
-    joinRequestMode: settings.joinRequestMode,
-    chatId: settings.chatId,
-    autoAdd: settings.autoAdd,
-  });
-
   try {
     const link = await createChatInviteLink({
       chatId: settings.chatId,
@@ -253,8 +246,6 @@ export async function generateInviteForSubscription(args: {
         : { memberLimit: 1 }),
       expireSeconds: 30 * 24 * 60 * 60,
     });
-    // TEMP DIAG
-    console.log('[yearly-tg-diag] createChatInviteLink response:', JSON.stringify(link));
     await prisma.yearlyProgramSubscription.update({
       where: { id: subscriptionId },
       data: {
