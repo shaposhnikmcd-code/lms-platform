@@ -835,13 +835,24 @@ model YearlyProgramSubscription {
   /// telegramInvitedAt — момент успішної генерації invite-link.
   /// telegramInviteError — текст помилки Bot API при невдалій спробі (показується в адмінці).
   /// telegramJoinedAt — момент, коли клієнт реально приєднався в канал/групу
-  /// (у режимі joinRequestMode webhook ставить це після `approveChatJoinRequest`).
+  /// (webhook ставить це після `approveChatJoinRequest` або при `chat_member` transition
+  /// from left/restricted/kicked → member).
+  /// telegramLeftAt — момент, коли клієнт вийшов із каналу (Leave) або був виключений
+  /// (Kick/Ban). Webhook слухає `chat_member` updates і ставить це при transition
+  /// member → left/kicked/restricted. При повторному приєднанні `telegramJoinedAt`
+  /// оновлюється, `telegramLeftAt` скидається в null.
+  /// telegramTgUserId — Telegram user_id (BigInt — id-шники TG до 10+ цифр).
+  /// Зберігається при першому approve або при rejoin через chat_member-handler,
+  /// і дозволяє швидко (без invite-link match-у) знаходити підписку на майбутні
+  /// chat_member updates (leave/rejoin). Null = ще не приєднувався або pre-migration row.
   country             String?
   telegramUsername    String?
   telegramInviteLink  String?
   telegramInvitedAt   DateTime?
   telegramInviteError String?
   telegramJoinedAt    DateTime?
+  telegramLeftAt      DateTime?
+  telegramTgUserId    BigInt?
 
   payments     Payment[]                        @relation("YearlyProgramPayments")
   events       YearlyProgramSubscriptionEvent[]
@@ -853,6 +864,7 @@ model YearlyProgramSubscription {
   @@index([status, expiresAt])
   @@index([plan, status, expiresAt])
   @@index([cohortId])
+  @@index([telegramTgUserId])
   @@index([manuallyAddedAt])
 }
 

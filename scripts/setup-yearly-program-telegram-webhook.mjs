@@ -70,7 +70,9 @@ async function main() {
   await tg('setWebhook', {
     url: WEBHOOK_URL,
     secret_token: SECRET,
-    allowed_updates: ['chat_join_request'],
+    // chat_join_request → approve/decline при кліку на invite-link з creates_join_request=true.
+    // chat_member → детектимо leave/kick/rejoin (для статусу в адмінці).
+    allowed_updates: ['chat_join_request', 'chat_member'],
     drop_pending_updates: true,
   });
 

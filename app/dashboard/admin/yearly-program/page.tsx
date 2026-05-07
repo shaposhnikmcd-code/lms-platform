@@ -102,6 +102,7 @@ export default async function AdminYearlyProgramPage() {
       telegramInviteLink: s.telegramInviteLink,
       telegramInvitedAt: s.telegramInvitedAt?.toISOString() ?? null,
       telegramJoinedAt: s.telegramJoinedAt?.toISOString() ?? null,
+      telegramLeftAt: s.telegramLeftAt?.toISOString() ?? null,
     };
   });
 

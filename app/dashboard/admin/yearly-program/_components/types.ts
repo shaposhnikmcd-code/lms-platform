@@ -45,6 +45,9 @@ export interface Row {
   /// (`approveChatJoinRequest` від webhook у режимі joinRequestMode).
   /// null якщо ще не приєднався.
   telegramJoinedAt: string | null;
+  /// telegramLeftAt — момент leave/kick. Якщо є — клієнт уже не в каналі.
+  /// При rejoin webhook скидає в null і оновлює telegramJoinedAt.
+  telegramLeftAt: string | null;
 }
 
 export interface SummaryData {

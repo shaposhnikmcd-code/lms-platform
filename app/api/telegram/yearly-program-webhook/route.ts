@@ -1,15 +1,25 @@
 /// Webhook бота Річної програми (TELEGRAM_BOT_TOKEN).
-/// Призначення — авто-обробляти `chat_join_request` update-и в режимі
-/// `joinRequestMode=ON`:
-///   • Якщо invite_link збігається з telegramInviteLink якоїсь підписки →
-///     `approveChatJoinRequest` + `telegramJoinedAt = now` + лог події.
-///   • Інакше (рандомна людина не з Річної) → `declineChatJoinRequest`,
-///     бо канал тільки для клієнтів Річної.
+/// Обробляє два типи update-ів:
+///
+///   1. `chat_join_request` — клієнт натиснув invite-link (з `creates_join_request=true`)
+///      і чекає підтвердження.
+///        • Якщо invite_link збігається з telegramInviteLink якоїсь підписки →
+///          `approveChatJoinRequest` + `telegramJoinedAt = now` + `telegramLeftAt = null`
+///          + лог події.
+///        • Інакше (рандомна людина не з Річної) → `declineChatJoinRequest`.
+///
+///   2. `chat_member` — статус учасника каналу змінився (приєднався/вийшов/кікнутий).
+///      Дозволяє трекати lifecycle:
+///        • member → left/kicked/restricted: `telegramLeftAt = now`. Підпискою
+///          ідентифікуємо за userId (нам потрібен зв'язок tgUserId → sub).
+///        • left/kicked → member (rejoin без join-request, наприклад primary-link
+///          у режимі без approval): `telegramJoinedAt = now`, `telegramLeftAt = null`.
+///        Без створення подій якщо ми не маємо поточної прив'язки до підписки.
 ///
 /// Endpoint URL (зареєструвати разово через scripts/setup-yearly-program-telegram-webhook.mjs):
 ///   https://uimp.com.ua/api/telegram/yearly-program-webhook
 ///
-/// Telegram повторно надсилає update-и при 5xx — повертаємо 200 завжди (помилки логуємо).
+/// Telegram повторно надсилає update-и при 5xx → завжди повертаємо 200, помилки логуємо.
 ///
 /// ⚠️ Не плутати з `/api/telegram/connector-webhook` — то інший бот (@connectorgame_bot).
 
@@ -22,77 +32,120 @@ import {
 } from '@/lib/telegram';
 import { getYearlyProgramTelegramSettings } from '@/lib/yearlyProgramTelegram';
 
+const LOG_PREFIX = '[yearly-tg-webhook]';
+
 interface TgUser {
   id: number;
+  is_bot?: boolean;
   first_name?: string;
   last_name?: string;
   username?: string;
 }
 
+interface TgChat {
+  id: number;
+  type: 'group' | 'supergroup' | 'channel' | 'private';
+  title?: string;
+}
+
 interface TgChatJoinRequest {
-  chat: { id: number; type: 'group' | 'supergroup' | 'channel'; title?: string };
+  chat: TgChat;
   from: TgUser;
   date: number;
+  invite_link?: { invite_link: string; name?: string; creates_join_request?: boolean };
+}
+
+type TgChatMemberStatus = 'creator' | 'administrator' | 'member' | 'restricted' | 'left' | 'kicked';
+
+interface TgChatMember {
+  user: TgUser;
+  status: TgChatMemberStatus;
+}
+
+interface TgChatMemberUpdated {
+  chat: TgChat;
+  from: TgUser;
+  date: number;
+  old_chat_member: TgChatMember;
+  new_chat_member: TgChatMember;
   invite_link?: { invite_link: string; name?: string; creates_join_request?: boolean };
 }
 
 interface TgUpdate {
   update_id?: number;
   chat_join_request?: TgChatJoinRequest;
+  chat_member?: TgChatMemberUpdated;
+}
+
+function describeUser(user: TgUser): string {
+  const name = [user.first_name, user.last_name].filter(Boolean).join(' ');
+  const handle = user.username ? `@${user.username}` : null;
+  return [name, handle, `id=${user.id}`].filter(Boolean).join(' · ');
+}
+
+function isInChat(status: TgChatMemberStatus): boolean {
+  return status === 'creator' || status === 'administrator' || status === 'member';
+}
+
+function leftChat(status: TgChatMemberStatus): boolean {
+  return status === 'left' || status === 'kicked' || status === 'restricted';
 }
 
 export async function POST(req: NextRequest) {
   // === 1. Верифікація секрета ===
   const expectedSecret = process.env.TELEGRAM_YEARLY_WEBHOOK_SECRET;
   if (!expectedSecret) {
-    console.error('[yearly-tg-webhook] TELEGRAM_YEARLY_WEBHOOK_SECRET не заданий');
+    console.error(`${LOG_PREFIX} TELEGRAM_YEARLY_WEBHOOK_SECRET не заданий`);
     return NextResponse.json({ ok: false }, { status: 200 });
   }
   const got = req.headers.get('x-telegram-bot-api-secret-token');
   if (got !== expectedSecret) {
-    console.warn('[yearly-tg-webhook] Невірний secret token');
+    console.warn(`${LOG_PREFIX} Невірний secret token`);
     return NextResponse.json({ ok: false }, { status: 200 });
   }
 
   let update: TgUpdate;
   try {
     update = (await req.json()) as TgUpdate;
-  } catch {
+  } catch (e) {
+    console.error(`${LOG_PREFIX} JSON parse failed:`, e);
     return NextResponse.json({ ok: true }, { status: 200 });
   }
 
-  const joinReq = update.chat_join_request;
-  if (!joinReq) {
-    // Інші типи update-ів зараз не обробляємо.
-    return NextResponse.json({ ok: true }, { status: 200 });
+  // Сортуємо update-и за типом — для кожного окрема логіка.
+  if (update.chat_join_request) {
+    await handleChatJoinRequest(update.chat_join_request);
+  } else if (update.chat_member) {
+    await handleChatMemberUpdated(update.chat_member);
+  } else {
+    // Інші типи update-ів зараз не обробляємо. Telegram буде надсилати тільки
+    // ті що в allowed_updates (chat_join_request + chat_member).
+    console.log(`${LOG_PREFIX} ignoring unknown update type, keys=${Object.keys(update).join(',')}`);
   }
 
+  return NextResponse.json({ ok: true }, { status: 200 });
+}
+
+/// === Handler 1: Запит на приєднання (creates_join_request invite click) ===
+async function handleChatJoinRequest(joinReq: TgChatJoinRequest): Promise<void> {
   const chatId = joinReq.chat.id;
   const userId = joinReq.from.id;
   const inviteUrl = joinReq.invite_link?.invite_link ?? null;
-  const username = joinReq.from.username ? `@${joinReq.from.username}` : null;
-  const fullName = [joinReq.from.first_name, joinReq.from.last_name].filter(Boolean).join(' ') || null;
+  const userDesc = describeUser(joinReq.from);
 
-  // Перевіряємо що update прийшов саме для нашого зафіксованого каналу.
+  console.log(`${LOG_PREFIX} chat_join_request received: chat=${chatId} user=(${userDesc}) invite=${inviteUrl ?? 'none'}`);
+
   const settings = await getYearlyProgramTelegramSettings();
   if (!settings.chatId) {
-    console.warn('[yearly-tg-webhook] Канал не налаштовано, ігнор join-request');
-    return NextResponse.json({ ok: true }, { status: 200 });
+    console.warn(`${LOG_PREFIX} chat_join_request: канал не налаштовано, ігнор`);
+    return;
+  }
+  if (!chatMatches(settings.chatId, chatId)) {
+    console.warn(`${LOG_PREFIX} chat_join_request: chat_id mismatch settings=${settings.chatId} update=${chatId}, ігнор`);
+    return;
   }
 
-  // chatId з settings може бути numeric ("-100...") або "@username".
-  // Update присилає numeric chat.id → порівнюємо обидва формати.
-  const settingsNumericMatch = /^-?\d+$/.test(settings.chatId) && settings.chatId === String(chatId);
-  // Якщо в settings @username — порівняти неможливо без додаткового запиту,
-  // тому сприймаємо update як свій (Telegram не присилає update-и для каналів,
-  // в яких бот не адмін).
-  const settingsHandleMatch = settings.chatId.startsWith('@');
-  if (!settingsNumericMatch && !settingsHandleMatch) {
-    console.warn(`[yearly-tg-webhook] chat_id mismatch: settings=${settings.chatId}, update=${chatId}`);
-    return NextResponse.json({ ok: true }, { status: 200 });
-  }
-
-  // Знайти підписку за збігом invite_link.
+  // Шукаємо підписку за invite_link.
   const sub = inviteUrl
     ? await prisma.yearlyProgramSubscription.findFirst({
         where: { telegramInviteLink: inviteUrl },
@@ -101,48 +154,159 @@ export async function POST(req: NextRequest) {
     : null;
 
   if (sub) {
-    // === Свій клієнт → APPROVE ===
     try {
       await approveChatJoinRequest(chatId, userId);
-      // Idempotent: якщо вже стояв timestamp (повторний join після leave) — не перезаписуємо.
-      if (!sub.telegramJoinedAt) {
-        await prisma.yearlyProgramSubscription.update({
-          where: { id: sub.id },
-          data: { telegramJoinedAt: new Date() },
-        });
-      }
+      console.log(`${LOG_PREFIX} approved sub=${sub.id} user=${userId}`);
+      await prisma.yearlyProgramSubscription.update({
+        where: { id: sub.id },
+        data: {
+          telegramJoinedAt: sub.telegramJoinedAt ?? new Date(),
+          telegramLeftAt: null,
+          telegramTgUserId: BigInt(userId),
+        },
+      });
       await prisma.yearlyProgramSubscriptionEvent.create({
         data: {
           subscriptionId: sub.id,
           type: 'admin_action',
-          message: `Telegram: клієнт приєднався в канал (auto-approved)`,
+          message: 'Telegram: клієнт приєднався в канал (auto-approved)',
           metadata: {
-            tgUserId: userId,
-            tgUsername: username,
-            tgFullName: fullName,
+            tgUserId: String(userId),
+            tgUserDesc: userDesc,
             inviteLink: inviteUrl,
             chatId: String(chatId),
           },
         },
       });
     } catch (e) {
-      const msg = e instanceof TelegramApiError ? e.message : (e instanceof Error ? e.message : String(e));
-      console.error(`[yearly-tg-webhook] approve failed sub=${sub.id} user=${userId}: ${msg}`);
+      const msg = e instanceof TelegramApiError ? `[${e.errorCode}] ${e.message}` : (e instanceof Error ? e.message : String(e));
+      console.error(`${LOG_PREFIX} approve failed sub=${sub.id} user=${userId}: ${msg}`);
     }
-  } else {
-    // === Стороння людина → DECLINE ===
-    // Канал тільки для Річної програми, тому або (а) рандом, (б) спам, (в) клієнт
-    // з expire-нутим/перегенерованим invite — у всіх трьох випадках decline безпечний.
-    // Якщо це справді клієнт із втраченим invite — менеджер видасть нове запрошення
-    // через адмінку (кнопка "Переслати TG-запрошення").
-    try {
-      await declineChatJoinRequest(chatId, userId);
-      console.log(`[yearly-tg-webhook] declined non-yearly user=${userId} (${username ?? fullName ?? 'no name'}) invite=${inviteUrl ?? 'none'}`);
-    } catch (e) {
-      const msg = e instanceof TelegramApiError ? e.message : (e instanceof Error ? e.message : String(e));
-      console.error(`[yearly-tg-webhook] decline failed user=${userId}: ${msg}`);
-    }
+    return;
   }
 
-  return NextResponse.json({ ok: true }, { status: 200 });
+  // Не знайшли підписку — стороння людина. Канал тільки для Річної → decline.
+  try {
+    await declineChatJoinRequest(chatId, userId);
+    console.log(`${LOG_PREFIX} declined non-yearly user=(${userDesc}) invite=${inviteUrl ?? 'none'}`);
+  } catch (e) {
+    const msg = e instanceof TelegramApiError ? `[${e.errorCode}] ${e.message}` : (e instanceof Error ? e.message : String(e));
+    console.error(`${LOG_PREFIX} decline failed user=${userId}: ${msg}`);
+  }
+}
+
+/// === Handler 2: Зміна статусу учасника (chat_member) ===
+/// Telegram присилає це коли users joins/leaves/gets-kicked у каналах де бот адмін.
+/// Дозволяє трекати leave для статусу в адмінці.
+async function handleChatMemberUpdated(upd: TgChatMemberUpdated): Promise<void> {
+  const chatId = upd.chat.id;
+  const oldStatus = upd.old_chat_member.status;
+  const newStatus = upd.new_chat_member.status;
+  const targetUser = upd.new_chat_member.user;
+  const userDesc = describeUser(targetUser);
+
+  // Боти-учасники нас не цікавлять.
+  if (targetUser.is_bot) return;
+
+  // Перехід без зміни (admin promotion etc) — пропускаємо.
+  if (oldStatus === newStatus) return;
+
+  const settings = await getYearlyProgramTelegramSettings();
+  if (!settings.chatId) return;
+  if (!chatMatches(settings.chatId, chatId)) return;
+
+  // Знаходимо підписку: спочатку за tgUserId (швидко), якщо немає — за inviteLink якщо є.
+  const sub = await findSubscriptionForMember(targetUser.id, upd.invite_link?.invite_link ?? null);
+
+  if (!sub) {
+    // Сторонній учасник (admin додав вручну, чи власник). Логуємо коротко.
+    if (leftChat(newStatus) && isInChat(oldStatus)) {
+      console.log(`${LOG_PREFIX} chat_member: non-tracked user left (${userDesc}) ${oldStatus}→${newStatus}`);
+    } else if (isInChat(newStatus) && leftChat(oldStatus)) {
+      console.log(`${LOG_PREFIX} chat_member: non-tracked user joined (${userDesc}) ${oldStatus}→${newStatus}`);
+    }
+    return;
+  }
+
+  // === Випадок: вийшов або був виключений ===
+  if (isInChat(oldStatus) && leftChat(newStatus)) {
+    console.log(`${LOG_PREFIX} chat_member: tracked user LEFT sub=${sub.id} (${userDesc}) ${oldStatus}→${newStatus}`);
+    await prisma.yearlyProgramSubscription.update({
+      where: { id: sub.id },
+      data: { telegramLeftAt: new Date() },
+    });
+    await prisma.yearlyProgramSubscriptionEvent.create({
+      data: {
+        subscriptionId: sub.id,
+        type: 'admin_action',
+        message: `Telegram: клієнт ${newStatus === 'kicked' ? 'виключений' : newStatus === 'restricted' ? 'обмежений' : 'покинув канал'}`,
+        metadata: {
+          tgUserId: String(targetUser.id),
+          tgUserDesc: userDesc,
+          oldStatus,
+          newStatus,
+          chatId: String(chatId),
+        },
+      },
+    });
+    return;
+  }
+
+  // === Випадок: повернувся (без проходження через approve, наприклад через primary link) ===
+  if (leftChat(oldStatus) && isInChat(newStatus)) {
+    console.log(`${LOG_PREFIX} chat_member: tracked user REJOINED sub=${sub.id} (${userDesc}) ${oldStatus}→${newStatus}`);
+    await prisma.yearlyProgramSubscription.update({
+      where: { id: sub.id },
+      data: {
+        telegramJoinedAt: new Date(),
+        telegramLeftAt: null,
+        telegramTgUserId: BigInt(targetUser.id),
+      },
+    });
+    await prisma.yearlyProgramSubscriptionEvent.create({
+      data: {
+        subscriptionId: sub.id,
+        type: 'admin_action',
+        message: 'Telegram: клієнт знову у каналі',
+        metadata: {
+          tgUserId: String(targetUser.id),
+          tgUserDesc: userDesc,
+          oldStatus,
+          newStatus,
+          chatId: String(chatId),
+        },
+      },
+    });
+  }
+}
+
+/// Знаходить підписку учасника каналу. Спочатку — за збереженим tgUserId
+/// (найшвидший шлях). Якщо немає — за invite_link з update-у (рідше; стається
+/// при першому приєднанні через approve-flow або primary link з approval).
+async function findSubscriptionForMember(
+  tgUserId: number,
+  inviteUrl: string | null,
+): Promise<{ id: string; userId: string } | null> {
+  const byTgId = await prisma.yearlyProgramSubscription.findFirst({
+    where: { telegramTgUserId: BigInt(tgUserId) },
+    select: { id: true, userId: true },
+  });
+  if (byTgId) return byTgId;
+
+  if (inviteUrl) {
+    return prisma.yearlyProgramSubscription.findFirst({
+      where: { telegramInviteLink: inviteUrl },
+      select: { id: true, userId: true },
+    });
+  }
+
+  return null;
+}
+
+/// settings.chatId може бути numeric ("-100...") або "@username".
+/// Update присилає numeric chat.id → порівнюємо обидва формати.
+function chatMatches(settingsChatId: string, updateChatId: number): boolean {
+  if (/^-?\d+$/.test(settingsChatId)) return settingsChatId === String(updateChatId);
+  // @username: довіряємо Telegram (він не присилає update-и для каналів де бот не адмін).
+  return settingsChatId.startsWith('@');
 }

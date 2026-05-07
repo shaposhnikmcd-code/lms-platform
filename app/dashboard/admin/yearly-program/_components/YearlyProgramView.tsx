@@ -54,6 +54,7 @@ interface SubscriptionDetails {
   telegramInvitedAt: string | null;
   telegramInviteError: string | null;
   telegramJoinedAt: string | null;
+  telegramLeftAt: string | null;
   user: { id: string; name: string | null; email: string } | null;
   plan: Plan;
   autoRenew: boolean;
@@ -97,15 +98,17 @@ const PLAN_OPTIONS: { value: PlanFilter; label: string }[] = [
   { value: 'MONTHLY_ONCE', label: 'Місячний на 1 міс.' },
 ];
 
-const STATUS_OPTIONS: { value: 'ALL' | SubStatus; label: string }[] = [
-  { value: 'ALL', label: 'Усі' },
-  { value: 'ACTIVE', label: 'Активний' },
-  { value: 'GRACE', label: 'Grace (7 днів)' },
-  { value: 'EXPIRED', label: 'Доступ закрито' },
-  { value: 'CANCELLED', label: 'Скасовано' },
-  { value: 'PENDING', label: 'Очікує' },
-  { value: 'ARCHIVED', label: 'Архів' },
-];
+function buildStatusOptions(graceDays: number): { value: 'ALL' | SubStatus; label: string }[] {
+  return [
+    { value: 'ALL', label: 'Усі' },
+    { value: 'ACTIVE', label: 'Активний' },
+    { value: 'GRACE', label: `Grace (${graceDays} ${pluralizeDays(graceDays)})` },
+    { value: 'EXPIRED', label: 'Доступ закрито' },
+    { value: 'CANCELLED', label: 'Скасовано' },
+    { value: 'PENDING', label: 'Очікує' },
+    { value: 'ARCHIVED', label: 'Архів' },
+  ];
+}
 
 interface ProgramDefaults {
   yearlyPrice: number;
@@ -304,6 +307,7 @@ function YearlyProgramViewInner({
             <CohortActions
               cohort={activeCohort}
               theme={theme}
+              graceDays={graceDays}
               telegramSettings={telegramSettings}
             />
           </>
@@ -317,7 +321,7 @@ function YearlyProgramViewInner({
           <KpiInline
             theme={theme}
             icon={HiOutlineClock}
-            label={`Grace (${graceDays}${graceDays === 1 ? ' день' : graceDays >= 2 && graceDays <= 4 ? ' дні' : ' днів'})`}
+            label={`Grace (${graceDays} ${pluralizeDays(graceDays)})`}
             value={summary.grace.toLocaleString()}
             tone="warning"
           />
@@ -442,7 +446,7 @@ function YearlyProgramViewInner({
                     theme={theme}
                     label="Статус"
                     align="center"
-                    options={STATUS_OPTIONS}
+                    options={buildStatusOptions(graceDays)}
                     value={statusFilter}
                     onChange={(v) => setStatusFilter(v as 'ALL' | SubStatus)}
                   />
@@ -468,6 +472,7 @@ function YearlyProgramViewInner({
                     key={r.id}
                     r={r}
                     theme={theme}
+                    graceDays={graceDays}
                     expanded={expandedId === r.id}
                     details={details[r.id]}
                     busy={busyId === r.id}
@@ -613,6 +618,7 @@ function computePageList(current: number, total: number): (number | '…')[] {
 function RowBlock({
   r,
   theme,
+  graceDays,
   expanded,
   details,
   busy,
@@ -621,6 +627,7 @@ function RowBlock({
 }: {
   r: Row;
   theme: Theme;
+  graceDays: number;
   expanded: boolean;
   details: SubscriptionDetails | 'loading' | 'error' | undefined;
   busy: boolean;
@@ -683,7 +690,7 @@ function RowBlock({
           )}
         </td>
         <td className="px-4 py-2.5 text-center"><PlanBadge theme={theme} plan={r.plan} autoRenew={r.autoRenew} /></td>
-        <td className="px-4 py-2.5 text-center"><StatusBadge theme={theme} status={r.status} /></td>
+        <td className="px-4 py-2.5 text-center"><StatusBadge theme={theme} status={r.status} graceDays={graceDays} /></td>
         <td className={`px-4 py-2.5 text-[11px] tabular-nums whitespace-nowrap ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
           {r.firstPaymentAt ? fmtDate(r.firstPaymentAt) : <span className={dark ? 'text-slate-600' : 'text-stone-400'}>—</span>}
         </td>
@@ -733,6 +740,7 @@ function RowBlock({
           <td colSpan={12} className="px-6 py-5">
             <ExpandedRowContent
               theme={theme}
+              graceDays={graceDays}
               details={details}
               row={r}
               busy={busy}
@@ -749,12 +757,14 @@ function ExpandedRowContent({
   details,
   row,
   theme,
+  graceDays,
   busy,
   onAction,
 }: {
   details: SubscriptionDetails | 'loading' | 'error' | undefined;
   row: Row;
   theme: Theme;
+  graceDays: number;
   busy: boolean;
   onAction: (action: string, payload?: Record<string, unknown>, confirm?: string) => void;
 }) {
@@ -847,7 +857,7 @@ function ExpandedRowContent({
 
   return (
     <div className="grid md:grid-cols-3 gap-5">
-      {helpOpen && <HelpModal theme={theme} onClose={() => setHelpOpen(false)} />}
+      {helpOpen && <HelpModal theme={theme} graceDays={graceDays} onClose={() => setHelpOpen(false)} />}
       <div className="md:col-span-1">
         <div className="flex items-center gap-2 mb-2">
           <SectionTitle theme={theme} className="!mb-0">Дії</SectionTitle>
@@ -971,10 +981,19 @@ function ExpandedRowContent({
             const inviteShort = details.telegramInviteLink ? '✓ link є' : '✓';
             items.push(['TG invite', `${inviteShort} · ${new Date(details.telegramInvitedAt).toLocaleDateString('uk-UA')}`]);
           }
-          if (details.telegramJoinedAt) {
-            items.push(['TG приєднався', `✅ ${new Date(details.telegramJoinedAt).toLocaleString('uk-UA', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`]);
+          if (details.telegramLeftAt) {
+            // Вийшов або був виключений — показуємо як останній стан.
+            items.push([
+              'TG статус',
+              `❌ Покинув канал · ${new Date(details.telegramLeftAt).toLocaleString('uk-UA', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`,
+            ]);
+          } else if (details.telegramJoinedAt) {
+            items.push([
+              'TG статус',
+              `✅ У каналі · з ${new Date(details.telegramJoinedAt).toLocaleString('uk-UA', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`,
+            ]);
           } else if (details.telegramInvitedAt) {
-            items.push(['TG приєднався', '⏳ запрошення надіслане']);
+            items.push(['TG статус', '⏳ Запрошення надіслане, чекаємо приєднання']);
           }
           if (details.telegramInviteError) {
             items.push(['TG err', details.telegramInviteError]);
@@ -1311,11 +1330,11 @@ function PlanBadge({ plan, autoRenew, theme }: { plan: Plan; autoRenew: boolean;
   );
 }
 
-function StatusBadge({ status, theme }: { status: SubStatus; theme: Theme }) {
+function StatusBadge({ status, theme, graceDays }: { status: SubStatus; theme: Theme; graceDays: number }) {
   const dark = theme === 'dark';
   const map: Record<SubStatus, { label: string; dark: string; light: string }> = {
     ACTIVE:    { label: 'Активний',    dark: 'bg-emerald-500/15 text-emerald-300 border-emerald-400/20', light: 'bg-emerald-100 text-emerald-800 border-emerald-300/50' },
-    GRACE:     { label: 'Grace (7 днів)', dark: 'bg-amber-500/15 text-amber-300 border-amber-400/20',       light: 'bg-amber-100 text-amber-800 border-amber-300/50' },
+    GRACE:     { label: `Grace (${graceDays} ${pluralizeDays(graceDays)})`, dark: 'bg-amber-500/15 text-amber-300 border-amber-400/20',       light: 'bg-amber-100 text-amber-800 border-amber-300/50' },
     EXPIRED:   { label: 'Доступ закрито', dark: 'bg-rose-500/15 text-rose-300 border-rose-400/20',          light: 'bg-rose-100 text-rose-800 border-rose-300/50' },
     CANCELLED: { label: 'Скасовано',   dark: 'bg-slate-500/15 text-slate-300 border-slate-400/20',      light: 'bg-stone-200 text-stone-700 border-stone-300/60' },
     PENDING:   { label: 'Очікує',      dark: 'bg-slate-500/15 text-slate-400 border-slate-400/10',      light: 'bg-stone-100 text-stone-600 border-stone-300/50' },
@@ -1358,7 +1377,7 @@ function SendpulseBadge({
   return <span className={`text-[10px] ${dark ? 'text-slate-600' : 'text-stone-400'}`}>—</span>;
 }
 
-function HelpModal({ theme, onClose }: { theme: Theme; onClose: () => void }) {
+function HelpModal({ theme, graceDays, onClose }: { theme: Theme; graceDays: number; onClose: () => void }) {
   const dark = theme === 'dark';
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
@@ -1369,10 +1388,11 @@ function HelpModal({ theme, onClose }: { theme: Theme; onClose: () => void }) {
     return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = ''; };
   }, [onClose]);
 
+  const graceWord = pluralizeDays(graceDays);
   const statuses: { badge: string; name: string; desc: string; cls: string }[] = [
     { badge: 'PENDING',   name: 'Очікує',     desc: 'Підписка створена, але оплата ще не надійшла. Доступу немає.', cls: dark ? 'bg-slate-500/15 text-slate-400' : 'bg-stone-100 text-stone-600' },
     { badge: 'ACTIVE',    name: 'Активний',   desc: 'Все добре — оплата пройшла, доступ відкрито, користувач навчається.', cls: dark ? 'bg-emerald-500/15 text-emerald-300' : 'bg-emerald-100 text-emerald-800' },
-    { badge: 'GRACE',     name: 'Grace',      desc: 'Термін доступу закінчився, але є 7 днів пільгового періоду — встигнемо продовжити без втрати доступу.', cls: dark ? 'bg-amber-500/15 text-amber-300' : 'bg-amber-100 text-amber-800' },
+    { badge: 'GRACE',     name: 'Grace',      desc: `Термін доступу закінчився, але є ${graceDays} ${graceWord} пільгового періоду — встигнемо продовжити без втрати доступу.`, cls: dark ? 'bg-amber-500/15 text-amber-300' : 'bg-amber-100 text-amber-800' },
     { badge: 'EXPIRED',   name: 'Доступ закрито', desc: 'Доступ до курсу в SendPulse закрито — автоматично після grace-періоду або вручну менеджером.', cls: dark ? 'bg-rose-500/15 text-rose-300' : 'bg-rose-100 text-rose-800' },
     { badge: 'CANCELLED', name: 'Скасовано',  desc: 'Користувач/адмін скасував підписку. Для MONTHLY автосписання зупинено. Доступ зберігається до кінця оплаченого періоду.', cls: dark ? 'bg-slate-500/15 text-slate-300' : 'bg-stone-200 text-stone-700' },
     { badge: 'ARCHIVED',  name: 'Архів',      desc: 'Адмін заархівував. Доступ у SendPulse закрито, технічні поля очищено. Картка лишається як історичний запис, але відновити не можна.', cls: dark ? 'bg-zinc-700/30 text-zinc-400' : 'bg-zinc-200 text-zinc-600' },
@@ -1448,6 +1468,14 @@ function HelpModal({ theme, onClose }: { theme: Theme; onClose: () => void }) {
   );
 }
 
+function pluralizeDays(n: number): string {
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return 'день';
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return 'дні';
+  return 'днів';
+}
+
 function GraceSettingsModal({
   theme,
   initialDays,
@@ -1464,7 +1492,8 @@ function GraceSettingsModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const MIN = 1;
-  const MAX = 90;
+  const MAX = 30;
+  const PRESETS = [3, 5, 7, 14, 30];
 
   useEffect(() => { setMounted(true); }, []);
   useEffect(() => {
@@ -1477,6 +1506,16 @@ function GraceSettingsModal({
   const parsed = Number(days);
   const valid = Number.isInteger(parsed) && parsed >= MIN && parsed <= MAX;
   const dirty = valid && parsed !== initialDays;
+  const previewN = valid ? parsed : initialDays;
+  const previewWord = pluralizeDays(previewN);
+  const initialWord = pluralizeDays(initialDays);
+
+  function bump(delta: number) {
+    const base = valid ? parsed : initialDays;
+    const next = Math.min(MAX, Math.max(MIN, base + delta));
+    setDays(String(next));
+    setError(null);
+  }
 
   async function save() {
     if (!dirty || saving) return;
@@ -1506,77 +1545,230 @@ function GraceSettingsModal({
   if (!mounted) return null;
   return createPortal(
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4" role="dialog" aria-modal="true">
-      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
-      <div className={`relative max-w-md w-full rounded-2xl shadow-2xl ${
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className={`relative max-w-lg w-full rounded-2xl shadow-2xl overflow-hidden ${
         dark ? 'bg-zinc-900 border border-white/10 text-slate-200' : 'bg-white border border-stone-200 text-stone-800'
       }`}>
-        <div className={`flex items-center justify-between px-5 py-3 border-b ${dark ? 'border-white/10' : 'border-stone-200'}`}>
-          <h3 className="text-base font-bold">Grace — тривалість пільгового періоду</h3>
-          <button onClick={onClose} aria-label="Закрити" className={`w-7 h-7 rounded-full flex items-center justify-center ${dark ? 'hover:bg-white/10' : 'hover:bg-stone-100'}`}>✕</button>
+        {/* Header */}
+        <div className={`flex items-center justify-between px-6 py-4 border-b ${dark ? 'border-white/10' : 'border-stone-200'}`}>
+          <div className="flex items-center gap-3">
+            <span className={`w-9 h-9 rounded-xl flex items-center justify-center text-[18px] ${
+              dark
+                ? 'bg-amber-400/15 text-amber-300 ring-1 ring-amber-400/30'
+                : 'bg-amber-100 text-amber-700 ring-1 ring-amber-300/60'
+            }`} aria-hidden>
+              <HiOutlineClock className="w-[18px] h-[18px]" />
+            </span>
+            <div>
+              <h3 className="text-[15px] font-bold leading-tight">Пільговий період</h3>
+              <p className={`text-[11px] mt-0.5 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
+                ACTIVE → GRACE у Річній програмі
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            aria-label="Закрити"
+            className={`w-8 h-8 rounded-full flex items-center justify-center text-[14px] transition-colors ${
+              dark ? 'hover:bg-white/10 text-slate-400 hover:text-slate-200' : 'hover:bg-stone-100 text-stone-500 hover:text-stone-700'
+            }`}
+          >
+            ✕
+          </button>
         </div>
 
-        <div className="px-5 py-4 space-y-4">
-          <p className={`text-[12px] leading-snug ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
-            Скільки днів після <strong>дати закінчення</strong> оплаченого періоду
-            залишати доступ відкритим, поки користувач не оформить нову оплату.
-            Значення застосовується <strong>до всіх нових переходів</strong> ACTIVE → GRACE у Річній програмі.
-            Уже активні GRACE-записи не перераховуються (у них дата закриття зафіксована у момент переходу).
-          </p>
+        <div className="px-6 py-5 space-y-5">
+          {/* Hero — current vs new */}
+          <div className={`relative rounded-2xl px-5 py-4 overflow-hidden ${
+            dark
+              ? 'bg-gradient-to-br from-amber-500/[0.12] via-amber-500/[0.06] to-transparent ring-1 ring-amber-400/20'
+              : 'bg-gradient-to-br from-amber-50 via-amber-50/50 to-white ring-1 ring-amber-300/40'
+          }`}>
+            <div className="flex items-end justify-between gap-4">
+              <div>
+                <div className={`text-[10px] uppercase tracking-[0.14em] font-semibold ${dark ? 'text-amber-300/70' : 'text-amber-700/80'}`}>
+                  Поточне значення
+                </div>
+                <div className="mt-1 flex items-baseline gap-2">
+                  <span className={`text-[42px] leading-none font-bold tabular-nums ${dark ? 'text-amber-200' : 'text-amber-800'}`}>
+                    {initialDays}
+                  </span>
+                  <span className={`text-[15px] font-medium ${dark ? 'text-amber-300/80' : 'text-amber-700/90'}`}>
+                    {initialWord}
+                  </span>
+                </div>
+              </div>
+              {dirty && (
+                <div className="text-right">
+                  <div className={`text-[10px] uppercase tracking-[0.14em] font-semibold ${dark ? 'text-emerald-300/80' : 'text-emerald-700/80'}`}>
+                    Стане
+                  </div>
+                  <div className="mt-1 flex items-baseline justify-end gap-2">
+                    <span className={`text-[28px] leading-none font-bold tabular-nums ${dark ? 'text-emerald-200' : 'text-emerald-700'}`}>
+                      {parsed}
+                    </span>
+                    <span className={`text-[12px] font-medium ${dark ? 'text-emerald-300/80' : 'text-emerald-700/90'}`}>
+                      {previewWord}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
 
+          {/* Stepper + presets */}
           <div>
-            <label className={`block text-[11px] uppercase tracking-wider font-semibold mb-1.5 ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
+            <label className={`block text-[11px] uppercase tracking-wider font-semibold mb-2 ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
               Кількість днів
             </label>
-            <div className="flex items-center gap-2">
-              <input
-                type="number"
-                min={MIN}
-                max={MAX}
-                value={days}
-                onChange={(e) => { setDays(e.target.value); setError(null); }}
-                className={`w-28 px-3 py-2 rounded-lg border text-[14px] tabular-nums outline-none transition-colors ${
+            <div className="flex items-stretch gap-2">
+              <button
+                type="button"
+                onClick={() => bump(-1)}
+                disabled={!valid || parsed <= MIN}
+                aria-label="Зменшити"
+                className={`w-10 rounded-xl border text-[18px] font-semibold transition-colors flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed ${
                   dark
-                    ? 'bg-white/[0.04] border-white/[0.1] text-slate-100 focus:border-amber-400/50'
-                    : 'bg-white border-stone-300 text-stone-900 focus:border-amber-600/60'
+                    ? 'bg-white/[0.04] border-white/[0.1] text-slate-300 hover:bg-white/[0.08]'
+                    : 'bg-white border-stone-300 text-stone-700 hover:bg-stone-50'
                 }`}
-              />
-              <span className={`text-[12px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
-                днів (від {MIN} до {MAX})
-              </span>
+              >−</button>
+              <div className="relative flex-1">
+                <input
+                  type="number"
+                  min={MIN}
+                  max={MAX}
+                  value={days}
+                  onChange={(e) => { setDays(e.target.value); setError(null); }}
+                  className={`w-full h-10 px-3 pr-14 rounded-xl border text-[18px] font-semibold tabular-nums text-center outline-none transition-colors ${
+                    dark
+                      ? 'bg-white/[0.04] border-white/[0.1] text-slate-100 focus:border-amber-400/60 focus:bg-white/[0.06]'
+                      : 'bg-white border-stone-300 text-stone-900 focus:border-amber-500/70'
+                  }`}
+                />
+                <span className={`absolute right-3 top-1/2 -translate-y-1/2 text-[12px] font-medium pointer-events-none ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+                  {previewWord}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => bump(1)}
+                disabled={!valid || parsed >= MAX}
+                aria-label="Збільшити"
+                className={`w-10 rounded-xl border text-[18px] font-semibold transition-colors flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed ${
+                  dark
+                    ? 'bg-white/[0.04] border-white/[0.1] text-slate-300 hover:bg-white/[0.08]'
+                    : 'bg-white border-stone-300 text-stone-700 hover:bg-stone-50'
+                }`}
+              >+</button>
             </div>
+
+            {/* Slider */}
+            <input
+              type="range"
+              min={MIN}
+              max={MAX}
+              value={valid ? parsed : initialDays}
+              onChange={(e) => { setDays(e.target.value); setError(null); }}
+              className={`mt-3 w-full h-1.5 rounded-full appearance-none cursor-pointer accent-amber-500 ${
+                dark ? 'bg-white/10' : 'bg-stone-200'
+              }`}
+              style={{ accentColor: dark ? '#fbbf24' : '#d97706' }}
+            />
+            <div className={`mt-1 flex justify-between text-[10px] tabular-nums ${dark ? 'text-slate-500' : 'text-stone-400'}`}>
+              <span>{MIN}</span>
+              <span>10</span>
+              <span>20</span>
+              <span>{MAX}</span>
+            </div>
+
+            {/* Presets */}
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {PRESETS.map((p) => {
+                const active = valid && parsed === p;
+                return (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => { setDays(String(p)); setError(null); }}
+                    className={`px-3 py-1 rounded-full text-[12px] font-semibold tabular-nums transition-colors ${
+                      active
+                        ? dark
+                          ? 'bg-amber-400 text-stone-900'
+                          : 'bg-stone-900 text-amber-100'
+                        : dark
+                          ? 'bg-white/[0.04] border border-white/[0.08] text-slate-300 hover:bg-white/[0.08]'
+                          : 'bg-white border border-stone-300 text-stone-600 hover:bg-stone-50'
+                    }`}
+                  >
+                    {p} {pluralizeDays(p)}
+                  </button>
+                );
+              })}
+            </div>
+
             {!valid && days !== '' && (
-              <p className={`mt-1.5 text-[11px] ${dark ? 'text-rose-400' : 'text-rose-700'}`}>
-                Введіть ціле число від {MIN} до {MAX}
+              <p className={`mt-2 text-[11px] ${dark ? 'text-rose-400' : 'text-rose-700'}`}>
+                Ціле число від {MIN} до {MAX}
               </p>
             )}
             {error && (
-              <p className={`mt-1.5 text-[11px] ${dark ? 'text-rose-400' : 'text-rose-700'}`}>{error}</p>
+              <p className={`mt-2 text-[11px] ${dark ? 'text-rose-400' : 'text-rose-700'}`}>{error}</p>
             )}
+          </div>
+
+          {/* Live preview of email phrase */}
+          <div className={`rounded-xl px-4 py-3 ${
+            dark ? 'bg-white/[0.03] border border-white/[0.08]' : 'bg-stone-50 border border-stone-200'
+          }`}>
+            <div className={`text-[10px] uppercase tracking-[0.14em] font-semibold mb-1.5 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+              У листі студенту
+            </div>
+            <p className={`text-[13px] leading-relaxed ${dark ? 'text-slate-200' : 'text-stone-800'}`}>
+              «Доступ ще на <strong className={dark ? 'text-amber-300' : 'text-amber-700'}>{previewN} {previewWord}</strong> — встигніть оформити нову оплату до закриття».
+            </p>
+          </div>
+
+          {/* Info */}
+          <div className={`flex gap-2 text-[11.5px] leading-relaxed ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
+            <span className={`flex-shrink-0 mt-0.5 ${dark ? 'text-slate-500' : 'text-stone-400'}`} aria-hidden>ℹ</span>
+            <p>
+              Застосовується <strong>до нових переходів</strong> ACTIVE → GRACE.
+              Уже активні GRACE-записи зберігають свою дату закриття.
+            </p>
           </div>
         </div>
 
-        <div className={`flex justify-end gap-2 px-5 py-3 border-t ${dark ? 'border-white/10' : 'border-stone-200'}`}>
-          <button
-            onClick={onClose}
-            className={`px-3 py-1.5 rounded-lg border text-[12px] font-medium transition-colors ${
-              dark
-                ? 'bg-white/[0.04] border-white/[0.1] text-slate-300 hover:bg-white/[0.08]'
-                : 'bg-white border-stone-300 text-stone-700 hover:bg-stone-50'
-            }`}
-          >
-            Скасувати
-          </button>
-          <button
-            onClick={save}
-            disabled={!dirty || saving}
-            className={`px-4 py-1.5 rounded-lg text-[12px] font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
-              dark
-                ? 'bg-amber-400/90 text-stone-900 hover:bg-amber-300'
-                : 'bg-stone-900 text-amber-100 hover:bg-stone-800'
-            }`}
-          >
-            {saving ? '...' : 'Зберегти'}
-          </button>
+        {/* Footer */}
+        <div className={`flex items-center justify-between gap-3 px-6 py-3 border-t ${dark ? 'border-white/10 bg-white/[0.02]' : 'border-stone-200 bg-stone-50/50'}`}>
+          <span className={`text-[11px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+            {dirty
+              ? <>Зміни <span className={dark ? 'text-amber-300' : 'text-amber-700'}>не збережено</span></>
+              : 'Без змін'}
+          </span>
+          <div className="flex gap-2">
+            <button
+              onClick={onClose}
+              className={`px-4 py-1.5 rounded-lg border text-[12px] font-medium transition-colors ${
+                dark
+                  ? 'bg-white/[0.04] border-white/[0.1] text-slate-300 hover:bg-white/[0.08]'
+                  : 'bg-white border-stone-300 text-stone-700 hover:bg-stone-50'
+              }`}
+            >
+              Скасувати
+            </button>
+            <button
+              onClick={save}
+              disabled={!dirty || saving}
+              className={`px-5 py-1.5 rounded-lg text-[12px] font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                dark
+                  ? 'bg-amber-400 text-stone-900 hover:bg-amber-300'
+                  : 'bg-stone-900 text-amber-100 hover:bg-stone-800'
+              }`}
+            >
+              {saving ? 'Збереження...' : 'Зберегти'}
+            </button>
+          </div>
         </div>
       </div>
     </div>,
