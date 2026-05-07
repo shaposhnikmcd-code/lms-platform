@@ -109,12 +109,12 @@ ${SIGNATURE}`),
     key: 'manual-grace-start',
     group: 'manual',
     title: '🛟 Наступний день після дати закінчення',
-    when: 'Шлемо коли оплачений місяць щойно закінчився, а доступ продовжено на 7 днів grace (manual flow). Встигнути оплатити.',
-    placeholders: ['name', 'gracePeriodEndsAt'],
-    sampleData: { name: 'Іван Петренко', gracePeriodEndsAt: '22.08.2026' },
-    defaultSubject: 'Доступ продовжено на 7 днів — оплатіть наступний місяць',
+    when: 'Шлемо коли оплачений місяць щойно закінчився, а доступ продовжено на пільговий період grace (manual flow). Встигнути оплатити.',
+    placeholders: ['name', 'gracePeriodEndsAt', 'graceDays', 'graceDaysWord'],
+    sampleData: { name: 'Іван Петренко', gracePeriodEndsAt: '22.08.2026', graceDays: '7', graceDaysWord: 'днів' },
+    defaultSubject: 'Доступ продовжено на {graceDays} {graceDaysWord} — оплатіть наступний місяць',
     defaultBodyHtml: wrapReminderInner(`    <h2 style="color: #1C3A2E; margin-top: 0;">Вітаю, {name}!</h2>
-    <p>Ваш оплачений місяць у <strong>Річній програмі інституту UIMP</strong> вчора закінчився, але ми <strong>залишили вам доступ ще на 7 днів</strong>, щоб ви встигли оформити наступну оплату.</p>
+    <p>Ваш оплачений місяць у <strong>Річній програмі інституту UIMP</strong> вчора закінчився, але ми <strong>залишили вам доступ ще на {graceDays} {graceDaysWord}</strong>, щоб ви встигли оформити наступну оплату.</p>
     <p>Доступ буде закрито <strong>{gracePeriodEndsAt}</strong>, якщо до цього часу не надійде оплата.</p>
 ${CTA_BUTTON('Оплатити наступний місяць')}
 ${SUPPORT_FOOTER}
@@ -126,16 +126,16 @@ ${SIGNATURE}`),
     group: 'cyclical',
     title: '⚠ 1-й день після дати закінчення (autopay)',
     when: 'Шлемо коли WFP не зміг автоматично списати оплату — на наступний день після експайру. Перевірте картку.',
-    placeholders: ['name', 'gracePeriodEndsAt'],
-    sampleData: { name: 'Іван Петренко', gracePeriodEndsAt: '22.08.2026' },
+    placeholders: ['name', 'gracePeriodEndsAt', 'graceDays', 'graceDaysWord'],
+    sampleData: { name: 'Іван Петренко', gracePeriodEndsAt: '22.08.2026', graceDays: '7', graceDaysWord: 'днів' },
     defaultSubject: 'Не вдалось списати оплату — перевірте картку',
     defaultBodyHtml: wrapReminderInner(`    <h2 style="color: #1C3A2E; margin-top: 0;">Вітаю, {name}!</h2>
     <p>На жаль, нам не вдалось автоматично списати оплату за наступний місяць у <strong>Річній програмі інституту UIMP</strong>.</p>
     <p>Можливі причини: недостатньо коштів, картку заблоковано, або вона прострочена.</p>
-    <p>Ми залишили вам доступ ще на <strong>7 днів</strong> — до <strong>{gracePeriodEndsAt}</strong>.</p>
+    <p>Ми залишили вам доступ ще на <strong>{graceDays} {graceDaysWord}</strong> — до <strong>{gracePeriodEndsAt}</strong>.</p>
     <p style="margin-top: 18px;"><strong>Що робити:</strong></p>
     <ol style="margin: 8px 0 16px 0; padding-left: 20px; line-height: 1.7;">
-      <li><strong>Поповніть рахунок</strong> або переконайтеся що картка діюча — WayForPay автоматично спробує списати ще раз протягом 7 днів.</li>
+      <li><strong>Поповніть рахунок</strong> або переконайтеся що картка діюча — WayForPay автоматично спробує списати ще раз протягом {graceDays} {graceDaysWord}.</li>
       <li><strong>Або оплатіть вручну</strong> за кнопкою нижче. На сторінці оплати оберіть варіант <strong style="color:#1C3A2E;">«Місячна — РАЗОВА»</strong> (а не АВТОПЛАТІЖ) — інакше може статися подвійне списання.</li>
     </ol>
 ${CTA_BUTTON('Оплатити вручну (РАЗОВА)')}
@@ -171,7 +171,7 @@ ${SIGNATURE}`),
     key: 'closed',
     group: 'shared',
     title: '🔒 Закриття доступу',
-    when: 'Шлемо коли закриваємо доступ — спільно для manual і cyclical (через 7 днів grace без оплати).',
+    when: 'Шлемо коли закриваємо доступ — спільно для manual і cyclical (після завершення пільгового періоду grace без оплати).',
     placeholders: ['name'],
     sampleData: { name: 'Іван Петренко' },
     defaultSubject: 'Доступ до Річної програми інституту UIMP закрито',
@@ -249,8 +249,16 @@ export const REMINDER_PLACEHOLDER_DESCRIPTIONS: Record<string, { what: string; c
     consequence: 'БЕЗ цього поля отримувач не зрозуміє коли саме закінчується доступ.',
   },
   gracePeriodEndsAt: {
-    what: 'Дата, до якої триває пільговий період (7 днів grace) — наприклад «22.08.2026».',
+    what: 'Дата, до якої триває пільговий період grace (рахується від дати закінчення місяця + кількість днів grace із налаштувань) — наприклад «22.08.2026».',
     consequence: 'БЕЗ цього поля отримувач не побачить дедлайн, до якого треба оплатити.',
+  },
+  graceDays: {
+    what: 'Кількість днів пільгового періоду grace із налаштувань програми — наприклад «7». При зміні значення в адмінці автоматично оновлюється у всіх листах, де використовується цей плейсхолдер.',
+    consequence: 'БЕЗ цього поля у листі не буде явно вказано, скільки днів додатково триває доступ.',
+  },
+  graceDaysWord: {
+    what: 'Українська форма множини для graceDays — «день» / «дні» / «днів» залежно від числа. Використовується разом з {graceDays}: «{graceDays} {graceDaysWord}» → «5 днів» / «1 день» / «3 дні».',
+    consequence: 'БЕЗ цього поля у листі буде неузгодженість роду — «5 день» замість «5 днів».',
   },
   daysLeft: {
     what: 'Скільки днів лишилось до закриття доступу — наприклад «4».',

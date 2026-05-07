@@ -1,20 +1,35 @@
 import { NextRequest, NextResponse } from 'next/server';
+import prisma from '@/lib/prisma';
 import { isAdmin } from '@/lib/adminAuth';
+import { getYearlyGraceDays } from '@/lib/yearlyProgramConfig';
 import { renderTemplate } from '@/lib/emailTemplates/paymentTemplates';
 import {
   REMINDER_TEMPLATES,
   getReminderTemplate,
   wrapReminderInner,
+  daysWordVar,
   type ReminderTemplateKey,
 } from '@/lib/emailTemplates/reminderTemplates';
 
 /// GET — рендерить ПОТОЧНИЙ збережений шаблон (custom з БД або default з коду) з sample-data.
 /// POST — рендерить ПЕРЕДАНИЙ draft (subject + bodyInnerHtml).
 
+/// Sample-data перекриває {graceDays}/{graceDaysWord} актуальним значенням з налаштувань —
+/// щоб прев'ю в адмінці точно відображало те, що побачить реальний студент.
+async function buildSampleData(key: ReminderTemplateKey): Promise<Record<string, string>> {
+  const meta = REMINDER_TEMPLATES[key];
+  const graceDays = await getYearlyGraceDays(prisma);
+  return {
+    ...meta.sampleData,
+    graceDays: String(graceDays),
+    graceDaysWord: daysWordVar(graceDays),
+  };
+}
+
 async function renderHtml(key: string, subject: string, bodyHtml: string): Promise<string> {
-  const meta = REMINDER_TEMPLATES[key as ReminderTemplateKey];
-  const renderedSubject = renderTemplate(subject, meta.sampleData);
-  const renderedBody = renderTemplate(bodyHtml, meta.sampleData);
+  const sample = await buildSampleData(key as ReminderTemplateKey);
+  const renderedSubject = renderTemplate(subject, sample);
+  const renderedBody = renderTemplate(bodyHtml, sample);
   return `<!DOCTYPE html>
 <html lang="uk">
 <head>

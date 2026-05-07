@@ -411,6 +411,9 @@ async function sendManualOnExpiryReminders(): Promise<StepResult> {
 /// Manual: "grace стартував". Cyclical: "charge failed" (тільки якщо failedChargeCount > 0).
 async function sendGraceStartReminders(): Promise<StepResult> {
   const errors: string[] = [];
+  // Поточне значення graceDays із налаштувань — передаємо у render-функції, щоб тексти
+  // листів автоматично відображали актуальну тривалість пільгового періоду.
+  const graceDays = await getYearlyGraceDays(prisma);
 
   const subs = await prisma.yearlyProgramSubscription.findMany({
     where: {
@@ -432,8 +435,8 @@ async function sendGraceStartReminders(): Promise<StepResult> {
       if (!isManual && (sub.failedChargeCount ?? 0) === 0) return;
 
       const { subject, html } = isManual
-        ? await manualGraceStart({ name: sub.user.name, gracePeriodEndsAt: sub.gracePeriodEndsAt })
-        : await cyclicalChargeFailed1({ name: sub.user.name, gracePeriodEndsAt: sub.gracePeriodEndsAt });
+        ? await manualGraceStart({ name: sub.user.name, gracePeriodEndsAt: sub.gracePeriodEndsAt, graceDays })
+        : await cyclicalChargeFailed1({ name: sub.user.name, gracePeriodEndsAt: sub.gracePeriodEndsAt, graceDays });
       await resend.emails.send({ from: FROM, to: sub.user.email, subject, html });
       await prisma.yearlyProgramSubscription.update({
         where: { id: sub.id },
@@ -460,6 +463,7 @@ async function sendCyclicalGraceMidReminders(): Promise<StepResult> {
   const errors: string[] = [];
   const now = new Date();
   const threeDaysAgo = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
+  const graceDays = await getYearlyGraceDays(prisma);
 
   const subs = await prisma.yearlyProgramSubscription.findMany({
     where: {
@@ -477,7 +481,7 @@ async function sendCyclicalGraceMidReminders(): Promise<StepResult> {
   await processInParallel(subs, async (sub) => {
     try {
       if (!sub.user?.email || !sub.gracePeriodEndsAt) return;
-      const { subject, html } = await cyclicalChargeFailed3({ name: sub.user.name, gracePeriodEndsAt: sub.gracePeriodEndsAt });
+      const { subject, html } = await cyclicalChargeFailed3({ name: sub.user.name, gracePeriodEndsAt: sub.gracePeriodEndsAt, graceDays });
       await resend.emails.send({ from: FROM, to: sub.user.email, subject, html });
       await prisma.yearlyProgramSubscription.update({
         where: { id: sub.id },
