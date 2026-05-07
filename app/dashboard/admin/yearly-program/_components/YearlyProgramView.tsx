@@ -1429,20 +1429,31 @@ function SendpulseBadge({
   return <span className={`text-[10px] ${dark ? 'text-slate-600' : 'text-stone-400'}`}>—</span>;
 }
 
-/// Pill для Telegram-доступу. Три стани:
+/// Pill для Telegram-доступу. Стани:
 ///   ✓ у каналі (зелений) — webhook зафіксував approve або chat_member→member
-///   ✕ покинув (червоний) — chat_member→left/kicked
+///   🗑 Деактивовано (rose-dim) — підписка ARCHIVED + покинув канал
+///   🚪 Вилучено (rose) — покинув канал, але підписка ще жива (returnable kick / сам вийшов)
 ///   ⏳ запрошення (амбер) — invite згенеровано, але не приєднався
 ///   — (сірий) — нічого не зроблено
 function TelegramAccessBadge({ theme, row }: { theme: Theme; row: Row }) {
   const dark = theme === 'dark';
   if (row.telegramLeftAt) {
+    if (row.status === 'ARCHIVED') {
+      return (
+        <span
+          className={`text-[10px] ${dark ? 'text-zinc-400' : 'text-zinc-600'}`}
+          title={`Деактивовано: ${fmtDate(row.telegramLeftAt)}`}
+        >
+          🗑 Деактивовано
+        </span>
+      );
+    }
     return (
       <span
         className={`text-[10px] ${dark ? 'text-rose-400' : 'text-rose-700'}`}
-        title={`Покинув: ${fmtDate(row.telegramLeftAt)}`}
+        title={`Вилучено: ${fmtDate(row.telegramLeftAt)}`}
       >
-        ✕ покинув
+        🚪 Вилучено
       </span>
     );
   }
