@@ -74,11 +74,14 @@ export async function POST(
   <p style="margin: 0 0 12px;">${greeting}</p>
   <p style="margin: 0 0 16px;">Долучайтесь до нашого Telegram-каналу Річної програми Українського інституту Душеопіки та Психотерапії (UIMP) — там ми ділимось новинами, нагадуваннями та відповідаємо на питання щодо організації навчання.</p>
 </div>`.trim();
+    const fullHtml = intro + renderTelegramInviteEmailBlock(result.inviteLink);
+    // TEMP DIAG
+    console.log('[yearly-tg-resend-diag] html length=', fullHtml.length, 'firstChars=', fullHtml.slice(0, 200));
     try {
       const r = await sendEmail({
         to: sub.user.email,
         subject: 'Запрошення до Telegram-каналу Річної програми',
-        html: intro + renderTelegramInviteEmailBlock(result.inviteLink),
+        html: fullHtml,
         replyTo: 'edu@uimp.com.ua',
       });
       emailResult = { sent: r.ok, error: r.error };
