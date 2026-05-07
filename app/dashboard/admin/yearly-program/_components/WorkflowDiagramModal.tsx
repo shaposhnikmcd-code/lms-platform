@@ -11,6 +11,8 @@ import type { Theme } from '../../_components/adminTheme';
 ///   • Дії менеджера підсвічені amber/gold + 👆 пілом — палітра 1:1 з реальною кнопкою «Запустити програму»
 ///   • Email-боксы мають чіп «📝 Листи Платежів / Нагадування» — щоб менеджер бачив, де редагується шаблон
 ///   • Telegram lane скомпресовано до 64px (всередині лише один бокс — invite-link)
+///   • graceDays — динамічна тривалість пільгового періоду з налаштувань (заголовок фази 5,
+///     текст нагадувань і таблиця планів автоматично адаптуються)
 
 type ActorKind = 'student' | 'wfp' | 'platform' | 'manager' | 'sp' | 'tg' | 'email';
 
@@ -24,13 +26,23 @@ const LANES: { id: ActorKind; label: string; subLabel?: string; emoji: string }[
   { id: 'email',    label: 'Email',       subLabel: 'шлемо ми', emoji: '✉️' },
 ];
 
-const PHASES = [
-  { id: 'pay',     label: '1 · ОПЛАТА',                x0: 90,   x1: 290,  cx: 190 },
-  { id: 'launch',  label: '2 · СТАРТ ГРУПИ + WELCOME', x0: 290,  x1: 660,  cx: 475 },
-  { id: 'active',  label: '3 · НАВЧАННЯ',              x0: 660,  x1: 880,  cx: 770 },
-  { id: 'pre',     label: '4 · ПЕРЕД КІНЦЕМ',          x0: 880,  x1: 1060, cx: 970 },
-  { id: 'grace',   label: '5 · ПІЛЬГОВІ 7 ДНІВ',       x0: 1060, x1: 1240, cx: 1150 },
-  { id: 'expired', label: '6 · ЗАКРИТТЯ ДОСТУПУ',      x0: 1240, x1: 1450, cx: 1345 },
+/// Локалізована форма «дні» для phase header — узгоджується з graceDays із налаштувань.
+function pluralizeDays(n: number): string {
+  const m10 = n % 10;
+  const m100 = n % 100;
+  if (m100 >= 11 && m100 <= 14) return 'ДНІВ';
+  if (m10 === 1) return 'ДЕНЬ';
+  if (m10 >= 2 && m10 <= 4) return 'ДНІ';
+  return 'ДНІВ';
+}
+
+const buildPhases = (graceDays: number) => [
+  { id: 'pay',     label: '1 · ОПЛАТА',                                 x0: 90,   x1: 290,  cx: 190 },
+  { id: 'launch',  label: '2 · СТАРТ ГРУПИ + WELCOME',                  x0: 290,  x1: 660,  cx: 475 },
+  { id: 'active',  label: '3 · НАВЧАННЯ',                               x0: 660,  x1: 880,  cx: 770 },
+  { id: 'pre',     label: '4 · ПЕРЕД КІНЦЕМ',                           x0: 880,  x1: 1060, cx: 970 },
+  { id: 'grace',   label: `5 · ПІЛЬГОВІ ${graceDays} ${pluralizeDays(graceDays)}`, x0: 1060, x1: 1240, cx: 1150 },
+  { id: 'expired', label: '6 · ЗАКРИТТЯ ДОСТУПУ',                       x0: 1240, x1: 1450, cx: 1345 },
 ] as const;
 
 const LANE_TOP = 50;
@@ -98,6 +110,11 @@ export default function WorkflowDiagramModal({ theme, graceDays, onClose }: { th
   const arrowId = `wf-arrow-${dark ? 'd' : 'l'}`;
   const arrowAccentId = `wf-arrow-acc-${dark ? 'd' : 'l'}`;
   const managerShadowId = `wf-mgr-shadow-${dark ? 'd' : 'l'}`;
+  const PHASES = buildPhases(graceDays);
+  // Адаптивний day-of-grace для middle-нагадування — синхронно з cron logic-ом
+  // (`Math.ceil(graceDays/2)`, шлемо тільки коли graceDays ≥ 5).
+  const midGraceDay = Math.ceil(graceDays / 2);
+  const midReminderActive = graceDays >= 5;
 
   return createPortal(
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-3" role="dialog" aria-modal="true">
@@ -241,7 +258,7 @@ export default function WorkflowDiagramModal({ theme, graceDays, onClose }: { th
               ]} />
               <Activity cx={190} cy={194} w={180} num={2}  kind="wfp"      title="Приймає оплату" sub="запам'ятовує карту (для авто)" c={c} mgrShadowId={managerShadowId} />
               <Activity cx={190} cy={290} w={180} num={3}  kind="platform" title="Реєструє підписку" sub="у таблиці з'являється студент" c={c} mgrShadowId={managerShadowId} />
-              <Activity cx={190} cy={562} w={180} num={4}  kind="tg"       title="Генерує invite-link" sub="одноразовий · якщо autoAdd ON" c={c} mgrShadowId={managerShadowId} />
+              <Activity cx={190} cy={562} w={180} num={4}  kind="tg"       title="Генерує invite-link" sub="одноразовий · якщо autoAdd ON · join_request якщо joinRequestMode" c={c} mgrShadowId={managerShadowId} />
               <Activity cx={190} cy={642} w={180} num={5}  kind="email"    title="Лист про оплату" sub="invite-link вкладено" editLocation="Листи Платежів" c={c} mgrShadowId={managerShadowId} />
 
               {/* 2 · СТАРТ ГРУПИ + WELCOME */}
@@ -260,9 +277,9 @@ export default function WorkflowDiagramModal({ theme, graceDays, onClose }: { th
               <Activity cx={970} cy={290} w={170} num={14} kind="platform" title="Автоперевірка щодня" sub="бачить, у кого скоро кінець" c={c} mgrShadowId={managerShadowId} />
               <Activity cx={970} cy={642} w={170} num={15} kind="email"    title="Нагадування -3д · -1д" sub="ТІЛЬКИ місячна разова" editLocation="Листи Нагадування" c={c} mgrShadowId={managerShadowId} />
 
-              {/* 5 · ПІЛЬГОВІ 7 ДНІВ */}
+              {/* 5 · ПІЛЬГОВІ N ДНІВ */}
               <Activity cx={1150} cy={290} w={170} num={16} kind="platform" title="Підписка → пільгова" sub="у таблиці статус «Пільговий»" c={c} mgrShadowId={managerShadowId} />
-              <Activity cx={1150} cy={642} w={180} num={17} kind="email"    title="Лист пільгового періоду" sub="разова→продовжено · авто→не списав" editLocation="Листи Нагадування" c={c} mgrShadowId={managerShadowId} />
+              <Activity cx={1150} cy={642} w={180} num={17} kind="email"    title="Листи у пільговому" sub={midReminderActive ? `на старті grace + день ${midGraceDay}` : 'на старті grace'} editLocation="Листи Нагадування" c={c} mgrShadowId={managerShadowId} />
 
               {/* 6 · ЗАКРИТТЯ ДОСТУПУ */}
               <Activity cx={1345} cy={194} w={180} num={18} kind="wfp"      title="Вимикається автосписання" sub="більше не списує з картки" c={c} mgrShadowId={managerShadowId} />
@@ -293,15 +310,16 @@ export default function WorkflowDiagramModal({ theme, graceDays, onClose }: { th
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 mt-3">
               <ButtonCard dark={dark} emoji="🚀" name="Запустити програму" where="у рядку запуску в таблиці" when="у день фактичного старту програми" what="відкриває доступ у SendPulse усім, хто оплатив, і за замовчуванням одразу шле welcome-лист (можна вимкнути в модалці)" primary />
               <ButtonCard dark={dark} emoji="✉️" name="Дослати лист" where="з'являється після запуску" when="якщо запуск був без листа — або потрібно повторно для конкретних людей" what="надсилає welcome тим, хто ще не отримав; або per-recipient resend; дублі виключено" />
-              <ButtonCard dark={dark} emoji="🤖" name="Додати в Telegram канал" where="у toolbar Річної програми" when="одноразово — при налаштуванні програми" what="фіксує канал/групу + чекбокс «автододавання»: при оплаті система генерує одноразовий invite-link і вкладає його у welcome-лист" primary />
-              <ButtonCard dark={dark} emoji="👤" name="Додати студента" where="у рядку запуску (видно після 🚀)" when="коли студент не встиг купити до старту" what="створює персональне посилання на оплату; після оплати — авто-відкриття доступу" primary />
-              <ButtonCard dark={dark} emoji="🎯" name="Екстра запуск" where="у рядку конкретної підписки" when="для додано-вручну студента або того, хто оплатив пізно" what="вручну відкриває доступ і шле вітальний лист тільки одному студенту" />
+              <ButtonCard dark={dark} emoji="🤖" name="Додати в Telegram канал" where="у toolbar Річної програми" when="одноразово — при налаштуванні програми" what="фіксує chat_id каналу/групи; має 2 toggle-и (за замовч. обидва ON): «Автододавання» — при кожній оплаті генерує одноразовий invite-link і вкладає у welcome-лист; «Заявки на вступ» — webhook approve-ить ТІЛЬКИ платників, decline-ить чужих (захист від витоку посилань). Обидва toggle працюють у парі" primary />
+              <ButtonCard dark={dark} emoji="👤" name="Додати студента" where="у рядку запуску (видно після 🚀)" when="коли студент не встиг купити до старту" what="email + ім'я → система генерує персональне посилання на оплату (7 днів) і автоматично шле студенту лист (шаблон «Запрошення вручну», редагується у Листи Платежів). Після оплати — пілюля «Додано вручну»; якщо група вже запущена, авто-extra-launch відкриває доступ" primary />
+              <ButtonCard dark={dark} emoji="🎯" name="Екстра запуск" where="у рядку конкретної підписки" when="для додано-вручну студента або того, хто оплатив пізно" what="вручну відкриває доступ і шле вітальний лист тільки одному студенту. Викликається автоматично з callback-у для пізніх платників — кнопка лишається як ручний фолбек" />
               <ButtonCard dark={dark} emoji="🔁" name="Повторити запуск (N)" where="біля 🚀 (з'являється тільки при помилці)" when="якщо для частини підписок доступ не відкрився" what="повторно запустить тільки для тих, кому не вдалося — без дублів" />
               <ButtonCard dark={dark} emoji="🔄" name="Перенести в наступний запуск" where="у рядку підписки (тільки до запуску групи)" when="якщо студент хоче відкласти участь" what="міняє запуск підписки + перераховує дати доступу" />
+              <ButtonCard dark={dark} emoji="🚨" name="Помилки" where="у toolbar Річної програми (red badge з лічильником)" when="постійно перевіряти: автоплатіж, відкриття доступу, листи, Telegram" what="трекер активних інцидентів по типах: LAUNCH_ACCESS_FAILED, LAUNCH_EMAIL_FAILED, TG_INVITE_FAILED, TG_KICK_FAILED, SP_CLOSE_FAILED, SP_REOPEN_FAILED, AUTOPAY_CHARGE_FAILED. Можна dismiss-нути з причиною (якщо вирішено поза системою) або retry для TG-invite. Парна авто-резолюція: успішна дія закриває попередню помилку" primary />
             </div>
             <p className={`mt-3 text-[11.5px] ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
               <strong className={dark ? 'text-slate-200' : 'text-stone-900'}>Шаблони листів:</strong>&nbsp;
-              <span>📝 кнопка <em>«Листи Нагадування»</em> (нагадування -3д/-1д, пільговий, закриття) · 📝 кнопка <em>«Листи Платежів»</em> (welcome, чек, plan-changed, admin-actions) — обидві у програмних налаштуваннях. Welcome-лист cohort-launch — у модалці кнопки 🚀.</span>
+              <span>📝 кнопка <em>«Листи Нагадування»</em> (нагадування -3д/-1д, пільговий, закриття) · 📝 кнопка <em>«Листи Платежів»</em> (welcome, чек, plan-changed, admin-actions, <strong>запрошення вручну</strong>) — обидві у програмних налаштуваннях. Welcome-лист cohort-launch — у модалці кнопки 🚀. Шаблон <code className="font-mono">manual-add-invite</code> також редагується прямо з модалки 👤 «Додати студента».</span>
             </p>
           </div>
 
@@ -382,14 +400,14 @@ export default function WorkflowDiagramModal({ theme, graceDays, onClose }: { th
             Окремі сценарії
           </h4>
           <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
-            <ScenarioCard dark={dark} c={c} emoji="🤖" title="Telegram-канал · auto-invite на оплаті" trigger="Налаштовано канал у toolbar + чекбокс «автододавання» ON + студент при оплаті дав свій @username" steps={[
-              { who: 'student', what: 'оплачує програму, у формі вказує свій Telegram-username' },
+            <ScenarioCard dark={dark} c={c} emoji="🤖" title="Telegram · auto-invite на оплаті" trigger="autoAdd ON + chatId зафіксовано (toggle «Автододавати» в модалці TG-каналу)" steps={[
+              { who: 'student', what: 'оплачує програму, у формі вказує свій Telegram-username (опціонально)' },
               { who: 'wfp', what: 'callback → платіж зафіксовано' },
-              { who: 'platform', what: 'перевіряє: autoAdd ON + chatId є + tgUsername є → так' },
-              { who: 'tg', what: 'через Bot API генерує одноразовий invite-link для цього каналу' },
-              { who: 'platform', what: 'зберігає посилання у subscription.telegramInviteLink' },
-              { who: 'email', what: 'у лист про оплату (#5) і welcome-лист (#9) додається блок «Приєднатись до каналу»' },
-              { who: 'student', what: 'клікає invite у листі → потрапляє в канал. Бот не пушить — студент сам приєднується' },
+              { who: 'platform', what: 'перевіряє: autoAdd ON + chatId є → генерує одноразовий invite-link через Bot API' },
+              { who: 'tg', what: 'invite з creates_join_request=true (якщо joinRequestMode ON) для filtering на стороні webhook' },
+              { who: 'platform', what: 'зберігає у subscription.telegramInviteLink (одноразовий, унікальний для кожної підписки)' },
+              { who: 'email', what: 'у welcome-лист додається блок «Приєднатись до каналу» з кнопкою-посиланням' },
+              { who: 'student', what: 'клікає invite → потрапляє в канал (або створює заявку, якщо joinRequestMode ON — див. сценарій 🛡️)' },
             ]} accent="sky" />
             <ScenarioCard dark={dark} c={c} emoji="🎯" title="Пізня оплата · auto-extra-launch" trigger="Студент оплатив ПІСЛЯ того, як група вже стартувала" steps={[
               { who: 'student', what: 'оплачує програму на сайті' },
@@ -398,12 +416,13 @@ export default function WorkflowDiagramModal({ theme, graceDays, onClose }: { th
               { who: 'sp', what: 'відкриває курс одразу для цього студента' },
               { who: 'email', what: 'не welcome, а cohort launch email (з шаблону менеджера; TG-invite вкладено якщо autoAdd)' },
             ]} accent="sky" />
-            <ScenarioCard dark={dark} c={c} emoji="✋" title="Ручне додавання · персональне посилання" trigger="Менеджер додає студента, що не встиг купити вчасно" steps={[
-              { who: 'manager', what: 'натискає 👤 «Додати студента» — email + ім\'я' },
-              { who: 'platform', what: 'створює персональне посилання (дійсне 7 днів)' },
-              { who: 'manager', what: 'надсилає посилання студенту' },
-              { who: 'student', what: 'переходить, форма вже заповнена, оплачує' },
-              { who: 'platform', what: 'позначає «додано вручну». Якщо група запущена — auto extra-launch' },
+            <ScenarioCard dark={dark} c={c} emoji="✋" title="Ручне додавання · авто-лист з посиланням" trigger="Менеджер додає студента, що не встиг купити вчасно — система сама шле йому лист" steps={[
+              { who: 'manager', what: 'натискає 👤 «Додати студента» — email + ім\'я (текст листа можна тут же відредагувати у тому ж WYSIWYG, що Листи Платежів)' },
+              { who: 'platform', what: 'генерує signed invite-token (7 днів) → персональне посилання на /yearly-program?invite=…' },
+              { who: 'email', what: 'автоматично шле студенту лист «Запрошення вручну» (шаблон manual-add-invite, кнопка «Перейти до оплати»)' },
+              { who: 'student', what: 'клікає кнопку → форма вже заповнена + email locked → обирає план + оплачує' },
+              { who: 'platform', what: 'у callback ставить manuallyAddedAt + лінкує до cohort-у з invite. Студент отримує пілюлю «Додано вручну»' },
+              { who: 'platform', what: 'якщо cohort вже launched → авто extra-launch (SP-доступ + login-лист). Якщо ще не launched → welcome-лист, доступ при загальному запуску' },
             ]} accent="amber" />
             <ScenarioCard dark={dark} c={c} emoji="🔁" title="Повторити запуск" trigger="Частина підписок не отримала доступ при першому запуску" steps={[
               { who: 'platform', what: 'позначає, скільком студентам не вдалося відкрити доступ' },
@@ -413,12 +432,12 @@ export default function WorkflowDiagramModal({ theme, graceDays, onClose }: { th
               { who: 'platform', what: 'фіксує: кому доступ тепер відкрито' },
             ]} accent="amber" />
             <ScenarioCard dark={dark} c={c} emoji="💸" title="Невдале списання (cyclical)" trigger="WFP не зміг списати чергові 2 200 ₴ з картки (тільки автосписання)" steps={[
-              { who: 'wfp', what: 'списання провалилось → сигнал на сайт' },
-              { who: 'platform', what: 'failedChargeCount + 1, лог «charge failed»' },
-              { who: 'platform', what: 'після expiresAt → підписка стає пільговою' },
-              { who: 'email', what: 'наступного дня — «не вдалось списати оплату»' },
-              { who: 'email', what: 'через 3 дні в grace — «залишилось N днів до закриття»' },
-              { who: 'platform', what: `якщо за ${graceDays} днів не вдалося — закриття + лист «Доступ закрито»` },
+              { who: 'wfp', what: 'списання провалилось → callback на сайт' },
+              { who: 'platform', what: 'failedChargeCount + 1, ISSUE «AUTOPAY_CHARGE_FAILED» у трекері' },
+              { who: 'platform', what: 'після expiresAt → підписка стає пільговою (graceStartedAt = now)' },
+              { who: 'email', what: 'на старті grace — «не вдалось списати оплату»' },
+              ...(midReminderActive ? [{ who: 'email' as const, what: `день ${midGraceDay} grace — «залишилось N днів до закриття» (тільки коли graceDays ≥ 5)` }] : []),
+              { who: 'platform', what: `після ${graceDays} ${pluralizeDays(graceDays).toLowerCase()} grace — закриття + лист «Доступ закрито»` },
             ]} accent="rose" />
             <ScenarioCard dark={dark} c={c} emoji="🔄" title="Зміна плану (upgrade/downgrade)" trigger="Студент переходить між «авто» і «разовою» між платежами" steps={[
               { who: 'student', what: 'оплачує наступний місяць іншим планом' },
@@ -430,23 +449,43 @@ export default function WorkflowDiagramModal({ theme, graceDays, onClose }: { th
             <ScenarioCard dark={dark} c={c} emoji="❌" title="Скасування авто-плану" trigger="ТІЛЬКИ для Monthly з автосписанням (auto-renew=true)" steps={[
               { who: 'manager', what: 'у рядку підписки — кнопка «Скасувати»' },
               { who: 'platform', what: 'статус → «Скасована», cancelledAt + cancelledBy' },
-              { who: 'wfp', what: 'REMOVE усіх регулярних списань' },
+              { who: 'wfp', what: 'regularApi REMOVE з recToken підписки → WFP більше не буде списувати з картки' },
               { who: 'sp', what: 'доступ зберігається до кінця сплаченого періоду' },
               { who: 'email', what: 'admin-cancelled (за шаблоном)' },
             ]} accent="rose" />
             <ScenarioCard dark={dark} c={c} emoji="🔒" title="Адмін: закрити доступ зараз" trigger="Менеджер хоче закрити доступ ДО природного завершення" steps={[
               { who: 'manager', what: 'у рядку підписки — кнопка «Закрити доступ»' },
-              { who: 'sp', what: 'DELETE студента з курсу одразу' },
-              { who: 'wfp', what: 'REMOVE автосписання (якщо було)' },
-              { who: 'platform', what: 'статус → «Закрита». Можна реактивувати' },
+              { who: 'sp', what: 'DELETE студента з курсу одразу (через Education API)' },
+              { who: 'wfp', what: 'regularApi REMOVE по recToken (якщо MONTHLY-autopay)' },
+              { who: 'platform', what: 'статус → «Закрита». Можна реактивувати кнопкою «Відкрити знову»' },
               { who: 'email', what: 'admin-access-closed' },
             ]} accent="amber" />
             <ScenarioCard dark={dark} c={c} emoji="🗑️" title="Адмін: архівувати" trigger="Soft-delete підписки (без можливості реактивації)" steps={[
               { who: 'manager', what: 'у рядку підписки — кнопка «Видалити»' },
               { who: 'sp', what: 'DELETE студента з курсу' },
-              { who: 'wfp', what: 'REMOVE автосписання' },
-              { who: 'platform', what: 'статус → «Архівована», sendpulseStudentId очищено' },
+              { who: 'wfp', what: 'regularApi REMOVE по recToken (якщо було автосписання)' },
+              { who: 'platform', what: 'статус → «Архівована», sendpulseStudentId очищено, recToken видалено' },
               { who: 'email', what: 'admin-archived' },
+            ]} accent="rose" />
+            <ScenarioCard dark={dark} c={c} emoji="🛡️" title="Telegram · режим заявок на вступ" trigger="У каналі ON «Заявки на вступ» + у адмінці joinRequestMode ON — захист від витоку invite-посилань" steps={[
+              { who: 'student', what: 'клікає invite-link з листа (або форварднутий чужому)' },
+              { who: 'tg', what: 'Telegram створює chat_join_request → шле webhook нашому боту (allowed_updates: chat_join_request)' },
+              { who: 'platform', what: 'webhook /api/telegram/yearly-program-webhook знаходить subscription по invite_link' },
+              { who: 'platform', what: 'якщо знайдено + статус ACTIVE/GRACE → approveChatJoinRequest, ставить telegramJoinedAt' },
+              { who: 'platform', what: 'якщо не знайдено АБО підписка EXPIRED/CANCELLED → declineChatJoinRequest (чужий не пройде)' },
+            ]} accent="sky" />
+            <ScenarioCard dark={dark} c={c} emoji="🚪" title="Telegram · студент покинув / вилучений" trigger="Webhook chat_member: студент leave-нув канал, або менеджер kick-нув" steps={[
+              { who: 'tg', what: 'chat_member update: old_status=member, new_status=left/kicked' },
+              { who: 'platform', what: 'знаходить subscription за tgUserId або invite_link' },
+              { who: 'platform', what: 'у таблиці пілюля у колонці «TG»: «❌ Покинув канал» або «🚪 Вилучено з ТГ»' },
+              { who: 'manager', what: 'бачить статус у колонці TG, може повторно надіслати invite з панелі підписки' },
+            ]} accent="sky" />
+            <ScenarioCard dark={dark} c={c} emoji="🚨" title="Issue tracker · автоматичні інциденти" trigger="Будь-яка системна помилка в lifecycle підписки → потрапляє в трекер" steps={[
+              { who: 'platform', what: 'класифікує помилку у kind: LAUNCH_ACCESS_FAILED / LAUNCH_EMAIL_FAILED / TG_INVITE_FAILED / TG_KICK_FAILED / SP_CLOSE_FAILED / SP_REOPEN_FAILED / AUTOPAY_CHARGE_FAILED' },
+              { who: 'platform', what: 'у toolbar з\'являється «🚨 Помилки» + red badge з лічильником active issues' },
+              { who: 'manager', what: 'відкриває модалку → бачить вкладки Active / Dismissed, фільтр по kind/plan, посилання на subscription' },
+              { who: 'manager', what: 'може retry (для TG-invite), dismiss з причиною, або клікнути «Відкрити підписку» → таблиця прокрутиться + рядок підсвітиться' },
+              { who: 'platform', what: 'парна авто-резолюція: успішна дія (наприклад access_opened) автоматично закриває попередню помилку (access_open_failed)' },
             ]} accent="rose" />
           </div>
 
@@ -470,7 +509,7 @@ export default function WorkflowDiagramModal({ theme, graceDays, onClose }: { th
                 <PlanRow dark={dark} label="Кількість списань" yearly="1 разово" auto="до 9 авто-списань" manual="оплачує сам кожен раз" />
                 <PlanRow dark={dark} label="Лист-чек після оплати" yearly="welcome (1 раз)" auto="за кожне списання" manual="за кожен платіж" />
                 <PlanRow dark={dark} label="Нагадування −3д / −1д" yearly="—" auto="—" manual="✅ так" />
-                <PlanRow dark={dark} label="Лист «не списали»" yearly="—" auto="✅ +1д у grace, +3д у grace" manual="—" />
+                <PlanRow dark={dark} label="Лист «не списали»" yearly="—" auto={midReminderActive ? `✅ старт grace + день ${midGraceDay}` : '✅ старт grace'} manual="—" />
                 <PlanRow dark={dark} label="Кнопка «Скасувати»" yearly="—" auto="✅ є (вимикає автоплатеж)" manual="—" />
                 <PlanRow dark={dark} label="Лист «Доступ закрито»" yearly="✅ після cohort.endDate + grace" auto="✅ після grace" manual="✅ після grace" />
               </tbody>
@@ -480,8 +519,9 @@ export default function WorkflowDiagramModal({ theme, graceDays, onClose }: { th
           {/* ═══════════ FOOTER NOTE ═══════════ */}
           <div className={`mt-6 rounded-lg border-l-4 px-4 py-3 ${dark ? 'bg-white/[0.02] border-amber-400/40' : 'bg-amber-50/40 border-amber-400'}`}>
             <p className={`text-[12px] leading-relaxed ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
-              <strong className={dark ? 'text-slate-200' : 'text-stone-900'}>Місячний з автосписанням:</strong> якщо WayForPay не зміг списати з карти — наступного дня студенту йде лист «не вдалося списати», ще через 3 дні — другий лист, далі підписка переходить у пільговий період і потім закривається.&nbsp;
-              <strong className={dark ? 'text-slate-200' : 'text-stone-900'}>Місячний разовий (без автосписання):</strong> ті ж самі нагадування, але платіж не намагається списатися автоматично — студент має оплатити сам.
+              <strong className={dark ? 'text-slate-200' : 'text-stone-900'}>Місячний з автосписанням:</strong> якщо WayForPay не зміг списати з карти — підписка переходить у пільговий період <code className="font-mono">{graceDays}</code>{' '}{pluralizeDays(graceDays).toLowerCase()}. На старті grace студенту йде лист «не вдалося списати»{midReminderActive ? `, у середині grace (день ${midGraceDay}) — другий лист` : ''}, по завершенні — закриття доступу + лист.&nbsp;
+              <strong className={dark ? 'text-slate-200' : 'text-stone-900'}>Місячний разовий (без автосписання):</strong> ті ж нагадування, але платіж не намагається списатися автоматично — студент має оплатити сам.&nbsp;
+              <em className={`text-[11px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>Розклад нагадувань адаптивний: при graceDays &lt; 5 проміжний лист пропускається.</em>
             </p>
           </div>
         </div>
