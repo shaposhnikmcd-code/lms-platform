@@ -124,7 +124,7 @@ const TABS: Array<{ key: TabKey; label: string; icon: React.ComponentType<{ clas
   { key: 'issues', label: 'Помилки', icon: HiOutlineExclamationTriangle },
 ];
 
-export default function CertificatesView() {
+export default function CertificatesView({ graceDays }: { graceDays: number }) {
   const { theme, setTheme } = useAdminTheme();
   /// Активна вкладка персиститься у URL `?tab=...`, щоб refresh не скидав на courses.
   /// Початковий стейт — courses (SSR-safe); URL читаємо у useEffect після маунту.
@@ -979,9 +979,11 @@ function CoursesTab({
 
 function YearlyTab({
   theme,
+  graceDays,
   pushToast,
 }: {
   theme: Theme;
+  graceDays: number;
   pushToast: (t: { type: 'success' | 'error'; msg: string }) => void;
 }) {
   const dark = theme === 'dark';

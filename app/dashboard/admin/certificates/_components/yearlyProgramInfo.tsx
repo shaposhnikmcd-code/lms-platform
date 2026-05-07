@@ -8,8 +8,8 @@
 
 import type { ReactNode } from 'react';
 
-export const YEARLY_INFO_VERSION = 1;
-export const YEARLY_INFO_LAST_UPDATED = '2026-04-26';
+export const YEARLY_INFO_VERSION = 2;
+export const YEARLY_INFO_LAST_UPDATED = '2026-05-07';
 
 export interface InfoSection {
   /// Емоджі/іконка зліва від заголовка
@@ -20,7 +20,10 @@ export interface InfoSection {
   body: ReactNode;
 }
 
-export const YEARLY_INFO_SECTIONS: InfoSection[] = [
+/// graceDays — динамічне значення з налаштувань Річної програми.
+/// Передається з server-page → CertificatesView → YearlyInfoModal.
+export function buildYearlyInfoSections({ graceDays }: { graceDays: number }): InfoSection[] {
+  return [
   {
     emoji: '📋',
     title: 'Що таке Річна програма',
@@ -71,7 +74,7 @@ export const YEARLY_INFO_SECTIONS: InfoSection[] = [
           <strong>ACTIVE</strong> — оплачено, доступ відкритий, все працює.
         </li>
         <li>
-          <strong>GRACE</strong> — закінчився термін доступу, але ми даємо ще 7 днів
+          <strong>GRACE</strong> — закінчився термін доступу, але ми даємо ще {graceDays} днів
           льготного періоду перед остаточним закриттям. Доступ до SendPulse ще
           відкритий, але юзер бачить попередження.
         </li>
@@ -106,7 +109,7 @@ export const YEARLY_INFO_SECTIONS: InfoSection[] = [
           </li>
           <li>
             Cron о 04:00 щодня перевіряє підписки: ACTIVE → GRACE при закінченні
-            терміну, GRACE → EXPIRED після 7 днів. Він же шле нагадування за 3
+            терміну, GRACE → EXPIRED після {graceDays} днів. Він же шле нагадування за 3
             дні і за 1 день до закінчення.
           </li>
         </ul>
@@ -229,4 +232,5 @@ export const YEARLY_INFO_SECTIONS: InfoSection[] = [
       </ul>
     ),
   },
-];
+  ];
+}

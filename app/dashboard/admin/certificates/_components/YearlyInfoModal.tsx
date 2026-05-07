@@ -4,19 +4,22 @@ import { useEffect } from 'react';
 import { HiOutlineXMark, HiOutlineSparkles } from 'react-icons/hi2';
 import type { Theme } from '../../_components/adminTheme';
 import {
-  YEARLY_INFO_SECTIONS,
+  buildYearlyInfoSections,
   YEARLY_INFO_VERSION,
   YEARLY_INFO_LAST_UPDATED,
 } from './yearlyProgramInfo';
 
 export default function YearlyInfoModal({
   theme,
+  graceDays,
   onClose,
 }: {
   theme: Theme;
+  graceDays: number;
   onClose: () => void;
 }) {
   const dark = theme === 'dark';
+  const sections = buildYearlyInfoSections({ graceDays });
 
   /// Esc закриває, scroll body замикається.
   useEffect(() => {
@@ -73,7 +76,7 @@ export default function YearlyInfoModal({
 
         {/* Sections (scrollable) */}
         <div className="yearly-info-scroll flex-1 overflow-y-auto px-6 sm:px-8 py-6 space-y-5">
-          {YEARLY_INFO_SECTIONS.map((section, i) => (
+          {sections.map((section, i) => (
             <section
               key={i}
               className={`rounded-xl border p-5 ${dark ? 'border-white/[0.06] bg-white/[0.02]' : 'border-stone-200/70 bg-white/60'}`}
