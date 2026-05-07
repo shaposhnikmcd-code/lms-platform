@@ -236,6 +236,30 @@ export async function generateInviteForSubscription(args: {
     return { ok: false, inviteLink: null, error: err, subscriptionId };
   }
 
+  // Якщо студент був раніше забанений у каналі (через permanent-kick) — знімаємо
+  // бан, інакше будь-який invite-link не дасть йому увійти. only_if_banned=true →
+  // no-op якщо юзер не у бані (учасник каналу або ще не приєднувався). Best-effort:
+  // помилка зняття бана не блокує генерацію invite, лише логується в подіях.
+  const tgUser = await prisma.yearlyProgramSubscription.findUnique({
+    where: { id: subscriptionId },
+    select: { telegramTgUserId: true },
+  });
+  if (tgUser?.telegramTgUserId) {
+    try {
+      await unbanChatMember(settings.chatId, tgUser.telegramTgUserId, true);
+    } catch (e) {
+      const msg = e instanceof TelegramApiError ? e.message : (e instanceof Error ? e.message : String(e));
+      await prisma.yearlyProgramSubscriptionEvent.create({
+        data: {
+          subscriptionId,
+          type: 'admin_action',
+          message: `TG unban skipped before invite (${triggeredBy}): ${msg.slice(0, 200)}`,
+          metadata: { error: msg, triggeredBy },
+        },
+      });
+    }
+  }
+
   try {
     const link = await createChatInviteLink({
       chatId: settings.chatId,
