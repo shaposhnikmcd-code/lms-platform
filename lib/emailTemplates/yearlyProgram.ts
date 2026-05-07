@@ -41,6 +41,31 @@ export async function manualGraceStart(args: {
   });
 }
 
+/// Manual #4: середина grace-періоду (тільки якщо graceDays ≥ 5).
+export async function manualGraceMid(args: {
+  name: string | null;
+  gracePeriodEndsAt: Date;
+}): Promise<{ subject: string; html: string }> {
+  const daysLeft = Math.max(0, Math.ceil((args.gracePeriodEndsAt.getTime() - Date.now()) / (24 * 60 * 60 * 1000)));
+  return renderReminder('manual-grace-mid', {
+    name: nameOfVar(args.name),
+    gracePeriodEndsAt: dateOfVar(args.gracePeriodEndsAt),
+    daysLeft: String(daysLeft),
+    daysWord: daysWordVar(daysLeft),
+  });
+}
+
+/// Manual #5: за 1 день до закриття (тільки якщо graceDays ≥ 3).
+export async function manualGraceLast(args: {
+  name: string | null;
+  gracePeriodEndsAt: Date;
+}): Promise<{ subject: string; html: string }> {
+  return renderReminder('manual-grace-last', {
+    name: nameOfVar(args.name),
+    gracePeriodEndsAt: dateOfVar(args.gracePeriodEndsAt),
+  });
+}
+
 // ==================== CYCLICAL FLOW (автосписання, тільки при помилці) ====================
 
 /// Cyclical #1: через 1 день після експайру — WFP не зміг списати.
@@ -57,20 +82,28 @@ export async function cyclicalChargeFailed1(args: {
   });
 }
 
-/// Cyclical #2: через 3 дні після експайру — все ще не списано.
-export async function cyclicalChargeFailed3(args: {
+/// Cyclical #2: середина grace-періоду (тільки якщо graceDays ≥ 5).
+export async function cyclicalGraceMid(args: {
   name: string | null;
   gracePeriodEndsAt: Date;
-  graceDays: number;
 }): Promise<{ subject: string; html: string }> {
   const daysLeft = Math.max(0, Math.ceil((args.gracePeriodEndsAt.getTime() - Date.now()) / (24 * 60 * 60 * 1000)));
-  return renderReminder('cyclical-failed-3', {
+  return renderReminder('cyclical-grace-mid', {
     name: nameOfVar(args.name),
     gracePeriodEndsAt: dateOfVar(args.gracePeriodEndsAt),
     daysLeft: String(daysLeft),
     daysWord: daysWordVar(daysLeft),
-    graceDays: String(args.graceDays),
-    graceDaysWord: daysWordVar(args.graceDays),
+  });
+}
+
+/// Cyclical #3: за 1 день до закриття (тільки якщо graceDays ≥ 3).
+export async function cyclicalGraceLast(args: {
+  name: string | null;
+  gracePeriodEndsAt: Date;
+}): Promise<{ subject: string; html: string }> {
+  return renderReminder('cyclical-grace-last', {
+    name: nameOfVar(args.name),
+    gracePeriodEndsAt: dateOfVar(args.gracePeriodEndsAt),
   });
 }
 

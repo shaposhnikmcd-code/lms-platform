@@ -6,14 +6,17 @@ import {
   manualBeforeExpiry,
   manualOnExpiry,
   manualGraceStart,
+  manualGraceMid,
+  manualGraceLast,
   cyclicalChargeFailed1,
-  cyclicalChargeFailed3,
+  cyclicalGraceMid,
+  cyclicalGraceLast,
   accessClosed,
 } from '@/lib/emailTemplates/yearlyProgram';
 
 /// Повертає HTML рендер email-шаблону для попереднього перегляду в адмінці.
-/// ?type=manual-before | manual-on-expiry | manual-grace-start
-///       cyclical-failed-1 | cyclical-failed-3
+/// ?type=manual-before | manual-on-expiry | manual-grace-start | manual-grace-mid | manual-grace-last
+///       cyclical-failed-1 | cyclical-grace-mid | cyclical-grace-last
 ///       closed
 export async function GET(req: NextRequest) {
   if (!(await isAdmin(req))) {
@@ -27,6 +30,11 @@ export async function GET(req: NextRequest) {
   const graceDays = await getYearlyGraceDays(prisma);
   const in3Days = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
   const gracePeriodEndsAt = new Date(Date.now() + graceDays * 24 * 60 * 60 * 1000);
+  // mid: показуємо коли grace вже на середині (daysLeft = floor(graceDays/2)).
+  const midRemainingDays = Math.max(1, Math.floor(graceDays / 2));
+  const midGracePeriodEndsAt = new Date(Date.now() + midRemainingDays * 24 * 60 * 60 * 1000);
+  // last: рівно за 1 день до закриття.
+  const lastGracePeriodEndsAt = new Date(Date.now() + 1 * 24 * 60 * 60 * 1000);
 
   let html = '';
   switch (type) {
@@ -39,16 +47,20 @@ export async function GET(req: NextRequest) {
     case 'manual-grace-start':
       html = (await manualGraceStart({ name: sampleName, gracePeriodEndsAt, graceDays })).html;
       break;
+    case 'manual-grace-mid':
+      html = (await manualGraceMid({ name: sampleName, gracePeriodEndsAt: midGracePeriodEndsAt })).html;
+      break;
+    case 'manual-grace-last':
+      html = (await manualGraceLast({ name: sampleName, gracePeriodEndsAt: lastGracePeriodEndsAt })).html;
+      break;
     case 'cyclical-failed-1':
       html = (await cyclicalChargeFailed1({ name: sampleName, gracePeriodEndsAt, graceDays })).html;
       break;
-    case 'cyclical-failed-3':
-      // Для 3-го дня залишок 4 дні
-      html = (await cyclicalChargeFailed3({
-        name: sampleName,
-        gracePeriodEndsAt: new Date(Date.now() + 4 * 24 * 60 * 60 * 1000),
-        graceDays,
-      })).html;
+    case 'cyclical-grace-mid':
+      html = (await cyclicalGraceMid({ name: sampleName, gracePeriodEndsAt: midGracePeriodEndsAt })).html;
+      break;
+    case 'cyclical-grace-last':
+      html = (await cyclicalGraceLast({ name: sampleName, gracePeriodEndsAt: lastGracePeriodEndsAt })).html;
       break;
     case 'closed':
       html = (await accessClosed({ name: sampleName })).html;

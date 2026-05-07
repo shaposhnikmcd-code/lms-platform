@@ -27,7 +27,7 @@ import CohortActions from './CohortActions';
 import MoveCohortBtn from './MoveCohortBtn';
 import { UIFeedbackProvider, useUIFeedback } from './UIFeedback';
 import { SkeletonBox, SkeletonFooterTick } from './EmailEditorParts';
-import { prewarmTemplateListCache, prewarmRecipientsCache } from './modalCaches';
+import { prewarmTemplateListCache, prewarmRecipientsCache, syncReminderListGraceDays } from './modalCaches';
 import type { YearlyProgramAdminPrewarm } from '@/lib/yearlyProgramAdminPrefetch';
 
 // Code-split важких модалок: TipTap-редактор + великі форми тягнуть ~200KB JS.
@@ -145,6 +145,15 @@ export default function YearlyProgramView(props: {
     }
     return null;
   });
+
+  // Re-sync currentGraceDays на reminder-кеш при кожному оновленні SSR-prewarm-у
+  // (наприклад, після router.refresh() з GraceSettingsModal). Жорстко перезаписувати весь
+  // кеш не можна — там зберігаються правки менеджера (isCustomized/updatedAt). Тому міняємо
+  // тільки одне поле, яке гарантовано приходить зі server-side і не редагується клієнтом.
+  const reminderGraceDays = props.prewarm.templates.reminder.currentGraceDays ?? null;
+  useEffect(() => {
+    syncReminderListGraceDays(reminderGraceDays);
+  }, [reminderGraceDays]);
 
   return (
     <UIFeedbackProvider theme={theme}>
@@ -451,13 +460,13 @@ function YearlyProgramViewInner({
                     onChange={(v) => setStatusFilter(v as 'ALL' | SubStatus)}
                   />
                 </Th>
+                <Th theme={theme}>Telegram</Th>
                 <Th theme={theme}>Дата оплати</Th>
                 <Th theme={theme}>Початок програми</Th>
                 <Th theme={theme}>Доступ до</Th>
                 <Th theme={theme} align="center" className="px-2">№</Th>
                 <Th theme={theme}>Сплачено</Th>
                 <Th theme={theme}>SendPulse</Th>
-                <Th theme={theme}>Telegram</Th>
               </tr>
             </thead>
             <tbody className={dark ? 'divide-y divide-white/[0.04]' : 'divide-y divide-stone-200/60'}>
@@ -691,6 +700,9 @@ function RowBlock({
         </td>
         <td className="px-4 py-2.5 text-center"><PlanBadge theme={theme} plan={r.plan} autoRenew={r.autoRenew} /></td>
         <td className="px-4 py-2.5 text-center"><StatusBadge theme={theme} status={r.status} graceDays={graceDays} /></td>
+        <td className="px-4 py-2.5">
+          <TelegramAccessBadge theme={theme} row={r} />
+        </td>
         <td className={`px-4 py-2.5 text-[11px] tabular-nums whitespace-nowrap ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
           {r.firstPaymentAt ? (
             <>
@@ -739,9 +751,6 @@ function RowBlock({
         </td>
         <td className="px-4 py-2.5">
           <SendpulseBadge theme={theme} openedAt={r.sendpulseAccessOpenedAt} closedAt={r.sendpulseAccessClosedAt} studentId={r.sendpulseStudentId} />
-        </td>
-        <td className="px-4 py-2.5">
-          <TelegramAccessBadge theme={theme} row={r} />
         </td>
       </tr>
 
@@ -938,9 +947,9 @@ function ExpandedRowContent({
           )}
           {!!row.sendpulseAccessOpenedAt && (
             <ActionBtn theme={theme} disabled={busy || row.status === 'ARCHIVED'} tone="success" onClick={() =>
-              onAction('reopen_access', undefined, 'Відкрити доступ до SendPulse знову (через event)?')
+              onAction('reopen_access', undefined, 'Відкрити доступ до SendPulse (через event)?')
             }>
-              ✓ Відкрити доступ до SendPulse знову
+              ✓ Відкрити доступ до SendPulse
             </ActionBtn>
           )}
           <button
@@ -961,10 +970,32 @@ function ExpandedRowContent({
                 ? 'Перенадіслати Welcome E-mail з запрошенням в Telegram'
                 : 'Надіслати Welcome E-mail з запрошенням в Telegram'}
           </button>
+          {!!details.telegramJoinedAt && !details.telegramLeftAt && (
+            <ActionBtn theme={theme} disabled={busy || row.status === 'ARCHIVED'} tone="warning" onClick={() =>
+              onAction(
+                'tg_kick',
+                undefined,
+                'Вилучити студента з Telegram-каналу? Студент видаляється, але invite-link залишається валідним — за потреби може повернутись.',
+              )
+            }>
+              🚪 Вилучити з Telegram-каналу
+            </ActionBtn>
+          )}
+          {(!!details.telegramJoinedAt || !!details.telegramInviteLink) && (
+            <ActionBtn theme={theme} disabled={busy || row.status === 'ARCHIVED'} tone="danger" onClick={() =>
+              onAction(
+                'tg_kick_revoke',
+                undefined,
+                'Вилучити з Telegram-каналу та закрити доступ? Студент банується (не зможе повернутись) і invite-link знечинено.',
+              )
+            }>
+              🚫 Вилучити з Telegram та закрити доступ
+            </ActionBtn>
+          )}
           <ActionBtn theme={theme} disabled={busy || row.status === 'ARCHIVED'} tone="danger" onClick={() =>
-            onAction('delete', undefined, `Архівувати запис ${row.userEmail ?? ''}? Закриємо доступ у SendPulse, статус → ARCHIVED, очистимо технічні поля. ВІДКРИТИ ЗНОВУ вже не вийде.`)
+            onAction('delete', undefined, `Деактивувати та вилучити студента ${row.userEmail ?? ''} з програми? Закриємо доступ у SendPulse, вилучимо з Telegram-каналу і відкличемо invite, статус → ARCHIVED, очистимо технічні поля. ВІДКРИТИ ЗНОВУ вже не вийде.`)
           }>
-            🗑 Архівувати запис
+            🗑 Деактивувати та Вилучити студента з програми
           </ActionBtn>
           {!row.cohortLaunched && (
             <MoveCohortBtn theme={theme} row={row} disabled={busy} />
@@ -1463,9 +1494,11 @@ function HelpModal({ theme, graceDays, onClose }: { theme: Theme; graceDays: num
     { icon: '🎯', name: 'Екстра Запуск нового студента', desc: 'З\'являється коли студент оплатив підписку ПІСЛЯ того, як cohort вже запущено. Звичайний "Запустити програму" відпрацював раніше і цього новачка пропустив. Кнопка точково відкриває йому доступ у SendPulse через event і шле welcome-лист (як і всім решта при загальному launch).' },
     { icon: '⏱', name: 'Продовжити', desc: 'Додає вказану кількість днів до поточного терміну доступу. Корисно для бонусів, подарунків чи компенсацій.' },
     { icon: '🚫', name: 'Скасувати автосписання', desc: 'Зупиняє автоматичні списання з картки на боці WayForPay і ставить статус CANCELLED. Доступ зберігається до кінця оплаченого місяця. Кнопка з\'являється тільки для місячних підписок з активним автоплатежем — для річних і одноразових місячних її нема.' },
-    { icon: '✕', name: 'Закрити доступ у SendPulse', desc: 'Миттєво забирає доступ до курсу в SendPulse. Підписка стає EXPIRED. Можна потім "Відкрити знову".' },
-    { icon: '✓', name: 'Відкрити доступ до SendPulse знову', desc: 'Відновлює доступ у SendPulse + продовжує термін згідно плану (YEARLY +365д, MONTHLY +30д). Не працює для ARCHIVED.' },
-    { icon: '🗑', name: 'Архівувати запис', desc: 'Назавжди закриває доступ у SendPulse, очищає технічні поля (studentId), ставить статус ARCHIVED. Картка лишається в адмінці як архів. Відновити не можна. Для підтвердження треба ввести email.' },
+    { icon: '✕', name: 'Закрити доступ у SendPulse', desc: 'Миттєво забирає доступ до курсу в SendPulse. Підписка стає EXPIRED. Заодно вилучає студента з Telegram-каналу (invite-link залишається валідним — за потреби студент може повернутись через "Відкрити доступ до SendPulse").' },
+    { icon: '✓', name: 'Відкрити доступ до SendPulse', desc: 'Відновлює доступ у SendPulse + продовжує термін згідно плану (YEARLY +365д, MONTHLY +30д). Не працює для ARCHIVED.' },
+    { icon: '🚪', name: 'Вилучити з Telegram-каналу', desc: 'Тільки видаляє студента з ТГ-каналу (без зміни SendPulse-доступу). Invite-link залишається валідним — студент може повернутись по ньому. Кнопка з\'являється тільки якщо студент зараз у каналі.' },
+    { icon: '🚫', name: 'Вилучити з Telegram та закрити доступ', desc: 'Видаляє студента з ТГ-каналу + банить (не зможе повернутись) + знечинює invite-link. SendPulse-доступ не чіпає. Кнопка з\'являється якщо є invite-link або студент уже був у каналі.' },
+    { icon: '🗑', name: 'Деактивувати та Вилучити студента з програми', desc: 'Назавжди закриває доступ у SendPulse, вилучає з Telegram-каналу і відкликає invite-link, очищає технічні поля (studentId), ставить статус ARCHIVED. Картка лишається в адмінці як архів. Відновити не можна. Для підтвердження треба ввести email.' },
   ];
 
   if (!mounted) return null;

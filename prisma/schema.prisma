@@ -799,14 +799,18 @@ model YearlyProgramSubscription {
   graceStartedAt    DateTime?
   gracePeriodEndsAt DateTime?
 
-  /// Нагадування про закінчення / grace.
-  /// MANUAL flow: manualBeforeExpiry (3д до) → manualOnExpiry (день 0) → manualGraceStart (день +1) → accessClosed (день +7)
-  /// CYCLICAL flow (тільки при charge failure): cyclicalChargeFailed1 (день +1) → cyclicalChargeFailed3 (день +3) → accessClosed (день +7)
+  /// Нагадування про закінчення / grace. Розклад адаптивний за `graceDays`:
+  ///   start    — день +1 від expiresAt (завжди)
+  ///   mid      — приблизно середина grace-періоду (тільки якщо graceDays ≥ 5)
+  ///   last     — за 1 день до закриття (тільки якщо graceDays ≥ 3)
+  ///   closed   — у день закриття (завжди)
+  /// MANUAL і CYCLICAL шари — окремі шаблони з однаковим розкладом.
   reminderSent3d         Boolean @default(false) /// manual: 3 дні до закінчення
-  reminderSentExpired    Boolean @default(false) /// spіvlynyi: accessClosed на день +7
+  reminderSentExpired    Boolean @default(false) /// shared: accessClosed у день закриття
   reminderSentOnExpiry   Boolean @default(false) /// manual: у день закінчення
-  reminderSentGraceStart Boolean @default(false) /// manual: день +1 (grace стартував) АБО cyclical: charge failed
-  reminderSentGraceMid   Boolean @default(false) /// cyclical: день +3 (все ще не списано)
+  reminderSentGraceStart Boolean @default(false) /// manual+cyclical: день +1 (grace стартував)
+  reminderSentGraceMid   Boolean @default(false) /// manual+cyclical: середина пільгового періоду (graceDays ≥ 5)
+  reminderSentGraceLast  Boolean @default(false) /// manual+cyclical: за 1 день до закриття (graceDays ≥ 3)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

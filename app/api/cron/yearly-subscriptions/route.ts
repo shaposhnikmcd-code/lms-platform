@@ -13,8 +13,11 @@ import {
   manualBeforeExpiry,
   manualOnExpiry,
   manualGraceStart,
+  manualGraceMid,
+  manualGraceLast,
   cyclicalChargeFailed1,
-  cyclicalChargeFailed3,
+  cyclicalGraceMid,
+  cyclicalGraceLast,
   accessClosed,
 } from '@/lib/emailTemplates/yearlyProgram';
 
@@ -42,9 +45,9 @@ async function processInParallel<T>(
 /// Щоденний cron Річної програми.
 /// — Переводить ACTIVE → GRACE коли expiresAt у минулому.
 /// — Закриває доступ (GRACE → EXPIRED) коли grace-період вийшов.
-/// — Шле нагадування:
-///   MANUAL (клієнт платить сам): за 3 дні до експайру, у день експайру, день +1 grace, день +7 закриття.
-///   CYCLICAL (автосписання): тільки при failure — день +1, день +3, день +7.
+/// — Шле нагадування за адаптивним розкладом, що залежить від `graceDays` із налаштувань:
+///   MANUAL: за 3 дні до експайру → у день експайру → день +1 (start) → mid (≥5д) → last (≥3д) → закриття
+///   CYCLICAL (тільки при charge failure): день +1 (start) → mid (≥5д) → last (≥3д) → закриття
 export async function GET(req: NextRequest) {
   if (!verifyBearer(req.headers.get('authorization'), process.env.CRON_SECRET)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -58,7 +61,8 @@ export async function GET(req: NextRequest) {
   results.push(await sendManualBeforeExpiryReminders());
   results.push(await sendManualOnExpiryReminders());
   results.push(await sendGraceStartReminders());
-  results.push(await sendCyclicalGraceMidReminders());
+  results.push(await sendGraceMidReminders());
+  results.push(await sendGraceLastReminders());
   results.push(await sendScheduledCohortLaunchEmails());
   results.push(await syncYearlyCourseProgress());
 
@@ -197,18 +201,20 @@ async function transitionActiveToGrace(): Promise<StepResult> {
 
 async function expireGraceSubscriptions(): Promise<StepResult> {
   const now = new Date();
-  const graceCutoff = new Date(now.getTime() - YEARLY_PROGRAM_CONFIG.graceDays * 24 * 60 * 60 * 1000);
+  const graceDays = await getYearlyGraceDays(prisma);
+  const graceCutoff = new Date(now.getTime() - graceDays * 24 * 60 * 60 * 1000);
   const errors: string[] = [];
 
-  // Нова семантика: експайраємо коли gracePeriodEndsAt < now.
-  // Fallback для legacy-рядків (до міграції add_grace_period_ends_at) — лишаємо
-  // старий фільтр по expiresAt. Коли всі існуючі GRACE пройдуть хоча б один cron —
-  // fallback можна прибрати.
+  // Семантика: експайраємо коли grace-період вже завершився (gracePeriodEndsAt <= now).
+  // Beremo `lte` (не строго <), бо cron + transitionActiveToGrace стартують в одну й ту саму
+  // годину — gracePeriodEndsAt = graceStartedAt + graceDays днів збігається з cron-«now»
+  // на час закриття. Зі строгим `<` close спрацьовував би на день пізніше за очікуване.
+  // Fallback для legacy-рядків (до міграції add_grace_period_ends_at) — старий фільтр по expiresAt.
   const subs = await prisma.yearlyProgramSubscription.findMany({
     where: {
       status: 'GRACE',
       OR: [
-        { gracePeriodEndsAt: { lt: now } },
+        { gracePeriodEndsAt: { lte: now } },
         { gracePeriodEndsAt: null, expiresAt: { lt: graceCutoff } },
       ],
     },
@@ -458,20 +464,29 @@ async function sendGraceStartReminders(): Promise<StepResult> {
   return { step: 'grace_start', processed, errors };
 }
 
-/// CYCLICAL #2: день +3 під час grace. Тільки cyclical (autoRenew=true).
-async function sendCyclicalGraceMidReminders(): Promise<StepResult> {
+/// MID — день grace-періоду номер `midDay = ceil(graceDays/2)`.
+/// Тригер: минуло щонайменше `midDay - 1` днів від graceStartedAt → сьогодні і є день номер midDay.
+/// Спрацьовує тільки якщо graceDays ≥ 5 (інакше точка занадто близько до start/last → колізія).
+/// Manual (autoRenew=false) і cyclical (autoRenew=true з failedChargeCount > 0) обробляються разом —
+/// різні шаблони, спільне поле reminderSentGraceMid.
+async function sendGraceMidReminders(): Promise<StepResult> {
+  const graceDays = await getYearlyGraceDays(prisma);
+  if (graceDays < 5) {
+    return { step: 'grace_mid', processed: 0, errors: [] };
+  }
   const errors: string[] = [];
   const now = new Date();
-  const threeDaysAgo = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
-  const graceDays = await getYearlyGraceDays(prisma);
+  const midDay = Math.ceil(graceDays / 2);
+  // День +1 grace = graceStartedAt. Хочемо fire на день +midDay → потрібно щоб минуло (midDay - 1) діб.
+  // Беремо <= щоб точка-в-точку співпадіння теж тригерило (cron + transitionActiveToGrace на одній годині).
+  const cutoff = new Date(now.getTime() - (midDay - 1) * 24 * 60 * 60 * 1000);
 
   const subs = await prisma.yearlyProgramSubscription.findMany({
     where: {
       status: 'GRACE',
       plan: 'MONTHLY',
-      autoRenew: true,
-      graceStartedAt: { lt: threeDaysAgo },
       reminderSentGraceMid: false,
+      graceStartedAt: { lte: cutoff },
       gracePeriodEndsAt: { not: null },
     },
     include: { user: true },
@@ -481,7 +496,14 @@ async function sendCyclicalGraceMidReminders(): Promise<StepResult> {
   await processInParallel(subs, async (sub) => {
     try {
       if (!sub.user?.email || !sub.gracePeriodEndsAt) return;
-      const { subject, html } = await cyclicalChargeFailed3({ name: sub.user.name, gracePeriodEndsAt: sub.gracePeriodEndsAt, graceDays });
+      const isManual = !sub.autoRenew;
+      // Cyclical-mid шлемо тільки якщо був хоч один failed charge — інакше підписка не в реальному
+      // grace-флоу autopay (це може бути CANCELLED-перехідний стан тощо).
+      if (!isManual && (sub.failedChargeCount ?? 0) === 0) return;
+
+      const { subject, html } = isManual
+        ? await manualGraceMid({ name: sub.user.name, gracePeriodEndsAt: sub.gracePeriodEndsAt })
+        : await cyclicalGraceMid({ name: sub.user.name, gracePeriodEndsAt: sub.gracePeriodEndsAt });
       await resend.emails.send({ from: FROM, to: sub.user.email, subject, html });
       await prisma.yearlyProgramSubscription.update({
         where: { id: sub.id },
@@ -490,8 +512,8 @@ async function sendCyclicalGraceMidReminders(): Promise<StepResult> {
       await prisma.yearlyProgramSubscriptionEvent.create({
         data: {
           subscriptionId: sub.id,
-          type: 'reminder_cyclical_failed3',
-          message: `Grace ends ${sub.gracePeriodEndsAt.toISOString().slice(0, 10)}`,
+          type: isManual ? 'reminder_manual_grace_mid' : 'reminder_cyclical_grace_mid',
+          message: `Grace ends ${sub.gracePeriodEndsAt.toISOString().slice(0, 10)} · midDay=${midDay} · graceDays=${graceDays}`,
         },
       });
       processed++;
@@ -500,7 +522,65 @@ async function sendCyclicalGraceMidReminders(): Promise<StepResult> {
     }
   });
 
-  return { step: 'cyclical_grace_mid', processed, errors };
+  return { step: 'grace_mid', processed, errors };
+}
+
+/// LAST — день grace-періоду номер `graceDays` (за день до закриття).
+/// Тригер: минуло щонайменше `graceDays - 1` днів від graceStartedAt → сьогодні останній день grace
+/// (закриття буде завтра в `expireGraceSubscriptions`). Спрацьовує тільки якщо graceDays ≥ 3 —
+/// інакше колізія зі start (при graceDays=2 day-of-grace=2 = day закриття; при graceDays=1 — взагалі немає сенсу).
+async function sendGraceLastReminders(): Promise<StepResult> {
+  const graceDays = await getYearlyGraceDays(prisma);
+  if (graceDays < 3) {
+    return { step: 'grace_last', processed: 0, errors: [] };
+  }
+  const errors: string[] = [];
+  const now = new Date();
+  // Той самий принцип, що й у mid — fire на день +graceDays від graceStartedAt.
+  const cutoff = new Date(now.getTime() - (graceDays - 1) * 24 * 60 * 60 * 1000);
+
+  const subs = await prisma.yearlyProgramSubscription.findMany({
+    where: {
+      status: 'GRACE',
+      plan: 'MONTHLY',
+      reminderSentGraceLast: false,
+      graceStartedAt: { lte: cutoff },
+      // Safety: не шлемо «завтра закриваємо» якщо grace вже фактично завершився
+      // (рідкісний edge — cron не запускався і експайр пропустили).
+      gracePeriodEndsAt: { gt: now },
+    },
+    include: { user: true },
+  });
+
+  let processed = 0;
+  await processInParallel(subs, async (sub) => {
+    try {
+      if (!sub.user?.email || !sub.gracePeriodEndsAt) return;
+      const isManual = !sub.autoRenew;
+      if (!isManual && (sub.failedChargeCount ?? 0) === 0) return;
+
+      const { subject, html } = isManual
+        ? await manualGraceLast({ name: sub.user.name, gracePeriodEndsAt: sub.gracePeriodEndsAt })
+        : await cyclicalGraceLast({ name: sub.user.name, gracePeriodEndsAt: sub.gracePeriodEndsAt });
+      await resend.emails.send({ from: FROM, to: sub.user.email, subject, html });
+      await prisma.yearlyProgramSubscription.update({
+        where: { id: sub.id },
+        data: { reminderSentGraceLast: true },
+      });
+      await prisma.yearlyProgramSubscriptionEvent.create({
+        data: {
+          subscriptionId: sub.id,
+          type: isManual ? 'reminder_manual_grace_last' : 'reminder_cyclical_grace_last',
+          message: `Grace ends ${sub.gracePeriodEndsAt.toISOString().slice(0, 10)} · graceDays=${graceDays}`,
+        },
+      });
+      processed++;
+    } catch (e) {
+      errors.push(`${sub.id}: ${(e as Error).message}`);
+    }
+  });
+
+  return { step: 'grace_last', processed, errors };
 }
 
 /// Тонкий враппер навколо shared `syncYearlyProgress` (lib/certificates/syncYearlyProgress.ts).

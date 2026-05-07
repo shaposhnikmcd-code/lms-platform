@@ -115,6 +115,7 @@ function EmailTemplatesModal({
   const initialList = getTemplateListCache(config.cacheKey);
   const [items, setItems] = useState<TemplateListItem[] | null>(initialList?.items ?? null);
   const [groups, setGroups] = useState<GroupItem[]>(initialList?.groups ?? []);
+  const [currentGraceDays, setCurrentGraceDays] = useState<number | null>(initialList?.currentGraceDays ?? null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [selectedFull, setSelectedFull] = useState<TemplateFullItem | null>(null);
@@ -134,10 +135,15 @@ function EmailTemplatesModal({
       .then((r) => r.json())
       .then((data) => {
         if (Array.isArray(data?.items)) {
-          const cache = { items: data.items, groups: Array.isArray(data?.groups) ? data.groups : [] };
+          const cache = {
+            items: data.items,
+            groups: Array.isArray(data?.groups) ? data.groups : [],
+            currentGraceDays: typeof data?.currentGraceDays === 'number' ? data.currentGraceDays : null,
+          };
           setTemplateListCache(config.cacheKey, cache);
           setItems(cache.items);
           setGroups(cache.groups);
+          setCurrentGraceDays(cache.currentGraceDays);
         } else {
           setLoadError(data?.error ?? 'Не вдалось завантажити шаблони');
         }
@@ -272,7 +278,7 @@ function EmailTemplatesModal({
             )}
 
             {items && !selectedKey && (
-              <TemplateList theme={theme} items={items} groups={groups} config={config} onSelect={setSelectedKey} />
+              <TemplateList theme={theme} items={items} groups={groups} config={config} currentGraceDays={currentGraceDays} onSelect={setSelectedKey} />
             )}
 
             {items && selectedKey && !selectedFull && loadingDetail && (
@@ -303,12 +309,14 @@ function TemplateList({
   items,
   groups,
   config,
+  currentGraceDays,
   onSelect,
 }: {
   theme: Theme;
   items: TemplateListItem[];
   groups: GroupItem[];
   config: EmailTemplatesModalConfig;
+  currentGraceDays: number | null;
   onSelect: (key: string) => void;
 }) {
   const dark = theme === 'dark';
@@ -335,7 +343,7 @@ function TemplateList({
           return (
             <GroupCard key={g.id} dark={dark} group={g} accent={accent}>
               {groupItems.map((item) => (
-                <TemplateRow key={item.key} dark={dark} item={item} accent={accent} onClick={() => onSelect(item.key)} />
+                <TemplateRow key={item.key} dark={dark} item={item} accent={accent} currentGraceDays={currentGraceDays} onClick={() => onSelect(item.key)} />
               ))}
             </GroupCard>
           );
@@ -376,26 +384,48 @@ function GroupCard({
 }
 
 function TemplateRow({
-  dark, item, accent, onClick,
+  dark, item, accent, currentGraceDays, onClick,
 }: {
   dark: boolean;
   item: TemplateListItem;
   accent: GroupAccent;
+  currentGraceDays: number | null;
   onClick: () => void;
 }) {
   const accentClasses = ACCENT_CLASSES[accent];
+
+  // Поведінка шаблону при поточному graceDays:
+  //   "always"   — шаблон не залежить від grace (start, before, on-expiry, closed)
+  //   "active"   — потрібен мінімум, і налаштування його задовольняє
+  //   "inactive" — потрібен мінімум, і налаштування його НЕ задовольняє → шаблон не шлеться
+  const min = item.minGraceDays ?? null;
+  const graceState: 'always' | 'active' | 'inactive' =
+    min == null
+      ? 'always'
+      : currentGraceDays != null && currentGraceDays >= min
+        ? 'active'
+        : 'inactive';
+
   return (
     <button
       type="button"
       onClick={onClick}
       className={`group w-full text-left p-3 rounded-lg border transition-all ${
-        dark
-          ? 'border-white/[0.08] bg-white/[0.02] hover:bg-white/[0.06] hover:border-white/[0.16]'
-          : 'border-stone-200 bg-stone-50/50 hover:bg-white hover:border-stone-300 hover:shadow-sm'
+        graceState === 'inactive'
+          ? dark
+            ? 'border-white/[0.05] bg-white/[0.01] hover:bg-white/[0.04] hover:border-white/[0.10] opacity-70'
+            : 'border-stone-200/70 bg-stone-50/30 hover:bg-stone-50 hover:border-stone-300 opacity-80'
+          : dark
+            ? 'border-white/[0.08] bg-white/[0.02] hover:bg-white/[0.06] hover:border-white/[0.16]'
+            : 'border-stone-200 bg-stone-50/50 hover:bg-white hover:border-stone-300 hover:shadow-sm'
       }`}
     >
       <div className="flex items-start justify-between gap-2 mb-1">
-        <div className={`text-[12.5px] font-bold leading-snug ${dark ? 'text-slate-100' : 'text-stone-900'}`}>
+        <div className={`text-[12.5px] font-bold leading-snug ${
+          graceState === 'inactive'
+            ? dark ? 'text-slate-400' : 'text-stone-500'
+            : dark ? 'text-slate-100' : 'text-stone-900'
+        }`}>
           {item.title}
         </div>
         {item.isCustomized && (
@@ -409,6 +439,28 @@ function TemplateRow({
       <p className={`text-[10.5px] leading-snug ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
         {item.when}
       </p>
+
+      {/* Activation status — тільки для шаблонів з обмеженням по grace */}
+      {graceState !== 'always' && (
+        <div className="mt-2">
+          {graceState === 'active' ? (
+            <span className={`inline-flex items-center gap-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+              dark ? 'bg-emerald-500/15 text-emerald-300' : 'bg-emerald-100 text-emerald-800'
+            }`}>
+              <span className="w-1.5 h-1.5 rounded-full bg-current" />
+              Активний при поточному grace = {currentGraceDays} {pluralizeRowDays(currentGraceDays!)}
+            </span>
+          ) : (
+            <span className={`inline-flex items-center gap-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+              dark ? 'bg-rose-500/15 text-rose-300' : 'bg-rose-100 text-rose-800'
+            }`}>
+              <span aria-hidden>⊘</span>
+              Не шлеться при grace = {currentGraceDays ?? '?'} (потрібно ≥ {min})
+            </span>
+          )}
+        </div>
+      )}
+
       <div className={`mt-2 inline-flex items-center gap-1 text-[10.5px] font-medium opacity-0 group-hover:opacity-100 transition-opacity ${
         dark ? accentClasses.textDark : accentClasses.textLight
       }`}>
@@ -416,6 +468,15 @@ function TemplateRow({
       </div>
     </button>
   );
+}
+
+function pluralizeRowDays(n: number): string {
+  const m10 = n % 10;
+  const m100 = n % 100;
+  if (m100 >= 11 && m100 <= 14) return 'днів';
+  if (m10 === 1) return 'день';
+  if (m10 >= 2 && m10 <= 4) return 'дні';
+  return 'днів';
 }
 
 // ─────────────────────── EDITOR VIEW ───────────────────────

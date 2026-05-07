@@ -15,6 +15,7 @@ import {
   REMINDER_TEMPLATE_GROUPS,
   type ReminderTemplateKey,
 } from '@/lib/emailTemplates/reminderTemplates';
+import { getYearlyGraceDays } from '@/lib/yearlyProgramConfig';
 import { MAILER_FROM_EMAIL, isMailerConfigured } from '@/lib/mailer';
 
 const REMINDER_DB_PREFIX = 'reminder.';
@@ -26,6 +27,8 @@ export interface PrewarmedTemplateListItem {
   when: string;
   placeholders: string[];
   sampleData: Record<string, string>;
+  /// Тільки для reminder-шаблонів. null/undefined = шаблон активний завжди.
+  minGraceDays?: number | null;
   isCustomized: boolean;
   updatedAt: string | null;
   updatedBy: string | null;
@@ -40,6 +43,9 @@ export interface PrewarmedTemplateGroup {
 export interface PrewarmedTemplateList {
   items: PrewarmedTemplateListItem[];
   groups: PrewarmedTemplateGroup[];
+  /// Тільки для reminder-варіанта — поточне значення graceDays із налаштувань.
+  /// Дозволяє у списку шаблонів показати, які mid/last-листи активні.
+  currentGraceDays?: number | null;
 }
 
 export interface PrewarmedRecipient {
@@ -97,10 +103,13 @@ async function buildPaymentTemplatesList(): Promise<PrewarmedTemplateList> {
 }
 
 async function buildReminderTemplatesList(): Promise<PrewarmedTemplateList> {
-  const customRows = await prisma.emailTemplate.findMany({
-    where: { templateKey: { startsWith: REMINDER_DB_PREFIX } },
-    select: { templateKey: true, updatedAt: true, updatedBy: true },
-  });
+  const [customRows, currentGraceDays] = await Promise.all([
+    prisma.emailTemplate.findMany({
+      where: { templateKey: { startsWith: REMINDER_DB_PREFIX } },
+      select: { templateKey: true, updatedAt: true, updatedBy: true },
+    }),
+    getYearlyGraceDays(prisma),
+  ]);
   const customByKey = new Map(customRows.map((r) => [r.templateKey, r]));
 
   const items: PrewarmedTemplateListItem[] = (Object.keys(REMINDER_TEMPLATES) as ReminderTemplateKey[]).map((key) => {
@@ -113,13 +122,14 @@ async function buildReminderTemplatesList(): Promise<PrewarmedTemplateList> {
       when: meta.when,
       placeholders: meta.placeholders,
       sampleData: meta.sampleData,
+      minGraceDays: meta.minGraceDays ?? null,
       isCustomized: !!custom,
       updatedAt: custom?.updatedAt?.toISOString() ?? null,
       updatedBy: custom?.updatedBy ?? null,
     };
   });
 
-  return { items, groups: [...REMINDER_TEMPLATE_GROUPS] };
+  return { items, groups: [...REMINDER_TEMPLATE_GROUPS], currentGraceDays };
 }
 
 /// Recipients для одного cohort-у — логіка 1-в-1 з API endpoint /recipients.

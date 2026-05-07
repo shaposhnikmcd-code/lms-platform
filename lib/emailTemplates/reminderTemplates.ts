@@ -5,17 +5,27 @@ import { renderTemplate } from './paymentTemplates';
 /// дефолти живуть у коді, custom subject/bodyHtml зберігається у `EmailTemplate` з префіксом
 /// `reminder.<key>` щоб не плутатись з payment-шаблонами.
 ///
-/// 6 шаблонів:
-///   manual-before, manual-on-expiry, manual-grace-start (manual flow)
-///   cyclical-failed-1, cyclical-failed-3 (autopay flow тільки при failure)
-///   closed (спільний фінал manual+cyclical при закритті доступу)
+/// Розклад адаптивний за `graceDays` із налаштувань:
+///   • start (день +1) — завжди
+///   • mid (≈ середина grace) — тільки якщо graceDays ≥ 5
+///   • last (за 1 день до закриття) — тільки якщо graceDays ≥ 3
+///   • closed — у день закриття
+/// Manual і cyclical потоки мають окремі шаблони, але однаковий розклад.
+///
+/// 9 шаблонів:
+///   manual-before, manual-on-expiry, manual-grace-start, manual-grace-mid, manual-grace-last
+///   cyclical-failed-1, cyclical-grace-mid, cyclical-grace-last
+///   closed
 
 export type ReminderTemplateKey =
   | 'manual-before'
   | 'manual-on-expiry'
   | 'manual-grace-start'
+  | 'manual-grace-mid'
+  | 'manual-grace-last'
   | 'cyclical-failed-1'
-  | 'cyclical-failed-3'
+  | 'cyclical-grace-mid'
+  | 'cyclical-grace-last'
   | 'closed';
 
 export type ReminderTemplateGroup = 'manual' | 'cyclical' | 'shared';
@@ -29,6 +39,11 @@ export interface ReminderTemplateMeta {
   sampleData: Record<string, string>;
   defaultSubject: string;
   defaultBodyHtml: string; // повний HTML з FRAME wrapper-ом
+  /// Мінімальна тривалість grace, при якій cron шле цей шаблон.
+  /// undefined = шаблон активний завжди (start, before, on-expiry, closed).
+  /// 5 = шле тільки при graceDays ≥ 5 (mid-templates).
+  /// 3 = шле тільки при graceDays ≥ 3 (last-templates).
+  minGraceDays?: number;
 }
 
 export const REMINDER_TEMPLATE_GROUPS: { id: ReminderTemplateGroup; title: string; description: string }[] = [
@@ -69,7 +84,8 @@ const CTA_BUTTON = (label: string) => `    <p style="text-align:center; margin: 
 
 const SUPPORT_FOOTER = `    <p>Якщо у вас є питання — напишіть у відповідь на цей лист або до <a href="${SUPPORT_TG}" style="color:#0088cc; font-weight:600; text-decoration:none; white-space:nowrap;">Тех. підтримки в Telegram</a></p>`;
 
-const SIGNATURE = `    <p style="margin-top: 32px;">З теплом,<br/>Команда UIMP</p>`;
+/// Усі reminder/grace/closed-листи — нейтральний tone. «З теплом» прибрали з усіх дефолтів,
+/// бо для службово-фінансових повідомлень воно звучить занадто фамільярно.
 const SIGNATURE_RESPECT = `    <p style="margin-top: 32px;">З повагою,<br/>Команда UIMP</p>`;
 
 export const REMINDER_TEMPLATES: Record<ReminderTemplateKey, ReminderTemplateMeta> = {
@@ -80,13 +96,13 @@ export const REMINDER_TEMPLATES: Record<ReminderTemplateKey, ReminderTemplateMet
     when: 'Шлемо за 3 дні до того, як закінчиться оплачений місяць (manual flow). Нагадуємо оформити оплату на наступний місяць.',
     placeholders: ['name', 'expiresAt'],
     sampleData: { name: 'Іван Петренко', expiresAt: '15.08.2026' },
-    defaultSubject: 'Через 3 дні закінчується ваш місяць у Річній програмі інституту UIMP',
+    defaultSubject: 'Через 3 дні завершується ваш місяць у Річній програмі',
     defaultBodyHtml: wrapReminderInner(`    <h2 style="color: #1C3A2E; margin-top: 0;">Вітаю, {name}!</h2>
-    <p>Ваш оплачений місяць у <strong>Річній програмі інституту UIMP</strong> закінчується <strong>{expiresAt}</strong>.</p>
-    <p>Щоб не перервати навчання — оформіть оплату на наступний місяць заздалегідь:</p>
+    <p>Ваш оплачений місяць у <strong>Річній програмі інституту UIMP</strong> завершується <strong>{expiresAt}</strong>.</p>
+    <p>Якщо плануєте продовжити навчання, оплату на наступний місяць можна оформити вже зараз — щоб не було перерви у доступі:</p>
 ${CTA_BUTTON('Оплатити наступний місяць')}
 ${SUPPORT_FOOTER}
-${SIGNATURE}`),
+${SIGNATURE_RESPECT}`),
   },
 
   'manual-on-expiry': {
@@ -96,75 +112,126 @@ ${SIGNATURE}`),
     when: 'Шлемо у день, коли закінчується оплачений місяць (manual flow). Сьогодні останній день — час оплатити.',
     placeholders: ['name'],
     sampleData: { name: 'Іван Петренко' },
-    defaultSubject: 'Сьогодні останній день вашого місяця у Річній програмі інституту UIMP',
+    defaultSubject: 'Сьогодні завершується ваш місяць у Річній програмі',
     defaultBodyHtml: wrapReminderInner(`    <h2 style="color: #1C3A2E; margin-top: 0;">Вітаю, {name}!</h2>
-    <p>Сьогодні — <strong>останній день</strong> вашого оплаченого місяця у <strong>Річній програмі інституту UIMP</strong>.</p>
-    <p>Щоб продовжити навчання без перерви — оформіть платіж на наступний місяць сьогодні:</p>
+    <p>Сьогодні завершується ваш оплачений місяць у <strong>Річній програмі інституту UIMP</strong>.</p>
+    <p>Якщо плануєте продовжити навчання, оплату на наступний місяць можна оформити сьогодні:</p>
 ${CTA_BUTTON('Оплатити зараз')}
 ${SUPPORT_FOOTER}
-${SIGNATURE}`),
+${SIGNATURE_RESPECT}`),
   },
 
   'manual-grace-start': {
     key: 'manual-grace-start',
     group: 'manual',
-    title: '🛟 Наступний день після дати закінчення',
-    when: 'Шлемо коли оплачений місяць щойно закінчився, а доступ продовжено на пільговий період grace (manual flow). Встигнути оплатити.',
+    title: '🛟 Старт пільгового періоду · день +1',
+    when: 'Шлемо коли оплачений місяць щойно закінчився, а доступ продовжено на пільговий період grace (manual flow). Спрацьовує завжди.',
     placeholders: ['name', 'gracePeriodEndsAt', 'graceDays', 'graceDaysWord'],
     sampleData: { name: 'Іван Петренко', gracePeriodEndsAt: '22.08.2026', graceDays: '7', graceDaysWord: 'днів' },
-    defaultSubject: 'Доступ продовжено на {graceDays} {graceDaysWord} — оплатіть наступний місяць',
+    defaultSubject: 'Доступ збережено ще на {graceDays} {graceDaysWord}',
     defaultBodyHtml: wrapReminderInner(`    <h2 style="color: #1C3A2E; margin-top: 0;">Вітаю, {name}!</h2>
-    <p>Ваш оплачений місяць у <strong>Річній програмі інституту UIMP</strong> вчора закінчився, але ми <strong>залишили вам доступ ще на {graceDays} {graceDaysWord}</strong>, щоб ви встигли оформити наступну оплату.</p>
-    <p>Доступ буде закрито <strong>{gracePeriodEndsAt}</strong>, якщо до цього часу не надійде оплата.</p>
+    <p>Ваш оплачений місяць у <strong>Річній програмі інституту UIMP</strong> вчора завершився. Ми залишили доступ ще на <strong>{graceDays} {graceDaysWord}</strong> — до <strong>{gracePeriodEndsAt}</strong>, щоб у вас був час оформити наступну оплату.</p>
+    <p>Якщо плануєте продовжити навчання:</p>
 ${CTA_BUTTON('Оплатити наступний місяць')}
 ${SUPPORT_FOOTER}
-${SIGNATURE}`),
+${SIGNATURE_RESPECT}`),
+  },
+
+  'manual-grace-mid': {
+    key: 'manual-grace-mid',
+    group: 'manual',
+    title: '📍 Середина пільгового періоду',
+    when: 'Шлемо приблизно посередині grace-періоду (manual flow). Спрацьовує тільки якщо тривалість grace ≥ 5 днів — інакше пропускаємо, бо проміжна точка занадто близько до start/last.',
+    placeholders: ['name', 'gracePeriodEndsAt', 'daysLeft', 'daysWord'],
+    sampleData: { name: 'Іван Петренко', gracePeriodEndsAt: '22.08.2026', daysLeft: '4', daysWord: 'дні' },
+    minGraceDays: 5,
+    defaultSubject: 'Пільговий період — залишилось {daysLeft} {daysWord}',
+    defaultBodyHtml: wrapReminderInner(`    <h2 style="color: #1C3A2E; margin-top: 0;">Вітаю, {name}!</h2>
+    <p>Нагадуємо: пільговий період у вашій підписці на <strong>Річну програму інституту UIMP</strong> завершується <strong>{gracePeriodEndsAt}</strong> — залишилось <strong>{daysLeft} {daysWord}</strong>.</p>
+    <p>Якщо плануєте продовжити навчання, оплату можна оформити за кнопкою нижче:</p>
+${CTA_BUTTON('Оплатити наступний місяць')}
+${SUPPORT_FOOTER}
+${SIGNATURE_RESPECT}`),
+  },
+
+  'manual-grace-last': {
+    key: 'manual-grace-last',
+    group: 'manual',
+    title: '🚨 За 1 день до закриття',
+    when: 'Шлемо за день до того, як закінчиться пільговий період і доступ буде закрито (manual flow). Спрацьовує тільки якщо тривалість grace ≥ 3 днів — інакше дублює start.',
+    placeholders: ['name', 'gracePeriodEndsAt'],
+    sampleData: { name: 'Іван Петренко', gracePeriodEndsAt: '22.08.2026' },
+    minGraceDays: 3,
+    defaultSubject: 'Завтра завершується пільговий період',
+    defaultBodyHtml: wrapReminderInner(`    <h2 style="color: #1C3A2E; margin-top: 0;">Вітаю, {name}!</h2>
+    <p>Завтра, <strong>{gracePeriodEndsAt}</strong>, завершується пільговий період у вашій підписці на <strong>Річну програму інституту UIMP</strong>.</p>
+    <p>Якщо плануєте продовжити навчання — оплату на наступний місяць зручно оформити сьогодні:</p>
+${CTA_BUTTON('Оплатити зараз')}
+${SUPPORT_FOOTER}
+${SIGNATURE_RESPECT}`),
   },
 
   'cyclical-failed-1': {
     key: 'cyclical-failed-1',
     group: 'cyclical',
-    title: '⚠ 1-й день після дати закінчення (autopay)',
-    when: 'Шлемо коли WFP не зміг автоматично списати оплату — на наступний день після експайру. Перевірте картку.',
+    title: '⚠ Старт пільгового періоду · день +1 (autopay)',
+    when: 'Шлемо коли WFP не зміг автоматично списати оплату — на наступний день після експайру. Спрацьовує завжди при failed charge.',
     placeholders: ['name', 'gracePeriodEndsAt', 'graceDays', 'graceDaysWord'],
     sampleData: { name: 'Іван Петренко', gracePeriodEndsAt: '22.08.2026', graceDays: '7', graceDaysWord: 'днів' },
-    defaultSubject: 'Не вдалось списати оплату — перевірте картку',
+    defaultSubject: 'Автосписання не пройшло — є кілька варіантів',
     defaultBodyHtml: wrapReminderInner(`    <h2 style="color: #1C3A2E; margin-top: 0;">Вітаю, {name}!</h2>
-    <p>На жаль, нам не вдалось автоматично списати оплату за наступний місяць у <strong>Річній програмі інституту UIMP</strong>.</p>
-    <p>Можливі причини: недостатньо коштів, картку заблоковано, або вона прострочена.</p>
-    <p>Ми залишили вам доступ ще на <strong>{graceDays} {graceDaysWord}</strong> — до <strong>{gracePeriodEndsAt}</strong>.</p>
-    <p style="margin-top: 18px;"><strong>Що робити:</strong></p>
+    <p>Сьогодні WayForPay спробував автоматично списати оплату за наступний місяць у <strong>Річній програмі інституту UIMP</strong>, але списання не пройшло. Це могло статись з кількох причин — наприклад, тимчасова затримка банку, недостатньо коштів або термін дії картки.</p>
+    <p>Доступ зберігається ще на <strong>{graceDays} {graceDaysWord}</strong> — до <strong>{gracePeriodEndsAt}</strong>.</p>
+    <p style="margin-top: 18px;"><strong>Як завершити оплату:</strong></p>
     <ol style="margin: 8px 0 16px 0; padding-left: 20px; line-height: 1.7;">
-      <li><strong>Поповніть рахунок</strong> або переконайтеся що картка діюча — WayForPay автоматично спробує списати ще раз протягом {graceDays} {graceDaysWord}.</li>
-      <li><strong>Або оплатіть вручну</strong> за кнопкою нижче. На сторінці оплати оберіть варіант <strong style="color:#1C3A2E;">«Місячна — РАЗОВА»</strong> (а не АВТОПЛАТІЖ) — інакше може статися подвійне списання.</li>
+      <li><strong>Поповнити рахунок</strong> або оновити картку — WayForPay автоматично спробує списати ще раз протягом {graceDays} {graceDaysWord}.</li>
+      <li><strong>Або оплатити вручну</strong> за кнопкою нижче. На сторінці оберіть варіант <strong style="color:#1C3A2E;">«Місячна — РАЗОВА»</strong> (а не АВТОПЛАТІЖ) — щоб з картки не списали двічі.</li>
     </ol>
 ${CTA_BUTTON('Оплатити вручну (РАЗОВА)')}
-    <p style="font-size: 13px; color: #6b7280;">Якщо хочете щоб автосписання продовжило працювати в наступних місяцях — нічого не робіть, просто поповніть картку. Якщо ж хочете далі платити вручну — після кнопки оберіть РАЗОВА і автосписання вимкнеться.</p>
+    <p style="font-size: 13px; color: #6b7280;">Якщо хочете, щоб автосписання продовжило працювати в наступних місяцях — нічого більше робити не треба, просто поповніть картку. Якщо зручніше платити вручну — оберіть РАЗОВА, і автосписання вимкнеться.</p>
 ${SUPPORT_FOOTER}
-${SIGNATURE}`),
+${SIGNATURE_RESPECT}`),
   },
 
-  'cyclical-failed-3': {
-    key: 'cyclical-failed-3',
+  'cyclical-grace-mid': {
+    key: 'cyclical-grace-mid',
     group: 'cyclical',
-    title: '⏳ 3-й день після дати закінчення (autopay)',
-    when: 'Шлемо через 3 дні після того, як WFP не зміг списати — лишилось 4 дні до закриття.',
+    title: '📍 Середина пільгового періоду (autopay)',
+    when: 'Шлемо приблизно посередині grace-періоду — нагадуємо що автосписання все ще не відбулось. Спрацьовує тільки якщо тривалість grace ≥ 5 днів.',
     placeholders: ['name', 'gracePeriodEndsAt', 'daysLeft', 'daysWord'],
     sampleData: { name: 'Іван Петренко', gracePeriodEndsAt: '22.08.2026', daysLeft: '4', daysWord: 'дні' },
-    defaultSubject: 'Залишилось {daysLeft} {daysWord} до закриття доступу',
+    minGraceDays: 5,
+    defaultSubject: 'Пільговий період — залишилось {daysLeft} {daysWord}',
     defaultBodyHtml: wrapReminderInner(`    <h2 style="color: #1C3A2E; margin-top: 0;">Вітаю, {name}!</h2>
-    <p>Минуло 3 дні з моменту, коли не вдалось списати оплату за наступний місяць у <strong>Річній програмі інституту UIMP</strong>.</p>
-    <p>До <strong>{gracePeriodEndsAt}</strong> залишилось <strong>{daysLeft} {daysWord}</strong>. Якщо до цього часу оплата не надійде — доступ буде закрито.</p>
-    <p style="margin-top: 18px;"><strong>Як оплатити вручну:</strong></p>
+    <p>Автосписання за наступний місяць у <strong>Річній програмі інституту UIMP</strong> досі не пройшло — WayForPay робив кілька спроб, але без успіху.</p>
+    <p>До завершення пільгового періоду залишилось <strong>{daysLeft} {daysWord}</strong> — до <strong>{gracePeriodEndsAt}</strong>.</p>
+    <p style="margin-top: 18px;"><strong>Як завершити оплату:</strong></p>
     <ol style="margin: 8px 0 16px 0; padding-left: 20px; line-height: 1.7;">
       <li>Натисніть кнопку нижче.</li>
-      <li>На сторінці оплати оберіть варіант <strong style="color:#1C3A2E;">«Місячна — РАЗОВА»</strong> (а не АВТОПЛАТІЖ) — це гарантує що з вас не спишуть двічі.</li>
+      <li>На сторінці оберіть варіант <strong style="color:#1C3A2E;">«Місячна — РАЗОВА»</strong> (а не АВТОПЛАТІЖ) — щоб з картки не списали двічі.</li>
       <li>Завершіть оплату.</li>
     </ol>
 ${CTA_BUTTON('Оплатити вручну (РАЗОВА)')}
-    <p style="font-size: 13px; color: #6b7280;">Альтернатива: поповніть картку — WayForPay може автоматично повторити списання у залишені дні.</p>
+    <p style="font-size: 13px; color: #6b7280;">Або поповніть картку — WayForPay може автоматично повторити списання у залишені дні.</p>
 ${SUPPORT_FOOTER}
-${SIGNATURE}`),
+${SIGNATURE_RESPECT}`),
+  },
+
+  'cyclical-grace-last': {
+    key: 'cyclical-grace-last',
+    group: 'cyclical',
+    title: '🚨 За 1 день до закриття (autopay)',
+    when: 'Шлемо за день до закриття доступу. Спрацьовує тільки якщо тривалість grace ≥ 3 днів — інакше дублює start.',
+    placeholders: ['name', 'gracePeriodEndsAt'],
+    sampleData: { name: 'Іван Петренко', gracePeriodEndsAt: '22.08.2026' },
+    minGraceDays: 3,
+    defaultSubject: 'Завтра завершується пільговий період',
+    defaultBodyHtml: wrapReminderInner(`    <h2 style="color: #1C3A2E; margin-top: 0;">Вітаю, {name}!</h2>
+    <p>Завтра, <strong>{gracePeriodEndsAt}</strong>, завершується пільговий період у вашій підписці на <strong>Річну програму інституту UIMP</strong>.</p>
+    <p>Якщо плануєте продовжити навчання — поповніть картку (WayForPay спробує списати автоматично) або оплатіть вручну:</p>
+${CTA_BUTTON('Оплатити вручну (РАЗОВА)')}
+${SUPPORT_FOOTER}
+${SIGNATURE_RESPECT}`),
   },
 
   'closed': {
@@ -174,10 +241,10 @@ ${SIGNATURE}`),
     when: 'Шлемо коли закриваємо доступ — спільно для manual і cyclical (після завершення пільгового періоду grace без оплати).',
     placeholders: ['name'],
     sampleData: { name: 'Іван Петренко' },
-    defaultSubject: 'Доступ до Річної програми інституту UIMP закрито',
+    defaultSubject: 'Доступ до Річної програми тимчасово призупинено',
     defaultBodyHtml: wrapReminderInner(`    <h2 style="color: #1C3A2E; margin-top: 0;">Вітаю, {name}!</h2>
-    <p>На жаль, ми не отримали оплату за наступний місяць у <strong>Річній програмі інституту UIMP</strong>, тому доступ до курсу закрито.</p>
-    <p>Ви можете відновити підписку в будь-який момент — просто оформіть нову оплату на сайті:</p>
+    <p>Пільговий період у вашій підписці на <strong>Річну програму інституту UIMP</strong> завершився, тому доступ до курсу наразі призупинено.</p>
+    <p>Підписку можна відновити в будь-який момент — оформіть нову оплату на сайті:</p>
 ${CTA_BUTTON('Відновити підписку')}
 ${SUPPORT_FOOTER}
 ${SIGNATURE_RESPECT}`),

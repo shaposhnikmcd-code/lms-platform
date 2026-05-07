@@ -18,6 +18,9 @@ export interface CachedTemplateListItem {
   when: string;
   placeholders: string[];
   sampleData: Record<string, string>;
+  /// Мінімальна тривалість grace, при якій cron шле цей шаблон (тільки для reminder-шаблонів).
+  /// null/undefined = шаблон активний завжди.
+  minGraceDays?: number | null;
   isCustomized: boolean;
   updatedAt: string | null;
   updatedBy: string | null;
@@ -32,6 +35,10 @@ export interface CachedTemplateGroup {
 export interface CachedTemplateList {
   items: CachedTemplateListItem[];
   groups: CachedTemplateGroup[];
+  /// Поточне значення graceDays із налаштувань — використовується щоб у списку шаблонів
+  /// показати, які mid/last-листи активні при поточній тривалості grace, а які пропускаються.
+  /// Тільки для reminder-варіанта; для payment-варіанта — null.
+  currentGraceDays?: number | null;
 }
 
 /// Повний шаблон — list-item + body fields. Кешується per-key per-modal-variant.
@@ -73,6 +80,17 @@ export function prewarmTemplateListCache(
 ): void {
   if (templateListCaches.has(key)) return;
   templateListCaches.set(key, payload);
+}
+
+/// Селективний sync: оновлює тільки `currentGraceDays` у reminder-кеші, не чіпаючи
+/// items/groups (бо там можуть бути зміни isCustomized після save/reset). Викликається
+/// при кожному re-render після router.refresh() з GraceSettingsModal — щоб індикатори
+/// активності у списку шаблонів одразу відображали нове значення graceDays.
+export function syncReminderListGraceDays(currentGraceDays: number | null): void {
+  const cached = templateListCaches.get('reminder');
+  if (!cached) return;
+  if (cached.currentGraceDays === currentGraceDays) return;
+  templateListCaches.set('reminder', { ...cached, currentGraceDays });
 }
 
 // ─── RECIPIENTS (SendEmailsModal) ──────────────

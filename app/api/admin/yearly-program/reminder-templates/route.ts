@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { isAdmin } from '@/lib/adminAuth';
+import { getYearlyGraceDays } from '@/lib/yearlyProgramConfig';
 import {
   REMINDER_TEMPLATES,
   REMINDER_TEMPLATE_GROUPS,
@@ -16,10 +17,13 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
-  const customRows = await prisma.emailTemplate.findMany({
-    where: { templateKey: { startsWith: DB_PREFIX } },
-    select: { templateKey: true, updatedAt: true, updatedBy: true },
-  });
+  const [customRows, currentGraceDays] = await Promise.all([
+    prisma.emailTemplate.findMany({
+      where: { templateKey: { startsWith: DB_PREFIX } },
+      select: { templateKey: true, updatedAt: true, updatedBy: true },
+    }),
+    getYearlyGraceDays(prisma),
+  ]);
   const customByKey = new Map(customRows.map((r) => [r.templateKey, r]));
 
   const items = (Object.keys(REMINDER_TEMPLATES) as ReminderTemplateKey[]).map((key) => {
@@ -32,11 +36,12 @@ export async function GET(req: NextRequest) {
       when: meta.when,
       placeholders: meta.placeholders,
       sampleData: meta.sampleData,
+      minGraceDays: meta.minGraceDays ?? null,
       isCustomized: !!custom,
       updatedAt: custom?.updatedAt?.toISOString() ?? null,
       updatedBy: custom?.updatedBy ?? null,
     };
   });
 
-  return NextResponse.json({ items, groups: REMINDER_TEMPLATE_GROUPS });
+  return NextResponse.json({ items, groups: REMINDER_TEMPLATE_GROUPS, currentGraceDays });
 }

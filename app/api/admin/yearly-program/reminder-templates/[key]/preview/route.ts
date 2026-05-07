@@ -14,15 +14,30 @@ import {
 /// GET — рендерить ПОТОЧНИЙ збережений шаблон (custom з БД або default з коду) з sample-data.
 /// POST — рендерить ПЕРЕДАНИЙ draft (subject + bodyInnerHtml).
 
-/// Sample-data перекриває {graceDays}/{graceDaysWord} актуальним значенням з налаштувань —
-/// щоб прев'ю в адмінці точно відображало те, що побачить реальний студент.
+/// Sample-data перекриває {graceDays}/{graceDaysWord}/{daysLeft}/{daysWord} актуальними значеннями
+/// з налаштувань — щоб прев'ю в адмінці точно відображало те, що побачить реальний студент.
+/// daysLeft рахується по-різному залежно від типу шаблона:
+///   *-grace-mid → floor(graceDays/2) (середина періоду)
+///   *-grace-last → 1 (фінальний день)
+///   інші — лишається з дефолтного sampleData (deterministic, для попередніх версій листів).
 async function buildSampleData(key: ReminderTemplateKey): Promise<Record<string, string>> {
   const meta = REMINDER_TEMPLATES[key];
   const graceDays = await getYearlyGraceDays(prisma);
+
+  let daysLeft: number | null = null;
+  if (key === 'manual-grace-mid' || key === 'cyclical-grace-mid') {
+    daysLeft = Math.max(1, Math.floor(graceDays / 2));
+  } else if (key === 'manual-grace-last' || key === 'cyclical-grace-last') {
+    daysLeft = 1;
+  }
+
   return {
     ...meta.sampleData,
     graceDays: String(graceDays),
     graceDaysWord: daysWordVar(graceDays),
+    ...(daysLeft !== null
+      ? { daysLeft: String(daysLeft), daysWord: daysWordVar(daysLeft) }
+      : {}),
   };
 }
 

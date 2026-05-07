@@ -43,7 +43,10 @@ export function isYearlyProgramOrderRef(orderReference: string): 'yearly' | 'mon
 /// Зміна з адмінки впливає тільки на нові переходи ACTIVE→GRACE —
 /// існуючі GRACE-записи мають `gracePeriodEndsAt` зафіксованим.
 export const YEARLY_GRACE_SETTING_KEY = 'yearlyGraceDays';
-export const YEARLY_GRACE_MIN_DAYS = 1;
+/// MIN=2 щоб уникнути сценарію «start + closed в один день/24h»: при graceDays=1
+/// cron-розклад вироджується і студент отримує «доступ продовжено на 1 день» одразу
+/// перед «доступ закрито». 2 дні дають хоча б один день буфера між листами.
+export const YEARLY_GRACE_MIN_DAYS = 2;
 export const YEARLY_GRACE_MAX_DAYS = 90;
 
 /// Читає актуальне значення graceDays з БД. Fallback на константу з config —
