@@ -19,13 +19,17 @@ import SyncDivisionsButton from './SyncDivisionsButton';
 import { useAdminTheme, type Theme } from './adminTheme';
 import { AdminShell, AdminPanel } from './AdminShell';
 import SalesChart from './SalesChart';
+import SalesByProductBlock from './SalesByProductBlock';
 import type { SalesSeries, SalesKpiBuckets, SalesPeriod } from '@/lib/admin-sales-analytics';
+import type { ProductSalesData } from '@/lib/admin-sales-by-product';
 
 type BadgeTone = 'neutral' | 'warning' | 'success';
 type SectionBadge = { value: string; tone: BadgeTone } | null;
 
 export type AdminDashboardData = {
   series: SalesSeries;
+  productSales: ProductSalesData;
+  activeProductPeriodValue: SalesPeriod;
   salesBuckets: SalesKpiBuckets;
   activePeriodValue: SalesPeriod;
   activePeriodLabel: string;
@@ -262,7 +266,7 @@ export default function AdminDashboardView({ data }: { data: AdminDashboardData 
                   return (
                     <Link
                       key={opt.value}
-                      href={`/dashboard/admin?period=${opt.value}`}
+                      href={`/dashboard/admin?period=${opt.value}&productPeriod=${data.activeProductPeriodValue}`}
                       scroll={false}
                       className={`px-2.5 py-1 text-[11px] font-medium rounded-md transition-all ${
                         active
@@ -282,6 +286,16 @@ export default function AdminDashboardView({ data }: { data: AdminDashboardData 
             </div>
 
             <SalesChart series={data.series} theme={theme} />
+
+            <div className={`mt-6 pt-6 border-t ${dark ? 'border-white/[0.06]' : 'border-stone-300/50'}`}>
+              <SalesByProductBlock
+                data={data.productSales}
+                theme={theme}
+                activePeriod={data.activeProductPeriodValue}
+                periodOptions={data.periodOptions}
+                baseQuery={`period=${data.activePeriodValue}`}
+              />
+            </div>
           </AdminPanel>
         </div>
 

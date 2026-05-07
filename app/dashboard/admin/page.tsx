@@ -1,6 +1,7 @@
 import prisma from "@/lib/prisma";
 import AdminDashboardView from "./_components/AdminDashboardView";
 import { getSalesAnalytics, type SalesPeriod } from "@/lib/admin-sales-analytics";
+import { getSalesByProduct } from "@/lib/admin-sales-by-product";
 
 const CONNECTOR_STANDARD_PRICE = 1099;
 const CONNECTOR_ADMIN_TEST_PRICE = 1;
@@ -16,13 +17,17 @@ const PERIOD_OPTIONS: { value: SalesPeriod; label: string }[] = [
 export default async function AdminDashboard({
   searchParams,
 }: {
-  searchParams: Promise<{ period?: string }>;
+  searchParams: Promise<{ period?: string; productPeriod?: string }>;
 }) {
-  const { period } = await searchParams;
+  const { period, productPeriod } = await searchParams;
   const activePeriod = PERIOD_OPTIONS.find(p => p.value === period) ?? PERIOD_OPTIONS[0];
+  /// Окремий фільтр для блоку «Продажі по продуктах». Default = 'all' (вимога користувача).
+  const activeProductPeriod = PERIOD_OPTIONS.find(p => p.value === productPeriod)
+    ?? PERIOD_OPTIONS.find(p => p.value === 'all')!;
 
   const [
     series,
+    productSales,
     connectorOrders,
     connectorPendingPayment,
     bundleSuspended,
@@ -35,6 +40,7 @@ export default async function AdminDashboard({
     paymentPendingCount,
   ] = await Promise.all([
     getSalesAnalytics(activePeriod.value),
+    getSalesByProduct(activeProductPeriod.value),
     prisma.connectorOrder.findMany({
       select: {
         gamePrice: true,
@@ -116,6 +122,8 @@ export default async function AdminDashboard({
     <AdminDashboardView
       data={{
         series,
+        productSales,
+        activeProductPeriodValue: activeProductPeriod.value,
         salesBuckets: series.kpi,
         activePeriodValue: activePeriod.value,
         activePeriodLabel: activePeriod.label,

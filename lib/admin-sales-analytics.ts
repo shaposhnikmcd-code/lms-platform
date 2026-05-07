@@ -184,6 +184,36 @@ function fmtRange(start: Date, end: Date, granularity: Granularity): string {
   return `${UA_MONTH_FULL[a.month - 1]} ${a.year} – ${UA_MONTH_FULL[b.month - 1]} ${b.year}`;
 }
 
+/// Експортується для повторного використання в інших аналітичних модулях
+/// (sales-by-product тощо) — повертає start/end/rangeLabel БЕЗ обчислення buckets/series.
+/// Для 'all' робить додатковий запит на найдавніший платіж у БД.
+export async function getSalesPeriodRange(period: SalesPeriod): Promise<{
+  start: Date;
+  end: Date;
+  granularity: Granularity;
+  rangeLabel: string;
+}> {
+  let earliest: Date | null = null;
+  if (period === 'all') {
+    const [firstPay, firstConn] = await Promise.all([
+      prisma.payment.findFirst({
+        where: { status: 'PAID' },
+        orderBy: { createdAt: 'asc' },
+        select: { createdAt: true },
+      }),
+      prisma.connectorOrder.findFirst({
+        where: { paymentStatus: 'PAID', amount: { gt: 1 } },
+        orderBy: { createdAt: 'asc' },
+        select: { createdAt: true },
+      }),
+    ]);
+    const candidates = [firstPay?.createdAt, firstConn?.createdAt].filter(Boolean) as Date[];
+    if (candidates.length) earliest = candidates.reduce((a, b) => (a < b ? a : b));
+  }
+  const { start, end, granularity } = pickRange(period, earliest);
+  return { start, end, granularity, rangeLabel: fmtRange(start, end, granularity) };
+}
+
 function pickRange(period: SalesPeriod, earliestPaymentAt: Date | null): { start: Date; end: Date; granularity: Granularity } {
   const now = new Date();
   const monthStart = startOfMonthKyiv(now);
