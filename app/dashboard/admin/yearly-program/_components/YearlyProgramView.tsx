@@ -939,7 +939,7 @@ function ExpandedRowContent({
             </ActionBtn>
           )}
           {!!row.sendpulseAccessOpenedAt && (
-            <ActionBtn theme={theme} disabled={busy || row.status === 'EXPIRED' || row.status === 'ARCHIVED' || !!row.sendpulseAccessClosedAt} tone="danger" onClick={() =>
+            <ActionBtn theme={theme} disabled={busy || row.status === 'EXPIRED' || row.status === 'ARCHIVED' || !!row.sendpulseAccessClosedAt} tone="warning" onClick={() =>
               onAction('close_access', undefined, 'Закрити доступ до SendPulse курсу?')
             }>
               ✕ Закрити доступ у SendPulse
@@ -971,7 +971,7 @@ function ExpandedRowContent({
                 : 'Надіслати Welcome E-mail з запрошенням в Telegram'}
           </button>
           {!!details.telegramJoinedAt && !details.telegramLeftAt && (
-            <ActionBtn theme={theme} disabled={busy || row.status === 'ARCHIVED'} tone="warning" onClick={() =>
+            <ActionBtn theme={theme} disabled={busy || row.status === 'ARCHIVED'} tone="neutral" onClick={() =>
               onAction(
                 'tg_kick',
                 undefined,
@@ -982,7 +982,7 @@ function ExpandedRowContent({
             </ActionBtn>
           )}
           {(!!details.telegramJoinedAt || !!details.telegramInviteLink) && (
-            <ActionBtn theme={theme} disabled={busy || row.status === 'ARCHIVED'} tone="danger" onClick={() =>
+            <ActionBtn theme={theme} disabled={busy || row.status === 'ARCHIVED'} tone="warning" onClick={() =>
               onAction(
                 'tg_kick_revoke',
                 undefined,
