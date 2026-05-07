@@ -99,9 +99,17 @@ export default function CohortActions({
         return;
       }
       const s = data.summary;
+      // failedCount — лічильник для жовтої кнопки "Повторити запуск (N)". Лише
+      // справжні fail-и (skipped не вмикає її, бо повторювати no_paid_payments
+      // безсенсу — потрібно щоб юзер оплатив).
       setFailedCount(s.failed);
-      const variant: 'success' | 'info' = s.failed > 0 ? 'info' : 'success';
-      toast(variant, `🔁 Повторний запуск\nДоступ відкрито: ${s.opened}/${s.total}${s.failed > 0 ? ` · Помилок: ${s.failed}` : ''}`);
+      const skipped = s.skipped ?? 0;
+      const line =
+        `Доступ відкрито: ${s.opened}/${s.total}` +
+        (skipped > 0 ? ` · пропущено: ${skipped}` : '') +
+        (s.failed > 0 ? ` · помилок: ${s.failed}` : '');
+      const variant: 'success' | 'info' = (s.failed > 0 || skipped > 0) ? 'info' : 'success';
+      toast(variant, `🔁 Повторний запуск\n${line}`);
       router.refresh();
     } catch (e) {
       toast('error', (e as Error).message);

@@ -152,7 +152,12 @@ export async function POST(
     mode: 'launched',
     launchedAt: cohort.launchedAt?.toISOString() ?? new Date().toISOString(),
     retry: isRetry,
-    summary: { total: launchSummary.total, opened: launchSummary.opened, failed: launchSummary.failed },
+    summary: {
+      total: launchSummary.total,
+      opened: launchSummary.opened,
+      skipped: launchSummary.skipped,
+      failed: launchSummary.failed,
+    },
     results: launchSummary.results,
     emailSummary: emailSummary
       ? {

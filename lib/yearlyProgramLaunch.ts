@@ -17,17 +17,30 @@ import { renderTelegramInviteEmailBlock } from '@/lib/yearlyProgramTelegram';
 ///
 /// Idempotent: для підписок, у яких `sendpulseAccessOpenedAt` вже виставлений, пропускає
 /// SendPulse-виклик (тільки оновлює статус та expiresAt).
+///
+/// Класифікація результату:
+///   accessOpened=true                   → opened
+///   accessOpened=false + skipReason     → skipped (очікуваний пропуск, не помилка)
+///   accessOpened=false + error          → failed (справжній збій SP/мережі)
+export type LaunchSkipReason = 'no_paid_payments';
+
 export interface LaunchResult {
   subscriptionId: string;
   email: string;
   accessOpened: boolean;
   expiresAt: string | null;
+  /// Set коли підписку свідомо пропустили (не платив, нема email тощо).
+  /// Не вважається помилкою — окремий counter `skipped` у summary.
+  skipReason?: LaunchSkipReason;
+  /// Set коли стався справжній збій (SP API down, мережа). Counter `failed`.
   error?: string;
 }
 
 export interface LaunchSummary {
   total: number;
   opened: number;
+  /// Свідомо пропущені (нема оплати). НЕ збільшує `failed` — це expected behaviour.
+  skipped: number;
   failed: number;
   results: LaunchResult[];
 }
@@ -53,12 +66,14 @@ export async function executeLaunchLoop(
     if (!s.user?.email) continue;
     const paidPayments = s.payments.filter((p) => p.status === 'PAID');
     if (paidPayments.length === 0) {
+      // Свідомий пропуск: підписка існує, але платіж ще не пройшов. Не вважається
+      // помилкою (counter `skipped`, не `failed`). Не пишемо event — це не failure.
       results.push({
         subscriptionId: s.id,
         email: s.user.email,
         accessOpened: false,
         expiresAt: null,
-        error: 'no_paid_payments',
+        skipReason: 'no_paid_payments',
       });
       continue;
     }
@@ -142,8 +157,9 @@ export async function executeLaunchLoop(
   }
 
   const opened = results.filter((r) => r.accessOpened).length;
-  const failed = results.filter((r) => !r.accessOpened).length;
-  return { total: results.length, opened, failed, results };
+  const skipped = results.filter((r) => !r.accessOpened && r.skipReason).length;
+  const failed = results.filter((r) => !r.accessOpened && !r.skipReason).length;
+  return { total: results.length, opened, skipped, failed, results };
 }
 
 export interface ExtraLaunchResult {

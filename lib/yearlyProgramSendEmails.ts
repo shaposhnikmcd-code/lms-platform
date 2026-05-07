@@ -38,8 +38,13 @@ export interface SendLaunchEmailsResult {
   subscriptionId: string;
   email: string;
   sent: boolean;
+  /// Set коли стався справжній збій SMTP/Resend (counter `failed`).
   error?: string;
-  skipped?: 'no_email' | 'already_sent';
+  /// Set коли підписку свідомо пропущено — НЕ помилка (counter `skipped`).
+  ///   no_email          → у юзера відсутній email
+  ///   already_sent      → welcome-лист цього cohort-у вже надсилався (dedup)
+  ///   no_paid_payments  → підписка є, але платіж ще не пройшов
+  skipped?: 'no_email' | 'already_sent' | 'no_paid_payments';
 }
 
 export interface SendLaunchEmailsSummary {
@@ -81,6 +86,10 @@ export async function sendCohortLaunchEmails(
     },
     include: {
       user: { select: { name: true, email: true } },
+      // Тягнемо payments щоб у per-sub циклі скіпнути тих, хто ще не оплатив
+      // (симетрично з executeLaunchLoop). Welcome-лист "вітаємо у програмі" не має
+      // йти неоплаченим — навіть якщо менеджер натиснув "Дослати лист".
+      payments: { select: { status: true } },
       events: {
         where: { type: 'launch_email_sent' },
         select: { id: true, metadata: true },
@@ -96,6 +105,15 @@ export async function sendCohortLaunchEmails(
   for (const s of subs) {
     if (!s.user?.email) {
       results.push({ subscriptionId: s.id, email: '', sent: false, skipped: 'no_email' });
+      continue;
+    }
+
+    // Skip-чек № 1: підписка без PAID-платежу. Welcome-лист про "ви в програмі"
+    // не має йти неоплаченим — навіть на manager-trigger. Targeted resend (`force`)
+    // НЕ обходить це: відправити лист тому, хто не платив, було б помилкою UX.
+    const hasPaid = s.payments.some((p) => p.status === 'PAID');
+    if (!hasPaid) {
+      results.push({ subscriptionId: s.id, email: s.user.email, sent: false, skipped: 'no_paid_payments' });
       continue;
     }
 

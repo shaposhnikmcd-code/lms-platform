@@ -388,22 +388,34 @@ export default function LaunchProgramModal({
       } else {
         const ls = data.summary;
         const es = data.emailSummary;
-        const launchLine = `Доступ відкрито: ${ls.opened}/${ls.total}${ls.failed > 0 ? ` · Помилок: ${ls.failed}` : ''}`;
-        const emailLine = es ? `Листи: ${es.sent}/${es.total}${es.failed > 0 ? ` · Помилок: ${es.failed}` : ''}` : null;
+        // Класифікація: `failed` = справжній збій (модалка з деталями),
+        // `skipped` = очікуваний пропуск (показуємо як info, не як помилку).
         const launchFailed = (ls.failed ?? 0) > 0;
         const emailFailed = (es?.failed ?? 0) > 0;
+        const launchSkipped = ls.skipped ?? 0;
+        const emailSkipped = es?.skipped ?? 0;
+
+        const launchLine =
+          `Доступ відкрито: ${ls.opened}/${ls.total}` +
+          (launchSkipped > 0 ? ` · пропущено: ${launchSkipped}` : '') +
+          (launchFailed ? ` · помилок: ${ls.failed}` : '');
+        const emailLine = es
+          ? `Листи: надіслано ${es.sent}/${es.total}` +
+            (emailSkipped > 0 ? ` · пропущено: ${emailSkipped}` : '') +
+            (emailFailed ? ` · помилок: ${es.failed}` : '')
+          : null;
 
         if (launchFailed || emailFailed) {
-          // Toast зникає за 4-7с і деталі губляться — показуємо persistent info-модалку
-          // з email-ами та текстом помилок. Повний текст (>200 символів) лишається у
-          // "Подіях" кожної підписки.
+          // Persistent info-модалка з email-ами і текстом помилок. У `results`
+          // не-failure записи (skipped, success) фільтруємо тут — показуємо
+          // тільки реальні збої. Повний текст (>200 char) — у "Подіях" підписки.
           const launchFails = launchFailed
-            ? (data.results as Array<{ email: string; error?: string; accessOpened: boolean }> | undefined)
-                ?.filter((r) => !r.accessOpened) ?? []
+            ? (data.results as Array<{ email: string; error?: string; accessOpened: boolean; skipReason?: string }> | undefined)
+                ?.filter((r) => !r.accessOpened && !r.skipReason && r.error) ?? []
             : [];
           const emailFails = emailFailed
             ? (es?.results as Array<{ email: string; error?: string; sent: boolean; skipped?: string }> | undefined)
-                ?.filter((r) => !r.sent && !r.skipped) ?? []
+                ?.filter((r) => !r.sent && !r.skipped && r.error) ?? []
             : [];
           const bullets: { icon: string; text: string }[] = [];
           if (launchFails.length > 0) {
@@ -426,7 +438,10 @@ export default function LaunchProgramModal({
             hideCancel: true,
           });
         } else {
-          toast('success', `✅ Програму "${cohort.name}" запущено\n${launchLine}${emailLine ? `\n${emailLine}` : ''}`);
+          // Skipped без failed → success-toast з info-варіантом коли були пропуски,
+          // щоб менеджер бачив рядок «пропущено: N» але не сприймав як збій.
+          const variant = (launchSkipped > 0 || emailSkipped > 0) ? 'info' : 'success';
+          toast(variant, `✅ Програму "${cohort.name}" запущено\n${launchLine}${emailLine ? `\n${emailLine}` : ''}`);
         }
       }
       router.refresh();
