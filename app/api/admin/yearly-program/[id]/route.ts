@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { isAdmin, getAdminActor } from '@/lib/adminAuth';
 import { closeAccessInCourse, lookupStudentIdByEmail, openAccessViaEvent } from '@/lib/sendpulse';
+import { kickSubscriptionFromChannel } from '@/lib/yearlyProgramTelegram';
 import { removeSubscriptionAutopay } from '@/lib/yearlyProgramAutopay';
 import { sendYearlyProgramAdminEndedEmail, type AdminEndKind } from '@/lib/yearlyProgramAdminEndedEmail';
 import { YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
@@ -45,6 +46,10 @@ export async function POST(
       return handleExtend(sub, body.daysToAdd ?? 30, actorLabel);
     case 'delete':
       return handleDelete(sub, actorLabel);
+    case 'tg_kick':
+      return handleTelegramKick(sub, actorLabel, 'returnable');
+    case 'tg_kick_revoke':
+      return handleTelegramKick(sub, actorLabel, 'permanent');
     default:
       return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
   }
@@ -97,7 +102,7 @@ async function notifyUserSubscriptionEnded(
 async function handleCancel(sub: NonNullable<SubWithUser>, actor: string, reason?: string) {
   if (sub.plan !== 'MONTHLY' || !sub.autoRenew) {
     return NextResponse.json({
-      error: 'Скасування доступне тільки для місячних підписок з активним автоплатежем. Для дострокового закриття доступу використай "Закрити доступ у SendPulse" або "Архівувати".',
+      error: 'Скасування доступне тільки для місячних підписок з активним автоплатежем. Для дострокового закриття доступу використай "Закрити доступ у SendPulse" або "Деактивувати та Вилучити студента з програми".',
     }, { status: 400 });
   }
   const hadAutoRenew = sub.autoRenew;
@@ -139,7 +144,7 @@ async function handleCancel(sub: NonNullable<SubWithUser>, actor: string, reason
 async function handleCloseAccess(sub: NonNullable<SubWithUser>, actor: string) {
   if (!sub.sendpulseAccessOpenedAt) {
     return NextResponse.json({
-      error: 'Доступ у SendPulse ще не відкривався — нема що закривати. Використай "Архівувати запис".',
+      error: 'Доступ у SendPulse ще не відкривався — нема що закривати. Використай "Деактивувати та Вилучити студента з програми".',
     }, { status: 400 });
   }
   const courseId = YEARLY_PROGRAM_CONFIG.sendpulseCourseId;
@@ -203,9 +208,18 @@ async function handleCloseAccess(sub: NonNullable<SubWithUser>, actor: string) {
     },
   });
 
+  // Best-effort: вилучаємо з ТГ-каналу у returnable-режимі (invite залишається,
+  // щоб менеджер міг повернути студента через "Відкрити доступ до SendPulse").
+  // Помилка TG не блокує сам close_access — підписка вже закрита у SP/БД.
+  const tg = await kickSubscriptionFromChannel({
+    subscriptionId: sub.id,
+    mode: 'returnable',
+    triggeredBy: `admin:${actor} · close_access`,
+  }).catch((e) => ({ ok: false, kicked: false, inviteRevoked: false, skipped: null, error: (e as Error).message }));
+
   await notifyUserSubscriptionEnded(sub, 'access_closed', hadAutoRenew, null);
 
-  return NextResponse.json({ ok: true, autopay });
+  return NextResponse.json({ ok: true, autopay, telegram: tg });
 }
 
 async function handleReopenAccess(sub: NonNullable<SubWithUser>, actor: string) {
@@ -357,7 +371,37 @@ async function handleDelete(sub: NonNullable<SubWithUser>, actor: string) {
     },
   });
 
+  // Best-effort: вилучаємо з ТГ-каналу у permanent-режимі (ban + revoke invite).
+  // Студент не зможе повернутись навіть якщо десь зберіг старий invite-link.
+  const tg = await kickSubscriptionFromChannel({
+    subscriptionId: sub.id,
+    mode: 'permanent',
+    triggeredBy: `admin:${actor} · delete`,
+  }).catch((e) => ({ ok: false, kicked: false, inviteRevoked: false, skipped: null, error: (e as Error).message }));
+
   await notifyUserSubscriptionEnded(sub, 'archived', hadAutoRenew, null);
 
-  return NextResponse.json({ ok: true, sendpulseClosed, sendpulseError, autopay });
+  return NextResponse.json({ ok: true, sendpulseClosed, sendpulseError, autopay, telegram: tg });
+}
+
+/// Manual TG-kick без зміни статусу підписки і без змін у SendPulse/WFP.
+/// `mode='returnable'`: ban+unban (студент видалений, але може повернутись по invite).
+/// `mode='permanent'`: ban+revoke (бан без зняття + invite-link знечинено).
+async function handleTelegramKick(
+  sub: NonNullable<SubWithUser>,
+  actor: string,
+  mode: 'returnable' | 'permanent',
+) {
+  const result = await kickSubscriptionFromChannel({
+    subscriptionId: sub.id,
+    mode,
+    triggeredBy: `admin:${actor} · ${mode === 'permanent' ? 'tg_kick_revoke' : 'tg_kick'}`,
+  });
+  if (!result.ok) {
+    return NextResponse.json(
+      { error: result.error ?? 'Telegram API error', telegram: result },
+      { status: 502 },
+    );
+  }
+  return NextResponse.json({ ok: true, telegram: result });
 }

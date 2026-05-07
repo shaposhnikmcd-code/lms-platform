@@ -7,10 +7,13 @@
 import prisma from '@/lib/prisma';
 import { esc } from '@/lib/mailer';
 import {
+  banChatMember,
   createChatInviteLink,
   getChat,
   normalizeChatId,
+  revokeChatInviteLink,
   TelegramApiError,
+  unbanChatMember,
 } from '@/lib/telegram';
 
 const SINGLETON_ID = 'singleton';
@@ -271,6 +274,129 @@ export async function generateInviteForSubscription(args: {
     });
     return { ok: false, inviteLink: null, error: msg, subscriptionId };
   }
+}
+
+export type KickMode = 'returnable' | 'permanent';
+
+export interface KickFromChannelResult {
+  ok: boolean;
+  /// `true` якщо ми реально викликали banChatMember для існуючого tgUserId.
+  kicked: boolean;
+  /// `true` якщо invite-link відкликано (тільки для permanent).
+  inviteRevoked: boolean;
+  /// Skip-причина (немає chatId / немає tgUserId / нічого робити).
+  skipped: string | null;
+  error: string | null;
+}
+
+/// Вилучає юзера з ТГ-каналу Річної програми.
+///   • `returnable`: ban + одразу unban → користувач видалений з чату, але не у бані.
+///     Може повернутись по існуючому invite-link (якщо він ще валідний) або по новому.
+///   • `permanent`: ban (без unban) + revokeChatInviteLink. Користувач не може повернутись
+///     навіть якщо десь зберіг посилання — бан блокує rejoin, а лінк знечинений.
+///
+/// Best-effort: у разі будь-якої проміжної помилки повертає {ok:false, error}, але
+/// часткові побічні ефекти (вже виконаний ban або revoke) зберігаються. Використовується
+/// як з прямих admin-actions, так і з інтегрованих флоу (close_access, delete).
+export async function kickSubscriptionFromChannel(args: {
+  subscriptionId: string;
+  mode: KickMode;
+  triggeredBy: string;
+}): Promise<KickFromChannelResult> {
+  const { subscriptionId, mode, triggeredBy } = args;
+
+  const settings = await getYearlyProgramTelegramSettings();
+  if (!settings.chatId) {
+    return { ok: false, kicked: false, inviteRevoked: false, skipped: 'tg-not-configured', error: 'Telegram-канал не налаштовано' };
+  }
+
+  const sub = await prisma.yearlyProgramSubscription.findUnique({
+    where: { id: subscriptionId },
+    select: {
+      id: true,
+      telegramTgUserId: true,
+      telegramInviteLink: true,
+      telegramJoinedAt: true,
+      telegramLeftAt: true,
+    },
+  });
+  if (!sub) {
+    return { ok: false, kicked: false, inviteRevoked: false, skipped: null, error: 'Підписку не знайдено' };
+  }
+
+  const errors: string[] = [];
+  let kicked = false;
+  let inviteRevoked = false;
+
+  // 1) Якщо є tgUserId — банимо.
+  if (sub.telegramTgUserId) {
+    try {
+      await banChatMember(settings.chatId, sub.telegramTgUserId);
+      kicked = true;
+    } catch (e) {
+      const msg = e instanceof TelegramApiError ? e.message : (e instanceof Error ? e.message : String(e));
+      errors.push(`ban: ${msg}`);
+    }
+
+    // returnable → знімаємо бан, щоб юзер міг повернутись по invite.
+    if (kicked && mode === 'returnable') {
+      try {
+        await unbanChatMember(settings.chatId, sub.telegramTgUserId);
+      } catch (e) {
+        const msg = e instanceof TelegramApiError ? e.message : (e instanceof Error ? e.message : String(e));
+        errors.push(`unban: ${msg}`);
+      }
+    }
+  }
+
+  // 2) Permanent → відкликаємо invite-link якщо є.
+  if (mode === 'permanent' && sub.telegramInviteLink) {
+    try {
+      await revokeChatInviteLink(settings.chatId, sub.telegramInviteLink);
+      inviteRevoked = true;
+    } catch (e) {
+      const msg = e instanceof TelegramApiError ? e.message : (e instanceof Error ? e.message : String(e));
+      errors.push(`revoke: ${msg}`);
+    }
+  }
+
+  const skipped = !sub.telegramTgUserId && !inviteRevoked
+    ? (sub.telegramInviteLink ? 'no-tg-user-id' : 'no-tg-data')
+    : null;
+
+  // 3) Оновлюємо БД. telegramLeftAt — момент кіку (якщо до того не було).
+  //    При permanent чистимо invite-link щоб не показувався в адмінці як активний.
+  const dbUpdate: Record<string, unknown> = {};
+  if (kicked && !sub.telegramLeftAt) dbUpdate.telegramLeftAt = new Date();
+  if (mode === 'permanent' && inviteRevoked) dbUpdate.telegramInviteLink = null;
+  if (Object.keys(dbUpdate).length > 0) {
+    await prisma.yearlyProgramSubscription.update({
+      where: { id: subscriptionId },
+      data: dbUpdate,
+    });
+  }
+
+  // 4) Лог події.
+  const summary = [
+    `mode=${mode}`,
+    kicked ? 'kicked=yes' : 'kicked=no',
+    mode === 'permanent' ? `revoked=${inviteRevoked ? 'yes' : 'no'}` : null,
+    errors.length > 0 ? `errors=${errors.join(' | ')}` : null,
+    skipped ? `skipped=${skipped}` : null,
+  ].filter(Boolean).join(' · ');
+  await prisma.yearlyProgramSubscriptionEvent.create({
+    data: {
+      subscriptionId,
+      type: 'admin_action',
+      message: `TG kick (${triggeredBy}) — ${summary}`,
+      metadata: { mode, kicked, inviteRevoked, errors, skipped, triggeredBy },
+    },
+  });
+
+  if (errors.length > 0) {
+    return { ok: false, kicked, inviteRevoked, skipped, error: errors.join(' | ') };
+  }
+  return { ok: true, kicked, inviteRevoked, skipped, error: null };
 }
 
 /// HTML-блок з invite-кнопкою у Telegram-канал. Додається в кінець будь-якого

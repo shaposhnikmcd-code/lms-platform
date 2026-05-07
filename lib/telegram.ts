@@ -113,6 +113,50 @@ export async function createChatInviteLink(args: {
   return call<TgChatInviteLink>('createChatInviteLink', payload);
 }
 
+/// Вилучає (банить) учасника з чату. Бот має бути адміном з правом «Ban users».
+/// Для каналів і супергруп. `untilDate` (unix-seconds) — необов'язково; якщо не вказано
+/// або 0 — бан безстроковий. Telegram трактує < 30 секунд або > 366 днів як permanent.
+export async function banChatMember(
+  chatId: string | number,
+  userId: number | bigint,
+  untilDate?: number,
+): Promise<true> {
+  const payload: Record<string, unknown> = {
+    chat_id: chatId,
+    user_id: typeof userId === 'bigint' ? Number(userId) : userId,
+  };
+  if (untilDate !== undefined) payload.until_date = untilDate;
+  return call<true>('banChatMember', payload);
+}
+
+/// Знімає бан з учасника. У комбінації з banChatMember реалізує «kick» —
+/// користувач видалений з чату, але не у бані (може повернутись через invite-link).
+export async function unbanChatMember(
+  chatId: string | number,
+  userId: number | bigint,
+  onlyIfBanned: boolean = false,
+): Promise<true> {
+  return call<true>('unbanChatMember', {
+    chat_id: chatId,
+    user_id: typeof userId === 'bigint' ? Number(userId) : userId,
+    only_if_banned: onlyIfBanned,
+  });
+}
+
+/// Робить конкретне invite-посилання нечинним. Бот має бути творцем цього invite-link
+/// (тобто посилання має бути створене через `createChatInviteLink` від цього ж бота).
+/// Telegram не дозволяє відкликати primary invite (t.me/joinchat/... створене власником),
+/// тільки secondary invite-и створені ботом.
+export async function revokeChatInviteLink(
+  chatId: string | number,
+  inviteLink: string,
+): Promise<TgChatInviteLink> {
+  return call<TgChatInviteLink>('revokeChatInviteLink', {
+    chat_id: chatId,
+    invite_link: inviteLink,
+  });
+}
+
 /// Підтверджує join-request (юзер з'являється в чаті як учасник).
 /// Бот має бути адміном з can_invite_users=true.
 export async function approveChatJoinRequest(chatId: string | number, userId: number): Promise<true> {
