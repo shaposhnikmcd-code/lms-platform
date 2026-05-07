@@ -23,7 +23,6 @@ import {
 } from 'react-icons/hi2';
 import { useAdminTheme, type Theme } from '../../_components/adminTheme';
 import { AdminShell, AdminPanel } from '../../_components/AdminShell';
-import MailerFromBadge from '../../_components/MailerFromBadge';
 import YearlyInfoModal from './YearlyInfoModal';
 import CoursesInfoModal from './CoursesInfoModal';
 
@@ -106,6 +105,7 @@ interface SupervisionCertificate {
   /// Тема супервізії (друкується як subject на серті); зберігається у courseName-полі.
   courseName: string | null;
   supervisionDate: string | null;
+  supervisionHours: number | null;
   issueYear: number;
   issuedAt: string;
   issuedByName: string | null;
@@ -164,12 +164,11 @@ export default function CertificatesView() {
     >
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <Tabs theme={theme} active={activeTab} onChange={setActiveTab} />
-        <MailerFromBadge theme={theme} />
       </div>
 
       <div className="mt-6">
         {activeTab === 'courses' && <CoursesTab theme={theme} pushToast={setToast} />}
-        {activeTab === 'yearly' && <YearlyTab theme={theme} pushToast={setToast} />}
+        {activeTab === 'yearly' && <YearlyTab theme={theme} graceDays={graceDays} pushToast={setToast} />}
         {activeTab === 'supervision' && <SupervisionTab theme={theme} pushToast={setToast} />}
         {activeTab === 'history' && <HistoryTab theme={theme} />}
         {activeTab === 'issues' && <IssuesTab theme={theme} pushToast={setToast} />}
@@ -514,6 +513,14 @@ function formatDateOnly(iso: string | null): string {
   } catch {
     return '—';
   }
+}
+
+/// Коротке відображення тривалості: «2 год» / «1.5 год».
+function formatHoursShort(h: number): string {
+  if (!Number.isFinite(h)) return '';
+  const rounded = Math.round(h * 10) / 10;
+  const display = Number.isInteger(rounded) ? String(rounded) : String(rounded).replace('.', ',');
+  return `${display} год`;
 }
 
 /// Дістає чистий email з "Display Name <email@domain>" формату (RESEND_FROM_EMAIL).
@@ -1294,7 +1301,7 @@ function YearlyTab({
         />
       )}
 
-      {showInfo && <YearlyInfoModal theme={theme} onClose={() => setShowInfo(false)} />}
+      {showInfo && <YearlyInfoModal theme={theme} graceDays={graceDays} onClose={() => setShowInfo(false)} />}
     </AdminPanel>
   );
 }
@@ -1321,7 +1328,7 @@ function SupervisionTab({
 }) {
   const dark = theme === 'dark';
   const { items: certs, loading, refresh: fetchList } =
-    useCachedList<SupervisionCertificate>('cert-supervision-v2', async () => {
+    useCachedList<SupervisionCertificate>('cert-supervision-v3', async () => {
       const res = await fetch('/api/admin/certificates/supervision');
       const data = await res.json();
       return {
@@ -1464,6 +1471,11 @@ function SupervisionTab({
                   <td className="py-3 pr-3 whitespace-nowrap">
                     {c.supervisionDate ? formatDateOnly(c.supervisionDate) : (
                       <span className={`text-[11px] italic ${dark ? 'text-slate-500' : 'text-stone-400'}`}>не вказана</span>
+                    )}
+                    {c.supervisionHours != null && (
+                      <div className={`text-[10px] mt-0.5 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
+                        ⏱ {formatHoursShort(c.supervisionHours)}
+                      </div>
                     )}
                   </td>
                   <td className="py-3 pr-3">
@@ -2374,6 +2386,8 @@ function PreviewPane({
     courseName?: string;
     /// Тільки для SUPERVISION — yyyy-mm-dd або порожній. Опційне.
     supervisionDate?: string;
+    /// Тільки для SUPERVISION — Float у вигляді рядка ("2", "1.5"). Опційне.
+    supervisionHours?: string;
   };
   disabled?: boolean;
   /// Compact-режим — панель само-збирається до природної висоти сертифіката
@@ -2419,10 +2433,11 @@ function PreviewPane({
       if (params.category) qs.set('category', params.category);
       if (params.courseName) qs.set('courseName', params.courseName);
       if (params.supervisionDate) qs.set('supervisionDate', params.supervisionDate);
+      if (params.supervisionHours) qs.set('supervisionHours', params.supervisionHours);
       setBaseSrc(`/api/admin/certificates/preview?${qs.toString()}`);
     }, 500);
     return () => clearTimeout(t);
-  }, [disabled, params.type, params.category, params.recipientName, params.courseName, params.supervisionDate]);
+  }, [disabled, params.type, params.category, params.recipientName, params.courseName, params.supervisionDate, params.supervisionHours]);
 
   const src = baseSrc ? `${baseSrc}#toolbar=0&navpanes=0&scrollbar=0&statusbar=0&messages=0&view=Fit&zoom=page-fit` : null;
 
@@ -3560,6 +3575,7 @@ const SUPERVISION_DRAFT_KEY = 'cert-supervision-draft-v1';
 type SupervisionDraft = {
   topic: string;
   supervisionDate: string;
+  supervisionHours: string;
   recipients: SupervisionRecipient[];
 };
 
@@ -3586,6 +3602,7 @@ function loadSupervisionDraft(): SupervisionDraft | null {
     return {
       topic: parsed.topic,
       supervisionDate: parsed.supervisionDate,
+      supervisionHours: typeof parsed.supervisionHours === 'string' ? parsed.supervisionHours : '',
       recipients: recipients.length > 0 ? recipients : [newSupervisionRecipient()],
     };
   } catch {
@@ -3617,10 +3634,12 @@ function buildSupervisionPreviewSrc({
   name,
   topic,
   supervisionDate,
+  supervisionHours,
 }: {
   name: string;
   topic: string;
   supervisionDate: string;
+  supervisionHours: string;
 }): string {
   const qs = new URLSearchParams({
     type: 'SUPERVISION',
@@ -3628,25 +3647,58 @@ function buildSupervisionPreviewSrc({
   });
   if (topic.trim()) qs.set('courseName', topic.trim());
   if (supervisionDate) qs.set('supervisionDate', supervisionDate);
+  if (supervisionHours.trim()) qs.set('supervisionHours', supervisionHours.trim());
   return `/api/admin/certificates/preview?${qs.toString()}#toolbar=0&navpanes=0&scrollbar=0&statusbar=0&messages=0&view=Fit&zoom=page-fit`;
 }
 
-/// Парсинг bulk-textarea: одна строка = один учасник. Витягуємо email регексом,
-/// решта — імʼя (з очищенням розділювачів). Порожні строки пропускаємо.
+/// Парсинг bulk-textarea: підтримує два формати — інлайн (імʼя+email на одному рядку)
+/// та парний (імʼя на одному рядку, email на наступному). Пусті рядки ігноруються.
+/// Якщо парний-режим знаходить імʼя без наступного email — створює рядок з пустим email.
 function parseSupervisionBulk(text: string): SupervisionRecipient[] {
-  return text
+  const lines = text
     .split(/\r?\n/)
     .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-    .map((line) => {
-      const emailMatch = line.match(SUPERVISION_EMAIL_EXTRACT_RE);
-      const email = emailMatch ? emailMatch[0] : '';
-      const rawName = email
-        ? line.replace(email, '').replace(/[<>,;"']/g, '').trim()
-        : line;
-      const name = autoCapName(rawName);
-      return { ...newSupervisionRecipient(), name, email };
-    });
+    .filter((line) => line.length > 0);
+
+  const out: SupervisionRecipient[] = [];
+  let pendingName: string | null = null;
+
+  for (const line of lines) {
+    const emailMatch = line.match(SUPERVISION_EMAIL_EXTRACT_RE);
+    const email = emailMatch ? emailMatch[0] : '';
+    const inlineName = email
+      ? line.replace(email, '').replace(/[<>,;"']/g, '').trim()
+      : line;
+
+    if (email && inlineName) {
+      /// Імʼя й email на одному рядку → флашимо попереднє ім'я-сирітку, додаємо пару.
+      if (pendingName) {
+        out.push({ ...newSupervisionRecipient(), name: autoCapName(pendingName), email: '' });
+        pendingName = null;
+      }
+      out.push({ ...newSupervisionRecipient(), name: autoCapName(inlineName), email });
+    } else if (email) {
+      /// Email-only → парується з попереднім pendingName, якщо є.
+      out.push({
+        ...newSupervisionRecipient(),
+        name: pendingName ? autoCapName(pendingName) : '',
+        email,
+      });
+      pendingName = null;
+    } else {
+      /// Name-only → якщо вже є pendingName, флашимо його як сироту й беремо новий.
+      if (pendingName) {
+        out.push({ ...newSupervisionRecipient(), name: autoCapName(pendingName), email: '' });
+      }
+      pendingName = inlineName;
+    }
+  }
+
+  if (pendingName) {
+    out.push({ ...newSupervisionRecipient(), name: autoCapName(pendingName), email: '' });
+  }
+
+  return out;
 }
 
 function IssueSupervisionDialog({
@@ -3668,6 +3720,7 @@ function IssueSupervisionDialog({
   const [fromEmail, setFromEmail] = useState<string | null>(null);
   const [topic, setTopic] = useState<string>(initialDraft?.topic ?? '');
   const [supervisionDate, setSupervisionDate] = useState<string>(initialDraft?.supervisionDate ?? '');
+  const [supervisionHours, setSupervisionHours] = useState<string>(initialDraft?.supervisionHours ?? '');
   const [recipients, setRecipients] = useState<SupervisionRecipient[]>(
     () => initialDraft?.recipients ?? [newSupervisionRecipient()],
   );
@@ -3693,13 +3746,14 @@ function IssueSupervisionDialog({
     const isEmpty =
       !topic.trim() &&
       !supervisionDate &&
+      !supervisionHours.trim() &&
       recipients.every((r) => !r.name.trim() && !r.email.trim());
     if (isEmpty) {
       clearSupervisionDraft();
     } else {
-      saveSupervisionDraft({ topic, supervisionDate, recipients });
+      saveSupervisionDraft({ topic, supervisionDate, supervisionHours, recipients });
     }
-  }, [topic, supervisionDate, recipients]);
+  }, [topic, supervisionDate, supervisionHours, recipients]);
 
   /// Лічильник валідних учасників: і імʼя, і email мають пройти валідацію
   const validCount = useMemo(
@@ -3761,6 +3815,7 @@ function IssueSupervisionDialog({
   function clearAll() {
     setTopic('');
     setSupervisionDate('');
+    setSupervisionHours('');
     setRecipients([newSupervisionRecipient()]);
     setFailed(null);
     setDraftRestored(false);
@@ -3776,12 +3831,16 @@ function IssueSupervisionDialog({
         .filter((r) => r.name.trim().length > 0 && SUPERVISION_EMAIL_RE.test(r.email.trim()))
         .map((r) => ({ name: r.name.trim(), email: r.email.trim() }));
 
+      const parsedHours = supervisionHours.trim()
+        ? parseFloat(supervisionHours.trim().replace(',', '.'))
+        : null;
       const res = await fetch('/api/admin/certificates/supervision', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           topic: topic.trim(),
           supervisionDate: supervisionDate || null,
+          supervisionHours: parsedHours !== null && Number.isFinite(parsedHours) ? parsedHours : null,
           recipients: payloadRecipients,
         }),
       });
@@ -3883,8 +3942,8 @@ function IssueSupervisionDialog({
             />
           </div>
 
-          {/* Дата + Лист надійде з: 2 cols */}
-          <div className="grid grid-cols-2 gap-3 mb-3">
+          {/* Дата + Тривалість + Лист надійде з: 3 cols */}
+          <div className="grid grid-cols-[1fr_120px_1fr] gap-3 mb-3">
             <div>
               <label className={`block text-[11px] uppercase tracking-wider mb-1 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
                 Дата <span className={`normal-case ${dark ? 'text-slate-500' : 'text-stone-400'}`}>(опційно)</span>
@@ -3894,6 +3953,21 @@ function IssueSupervisionDialog({
                 value={supervisionDate}
                 onChange={(e) => setSupervisionDate(e.target.value)}
                 className={`w-full px-3 py-2 rounded-lg border text-[13px] ${dark ? 'bg-white/[0.04] border-white/[0.1] text-white' : 'bg-white border-stone-300 text-stone-900'}`}
+              />
+            </div>
+            <div>
+              <label className={`block text-[11px] uppercase tracking-wider mb-1 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
+                Години <span className={`normal-case ${dark ? 'text-slate-500' : 'text-stone-400'}`}>(опц.)</span>
+              </label>
+              <input
+                type="number"
+                step="0.5"
+                min="0.5"
+                max="24"
+                value={supervisionHours}
+                onChange={(e) => setSupervisionHours(e.target.value)}
+                placeholder="напр. 2"
+                className={`w-full px-3 py-2 rounded-lg border text-[13px] ${dark ? 'bg-white/[0.04] border-white/[0.1] text-white placeholder-slate-500' : 'bg-white border-stone-300 text-stone-900 placeholder-stone-400'}`}
               />
             </div>
             <div>
@@ -3961,7 +4035,7 @@ function IssueSupervisionDialog({
                   value={bulkText}
                   onChange={(e) => setBulkText(e.target.value)}
                   rows={4}
-                  placeholder={"Один рядок — один учасник. Підтримує:\nІван Петренко, ivan@example.com\nОлена Коваль <olena@example.com>\nМикола Іваненко mykola@example.com"}
+                  placeholder={"Підтримуються формати:\nІван Петренко, ivan@example.com\nОлена Коваль <olena@example.com>\nабо парами (імʼя на одному рядку, email на наступному):\nМикола Іваненко\nmykola@example.com"}
                   className={`w-full px-2.5 py-2 rounded-md border text-[12px] font-mono leading-relaxed ${dark ? 'bg-black/30 border-white/[0.1] text-slate-200 placeholder-slate-500' : 'bg-white border-stone-300 text-stone-800 placeholder-stone-400'}`}
                 />
                 <div className="flex items-center justify-end gap-2 mt-2">
@@ -4096,6 +4170,7 @@ function IssueSupervisionDialog({
             recipientName: previewRecipient?.name?.trim() ?? '',
             courseName: topic.trim(),
             supervisionDate: supervisionDate || undefined,
+            supervisionHours: supervisionHours.trim() || undefined,
           }}
         />
       </div>
@@ -4106,6 +4181,7 @@ function IssueSupervisionDialog({
           name: row.name,
           topic,
           supervisionDate,
+          supervisionHours,
         });
         return <CertPreviewFullscreen src={src} onClose={() => setPreviewRowId(null)} />;
       })()}

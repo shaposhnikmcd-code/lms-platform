@@ -11,6 +11,8 @@ export interface CertificateEmailArgs {
   courseName?: string;
   /// Тільки для SUPERVISION — людино-читабельна дата проведення (DD.MM.YYYY).
   supervisionDate?: string;
+  /// Тільки для SUPERVISION — тривалість заняття: «2 години» / «1.5 години».
+  supervisionHours?: string;
   certNumber: string;
   verificationUrl: string;
   issueYear: number;
@@ -36,10 +38,11 @@ export function certificateEmailHtml(args: CertificateEmailArgs): string {
     achievement = `ви успішно завершили курс <strong>${esc(args.courseName ?? '')}</strong> в Українському інституті душеопіки та психотерапії.`;
   } else if (args.type === 'SUPERVISION') {
     const topic = args.courseName?.trim();
-    const dateSuffix = args.supervisionDate ? ` (${esc(args.supervisionDate)})` : '';
+    const meta = [args.supervisionDate, args.supervisionHours].filter(Boolean).join(', ');
+    const metaSuffix = meta ? ` (${esc(meta)})` : '';
     achievement = topic
-      ? `ви взяли участь у супервізійному занятті <strong>${esc(topic)}</strong>${dateSuffix} в Українському інституті душеопіки та психотерапії.`
-      : `ви взяли участь у супервізійному занятті${dateSuffix} в Українському інституті душеопіки та психотерапії.`;
+      ? `ви взяли участь у супервізійному занятті <strong>${esc(topic)}</strong>${metaSuffix} в Українському інституті душеопіки та психотерапії.`
+      : `ви взяли участь у супервізійному занятті${metaSuffix} в Українському інституті душеопіки та психотерапії.`;
   } else if (args.category === 'LISTENER') {
     achievement = 'ви успішно завершили Річну програму в Українському інституті душеопіки та психотерапії у категорії <strong>Слухач</strong>.';
   } else {

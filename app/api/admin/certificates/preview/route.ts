@@ -7,6 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/certificates/adminAuth';
 import { generateCertificatePdf } from '@/lib/certificates/generatePdf';
+import { formatSupervisionHours } from '@/lib/certificates/service';
 import { appBaseUrl } from '@/lib/mailer';
 import type { TemplateKey } from '@/lib/certificates/templateConfig';
 
@@ -22,6 +23,7 @@ export async function GET(req: NextRequest) {
   const recipientName = sp.get('name')?.trim();
   const courseName = sp.get('courseName')?.trim();
   const supervisionDate = sp.get('supervisionDate')?.trim();
+  const supervisionHoursRaw = sp.get('supervisionHours')?.trim();
   const yearRaw = sp.get('year');
 
   if (!type || !recipientName) {
@@ -49,6 +51,15 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  /// Тривалість — приймаємо число (число або рядок з комою/крапкою). Невалідне = просто пропускаємо.
+  let supervisionHoursFmt: string | undefined;
+  if (type === 'SUPERVISION' && supervisionHoursRaw) {
+    const h = parseFloat(supervisionHoursRaw.replace(',', '.'));
+    if (Number.isFinite(h) && h > 0 && h <= 24) {
+      supervisionHoursFmt = formatSupervisionHours(h);
+    }
+  }
+
   const year = yearRaw ? parseInt(yearRaw, 10) : new Date().getUTCFullYear();
   const pdfBytes = await generateCertificatePdf({
     templateKey,
@@ -59,6 +70,7 @@ export async function GET(req: NextRequest) {
     courseName,
     category: category ?? undefined,
     supervisionDate: supervisionDateFmt,
+    supervisionHours: supervisionHoursFmt,
   });
 
   return new NextResponse(Buffer.from(pdfBytes), {

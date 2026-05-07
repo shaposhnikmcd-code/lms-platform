@@ -12,6 +12,9 @@ import PhoneInput from './_components/PhoneInput';
 import CountrySelector from './_components/CountrySelector';
 import { ALL_COUNTRIES, COUNTRY_PHONE } from './_constants/countries';
 
+const capitalizeWords = (s: string) =>
+  s.replace(/(^|[\s\-'’])(\p{L})/gu, (_, sep, ch) => sep + ch.toLocaleUpperCase('uk-UA'));
+
 interface FormLabels {
   title: string;
   subtitle: string;
@@ -273,12 +276,13 @@ export default function OrderForm({ isOpen, onClose, labels }: OrderFormProps) {
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value, type } = e.target;
+    const nextValue = name === 'fullName' ? capitalizeWords(value) : value;
     if (name === 'fullName') {
-      setNameError(validateFullName(value, formData.country));
+      setNameError(validateFullName(nextValue, formData.country));
     }
     setFormData(prev => ({
       ...prev,
-      [name]: type === 'checkbox' ? (e.target as HTMLInputElement).checked : value,
+      [name]: type === 'checkbox' ? (e.target as HTMLInputElement).checked : nextValue,
     }));
   };
 

@@ -220,10 +220,28 @@ function formatSupervisionDate(d: Date | null | undefined): string | undefined {
   return formatted.replace(/\s*р(оку)?\.?$/i, '').trim();
 }
 
+/// Форматує тривалість як «2 години» / «1.5 години» / «5 годин» з коректним відмінком.
+/// Використовується і у PDF body, і у тілі листа.
+export function formatSupervisionHours(h: number | null | undefined): string | undefined {
+  if (h === null || h === undefined) return undefined;
+  if (!Number.isFinite(h) || h <= 0) return undefined;
+  /// Округлюємо до 1 знаку після коми; цілі — без .0
+  const rounded = Math.round(h * 10) / 10;
+  const display = Number.isInteger(rounded) ? String(rounded) : String(rounded).replace('.', ',');
+  if (!Number.isInteger(rounded)) return `${display} години`;
+  const n = rounded;
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return `${display} година`;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return `${display} години`;
+  return `${display} годин`;
+}
+
 /// Внутрішній helper — генерує PDF і шле лист. Оновлює emailStatus у БД і пише event.
 async function sendCertificateEmail(cert: Certificate, actor: Actor, isResend: boolean): Promise<void> {
   try {
     const supervisionDateStr = formatSupervisionDate(cert.supervisionDate);
+    const supervisionHoursStr = formatSupervisionHours(cert.supervisionHours);
 
     const pdfBytes = await generateCertificatePdf({
       templateKey: templateKeyFor(cert.type, cert.category),
@@ -234,6 +252,7 @@ async function sendCertificateEmail(cert: Certificate, actor: Actor, isResend: b
       courseName: cert.courseName ?? undefined,
       category: cert.category ?? undefined,
       supervisionDate: supervisionDateStr,
+      supervisionHours: supervisionHoursStr,
     });
 
     const pdfHash = hashPdfBytes(pdfBytes);
@@ -245,6 +264,7 @@ async function sendCertificateEmail(cert: Certificate, actor: Actor, isResend: b
       category: cert.category ?? undefined,
       courseName: cert.courseName ?? undefined,
       supervisionDate: supervisionDateStr,
+      supervisionHours: supervisionHoursStr,
       certNumber: cert.certNumber,
       verificationUrl: verificationUrl(cert.verificationToken),
       issueYear: cert.issueYear,
@@ -257,6 +277,7 @@ async function sendCertificateEmail(cert: Certificate, actor: Actor, isResend: b
       category: cert.category ?? undefined,
       courseName: cert.courseName ?? undefined,
       supervisionDate: supervisionDateStr,
+      supervisionHours: supervisionHoursStr,
       certNumber: cert.certNumber,
       verificationUrl: verificationUrl(cert.verificationToken),
       issueYear: cert.issueYear,
@@ -345,6 +366,8 @@ export type IssueSupervisionCertInput = {
   /// Дата проведення супервізійного заняття. Опційна — якщо не задана, body показує
   /// generic рядок "в Українському інституті..."
   supervisionDate: Date | null;
+  /// Тривалість заняття в годинах (Float). Опційна. Друкується поряд з датою.
+  supervisionHours: number | null;
   actor: Actor;
 };
 
@@ -389,6 +412,7 @@ export async function issueSupervisionCertificate(
       recipientEmail: user.email,
       courseName: topic,
       supervisionDate: input.supervisionDate,
+      supervisionHours: input.supervisionHours,
       issueYear,
       issuedManually: true,
       issuedByUserId: input.actor?.id ?? null,
@@ -421,5 +445,6 @@ export async function regeneratePdfBytes(cert: Certificate): Promise<Uint8Array>
     courseName: cert.courseName ?? undefined,
     category: cert.category ?? undefined,
     supervisionDate: formatSupervisionDate(cert.supervisionDate),
+    supervisionHours: formatSupervisionHours(cert.supervisionHours),
   });
 }

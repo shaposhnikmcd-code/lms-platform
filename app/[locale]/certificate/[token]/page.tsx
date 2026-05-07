@@ -73,6 +73,18 @@ export default async function CertificateVerifyPage({ params }: Props) {
         { day: '2-digit', month: 'long', year: 'numeric' },
       )
     : null;
+  const supervisionHoursStr = (() => {
+    const h = cert.supervisionHours;
+    if (h === null || h === undefined || !Number.isFinite(h) || h <= 0) return null;
+    const rounded = Math.round(h * 10) / 10;
+    const display = Number.isInteger(rounded) ? String(rounded) : String(rounded).replace('.', ',');
+    if (!Number.isInteger(rounded)) return `${display} години`;
+    const mod10 = rounded % 10;
+    const mod100 = rounded % 100;
+    if (mod10 === 1 && mod100 !== 11) return `${display} година`;
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return `${display} години`;
+    return `${display} годин`;
+  })();
   /// SUPERVISION не має посилання — це не продукт із сторінкою.
   const linkUrl =
     cert.type === 'COURSE' && cert.course?.slug
@@ -145,6 +157,7 @@ export default async function CertificateVerifyPage({ params }: Props) {
               <DetailRow label="Рік" value={String(cert.issueYear)} />
               {courseTitle && <DetailRow label={subjectFieldLabel} value={courseTitle} />}
               {supervisionDateStr && <DetailRow label="Дата супервізії" value={supervisionDateStr} />}
+              {supervisionHoursStr && <DetailRow label="Тривалість" value={supervisionHoursStr} />}
               {categoryLabel && <DetailRow label="Категорія" value={categoryLabel} />}
             </div>
 

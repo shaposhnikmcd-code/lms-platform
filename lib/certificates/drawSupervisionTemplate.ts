@@ -43,6 +43,7 @@ export function drawSupervisionTemplate(
   opts: {
     courseName?: string;       // тема супервізії
     supervisionDate?: string;  // вже відформатована: "12 травня 2026 року"
+    supervisionHours?: string; // вже відформатована: "2 години" / "1.5 години"
     recipientName?: string;
   },
 ) {
@@ -60,7 +61,7 @@ export function drawSupervisionTemplate(
   drawDiamondDivider(page, W, H);
   drawCertificationIntro(page, W, H, assets.fonts);
   drawRecipientUnderline(page, W, H, assets.fonts, opts.recipientName);
-  drawBodyProse(page, W, H, assets.fonts, opts.courseName, opts.supervisionDate);
+  drawBodyProse(page, W, H, assets.fonts, opts.courseName, opts.supervisionDate, opts.supervisionHours);
   drawSignatureBlock(page, W, H, assets);
   drawSupervisionSeal(page, W, H, assets.logoGoldPng);
 }
@@ -336,6 +337,7 @@ function drawBodyProse(
   fonts: Record<FontKey, PDFFont>,
   topic: string | undefined,
   whenDate: string | undefined,
+  hours: string | undefined,
 ) {
   const cx = W / 2;
   const italic = fonts.cormorantItalic;
@@ -368,15 +370,21 @@ function drawBodyProse(
     });
   }
 
-  /// Дата — italic Cormorant gold-deep, малий кегль. Просто «29 квітня 2026»
-  /// без архаїчного «що відбулося ... року». Gold-deep tonally pairs with
-  /// gold underline above і gold seal внизу.
-  if (whenDate && whenDate.trim().length > 0) {
-    const dateSize = Math.min(W, H) * 0.020;
-    const dateW = italic.widthOfTextAtSize(whenDate.trim(), dateSize);
-    page.drawText(whenDate.trim(), {
-      x: cx - dateW / 2, y: H * 0.260,
-      size: dateSize, font: italic, color: c(GOLD_DEEP),
+  /// Дата (+ тривалість) — italic Cormorant gold-deep, малий кегль. Поєднуємо в один рядок:
+  /// «29 квітня 2026 · 2 години». Якщо лише години — «Тривалість: 2 години». Gold-deep
+  /// tonally pairs with gold underline above і gold seal внизу.
+  const dateTrim = whenDate?.trim() ?? '';
+  const hoursTrim = hours?.trim() ?? '';
+  let metaLine = '';
+  if (dateTrim && hoursTrim) metaLine = `${dateTrim}  ·  ${hoursTrim}`;
+  else if (dateTrim) metaLine = dateTrim;
+  else if (hoursTrim) metaLine = `Тривалість: ${hoursTrim}`;
+  if (metaLine) {
+    const metaSize = Math.min(W, H) * 0.020;
+    const metaW = italic.widthOfTextAtSize(metaLine, metaSize);
+    page.drawText(metaLine, {
+      x: cx - metaW / 2, y: H * 0.260,
+      size: metaSize, font: italic, color: c(GOLD_DEEP),
     });
   }
 }

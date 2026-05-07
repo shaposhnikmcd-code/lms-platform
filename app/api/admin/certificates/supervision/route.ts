@@ -29,6 +29,7 @@ export async function GET(req: NextRequest) {
       recipientEmail: true,
       courseName: true,
       supervisionDate: true,
+      supervisionHours: true,
       issueYear: true,
       issuedAt: true,
       issuedByName: true,
@@ -58,9 +59,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  const { topic, supervisionDate, recipients } = (body ?? {}) as {
+  const { topic, supervisionDate, supervisionHours, recipients } = (body ?? {}) as {
     topic?: string;
     supervisionDate?: string | null;
+    supervisionHours?: number | string | null;
     recipients?: RecipientInput[];
   };
 
@@ -87,6 +89,16 @@ export async function POST(req: NextRequest) {
     parsedDate = d;
   }
 
+  /// Тривалість — опційна. Float > 0, ≤ 24 (більше — точно помилка).
+  let parsedHours: number | null = null;
+  if (supervisionHours !== null && supervisionHours !== undefined && supervisionHours !== '') {
+    const h = typeof supervisionHours === 'number' ? supervisionHours : parseFloat(String(supervisionHours).replace(',', '.'));
+    if (!Number.isFinite(h) || h <= 0 || h > 24) {
+      return NextResponse.json({ error: 'Невалідна тривалість (0 < год ≤ 24)' }, { status: 400 });
+    }
+    parsedHours = h;
+  }
+
   /// Per-recipient валідація: до запуску issuance — щоб явні помилки повідомити одразу,
   /// без створення часткових сертифікатів. Зберігаємо порядок для подальшого matching.
   type Normalized = { name: string; email: string; preError: string | null };
@@ -110,6 +122,7 @@ export async function POST(req: NextRequest) {
         recipientEmail: r.email,
         topic: topicTrim,
         supervisionDate: parsedDate,
+        supervisionHours: parsedHours,
         actor: guard.actor,
       });
     }),

@@ -66,6 +66,7 @@ export async function drawBaseTemplate(
     year?: number;
     recipientName?: string;
     supervisionDate?: string;
+    supervisionHours?: string;
   } = {},
 ) {
   /// COURSE-сертифікат має кардинально інший layout (двопанельний sidebar +
@@ -98,6 +99,7 @@ export async function drawBaseTemplate(
     }, {
       courseName: opts.courseName,
       supervisionDate: opts.supervisionDate,
+      supervisionHours: opts.supervisionHours,
       recipientName: opts.recipientName,
     });
     return;

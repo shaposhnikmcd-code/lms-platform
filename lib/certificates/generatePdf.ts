@@ -32,6 +32,8 @@ export type CertGenerationInput = {
   category?: 'LISTENER' | 'PRACTICAL';
   /// Тільки для SUPERVISION — DD.MM.YYYY (вже відформатовано). Друкується у body.
   supervisionDate?: string;
+  /// Тільки для SUPERVISION — тривалість (вже відформатовано: «2 години» / «1.5 години»).
+  supervisionHours?: string;
 };
 
 export async function generateCertificatePdf(input: CertGenerationInput): Promise<Uint8Array> {
@@ -95,6 +97,7 @@ export async function generateCertificatePdf(input: CertGenerationInput): Promis
     year: input.issueYear,
     recipientName: input.recipientName,
     supervisionDate: input.supervisionDate,
+    supervisionHours: input.supervisionHours,
   });
 
   /// Overlay динамічних полів (ім'я, рік, cert#)

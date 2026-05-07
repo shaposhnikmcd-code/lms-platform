@@ -9,6 +9,9 @@ import CoursePhoneInput, { PHONE_CONFIG } from './CoursePhoneInput';
 import CountryPicker from './CountryPicker';
 import { parseTelegramUsername } from '@/lib/telegramUsername';
 
+const capitalizeFirst = (s: string) =>
+  s.length > 0 ? s.charAt(0).toLocaleUpperCase('uk-UA') + s.slice(1) : s;
+
 export interface CoursePurchaseDialogProps {
   courseName: string;
   price: number;
@@ -304,7 +307,7 @@ export default function CoursePurchaseDialog({
                 id="purchase-firstname"
                 type="text"
                 value={firstName}
-                onChange={(e) => { setFirstName(e.target.value); clearError('firstName'); }}
+                onChange={(e) => { setFirstName(capitalizeFirst(e.target.value)); clearError('firstName'); }}
                 placeholder={t('firstNamePlaceholder')}
                 autoComplete="given-name"
                 aria-invalid={!!errors.firstName}
@@ -325,7 +328,7 @@ export default function CoursePurchaseDialog({
                 id="purchase-lastname"
                 type="text"
                 value={lastName}
-                onChange={(e) => { setLastName(e.target.value); clearError('lastName'); }}
+                onChange={(e) => { setLastName(capitalizeFirst(e.target.value)); clearError('lastName'); }}
                 placeholder={t('lastNamePlaceholder')}
                 autoComplete="family-name"
                 aria-invalid={!!errors.lastName}
