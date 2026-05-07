@@ -6,6 +6,125 @@ import {
   HiOutlineSparkles,
 } from 'react-icons/hi2';
 
+// ─────────────────────── SKELETON PRIMITIVES ───────────────────────
+// Спільний скелетон-стиль для всіх loading-станів адмінки Річної програми.
+// Використовується у трьох контекстах: списки шаблонів, списки одержувачів, деталі підписки.
+
+/// Базовий блок з animate-pulse + delay-ланцюжком — щоб скелетони з'являлися хвилею, а не разом.
+export function SkeletonBox({
+  dark,
+  width,
+  height,
+  delay = 0,
+  className = '',
+  rounded = 'rounded',
+}: {
+  dark: boolean;
+  width: string;
+  height: string;
+  delay?: number;
+  className?: string;
+  rounded?: string;
+}) {
+  return (
+    <div
+      className={`${rounded} animate-pulse ${dark ? 'bg-white/[0.06]' : 'bg-stone-200/80'} ${className}`}
+      style={{ width, height, animationDelay: `${delay}ms` }}
+    />
+  );
+}
+
+/// Обгортка-картка зі стандартним border/bg для скелетон-вмісту.
+export function SkeletonCard({ dark, children, className = '' }: { dark: boolean; children: React.ReactNode; className?: string }) {
+  return (
+    <div className={`rounded-xl border ${dark ? 'border-white/10 bg-zinc-900' : 'border-stone-200 bg-white shadow-sm'} ${className}`}>
+      {children}
+    </div>
+  );
+}
+
+/// Рядок-плейсхолдер для list-items: коло-аватар зліва + 2 рядки тексту + бейдж справа.
+/// Використовується у list-loaders (Listи Платежів/Нагадування, Дослати лист, деталі підписки).
+export function SkeletonAvatarRow({ dark, delay = 0 }: { dark: boolean; delay?: number }) {
+  return (
+    <div className="px-3.5 py-2.5 flex items-center gap-3">
+      <SkeletonBox dark={dark} width="32px" height="32px" delay={delay} rounded="rounded-full" />
+      <div className="flex-1 space-y-1.5 min-w-0">
+        <SkeletonBox dark={dark} width="40%" height="11px" delay={delay + 60} />
+        <SkeletonBox dark={dark} width="65%" height="9px" delay={delay + 120} />
+      </div>
+      <SkeletonBox dark={dark} width="58px" height="14px" delay={delay + 180} rounded="rounded-md" />
+      <SkeletonBox dark={dark} width="78px" height="20px" delay={delay + 240} rounded="rounded-md" />
+    </div>
+  );
+}
+
+/// Footer-tick з пульсуючою точкою — фіниш-індикатор у скелетон-блоках.
+export function SkeletonFooterTick({ dark, label }: { dark: boolean; label: string }) {
+  return (
+    <div className={`flex items-center justify-center gap-2 py-2 text-[11px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+      <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+      {label}
+    </div>
+  );
+}
+
+/// Пронумерована (або без номера) секція-картка з заголовком, опційною іконкою, hint-ом
+/// у правій частині шапки і слотом `headerRight` для actions (наприклад кнопки «Тестовий лист»).
+/// Спільна для всіх трьох контекстів редагування листів: Listі Платежів, Listі Нагадування,
+/// Welcome-лист у LaunchProgramModal.
+export function SectionCard({
+  dark,
+  num,
+  title,
+  hint,
+  icon,
+  headerRight,
+  children,
+}: {
+  dark: boolean;
+  num?: number;
+  title: string;
+  hint?: string;
+  icon?: React.ReactNode;
+  headerRight?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className={`rounded-xl border ${dark ? 'border-white/10 bg-zinc-900' : 'border-stone-200 bg-white shadow-sm'}`}>
+      <div className={`flex items-center justify-between gap-3 px-4 py-3 border-b ${
+        dark ? 'border-white/[0.06] bg-white/[0.02]' : 'border-stone-200/70 bg-stone-50/60'
+      }`}>
+        <div className="flex items-center gap-2.5 min-w-0">
+          {num !== undefined && (
+            <div className={`shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold border ${
+              dark ? 'bg-amber-400/15 border-amber-400/30 text-amber-200' : 'bg-amber-100 border-amber-300/60 text-amber-900'
+            }`}>
+              {num}
+            </div>
+          )}
+          <h4 className={`text-[13.5px] font-bold flex items-center gap-1.5 ${dark ? 'text-slate-100' : 'text-stone-900'}`}>
+            {icon && <span className={`text-[15px] ${dark ? 'text-slate-400' : 'text-stone-500'}`}>{icon}</span>}
+            {title}
+          </h4>
+        </div>
+        {headerRight ? (
+          <div className="shrink-0">{headerRight}</div>
+        ) : (
+          hint && (
+            <p className={`text-[10.5px] hidden sm:block text-right max-w-[55%] truncate ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+              {hint}
+            </p>
+          )
+        )}
+      </div>
+      <div className="px-4 py-3.5">
+        {children}
+      </div>
+    </section>
+  );
+}
+
 /// Сканує HTML і повертає множину знайдених у тексті плейсхолдерів `{xxx}` чи `{{xxx}}`.
 export function extractUsedPlaceholders(html: string): Set<string> {
   const re = /\{\{?([a-zA-Z][a-zA-Z0-9_-]*)\}\}?/g;

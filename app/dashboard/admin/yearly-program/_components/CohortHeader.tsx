@@ -2,9 +2,10 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { HiOutlineSparkles, HiOutlinePlus, HiOutlineChevronDown, HiOutlineCheck, HiOutlineRocketLaunch } from 'react-icons/hi2';
+import { HiOutlineSparkles, HiOutlinePlus, HiOutlineChevronDown, HiOutlineCheck, HiOutlineRocketLaunch, HiOutlineStar } from 'react-icons/hi2';
 import type { Theme } from '../../_components/adminTheme';
 import type { CohortListItem } from './types';
+import { useUIFeedback } from './UIFeedback';
 
 /// Шапка зі списком cohort-ів — селектор + "+ Новий запуск".
 /// Назва обраного cohort-у показується великим заголовком.
@@ -25,8 +26,54 @@ export default function CohortHeader({
   rightSlot?: React.ReactNode;
 }) {
   const dark = theme === 'dark';
+  const router = useRouter();
+  const { confirm, toast } = useUIFeedback();
   const [open, setOpen] = useState(false);
+  const [makingCurrentId, setMakingCurrentId] = useState<string | null>(null);
   const active = cohorts.find((c) => c.id === activeCohortId) ?? null;
+  const currentCohort = cohorts.find((c) => c.isCurrent) ?? null;
+
+  async function handleMakeCurrent(cohort: CohortListItem) {
+    const ok = await confirm({
+      title: `Зробити "${cohort.name}" поточним запуском?`,
+      description: 'Усі нові оплати з цього моменту потраплятимуть саме в цей запуск.',
+      bullets: currentCohort
+        ? [
+            { icon: '➡️', text: `Поточним стане: ${cohort.name}` },
+            { icon: '⏸', text: `Перестане бути поточним: ${currentCohort.name}` },
+            { icon: 'ℹ️', text: 'Існуючі підписки залишаться в своїх запусках — переноситься лише прапорець isCurrent.' },
+          ]
+        : [
+            { icon: '➡️', text: `Поточним стане: ${cohort.name}` },
+            { icon: 'ℹ️', text: 'Існуючі підписки залишаться в своїх запусках — переноситься лише прапорець isCurrent.' },
+          ],
+      confirmLabel: 'Зробити поточним',
+    });
+    if (!ok) return;
+    setMakingCurrentId(cohort.id);
+    try {
+      const res = await fetch(`/api/admin/yearly-program/cohorts/${cohort.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ makeCurrent: true }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        toast('error', data.error ?? `Помилка ${res.status}`);
+        return;
+      }
+      toast('success', `"${cohort.name}" — поточний запуск`);
+      // Переключаємо view на свіжий поточний — інакше менеджер бачив би попередній
+      // обраний cohort, що плутає («зробив поточним, а на екрані старий»).
+      onSelect(cohort.id);
+      setOpen(false);
+      router.refresh();
+    } catch (e) {
+      toast('error', (e as Error).message);
+    } finally {
+      setMakingCurrentId(null);
+    }
+  }
 
   if (cohorts.length === 0) {
     return (
@@ -128,14 +175,22 @@ export default function CohortHeader({
                 </div>
               ) : (
                 cohorts.map((c) => (
-                  <button
+                  <div
                     key={c.id}
-                    type="button"
+                    role="button"
+                    tabIndex={0}
                     onClick={() => {
                       onSelect(c.id);
                       setOpen(false);
                     }}
-                    className={`w-full px-3 py-2 text-left flex items-start justify-between gap-3 text-[13px] transition-colors ${
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        onSelect(c.id);
+                        setOpen(false);
+                      }
+                    }}
+                    className={`w-full px-3 py-2 text-left flex items-start justify-between gap-3 text-[13px] transition-colors cursor-pointer ${
                       c.id === activeCohortId
                         ? dark ? 'bg-amber-400/10 text-amber-200' : 'bg-amber-50 text-amber-900'
                         : dark ? 'hover:bg-white/[0.06] text-slate-200' : 'hover:bg-stone-100 text-stone-800'
@@ -149,8 +204,29 @@ export default function CohortHeader({
                         {c.launchedAt && !c.isCurrent && <span className={`ml-2 ${dark ? 'text-amber-300' : 'text-amber-700'}`}>· запущено</span>}
                       </div>
                     </div>
-                    {c.id === activeCohortId && <HiOutlineCheck className="mt-1" />}
-                  </button>
+                    <div className="shrink-0 flex items-center gap-2 mt-0.5">
+                      {!c.isCurrent && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleMakeCurrent(c);
+                          }}
+                          disabled={makingCurrentId === c.id}
+                          title="Зробити цей запуск поточним — нові оплати потраплятимуть сюди"
+                          className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10.5px] font-semibold border transition-colors disabled:opacity-50 ${
+                            dark
+                              ? 'bg-emerald-500/10 border-emerald-400/30 text-emerald-200 hover:bg-emerald-500/20'
+                              : 'bg-emerald-50 border-emerald-300/60 text-emerald-800 hover:bg-emerald-100'
+                          }`}
+                        >
+                          <HiOutlineStar className="text-[12px]" />
+                          {makingCurrentId === c.id ? 'Роблю…' : 'Зробити поточним'}
+                        </button>
+                      )}
+                      {c.id === activeCohortId && <HiOutlineCheck className="mt-0.5" />}
+                    </div>
+                  </div>
                 ))
               )}
             </div>

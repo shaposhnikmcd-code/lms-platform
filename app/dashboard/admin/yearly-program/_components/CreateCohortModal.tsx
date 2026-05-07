@@ -28,7 +28,10 @@ export default function CreateCohortModal({
   const [name, setName] = useState(`Річна програма ${defaultYear}`);
   const [startDate, setStartDate] = useState(formatDateInput(defaultStart));
   const [endDate, setEndDate] = useState(formatDateInput(defaultEnd));
-  const [makeCurrent, setMakeCurrent] = useState(true);
+  // Дефолт false — щоб новий запуск НЕ перехоплював нові оплати, поки менеджер
+  // явно не зробить його поточним через dropdown «Запуск програми». Це уникає випадків
+  // коли ще не готова до старту програма стає активною лише через створення.
+  const [makeCurrent, setMakeCurrent] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

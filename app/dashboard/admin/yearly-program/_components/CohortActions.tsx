@@ -2,16 +2,20 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import dynamic from 'next/dynamic';
 import { HiOutlineRocketLaunch, HiOutlineEnvelopeOpen, HiOutlineArrowPath, HiOutlineUserPlus, HiOutlineSquares2X2 } from 'react-icons/hi2';
 import type { Theme } from '../../_components/adminTheme';
 import type { CohortListItem } from './types';
-import SendEmailsModal from './SendEmailsModal';
-import AddStudentModal from './AddStudentModal';
-import LaunchProgramModal from './LaunchProgramModal';
-import WorkflowDiagramModal from './WorkflowDiagramModal';
 import TelegramChannelButton, { type TelegramSettingsState } from './TelegramChannelButton';
 import MailerFromBadge from '../../_components/MailerFromBadge';
 import { useUIFeedback, HoverInfo } from './UIFeedback';
+
+// Code-split: модалки тягнуть TipTap (~200KB) + великий форм-код. Завантажуються тільки коли
+// менеджер натискає 🚀 / ✉️ / 👤 / 🧠 — initial-bundle сторінки за рахунок цього вдвічі менший.
+const SendEmailsModal = dynamic(() => import('./SendEmailsModal'), { ssr: false });
+const AddStudentModal = dynamic(() => import('./AddStudentModal'), { ssr: false });
+const LaunchProgramModal = dynamic(() => import('./LaunchProgramModal'), { ssr: false });
+const WorkflowDiagramModal = dynamic(() => import('./WorkflowDiagramModal'), { ssr: false });
 
 /// Великі кнопки дій над cohort-ом. Запуск і welcome-розсилка об'єднані в одну кнопку
 /// 🚀 — у модалці є чекбокс «Надіслати лист одночасно» (default ON). Окрема кнопка
@@ -119,13 +123,6 @@ export default function CohortActions({
             >
               <HiOutlineEnvelopeOpen className="text-base" />
               Дослати лист
-              {cohort.emailSentAt ? (
-                <span className={`ml-1 px-1.5 py-0.5 rounded text-[9px] font-semibold ${
-                  dark ? 'bg-emerald-500/20 text-emerald-300' : 'bg-emerald-100 text-emerald-800'
-                }`}>
-                  ✓ {new Date(cohort.emailSentAt).toLocaleString('uk-UA', { day: '2-digit', month: '2-digit' })}
-                </span>
-              ) : null}
             </button>
             <HoverInfo
               theme={theme}

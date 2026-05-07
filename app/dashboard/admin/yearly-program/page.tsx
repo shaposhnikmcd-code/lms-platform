@@ -5,6 +5,7 @@ import {
   YEARLY_PROGRAM_DEFAULTS,
 } from '@/lib/yearlyProgramSettings';
 import { getYearlyProgramTelegramSettings } from '@/lib/yearlyProgramTelegram';
+import { buildYearlyProgramAdminPrewarm } from '@/lib/yearlyProgramAdminPrefetch';
 import YearlyProgramView, { type SummaryData } from './_components/YearlyProgramView';
 import type { Row, CohortListItem } from './_components/types';
 
@@ -104,7 +105,12 @@ export default async function AdminYearlyProgramPage() {
     };
   });
 
-  const [statusCounts, totalAggr, revenueAggr, graceDays, programSettings, tgSettings] = await Promise.all([
+  // Prewarm-payload для модалок (templates lists + recipients launched cohort-ів). Тягнемо тут
+  // у спільному Promise.all з агрегаціями, щоб не додавати додатковий sequential roundtrip.
+  // Клієнт записує ці дані в module-level кеш модалок при mount → відкриття без skeleton.
+  const launchedCohortIds = cohortList.filter((c) => c.launchedAt !== null).map((c) => c.id);
+
+  const [statusCounts, totalAggr, revenueAggr, graceDays, programSettings, tgSettings, prewarm] = await Promise.all([
     prisma.yearlyProgramSubscription.groupBy({
       by: ['status'],
       _count: { _all: true },
@@ -117,6 +123,7 @@ export default async function AdminYearlyProgramPage() {
     getYearlyGraceDays(prisma),
     getYearlyProgramSettings(prisma),
     getYearlyProgramTelegramSettings(),
+    buildYearlyProgramAdminPrewarm(launchedCohortIds),
   ]);
   const countByStatus = (st: string) =>
     statusCounts.find((s) => s.status === st)?._count._all ?? 0;
@@ -147,6 +154,7 @@ export default async function AdminYearlyProgramPage() {
         updatedAt: tgSettings.updatedAt?.toISOString() ?? null,
         updatedBy: tgSettings.updatedBy,
       }}
+      prewarm={prewarm}
     />
   );
 }

@@ -17,10 +17,22 @@ import {
   EmailPreviewFrame,
   RemovedPlaceholderAlert,
   PlaceholderLegend,
+  SectionCard,
+  SkeletonBox,
+  SkeletonFooterTick,
   extractUsedPlaceholders,
 } from './EmailEditorParts';
 import { PLACEHOLDER_DESCRIPTIONS } from '@/lib/emailTemplates/paymentTemplates';
 import { REMINDER_PLACEHOLDER_DESCRIPTIONS } from '@/lib/emailTemplates/reminderTemplates';
+import {
+  getTemplateListCache,
+  setTemplateListCache,
+  hasTemplateListCache,
+  getTemplateFullCache,
+  type CachedTemplateListItem,
+  type CachedTemplateGroup,
+  type CachedTemplateFull,
+} from './modalCaches';
 
 /// Конфіг варіанту модалки. Через нього вирізаємо дублікат коду між Listами Платежів і Нагадувань —
 /// логіка модалки спільна, відрізняються лише endpoint-и, тексти і палітра груп.
@@ -32,50 +44,21 @@ export interface EmailTemplatesModalConfig {
   placeholderDescriptions: Record<string, { what: string; consequence: string }>;
   groupAccents: Record<string, GroupAccent>;
   cacheKey: string;
+  /// true → блоки «Прев'ю» і «Редактор» рендеряться поруч у grid-2col на широких екранах.
+  /// Корисно для коротких reminder-листів — менеджер бачить ефект редагування одразу,
+  /// без скролу. На вузьких екранах (<1024px) автоматично fall-back на стек.
+  sideBySidePreview?: boolean;
 }
 
 type Theme = 'light' | 'dark';
 
-/// Тонкий list-item — без HTML-тіла. Повертає GET /payment-templates.
-interface TemplateListItem {
-  key: string;
-  group: string;
-  title: string;
-  when: string;
-  placeholders: string[];
-  sampleData: Record<string, string>;
-  isCustomized: boolean;
-  updatedAt: string | null;
-  updatedBy: string | null;
-}
+// Local-aliases на shared cached-types — щоб локальні refs (selectedFull, items) лишилися читабельними.
+type TemplateListItem = CachedTemplateListItem;
+type TemplateFullItem = CachedTemplateFull;
+type GroupItem = CachedTemplateGroup;
 
-/// Повна інформація про шаблон з HTML-тілом. Повертає GET /payment-templates/:key.
-/// Композиція з ListItem + body-fields. Використовується у TemplateEditor.
-type TemplateFullItem = TemplateListItem & {
-  subject: string;
-  bodyHtml: string;
-  bodyInnerHtml: string;
-  defaultSubject: string;
-  defaultBodyHtml: string;
-  defaultBodyInnerHtml: string;
-};
-
-interface GroupItem {
-  id: string;
-  title: string;
-  description: string;
-}
-
-// ─── Module-level caches ──────────────────────────────────
-// Кешуємо список і повні шаблони на рівні модуля — вижити закриття/відкриття модалки.
-// Окрема пара кешів на кожен варіант (payment/reminder) щоб не перетиналось.
-const listCaches = new Map<string, { items: TemplateListItem[]; groups: GroupItem[] }>();
-const fullCaches = new Map<string, Record<string, TemplateFullItem>>();
-function getFullCache(key: string): Record<string, TemplateFullItem> {
-  let cache = fullCaches.get(key);
-  if (!cache) { cache = {}; fullCaches.set(key, cache); }
-  return cache;
-}
+// Module-level caches тепер живуть у './modalCaches' — це дозволяє SSR-prewarm писати в кеш
+// до того як код модалки завантажиться (модалки code-split-нуті через next/dynamic).
 
 /// Палітра по групах. amber=primary/payment/cyclical, indigo=plan-change, rose=admin-end/shared,
 /// sky=manual (нагадування ручної оплати).
@@ -89,6 +72,8 @@ const PAYMENT_CONFIG: EmailTemplatesModalConfig = {
   placeholderDescriptions: PLACEHOLDER_DESCRIPTIONS,
   groupAccents: { payment: 'amber', 'plan-change': 'indigo', 'admin-end': 'rose' },
   cacheKey: 'payment',
+  // Side-by-side: менеджер бачить ефект редагування одразу. Уніфіковано з Listі Нагадування.
+  sideBySidePreview: true,
 };
 
 const REMINDER_CONFIG: EmailTemplatesModalConfig = {
@@ -99,6 +84,9 @@ const REMINDER_CONFIG: EmailTemplatesModalConfig = {
   placeholderDescriptions: REMINDER_PLACEHOLDER_DESCRIPTIONS,
   groupAccents: { manual: 'sky', cyclical: 'amber', shared: 'rose' },
   cacheKey: 'reminder',
+  // Reminder-листи короткі (1-2 абзаци) — side-by-side розкладка дає менеджеру миттєвий
+  // зворотний звʼязок про правки без скролу.
+  sideBySidePreview: true,
 };
 
 /// Wrapper-default — Listи Платежів.
@@ -122,8 +110,9 @@ function EmailTemplatesModal({
 }) {
   const dark = theme === 'dark';
   const [mounted, setMounted] = useState(false);
-  // Стартуємо з кешу — якщо вже відкривали модалку, дані з'являться миттєво.
-  const initialList = listCaches.get(config.cacheKey);
+  // Стартуємо з кешу — SSR-prewarm заповнює його при mount-і YearlyProgramView, тому
+  // перше відкриття модалки одразу показує список без skeleton-у і fetch-а.
+  const initialList = getTemplateListCache(config.cacheKey);
   const [items, setItems] = useState<TemplateListItem[] | null>(initialList?.items ?? null);
   const [groups, setGroups] = useState<GroupItem[]>(initialList?.groups ?? []);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -140,13 +129,13 @@ function EmailTemplatesModal({
   }, [onClose]);
 
   useEffect(() => {
-    if (listCaches.has(config.cacheKey)) return; // cache hit
+    if (hasTemplateListCache(config.cacheKey)) return; // cache hit
     fetch(config.apiBase)
       .then((r) => r.json())
       .then((data) => {
         if (Array.isArray(data?.items)) {
           const cache = { items: data.items, groups: Array.isArray(data?.groups) ? data.groups : [] };
-          listCaches.set(config.cacheKey, cache);
+          setTemplateListCache(config.cacheKey, cache);
           setItems(cache.items);
           setGroups(cache.groups);
         } else {
@@ -163,7 +152,7 @@ function EmailTemplatesModal({
       setSelectedFull(null);
       return;
     }
-    const fullCache = getFullCache(config.cacheKey);
+    const fullCache = getTemplateFullCache(config.cacheKey);
     const cached = fullCache[selectedKey];
     if (cached) {
       setSelectedFull(cached);
@@ -181,7 +170,7 @@ function EmailTemplatesModal({
         }
         // Метадані з list (when, placeholders, sampleData etc.) GET /:key не повертає —
         // склеюємо з list-item.
-        const listCache = listCaches.get(config.cacheKey);
+        const listCache = getTemplateListCache(config.cacheKey);
         const meta = listCache?.items.find((i) => i.key === selectedKey);
         const full: TemplateFullItem = { ...(meta ?? ({} as TemplateListItem)), ...data };
         fullCache[selectedKey] = full;
@@ -195,12 +184,12 @@ function EmailTemplatesModal({
   /// Після збереження шаблону: оновити обидва кеші (повний + list) щоб «Змінено»-бейдж
   /// з'явився одразу і в списку, і повторне відкриття не тягло stale data.
   const onSaved = (key: string, updated: { subject: string; bodyHtml: string; bodyInnerHtml: string; isCustomized: boolean; updatedAt: string | null; updatedBy: string | null }) => {
-    const fullCache = getFullCache(config.cacheKey);
+    const fullCache = getTemplateFullCache(config.cacheKey);
     if (fullCache[key]) {
       fullCache[key] = { ...fullCache[key], ...updated };
       setSelectedFull(fullCache[key]);
     }
-    const listCache = listCaches.get(config.cacheKey);
+    const listCache = getTemplateListCache(config.cacheKey);
     if (listCache) {
       const newCache = {
         ...listCache,
@@ -209,7 +198,7 @@ function EmailTemplatesModal({
           : i,
         ),
       };
-      listCaches.set(config.cacheKey, newCache);
+      setTemplateListCache(config.cacheKey, newCache);
       setItems(newCache.items);
     }
   };
@@ -222,7 +211,9 @@ function EmailTemplatesModal({
         className={`relative w-full max-h-[94vh] flex flex-col rounded-2xl shadow-2xl overflow-hidden ${
           dark ? 'bg-zinc-950 border border-white/10 text-slate-200' : 'bg-stone-100 border border-stone-200 text-stone-800'
         }`}
-        style={{ maxWidth: 'min(1240px, 96vw)' }}
+        // Side-by-side preview потребує ширшої модалки — інакше кожна з 2 колонок стає
+        // ~480px і UIMP-wrapper (600px) у прев'ю йде в overflow-x scroll.
+        style={{ maxWidth: config.sideBySidePreview ? 'min(1360px, 96vw)' : 'min(1080px, 96vw)' }}
       >
         {/* HEADER */}
         <header className={`shrink-0 flex items-center justify-between px-6 py-4 border-b backdrop-blur ${
@@ -277,9 +268,7 @@ function EmailTemplatesModal({
             )}
 
             {!items && !loadError && (
-              <div className={`text-[13px] py-12 text-center ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
-                Завантаження шаблонів…
-              </div>
+              <TemplateListSkeleton dark={dark} />
             )}
 
             {items && !selectedKey && (
@@ -647,7 +636,7 @@ function TemplateEditor({
       </div>
 
       {/* SECTION 1: Тема */}
-      <SectionCard theme={theme} num={1} title="Тема листа" hint="Те, що отримувач бачить у списку папки «Вхідні»">
+      <SectionCard dark={dark} num={1} title="Тема листа" hint="Те, що отримувач бачить у списку папки «Вхідні»">
         <input
           type="text"
           value={subject}
@@ -658,86 +647,92 @@ function TemplateEditor({
         />
       </SectionCard>
 
-      {/* SECTION 2: Прев'ю */}
-      <SectionCard
-        theme={theme}
-        num={2}
-        title="Прев'ю — як побачить отримувач"
-        hint="Підставлено тестові дані для прикладу. Оновлюється автоматично при редагуванні"
-        icon={<HiOutlineEye />}
-      >
-        {previewError && (
-          <div className={`mb-2 p-2 rounded text-[11px] ${dark ? 'bg-rose-500/15 text-rose-300' : 'bg-rose-100 text-rose-800'}`}>
-            {previewError}
-          </div>
-        )}
-        <EmailPreviewFrame dark={dark} subject={subject} loading={previewLoading} loadingHeight={previewHeight}>
-          <iframe
-            ref={iframeRef}
-            key={item.key}
-            srcDoc={previewHtml}
-            title={`Прев'ю: ${item.title}`}
-            scrolling="no"
-            onLoad={() => {
-              const ifr = iframeRef.current;
-              if (!ifr) return;
-              try {
-                const doc = ifr.contentDocument;
-                if (!doc) return;
-                const h = Math.max(doc.documentElement.scrollHeight, doc.body.scrollHeight);
-                if (h > 0) setPreviewHeight(h + 4);
-              } catch {
-                /* cross-origin would throw — srcDoc same-origin, тут безпечно */
-              }
-            }}
-            style={{ height: `${previewHeight}px` }}
-            className={`w-full bg-white border-0 block transition-opacity duration-200 ${previewLoading ? 'opacity-0' : 'opacity-100'}`}
-          />
-        </EmailPreviewFrame>
-      </SectionCard>
-
-      {/* SECTION 3: Текст */}
-      <SectionCard
-        theme={theme}
-        num={3}
-        title="Редактор листа"
-        hint="Жирний / курсив / списки / посилання · вставка полів"
-        icon={<HiOutlinePencilSquare />}
-      >
-        {removedPlaceholder && (
-          <RemovedPlaceholderAlert
-            dark={dark}
-            placeholder={removedPlaceholder}
-            descriptions={config.placeholderDescriptions}
-            onRestore={() => restorePlaceholder(removedPlaceholder)}
-            onDismiss={() => dismissPlaceholderRemoval(removedPlaceholder)}
-          />
-        )}
-        <WysiwygEmailEditor
-          value={bodyInnerHtml}
-          onChange={setBodyInnerHtml}
-          theme={theme}
-          placeholders={item.placeholders}
-        />
-        {item.placeholders.length > 0 && (
-          <div className="mt-3">
-            <PlaceholderLegend
-              dark={dark}
-              placeholders={item.placeholders}
-              sampleData={item.sampleData}
-              descriptions={config.placeholderDescriptions}
+      {/* SECTIONS 2+3 — у Reminders side-by-side (грід 2 кол.), у Payment вертикально.
+          На вузьких екранах (<1024px) завжди стек, незалежно від config — інакше колонки
+          стають занадто вузькі і paper-блок ламає UIMP-wrapper всередині прев'ю. */}
+      <div className={config.sideBySidePreview ? 'grid grid-cols-1 lg:grid-cols-2 gap-4' : 'space-y-4'}>
+        <SectionCard
+          dark={dark}
+          num={2}
+          title="Прев'ю — як побачить отримувач"
+          hint={config.sideBySidePreview ? 'Оновлюється автоматично при редагуванні' : 'Підставлено тестові дані для прикладу. Оновлюється автоматично при редагуванні'}
+          icon={<HiOutlineEye />}
+        >
+          {previewError && (
+            <div className={`mb-2 p-2 rounded text-[11px] ${dark ? 'bg-rose-500/15 text-rose-300' : 'bg-rose-100 text-rose-800'}`}>
+              {previewError}
+            </div>
+          )}
+          <EmailPreviewFrame dark={dark} subject={subject} loading={previewLoading} loadingHeight={previewHeight}>
+            <iframe
+              ref={iframeRef}
+              key={item.key}
+              srcDoc={previewHtml}
+              title={`Прев'ю: ${item.title}`}
+              scrolling="no"
+              onLoad={() => {
+                const ifr = iframeRef.current;
+                if (!ifr) return;
+                try {
+                  const doc = ifr.contentDocument;
+                  if (!doc) return;
+                  const h = Math.max(doc.documentElement.scrollHeight, doc.body.scrollHeight);
+                  if (h > 0) setPreviewHeight(h + 4);
+                } catch {
+                  /* cross-origin would throw — srcDoc same-origin, тут безпечно */
+                }
+              }}
+              style={{ height: `${previewHeight}px` }}
+              className={`w-full bg-white border-0 block transition-opacity duration-200 ${previewLoading ? 'opacity-0' : 'opacity-100'}`}
             />
+          </EmailPreviewFrame>
+        </SectionCard>
+
+        <SectionCard
+          dark={dark}
+          num={3}
+          title="Редактор листа"
+          hint={config.sideBySidePreview ? 'Форматування · вставка полів' : 'Жирний / курсив / списки / посилання · вставка полів'}
+          icon={<HiOutlinePencilSquare />}
+        >
+          {removedPlaceholder && (
+            <RemovedPlaceholderAlert
+              dark={dark}
+              placeholder={removedPlaceholder}
+              descriptions={config.placeholderDescriptions}
+              onRestore={() => restorePlaceholder(removedPlaceholder)}
+              onDismiss={() => dismissPlaceholderRemoval(removedPlaceholder)}
+            />
+          )}
+          <WysiwygEmailEditor
+            value={bodyInnerHtml}
+            onChange={setBodyInnerHtml}
+            theme={theme}
+            placeholders={item.placeholders}
+            // Side-by-side: paper-блок розгортається на всю ширину колонки. У stack-варіанті —
+            // 640px по центру, як у LaunchProgramModal welcome.
+            paperMaxWidth={config.sideBySidePreview ? null : 640}
+          />
+          {item.placeholders.length > 0 && (
+            <div className="mt-3">
+              <PlaceholderLegend
+                dark={dark}
+                placeholders={item.placeholders}
+                sampleData={item.sampleData}
+                descriptions={config.placeholderDescriptions}
+              />
+            </div>
+          )}
+          <div className={`mt-2 flex items-start gap-2 px-3 py-2 rounded-lg text-[10.5px] leading-snug ${
+            dark ? 'bg-white/[0.03] text-slate-400 border border-white/[0.06]' : 'bg-stone-100 text-stone-600 border border-stone-200/70'
+          }`}>
+            <HiOutlineInformationCircle className="text-[13px] shrink-0 mt-0.5 opacity-70" />
+            <span>
+              Підпис «<strong>— Команда UIMP</strong>» і контактний email <code className="font-mono">edu@uimp.com.ua</code> додаються автоматично — їх редагувати не треба.
+            </span>
           </div>
-        )}
-        <div className={`mt-2 flex items-start gap-2 px-3 py-2 rounded-lg text-[10.5px] leading-snug ${
-          dark ? 'bg-white/[0.03] text-slate-400 border border-white/[0.06]' : 'bg-stone-100 text-stone-600 border border-stone-200/70'
-        }`}>
-          <HiOutlineInformationCircle className="text-[13px] shrink-0 mt-0.5 opacity-70" />
-          <span>
-            Підпис «<strong>— Команда UIMP</strong>» і контактний email <code className="font-mono">edu@uimp.com.ua</code> додаються автоматично — їх редагувати не треба.
-          </span>
-        </div>
-      </SectionCard>
+        </SectionCard>
+      </div>
 
       {/* STICKY FOOTER — sticky-bottom у скролл-контейнері модалки, з негативними маргінами щоб
           охопити всю ширину тіла модалки і виглядати приклеєним до її нижнього краю. */}
@@ -797,48 +792,6 @@ function TemplateEditor({
 
 // ─────────────────────── PRIMITIVES ───────────────────────
 
-/// Пронумерована секція-картка з кружком-номером і заголовком — патерн з LaunchProgramModal.
-function SectionCard({
-  theme, num, title, hint, icon, children,
-}: {
-  theme: Theme;
-  num: number;
-  title: string;
-  hint?: string;
-  icon?: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  const dark = theme === 'dark';
-  return (
-    <section className={`rounded-xl border ${dark ? 'border-white/10 bg-zinc-900' : 'border-stone-200 bg-white shadow-sm'}`}>
-      <div className={`flex items-center justify-between gap-3 px-4 py-3 border-b ${
-        dark ? 'border-white/[0.06] bg-white/[0.02]' : 'border-stone-200/70 bg-stone-50/60'
-      }`}>
-        <div className="flex items-center gap-2.5 min-w-0">
-          <div className={`shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold border ${
-            dark ? 'bg-amber-400/15 border-amber-400/30 text-amber-200' : 'bg-amber-100 border-amber-300/60 text-amber-900'
-          }`}>
-            {num}
-          </div>
-          <h4 className={`text-[13.5px] font-bold flex items-center gap-1.5 ${dark ? 'text-slate-100' : 'text-stone-900'}`}>
-            {icon && <span className={`text-[15px] ${dark ? 'text-slate-400' : 'text-stone-500'}`}>{icon}</span>}
-            {title}
-          </h4>
-        </div>
-        {hint && (
-          <p className={`text-[10.5px] hidden sm:block text-right max-w-[55%] truncate ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
-            {hint}
-          </p>
-        )}
-      </div>
-      <div className="px-4 py-3.5">
-        {children}
-      </div>
-    </section>
-  );
-}
-
-
 /// Skeleton-плейсхолдер під час завантаження повного шаблону через GET /:key.
 /// Дублює форму майбутнього editor-у, щоб layout не стрибав коли дані прийдуть.
 function TemplateEditorSkeleton({ theme }: { theme: Theme }) {
@@ -880,10 +833,57 @@ function TemplateEditorSkeleton({ theme }: { theme: Theme }) {
           <div className="px-4 py-3.5">{block('320px', '100%', 200)}</div>
         </>,
       )}
-      <div className={`flex items-center justify-center gap-2 py-2 text-[11px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
-        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-        Завантажую шаблон…
+      <SkeletonFooterTick dark={dark} label="Завантажую шаблон…" />
+    </div>
+  );
+}
+
+/// Skeleton-плейсхолдер під час GET / (список шаблонів). Малює intro-banner + 3 групи з 3 рядками
+/// у grid 1/3, 1:1 повторюючи структуру TemplateList щоб layout не стрибав коли прийдуть дані.
+function TemplateListSkeleton({ dark }: { dark: boolean }) {
+  return (
+    <div className="space-y-5">
+      {/* Intro callout (амбер-смужка зверху) */}
+      <div className={`rounded-xl border px-4 py-3 ${
+        dark ? 'bg-amber-500/[0.05] border-amber-400/20' : 'bg-amber-50/60 border-amber-200/70'
+      }`}>
+        <div className="space-y-1.5">
+          <SkeletonBox dark={dark} width="55%" height="11px" delay={0} />
+          <SkeletonBox dark={dark} width="85%" height="9px" delay={80} />
+        </div>
       </div>
+      {/* 3 groups grid */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {Array.from({ length: 3 }).map((_, gi) => (
+          <div
+            key={gi}
+            className={`rounded-xl border overflow-hidden flex flex-col ${
+              dark ? 'border-white/10 bg-zinc-900' : 'border-stone-200 bg-white'
+            }`}
+          >
+            <div className={`px-4 py-3 border-b ${dark ? 'border-white/[0.06] bg-white/[0.02]' : 'border-stone-200/70 bg-stone-50/60'}`}>
+              <SkeletonBox dark={dark} width="60%" height="13px" delay={gi * 60} />
+              <div className="mt-1.5">
+                <SkeletonBox dark={dark} width="80%" height="9px" delay={gi * 60 + 80} />
+              </div>
+            </div>
+            <div className="p-2.5 flex flex-col gap-1.5">
+              {Array.from({ length: 3 }).map((_, ri) => (
+                <div
+                  key={ri}
+                  className={`p-3 rounded-lg border space-y-1.5 ${
+                    dark ? 'border-white/[0.08] bg-white/[0.02]' : 'border-stone-200 bg-stone-50/50'
+                  }`}
+                >
+                  <SkeletonBox dark={dark} width="70%" height="11px" delay={gi * 80 + ri * 60} />
+                  <SkeletonBox dark={dark} width="90%" height="8px" delay={gi * 80 + ri * 60 + 80} />
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      <SkeletonFooterTick dark={dark} label="Завантажую шаблони…" />
     </div>
   );
 }

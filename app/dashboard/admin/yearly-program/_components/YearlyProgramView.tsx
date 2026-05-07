@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
+import dynamic from 'next/dynamic';
 import {
   HiOutlineUserGroup,
   HiOutlineCheckCircle,
@@ -23,10 +24,21 @@ import { AdminShell, AdminPanel } from '../../_components/AdminShell';
 import type { Row, SubStatus, Plan, SummaryData, CohortListItem } from './types';
 import CohortHeader from './CohortHeader';
 import CohortActions from './CohortActions';
-import CreateCohortModal from './CreateCohortModal';
 import MoveCohortBtn from './MoveCohortBtn';
 import { UIFeedbackProvider, useUIFeedback } from './UIFeedback';
-import PaymentTemplatesModal, { RemindersTemplatesModal } from './PaymentTemplatesModal';
+import { SkeletonBox, SkeletonFooterTick } from './EmailEditorParts';
+import { prewarmTemplateListCache, prewarmRecipientsCache } from './modalCaches';
+import type { YearlyProgramAdminPrewarm } from '@/lib/yearlyProgramAdminPrefetch';
+
+// Code-split важких модалок: TipTap-редактор + великі форми тягнуть ~200KB JS.
+// Завантажуються тільки коли менеджер реально натискає кнопку → initial bundle сторінки менший.
+// `ssr: false` — модалки використовують Portal/document, server render для них немає сенсу.
+const CreateCohortModal = dynamic(() => import('./CreateCohortModal'), { ssr: false });
+const PaymentTemplatesModal = dynamic(() => import('./PaymentTemplatesModal'), { ssr: false });
+const RemindersTemplatesModal = dynamic(
+  () => import('./PaymentTemplatesModal').then((m) => ({ default: m.RemindersTemplatesModal })),
+  { ssr: false },
+);
 import ProgramSettingButton from './ProgramSettingButton';
 import { type TelegramSettingsState } from './TelegramChannelButton';
 import { flagEmoji, getCountryName } from '@/lib/countries';
@@ -112,8 +124,25 @@ export default function YearlyProgramView(props: {
   graceDays: number;
   programSettings: YearlyProgramSettings;
   programDefaults: ProgramDefaults;
+  /// SSR-prewarm-payload: templates lists і recipients для launched cohort-ів. Дозволяє
+  /// відкривати модалки одразу без додаткового HTTP roundtrip і skeleton-у.
+  prewarm: YearlyProgramAdminPrewarm;
 }) {
   const { theme, setTheme } = useAdminTheme();
+
+  // Записуємо SSR-prewarm у module-level кеші модалок.
+  // Виконується синхронно на першому render-і, ДО того як CohortActions/toolbar монтуються,
+  // тому до моменту першого кліку «Listі Платежів» / «Дослати лист» дані вже в кеші.
+  // useState з ініціалізатором гарантує, що prewarm записується тільки один раз.
+  useState(() => {
+    prewarmTemplateListCache('payment', props.prewarm.templates.payment);
+    prewarmTemplateListCache('reminder', props.prewarm.templates.reminder);
+    for (const [cohortId, payload] of Object.entries(props.prewarm.recipientsByCohort)) {
+      prewarmRecipientsCache(cohortId, payload);
+    }
+    return null;
+  });
+
   return (
     <UIFeedbackProvider theme={theme}>
       <YearlyProgramViewInner {...props} theme={theme} setTheme={setTheme} />
@@ -141,6 +170,9 @@ function YearlyProgramViewInner({
   telegramSettings: TelegramSettingsState;
   theme: Theme;
   setTheme: (t: Theme) => void;
+  // prewarm проходить через spread у props, але тут не використовується — кеш заповнюється
+  // у YearlyProgramView (parent) до mount-у inner-а.
+  prewarm?: YearlyProgramAdminPrewarm;
 }) {
   const dark = theme === 'dark';
   const router = useRouter();
@@ -807,7 +839,7 @@ function ExpandedRowContent({
   }
 
   if (details === 'loading' || !details) {
-    return <div className={`text-[12px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>Завантаження деталей…</div>;
+    return <SubscriptionDetailsSkeleton dark={dark} />;
   }
   if (details === 'error') {
     return <div className={`text-[12px] ${dark ? 'text-rose-400' : 'text-rose-700'}`}>Не вдалося завантажити деталі.</div>;
@@ -906,8 +938,8 @@ function ExpandedRowContent({
             {tgInviting
               ? 'Генеруємо…'
               : details.telegramInviteLink
-                ? 'Перенадіслати TG-запрошення'
-                : 'Надіслати TG-запрошення'}
+                ? 'Перенадіслати Welcome E-mail з запрошенням в Telegram'
+                : 'Надіслати Welcome E-mail з запрошенням в Telegram'}
           </button>
           <ActionBtn theme={theme} disabled={busy || row.status === 'ARCHIVED'} tone="danger" onClick={() =>
             onAction('delete', undefined, `Архівувати запис ${row.userEmail ?? ''}? Закриємо доступ у SendPulse, статус → ARCHIVED, очистимо технічні поля. ВІДКРИТИ ЗНОВУ вже не вийде.`)
@@ -1855,5 +1887,39 @@ function ProgramPricingModal({
       </div>
     </div>,
     document.body,
+  );
+}
+
+/// Skeleton деталей підписки під час GET /:id/details. Імітує реальний layout (3-колонковий grid:
+/// Дії | Платежі | Події), щоб модалка не «стрибала» висотою коли дані прийдуть.
+function SubscriptionDetailsSkeleton({ dark }: { dark: boolean }) {
+  const SectionCol = ({ title, rows, delay = 0 }: { title: string; rows: number; delay?: number }) => (
+    <div>
+      <div className="flex items-center gap-2 mb-2">
+        <SkeletonBox dark={dark} width="60px" height="14px" delay={delay} />
+        <span className={`text-[10.5px] uppercase tracking-wider font-semibold ${dark ? 'text-slate-600' : 'text-stone-400'}`}>{title}</span>
+      </div>
+      <div className={`rounded-lg border ${dark ? 'border-white/10 bg-zinc-900/40' : 'border-stone-200 bg-stone-50/40'} p-3 space-y-2`}>
+        {Array.from({ length: rows }).map((_, i) => (
+          <div key={i} className="flex items-center gap-2">
+            <SkeletonBox dark={dark} width="24px" height="24px" delay={delay + i * 60} rounded="rounded-md" />
+            <div className="flex-1 space-y-1">
+              <SkeletonBox dark={dark} width="55%" height="10px" delay={delay + i * 60 + 40} />
+              <SkeletonBox dark={dark} width="80%" height="8px" delay={delay + i * 60 + 100} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+  return (
+    <div className="space-y-3">
+      <div className="grid md:grid-cols-3 gap-5">
+        <SectionCol title="Дії" rows={5} delay={0} />
+        <SectionCol title="Платежі" rows={3} delay={120} />
+        <SectionCol title="Події" rows={4} delay={240} />
+      </div>
+      <SkeletonFooterTick dark={dark} label="Завантажую деталі підписки…" />
+    </div>
   );
 }

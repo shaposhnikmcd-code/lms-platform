@@ -3,6 +3,7 @@ import prisma from '@/lib/prisma';
 import { isAdmin } from '@/lib/adminAuth';
 import { revalidateLocalized } from '@/lib/revalidatePaths';
 import { calculateAccessUntil } from '@/lib/yearlyProgramAccess';
+import { DEFAULT_LAUNCH_EMAIL_BODY, DEFAULT_LAUNCH_EMAIL_SUBJECT } from '@/lib/yearlyProgramCohort';
 
 /// GET — деталі cohort-у з підписками й платежами для деталізованого view.
 export async function GET(
@@ -79,22 +80,34 @@ export async function PATCH(
   const datesChanged = startDate.getTime() !== existing.startDate.getTime()
     || endDate.getTime() !== existing.endDate.getTime();
 
-  await prisma.$transaction(async (tx) => {
+  // Welcome-лист: порожній рядок або null трактуємо як «скинути до дефолту» — записуємо
+  // канонічний текст з коду, щоб менеджер не отримав порожнього листа в адмінці й щоб
+  // подальші правки порівнювались з відомою точкою відліку.
+  const launchEmailSubject =
+    body.launchEmailSubject === undefined
+      ? undefined
+      : (body.launchEmailSubject?.trim() ? body.launchEmailSubject : DEFAULT_LAUNCH_EMAIL_SUBJECT);
+  const launchEmailBody =
+    body.launchEmailBody === undefined
+      ? undefined
+      : (body.launchEmailBody?.trim() ? body.launchEmailBody : DEFAULT_LAUNCH_EMAIL_BODY);
+
+  const updated = await prisma.$transaction(async (tx) => {
     if (body.makeCurrent === true && !existing.isCurrent) {
       await tx.yearlyProgramCohort.updateMany({
         where: { isCurrent: true },
         data: { isCurrent: false },
       });
     }
-    await tx.yearlyProgramCohort.update({
+    const u = await tx.yearlyProgramCohort.update({
       where: { id },
       data: {
         name: body.name?.trim() ? body.name.trim() : undefined,
         startDate,
         endDate,
         isCurrent: body.makeCurrent === true ? true : undefined,
-        launchEmailSubject: body.launchEmailSubject !== undefined ? body.launchEmailSubject : undefined,
-        launchEmailBody: body.launchEmailBody !== undefined ? body.launchEmailBody : undefined,
+        launchEmailSubject,
+        launchEmailBody,
       },
     });
 
@@ -132,12 +145,18 @@ export async function PATCH(
         }
       }
     }
+
+    return u;
   });
 
   // Зміна isCurrent / dates впливає на публічну сторінку → інвалідуємо ISR-кеш.
   revalidateLocalized('/yearly-program');
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({
+    ok: true,
+    launchEmailSubject: updated.launchEmailSubject,
+    launchEmailBody: updated.launchEmailBody,
+  });
 }
 
 /// DELETE — видалення cohort-у. Дозволено тільки якщо немає прив'язаних підписок або всі

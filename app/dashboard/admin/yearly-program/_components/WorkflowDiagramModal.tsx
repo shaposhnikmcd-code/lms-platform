@@ -305,6 +305,78 @@ export default function WorkflowDiagramModal({ theme, onClose }: { theme: Theme;
             </p>
           </div>
 
+          {/* ═══════════ ПОТОЧНИЙ ЗАПУСК — ЩО ЦЕ І ЯК ПЕРЕМИКАЄТЬСЯ ═══════════ */}
+          <h4 className={`mt-7 mb-3 text-[11px] uppercase tracking-[0.2em] font-semibold ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+            Поточний запуск · перемикання між роками
+          </h4>
+          <div className={`rounded-xl border-l-4 px-5 py-4 ${
+            dark ? 'bg-emerald-500/[0.05] border-emerald-400/60' : 'bg-emerald-50/50 border-emerald-500'
+          }`}>
+            <div className="flex items-start gap-3 mb-3">
+              <span className="text-[20px]">⭐</span>
+              <div className="flex-1 min-w-0">
+                <div className={`text-[13.5px] font-bold ${dark ? 'text-emerald-200' : 'text-emerald-900'}`}>
+                  Що означає «поточний» запуск
+                </div>
+                <p className={`mt-1 text-[12px] leading-relaxed ${dark ? 'text-slate-300' : 'text-stone-700'}`}>
+                  «Поточний» — це прапорець на одному cohort-і одночасно. Він керує лише двома речами:
+                </p>
+                <ol className={`mt-2 ml-4 list-decimal text-[12px] leading-relaxed space-y-1 ${dark ? 'text-slate-300' : 'text-stone-700'}`}>
+                  <li>
+                    <strong>Куди йдуть НОВІ оплати.</strong> Кожна нова реєстрація на сайті прив'язується саме до поточного cohort-у.
+                  </li>
+                  <li>
+                    <strong>Чи відкрита публічна реєстрація.</strong> Кнопка «Купити Річну програму» на сайті активна, тільки якщо <em>існує</em> поточний cohort.
+                  </li>
+                </ol>
+              </div>
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-3 mt-4">
+              <div className={`rounded-lg border p-3 ${
+                dark ? 'bg-emerald-500/[0.04] border-emerald-400/25' : 'bg-white border-emerald-200/70'
+              }`}>
+                <div className={`text-[11.5px] font-bold uppercase tracking-wider mb-2 ${dark ? 'text-emerald-300' : 'text-emerald-800'}`}>
+                  ✅ Що ЗМІНИТЬСЯ при перемиканні
+                </div>
+                <ul className={`text-[11.5px] leading-snug space-y-1.5 ${dark ? 'text-slate-300' : 'text-stone-700'}`}>
+                  <li>• Нові оплати з цього моменту йдуть у новий cohort.</li>
+                  <li>• Прапорець «поточний» переноситься з попереднього cohort-у на новий (атомарно).</li>
+                  <li>• У dropdown «Запуск програми» новий рядок отримує мітку «· поточний».</li>
+                </ul>
+              </div>
+              <div className={`rounded-lg border p-3 ${
+                dark ? 'bg-rose-500/[0.04] border-rose-400/25' : 'bg-white border-rose-200/70'
+              }`}>
+                <div className={`text-[11.5px] font-bold uppercase tracking-wider mb-2 ${dark ? 'text-rose-300' : 'text-rose-800'}`}>
+                  🚫 Що НЕ зміниться (важливо)
+                </div>
+                <ul className={`text-[11.5px] leading-snug space-y-1.5 ${dark ? 'text-slate-300' : 'text-stone-700'}`}>
+                  <li>• <strong>Існуючі студенти</strong> залишаються в своєму cohort-і — їх <code className="font-mono">cohortId</code> не міняється.</li>
+                  <li>• <strong>Доступ у SendPulse</strong> і <code className="font-mono">expiresAt</code> рахується від cohort-у підписки — для старих студентів усе працює як раніше.</li>
+                  <li>• <strong>Листи-нагадування, grace, закриття</strong> — без змін, прив'язані до cohort-у підписки.</li>
+                  <li>• <strong>Запуск</strong> (<code className="font-mono">launchedAt</code>) — окрема дія від поточності. Кнопка 🚀 «Запустити програму» працює незалежно для будь-якого cohort-у.</li>
+                </ul>
+              </div>
+            </div>
+
+            <div className={`mt-3 rounded-lg px-3 py-2 text-[11.5px] leading-snug ${
+              dark ? 'bg-amber-500/[0.06] border border-amber-400/25 text-amber-100/90' : 'bg-amber-50 border border-amber-200/70 text-amber-900'
+            }`}>
+              <strong>⚠ Підводний камінь:</strong> якщо забути запустити старий cohort через 🚀 до перемикання — студенти старого cohort-у НЕ отримають автоматичного доступу. Поточність і запуск — незалежні. Спочатку запусти стару групу, потім перемикай поточний на нову.
+            </div>
+
+            <div className={`mt-3 text-[11.5px] leading-snug ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
+              <strong className={dark ? 'text-slate-200' : 'text-stone-900'}>Як перемкнути:</strong>{' '}
+              dropdown «Запуск програми» (зверху адмінки) → у рядку потрібного cohort-у натисни ⭐ «Зробити поточним» → confirm-діалог покаже, хто був поточним і хто стане → підтвердь.
+            </div>
+
+            <div className={`mt-2 text-[11.5px] leading-snug ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
+              <strong className={dark ? 'text-slate-200' : 'text-stone-900'}>Створення нового cohort-у:</strong>{' '}
+              кнопка «+ Новий запуск» за замовчуванням НЕ робить новостворений cohort поточним — щоб менеджер встиг його налаштувати (дати, шаблон welcome-листа), і тільки потім свідомо переключив поточний.
+            </div>
+          </div>
+
           {/* ═══════════ ОКРЕМІ СЦЕНАРІЇ ═══════════ */}
           <h4 className={`mt-7 mb-3 text-[11px] uppercase tracking-[0.2em] font-semibold ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
             Окремі сценарії

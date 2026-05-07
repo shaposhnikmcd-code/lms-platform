@@ -9,6 +9,7 @@ import Underline from '@tiptap/extension-underline';
 import Link from '@tiptap/extension-link';
 import Placeholder from '@tiptap/extension-placeholder';
 import { useEffect } from 'react';
+import { SkeletonBox, SkeletonFooterTick } from './EmailEditorParts';
 
 /// ProseMirror decoration: робить `{xxx}` та `{{xxx}}` токени візуальними амбер-чіпами.
 /// Не модифікує документ — `editor.getHTML()` повертає plain текст як було.
@@ -69,6 +70,7 @@ export default function WysiwygEmailEditor({
   theme,
   placeholders,
   placeholderFormat = 'single',
+  paperMaxWidth = 640,
 }: {
   value: string;
   onChange: (innerHtml: string) => void;
@@ -76,6 +78,10 @@ export default function WysiwygEmailEditor({
   placeholders?: string[];
   /// `single` → `{name}` (payment/reminder templates), `double` → `{{name}}` (cohort welcome).
   placeholderFormat?: 'single' | 'double';
+  /// Максимальна ширина паперового блоку всередині редактора. Default 640 — як EmailPreviewFrame
+  /// (візуальна симетрія з прев'ю). У side-by-side layout (Listі Нагадування) передається
+  /// `null`/менше значення, щоб редактор займав всю колонку без зайвого порожнього простору.
+  paperMaxWidth?: number | null;
 }) {
   const dark = theme === 'dark';
 
@@ -99,7 +105,10 @@ export default function WysiwygEmailEditor({
     onUpdate: ({ editor }) => onChange(editor.getHTML()),
     editorProps: {
       attributes: {
-        class: `tiptap-email-body prose prose-sm max-w-none focus:outline-none min-h-[320px] px-4 py-3 ${
+        // max-w-none скасовує дефолтні prose-обмеження ширини; візуальне центрування
+        // тексту в межах "паперу" 640px робить wrapper нижче, тому тут лишаємо лише
+        // типографіку + padding всередині листа.
+        class: `tiptap-email-body prose prose-sm max-w-none focus:outline-none min-h-[320px] px-6 py-5 ${
           dark ? 'text-slate-100' : 'text-stone-800'
         }`,
         style: 'font-family: Arial, Helvetica, sans-serif; line-height: 1.6;',
@@ -115,11 +124,34 @@ export default function WysiwygEmailEditor({
   }, [value, editor]);
 
   if (!editor) {
+    // Skeleton-плейсхолдер імітує реальний редактор: тулбар-смужка зверху + контент-область знизу.
+    // Layout 1:1, тому коли TipTap піднімається — нічого не стрибає.
     return (
-      <div className={`rounded-lg border min-h-[320px] flex items-center justify-center text-[12px] ${
-        dark ? 'border-white/10 bg-white/[0.03] text-slate-500' : 'border-stone-300 bg-stone-50 text-stone-500'
+      <div className={`rounded-lg border overflow-hidden ${
+        dark ? 'border-white/10 bg-zinc-900' : 'border-stone-300 bg-white'
       }`}>
-        Завантажую редактор…
+        <div className={`px-2 py-2 border-b flex items-center gap-1.5 flex-wrap ${
+          dark ? 'border-white/[0.06] bg-white/[0.02]' : 'border-stone-200 bg-stone-50/60'
+        }`}>
+          {Array.from({ length: 9 }).map((_, i) => (
+            <SkeletonBox key={i} dark={dark} width="28px" height="26px" delay={i * 50} rounded="rounded-md" />
+          ))}
+          <span className={`mx-1 h-5 w-px ${dark ? 'bg-white/10' : 'bg-stone-300'}`} />
+          {Array.from({ length: 4 }).map((_, i) => (
+            <SkeletonBox key={i} dark={dark} width="60px" height="22px" delay={450 + i * 50} rounded="rounded-md" />
+          ))}
+        </div>
+        <div className="px-4 py-4 space-y-2.5 min-h-[260px]">
+          <SkeletonBox dark={dark} width="62%" height="11px" delay={300} />
+          <SkeletonBox dark={dark} width="92%" height="9px" delay={360} />
+          <SkeletonBox dark={dark} width="88%" height="9px" delay={420} />
+          <SkeletonBox dark={dark} width="74%" height="9px" delay={480} />
+          <div className="h-2" />
+          <SkeletonBox dark={dark} width="40%" height="11px" delay={540} />
+          <SkeletonBox dark={dark} width="80%" height="9px" delay={600} />
+          <SkeletonBox dark={dark} width="55%" height="9px" delay={660} />
+        </div>
+        <SkeletonFooterTick dark={dark} label="Завантажую редактор…" />
       </div>
     );
   }
@@ -143,7 +175,7 @@ export default function WysiwygEmailEditor({
   const placeholderLabel = (name: string) => placeholderFormat === 'double' ? `{{${name}}}` : `{${name}}`;
 
   return (
-    <div className={`rounded-lg border overflow-hidden ${dark ? 'border-white/10 bg-zinc-950/50' : 'border-stone-300 bg-white'}`}>
+    <div className={`rounded-lg border overflow-hidden ${dark ? 'border-white/10 bg-zinc-950' : 'border-stone-300 bg-stone-100'}`}>
       {/* Стилі для амбер-чіпів плейсхолдерів усередині редактора. */}
       <style jsx global>{`
         .tiptap-placeholder-chip {
@@ -223,8 +255,17 @@ export default function WysiwygEmailEditor({
         )}
       </div>
 
-      {/* Editor */}
-      <EditorContent editor={editor} />
+      {/* Editor "viewport" — фоновий шар (як email-клієнт), а всередині паперовий блок
+          по центру (default 640px), що візуально матчиться з прев'ю-листом. У side-by-side
+          layout-і paperMaxWidth=null → редактор розгортається на всю ширину колонки. */}
+      <div className={`px-4 py-4 sm:px-6 sm:py-5 ${dark ? 'bg-zinc-950' : 'bg-stone-100'}`}>
+        <div
+          className={`mx-auto rounded shadow-sm overflow-hidden ${dark ? 'bg-zinc-900' : 'bg-white'}`}
+          style={paperMaxWidth ? { maxWidth: paperMaxWidth } : undefined}
+        >
+          <EditorContent editor={editor} />
+        </div>
+      </div>
     </div>
   );
 }

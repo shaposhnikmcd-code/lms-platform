@@ -30,7 +30,8 @@ export async function GET(
       user: { select: { name: true, email: true } },
       events: {
         where: { type: 'launch_email_sent' },
-        select: { metadata: true },
+        select: { metadata: true, createdAt: true },
+        orderBy: { createdAt: 'desc' },
       },
       payments: {
         where: { status: 'PAID' },
@@ -43,7 +44,9 @@ export async function GET(
   const recipients = subs
     .filter((s) => s.user?.email)
     .map((s) => {
-      const alreadySent = s.events.some((ev) => {
+      // events впорядковано createdAt desc → перший match — найсвіжіша відправка.
+      // Резендів може бути декілька, показуємо останню для timestamp-у.
+      const lastSent = s.events.find((ev) => {
         const m = ev.metadata as { cohortId?: string } | null;
         return m?.cohortId === id;
       });
@@ -51,7 +54,8 @@ export async function GET(
         subscriptionId: s.id,
         name: s.user?.name ?? null,
         email: s.user!.email,
-        alreadySent,
+        alreadySent: !!lastSent,
+        sentAt: lastSent?.createdAt.toISOString() ?? null,
         hasPaidPayment: s.payments.length > 0,
         plan: s.plan,
         autoRenew: s.autoRenew,
