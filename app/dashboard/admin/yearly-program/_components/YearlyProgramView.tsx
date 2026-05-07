@@ -1023,11 +1023,32 @@ function ExpandedRowContent({
             items.push(['TG invite', `${inviteShort} · ${new Date(details.telegramInvitedAt).toLocaleDateString('uk-UA')}`]);
           }
           if (details.telegramLeftAt) {
-            // Вийшов або був виключений — показуємо як останній стан.
-            items.push([
-              'TG статус',
-              `❌ Покинув канал · ${new Date(details.telegramLeftAt).toLocaleString('uk-UA', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`,
-            ]);
+            // Знаходимо останню TG-kick подію (logged через kickSubscriptionFromChannel),
+            // щоб дістати mode + актора. Events впорядковані createdAt desc → перший match.
+            const kickEvent = details.events.find((e) => {
+              const meta = e.metadata as { mode?: string } | null;
+              return meta?.mode === 'returnable' || meta?.mode === 'permanent';
+            });
+            const kickMeta = kickEvent?.metadata as { mode?: 'returnable' | 'permanent'; triggeredBy?: string } | null;
+            const kickActor = kickMeta?.triggeredBy
+              ? kickMeta.triggeredBy.replace(/^admin:/, '').split(' · ')[0]
+              : null;
+            const dateStr = new Date(details.telegramLeftAt).toLocaleString('uk-UA', {
+              day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
+            });
+            const actorTail = kickActor ? ` · ким: ${kickActor}` : '';
+            let tgStatusLine: string;
+            if (kickMeta?.mode === 'permanent') {
+              tgStatusLine = details.status === 'ARCHIVED'
+                ? `🗑 Деактивовано та вилучено · ${dateStr}${actorTail}`
+                : `🚫 Вилучено з ТГ та забанено · ${dateStr}${actorTail}`;
+            } else if (kickMeta?.mode === 'returnable') {
+              tgStatusLine = `🚪 Вилучено з ТГ · ${dateStr}${actorTail}`;
+            } else {
+              // Жодної kick-події → юзер сам вийшов (webhook chat_member→left).
+              tgStatusLine = `❌ Покинув канал · ${dateStr}`;
+            }
+            items.push(['TG статус', tgStatusLine]);
           } else if (details.telegramJoinedAt) {
             items.push([
               'TG статус',
