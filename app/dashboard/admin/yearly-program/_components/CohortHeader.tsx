@@ -1,8 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { HiOutlineSparkles, HiOutlinePlus, HiOutlineChevronDown, HiOutlineCheck, HiOutlineRocketLaunch, HiOutlineStar } from 'react-icons/hi2';
+import { HiOutlineSparkles, HiOutlinePlus, HiOutlineChevronDown, HiOutlineCheck, HiOutlineRocketLaunch, HiOutlineStar, HiOutlinePencilSquare, HiOutlineXMark } from 'react-icons/hi2';
 import type { Theme } from '../../_components/adminTheme';
 import type { CohortListItem } from './types';
 import { useUIFeedback } from './UIFeedback';
@@ -30,8 +30,58 @@ export default function CohortHeader({
   const { confirm, toast } = useUIFeedback();
   const [open, setOpen] = useState(false);
   const [makingCurrentId, setMakingCurrentId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState('');
+  const [savingName, setSavingName] = useState(false);
+  const nameInputRef = useRef<HTMLInputElement | null>(null);
   const active = cohorts.find((c) => c.id === activeCohortId) ?? null;
   const currentCohort = cohorts.find((c) => c.isCurrent) ?? null;
+  const canRenameActive = !!active && !active.launchedAt;
+
+  useEffect(() => {
+    if (editingName) {
+      nameInputRef.current?.focus();
+      nameInputRef.current?.select();
+    }
+  }, [editingName]);
+
+  // Якщо обраний cohort змінився чи був запущений — виходимо з режиму редагування.
+  useEffect(() => {
+    if (!canRenameActive && editingName) setEditingName(false);
+  }, [canRenameActive, editingName]);
+
+  async function handleSaveName() {
+    if (!active) return;
+    const trimmed = nameDraft.trim();
+    if (!trimmed) {
+      toast('error', 'Назва не може бути порожньою');
+      return;
+    }
+    if (trimmed === active.name) {
+      setEditingName(false);
+      return;
+    }
+    setSavingName(true);
+    try {
+      const res = await fetch(`/api/admin/yearly-program/cohorts/${active.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: trimmed }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        toast('error', data.error ?? `Помилка ${res.status}`);
+        return;
+      }
+      toast('success', 'Назву оновлено');
+      setEditingName(false);
+      router.refresh();
+    } catch (e) {
+      toast('error', (e as Error).message);
+    } finally {
+      setSavingName(false);
+    }
+  }
 
   async function handleMakeCurrent(cohort: CohortListItem) {
     const ok = await confirm({
@@ -118,16 +168,88 @@ export default function CohortHeader({
             Запуск програми
           </div>
           <div className="flex items-center gap-3 flex-wrap">
-            <button
-              type="button"
-              onClick={() => setOpen((o) => !o)}
-              className={`inline-flex items-center gap-2 text-[18px] font-semibold leading-tight rounded-lg px-2 py-1 -ml-2 transition-colors ${
-                dark ? 'text-white hover:bg-white/[0.06]' : 'text-stone-900 hover:bg-stone-100/80'
-              }`}
-            >
-              <span className="truncate max-w-[420px]">{active?.name ?? (activeCohortId === null ? 'Усі підписки' : '— оберіть запуск —')}</span>
-              <HiOutlineChevronDown className={`text-base transition-transform ${open ? 'rotate-180' : ''}`} />
-            </button>
+            {editingName && active ? (
+              <div className="flex items-center gap-2">
+                <input
+                  ref={nameInputRef}
+                  type="text"
+                  value={nameDraft}
+                  onChange={(e) => setNameDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleSaveName();
+                    } else if (e.key === 'Escape') {
+                      e.preventDefault();
+                      setEditingName(false);
+                    }
+                  }}
+                  disabled={savingName}
+                  maxLength={120}
+                  className={`text-[18px] font-semibold leading-tight rounded-lg px-2 py-1 -ml-2 border outline-none transition-colors min-w-[280px] max-w-[460px] ${
+                    dark
+                      ? 'bg-zinc-900 border-amber-400/40 text-white focus:border-amber-300'
+                      : 'bg-white border-amber-300 text-stone-900 focus:border-amber-500'
+                  }`}
+                />
+                <button
+                  type="button"
+                  onClick={handleSaveName}
+                  disabled={savingName}
+                  title="Зберегти назву (Enter)"
+                  className={`inline-flex items-center justify-center w-8 h-8 rounded-md border transition-colors disabled:opacity-50 ${
+                    dark
+                      ? 'bg-emerald-500/15 border-emerald-400/30 text-emerald-200 hover:bg-emerald-500/25'
+                      : 'bg-emerald-50 border-emerald-300/60 text-emerald-800 hover:bg-emerald-100'
+                  }`}
+                >
+                  <HiOutlineCheck />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditingName(false)}
+                  disabled={savingName}
+                  title="Скасувати (Esc)"
+                  className={`inline-flex items-center justify-center w-8 h-8 rounded-md border transition-colors disabled:opacity-50 ${
+                    dark
+                      ? 'bg-white/[0.04] border-white/10 text-slate-300 hover:bg-white/[0.08]'
+                      : 'bg-stone-100 border-stone-300 text-stone-700 hover:bg-stone-200'
+                  }`}
+                >
+                  <HiOutlineXMark />
+                </button>
+              </div>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setOpen((o) => !o)}
+                  className={`inline-flex items-center gap-2 text-[18px] font-semibold leading-tight rounded-lg px-2 py-1 -ml-2 transition-colors ${
+                    dark ? 'text-white hover:bg-white/[0.06]' : 'text-stone-900 hover:bg-stone-100/80'
+                  }`}
+                >
+                  <span className="truncate max-w-[420px]">{active?.name ?? (activeCohortId === null ? 'Усі підписки' : '— оберіть запуск —')}</span>
+                  <HiOutlineChevronDown className={`text-base transition-transform ${open ? 'rotate-180' : ''}`} />
+                </button>
+                {canRenameActive && active && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNameDraft(active.name);
+                      setEditingName(true);
+                    }}
+                    title="Перейменувати запуск"
+                    className={`inline-flex items-center justify-center w-7 h-7 rounded-md border transition-colors ${
+                      dark
+                        ? 'bg-white/[0.04] border-white/10 text-slate-300 hover:bg-white/[0.08] hover:text-amber-200'
+                        : 'bg-stone-50 border-stone-200 text-stone-600 hover:bg-stone-100 hover:text-amber-700'
+                    }`}
+                  >
+                    <HiOutlinePencilSquare className="text-[14px]" />
+                  </button>
+                )}
+              </>
+            )}
             {active && (
               <span className={`px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider ${
                 active.isCurrent
