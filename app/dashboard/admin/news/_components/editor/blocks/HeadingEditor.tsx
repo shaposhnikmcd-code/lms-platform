@@ -192,6 +192,8 @@ export default function HeadingEditor({ block, onChange, selected = false, onSet
            auto-контрасту) розповсюджувався на ProseMirror. Раніше hardcoded
            #1C3A2E ламав WYSIWYG: на public був custom color, а в білдері — стандартний. */
         [data-news-block-type="heading"] .ProseMirror{outline:none;color:inherit;font-weight:700}
+        [data-news-block-type="heading"] .ProseMirror ::selection,
+        [data-news-block-type="heading"] .ProseMirror::selection{background:rgba(212,168,67,0.32);color:inherit}
         [data-news-block-type="heading"] .ProseMirror p{margin:0}
         [data-news-block-type="heading"] .ProseMirror p.is-editor-empty:first-child::before{
           color:#9CA3AF;content:attr(data-placeholder);float:left;height:0;pointer-events:none;font-weight:400

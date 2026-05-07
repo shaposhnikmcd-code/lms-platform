@@ -1484,7 +1484,7 @@ export default function EditorCanvas({
                       }}
                       isActive={activeId === block.id}
                       selected={selectedBlockId === block.id}
-                      onSelect={(id) => setSelectedBlockId(prev => prev === id ? null : id)}
+                      onSelect={(id) => setSelectedBlockId(id)}
                       scrollCompensation={activeId === block.id ? scrollCompensation : 0}
                       maxBlockHeight={fixedHeight ? Math.max(60, canvasHeight - y) : undefined}
                       fixedHeight={fixedHeight}

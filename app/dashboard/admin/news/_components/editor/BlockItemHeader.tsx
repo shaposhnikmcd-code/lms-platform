@@ -3,24 +3,12 @@
 import React, { useState } from "react";
 import { BlockAlign, BlockVAlign, UIMP_COLORS } from "./types";
 import { requestCrop } from "./blocks/ImageEditor";
+// Section / SectionLabel — ті самі що в OverlayToolbar (Текст на фото).
+// Раніше тут були локальні версії з amber-кольором і малим padding-ом — це
+// створювало неконсистентність між двома редакторами.
+import { Section, SectionLabel } from "./blocks/_settingsPrimitives";
 
 const ff = "-apple-system, BlinkMacSystemFont, sans-serif";
-
-const SectionLabel = ({ children }: { children: React.ReactNode }) => (
-  <div style={{
-    fontSize: "9px",
-    fontWeight: 800,
-    color: "#9B7C45",
-    letterSpacing: "0.14em",
-    textTransform: "uppercase",
-    fontFamily: ff,
-    marginBottom: "4px",
-  }}>{children}</div>
-);
-
-const Section: React.FC<{ children: React.ReactNode; padTop?: number }> = ({ children, padTop = 6 }) => (
-  <div style={{ padding: `${padTop}px 10px 6px` }}>{children}</div>
-);
 
 interface Props {
   blockId: string;
@@ -189,9 +177,7 @@ export default function BlockItemHeader({
   // Для решти — тільки text-bearing блоки, де block-level alignment визначає
   // куди блок сідає в горизонтальному ряду.
   const showAlign = blockType !== "divider" && blockType !== "image" && blockType !== "youtube";
-  // Вертикальне вирівнювання має сенс тільки коли блок має фіксовану висоту і простір
-  // зверху/знизу від тексту — поки що тільки для heading.
-  const showVAlign = blockType === "heading";
+  const showVAlign = false;
   const showBg = blockType !== "divider";
 
   // Subtitle для другого рядка info-strip-а: контент-snippet (з blockSubtitle)

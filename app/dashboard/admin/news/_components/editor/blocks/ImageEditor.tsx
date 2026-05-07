@@ -875,22 +875,22 @@ function OverlayToolbar({
 
       <Section padTop={0}>
         <SectionLabel>Шрифт та розмір</SectionLabel>
-        <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+        <div style={{ display: "flex", flexDirection: "row", gap: "6px", alignItems: "center" }}>
           <select
             value={ov.fontFamily || ""}
             onChange={(e) => updateOverlay(ov.id, { fontFamily: e.target.value })}
-            style={{ ...inputBase, padding: "0 6px", fontFamily: ov.fontFamily || ff, cursor: "pointer", width: "100%" }}
+            style={{ ...inputBase, padding: "0 6px", fontFamily: ov.fontFamily || ff, cursor: "pointer", flex: 1, minWidth: 0 }}
           >
             {OVERLAY_FONTS.map(f => (
               <option key={f.label} value={f.value} style={{ fontFamily: f.value || ff }}>{f.label}</option>
             ))}
           </select>
-          <div style={{ display: "inline-flex", gap: "5px", alignItems: "center" }}>
+          <div style={{ display: "inline-flex", gap: "4px", alignItems: "center", flexShrink: 0 }}>
             <button
               type="button"
               onClick={() => updateOverlay(ov.id, { fontSize: Math.max(8, ov.fontSize - 1) })}
               title="Менше"
-              style={{ ...inputBase, width: "26px", fontSize: "14px", fontWeight: 700, cursor: "pointer" }}
+              style={{ ...inputBase, width: "22px", fontSize: "14px", fontWeight: 700, cursor: "pointer" }}
             >−</button>
             <input
               type="text"
@@ -902,15 +902,14 @@ function OverlayToolbar({
                 const n = Number(v);
                 if (Number.isFinite(n) && n >= 8 && n <= 400) updateOverlay(ov.id, { fontSize: n });
               }}
-              style={{ ...inputBase, width: "44px", textAlign: "center", padding: "0 4px" }}
+              style={{ ...inputBase, width: "38px", textAlign: "center", padding: "0 4px" }}
             />
             <button
               type="button"
               onClick={() => updateOverlay(ov.id, { fontSize: Math.min(400, ov.fontSize + 1) })}
               title="Більше"
-              style={{ ...inputBase, width: "26px", fontSize: "14px", fontWeight: 700, cursor: "pointer" }}
+              style={{ ...inputBase, width: "22px", fontSize: "14px", fontWeight: 700, cursor: "pointer" }}
             >+</button>
-            <span style={{ fontSize: "10px", color: "#9CA3AF" }}>px</span>
           </div>
         </div>
       </Section>

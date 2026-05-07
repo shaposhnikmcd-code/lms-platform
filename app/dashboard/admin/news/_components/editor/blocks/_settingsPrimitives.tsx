@@ -10,28 +10,29 @@ import { UIMP_COLORS } from "../types";
 
 export const ff = "-apple-system, BlinkMacSystemFont, sans-serif";
 
-// Section label — спокійна типографіка, не "крикливі" амбер ALL-CAPS:
-//   10px / 600 / 0.06em / muted gray. Вистачає щоб читатись як заголовок,
-//   не перетягуючи увагу від самих контролів.
+// Section label — amber/golden, така ж як локальна версія в OverlayToolbar
+// (Текст на фото). 9px / 800 / 0.14em / amber #9B7C45. Раніше тут була
+// "спокійна" gray-версія — користувач явно попросив дзеркалити стиль
+// OverlayToolbar для Текст/Заголовок/Цитата.
 export const SectionLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <div style={{
-    fontSize: "10px",
-    fontWeight: 600,
-    color: "#6B7280",
-    letterSpacing: "0.06em",
+    fontSize: "9px",
+    fontWeight: 800,
+    color: "#9B7C45",
+    letterSpacing: "0.14em",
     textTransform: "uppercase",
     fontFamily: ff,
-    marginBottom: "8px",
+    marginBottom: "4px",
   }}>{children}</div>
 );
 
-// Section — рівномірний вертикальний ритм 14px (top) / 12px (bottom).
-// padTop приймається для випадків коли потрібно вручну стиснути перший
-// айтем у групі, але дефолт зробить уніформний layout.
+// Section — компактний вертикальний ритм як в OverlayToolbar: padding
+// 6px (top default) / 10px (horizontal) / 6px (bottom). padTop=0 для секцій
+// які стоять впритул до попередньої.
 export const Section: React.FC<{ children: React.ReactNode; padTop?: number }> = ({
-  children, padTop = 14,
+  children, padTop = 6,
 }) => (
-  <div style={{ padding: `${padTop}px 14px 12px`, background: "transparent" }}>{children}</div>
+  <div style={{ padding: `${padTop}px 10px 6px`, background: "transparent" }}>{children}</div>
 );
 
 // Тонкий розділювач між групами секцій. Не між кожною — лише там, де це

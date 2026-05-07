@@ -163,6 +163,8 @@ export default function QuoteEditor({ block, onChange, selected = false, contain
       )}
       <style>{`
         [data-news-block-type="quote"] .ProseMirror{outline:none;min-height:60px;color:#1C3A2E}
+        [data-news-block-type="quote"] .ProseMirror ::selection,
+        [data-news-block-type="quote"] .ProseMirror::selection{background:rgba(212,168,67,0.32);color:inherit}
         [data-news-block-type="quote"] .ProseMirror p.is-editor-empty:first-child::before{
           color:#9CA3AF;content:attr(data-placeholder);float:left;height:0;pointer-events:none;font-style:normal
         }
