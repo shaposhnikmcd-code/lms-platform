@@ -217,6 +217,15 @@ export default function EditorCanvas({
     return { x: clampedX, y: clampedY };
   }
 
+  // У fixedHeight-режимі блок не може стояти так, щоб його низ виходив за canvasHeight.
+  // Клампимо Y до [0, canvasHeight - blockHeight]. Якщо блок вищий за canvas — y=0,
+  // решта обрізається через overflow:hidden (safety net).
+  function clampYBottom(yPx: number, blockHeight: number): number {
+    if (!fixedHeight) return Math.max(0, yPx);
+    const maxY = Math.max(0, canvasHeight - blockHeight);
+    return Math.max(0, Math.min(maxY, yPx));
+  }
+
   // Найближчий блок праворуч у тому ж вертикальному діапазоні (Y-overlap).
   // Використовується для neighbor-aware resize: коли лівий блок росте вправо,
   // правий сусід має зменшуватись синхронно.
@@ -703,7 +712,13 @@ export default function EditorCanvas({
           continue;
         }
         // Варіант 3: не стиснути → опускаємо нижче hit
-        const newY = snapPx(hit.y + hit.h + 8);
+        const rawNewY = snapPx(hit.y + hit.h + 8);
+        // У fixedHeight-режимі канвас не росте — клампимо до canvasHeight - bh,
+        // інакше блок виштовхується за нижній край. Допускаємо overlap (бл. в одну
+        // позицію), користувач сам вирішує, як їх розставити.
+        const newY = fixedHeight
+          ? Math.max(0, Math.min(canvasHeight - bh, rawNewY))
+          : rawNewY;
         if (newY > by + 0.5) {
           result[i] = { ...b, y: newY };
           upsertReserved({ x: bx, y: newY, w: bw, h: bh, id: b.id });
@@ -771,14 +786,23 @@ export default function EditorCanvas({
     if (isFromPalette && over) {
       // Ghost показує реальний slot: Y = cursor Y, width підганяється під вільну
       // горизонтальну прорізку (100% якщо порожньо, менше якщо поруч сусіди).
-      // Дефолтна ширина для newsCard — 33% (≈1 з 3 у ряду), для решти — 100%.
-      const defaultW = idStr.startsWith("news-card:") ? 33 : 100;
+      // Дефолтна ширина: newsCard preview — 33% (картка-тизер у ряду по 3),
+      // newsCard expanded — 100% (повний інлайн-контент новини), решта — 100%.
+      const defaultW =
+        idStr.startsWith("news-card:preview:") ? 33 :
+        idStr.startsWith("news-card:") ? 100 : 100;
       const xPx = cursorX - rect.left;
       const yPx = cursorY - rect.top;
       const cursorXPct = (xPx / rect.width) * 100;
       const slot = findDropSlot(null, cursorXPct, yPx, defaultW);
       const clamped = clampXY(slot.x, slot.y, slot.width);
-      const final = { x: clamped.x, y: clamped.y, width: slot.width };
+      // У fixedHeight-режимі (card-builder) додатково клампимо Y по нижньому
+      // краю канвасу за оцінкою висоти палітрового блока — щоб ghost не показував
+      // позицію, де блок логічно вилазить за canvasHeight.
+      const paletteType = activePaletteRef.current?.type;
+      const estH = paletteType ? (TYPE_HEIGHT[paletteType] ?? 80) : 80;
+      const clampedY = clampYBottom(clamped.y, estH);
+      const final = { x: clamped.x, y: clampedY, width: slot.width };
       dropPreviewRef.current = final;
       setDropPreview(final);
     } else if (!isFromPalette) {
@@ -874,6 +898,9 @@ export default function EditorCanvas({
           y = yCands[0].newPos;
         }
 
+        // У fixedHeight-режимі — фінальний clamp Y по нижньому краю канвасу.
+        y = clampYBottom(y, bh);
+
         // 3) Після снапу — детектимо ВСІ alignments через спільний helper.
         detectAlignmentsAt(b.id, x, y, wPct, bh);
         dropPreviewRef.current = { x, y, width: wPct };
@@ -917,6 +944,25 @@ export default function EditorCanvas({
   function hasCollision(x: number, y: number, width: number, height: number, excludeId: string | null): boolean {
     const others = blocks.filter(b => b.id !== excludeId);
     for (const b of others) {
+      const bx = b.x ?? 0;
+      const by = b.y ?? 0;
+      const bw = Number(b.width) || 100;
+      const bh = measureBlockHeight(b);
+      const overlapX = x + width > bx + 0.5 && x < bx + bw - 0.5;
+      const overlapY = y + height > by + 4 && y < by + bh - 4;
+      if (overlapX && overlapY) return true;
+    }
+    return false;
+  }
+
+  // Те ж саме, але проти переданого списку (а не поточного `blocks`). Використовується
+  // для перевірки чи displaceBlocksAround РОЗВ'ЯЗАВ overlap (post-displacement).
+  function hasCollisionIn(
+    x: number, y: number, width: number, height: number,
+    list: Block[], excludeId: string | null,
+  ): boolean {
+    for (const b of list) {
+      if (b.id === excludeId) continue;
       const bx = b.x ?? 0;
       const by = b.y ?? 0;
       const bw = Number(b.width) || 100;
@@ -981,9 +1027,29 @@ export default function EditorCanvas({
       }
 
       const type: BlockType = isNewsCard ? "newsCard" : (idStr.replace("palette:", "") as BlockType);
-      const droppedNewsId = isNewsCard ? idStr.replace("news-card:", "") : "";
+      // news-card id формат: `news-card:<mode>:<newsId>` (mode = preview|expanded).
+      // Backward compat: старий формат `news-card:<newsId>` без mode → дефолт preview.
+      let droppedNewsId = "";
+      let droppedMode: "preview" | "expanded" = "preview";
+      if (isNewsCard) {
+        const rest = idStr.replace("news-card:", "");
+        const firstColon = rest.indexOf(":");
+        if (firstColon > 0) {
+          const m = rest.slice(0, firstColon);
+          if (m === "preview" || m === "expanded") droppedMode = m;
+          droppedNewsId = rest.slice(firstColon + 1);
+        } else {
+          droppedNewsId = rest;
+        }
+      }
       const newId = uid();
-      const estH = TYPE_HEIGHT[type] ?? 80;
+      // Дефолтна висота: для newsCard preview — 400 (= PREVIEW_CARD_HEIGHT канвасу
+      // білдера превʼю), expanded — буде підлаштовано auto-effect-ом NewsCardEditor
+      // під канвас новини. Для решти — TYPE_HEIGHT.
+      const estH =
+        type === "newsCard" && droppedMode === "preview"
+          ? 400
+          : (TYPE_HEIGHT[type] ?? 80);
 
       // Новий блок сідає ТУДИ, куди ти його кинув (preview) — а існуючі адаптуються.
       // Divider: завжди 100% ширини; решта: використовуємо preview (smart slot).
@@ -994,24 +1060,35 @@ export default function EditorCanvas({
         x = preview?.x ?? 0; y = preview?.y ?? 0; width = preview?.width ?? 100;
       }
       const clamped = clampXY(x, y, width);
+      // У fixedHeight-режимі — додатковий clamp Y по нижньому краю канвасу.
+      const clampedY = clampYBottom(clamped.y, estH);
 
       // Displacement: якщо є overlap — пересуваємо/стискаємо існуючі блоки.
       let finalBlocks = blocks;
-      if (hasCollision(clamped.x, clamped.y, width, estH, null)) {
+      if (hasCollision(clamped.x, clampedY, width, estH, null)) {
         finalBlocks = displaceBlocksAround(
-          { x: clamped.x, y: clamped.y, width, height: estH },
+          { x: clamped.x, y: clampedY, width, height: estH },
           blocks,
           null,
         );
+        // У card-builder-і (fixedHeight) канвас не росте, тож якщо після displacement
+        // новий блок усе одно перекриває існуючий — місця немає. Скасовуємо drop:
+        // менеджер повинен спершу звільнити простір (видалити/зменшити блок).
+        if (fixedHeight && hasCollisionIn(clamped.x, clampedY, width, estH, finalBlocks, null)) {
+          return;
+        }
       }
 
-      // Дефолтні data: для newsCard — ID конкретної новини (з drag-payload з правого бару).
+      // Дефолтні data: для newsCard — ID конкретної новини + displayMode з drag-source
+      // (preview = клікабельна превʼю-картка; expanded = повний інлайн-контент).
       const defaultData: Record<string, string> =
-        type === "newsCard" ? { newsId: droppedNewsId } : {};
+        type === "newsCard"
+          ? { newsId: droppedNewsId, displayMode: droppedMode }
+          : {};
       const newBlock: Block = {
         id: newId, type, data: defaultData,
         width: String(roundW(width)), align: "left", bgColor: "",
-        x: clamped.x, y: clamped.y,
+        x: clamped.x, y: clampedY,
         // ⚠️ Явна height ОБОВ'ЯЗКОВА: інакше wrapper стає auto, content всередині
         // (наприклад YouTube iframe) рендериться, але block-чи canvasHeight рахується
         // ДО того як content підвантажився → блок вилазить за canvas.
@@ -1031,15 +1108,24 @@ export default function EditorCanvas({
     const b = blocks[idx];
     const bh = measureBlockHeight(b);
 
-    let next = blocks.slice();
-    next[idx] = { ...next[idx], x: preview.x, y: preview.y };
+    // У fixedHeight-режимі ще раз клампимо Y по нижньому краю canvas-у —
+    // safety net на випадок коли preview не пройшов через clampYBottom.
+    const finalY = clampYBottom(preview.y, bh);
 
-    if (hasCollision(preview.x, preview.y, preview.width, bh, b.id)) {
+    let next = blocks.slice();
+    next[idx] = { ...next[idx], x: preview.x, y: finalY };
+
+    if (hasCollision(preview.x, finalY, preview.width, bh, b.id)) {
       next = displaceBlocksAround(
-        { x: preview.x, y: preview.y, width: preview.width, height: bh },
+        { x: preview.x, y: finalY, width: preview.width, height: bh },
         next,
         b.id,
       );
+      // У card-builder-і — якщо overlap не розв'язано (canvas повний), скасовуємо
+      // переміщення: блок повертається на місце.
+      if (fixedHeight && hasCollisionIn(preview.x, finalY, preview.width, bh, next, b.id)) {
+        return;
+      }
     }
 
     onBlocksChange(next);
@@ -1145,6 +1231,52 @@ export default function EditorCanvas({
                 position: "relative",
               }}
             >
+              {/* Page-width ruler — рендериться ПОЗА canvas-grid (у padding-зоні
+                  page-wrapper), щоб у fixedHeight-режимі (overflow:hidden на
+                  canvas-grid) лінійка не клипалась. Працює універсально для всіх
+                  білдерів (preview/page/content). */}
+              {(() => {
+                const dragId = activeId && !activeId.startsWith("palette:") ? activeId : null;
+                const activeId_ = resizingBlockId ?? dragId;
+                const targetId = activeId_ ?? selectedBlockId;
+                if (!targetId) return null;
+                const b = blocks.find(x => x.id === targetId);
+                if (!b) return null;
+                // У режимі "selected" (без активного drag/resize) — читаємо ТІЛЬКИ
+                // committed block.width/x, бо previewWidths/previewXs могли залишитись
+                // від попередньої взаємодії з іншим блоком (stale data).
+                let liveX = activeId_ ? (previewXs[targetId] ?? b.x ?? 0) : (b.x ?? 0);
+                let liveW = activeId_ ? (previewWidths[targetId] ?? (Number(b.width) || 100)) : (Number(b.width) || 100);
+                if (dragId === targetId && dropPreview) {
+                  liveX = dropPreview.x;
+                  liveW = dropPreview.width;
+                }
+                const mode: "active" | "selected" = activeId_ ? "active" : "selected";
+                return (
+                  <div
+                    style={{
+                      position: "absolute",
+                      // На рівні canvas-grid top edge (PAGE_PAD_Y); ResizeRuler сам
+                      // зсувається на top:-22 всередині, тобто візуально малюється
+                      // на 22px вище canvas-grid у padding-зоні page-wrapper.
+                      top: PAGE_PAD_Y,
+                      left: PAGE_PAD_X,
+                      right: PAGE_PAD_X,
+                      height: 0,
+                      pointerEvents: "none",
+                      zIndex: 50,
+                    }}
+                  >
+                    <ResizeRuler
+                      blockX={liveX}
+                      blockWidthPct={liveW}
+                      pxPerPct={canvasWidthPx / 100}
+                      mode={mode}
+                    />
+                  </div>
+                );
+              })()}
+
               <div
                 ref={canvasRef}
                 className="canvas-grid"
@@ -1168,36 +1300,6 @@ export default function EditorCanvas({
                 {blocks.length === 0 && !activeId && (
                   <EmptyHint />
                 )}
-
-                {/* Page-width ruler — тонка лінійка зверху канвасу, показує
-                    ширину і позицію блока в % від сторінки. Показується для:
-                    1) активного resize/drag (блок який зараз пересувають) — режим "active"
-                    2) виділеного блока (selected) — режим "selected" (ще тонше)
-                    Не показується при hover і коли нічого не виділено. */}
-                {(() => {
-                  // Пріоритет: resize > drag > selected.
-                  const dragId = activeId && !activeId.startsWith("palette:") ? activeId : null;
-                  const activeId_ = resizingBlockId ?? dragId;
-                  const targetId = activeId_ ?? selectedBlockId;
-                  if (!targetId) return null;
-                  const b = blocks.find(x => x.id === targetId);
-                  if (!b) return null;
-                  let liveX = previewXs[targetId] ?? b.x ?? 0;
-                  let liveW = previewWidths[targetId] ?? (Number(b.width) || 100);
-                  if (dragId === targetId && dropPreview) {
-                    liveX = dropPreview.x;
-                    liveW = dropPreview.width;
-                  }
-                  const mode: "active" | "selected" = activeId_ ? "active" : "selected";
-                  return (
-                    <ResizeRuler
-                      blockX={liveX}
-                      blockWidthPct={liveW}
-                      pxPerPct={canvasWidthPx / 100}
-                      mode={mode}
-                    />
-                  );
-                })()}
 
                 {/* Ghost — показуємо ТІЛЬКИ при drag з палітри (для existing-block drag достатньо самого блока + snap-glow).
                     Виняток: palette:image-overlay не створює самостійний блок (drop йде оверлеєм на image),
@@ -1268,6 +1370,8 @@ export default function EditorCanvas({
                       selected={selectedBlockId === block.id}
                       onSelect={(id) => setSelectedBlockId(prev => prev === id ? null : id)}
                       scrollCompensation={activeId === block.id ? scrollCompensation : 0}
+                      maxBlockHeight={fixedHeight ? Math.max(60, canvasHeight - y) : undefined}
+                      fixedHeight={fixedHeight}
                     />
                   );
                 })}
@@ -1288,15 +1392,16 @@ export default function EditorCanvas({
 
           {/* Правий сайдбар. ВСЕРЕДИНІ DndContext щоб draggable у ньому (картки новин з
               NewsLibrarySidebar) поділяли той самий контекст з канвасом. Sticky — щоб
-              слідував за скролом, як ліва палітра. */}
+              слідував за скролом, як ліва палітра. top: 152 щоб не перекриватись
+              з floating "Зберегти" + back-button (вони на top:80px, висота 56px). */}
           {rightSidebar && (
             <div
               className="news-palette-scroll"
               style={{
                 position: "sticky",
-                top: "80px",
+                top: "152px",
                 alignSelf: "flex-start",
-                maxHeight: "calc(100vh - 100px)",
+                maxHeight: "calc(100vh - 172px)",
                 overflowY: "auto",
                 overflowX: "hidden",
                 scrollbarWidth: "none",
@@ -1511,8 +1616,14 @@ function AbsoluteBlock(props: {
   /** Пікс. компенсація скролу під час drag — додається до transform.y щоб блок
    *  залишався під курсором коли юзер скролить колесом без руху мишки. */
   scrollCompensation?: number;
+  /** У card-builder-і (fixedHeight) — максимально дозволена висота блока в px
+   *  (canvasHeight - block.y). Передається в BlockItem для clamp auto-aspect-у
+   *  ТА застосовується як CSS maxHeight на самому AbsoluteBlock — щоб навіть
+   *  якщо block.height у БД більший, візуально блок не вилазив за canvas. */
+  maxBlockHeight?: number;
+  fixedHeight?: boolean;
 }) {
-  const { block, x, y, widthPct, lastAddedId, previewHeight, isActive, canvasWidthPx, selected, scrollCompensation = 0 } = props;
+  const { block, x, y, widthPct, lastAddedId, previewHeight, isActive, canvasWidthPx, selected, scrollCompensation = 0, maxBlockHeight, fixedHeight } = props;
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: block.id });
 
   const tx = transform?.x ?? 0;
@@ -1566,11 +1677,35 @@ function AbsoluteBlock(props: {
         left: `${x}%`,
         top: `${y}px`,
         width: `${widthPct}%`,
-        height: (previewHeight && previewHeight > 0)
-          ? `${previewHeight}px`
-          : (block.height ? `${block.height}px` : undefined),
+        // newsCard у режимі preview: висота auto-derived від ширини через
+        // aspect-ratio (PREVIEW_CARD_WIDTH × горизонтальний padding 16+16) /
+        // PREVIEW_CARD_HEIGHT — щоб під час resize ширини outer-обгортка одразу
+        // підлаштовувалась проп. до 360:400 і inner PreviewCardScale не overflow-ив.
+        // У всіх інших випадках — фіксована height (з previewHeight або block.height).
+        height: (block.type === "newsCard" && (block.data.displayMode || "preview") === "preview")
+          ? "auto"
+          : ((previewHeight && previewHeight > 0)
+              ? `${previewHeight}px`
+              : (block.height ? `${block.height}px` : undefined)),
+        aspectRatio: (block.type === "newsCard" && (block.data.displayMode || "preview") === "preview")
+          ? "360 / 400"
+          : undefined,
+        // У card-builder-і — обмежуємо візуальну висоту блока вільним місцем
+        // (canvasHeight - y). Це safety net на випадок коли block.height у БД
+        // більший за canvas (напр., високе фото з auto-aspect зі старих даних).
+        // Контент усередині сквіш-иться, але блок не вилазить за canvas.
+        maxHeight: typeof maxBlockHeight === "number" && maxBlockHeight > 0
+          ? `${maxBlockHeight}px`
+          : undefined,
+        // У card-builder-і додаємо overflow:hidden — щоб контент блока (img,
+        // text з line-height) не виходив за CSS-межі блока, навіть якщо
+        // натуральний розмір більший. Канвас потім ще раз клипить по своєму
+        // overflow:hidden — defense in depth.
+        overflow: fixedHeight ? "hidden" : undefined,
         transform: translate,
-        zIndex: isActive || isDragging ? 30 : 1,
+        // Selected — підіймаємо над іншими (zIndex 20), щоб коли блоки накладаються,
+        // користувач міг схопити саме виділений (а не той, що візуально зверху).
+        zIndex: isActive || isDragging ? 30 : (selected ? 20 : 1),
         opacity: isDragging ? 0.65 : 1,
         transition: isDragging ? "none" : "left 0.12s, top 0.12s, width 0.12s",
         outline: selected ? "2px solid #D4A843" : "none",
@@ -1610,6 +1745,7 @@ function AbsoluteBlock(props: {
         getSameRowHeights={() => []}
         snapThreshold={8}
         onSelectBlock={props.onSelect}
+        maxBlockHeight={maxBlockHeight}
       />
     </div>
   );

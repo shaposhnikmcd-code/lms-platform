@@ -97,22 +97,21 @@ export default async function NewsItemPage({ params }: Props) {
       <BackButton href="/news" label={c.back} />
       <section className="bg-gradient-to-br from-[#1C3A2E] to-[#2a4f3f] text-white py-12">
         <div className="max-w-4xl mx-auto px-4">
-          <div className="flex items-center gap-3 mb-4">
-            <span className={"text-xs px-3 py-1 rounded-full font-medium " + CATEGORY_COLORS[item.category]}>
-              {c.categories[item.category as keyof typeof c.categories] ?? item.category}
-            </span>
-            <span className="flex items-center gap-1 text-xs text-white/50">
-              <FaCalendar />{new Date(item.createdAt).toLocaleDateString(locale === "uk" ? "uk-UA" : locale === "pl" ? "pl-PL" : "en-US")}
-            </span>
-            {item.author?.name && (
-              <span className="flex items-center gap-1 text-xs text-white/50">
-                <FaUser />{item.author.name}
-              </span>
-            )}
-          </div>
           <h1 className="text-3xl md:text-4xl font-bold leading-tight">{title}</h1>
           {excerpt && (
             <p className="text-white/70 text-lg mt-4 leading-relaxed">{excerpt}</p>
+          )}
+          {item.showAuthorMeta && (
+            <div className="flex items-center gap-3 mt-6">
+              <span className="flex items-center gap-1 text-xs text-white/50">
+                <FaCalendar />{new Date(item.createdAt).toLocaleDateString(locale === "uk" ? "uk-UA" : locale === "pl" ? "pl-PL" : "en-US")}
+              </span>
+              {item.author?.name && (
+                <span className="flex items-center gap-1 text-xs text-white/50">
+                  <FaUser />{item.author.name}
+                </span>
+              )}
+            </div>
           )}
         </div>
       </section>

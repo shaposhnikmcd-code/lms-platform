@@ -28,6 +28,8 @@ interface Props {
   block: Block;
   onChange: (data: Record<string, string>) => void;
   selected?: boolean;
+  /** Px-ширина канвасу — для paperWidthPx у TextStudioModal (1-в-1 з канвасом). */
+  containerWidthPx?: number;
 }
 
 function quoteInitialHtml(data: Record<string, string>): string {
@@ -44,7 +46,7 @@ function escapeHtml(s: string): string {
     .replace(/>/g, "&gt;");
 }
 
-export default function QuoteEditor({ block, onChange, selected = false }: Props) {
+export default function QuoteEditor({ block, onChange, selected = false, containerWidthPx = 0 }: Props) {
   const [studioOpen, setStudioOpen] = useState(false);
 
   const editor = useEditor({
@@ -135,6 +137,15 @@ export default function QuoteEditor({ block, onChange, selected = false }: Props
             onChange({ ...block.data, html });
             setStudioOpen(false);
           }}
+          paperWidthPx={
+            containerWidthPx > 0
+              ? Math.max(60, ((Number(block.width) || 100) * containerWidthPx) / 100)
+              : undefined
+          }
+          paperHeightPx={block.height}
+          paperBgColor={block.bgColor || ""}
+          paperVAlign={block.vAlign}
+          paperAlign={block.align}
         />
       )}
       <style>{`

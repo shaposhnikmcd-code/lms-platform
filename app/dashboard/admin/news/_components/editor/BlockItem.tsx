@@ -13,7 +13,7 @@ import NewsCardEditor from "./blocks/NewsCardEditor";
 import BlockItemHeader from "./BlockItemHeader";
 import BlockItemSnapGuide from "./BlockItemSnapGuide";
 import { useBlockResize } from "./hooks/useBlockResize";
-import { canvasHeight as innerCanvasHeight, parseBlocks as parseInnerBlocks } from "@/lib/news/render";
+import { canvasHeight as innerCanvasHeight, parseBlocks as parseInnerBlocks, PREVIEW_CARD_WIDTH, PREVIEW_CARD_HEIGHT } from "@/lib/news/render";
 
 interface Props {
   block: Block;
@@ -47,6 +47,10 @@ interface Props {
    *  слот налаштувань відкривався (бо BlockItemHeader портал-иться лише коли
    *  parent block selected). */
   onSelectBlock?: (id: string) => void;
+  /** Максимально дозволена висота блока в px. У card-builder-і (fixedHeight)
+   *  передається `canvasHeight - block.y` — щоб image auto-aspect не виставив
+   *  block.height більше за вільне місце і блок не вилазив за нижній край. */
+  maxBlockHeight?: number;
 }
 
 export default function BlockItem({
@@ -57,7 +61,7 @@ export default function BlockItem({
   onUpload, containerWidthPx, onPreviewWidth, onClearPreview,
   onPreviewHeight, onClearPreviewHeight, previewHeight,
   onReportHeight, getSameRowHeights, snapThreshold,
-  onSelectBlock,
+  onSelectBlock, maxBlockHeight,
 }: Props) {
   // Чи активний зараз вкладений overlay (для image-блоків з тестом-на-фото).
   // Коли true — приховуємо BlockItemHeader, у slot видно лише overlay-toolbar.
@@ -98,6 +102,7 @@ export default function BlockItem({
     onReportHeight,
     getSameRowHeights,
     snapThreshold,
+    maxBlockHeight,
   });
 
   // Auto-bump висоти для legacy YouTube блоків — драфти, збережені до того,
@@ -126,7 +131,13 @@ export default function BlockItem({
     const wPct = Number(block.width) || 100;
     const blockPxW = (wPct / 100) * containerWidthPx;
     const imgPxW = Math.max(60, blockPxW - 32); // 16px padding × 2
-    const newH = Math.max(60, Math.round(imgPxW / aspect));
+    let newH = Math.max(60, Math.round(imgPxW / aspect));
+    // У card-builder-і (fixedHeight) обмежуємо auto-aspect висоту вільним
+    // місцем у канвасі — інакше високі фото (квадрат/портрет) виставляють
+    // block.height більше за canvasHeight і блок візуально вилазить за межі.
+    if (typeof maxBlockHeight === "number" && maxBlockHeight > 0) {
+      newH = Math.min(newH, Math.max(60, maxBlockHeight));
+    }
     if (!block.height || Math.abs(block.height - newH) > 4) {
       // Очищаємо stale data.minHeight — інакше старий збережений minHeight (з попередніх
       // resize до auto-aspect) перевищує block.height і wrapper "виростає" вище за фото:
@@ -135,7 +146,7 @@ export default function BlockItem({
       delete cleanData.minHeight;
       onSetWidthAndData(block.id, block.width, cleanData, newH);
     }
-  }, [block.type, block.data.aspectRatio, block.width, block.height, block.id, block.data, containerWidthPx, onSetWidthAndData]);
+  }, [block.type, block.data.aspectRatio, block.width, block.height, block.id, block.data, containerWidthPx, onSetWidthAndData, maxBlockHeight]);
 
   // Авто-висота + ширина для newsCard:
   //   - displayMode="expanded": висота = canvasHeight(news.content), ШИРИНА = 100%
@@ -172,9 +183,16 @@ export default function BlockItem({
           // 100% canvas-у). Force-set один раз при переключенні в expanded.
           targetWidth = "100";
         } else if (mode === "preview" && it.previewContent) {
-          const parsed = parseInnerBlocks(it.previewContent);
-          const innerH = parsed.isJson ? innerCanvasHeight(parsed.blocks) : 0;
-          if (innerH > 0) total = innerH + 8;
+          // Превʼю авторовано на 360×400 фіксованому канвасі. Внутрішній рендер
+          // у render.tsx scale-иться через CSS transform, тому ВИСОТА зовнішнього
+          // newsCard блока має теж бути scaled, щоб картка зберігала aspect
+          // 360:400 на /news (де newsCard може бути будь-якою шириною).
+          const wPct = Number(block.width) || 100;
+          // -32: AbsoluteBlockRender внутрішня ширина після padding 0 16px.
+          // Має співпадати зі scale-розрахунком у render.tsx (newsCard preview).
+          const actualWidth = Math.max(60, (containerWidthPx * wPct) / 100 - 32);
+          const scale = actualWidth / PREVIEW_CARD_WIDTH;
+          total = Math.max(60, Math.round(PREVIEW_CARD_HEIGHT * scale));
         } else {
           // mode === "preview" БЕЗ кастомного previewContent — auto-card. Якщо блок
           // зараз "роздутий" від попереднього expanded стану (100% × велика висота),
@@ -313,7 +331,10 @@ export default function BlockItem({
           borderRadius: "8px",
           minHeight: minHeight > 0 ? `${minHeight}px` : undefined,
           height: "100%", // заповнює AbsoluteBlock — щоб візуальні межі блока = block.height
-          padding: "0 16px",
+          // newsCard preview зберігає aspect 360:400 на outer AbsoluteBlock через
+          // aspect-ratio. Знімаємо 16px горизонтальний padding, щоб card-контент
+          // (рендериться через PreviewCardScale 360-wide) точно займав весь outer.
+          padding: (block.type === "newsCard" && (block.data.displayMode || "preview") === "preview") ? "0" : "0 16px",
           boxSizing: "border-box",
           // overflow:hidden — щоб контент і toolbar-и НЕ вилазили на сусідні блоки.
           // Контекстні toolbar-и (overlay тексту-на-фото, alt-input) винесені у портал
@@ -332,11 +353,11 @@ export default function BlockItem({
           <BlockItemSnapGuide snapGuideH={snapGuideH} />
         )}
 
-        {block.type === "text"    && <TextEditor    block={block} onChange={d => onChange(block.id, d)} selected={selected} />}
-        {block.type === "heading" && <HeadingEditor block={block} onChange={d => onChange(block.id, d)} selected={selected} onSetVAlign={v => onSetVAlign(block.id, v)} />}
-        {block.type === "image"   && <ImageEditor   block={block} onChange={d => onChange(block.id, d)} onUpload={onUpload} previewHeight={previewHeight} selected={selected} onSelectBlock={onSelectBlock} onOverlayActiveChange={setOverlayActive} />}
+        {block.type === "text"    && <TextEditor    block={block} onChange={d => onChange(block.id, d)} selected={selected} containerWidthPx={containerWidthPx} />}
+        {block.type === "heading" && <HeadingEditor block={block} onChange={d => onChange(block.id, d)} selected={selected} onSetVAlign={v => onSetVAlign(block.id, v)} containerWidthPx={containerWidthPx} />}
+        {block.type === "image"   && <ImageEditor   block={block} onChange={d => onChange(block.id, d)} onUpload={onUpload} previewHeight={previewHeight} selected={selected} onSelectBlock={onSelectBlock} onOverlayActiveChange={setOverlayActive} containerWidthPx={containerWidthPx} />}
         {block.type === "youtube" && <YoutubeEditor block={block} onChange={d => onChange(block.id, d)} selected={selected} />}
-        {block.type === "quote"   && <QuoteEditor   block={block} onChange={d => onChange(block.id, d)} selected={selected} />}
+        {block.type === "quote"   && <QuoteEditor   block={block} onChange={d => onChange(block.id, d)} selected={selected} containerWidthPx={containerWidthPx} />}
         {block.type === "card"    && <CardEditor    block={block} onChange={d => onChange(block.id, d)} onUpload={onUpload} />}
         {block.type === "newsCard"&& <NewsCardEditor block={block} onChange={d => onChange(block.id, d)} selected={selected} />}
         {block.type === "divider" && <hr style={{ border: "none", borderTopWidth: "2px", borderTopStyle: "solid", borderTopColor: "#D4A843", margin: "8px 0" }} />}

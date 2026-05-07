@@ -24,6 +24,11 @@ interface Props {
    *  (cover рендериться у фреймворк-обгортці з власним radius) і форсує
    *  crop aspect 16/9 щоб зберегти єдине співвідношення сторін. */
   coverMode?: boolean;
+  /** Точна px-ширина, в якій фото має рендеритись у preview-області (як у блоці
+   *  на канвасі білдера). Якщо передано — фото відображається в цьому розмірі
+   *  (без auto-fit до контейнера), щоб менеджер бачив 1-в-1 те саме, що й у білдері.
+   *  Ctrl+wheel zoom все ще працює як override. */
+  targetDisplayWidth?: number;
   onCancel: () => void;
   /** Якщо blob є — потрібно перезавантажити фото (картинка змінилася через crop або chroma).
    *  newAspect — новий aspect ratio після crop, потрібен для перерахунку висоти блока. */
@@ -59,7 +64,7 @@ export function buildCornerRadiusCss(radius: number, cornersStr: string | undefi
 }
 
 export default function ImageStudioModal({
-  imageUrl, initialRadius, initialTolerance, initialCorners, initialCropMode = false, coverMode = false, onCancel, onSave,
+  imageUrl, initialRadius, initialTolerance, initialCorners, initialCropMode = false, coverMode = false, targetDisplayWidth, onCancel, onSave,
 }: Props) {
   const [mounted, setMounted] = useState(false);
   const [radius, setRadius] = useState(initialRadius);
@@ -405,7 +410,12 @@ export default function ImageStudioModal({
             // щоб ReactCrop не пропустив mount-у і drag працював одразу.
             if (!naturalSize) return null;
             const safeContainerW = containerW > 0 ? containerW : naturalSize.w;
-            const baseFitW = Math.min(naturalSize.w, safeContainerW);
+            // Якщо передано targetDisplayWidth — використовуємо ЙОГО як базову ширину
+            // (без обмеження по natural чи container — щоб preview показав фото в тому
+            // ж розмірі, що й у блоці на канвасі білдера). Інакше — auto-fit.
+            const baseFitW = targetDisplayWidth && targetDisplayWidth > 0
+              ? targetDisplayWidth
+              : Math.min(naturalSize.w, safeContainerW);
             const displayedW = Math.round(baseFitW * zoom);
             return (
               <>

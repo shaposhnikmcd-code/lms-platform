@@ -53,12 +53,20 @@ const cardBodyStyle: React.CSSProperties = {
   gap: "8px",
 };
 
-// Draggable картка-новина. id = `news-card:<id>` → handleDragEnd розпізнає префікс
-// і створює newsCard блок з data.newsId.
-function NewsLibraryCard({ item, isPlaced }: { item: LibraryNewsItem; isPlaced: boolean }) {
+// Draggable картка-новина. id = `news-card:<mode>:<id>` → handleDragEnd розпізнає
+// префікс, читає mode (preview|expanded) і створює newsCard блок з відповідним
+// displayMode. preview = клікабельна картка-превʼю → /news/{slug}; expanded =
+// інлайн повний контент новини.
+function NewsLibraryCard({
+  item, isPlaced, mode,
+}: {
+  item: LibraryNewsItem;
+  isPlaced: boolean;
+  mode: "preview" | "expanded";
+}) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
-    id: `news-card:${item.id}`,
-    data: { fromPalette: true, kind: "news-card", newsId: item.id },
+    id: `news-card:${mode}:${item.id}`,
+    data: { fromPalette: true, kind: "news-card", newsId: item.id, mode },
   });
   const [hov, setHov] = useState(false);
 
@@ -105,7 +113,9 @@ function NewsLibraryCard({ item, isPlaced }: { item: LibraryNewsItem; isPlaced: 
               <div style={{ width: "100%", height: "100%", background: "linear-gradient(135deg,#1C3A2E,#2a4f3f)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 14 }}>📰</div>
             )}
           </div>
-          {/* Title + category */}
+          {/* Title + drag-mode label (Превʼю / Новина) — щоб одразу зрозуміло
+              що саме перетягуємо. Категорія новини (NEWS) тут не показується, бо
+              менеджеру вже зрозуміло з заголовку секції в сайдбарі. */}
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{
               fontSize: 9,
@@ -114,7 +124,7 @@ function NewsLibraryCard({ item, isPlaced }: { item: LibraryNewsItem; isPlaced: 
               letterSpacing: "0.06em",
               color: "#9B7C45",
               marginBottom: 3,
-            }}>{item.category}</div>
+            }}>{mode === "preview" ? "Превʼю" : "Новина"}</div>
             <div style={{
               fontSize: 12,
               fontWeight: 600,
@@ -170,32 +180,55 @@ export default function NewsLibrarySidebar({ meta, onChange, placedNewsIds }: Pr
       .catch(e => setError("Помилка: " + e.message));
   }, []);
 
+  // Спільний стан списку для обох секцій (Превʼю / Новини). Винесено в окремий
+  // компонент — рендериться двічі з різним `mode`. Перетягуючи з секції «Превʼю»,
+  // менеджер розміщує клікабельну превʼю-картку (на /news клік → /news/{slug});
+  // з секції «Новини» — повний інлайн-контент статті без посилання.
+  const renderList = (mode: "preview" | "expanded") => (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 4, maxHeight: 320, overflowY: "auto" }}>
+      {error && (
+        <div style={{ fontSize: 11, color: "#DC2626", padding: 6 }}>{error}</div>
+      )}
+      {!items && !error && (
+        <div style={{ fontSize: 11, color: "#9CA3AF", padding: 6 }}>Завантаження...</div>
+      )}
+      {items && items.length === 0 && !error && (
+        <div style={{ fontSize: 11, color: "#9CA3AF", padding: 6, textAlign: "center" }}>
+          Немає опублікованих новин
+        </div>
+      )}
+      {(items ?? []).map(item => (
+        <NewsLibraryCard
+          key={item.id}
+          item={item}
+          isPlaced={placedNewsIds.has(item.id)}
+          mode={mode}
+        />
+      ))}
+    </div>
+  );
+
   return (
     <div style={{ width: "240px", minWidth: "240px", display: "flex", flexDirection: "column", gap: "10px" }}>
       <div style={cardStyle}>
-        <div style={cardHeaderStyle}>{"Бібліотека новин"}</div>
+        <div style={cardHeaderStyle}>{"Превʼю (з новиною всередині)"}</div>
         <div style={{ ...cardBodyStyle, gap: 8 }}>
           <div style={{ fontSize: 11, color: "#6B7280", lineHeight: 1.5 }}>
-            Перетягніть новину на канвас — вона зʼявиться як картка.
-            На сторінці <strong>/news</strong> публікуються тільки розміщені тут новини.
+            Перетягніть превʼю — на сторінці <strong>/news</strong>{" "}
+            зʼявиться картка-превʼю. Клік по ній → перехід на саму новину.
           </div>
+          {renderList("preview")}
+        </div>
+      </div>
 
-          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 4, maxHeight: 460, overflowY: "auto" }}>
-            {error && (
-              <div style={{ fontSize: 11, color: "#DC2626", padding: 6 }}>{error}</div>
-            )}
-            {!items && !error && (
-              <div style={{ fontSize: 11, color: "#9CA3AF", padding: 6 }}>Завантаження...</div>
-            )}
-            {items && items.length === 0 && !error && (
-              <div style={{ fontSize: 11, color: "#9CA3AF", padding: 6, textAlign: "center" }}>
-                Немає опублікованих новин
-              </div>
-            )}
-            {(items ?? []).map(item => (
-              <NewsLibraryCard key={item.id} item={item} isPlaced={placedNewsIds.has(item.id)} />
-            ))}
+      <div style={cardStyle}>
+        <div style={cardHeaderStyle}>{"Новини (без Превʼю)"}</div>
+        <div style={{ ...cardBodyStyle, gap: 8 }}>
+          <div style={{ fontSize: 11, color: "#6B7280", lineHeight: 1.5 }}>
+            Перетягніть новину — на сторінці <strong>/news</strong>{" "}
+            рендериться повний контент статті інлайн (без посилання).
           </div>
+          {renderList("expanded")}
         </div>
       </div>
 

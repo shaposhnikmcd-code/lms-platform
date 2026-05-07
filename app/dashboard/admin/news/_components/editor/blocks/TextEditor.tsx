@@ -30,9 +30,13 @@ interface Props {
   /** Чи блок selected — кнопка "Відкрити редактор" портал-иться у
    *  #news-block-settings-slot тільки коли selected. */
   selected?: boolean;
+  /** Px-ширина канвасу білдера (passed з BlockItem). Потрібна щоб обчислити
+   *  paperWidthPx для TextStudioModal — фуллскрін рендерить блок у тих же
+   *  розмірах, що в білдері. */
+  containerWidthPx?: number;
 }
 
-export default function TextEditor({ block, onChange, selected = false }: Props) {
+export default function TextEditor({ block, onChange, selected = false, containerWidthPx = 0 }: Props) {
   const [studioOpen, setStudioOpen] = useState(false);
 
   const editor = useEditor({
@@ -115,6 +119,15 @@ export default function TextEditor({ block, onChange, selected = false }: Props)
             onChange({ ...block.data, html });
             setStudioOpen(false);
           }}
+          paperWidthPx={
+            containerWidthPx > 0
+              ? Math.max(60, ((Number(block.width) || 100) * containerWidthPx) / 100)
+              : undefined
+          }
+          paperHeightPx={block.height}
+          paperBgColor={block.bgColor || ""}
+          paperVAlign={block.vAlign}
+          paperAlign={block.align}
         />
       )}
       <style>{`

@@ -9,12 +9,45 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Немає доступу" }, { status: 403 });
   }
 
-  const news = await prisma.news.findMany({
+  // Slim-select: лише поля, потрібні для списку в адмінці. НЕ тягнемо
+  // contentEn/contentPl/previewContent* і не повертаємо сирий content на клієнт —
+  // це JSON-блоки на десятки/сотні KB. Парсимо content одразу на сервері і
+  // вертаємо тільки firstContentImage (URL) — клієнту лишається легкий payload.
+  const rows = await prisma.news.findMany({
     orderBy: { createdAt: "desc" },
-    include: { author: { select: { name: true } } },
+    select: {
+      id: true,
+      title: true,
+      slug: true,
+      excerpt: true,
+      imageUrl: true,
+      category: true,
+      published: true,
+      suspendedAt: true,
+      resumeAt: true,
+      createdAt: true,
+      content: true,
+      author: { select: { name: true } },
+    },
   });
 
-  return NextResponse.json(news);
+  const slimmed = rows.map(n => {
+    let firstContentImage: string | null = null;
+    try {
+      const parsed = JSON.parse(n.content);
+      if (Array.isArray(parsed)) {
+        const img = parsed.find((b: { type?: string; data?: { url?: string } }) =>
+          b && b.type === "image" && b.data?.url
+        );
+        if (img && img.data?.url) firstContentImage = img.data.url;
+      }
+    } catch { /* not JSON or no blocks */ }
+    const { content: _content, ...rest } = n;
+    void _content;
+    return { ...rest, firstContentImage };
+  });
+
+  return NextResponse.json(slimmed);
 }
 
 export async function POST(req: NextRequest) {

@@ -15,7 +15,7 @@ import { createPortal } from "react-dom";
 import SectionedTextToolbar from "./TextToolbar";
 import { ff, Section, SectionLabel, ToggleBtn } from "./_settingsPrimitives";
 import { NEWS_BLOCK_CSS } from "@/lib/news/render";
-import type { BlockVAlign } from "../types";
+import type { BlockAlign, BlockVAlign } from "../types";
 
 type HeadingLevel = "1" | "2" | "3";
 
@@ -58,6 +58,19 @@ interface Props {
   /** Heading-only: поточний vAlign. Якщо передано, у sidebar з'являється секція "Вертикаль". */
   vAlign?: BlockVAlign;
   onVAlignChange?: (v: BlockVAlign) => void;
+  /** Точна ШИРИНА "паперу" в px — повна ширина блока (включно з 16px padding-ом
+   *  по горизонталі). Текст переноситься 1-в-1 як у блоці на канвасі. */
+  paperWidthPx?: number;
+  /** Точна ВИСОТА "паперу" в px — block.height. Якщо не передано — auto. */
+  paperHeightPx?: number;
+  /** Background-колір паперу = block.bgColor (амбер/зелений тощо). Якщо порожній —
+   *  білий, як було. Текст автоматично стає світлим на темних фонах. */
+  paperBgColor?: string;
+  /** vAlign блока (top/center/bottom) — впливає на вертикальне позиціонування тексту
+   *  всередині паперу. За замовчуванням top. */
+  paperVAlign?: BlockVAlign;
+  /** Горизонтальне вирівнювання тексту (block.align — left/center/right). */
+  paperAlign?: BlockAlign;
 }
 
 // Fullscreen-редактор для блоків Текст / Заголовок / Цитата. Аналог
@@ -72,6 +85,11 @@ export default function TextStudioModal({
   onHeadingLevelChange,
   vAlign,
   onVAlignChange,
+  paperWidthPx,
+  paperHeightPx,
+  paperBgColor,
+  paperVAlign,
+  paperAlign,
 }: Props) {
   const [mounted, setMounted] = useState(false);
 
@@ -237,29 +255,59 @@ export default function TextStudioModal({
             {editor && <SectionedTextToolbar editor={editor} />}
           </div>
 
-          {/* Editor area. data-news-block-type обгортка → cascade font-size/margins
-              з NEWS_BLOCK_CSS. Така сама геометрія як на public — true WYSIWYG. */}
-          <div style={{
-            flex: 1, minWidth: 0,
-            background: "#F5EFE6",
-            padding: "32px",
-            overflowY: "auto",
-            display: "flex", justifyContent: "center",
-          }}>
-            <div style={{
-              width: "100%", maxWidth: "720px",
-              background: "#FFFFFF",
-              borderRadius: "12px",
-              padding: "40px 44px",
-              boxShadow: "0 4px 24px rgba(0,0,0,0.08)",
-              minHeight: "100%",
-              boxSizing: "border-box",
-            }}>
-              <div data-news-block-type={blockType} {...(blockType === "heading" ? { "data-level": "2" } : {})}>
-                <EditorContent editor={editor} />
+          {/* Editor area. Папір — точна копія блока на канвасі білдера:
+              ширина (paperWidthPx) включає 16px padding по горизонталі,
+              висота = block.height (paperHeightPx), фон = block.bgColor.
+              Wrapping тексту, font-size, vAlign — 1-в-1 як у білдері. */}
+          {(() => {
+            const hasFixedSize = !!(paperWidthPx && paperWidthPx > 60);
+            const paperFixedClass = hasFixedSize ? "studio-paper-fixed" : "";
+            const bg = paperBgColor || "#FFFFFF";
+            // Текст на темних фонах має бути світлим (= як у BlockItem).
+            const isDarkBg = bg === "#1C3A2E" || bg === "#1a1a1a" || bg === "#000000";
+            const textColor = isDarkBg ? "#FAF6F0" : "#1C3A2E";
+            const flexAlign: "flex-start" | "center" | "flex-end" =
+              paperVAlign === "center" ? "center"
+                : paperVAlign === "bottom" ? "flex-end"
+                : "flex-start";
+            return (
+              <div style={{
+                flex: 1, minWidth: 0,
+                background: "#F5EFE6",
+                padding: "32px",
+                overflowY: "auto",
+                display: "flex", justifyContent: "center",
+                // safe center — центрує по вертикалі, але якщо папір вищий за
+                // preview-зону, fall-back на flex-start (інакше верх клипається).
+                alignItems: "safe center",
+              }}>
+                <div style={{
+                  width: hasFixedSize ? `${paperWidthPx}px` : "100%",
+                  maxWidth: hasFixedSize ? `${paperWidthPx}px` : "720px",
+                  // min-height: точна висота блока. Якщо менеджер набирає більше тексту
+                  // ніж вміщається — папір росте вниз (видно що блок треба зробити вищим).
+                  minHeight: hasFixedSize && paperHeightPx && paperHeightPx > 0
+                    ? `${paperHeightPx}px`
+                    : (hasFixedSize ? undefined : "100%"),
+                  background: bg,
+                  color: textColor,
+                  borderRadius: "8px",
+                  // Padding 0 16px — точна копія BlockItem inner. Контентна область
+                  // = paperWidthPx − 32 (так само як у білдері).
+                  padding: hasFixedSize ? "0 16px" : "40px 44px",
+                  boxShadow: "0 4px 24px rgba(0,0,0,0.08)",
+                  boxSizing: "border-box",
+                  display: "flex",
+                  flexDirection: "column",
+                  justifyContent: flexAlign,
+                }}>
+                  <div className={paperFixedClass} data-news-block-type={blockType} {...(blockType === "heading" ? { "data-level": "2" } : {})} style={{ width: "100%", textAlign: paperAlign || "left" }}>
+                    <EditorContent editor={editor} />
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
+            );
+          })()}
         </div>
       </div>
 
@@ -267,10 +315,19 @@ export default function TextStudioModal({
           застосуватись (залежить від dom-position). Дублюємо CSS тут — гарантує
           що шрифти/italic/ul-bullets працюють у редакторі модалки. */}
       <style>{NEWS_BLOCK_CSS + `
-        [data-news-block-type] .ProseMirror{outline:none;min-height:200px;color:#1C3A2E}
+        [data-news-block-type] .ProseMirror{outline:none;min-height:200px;color:inherit}
         [data-news-block-type] .ProseMirror p.is-editor-empty:first-child::before{
           color:#9CA3AF;content:attr(data-placeholder);float:left;height:0;pointer-events:none;font-style:normal
         }
+        /* Fixed-size paper (точна копія блока): ProseMirror НЕ має власної
+           min-height — папір сам тримає висоту блока через minHeight на wrapper-і.
+           Інакше 200px ProseMirror розтягує папір понад block.height і vAlign
+           ламається. */
+        .studio-paper-fixed.ProseMirror, .studio-paper-fixed .ProseMirror{ min-height:0 }
+        /* Heading у fixed-paper має 0 margin зверху/знизу (інакше H2 cascading
+           margin зсуває текст від верху, ламаючи vAlign). */
+        .studio-paper-fixed h1, .studio-paper-fixed h2, .studio-paper-fixed h3,
+        .studio-paper-fixed p { margin: 0 }
       `}</style>
     </div>
   );

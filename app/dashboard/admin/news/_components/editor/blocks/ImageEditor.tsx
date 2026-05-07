@@ -31,6 +31,10 @@ interface Props {
    *  BlockItem НЕ портал-ить BlockItemHeader — у slot видно лише налаштування
    *  overlay-тексту (без батьківського редактора блока). */
   onOverlayActiveChange?: (active: boolean) => void;
+  /** Px-ширина канвасу білдера. Використовується щоб порахувати targetDisplayWidth
+   *  для ImageStudioModal — фото у фуллскрін-редакторі рендериться у тих самих
+   *  px-розмірах, що в блоці на канвасі. */
+  containerWidthPx?: number;
 }
 
 // Overlay = текст поверх фото. x/y у відсотках (0..100) щоб резистити resize.
@@ -101,7 +105,7 @@ function serializeOverlays(arr: ImageOverlay[]): string {
   return JSON.stringify(arr);
 }
 
-export default function ImageEditor({ block, onChange, onUpload, previewHeight, selected = false, onSelectBlock, onOverlayActiveChange }: Props) {
+export default function ImageEditor({ block, onChange, onUpload, previewHeight, selected = false, onSelectBlock, onOverlayActiveChange, containerWidthPx = 0 }: Props) {
   const ref = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   // Студія тепер єдина точка входу для crop/radius/chroma. cropOpen ліквідовано.
@@ -672,6 +676,11 @@ export default function ImageEditor({ block, onChange, onUpload, previewHeight, 
           initialTolerance={Number(block.data.bgRemoveTolerance) || 0}
           initialCorners={block.data.imgRadiusCorners}
           initialCropMode={studioInitialCropMode}
+          targetDisplayWidth={
+            containerWidthPx > 0
+              ? Math.max(60, ((Number(block.width) || 100) * containerWidthPx) / 100 - 32)
+              : undefined
+          }
           onCancel={() => setStudioOpen(false)}
           onSave={async ({ imgRadius, tolerance, corners, blob, newAspect }) => {
             const next: Record<string, string> = {

@@ -32,6 +32,8 @@ export interface NewsMeta {
   imageUrl: string;
   published: boolean;
   pageBgColor?: string; // колір фону внутрішньої сторінки новини, "" або undefined = білий
+  /** Якщо true — у hero-хедері /news/{slug} під заголовком/описом показується дата + автор. */
+  showAuthorMeta?: boolean;
 }
 
 export function blocksToJson(blocks: Block[]): string {

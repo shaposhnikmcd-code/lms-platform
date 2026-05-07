@@ -1,5 +1,6 @@
 import React from "react";
 import { sanitizeHtml } from "@/lib/sanitizeHtml";
+import PreviewCardScale from "./PreviewCardScale";
 
 // ⚠️ ОДИН ДЖЕРЕЛО ПРАВДИ для рендера блоків новини.
 //
@@ -49,6 +50,12 @@ export const CANVAS_WIDTH = 920;
  *  Не змінюй без міграції — y-координати блоків зберігаються в px і прив'язані
  *  до цього розміру; зміна без перерахунку зрушить лейаути існуючих превʼю. */
 export const PREVIEW_CARD_WIDTH = 360;
+/** Стандартна ВИСОТА канвасу білдера превʼю-картки. Картка фіксована 360×400,
+ *  тому всюди де newsCard з кастомним previewContent рендериться — обмежуємо
+ *  висоту цим значенням (з overflow:hidden), щоб повторити те, що менеджер
+ *  бачив у білдері. canvasHeight(previewBlocks) НЕ використовуємо, бо застарілі
+ *  дані можуть мати block.height > 400 від раннього buggy auto-aspect. */
+export const PREVIEW_CARD_HEIGHT = 400;
 
 // ── Спільна типографіка блоків (білдер + public) ──────────────────────────────
 // Білдер і публічна сторінка ОБОВ'ЯЗКОВО мають рендерити текст з однаковими
@@ -721,7 +728,16 @@ export function BlockInner({
       if (localizedPreview) {
         const previewParsed = parseBlocks(localizedPreview);
         if (previewParsed.isJson && previewParsed.blocks.length > 0) {
-          const previewH = canvasHeight(previewParsed.blocks);
+          // Превʼю авторовано на 360×400 канвасі. PreviewCardScale (client) — observe-ить
+          // фактичну ширину батьківського елемента і CSS-scale-ить вміст до неї. Висота
+          // авто-пропорційна через padding-bottom aspect-ratio. Це гарантує однаковий
+          // вигляд при будь-якій ширині newsCard на /news і ВРІВНОВАЖУЄ live-resize в
+          // адмін-білдері (статичний scale з block.width не оновлюється під час preview).
+          const blockWPct = Number(block.width) || 100;
+          // Початковий scale для SSR — рахуємо статично; після hydration ResizeObserver
+          // одразу перерахує по реальній ширині. -32 = padding 0 16px на AbsoluteBlockRender.
+          const initialActualWidth = Math.max(60, (CANVAS_WIDTH * blockWPct) / 100 - 32);
+          const initialScale = initialActualWidth / PREVIEW_CARD_WIDTH;
           return (
             <a
               href={`/${lc}/news/${item.slug}`}
@@ -729,15 +745,20 @@ export function BlockInner({
                 display: "block",
                 position: "relative",
                 width: "100%",
-                height: `${previewH}px`,
                 background: "transparent",
                 textDecoration: "none",
                 color: "inherit",
               }}
             >
-              {previewParsed.blocks.map((b) => (
-                <AbsoluteBlockRender key={b.id} block={b} newsItems={newsItems} locale={lc} />
-              ))}
+              <PreviewCardScale
+                baseWidth={PREVIEW_CARD_WIDTH}
+                baseHeight={PREVIEW_CARD_HEIGHT}
+                initialScale={initialScale}
+              >
+                {previewParsed.blocks.map((b) => (
+                  <AbsoluteBlockRender key={b.id} block={b} newsItems={newsItems} locale={lc} />
+                ))}
+              </PreviewCardScale>
             </a>
           );
         }
@@ -812,6 +833,12 @@ export function AbsoluteBlockRender({
   const x = block.x ?? 0;
   const y = block.y ?? 0;
   const h = block.height;
+  // newsCard preview: висота auto через aspect-ratio (392:400, з урахуванням
+  // padding 0 16px на цьому ж div-і). Гарантує, що картка завжди має пропорції
+  // 360×400 незалежно від block.height у БД (яка може застаріти).
+  const isNewsCardPreview =
+    block.type === "newsCard" &&
+    (block.data.displayMode || "preview") === "preview";
   return (
     <div
       data-news-block
@@ -820,10 +847,13 @@ export function AbsoluteBlockRender({
         left: `${x}%`,
         top: `${y}px`,
         width: `${w}%`,
-        height: h ? `${h}px` : "auto",
+        height: isNewsCardPreview ? "auto" : (h ? `${h}px` : "auto"),
+        // Точна 360:400 пропорція. 16px горизонтальний padding для newsCard preview
+        // знятий, щоб card-контент займав весь outer без зміщення aspect-у.
+        aspectRatio: isNewsCardPreview ? "360 / 400" : undefined,
         background: block.bgColor || "transparent",
         borderRadius: block.bgColor ? "8px" : 0,
-        padding: "0 16px",
+        padding: isNewsCardPreview ? "0" : "0 16px",
         boxSizing: "border-box",
         // newsCard у будь-якому режимі може мати динамічний контент (expanded — повне тіло;
         // preview — кастомний layout з білдера превʼю). Дозволяємо overflow:visible щоб

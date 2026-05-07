@@ -128,6 +128,57 @@ export default function NewsEditor(props: Props) {
   const showMetaSidebar = props.metaSidebar ?? (mode === "post" || mode === "preview");
   void props.onBack;
 
+  // Persist scroll position у sessionStorage. Browser native scroll restoration
+  // ламається коли контент-висота змінюється після hydration (canvas росте під
+  // блоки) — тому зберігаємо вручну і повертаємо після першого рендера.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const key = `uimp-news-editor-scroll-${mode}-${newsId || "new"}`;
+    // Restore — після hydration з невеликою затримкою (щоб контент догрузити).
+    const saved = sessionStorage.getItem(key);
+    if (saved) {
+      const y = parseInt(saved, 10);
+      if (!Number.isNaN(y) && y > 0) {
+        // Двa rAF щоб contented догрузило; третій fallback через 200ms на повільне.
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            window.scrollTo(0, y);
+          });
+        });
+        const t = setTimeout(() => window.scrollTo(0, y), 200);
+        // Persist on scroll (throttle через rAF).
+        let raf = 0;
+        const onScroll = () => {
+          if (raf) return;
+          raf = requestAnimationFrame(() => {
+            raf = 0;
+            sessionStorage.setItem(key, String(window.scrollY));
+          });
+        };
+        window.addEventListener("scroll", onScroll, { passive: true });
+        return () => {
+          clearTimeout(t);
+          window.removeEventListener("scroll", onScroll);
+          if (raf) cancelAnimationFrame(raf);
+        };
+      }
+    }
+    // No saved → just install listener for future reloads.
+    let raf = 0;
+    const onScroll = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        sessionStorage.setItem(key, String(window.scrollY));
+      });
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [mode, newsId]);
+
   const def: NewsMeta = { title: "", slug: "", excerpt: "", category: "NEWS", imageUrl: "", published: false };
 
   // Нормалізуємо tabs — single-tab caller автоматом отримує один таб "main".
@@ -404,14 +455,22 @@ export default function NewsEditor(props: Props) {
     // правому барі. Контент карток слугує source-of-truth для назви.
     let effectiveMeta = meta;
     if (props.slugOnlyMeta) {
-      const firstHeading = (bakedByTab[mainTabKey] || []).find(b => b.type === "heading");
-      const headingHtml = (firstHeading?.data?.text as string | undefined) || "";
-      const headingPlain = headingHtml.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim();
-      if (!headingPlain) {
-        setMessage("Додайте блок-заголовок на картку — з нього беремо назву новини");
+      // Title + excerpt — ручні через SlugSidebar (потрібні для hero-хедера на
+      // /news/{slug}). Cover (imageUrl) — auto-derive з першого image-блока на
+      // канвасі. Title мусить бути не порожнім (фолбек: перший heading-блок).
+      let title = (meta.title || "").trim();
+      if (!title) {
+        const firstHeading = (bakedByTab[mainTabKey] || []).find(b => b.type === "heading");
+        const headingHtml = (firstHeading?.data?.html as string | undefined)
+          || (firstHeading?.data?.text as string | undefined)
+          || "";
+        title = headingHtml.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim();
+      }
+      if (!title) {
+        setMessage("Введіть заголовок новини у правому барі — він іде в hero на /news/{slug}");
         return;
       }
-      effectiveMeta = { ...meta, title: headingPlain, imageUrl };
+      effectiveMeta = { ...meta, title, imageUrl };
     }
 
     try {

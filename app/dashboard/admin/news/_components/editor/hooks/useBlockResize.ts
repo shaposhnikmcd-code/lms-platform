@@ -31,6 +31,10 @@ interface Options {
   onReportHeight: (id: string, h: number) => void;
   getSameRowHeights: () => number[];
   snapThreshold: number;
+  /** Максимальна дозволена висота блока в px — для fixedHeight канвасу (preview-картка
+   *  360×400). Якщо задано, height resize клампиться до цього значення, щоб блок
+   *  не вилазив за нижній край канвасу. */
+  maxBlockHeight?: number;
 }
 
 export function useBlockResize({
@@ -38,6 +42,7 @@ export function useBlockResize({
   onSetWidth, onSetWidthAndData, onPreviewWidth, onClearPreview,
   onPreviewHeight, onClearPreviewHeight, onChange,
   onReportHeight, getSameRowHeights, snapThreshold,
+  maxBlockHeight,
 }: Options) {
   const blockRef = useRef<HTMLDivElement | null>(null);
   const [resizingW, setResizingW] = useState(false);
@@ -179,7 +184,12 @@ export function useBlockResize({
     }
 
     const onMove = (ev: MouseEvent) => {
-      const rawH = Math.max(60, startH + ev.clientY - startY);
+      let rawH = Math.max(60, startH + ev.clientY - startY);
+      // У fixedHeight-режимі (preview-картка) обмежуємо висоту так, щоб блок
+      // не міг бути розтягнутий за нижній край canvas-у. maxBlockHeight = canvasHeight - block.y.
+      if (typeof maxBlockHeight === "number" && maxBlockHeight > 60) {
+        rawH = Math.min(rawH, maxBlockHeight);
+      }
       const freeMode = ev.shiftKey;
 
       if (isImage && imgEl) {
@@ -332,6 +342,10 @@ export function useBlockResize({
         // Non-image: висота за aspect блока.
         newH = Math.max(60, Math.round(snappedPxW / blockAspect));
         setMinHeight(newH);
+      }
+      // У fixedHeight (preview-картка) клампимо до canvasHeight - block.y.
+      if (typeof maxBlockHeight === "number" && maxBlockHeight > 60) {
+        newH = Math.min(newH, maxBlockHeight);
       }
       currentH = newH;
       onPreviewHeight(blockId, newH);

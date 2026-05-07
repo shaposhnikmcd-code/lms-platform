@@ -555,6 +555,9 @@ model News {
   imageUrl    String?
   /// Колір фону внутрішньої "сторінки новини" (білий контейнер з блоками). null = дефолтний білий.
   pageBgColor String?
+  /// Якщо true — у hero-хедері /news/{slug} під заголовком/описом показується дата + автор.
+  /// За замовчуванням false: hero чистий (тільки title + excerpt).
+  showAuthorMeta Boolean @default(false)
   category    NewsCategory @default(NEWS)
   published   Boolean      @default(false)
   /// Коли задано — новина схована з вітрини. Використовується і для "паузи", і для відкладеної публікації (coupled з resumeAt).

@@ -11,6 +11,7 @@ import {
   FaChevronDown,
   FaExpand,
   FaTimes,
+  FaCalendar,
 } from 'react-icons/fa';
 import { useAdminTheme } from '../_components/adminTheme';
 import { AdminShell, AdminPanel } from '../_components/AdminShell';
@@ -22,7 +23,10 @@ interface NewsItem {
   title: string;
   slug: string;
   excerpt: string | null;
-  content: string;
+  /** Перший image-URL з content-блоків (parsed на сервері). Використовується як
+   *  thumbnail-fallback коли imageUrl порожній. Раніше клієнт сам парсив весь
+   *  content (важкий JSON) — тепер легкий рядок або null. */
+  firstContentImage: string | null;
   imageUrl: string | null;
   category: string;
   published: boolean;
@@ -32,56 +36,6 @@ interface NewsItem {
   author?: { name: string | null };
 }
 
-
-function stripHtml(html: string): string {
-  return html.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim();
-}
-
-interface ContentBlock {
-  id: string;
-  type: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  data: Record<string, any>;
-}
-
-function flattenBlocks(content: string): ContentBlock[] {
-  try {
-    const parsed = JSON.parse(content);
-    if (!Array.isArray(parsed)) return [];
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return parsed.flatMap((item: any) => (item.blocks ? item.blocks : [item]));
-  } catch {
-    return [];
-  }
-}
-
-function parseContentPreview(content: string): { text: string; firstImage: string | null } {
-  const blocks = flattenBlocks(content);
-  if (blocks.length === 0) {
-    return { text: stripHtml(content).slice(0, 500), firstImage: null };
-  }
-
-  const textParts: string[] = [];
-  let firstImage: string | null = null;
-
-  for (const block of blocks) {
-    if (!block.data) continue;
-    if (['heading', 'text', 'hero', 'quote'].includes(block.type) && block.data.text) {
-      textParts.push(stripHtml(block.data.text));
-    }
-    if (block.data.html) {
-      textParts.push(stripHtml(block.data.html));
-    }
-    if (block.type === 'image' && block.data.url && !firstImage) {
-      firstImage = block.data.url;
-    }
-    if (block.type === 'gallery' && block.data.images?.length && !firstImage) {
-      firstImage = block.data.images[0].url || block.data.images[0];
-    }
-  }
-
-  return { text: textParts.join(' ').slice(0, 500), firstImage };
-}
 
 export default function AdminNewsPage() {
   const { theme, setTheme } = useAdminTheme();
@@ -770,26 +724,27 @@ export default function AdminNewsPage() {
               </p>
             </AdminPanel>
           ) : (
-            // space-y-3 + h-[124px] на кожному item-і — синхронізуємось 1-в-1
-            // з блоком «Новини» (той самий gap і висота рядка), щоб картки
-            // у двох колонках зливались у пари по горизонталі.
+            // h-[160px] синхронізована з правою колонкою. Картка: слева thumbnail
+            // 16:9 (видно сюжет), посередині — title 2 рядки + дата, справа — pill
+            // «Превʼю» (відкриває fullscreen картки у контексті /news).
             <div className="space-y-3">
               {news.map(item => {
-                const { firstImage: contentImage } = parseContentPreview(item.content);
-                const thumbnail = item.imageUrl || contentImage;
+                const thumbnail = item.imageUrl || item.firstContentImage;
                 return (
                   <Link
                     key={item.id}
                     href={`/dashboard/admin/news/${item.id}/preview`}
                     title="Редагувати превʼю-картку цієї новини"
-                    className={`group relative flex items-center gap-3 px-4 rounded-xl border backdrop-blur-sm transition-all h-[124px] ${
+                    className={`group relative flex items-center gap-4 p-3 rounded-2xl border backdrop-blur-sm transition-all h-[160px] ${
                       dark
-                        ? 'bg-white/[0.03] border-white/[0.06] hover:bg-white/[0.05] hover:border-amber-400/30'
-                        : 'bg-white/60 border-stone-300/50 hover:bg-white/85 hover:border-amber-500/40 hover:shadow-[0_2px_10px_-4px_rgba(180,83,9,0.18)]'
+                        ? 'bg-white/[0.03] border-white/[0.06] hover:bg-white/[0.06] hover:border-amber-400/40 hover:shadow-[0_8px_24px_-8px_rgba(251,191,36,0.20)]'
+                        : 'bg-white/70 border-stone-300/50 hover:bg-white hover:border-amber-500/45 hover:shadow-[0_8px_24px_-8px_rgba(180,83,9,0.20)]'
                     }`}
                   >
+                    {/* Thumbnail — кваратний 16:9, повна висота картки. Дає
+                        глядачу одразу зрозуміти сюжет без читання тексту. */}
                     <div
-                      className={`flex-shrink-0 w-28 aspect-video rounded-lg overflow-hidden border ${
+                      className={`flex-shrink-0 h-full aspect-video rounded-xl overflow-hidden border ${
                         dark
                           ? 'bg-white/[0.04] border-white/[0.08]'
                           : 'bg-stone-100/70 border-stone-300/60'
@@ -797,24 +752,24 @@ export default function AdminNewsPage() {
                     >
                       {thumbnail ? (
                         // eslint-disable-next-line @next/next/no-img-element
-                        <img src={thumbnail} alt="" className="w-full h-full object-cover" />
+                        <img src={thumbnail} alt="" className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.04]" />
                       ) : (
                         <div className={`w-full h-full flex items-center justify-center ${dark ? 'text-slate-600' : 'text-stone-400'}`}>
-                          <FaImage size={14} />
+                          <FaImage size={20} />
                         </div>
                       )}
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <h3 className={`text-[12px] font-semibold leading-snug line-clamp-2 ${dark ? 'text-slate-100' : 'text-stone-900'}`}>
+                    <div className="flex-1 min-w-0 flex flex-col h-full py-1">
+                      <h3 className={`text-[14px] font-semibold leading-snug line-clamp-3 ${dark ? 'text-slate-100' : 'text-stone-900'}`}>
                         {item.title}
                       </h3>
-                      <span className={`mt-0.5 inline-block text-[10px] ${dark ? 'text-slate-500' : 'text-stone-400'}`}>
+                      <div className={`mt-auto inline-flex items-center gap-1.5 text-[11px] ${dark ? 'text-slate-500' : 'text-stone-400'}`}>
+                        <FaCalendar className="text-[9px] opacity-70" />
                         {new Date(item.createdAt).toLocaleDateString('uk-UA')}
-                      </span>
+                      </div>
                     </div>
                     {/* «Превʼю» — окрема кнопка, відкриває fullscreen iframe
-                        сторінки /news (картка показується в реальному контексті
-                        списку). Stop-propagation щоб не тригерити Link. */}
+                        сторінки /news. Stop-propagation щоб не тригерити Link. */}
                     <button
                       type="button"
                       onClick={(e) => {
@@ -823,13 +778,13 @@ export default function AdminNewsPage() {
                         setItemPreview({ kind: 'card', slug: item.slug, title: item.title });
                       }}
                       title="Переглянути картку у контексті /news"
-                      className={`flex-shrink-0 inline-flex items-center gap-1.5 px-2.5 h-7 rounded-lg border transition-all text-[11px] font-medium ${
+                      className={`flex-shrink-0 self-start inline-flex items-center gap-1.5 px-3 h-8 rounded-lg border transition-all text-[11px] font-semibold ${
                         dark
-                          ? 'bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.10] hover:text-slate-100'
-                          : 'bg-white/70 border-stone-300/60 text-stone-700 hover:bg-white hover:text-stone-900'
+                          ? 'bg-white/[0.04] border-white/[0.10] text-slate-200 hover:bg-amber-400/15 hover:border-amber-400/40 hover:text-amber-200'
+                          : 'bg-white/80 border-stone-300/60 text-stone-700 hover:bg-amber-50 hover:border-amber-500/45 hover:text-amber-900'
                       }`}
                     >
-                      <FaExpand className="text-[9px]" />
+                      <FaExpand className="text-[10px]" />
                       Превʼю
                     </button>
                   </Link>
@@ -897,73 +852,83 @@ export default function AdminNewsPage() {
             const dateStr = date.toLocaleDateString('uk-UA');
             const timeStr = date.toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' });
 
+            const excerptText = item.excerpt && item.excerpt.trim();
             return (
               <div
                 key={item.id}
-                // h-[124px] — синхронізована висота з картками блоку
+                // h-[160px] — синхронізована висота з картками блоку
                 // «Превʼю Новин» зліва (щоб пари вирівнювались по горизонталі).
-                className={`rounded-xl border backdrop-blur-sm transition-all h-[124px] ${
+                // Layout: title + excerpt + meta зверху (flex-1), action row внизу
+                // з border-top — primary CTA (Редагувати) + 2 ghost-icon кнопки.
+                className={`rounded-2xl border backdrop-blur-sm transition-all h-[160px] flex flex-col ${
                   dark
-                    ? 'bg-white/[0.03] border-white/[0.06] hover:bg-white/[0.04] hover:border-white/[0.1]'
-                    : 'bg-white/60 border-stone-300/50 hover:bg-white/80 hover:border-stone-300/70'
+                    ? 'bg-white/[0.03] border-white/[0.06] hover:bg-white/[0.05] hover:border-white/[0.12] hover:shadow-[0_8px_24px_-12px_rgba(0,0,0,0.4)]'
+                    : 'bg-white/70 border-stone-300/50 hover:bg-white hover:border-stone-300/80 hover:shadow-[0_8px_24px_-10px_rgba(28,58,46,0.12)]'
                 }`}
               >
-                <div className="flex items-center gap-4 px-5 h-full">
-                  {/* Title + meta */}
-                  <div className="flex-1 min-w-0">
-                    <h3
-                      className={`text-[13px] font-semibold leading-snug line-clamp-2 ${
-                        dark ? 'text-slate-100' : 'text-stone-900'
-                      }`}
-                    >
-                      {item.title}
-                    </h3>
-                    <div className="mt-0.5">
-                      <span className={`text-[10px] ${dark ? 'text-slate-500' : 'text-stone-400'}`}>
-                        {dateStr} {timeStr}
-                      </span>
-                    </div>
+                <div className="flex-1 min-w-0 px-4 pt-3 pb-2 flex flex-col">
+                  <h3
+                    className={`text-[14px] font-semibold leading-snug line-clamp-2 ${
+                      dark ? 'text-slate-100' : 'text-stone-900'
+                    }`}
+                  >
+                    {item.title}
+                  </h3>
+                  {excerptText && (
+                    <p className={`mt-1 text-[12px] leading-snug line-clamp-1 ${
+                      dark ? 'text-slate-400' : 'text-stone-500'
+                    }`}>
+                      {excerptText}
+                    </p>
+                  )}
+                  <div className={`mt-auto inline-flex items-center gap-1.5 text-[11px] ${
+                    dark ? 'text-slate-500' : 'text-stone-400'
+                  }`}>
+                    <FaCalendar className="text-[9px] opacity-70" />
+                    {dateStr} · {timeStr}
                   </div>
-
-                  {/* Actions stack — Превʼю + Редагувати + Видалити. */}
-                  <div className="flex flex-col gap-1.5 items-stretch w-[140px] flex-shrink-0">
-                    <Link
-                      href={`/dashboard/admin/news/${item.id}/edit`}
-                      className={`inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-[12px] font-medium rounded-lg transition-all ${
-                        dark
-                          ? 'bg-amber-400/90 text-stone-900 hover:bg-amber-300 shadow-[0_0_14px_-4px_rgba(251,191,36,0.5)]'
-                          : 'bg-stone-900 text-amber-100 hover:bg-stone-800 shadow-sm'
-                      }`}
-                    >
-                      <FaEdit className="text-[10px]" />
-                      Редагувати
-                    </Link>
-                    <button
-                      type="button"
-                      onClick={() => setItemPreview({ kind: 'article', slug: item.slug, title: item.title })}
-                      title="Переглянути сторінку статті /news/{slug} у повноекранному превʼю"
-                      className={`inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-[12px] font-medium rounded-lg border transition-colors ${
-                        dark
-                          ? 'bg-white/[0.04] border-white/[0.10] text-slate-200 hover:bg-white/[0.10]'
-                          : 'bg-white/70 border-stone-300/60 text-stone-800 hover:bg-white'
-                      }`}
-                    >
-                      <FaExpand className="text-[10px]" />
-                      Превʼю
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setDeleteTarget({ id: item.id, title: item.title })}
-                      className={`inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-[12px] font-medium rounded-lg border transition-colors ${
-                        dark
-                          ? 'bg-rose-500/10 text-rose-200 border-rose-400/25 hover:bg-rose-500/20'
-                          : 'bg-rose-200/40 text-rose-800 border-rose-500/30 hover:bg-rose-200/70'
-                      }`}
-                    >
-                      <FaTrash className="text-[10px]" />
-                      Видалити
-                    </button>
-                  </div>
+                </div>
+                {/* Action row — primary CTA «Редагувати» (флекс-1) + 2 ghost icon-buttons */}
+                <div className={`flex items-center gap-2 px-3 py-2.5 border-t ${
+                  dark ? 'border-white/[0.06]' : 'border-stone-300/40'
+                }`}>
+                  <Link
+                    href={`/dashboard/admin/news/${item.id}/edit`}
+                    className={`flex-1 inline-flex items-center justify-center gap-1.5 px-3 h-9 text-[12.5px] font-semibold rounded-lg transition-all ${
+                      dark
+                        ? 'bg-amber-400/90 text-stone-900 hover:bg-amber-300 shadow-[0_0_16px_-4px_rgba(251,191,36,0.50)]'
+                        : 'bg-stone-900 text-amber-100 hover:bg-stone-800 shadow-[0_2px_8px_-2px_rgba(28,37,38,0.30)]'
+                    }`}
+                  >
+                    <FaEdit className="text-[11px]" />
+                    Редагувати
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => setItemPreview({ kind: 'article', slug: item.slug, title: item.title })}
+                    title="Переглянути сторінку статті /news/{slug}"
+                    aria-label="Превʼю статті"
+                    className={`inline-flex items-center justify-center w-9 h-9 rounded-lg border transition-colors ${
+                      dark
+                        ? 'bg-white/[0.04] border-white/[0.10] text-slate-300 hover:bg-white/[0.10] hover:text-slate-100'
+                        : 'bg-white/80 border-stone-300/60 text-stone-700 hover:bg-white hover:text-stone-900'
+                    }`}
+                  >
+                    <FaExpand className="text-[11px]" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDeleteTarget({ id: item.id, title: item.title })}
+                    title="Видалити новину"
+                    aria-label="Видалити новину"
+                    className={`inline-flex items-center justify-center w-9 h-9 rounded-lg border transition-colors ${
+                      dark
+                        ? 'bg-rose-500/[0.08] border-rose-400/20 text-rose-300 hover:bg-rose-500/20 hover:text-rose-200'
+                        : 'bg-rose-50/60 border-rose-300/50 text-rose-700 hover:bg-rose-100 hover:text-rose-900'
+                    }`}
+                  >
+                    <FaTrash className="text-[11px]" />
+                  </button>
                 </div>
               </div>
             );

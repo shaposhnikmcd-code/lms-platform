@@ -49,6 +49,7 @@ export default function EditNewsPreviewPage() {
           category: d.category || "NEWS",
           imageUrl: d.imageUrl || "",
           pageBgColor: d.pageBgColor || "",
+          showAuthorMeta: !!d.showAuthorMeta,
           published: d.published || false,
         });
         setInitialPreviewContent(d.previewContent || "");
@@ -63,17 +64,18 @@ export default function EditNewsPreviewPage() {
   const handleSave = async (meta: NewsMeta, content: string, imageUrl: string) => {
     setSaving(true);
     try {
-      // Шлемо тільки те, що реально редагується тут: title (auto-derived з
-      // канвасу), slug, imageUrl (auto з канвасу) та previewContent. Інше
-      // meta (excerpt/category/pageBgColor) не торкаємо — якщо існували в БД,
-      // лишаються як були (PATCH спрейдить тільки ці поля).
+      // Шлемо: title + excerpt (ручні через SlugSidebar — для hero-хедера на
+      // /news/{slug}), slug, imageUrl (auto з першого image-блока), previewContent.
+      // Category/pageBgColor не торкаємо — лишаються як були в БД.
       const res = await fetch("/api/admin/news/" + id, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title: meta.title,
+          excerpt: meta.excerpt || "",
           slug: meta.slug,
           imageUrl,
+          showAuthorMeta: !!meta.showAuthorMeta,
           previewContent: content,
         }),
       });

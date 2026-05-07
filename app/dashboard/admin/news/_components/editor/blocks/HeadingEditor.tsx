@@ -32,6 +32,8 @@ interface Props {
   selected?: boolean;
   /** Сетер vAlign на рівні блока. Передається з BlockItem (там же, що в BlockItemHeader). */
   onSetVAlign?: (v: BlockVAlign) => void;
+  /** Px-ширина канвасу — для paperWidthPx у TextStudioModal (1-в-1 з канвасом). */
+  containerWidthPx?: number;
 }
 
 function escapeHtml(s: string): string {
@@ -44,7 +46,7 @@ function headingInitialHtml(data: Record<string, string>): string {
   return t ? `<p>${escapeHtml(t)}</p>` : "";
 }
 
-export default function HeadingEditor({ block, onChange, selected = false, onSetVAlign }: Props) {
+export default function HeadingEditor({ block, onChange, selected = false, onSetVAlign, containerWidthPx = 0 }: Props) {
   const [studioOpen, setStudioOpen] = useState(false);
   const level = (block.data.level || "2") as "1" | "2" | "3";
 
@@ -162,6 +164,15 @@ export default function HeadingEditor({ block, onChange, selected = false, onSet
             onChange({ ...block.data, html });
             setStudioOpen(false);
           }}
+          paperWidthPx={
+            containerWidthPx > 0
+              ? Math.max(60, ((Number(block.width) || 100) * containerWidthPx) / 100)
+              : undefined
+          }
+          paperHeightPx={block.height}
+          paperBgColor={block.bgColor || ""}
+          paperVAlign={block.vAlign || "top"}
+          paperAlign={block.align}
         />
       )}
       <style>{`
