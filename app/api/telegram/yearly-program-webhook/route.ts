@@ -215,8 +215,16 @@ async function handleChatMemberUpdated(upd: TgChatMemberUpdated): Promise<void> 
   if (!settings.chatId) return;
   if (!chatMatches(settings.chatId, chatId)) return;
 
-  // Знаходимо підписку: спочатку за tgUserId (швидко), якщо немає — за inviteLink якщо є.
-  const sub = await findSubscriptionForMember(targetUser.id, upd.invite_link?.invite_link ?? null);
+  // Знаходимо підписку трьома lookup-ами в порядку спадання надійності:
+  //   1. telegramTgUserId — найточніше (тільки в нас, точно за TG ID).
+  //   2. invite_link з update-у — якщо клієнт зайшов саме через наш link.
+  //   3. telegramUsername — fallback, коли клієнт клікнув старий лист або зайшов
+  //      через primary link каналу. Username клієнт указував у payment-формі.
+  const sub = await findSubscriptionForMember(
+    targetUser.id,
+    upd.invite_link?.invite_link ?? null,
+    targetUser.username ?? null,
+  );
 
   if (!sub) {
     // Сторонній учасник (admin додав вручну, чи власник). Логуємо коротко.
@@ -280,12 +288,19 @@ async function handleChatMemberUpdated(upd: TgChatMemberUpdated): Promise<void> 
   }
 }
 
-/// Знаходить підписку учасника каналу. Спочатку — за збереженим tgUserId
-/// (найшвидший шлях). Якщо немає — за invite_link з update-у (рідше; стається
-/// при першому приєднанні через approve-flow або primary link з approval).
+/// Знаходить підписку учасника каналу. Три послідовних lookup-и:
+///   1. За `telegramTgUserId` — найшвидше і найточніше. Заповнюється при першому
+///      approve або при rejoin-fallback тут.
+///   2. За `telegramInviteLink` з update-у — спрацьовує коли учасник зайшов
+///      саме через наш bot-generated invite (Telegram кладе link у update).
+///   3. За `telegramUsername` — fallback: клієнт міг клікнути старий лист
+///      (link уже не в DB) або зайти через primary link каналу. Username
+///      клієнт сам вказав у payment-формі. Беремо найсвіжішу його підписку
+///      (одна людина може мати кілька підписок історично).
 async function findSubscriptionForMember(
   tgUserId: number,
   inviteUrl: string | null,
+  tgUsername: string | null,
 ): Promise<{ id: string; userId: string } | null> {
   const byTgId = await prisma.yearlyProgramSubscription.findFirst({
     where: { telegramTgUserId: BigInt(tgUserId) },
@@ -294,8 +309,26 @@ async function findSubscriptionForMember(
   if (byTgId) return byTgId;
 
   if (inviteUrl) {
-    return prisma.yearlyProgramSubscription.findFirst({
+    const byInvite = await prisma.yearlyProgramSubscription.findFirst({
       where: { telegramInviteLink: inviteUrl },
+      select: { id: true, userId: true },
+    });
+    if (byInvite) return byInvite;
+  }
+
+  if (tgUsername) {
+    // У DB зберігається з префіксом "@" (нормалізовано формою). Telegram update
+    // присилає без "@". Тому шукаємо у двох форматах + case-insensitive.
+    const handleWithAt = `@${tgUsername.replace(/^@/, '')}`;
+    const handleNoAt = tgUsername.replace(/^@/, '');
+    return prisma.yearlyProgramSubscription.findFirst({
+      where: {
+        OR: [
+          { telegramUsername: { equals: handleWithAt, mode: 'insensitive' } },
+          { telegramUsername: { equals: handleNoAt, mode: 'insensitive' } },
+        ],
+      },
+      orderBy: { createdAt: 'desc' },
       select: { id: true, userId: true },
     });
   }
