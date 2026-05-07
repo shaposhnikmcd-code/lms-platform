@@ -36,6 +36,8 @@ import {
 
 /// Конфіг варіанту модалки. Через нього вирізаємо дублікат коду між Listами Платежів і Нагадувань —
 /// логіка модалки спільна, відрізняються лише endpoint-и, тексти і палітра груп.
+export type EmailTemplateAccent = GroupAccent;
+
 export interface EmailTemplatesModalConfig {
   apiBase: string;
   modalTitle: string;
@@ -64,7 +66,7 @@ type GroupItem = CachedTemplateGroup;
 /// sky=manual (нагадування ручної оплати).
 type GroupAccent = 'amber' | 'indigo' | 'rose' | 'slate' | 'sky';
 
-const PAYMENT_CONFIG: EmailTemplatesModalConfig = {
+export const PAYMENT_CONFIG: EmailTemplatesModalConfig = {
   apiBase: '/api/admin/yearly-program/payment-templates',
   modalTitle: 'Листи Платежів',
   modalSubtitle: 'Транзакційні листи Річної програми · редагуються менеджером',
@@ -481,16 +483,20 @@ function pluralizeRowDays(n: number): string {
 
 // ─────────────────────── EDITOR VIEW ───────────────────────
 
-function TemplateEditor({
+export function TemplateEditor({
   theme,
   item,
   config,
   onSaved,
+  extraFooterAction,
 }: {
   theme: Theme;
   item: TemplateFullItem;
   config: EmailTemplatesModalConfig;
   onSaved: (updated: { subject: string; bodyHtml: string; bodyInnerHtml: string; isCustomized: boolean; updatedAt: string | null; updatedBy: string | null }) => void;
+  /// Опційний слот у sticky-footer-і ліворуч від кнопки «Зберегти». Використовується
+  /// в AddStudentModal щоб додати кнопку «Надіслати студенту лист» у тому самому місці.
+  extraFooterAction?: React.ReactNode;
 }) {
   const dark = theme === 'dark';
   const [subject, setSubject] = useState(item.subject);
@@ -832,6 +838,7 @@ function TemplateEditor({
               {resetting ? 'Скидаю…' : 'Скинути до дефолту'}
             </button>
           )}
+          {extraFooterAction}
           <button
             type="button"
             onClick={onSave}
