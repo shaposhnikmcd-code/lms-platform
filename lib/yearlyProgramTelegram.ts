@@ -29,12 +29,15 @@ export interface YearlyProgramTelegramSettings {
 }
 
 /// Дефолти — використовуються коли запис у БД ще не створений.
+/// autoAdd + joinRequestMode за замовчуванням ON: пара працює разом — генерувати
+/// invite автоматично + фільтрувати чужих по заявках на вступ. Менеджер може
+/// вимкнути будь-який toggle, якщо канал тимчасово приймає всіх.
 const DEFAULTS: YearlyProgramTelegramSettings = {
   chatId: null,
   chatTitle: null,
   chatType: null,
-  autoAdd: false,
-  joinRequestMode: false,
+  autoAdd: true,
+  joinRequestMode: true,
   updatedAt: null,
   updatedBy: null,
 };

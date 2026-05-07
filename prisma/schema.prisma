@@ -1080,14 +1080,14 @@ model YearlyProgramTelegramSetting {
   chatType  String?
   /// Якщо true — на кожну успішну оплату Річної програми callback автоматично
   /// генерує одноразовий invite-link і додає його до welcome-листа.
-  autoAdd   Boolean  @default(false)
+  autoAdd   Boolean  @default(true)
   /// Якщо true — invite-посилання створюються з `creates_join_request=true`
   /// (без member_limit, бо API їх не дозволяє разом). Канал/група має бути в
   /// режимі "Заявки на вступ" (Telegram → Адмін → Запрошення → Підтвердження).
   /// Webhook `/api/telegram/yearly-program-webhook` автоматично approve-ить
   /// заявки від клієнтів Річної (за збігом invite_link із підпискою) і
   /// decline-ить решту.
-  joinRequestMode Boolean  @default(false)
+  joinRequestMode Boolean  @default(true)
   updatedAt DateTime @updatedAt
   updatedBy String?
 }

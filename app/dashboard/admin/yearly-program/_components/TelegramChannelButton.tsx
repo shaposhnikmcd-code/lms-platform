@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { HiOutlinePaperAirplane, HiOutlineCheckCircle, HiOutlinePencil, HiOutlineTrash, HiOutlineXMark } from 'react-icons/hi2';
+import { HiOutlinePaperAirplane, HiOutlineCheckCircle, HiOutlinePencil, HiOutlineTrash, HiOutlineXMark, HiOutlineInformationCircle } from 'react-icons/hi2';
 import { FaSpinner } from 'react-icons/fa';
 import type { Theme } from '../../_components/adminTheme';
 import { useUIFeedback } from './UIFeedback';
@@ -36,9 +36,8 @@ export default function TelegramChannelButton({ theme, initial }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [autoLoading, setAutoLoading] = useState(false);
   const [jrLoading, setJrLoading] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
-  const popoverRef = useRef<HTMLDivElement | null>(null);
-  const [popoverPos, setPopoverPos] = useState<{ top: number; right: number } | null>(null);
   const [mounted, setMounted] = useState(false);
   const { toast, confirm } = useUIFeedback();
 
@@ -46,39 +45,26 @@ export default function TelegramChannelButton({ theme, initial }: Props) {
     setMounted(true);
   }, []);
 
-  // Закриття на клік поза popover і поза кнопкою.
+  // Escape закриває help-модалку (має пріоритет над popover-ом).
+  useEffect(() => {
+    if (!helpOpen) return;
+    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') setHelpOpen(false); }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [helpOpen]);
+
+  // Escape закриває модалку (якщо help-модалка теж відкрита, її окремий handler має пріоритет —
+  // спрацьовує перший зареєстрований).
   useEffect(() => {
     if (!open) return;
-    function handleClick(e: MouseEvent) {
-      const target = e.target as Node;
-      if (popoverRef.current?.contains(target)) return;
-      if (buttonRef.current?.contains(target)) return;
-      setOpen(false);
-    }
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
-  }, [open]);
-
-  // Позиціонування popover-а під кнопкою. Використовуємо fixed + viewport-координати,
-  // щоб popover не обрізався overflow:hidden у AdminShell. Перераховуємо при scroll/resize.
-  useLayoutEffect(() => {
-    if (!open) return;
-    function recalc() {
-      if (!buttonRef.current) return;
-      const r = buttonRef.current.getBoundingClientRect();
-      setPopoverPos({
-        top: r.bottom + 8,
-        right: window.innerWidth - r.right,
-      });
-    }
-    recalc();
-    window.addEventListener('scroll', recalc, true);
-    window.addEventListener('resize', recalc);
+    function onKey(e: KeyboardEvent) { if (e.key === 'Escape' && !helpOpen) setOpen(false); }
+    document.addEventListener('keydown', onKey);
+    document.body.style.overflow = 'hidden';
     return () => {
-      window.removeEventListener('scroll', recalc, true);
-      window.removeEventListener('resize', recalc);
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = '';
     };
-  }, [open]);
+  }, [open, helpOpen]);
 
   async function handleSave() {
     if (!chatIdInput.trim()) {
@@ -184,30 +170,50 @@ export default function TelegramChannelButton({ theme, initial }: Props) {
     ? 'bg-white/[0.03] hover:bg-amber-400/10 hover:border-amber-400/30 hover:text-amber-200 border-white/[0.08] text-slate-300'
     : 'bg-white/70 hover:bg-amber-50 hover:border-amber-300/60 hover:text-amber-900 border-stone-300/50 text-stone-700';
 
-  const popover = open && popoverPos && (
-    <div
-      ref={popoverRef}
-      style={{ position: 'fixed', top: popoverPos.top, right: popoverPos.right, zIndex: 9999 }}
-      className={`w-[420px] rounded-xl shadow-2xl border ${
-        dark ? 'bg-[#0c0f15] border-white/[0.08]' : 'bg-white border-stone-200'
-      }`}
-    >
-          <div className={`px-4 py-3 border-b flex items-center justify-between ${dark ? 'border-white/[0.06]' : 'border-stone-200'}`}>
-            <div className="flex items-center gap-2">
-              <HiOutlinePaperAirplane className={dark ? 'text-amber-300' : 'text-amber-700'} />
-              <h3 className={`text-sm font-semibold ${dark ? 'text-slate-100' : 'text-stone-800'}`}>Telegram-канал Річної програми</h3>
+  const popover = open && (
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Telegram-канал Річної програми">
+      <div className="absolute inset-0 bg-black/65 backdrop-blur-[2px]" onClick={() => setOpen(false)} />
+      <div
+        className={`relative w-full max-w-md max-h-[88vh] flex flex-col rounded-2xl shadow-2xl overflow-hidden ${
+          dark ? 'bg-zinc-950 border border-white/10 text-slate-200' : 'bg-white border border-stone-200 text-stone-800'
+        }`}
+      >
+          <header className={`shrink-0 flex items-center justify-between px-5 py-3.5 border-b ${dark ? 'bg-zinc-900/95 border-white/10' : 'bg-stone-50 border-stone-200'}`}>
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className={`shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-[16px] ${dark ? 'bg-amber-400/15 text-amber-300 border border-amber-400/30' : 'bg-amber-100 text-amber-800 border border-amber-300/60'}`}>
+                <HiOutlinePaperAirplane />
+              </div>
+              <h3 className={`text-[15px] font-bold leading-tight ${dark ? 'text-slate-100' : 'text-stone-900'}`}>Telegram-канал Річної програми</h3>
+              <button
+                type="button"
+                onClick={() => setHelpOpen((v) => !v)}
+                aria-expanded={helpOpen}
+                aria-label="Як це працює"
+                title="Як це працює"
+                className={`shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[12px] border transition-colors ${
+                  helpOpen
+                    ? dark
+                      ? 'bg-amber-400/20 border-amber-400/40 text-amber-300'
+                      : 'bg-amber-100 border-amber-300 text-amber-800'
+                    : dark
+                      ? 'border-white/15 text-slate-400 hover:bg-white/10 hover:text-amber-300'
+                      : 'border-stone-300/70 text-stone-500 hover:bg-stone-100 hover:text-amber-800'
+                }`}
+              >
+                <HiOutlineInformationCircle />
+              </button>
             </div>
             <button
               type="button"
               onClick={() => setOpen(false)}
-              className={`w-6 h-6 inline-flex items-center justify-center rounded-md ${dark ? 'text-slate-500 hover:text-slate-200 hover:bg-white/[0.06]' : 'text-stone-500 hover:text-stone-800 hover:bg-stone-100'}`}
+              className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-[14px] transition-colors ${dark ? 'hover:bg-white/10 text-slate-400' : 'hover:bg-stone-100 text-stone-500'}`}
               aria-label="Закрити"
             >
               <HiOutlineXMark />
             </button>
-          </div>
+          </header>
 
-          <div className="p-4 space-y-4">
+          <div className="flex-1 overflow-y-auto p-5 space-y-4">
             {hasChannel && !editMode ? (
               <div
                 className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border ${
@@ -363,6 +369,7 @@ export default function TelegramChannelButton({ theme, initial }: Props) {
               </div>
             )}
           </div>
+      </div>
     </div>
   );
 
@@ -387,6 +394,78 @@ export default function TelegramChannelButton({ theme, initial }: Props) {
         )}
       </button>
       {mounted && popover ? createPortal(popover, document.body) : null}
+      {mounted && helpOpen ? createPortal(
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Як працює інтеграція з Telegram">
+          <div className="absolute inset-0 bg-black/65 backdrop-blur-[2px]" onClick={() => setHelpOpen(false)} />
+          <div
+            className={`relative w-full max-w-lg max-h-[88vh] flex flex-col rounded-2xl shadow-2xl overflow-hidden ${
+              dark ? 'bg-zinc-950 border border-white/10 text-slate-200' : 'bg-white border border-stone-200 text-stone-800'
+            }`}
+          >
+            <header className={`shrink-0 flex items-center justify-between px-5 py-3.5 border-b ${dark ? 'bg-zinc-900/95 border-white/10' : 'bg-stone-50 border-stone-200'}`}>
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className={`shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-[16px] ${dark ? 'bg-amber-400/15 text-amber-300 border border-amber-400/30' : 'bg-amber-100 text-amber-800 border border-amber-300/60'}`}>
+                  <HiOutlineInformationCircle />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-[15px] font-bold leading-tight">Як працює інтеграція з Telegram</h3>
+                  <p className={`text-[11px] mt-0.5 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>Налаштування каналу + два прапорці</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setHelpOpen(false)}
+                aria-label="Закрити"
+                className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-[14px] transition-colors ${dark ? 'hover:bg-white/10 text-slate-400' : 'hover:bg-stone-100 text-stone-500'}`}
+              ><HiOutlineXMark /></button>
+            </header>
+            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3.5 text-[13px] leading-relaxed">
+              <p>
+                Бот <b>UIMP</b> має бути доданий у канал/групу як адмін з правом
+                «Запрошувати користувачів». Тут менеджер фіксує chat_id каналу і керує
+                двома прапорцями — вони працюють у парі.
+              </p>
+              <div className={`rounded-xl border px-4 py-3 ${dark ? 'bg-emerald-500/[0.06] border-emerald-400/25' : 'bg-emerald-50/60 border-emerald-200/70'}`}>
+                <div className={`font-semibold mb-1 ${dark ? 'text-emerald-200' : 'text-emerald-900'}`}>📨 Автоматично додавати до Telegram-каналу</div>
+                <p className={dark ? 'text-slate-300' : 'text-stone-700'}>
+                  Після успішної оплати Річної система генерує <b>одноразове</b> invite-посилання
+                  і вкладає його у welcome-лист. Якщо OFF — лист піде <b>без посилання</b>,
+                  менеджер додає вручну з панелі підписки.
+                </p>
+              </div>
+              <div className={`rounded-xl border px-4 py-3 ${dark ? 'bg-sky-500/[0.06] border-sky-400/25' : 'bg-sky-50/60 border-sky-200/70'}`}>
+                <div className={`font-semibold mb-1 ${dark ? 'text-sky-200' : 'text-sky-900'}`}>🛡 Канал у режимі заявок на вступ</div>
+                <p className={dark ? 'text-slate-300' : 'text-stone-700'}>
+                  Захист від «витоку» посилань. Якщо студент форварднув своє invite — без цього
+                  toggle сторонній зайде в канал. З toggle-ом клік на invite створює <b>заявку</b>,
+                  яку наш бот через webhook approve-ить тільки якщо invite належить чинній підписці,
+                  інакше — reject.
+                </p>
+                <p className={`mt-2 ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
+                  <b>Передумова:</b> у самому Telegram-каналі має бути увімкнено «Заявки на вступ»
+                  (Адмін → Запрошення → <i>Підтвердження адміна</i>). Без цього на стороні Telegram
+                  наш toggle нічого не робить.
+                </p>
+              </div>
+              <div className={`rounded-xl border px-4 py-3 ${dark ? 'bg-amber-500/[0.08] border-amber-400/25 text-amber-100/95' : 'bg-amber-50 border-amber-200 text-amber-900'}`}>
+                <div className="font-semibold mb-0.5">Працюють у парі</div>
+                <p>
+                  <i>Автододавати</i> = «дати посилання», <i>Заявки на вступ</i> = «не пустити чужих».
+                  Зазвичай вмикаємо <b>обидва разом</b>.
+                </p>
+              </div>
+            </div>
+            <footer className={`shrink-0 flex items-center justify-end gap-2 px-5 py-3 border-t ${dark ? 'bg-zinc-900/95 border-white/10' : 'bg-stone-50 border-stone-200'}`}>
+              <button
+                type="button"
+                onClick={() => setHelpOpen(false)}
+                className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-[13px] font-semibold border transition-colors ${dark ? 'bg-white/[0.06] border-white/10 text-slate-200 hover:bg-white/[0.10]' : 'bg-white border-stone-300 text-stone-800 hover:bg-stone-50'}`}
+              >Зрозуміло</button>
+            </footer>
+          </div>
+        </div>,
+        document.body,
+      ) : null}
     </>
   );
 }
