@@ -12,6 +12,7 @@ import prisma from '@/lib/prisma';
 
 export type PaymentTemplateKey =
   | 'welcome'
+  | 'manual-add-invite'
   | 'plan-changed-upgrade'
   | 'plan-changed-downgrade'
   | 'receipt-autopay'
@@ -20,7 +21,7 @@ export type PaymentTemplateKey =
   | 'admin-archived'
   | 'admin-access-closed';
 
-export type PaymentTemplateGroup = 'payment' | 'plan-change' | 'admin-end';
+export type PaymentTemplateGroup = 'payment' | 'manual-add' | 'plan-change' | 'admin-end';
 
 export interface PaymentTemplateMeta {
   key: PaymentTemplateKey;
@@ -41,6 +42,7 @@ export interface PaymentTemplateMeta {
 
 export const PAYMENT_TEMPLATE_GROUPS: { id: PaymentTemplateGroup; title: string; description: string }[] = [
   { id: 'payment', title: '💳 Оплата', description: 'Welcome на першу оплату + receipt на кожне успішне списання.' },
+  { id: 'manual-add', title: '✉️ Запрошення вручну', description: 'Лист з персональним посиланням на оплату — коли менеджер додає студента вручну.' },
   { id: 'plan-change', title: '🔄 Зміна плану', description: 'Коли користувач переключається між разовою/автоплатежем.' },
   { id: 'admin-end', title: '🚪 Закриття менеджером', description: 'Коли менеджер скасовує/архівує/закриває доступ.' },
 ];
@@ -90,6 +92,18 @@ export const PLACEHOLDER_DESCRIPTIONS: Record<string, { what: string; consequenc
     what: 'Готовий пункт у списку про автосписання (зʼявляється тільки для планів з автосписанням).',
     consequence: 'БЕЗ цього поля користувач з автоплатежем не дізнається що автосписання активне.',
   },
+  inviteUrl: {
+    what: 'Персональне посилання на сторінку оплати Річної програми (з пре-заповненим email).',
+    consequence: 'БЕЗ цього поля студент не зможе перейти до оплати — лист стане безглуздим.',
+  },
+  inviteButton: {
+    what: 'Готова кнопка «Перейти до оплати» з посиланням всередині (стилізована).',
+    consequence: 'БЕЗ цього поля у листі не буде кнопки — студент муситиме шукати посилання у тексті.',
+  },
+  cohortName: {
+    what: 'Назва запуску (cohort-у), куди приєднується студент — наприклад «Річна 2026».',
+    consequence: 'БЕЗ цього поля студент не побачить до якого саме запуску він приєднується.',
+  },
 };
 
 /// Витягує inner-HTML з повного `bodyHtml` (зворотний бік `wrapInnerHtml`). Якщо wrapper не розпізнано —
@@ -122,6 +136,31 @@ export const PAYMENT_TEMPLATES: Record<PaymentTemplateKey, PaymentTemplateMeta> 
   <ul style="margin: 0 0 16px; padding-left: 20px;">
     <li style="margin-bottom: 8px;">Ми готуємо запуск програми. <b>Перед початком навчання</b> ви отримаєте окремий лист з вашими доступами до навчальної платформи (логін і пароль).</li>
     {autoRenewBullet}
+  </ul>`),
+  },
+  'manual-add-invite': {
+    key: 'manual-add-invite',
+    group: 'manual-add',
+    title: '✉️ Запрошення вручну — посилання на оплату',
+    when: 'Коли менеджер додає студента вручну через кнопку «Додати студента» — система генерує персональне посилання й одразу шле цей лист студенту. Посилання дійсне 7 днів.',
+    placeholders: ['greeting', 'cohortName', 'inviteButton', 'inviteUrl'],
+    sampleData: {
+      greeting: 'Доброго дня, Іван Петренко!',
+      cohortName: 'Річна 2026',
+      inviteButton: '<p style="margin: 24px 0;"><a href="https://www.uimp.com.ua/yearly-program?invite=SAMPLE" style="display: inline-block; background: #b08d3f; color: #fff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">Перейти до оплати</a></p>',
+      inviteUrl: 'https://www.uimp.com.ua/yearly-program?invite=SAMPLE',
+    },
+    defaultSubject: 'Запрошення на Річну програму UIMP — посилання на оплату',
+    defaultBodyHtml: layout(`  <h2 style="color: #1a1a1a; margin: 0 0 16px;">Запрошення на Річну програму</h2>
+  <p style="margin: 0 0 12px;">{greeting}</p>
+  <p style="margin: 0 0 16px;">Дякуємо за інтерес до Річної програми Українського інституту Душеопіки та Психотерапії (UIMP). Ми підготували для вас персональне посилання на оплату — за ним ви зможете долучитись до запуску <b>{cohortName}</b>.</p>
+  {inviteButton}
+  <p style="margin: 0 0 16px; font-size: 13px; color: #555;">Якщо кнопка не відкривається — скопіюйте посилання у браузер: <br/><a href="{inviteUrl}" style="color: #b08d3f; word-break: break-all;">{inviteUrl}</a></p>
+  <h3 style="margin: 24px 0 8px;">Що далі</h3>
+  <ul style="margin: 0 0 16px; padding-left: 20px;">
+    <li style="margin-bottom: 8px;">На сторінці оплати ви оберете зручний для себе план — <b>Річна оплата</b>, <b>Місячна з автосписанням</b> або <b>Місячна разова</b>.</li>
+    <li style="margin-bottom: 8px;">Після успішної оплати ми автоматично відкриємо доступ до навчальної платформи й надішлемо логін/пароль окремим листом.</li>
+    <li style="margin-bottom: 8px;">Посилання дійсне <b>7 днів</b> — після цього зверніться до нас і ми оновимо.</li>
   </ul>`),
   },
   'plan-changed-upgrade': {

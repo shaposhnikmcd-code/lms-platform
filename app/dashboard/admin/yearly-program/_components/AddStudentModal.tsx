@@ -2,16 +2,18 @@
 
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { HiOutlineUserPlus, HiOutlineLink, HiOutlineCheck, HiOutlineDocumentDuplicate } from 'react-icons/hi2';
+import { HiOutlineUserPlus, HiOutlineEnvelope, HiOutlineCheck, HiOutlineDocumentDuplicate, HiOutlineExclamationTriangle } from 'react-icons/hi2';
 import type { Theme } from '../../_components/adminTheme';
 import type { CohortListItem } from './types';
 import { useUIFeedback } from './UIFeedback';
 
-/// Модалка "Додати студента" — менеджер вводить email/ім'я → отримує signed invite-link
-/// (термін дії 7 днів) для відправки студенту, який не встиг купити Річну програму до запуску.
+/// Модалка "Додати студента" — менеджер вводить email/ім'я → система генерує signed invite-link
+/// (7 днів) і одразу шле студенту лист із персональним посиланням на оплату.
+/// Шаблон листа `manual-add-invite` редагується в адмінці (Листи Платежів).
 /// Студент сам обирає план (Річна / Місячна Автосписання / Місячна Разова) на сторінці.
 /// Після оплати у таблиці з'явиться рядок з пілюлею "✋ Додано вручну" і кнопкою
-/// "🎯 Екстра Запуск нового студента".
+/// "🎯 Екстра Запуск нового студента". Як fallback — менеджер бачить посилання й може скопіювати
+/// руками (на випадок якщо лист не дійде).
 export default function AddStudentModal({
   cohort,
   theme,
@@ -27,7 +29,7 @@ export default function AddStudentModal({
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [generating, setGenerating] = useState(false);
-  const [result, setResult] = useState<{ url: string; expiresAt: string } | null>(null);
+  const [result, setResult] = useState<{ url: string; expiresAt: string; emailSent: boolean; emailError: string | null } | null>(null);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -61,7 +63,17 @@ export default function AddStudentModal({
         setError(data.error ?? res.statusText);
         return;
       }
-      setResult({ url: data.url, expiresAt: data.expiresAt });
+      setResult({
+        url: data.url,
+        expiresAt: data.expiresAt,
+        emailSent: !!data.emailSent,
+        emailError: data.emailError ?? null,
+      });
+      if (data.emailSent) {
+        toast('success', `Лист надіслано на ${email.trim().toLowerCase()}`);
+      } else if (data.emailError) {
+        toast('error', 'Не вдалося надіслати лист — скопіюйте посилання вручну');
+      }
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -109,9 +121,10 @@ export default function AddStudentModal({
               <div className={`text-[12px] leading-relaxed px-3 py-2 rounded-lg ${
                 dark ? 'bg-amber-500/8 border border-amber-400/20 text-amber-200/90' : 'bg-amber-50 border border-amber-200 text-amber-900'
               }`}>
-                Згенеруємо персональне посилання для студента, який не встиг купити Річну програму. Запуск: <b>{cohort.name}</b>.
-                Token дійсний 7 днів. На сторінці студент сам обере план — <b>Річна / Місячна Автосписання / Місячна Разова</b>.
-                Після оплати студент з&apos;явиться у таблиці з пілюлею <b>«Додано вручну»</b>.
+                Система згенерує персональне посилання й одразу надішле студенту лист на email з кнопкою <b>«Перейти до оплати»</b>. Запуск: <b>{cohort.name}</b>.
+                Посилання дійсне 7 днів. Студент сам обере план — <b>Річна / Місячна Автосписання / Місячна Разова</b>.
+                Після оплати він з&apos;явиться у таблиці з пілюлею <b>«Додано вручну»</b>, доступ до платформи відкриється автоматично.
+                <br/><span className="opacity-75">Текст листа можна редагувати в розділі «Листи Платежів» → «Запрошення вручну».</span>
               </div>
 
               <Field theme={theme} label="Email студента" required>
@@ -161,23 +174,37 @@ export default function AddStudentModal({
                     : 'bg-rose-50 text-rose-900 border-rose-300/60 hover:bg-rose-100'
                 }`}
               >
-                <HiOutlineLink />
-                {generating ? 'Генерую…' : 'Згенерувати посилання'}
+                <HiOutlineEnvelope />
+                {generating ? 'Надсилаю…' : 'Надіслати студенту лист'}
               </button>
             </div>
           </>
         ) : (
           <>
             <div className="px-5 py-4 space-y-4">
-              <div className={`text-[12px] leading-relaxed px-3 py-2.5 rounded-lg ${
-                dark ? 'bg-emerald-500/10 border border-emerald-400/25 text-emerald-200/90' : 'bg-emerald-50 border border-emerald-200 text-emerald-900'
-              }`}>
-                ✅ Посилання згенеровано. Скопіюй і відправ студенту через email/Telegram.
-              </div>
+              {result.emailSent ? (
+                <div className={`text-[12px] leading-relaxed px-3 py-2.5 rounded-lg flex items-start gap-2 ${
+                  dark ? 'bg-emerald-500/10 border border-emerald-400/25 text-emerald-200/90' : 'bg-emerald-50 border border-emerald-200 text-emerald-900'
+                }`}>
+                  <HiOutlineCheck className="text-base shrink-0 mt-0.5" />
+                  <span>
+                    Лист надіслано на <b>{email.trim().toLowerCase()}</b>. Студент отримає посилання на оплату Річної програми.
+                  </span>
+                </div>
+              ) : (
+                <div className={`text-[12px] leading-relaxed px-3 py-2.5 rounded-lg flex items-start gap-2 ${
+                  dark ? 'bg-rose-500/10 border border-rose-400/25 text-rose-200/90' : 'bg-rose-50 border border-rose-200 text-rose-900'
+                }`}>
+                  <HiOutlineExclamationTriangle className="text-base shrink-0 mt-0.5" />
+                  <span>
+                    Не вдалося надіслати лист{result.emailError ? ` (${result.emailError})` : ''}. Скопіюйте посилання нижче й відправте студенту вручну.
+                  </span>
+                </div>
+              )}
 
               <div>
                 <label className={`block text-[11px] uppercase tracking-wider font-medium mb-1.5 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
-                  Лінк на оплату
+                  {result.emailSent ? 'Резервне посилання (на випадок якщо лист не дійшов)' : 'Лінк на оплату'}
                 </label>
                 <div className={`flex gap-2 items-stretch`}>
                   <input
