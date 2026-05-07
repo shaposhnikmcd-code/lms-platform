@@ -20,6 +20,9 @@ export interface ConfirmOptions {
   confirmLabel?: string;
   cancelLabel?: string;
   destructive?: boolean;
+  /// Якщо true — показуємо лише confirm-кнопку (info-модалка для помилок/звітів,
+  /// де cancel не має сенсу). Resolve все одно повертає true після кліку.
+  hideCancel?: boolean;
 }
 
 export interface PromptOptions {
@@ -333,15 +336,17 @@ function ConfirmDialog({
           </ul>
         )}
         <div className={`flex items-center justify-end gap-2 px-5 py-3 ${dark ? 'border-t border-white/10' : 'border-t border-stone-200'}`}>
-          <button
-            type="button"
-            onClick={onCancel}
-            className={`px-3.5 py-2 rounded-lg text-[13px] font-medium ${
-              dark ? 'text-slate-300 hover:bg-white/[0.06]' : 'text-stone-700 hover:bg-stone-100'
-            }`}
-          >
-            {cancelLabel}
-          </button>
+          {!options.hideCancel && (
+            <button
+              type="button"
+              onClick={onCancel}
+              className={`px-3.5 py-2 rounded-lg text-[13px] font-medium ${
+                dark ? 'text-slate-300 hover:bg-white/[0.06]' : 'text-stone-700 hover:bg-stone-100'
+              }`}
+            >
+              {cancelLabel}
+            </button>
+          )}
           <button
             type="button"
             onClick={onConfirm}

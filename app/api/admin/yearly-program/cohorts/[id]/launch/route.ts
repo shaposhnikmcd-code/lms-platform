@@ -160,6 +160,9 @@ export async function POST(
           sent: emailSummary.sent,
           skipped: emailSummary.skipped,
           failed: emailSummary.failed,
+          /// Per-recipient результати — потрібні фронту для info-модалки з деталями помилок,
+          /// коли частина листів не пішла (SMTP rate-limit, hard bounce тощо).
+          results: emailSummary.results,
         }
       : null,
   });

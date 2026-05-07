@@ -390,8 +390,44 @@ export default function LaunchProgramModal({
         const es = data.emailSummary;
         const launchLine = `Доступ відкрито: ${ls.opened}/${ls.total}${ls.failed > 0 ? ` · Помилок: ${ls.failed}` : ''}`;
         const emailLine = es ? `Листи: ${es.sent}/${es.total}${es.failed > 0 ? ` · Помилок: ${es.failed}` : ''}` : null;
-        const variant = ls.failed > 0 || (es?.failed ?? 0) > 0 ? 'info' : 'success';
-        toast(variant, `✅ Програму "${cohort.name}" запущено\n${launchLine}${emailLine ? `\n${emailLine}` : ''}`);
+        const launchFailed = (ls.failed ?? 0) > 0;
+        const emailFailed = (es?.failed ?? 0) > 0;
+
+        if (launchFailed || emailFailed) {
+          // Toast зникає за 4-7с і деталі губляться — показуємо persistent info-модалку
+          // з email-ами та текстом помилок. Повний текст (>200 символів) лишається у
+          // "Подіях" кожної підписки.
+          const launchFails = launchFailed
+            ? (data.results as Array<{ email: string; error?: string; accessOpened: boolean }> | undefined)
+                ?.filter((r) => !r.accessOpened) ?? []
+            : [];
+          const emailFails = emailFailed
+            ? (es?.results as Array<{ email: string; error?: string; sent: boolean; skipped?: string }> | undefined)
+                ?.filter((r) => !r.sent && !r.skipped) ?? []
+            : [];
+          const bullets: { icon: string; text: string }[] = [];
+          if (launchFails.length > 0) {
+            bullets.push({ icon: '🔓', text: `SendPulse доступ — ${launchFails.length} помилок:` });
+            for (const r of launchFails) {
+              bullets.push({ icon: '✕', text: `${r.email || '(без email)'} — ${(r.error ?? 'unknown').slice(0, 200)}` });
+            }
+          }
+          if (emailFails.length > 0) {
+            bullets.push({ icon: '✉️', text: `Welcome-листи — ${emailFails.length} помилок:` });
+            for (const r of emailFails) {
+              bullets.push({ icon: '✕', text: `${r.email || '(без email)'} — ${(r.error ?? 'unknown').slice(0, 200)}` });
+            }
+          }
+          await confirm({
+            title: `⚠️ Запуск завершено з помилками`,
+            description: `${launchLine}${emailLine ? `\n${emailLine}` : ''}\n\nПовний текст помилок — у вкладці "Події" кожної підписки.`,
+            bullets,
+            confirmLabel: 'Зрозуміло',
+            hideCancel: true,
+          });
+        } else {
+          toast('success', `✅ Програму "${cohort.name}" запущено\n${launchLine}${emailLine ? `\n${emailLine}` : ''}`);
+        }
       }
       router.refresh();
       onClose();
