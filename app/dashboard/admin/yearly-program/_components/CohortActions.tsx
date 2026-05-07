@@ -23,10 +23,12 @@ const WorkflowDiagramModal = dynamic(() => import('./WorkflowDiagramModal'), { s
 export default function CohortActions({
   cohort,
   theme,
+  graceDays,
   telegramSettings,
 }: {
   cohort: CohortListItem;
   theme: Theme;
+  graceDays: number;
   telegramSettings: TelegramSettingsState;
 }) {
   const dark = theme === 'dark';
@@ -210,7 +212,7 @@ export default function CohortActions({
       </div>
 
       {diagramOpen && (
-        <WorkflowDiagramModal theme={theme} onClose={() => setDiagramOpen(false)} />
+        <WorkflowDiagramModal theme={theme} graceDays={graceDays} onClose={() => setDiagramOpen(false)} />
       )}
       {resendModalOpen && (
         <SendEmailsModal

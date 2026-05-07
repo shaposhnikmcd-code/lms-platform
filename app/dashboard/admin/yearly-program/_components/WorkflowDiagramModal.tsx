@@ -80,7 +80,7 @@ const boxH = (kind: ActorKind, isMgr = false): number => {
 //   manager(66):353 / 419       sp(60):       452 / 512
 //   tg(44):     540 / 584       email(76):    604 / 680
 
-export default function WorkflowDiagramModal({ theme, onClose }: { theme: Theme; onClose: () => void }) {
+export default function WorkflowDiagramModal({ theme, graceDays, onClose }: { theme: Theme; graceDays: number; onClose: () => void }) {
   const dark = theme === 'dark';
   const [mounted, setMounted] = useState(false);
 
@@ -418,7 +418,7 @@ export default function WorkflowDiagramModal({ theme, onClose }: { theme: Theme;
               { who: 'platform', what: 'після expiresAt → підписка стає пільговою' },
               { who: 'email', what: 'наступного дня — «не вдалось списати оплату»' },
               { who: 'email', what: 'через 3 дні в grace — «залишилось N днів до закриття»' },
-              { who: 'platform', what: 'якщо за 7 днів не вдалося — закриття + лист «Доступ закрито»' },
+              { who: 'platform', what: `якщо за ${graceDays} днів не вдалося — закриття + лист «Доступ закрито»` },
             ]} accent="rose" />
             <ScenarioCard dark={dark} c={c} emoji="🔄" title="Зміна плану (upgrade/downgrade)" trigger="Студент переходить між «авто» і «разовою» між платежами" steps={[
               { who: 'student', what: 'оплачує наступний місяць іншим планом' },
