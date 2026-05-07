@@ -20,6 +20,22 @@ const DEFAULT_MIN_CANVAS_H = 500;
 
 // (TYPE_HEIGHT тепер імпортується з @/lib/news/render — див. шапку файла.)
 
+// Мінімально-корисна висота блоку при auto-fit у fixedHeight-режимі.
+// Коли drop у тісний канвас (наприклад, превʼю-картка 360×400 з YouTube на 360px),
+// новий блок усе одно рендериться, але стискається до найближчого вільного слота.
+// Значення підібрані так, щоб блок зберіг візуальну читабельність (один рядок
+// тексту, тонка смужка divider тощо).
+const MIN_H_BY_TYPE: Record<BlockType, number> = {
+  heading: 24,
+  text: 30,
+  image: 40,
+  youtube: 80,
+  quote: 30,
+  divider: 8,
+  card: 80,
+  newsCard: 200,
+};
+
 interface Props {
   blocks: Block[];
   onBlocksChange: (blocks: Block[]) => void;
@@ -88,8 +104,11 @@ export default function EditorCanvas({
   const canvasRectRef = useRef<DOMRect | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [isOverCanvas, setIsOverCanvas] = useState(false);
-  const dropPreviewRef = useRef<{ x: number; y: number; width: number } | null>(null);
-  const [dropPreview, setDropPreview] = useState<{ x: number; y: number; width: number } | null>(null);
+  // dropPreview: позиція та слот, де новий блок з палітри сяде. У fixedHeight-режимі
+  // (preview-картка) додатково містить `height`, обчислену через findAvailableFitInColumn —
+  // щоб ghost рендерився точно тієї ж висоти, що й майбутній блок (не 80px-default).
+  const dropPreviewRef = useRef<{ x: number; y: number; width: number; height?: number } | null>(null);
+  const [dropPreview, setDropPreview] = useState<{ x: number; y: number; width: number; height?: number } | null>(null);
   // Alignment guides — Figma-style лінії що тягнуться від блока який тягнемо
   // до тих, з ким він вирівнюється (left-left, right-right, top-top, bottom-bottom,
   // center-center). Дають миттєвий візуальний зв'язок: "А вирівняна з Б".
@@ -430,6 +449,18 @@ export default function EditorCanvas({
     const aLeft = ax, aRight = ax + aw, aCenterX = ax + aw / 2;
     const aTop = ay, aBottom = ay + ah, aCenterY = ay + ah / 2;
     const matches: SizeMatch[] = [];
+
+    // Canvas-edge guides — Figma показує лінію коли блок впритул до краю фрейма.
+    // Без цього у card-builder-і (preview-картка з 1-2 блоками) користувач не бачить
+    // фідбеку на snap-to-canvas-edge, хоча snap у handleDragMove працює.
+    // Лінії тягнемо на ВСЮ ширину/висоту канвасу — дзеркало "frame edge" патерну Figma.
+    const cH = canvasHeight;
+    if (Math.abs(aLeft - 0) < TIGHT_X)        addGuide({ axis: "x", pos: 0,   start: 0, end: cH, kind: "edge" });
+    if (Math.abs(aRight - 100) < TIGHT_X)     addGuide({ axis: "x", pos: 100, start: 0, end: cH, kind: "edge" });
+    if (Math.abs(aCenterX - 50) < TIGHT_X)    addGuide({ axis: "x", pos: 50,  start: 0, end: cH, kind: "center" });
+    if (Math.abs(aTop - 0) < TIGHT_Y)         addGuide({ axis: "y", pos: 0,   start: 0, end: 100, kind: "edge" });
+    if (Math.abs(aBottom - cH) < TIGHT_Y)     addGuide({ axis: "y", pos: cH,  start: 0, end: 100, kind: "edge" });
+    if (Math.abs(aCenterY - cH / 2) < TIGHT_Y) addGuide({ axis: "y", pos: cH / 2, start: 0, end: 100, kind: "center" });
 
     for (const o of blocks) {
       if (o.id === selfId) continue;
@@ -802,7 +833,20 @@ export default function EditorCanvas({
       const paletteType = activePaletteRef.current?.type;
       const estH = paletteType ? (TYPE_HEIGHT[paletteType] ?? 80) : 80;
       const clampedY = clampYBottom(clamped.y, estH);
-      const final = { x: clamped.x, y: clampedY, width: slot.width };
+      // У fixedHeight-режимі ghost відображає РЕАЛЬНИЙ слот, у який блок сяде:
+      // findAvailableFitInColumn повертає {y, h} з auto-shrunk висотою. Без цього
+      // ghost показує 80px, а блок матеріалізується на 40px — користувач плутається.
+      let ghostY = clampedY;
+      let ghostH: number | undefined = undefined;
+      if (fixedHeight && paletteType) {
+        const minH = MIN_H_BY_TYPE[paletteType] ?? 24;
+        const fit = findAvailableFitInColumn(clamped.x, slot.width, clamped.y, estH, minH);
+        if (fit) {
+          ghostY = fit.y;
+          ghostH = fit.h;
+        }
+      }
+      const final = { x: clamped.x, y: ghostY, width: slot.width, height: ghostH };
       dropPreviewRef.current = final;
       setDropPreview(final);
     } else if (!isFromPalette) {
@@ -814,34 +858,44 @@ export default function EditorCanvas({
         const currentY = b.y ?? 0;
         const deltaXPct = ((event.delta?.x || 0) / rect.width) * 100;
         const deltaYPx = event.delta?.y || 0;
-        const rawX = snapPct(currentX + deltaXPct);
-        const rawY = snapPx(currentY + deltaYPx);
+        // Bypass-snap: Alt під час drag-у відключає всю snap-логіку (Figma-стиль).
+        // Користувач може поставити блок точно в позицію курсора без магніту до
+        // сусідів і канвасу — корисно коли треба precision placement.
+        const ev = event.activatorEvent as MouseEvent | undefined;
+        // sourceEvent — оригінальний pointer move з dnd-kit; містить актуальний altKey.
+        const sourceEvent = (event as unknown as { sourceEvent?: MouseEvent }).sourceEvent;
+        const altKey = sourceEvent?.altKey ?? ev?.altKey ?? false;
+        const rawX = altKey ? (currentX + deltaXPct) : snapPct(currentX + deltaXPct);
+        const rawY = altKey ? (currentY + deltaYPx) : snapPx(currentY + deltaYPx);
         let { x, y } = clampXY(rawX, rawY, wPct);
 
         // === Snap + Alignment guides (Figma-style) ===
-        // Снап до countra: краї блоків, центри, та краї канваса. Після снапу
-        // генеруємо guide-лінії що показують З ким саме A вирівнялась.
-        const SNAP_TOL_X = 1.8;     // pct — толеранс снапу по X
-        const SNAP_TOL_Y = 8;        // px — толеранс снапу по Y
+        // Толеранси зменшено: 0.6%/3px замість 1.8/8 — щоб blocks не "смикались"
+        // до сусідів коли користувач намагається поставити їх трохи інакше.
+        // Canvas-edge teж: 1.5%/6px — snap тільки коли реально близько до краю.
+        const SNAP_TOL_X = 0.6;      // pct — толеранс снапу по X
+        const SNAP_TOL_Y = 3;        // px — толеранс снапу по Y
         const Y_PROX_PX = 14;        // вертикальна "близькість" — лише блоки в межах рахуємо
         const X_PROX_PCT = 2;
-        const CANVAS_EDGE_PCT = 4;
-        const CANVAS_EDGE_PX = 14;
+        const CANVAS_EDGE_PCT = 1.5;
+        const CANVAS_EDGE_PX = 6;
         const bh = measureBlockHeight(b);
 
-        // 1) Canvas-edge snap — пріоритет над block-edge
+        // 1) Canvas-edge snap — пріоритет над block-edge. При altKey — пропускаємо.
         let lockedX = false;
         let lockedY = false;
-        if (x + wPct >= 100 - CANVAS_EDGE_PCT) {
-          x = Math.max(0, 100 - wPct);
-          lockedX = true;
-        } else if (x <= CANVAS_EDGE_PCT) {
-          x = 0;
-          lockedX = true;
-        }
-        if (y <= CANVAS_EDGE_PX) {
-          y = 0;
-          lockedY = true;
+        if (!altKey) {
+          if (x + wPct >= 100 - CANVAS_EDGE_PCT) {
+            x = Math.max(0, 100 - wPct);
+            lockedX = true;
+          } else if (x <= CANVAS_EDGE_PCT) {
+            x = 0;
+            lockedX = true;
+          }
+          if (y <= CANVAS_EDGE_PX) {
+            y = 0;
+            lockedY = true;
+          }
         }
 
         // 2) Збираємо ВСІ кандидати на snap (по 5 для кожної осі):
@@ -849,7 +903,8 @@ export default function EditorCanvas({
         type Cand = { newPos: number; dist: number };
         const xCands: Cand[] = [];
         const yCands: Cand[] = [];
-        for (const o of blocks) {
+        // Alt — повний bypass snap-у до сусідів (Figma-стиль).
+        for (const o of altKey ? [] : blocks) {
           if (o.id === b.id) continue;
           const ox = o.x ?? 0;
           const oy = o.y ?? 0;
@@ -974,6 +1029,59 @@ export default function EditorCanvas({
     return false;
   }
 
+  // Шукає найкращий вертикальний слот для нового блока у фіксованому канвасі
+  // (preview-картка 360×400). Сканує всі вільні Y-інтервали в X-діапазоні
+  // [x, x+width], відкидає ті, що менші за minH, повертає найближчий до prefY
+  // зі стиснутою до доступного простору висотою.
+  // Повертає null якщо в X-діапазоні взагалі немає gap-а >= minH (тоді drop
+  // має бути скасований з feedback-ом).
+  function findAvailableFitInColumn(
+    x: number,
+    width: number,
+    prefY: number,
+    defaultH: number,
+    minH: number,
+  ): { y: number; h: number } | null {
+    // Усі блоки, що мають горизонтальне перекриття з потрібним X-діапазоном.
+    const occupants = blocks
+      .filter(b => {
+        const bx = b.x ?? 0;
+        const bw = Number(b.width) || 100;
+        return bx < x + width - 0.5 && bx + bw > x + 0.5;
+      })
+      .map(b => ({ y: b.y ?? 0, h: measureBlockHeight(b) }))
+      .sort((a, b) => a.y - b.y);
+
+    // Збираємо вільні інтервали [start, end].
+    const gaps: Array<{ start: number; end: number }> = [];
+    let cursor = 0;
+    for (const occ of occupants) {
+      if (occ.y > cursor + 0.5) gaps.push({ start: cursor, end: occ.y });
+      cursor = Math.max(cursor, occ.y + occ.h);
+    }
+    if (cursor < canvasHeight - 0.5) gaps.push({ start: cursor, end: canvasHeight });
+
+    const usable = gaps.filter(g => g.end - g.start >= minH);
+    if (usable.length === 0) return null;
+
+    // Найближчий gap до prefY (по start). При рівній відстані — вищий пріоритет
+    // у того, що включає prefY.
+    usable.sort((a, b) => {
+      const da = prefY >= a.start && prefY <= a.end ? 0 : Math.min(Math.abs(prefY - a.start), Math.abs(prefY - a.end));
+      const db = prefY >= b.start && prefY <= b.end ? 0 : Math.min(Math.abs(prefY - b.start), Math.abs(prefY - b.end));
+      return da - db;
+    });
+    const best = usable[0];
+    const slotH = best.end - best.start;
+    const h = Math.min(defaultH, slotH);
+    // Сідаємо біля prefY у межах gap-а; якщо prefY поза gap-ом — на найближчий край.
+    let y = Math.max(best.start, Math.min(best.end - h, prefY));
+    y = snapPx(y);
+    // Після snap може вилізти за межі gap-а — клампимо.
+    y = Math.max(best.start, Math.min(best.end - h, y));
+    return { y, h };
+  }
+
   const handleDragEnd = useCallback((event: DragEndEvent) => {
     const idStr = String(event.active.id);
     const isPalette = idStr.startsWith("palette:");
@@ -1063,20 +1171,27 @@ export default function EditorCanvas({
       // У fixedHeight-режимі — додатковий clamp Y по нижньому краю канвасу.
       const clampedY = clampYBottom(clamped.y, estH);
 
-      // Displacement: якщо є overlap — пересуваємо/стискаємо існуючі блоки.
+      // У fixedHeight-режимі (preview-картка 360×400) канвас не росте, тож
+      // авто-фітимо новий блок у найближчий вільний gap у потрібному X-діапазоні —
+      // блок сам стискається під доступний простір (heading 80 → 40 коли YouTube
+      // на 360px знизу лишив тільки 40px). Тільки якщо взагалі немає gap-а
+      // >= MIN_H_BY_TYPE — drop скасовується. Уникає silent-failure-у displacement-у.
+      let finalY = clampedY;
+      let finalH = estH;
       let finalBlocks = blocks;
-      if (hasCollision(clamped.x, clampedY, width, estH, null)) {
+      if (fixedHeight) {
+        const minH = MIN_H_BY_TYPE[type] ?? 24;
+        const fit = findAvailableFitInColumn(clamped.x, width, clamped.y, estH, minH);
+        if (!fit) return; // канвас повний у цьому X-діапазоні
+        finalY = fit.y;
+        finalH = fit.h;
+      } else if (hasCollision(clamped.x, clampedY, width, estH, null)) {
+        // Free-canvas (page-builder): displaceBlocksAround стискає/опускає сусідів.
         finalBlocks = displaceBlocksAround(
           { x: clamped.x, y: clampedY, width, height: estH },
           blocks,
           null,
         );
-        // У card-builder-і (fixedHeight) канвас не росте, тож якщо після displacement
-        // новий блок усе одно перекриває існуючий — місця немає. Скасовуємо drop:
-        // менеджер повинен спершу звільнити простір (видалити/зменшити блок).
-        if (fixedHeight && hasCollisionIn(clamped.x, clampedY, width, estH, finalBlocks, null)) {
-          return;
-        }
       }
 
       // Дефолтні data: для newsCard — ID конкретної новини + displayMode з drag-source
@@ -1088,12 +1203,13 @@ export default function EditorCanvas({
       const newBlock: Block = {
         id: newId, type, data: defaultData,
         width: String(roundW(width)), align: "left", bgColor: "",
-        x: clamped.x, y: clampedY,
+        x: clamped.x, y: finalY,
         // ⚠️ Явна height ОБОВ'ЯЗКОВА: інакше wrapper стає auto, content всередині
         // (наприклад YouTube iframe) рендериться, але block-чи canvasHeight рахується
         // ДО того як content підвантажився → блок вилазить за canvas.
         // Для divider/text/heading/quote — TYPE_HEIGHT теж дає sane default.
-        height: estH,
+        // У fixedHeight finalH стиснута під доступний слот (auto-fit).
+        height: finalH,
       };
       onBlocksChange([...finalBlocks, newBlock]);
       setLastAddedId(newId);
@@ -1309,7 +1425,7 @@ export default function EditorCanvas({
                     x={dropPreview.x}
                     y={dropPreview.y}
                     widthPct={dropPreview.width}
-                    height={80}
+                    height={dropPreview.height ?? 80}
                     paletteColor={paletteBlock?.color}
                   />
                 )}
@@ -1317,7 +1433,7 @@ export default function EditorCanvas({
                 {/* Alignment guides — Figma-style лінії під час drag-у. Edge-snap
                     показується solid, center-alignment — dashed. */}
                 {alignGuides.map((g, i) => (
-                  <AlignmentGuideLine key={`g-${i}`} guide={g} />
+                  <AlignmentGuideLine key={`g-${i}`} guide={g} canvasHeight={canvasHeight} />
                 ))}
 
                 {/* Size match badges — мала позначка "= H" / "= W" біля блока з
@@ -1456,8 +1572,9 @@ function EmptyHint() {
 // від перетягуваного блока до того, з ким він вирівнявся. Solid для краю, dashed для центру.
 // pos: для axis="x" — xPct (0..100); для axis="y" — yPx.
 // start/end: діапазон на ортогональній осі (yPx або xPct відповідно).
-function AlignmentGuideLine({ guide }: {
+function AlignmentGuideLine({ guide, canvasHeight }: {
   guide: { axis: "x" | "y"; pos: number; start: number; end: number; kind: "edge" | "center" };
+  canvasHeight: number;
 }) {
   const COLOR = guide.kind === "center" ? "#A855F7" : "#EC4899"; // фіолетовий — центр, рожевий — край
   const dotShadow = `0 0 0 2px ${COLOR}33, 0 0 6px ${COLOR}66`;
@@ -1471,9 +1588,19 @@ function AlignmentGuideLine({ guide }: {
   };
 
   if (guide.axis === "x") {
+    // Стандартно лінія центрована на pos: `left: calc(pos% - 0.5px)` (половина по
+    // обидва боки). АЛЕ для canvas-edge guides (pos=0 чи 100) це означає, що
+    // половина лінії потрапляє ЗА межі канвасу і клипається overflow:hidden →
+    // лишається тільки 0.5px візуально (anti-alias-наполовину прозоре). Для краю
+    // прив'язуємо лінію В МЕЖАХ канвасу: pos=0 → left:0 (line span 0..1px),
+    // pos=100 → left:calc(100% - 1px) (line span W-1..W).
+    const isLeftEdge = guide.pos < 0.5;
+    const isRightEdge = guide.pos > 99.5;
+    const leftStyle = isLeftEdge ? "0" : isRightEdge ? "calc(100% - 1px)" : `calc(${guide.pos}% - 0.5px)`;
+    const dotLeft = isLeftEdge ? "-2px" : isRightEdge ? "calc(100% - 4px)" : `calc(${guide.pos}% - 3px)`;
     const lineStyle: React.CSSProperties = {
       position: "absolute",
-      left: `calc(${guide.pos}% - 0.5px)`,
+      left: leftStyle,
       top: `${guide.start}px`,
       width: "1px",
       height: `${Math.max(0, guide.end - guide.start)}px`,
@@ -1486,16 +1613,20 @@ function AlignmentGuideLine({ guide }: {
     return (
       <>
         <div style={lineStyle} />
-        <div style={{ ...dotStyle, left: `calc(${guide.pos}% - 3px)`, top: `${guide.start - 3}px` }} />
-        <div style={{ ...dotStyle, left: `calc(${guide.pos}% - 3px)`, top: `${guide.end - 3}px` }} />
+        <div style={{ ...dotStyle, left: dotLeft, top: `${guide.start - 3}px` }} />
+        <div style={{ ...dotStyle, left: dotLeft, top: `${guide.end - 3}px` }} />
       </>
     );
   }
-  // axis === "y"
+  // axis === "y" — те саме для top/bottom canvas-edges.
+  const isTopEdge = guide.pos < 0.5;
+  const isBottomEdge = guide.pos > canvasHeight - 0.5;
+  const topStyle = isTopEdge ? "0px" : isBottomEdge ? `${canvasHeight - 1}px` : `${guide.pos - 0.5}px`;
+  const dotTop = isTopEdge ? "-2px" : isBottomEdge ? `${canvasHeight - 4}px` : `${guide.pos - 3}px`;
   const lineStyle: React.CSSProperties = {
     position: "absolute",
     left: `${guide.start}%`,
-    top: `${guide.pos - 0.5}px`,
+    top: topStyle,
     width: `${Math.max(0, guide.end - guide.start)}%`,
     height: "1px",
     pointerEvents: "none",
@@ -1507,8 +1638,8 @@ function AlignmentGuideLine({ guide }: {
   return (
     <>
       <div style={lineStyle} />
-      <div style={{ ...dotStyle, left: `calc(${guide.start}% - 3px)`, top: `${guide.pos - 3}px` }} />
-      <div style={{ ...dotStyle, left: `calc(${guide.end}% - 3px)`, top: `${guide.pos - 3}px` }} />
+      <div style={{ ...dotStyle, left: `calc(${guide.start}% - 3px)`, top: dotTop }} />
+      <div style={{ ...dotStyle, left: `calc(${guide.end}% - 3px)`, top: dotTop }} />
     </>
   );
 }
@@ -1664,8 +1795,18 @@ function AbsoluteBlock(props: {
 
         // Якщо клік не по input/textarea/contentEditable/button — знімаємо focus з
         // активного інпута, щоб Delete видаляв блок, а не символи.
+        // ⚠️ data-news-block-type="heading|text|quote" wrapper-и теж вважаємо
+        // editable-зоною: HeadingEditor/TextEditor/QuoteEditor встановлюють
+        // editor.focus("end") на click у dead-zone, і AbsoluteBlock-у не можна
+        // тут блюрити — інакше фокус скидається ДО того, як ProseMirror отримає
+        // input-event, і символи "губляться" до наступного re-focus-у.
         const t = e.target as HTMLElement;
-        const insideEditable = !!t.closest("input, textarea, [contenteditable=\"true\"], select, button");
+        const insideEditable = !!t.closest(
+          "input, textarea, [contenteditable=\"true\"], select, button," +
+          " [data-news-block-type=\"heading\"]," +
+          " [data-news-block-type=\"text\"]," +
+          " [data-news-block-type=\"quote\"]"
+        );
         if (!insideEditable && document.activeElement instanceof HTMLElement) {
           document.activeElement.blur();
         }

@@ -15,6 +15,7 @@ import { createPortal } from "react-dom";
 import { Block } from "../types";
 import { ff, Section, SectionLabel } from "./_settingsPrimitives";
 import TextStudioModal from "./TextStudioModal";
+import SectionedTextToolbar from "./TextToolbar";
 
 // Інлайн-редактор Цитата: TipTap для базового набору без панелі форматування.
 // Повноцінне форматування — у TextStudioModal (реюз з блока Текст з власною
@@ -87,7 +88,12 @@ export default function QuoteEditor({ block, onChange, selected = false, contain
 
   const sidebarPanel = (
     <div style={{ background: "#FFFFFF", fontFamily: ff }}>
-      <Section>
+      {/* Інлайн toolbar (шрифт+розмір, стилі, списки, кольори, highlight) —
+          командить TipTap-редактор напряму. Той самий функціонал, що в
+          overlay-блоці «Текст на фото». */}
+      <SectionedTextToolbar editor={editor} />
+
+      <Section padTop={6}>
         <SectionLabel>Редактор цитати</SectionLabel>
         <button
           type="button"
@@ -107,7 +113,7 @@ export default function QuoteEditor({ block, onChange, selected = false, contain
           }}
         >✎ Відкрити на весь екран</button>
         <div style={{ fontSize: "10px", color: "#9CA3AF", lineHeight: 1.5, marginTop: "6px" }}>
-          Шрифти, кольори, посилання — у повноекранному редакторі.
+          Розширений режим — для довгих текстів, посилань і fine-tuning.
         </div>
       </Section>
     </div>
@@ -118,10 +124,17 @@ export default function QuoteEditor({ block, onChange, selected = false, contain
       {settingsSlot && createPortal(sidebarPanel, settingsSlot)}
       <div
         data-news-block-type="quote"
+        onClick={(e) => {
+          // Click-to-edit у "мертвій зоні": якщо клік не на ProseMirror —
+          // фокусуємо редактор. Дзеркало логіки HeadingEditor/TextEditor.
+          const t = e.target as HTMLElement;
+          if (t.closest(".ProseMirror, input, textarea, button, [contenteditable=\"true\"]")) return;
+          editor?.commands.focus("end");
+        }}
         style={{
           borderLeftWidth: "4px", borderLeftStyle: "solid", borderLeftColor: "#D4A843",
           borderRadius: "0 8px 8px 0", padding: "12px 16px", background: "#E8F5E0",
-          height: "100%", boxSizing: "border-box",
+          height: "100%", boxSizing: "border-box", cursor: "text",
         }}
       >
         <EditorContent editor={editor} />

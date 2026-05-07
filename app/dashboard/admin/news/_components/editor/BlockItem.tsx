@@ -15,6 +15,14 @@ import BlockItemSnapGuide from "./BlockItemSnapGuide";
 import { useBlockResize } from "./hooks/useBlockResize";
 import { canvasHeight as innerCanvasHeight, parseBlocks as parseInnerBlocks, PREVIEW_CARD_WIDTH, PREVIEW_CARD_HEIGHT } from "@/lib/news/render";
 
+// Мінімально-корисна висота блока в px по типу. Дзеркало MIN_H_BY_TYPE з
+// EditorCanvas (узгоджено з auto-fit для нових блоків з палітри). Без цього
+// resize-handle стрибав до жорсткого floor 60, перевищуючи реальний слот блока.
+const MIN_BLOCK_HEIGHT_BY_TYPE: Record<string, number> = {
+  heading: 24, text: 30, image: 40, youtube: 80,
+  quote: 30, divider: 8, card: 80, newsCard: 200,
+};
+
 interface Props {
   block: Block;
   index: number;
@@ -103,6 +111,7 @@ export default function BlockItem({
     getSameRowHeights,
     snapThreshold,
     maxBlockHeight,
+    minBlockHeight: MIN_BLOCK_HEIGHT_BY_TYPE[block.type],
   });
 
   // Auto-bump висоти для legacy YouTube блоків — драфти, збережені до того,
@@ -262,21 +271,24 @@ export default function BlockItem({
           Handle — звичайний <div> (НЕ button), без contenteditable, тож не
           триггерить NO_DRAG_SELECTOR в AbsoluteBlock — pointerdown bubble-ить
           на wrapper і запускає drag.
-          Позиція: ззовні зліва від блока (left: -28), щоб не перекривати контент.
+          Позиція: ВСЕРЕДИНІ блока, top-left корнер. Раніше handle був за межами
+          (`left:-28`), але в card-builder-і AbsoluteBlock має overflow:hidden
+          (для clamp-у image auto-aspect), тож зовнішній handle обрізався і
+          ставав невидимим. Зсередини — гарантовано не клипається.
           Видимість: hover/selected, плавне fade. */}
       <div
         title="Перетягнути блок"
         aria-label="Перетягнути блок"
         style={{
           position: "absolute",
-          left: -28,
-          top: 6,
+          left: 4,
+          top: 4,
           width: 22,
-          height: 26,
+          height: 22,
           borderRadius: 6,
           background: "rgba(28,58,46,0.92)",
           color: "#D4A843",
-          fontSize: 13,
+          fontSize: 12,
           fontWeight: 700,
           letterSpacing: "-0.5px",
           display: "inline-flex",
@@ -311,6 +323,17 @@ export default function BlockItem({
           onMoveUp={onMoveUp}
           onMoveDown={onMoveDown}
           onDuplicate={onDuplicate}
+          blockSubtitle={(() => {
+            // Для text-bearing блоків — snippet тексту (перші ~36 знаків).
+            // Дзеркало OverlayToolbar.subtitle (де показується ov.text).
+            if (block.type === "heading" || block.type === "text" || block.type === "quote") {
+              const html = block.data.html || "";
+              const plain = html.replace(/<[^>]+>/g, "").replace(/&nbsp;/g, " ").trim();
+              if (!plain) return ""; // explicit empty → "(порожньо)" у BlockItemHeader
+              return plain.length > 36 ? `${plain.slice(0, 36)}…` : plain;
+            }
+            return undefined; // інші блоки → fallback на displayPct%
+          })()}
         />,
         settingsSlot,
       )}

@@ -134,38 +134,44 @@ export function ToggleBtn({
 
 // ─── Палітри для тексту ────────────────────────────────────────────────────
 //
-// Word-style палітра кольорів тексту: grayscale + 8 hue-родин по 3 відтінки
-// (темний/середній/світлий). 30 кольорів = ідеальна сітка 6×5. Підходить для
-// тексту в новинах: контрастні, читабельні, без "брендових" акцентів UIMP.
+// Структурована Word-/Material-style палітра: РЯД = shade level, СТОВПЕЦЬ =
+// hue-родина. Read-однаково в обидва вимірі: вертикально шукаєш потрібний
+// колір, горизонтально — потрібну насиченість. 6 cols × 5 rows = 30 swatches.
+//
+// Cols: Червоний | Оранжевий | Жовтий | Зелений | Синій | Фіолетовий
+// Row 1 — Grayscale (6 шейдів від black до white)
+// Row 2 — Strong (Tailwind 800): для дуже контрастних акцентів
+// Row 3 — Vivid (Tailwind 500): для звичайних акцентів — найвживаніший рядок
+// Row 4 — Soft (Tailwind 300): для м'яких підсвічень
+// Row 5 — Pale (Tailwind 100): для майже-фонових тонів
+//
+// Кожен hex — точне значення з Tailwind v3 палітри, тестованої сотнями SaaS-ів.
 export const WORD_TEXT_COLORS = [
-  // Row 1: grayscale
-  "#000000", "#374151", "#6B7280", "#9CA3AF", "#D1D5DB", "#FFFFFF",
-  // Row 2: red / orange / yellow
-  "#7F1D1D", "#DC2626", "#F87171", "#9A3412", "#EA580C", "#FB923C",
-  // Row 3: yellow / olive / green
-  "#A16207", "#EAB308", "#FACC15", "#365314", "#65A30D", "#A3E635",
-  // Row 4: green / teal / blue
-  "#14532D", "#16A34A", "#4ADE80", "#155E75", "#0891B2", "#22D3EE",
-  // Row 5: blue / indigo / purple
-  "#1E3A8A", "#2563EB", "#60A5FA", "#581C87", "#9333EA", "#C084FC",
+  // Row 1 — Grayscale ramp
+  "#000000", "#1F2937", "#6B7280", "#D1D5DB", "#F3F4F6", "#FFFFFF",
+  // Row 2 — Strong / 800
+  "#991B1B", "#9A3412", "#854D0E", "#166534", "#1E40AF", "#6B21A8",
+  // Row 3 — Vivid / 500
+  "#EF4444", "#F97316", "#EAB308", "#22C55E", "#3B82F6", "#A855F7",
+  // Row 4 — Soft / 300
+  "#FCA5A5", "#FDBA74", "#FDE047", "#86EFAC", "#93C5FD", "#D8B4FE",
+  // Row 5 — Pale / 100
+  "#FEE2E2", "#FFEDD5", "#FEF9C3", "#DCFCE7", "#DBEAFE", "#F3E8FF",
 ];
 
-// Highlight-палітра (Word-style маркер). Світлі насичені кольори що добре
-// читаються поверх текстового foreground.
+// Highlight-палітра (Word-style маркер). Та сама column-structure що й
+// WORD_TEXT_COLORS row 4 (soft / 300) — найкраще читається поверх тексту як
+// м'який маркер. 6 cols × 1 row = 6 swatches.
+//
+// Зменшено до 6 (з 13 раніше) — менше шуму, кожен слот має зрозумілу семантику.
+// "Без виділення" автоматично доступний через includeNone=true у SwatchGrid.
 export const WORD_HIGHLIGHT_COLORS = [
-  "#FEF08A", // yellow
-  "#FDE68A", // dark yellow
-  "#A7F3D0", // light green
-  "#86EFAC", // green
-  "#67E8F9", // teal
-  "#5EEAD4", // turquoise
-  "#BFDBFE", // light blue
-  "#93C5FD", // blue
-  "#C4B5FD", // violet
-  "#FBCFE8", // pink
-  "#FECACA", // light red
-  "#FCA5A5", // red
-  "#E5E7EB", // gray
+  "#FCA5A5", // red-300 — для критичного
+  "#FDBA74", // orange-300 — для warning
+  "#FDE047", // yellow-300 — найкласичніший маркер
+  "#86EFAC", // green-300 — для positive
+  "#93C5FD", // blue-300 — для info
+  "#D8B4FE", // purple-300 — для альтернативних акцентів
 ];
 
 // Універсальна сітка swatch-ів. Word-style: компактні квадратні комірки в grid.

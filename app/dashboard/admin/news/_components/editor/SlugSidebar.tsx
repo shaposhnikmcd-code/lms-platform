@@ -2,17 +2,10 @@
 
 import React from "react";
 import { NewsMeta } from "./types";
-import { transliterateUA } from "@/lib/translate";
+import { slugifyNewsTitle } from "@/lib/news/slug";
 
-// Транслітеруємо UA → латиницю, прибираємо все крім [a-z0-9-] і нормалізуємо тире.
-function slugifyTitle(title: string): string {
-  return transliterateUA(title)
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, "")
-    .replace(/\s+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "");
-}
+// Локальний alias щоб не змінювати назви по тілу компонента.
+const slugifyTitle = slugifyNewsTitle;
 
 const ff = "-apple-system, BlinkMacSystemFont, sans-serif";
 
@@ -89,33 +82,22 @@ interface Props {
 /// hero з title+excerpt не показується, тому ці поля можна не заповнювати.
 /// Обкладинка hero-у автоматично береться з першого image-блока на канвасі.
 export default function SlugSidebar({ meta, onChange }: Props) {
-  // Slug автозаповнюється з title до того моменту, як користувач його руками
-  // НЕ змінив (щоб не перетирати кастомний URL після додаткового редагування
-  // заголовку). Лічильник: якщо поточний slug = slugifyTitle(попередній_title)
-  // АБО slug порожній — слідуємо за title. Інакше — користувач його кастомізував.
-  const slugManuallyEditedRef = React.useRef(false);
-  const lastTitleSyncedRef = React.useRef(meta.title || "");
-
-  // На init: якщо в БД slug відрізняється від slugify(title), вважаємо що
-  // користувач його колись редагував вручну → не overwrite-имо.
-  React.useEffect(() => {
-    if (meta.slug && meta.title && meta.slug !== slugifyTitle(meta.title)) {
-      slugManuallyEditedRef.current = true;
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // Slug live-синкається із title, ПОКИ користувач не ввів власне значення.
+  // Детекція "ручного редагування" derive-иться з даних (без stateful ref):
+  //   slug порожній → auto (live-sync включено)
+  //   slug === slugifyTitle(title) → auto (співпадає з тим, що згенерував би title)
+  //   інакше → manual (користувач кастомізував — не перетираємо при правці title)
+  // Перевага derived-логіки: користувач завжди може повернутись до auto-sync,
+  // очистивши slug-поле (без додаткового UI-перемикача).
+  const isAutoSync = !meta.slug || meta.slug === slugifyTitle(meta.title || "");
 
   const handleTitleChange = (newTitle: string) => {
     const next: NewsMeta = { ...meta, title: newTitle };
-    if (!slugManuallyEditedRef.current) {
-      next.slug = slugifyTitle(newTitle);
-    }
-    lastTitleSyncedRef.current = newTitle;
+    if (isAutoSync) next.slug = slugifyTitle(newTitle);
     onChange(next);
   };
 
   const handleSlugChange = (newSlug: string) => {
-    slugManuallyEditedRef.current = true;
     onChange({ ...meta, slug: newSlug });
   };
 

@@ -16,9 +16,9 @@ import {
   ff,
   Section,
   SectionLabel,
-  ToggleBtn,
 } from "./_settingsPrimitives";
 import TextStudioModal from "./TextStudioModal";
+import SectionedTextToolbar from "./TextToolbar";
 
 // Інлайн-редактор Заголовок: TipTap для базового набору без панелі форматування.
 // Повноцінне форматування (шрифт/розмір/кольори/B/I/U) — у TextStudioModal.
@@ -84,24 +84,15 @@ export default function HeadingEditor({ block, onChange, selected = false, onSet
 
   const sidebarPanel = (
     <div style={{ background: "#FFFFFF", fontFamily: ff }}>
-      <Section>
-        <SectionLabel>Рівень</SectionLabel>
-        <div style={{ display: "flex", gap: "5px" }}>
-          {(["1", "2", "3"] as const).map(l => (
-            <ToggleBtn
-              key={l}
-              flex
-              active={level === l}
-              onClick={() => onChange({ ...block.data, level: l })}
-              title={`Заголовок ${l}-го рівня`}
-            >
-              <span style={{ fontWeight: 700 }}>{`H${l}`}</span>
-            </ToggleBtn>
-          ))}
-        </div>
-      </Section>
+      {/* Інлайн toolbar з тим самим функціоналом, що в overlay-блоці «Текст на фото»
+          (шрифт+розмір, стилі, списки, кольори, highlight). Командить TipTap-редактор
+          напряму — заголовок одразу оновлюється на канвасі.
+          Секція H1/H2/H3 прибрана: рівень тегу не змінює візуального вигляду
+          в білдері (через однакові стилі), і користувачу не потрібен. Доступний
+          у TextStudioModal якщо знадобиться. */}
+      <SectionedTextToolbar editor={editor} />
 
-      <Section padTop={0}>
+      <Section padTop={6}>
         <SectionLabel>Редактор заголовка</SectionLabel>
         <button
           type="button"
@@ -121,34 +112,55 @@ export default function HeadingEditor({ block, onChange, selected = false, onSet
           }}
         >✎ Відкрити на весь екран</button>
         <div style={{ fontSize: "10px", color: "#9CA3AF", lineHeight: 1.5, marginTop: "6px" }}>
-          Шрифти, кольори, стилі — у повноекранному редакторі.
+          Розширений режим — для довгих текстів і fine-tuning.
         </div>
       </Section>
     </div>
   );
 
+  // Click-to-edit у "мертвій зоні" блока: коли користувач клікає в порожню
+  // частину поза .ProseMirror (актуально для коротких заголовків у малих блоках),
+  // фокусуємо редактор у кінець тексту. Без цього cursor:grab AbsoluteBlock-у
+  // створює враження що блок можна тільки тягати.
+  const focusEditor = (e: React.MouseEvent) => {
+    const t = e.target as HTMLElement;
+    if (t.closest(".ProseMirror, input, textarea, button, [contenteditable=\"true\"]")) return;
+    editor.commands.focus("end");
+  };
+
+  // vAlign → justify-content: top/center/bottom. Реплейс попередньої окремої
+  // flex-обгортки для center/bottom — тепер ОДИН wrapper для всіх трьох,
+  // що дає однорідну зону кліку (`height: 100%`).
+  const justify =
+    block.vAlign === "center" ? "center" :
+    block.vAlign === "bottom" ? "flex-end" : "flex-start";
+
+  // WYSIWYG-колір: дзеркало логіки render.tsx (heading-case). data.color override
+  // перебиває auto-контраст; auto = світлий на тёмному bg, темний на світлому.
+  const customColor = block.data.color || "";
+  const autoColor =
+    block.bgColor === "#1C3A2E" || block.bgColor === "#1a1a1a" ? "#FAF6F0" : "#1C3A2E";
+  const effectiveColor = customColor || autoColor;
+
   return (
     <>
       {settingsSlot && createPortal(sidebarPanel, settingsSlot)}
-      {/* Flex-обгортка ТІЛЬКИ якщо vAlign явно не-дефолтний (center/bottom) — щоб
-          не ламати рендер у блоках без явної висоти. Дзеркало логіки з render.tsx. */}
-      {(() => {
-        const inner = (
-          <div data-news-block-type="heading" data-level={level} style={{ width: "100%" }}>
-            <EditorContent editor={editor} />
-          </div>
-        );
-        const vAlign = block.vAlign;
-        if (vAlign === "center" || vAlign === "bottom") {
-          const flexAlign = vAlign === "center" ? "center" : "flex-end";
-          return (
-            <div style={{ display: "flex", width: "100%", height: "100%", alignItems: flexAlign }}>
-              {inner}
-            </div>
-          );
-        }
-        return inner;
-      })()}
+      <div
+        data-news-block-type="heading"
+        data-level={level}
+        onClick={focusEditor}
+        style={{
+          width: "100%",
+          height: "100%",
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: justify,
+          cursor: "text",
+          color: effectiveColor,
+        }}
+      >
+        <EditorContent editor={editor} />
+      </div>
       {studioOpen && (
         <TextStudioModal
           title="Редактор заголовка"
@@ -176,7 +188,10 @@ export default function HeadingEditor({ block, onChange, selected = false, onSet
         />
       )}
       <style>{`
-        [data-news-block-type="heading"] .ProseMirror{outline:none;color:#1C3A2E;font-weight:700}
+        /* color: inherit — щоб inline-style на wrapper-і (з data.color або
+           auto-контрасту) розповсюджувався на ProseMirror. Раніше hardcoded
+           #1C3A2E ламав WYSIWYG: на public був custom color, а в білдері — стандартний. */
+        [data-news-block-type="heading"] .ProseMirror{outline:none;color:inherit;font-weight:700}
         [data-news-block-type="heading"] .ProseMirror p{margin:0}
         [data-news-block-type="heading"] .ProseMirror p.is-editor-empty:first-child::before{
           color:#9CA3AF;content:attr(data-placeholder);float:left;height:0;pointer-events:none;font-weight:400

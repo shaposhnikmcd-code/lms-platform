@@ -3,6 +3,7 @@
 import React, { useRef, useState } from "react";
 import { NewsMeta, UIMP_COLORS } from "./types";
 import ImageStudioModal from "./blocks/ImageStudioModal";
+import { slugifyNewsTitle } from "@/lib/news/slug";
 
 const ff = "-apple-system, BlinkMacSystemFont, sans-serif";
 
@@ -72,15 +73,17 @@ export default function MetaSidebar({ meta, onChange, onUpload }: Props) {
   const [studioOpen, setStudioOpen] = useState(false);
   const [studioInitialCropMode, setStudioInitialCropMode] = useState(false);
 
-  const generateSlug = (text: string) =>
-    text.toLowerCase().trim()
-      .replace(/[а-яёїієґ]/g, (c) => ({ а:"a",б:"b",в:"v",г:"h",ґ:"g",д:"d",е:"e",є:"ie",ж:"zh",з:"z",и:"y",і:"i",ї:"i",й:"j",к:"k",л:"l",м:"m",н:"n",о:"o",п:"p",р:"r",с:"s",т:"t",у:"u",ф:"f",х:"kh",ц:"ts",ч:"ch",ш:"sh",щ:"shch",ь:"",ю:"iu",я:"ia",ё:"yo" }[c] || c))
-      .replace(/[^a-z0-9\s-]/g, "")
-      .replace(/\s+/g, "-")
-      .replace(/-+/g, "-");
-
+  // Slug live-синкається з title поки meta.slug = "" або співпадає з тим, що
+  // згенерував би slugifyNewsTitle(попередній title). Це дзеркало логіки
+  // SlugSidebar — користувач у будь-який момент може очистити slug, щоб
+  // повернути auto-sync. Транслітератор у lib/news/slug — спільний з SlugSidebar.
   const handleTitleChange = (val: string) => {
-    onChange({ ...meta, title: val, slug: meta.slug || generateSlug(val) });
+    const isAutoSync = !meta.slug || meta.slug === slugifyNewsTitle(meta.title || "");
+    onChange({
+      ...meta,
+      title: val,
+      slug: isAutoSync ? slugifyNewsTitle(val) : meta.slug,
+    });
   };
 
   const handleCoverUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {

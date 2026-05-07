@@ -248,8 +248,8 @@ export default function BlockPalette({ onAddImageOverlay, selectedBlockY, extraB
 
   return (
     <div className="news-palette-scroll" style={{
-      width: "200px",
-      minWidth: "200px",
+      width: "280px",
+      minWidth: "280px",
       background: "linear-gradient(180deg, #162C25 0%, #0F2019 100%)",
       borderRadius: "16px",
       padding: "20px 14px",

@@ -19,6 +19,7 @@ import {
   SectionLabel,
 } from "./_settingsPrimitives";
 import TextStudioModal from "./TextStudioModal";
+import SectionedTextToolbar from "./TextToolbar";
 
 // Інлайн-редактор Текст: тільки набір тексту в канвасі без панелі форматування.
 // Повноцінний редактор (B/I/U, шрифти, кольори, посилання) — у TextStudioModal,
@@ -77,7 +78,12 @@ export default function TextEditor({ block, onChange, selected = false, containe
 
   const sidebarPanel = (
     <div style={{ background: "#FFFFFF", fontFamily: ff }}>
-      <Section>
+      {/* Інлайн toolbar (шрифт+розмір, стилі, списки, кольори, highlight) —
+          командить TipTap-редактор напряму. Той самий функціонал, що в
+          overlay-блоці «Текст на фото». */}
+      <SectionedTextToolbar editor={editor} />
+
+      <Section padTop={6}>
         <SectionLabel>Редактор тексту</SectionLabel>
         <button
           type="button"
@@ -97,18 +103,31 @@ export default function TextEditor({ block, onChange, selected = false, containe
           }}
         >✎ Відкрити на весь екран</button>
         <div style={{ fontSize: "10px", color: "#9CA3AF", lineHeight: 1.5, marginTop: "6px" }}>
-          Шрифти, кольори, списки, посилання — у повноекранному редакторі.
+          Розширений режим — для довгих текстів, посилань і fine-tuning.
         </div>
       </Section>
     </div>
   );
 
+  // Click-to-edit у "мертвій зоні" блока: див. HeadingEditor для пояснення.
+  const focusEditor = (e: React.MouseEvent) => {
+    const t = e.target as HTMLElement;
+    if (t.closest(".ProseMirror, input, textarea, button, [contenteditable=\"true\"]")) return;
+    editor.commands.focus("end");
+  };
+
   return (
     <>
       {settingsSlot && createPortal(sidebarPanel, settingsSlot)}
       {/* data-news-block-type — щоб NEWS_BLOCK_CSS (lib/news/render.tsx) застосувавася
-          до ProseMirror всередині. Тоді builder і public показують текст ідентично. */}
-      <div data-news-block-type="text">
+          до ProseMirror всередині. Тоді builder і public показують текст ідентично.
+          height:100% + cursor:text — щоб клік у будь-яку зону блока вів у редактор
+          (а не тригерив cursor:grab AbsoluteBlock-у). */}
+      <div
+        data-news-block-type="text"
+        onClick={focusEditor}
+        style={{ width: "100%", height: "100%", cursor: "text" }}
+      >
         <EditorContent editor={editor} />
       </div>
       {studioOpen && (

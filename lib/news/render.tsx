@@ -249,6 +249,7 @@ interface OverlayShape {
   italic?: boolean;
   underline?: boolean;
   align?: "left" | "center" | "right";
+  vAlign?: "top" | "center" | "bottom";
   letterSpacing?: number;
   lineHeight?: number;
   href?: string;
@@ -411,7 +412,13 @@ export function BlockInner({
                 ? "0 4px 16px rgba(0,0,0,0.35)"
                 : "none",
               display: hasSize ? "flex" : "inline-block",
-              alignItems: hasSize ? "center" : undefined,
+              alignItems: hasSize
+                ? ov.vAlign === "top"
+                  ? "flex-start"
+                  : ov.vAlign === "bottom"
+                    ? "flex-end"
+                    : "center"
+                : undefined,
               justifyContent: hasSize
                 ? ov.align === "left"
                   ? "flex-start"

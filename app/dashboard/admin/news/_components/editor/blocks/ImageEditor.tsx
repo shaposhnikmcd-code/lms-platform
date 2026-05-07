@@ -56,6 +56,9 @@ export interface ImageOverlay {
   italic?: boolean;
   underline?: boolean;
   align?: "left" | "center" | "right";
+  /** Вертикальне вирівнювання тексту в межах overlay-боксу. Спрацьовує лише
+   *  коли overlay має фіксовану висоту (hasSize=true). Default "center". */
+  vAlign?: "top" | "center" | "bottom";
   letterSpacing?: number; // px
   lineHeight?: number;    // unitless, default 1.2
   href?: string;          // якщо заданий — overlay стає клікабельним посиланням
@@ -501,7 +504,7 @@ export default function ImageEditor({ block, onChange, onUpload, previewHeight, 
                               textShadow: ov.bgColor ? "none" : "0 2px 8px rgba(0,0,0,0.5)",
                               whiteSpace: "pre-wrap",
                               display: hasSize ? "flex" : "inline-block",
-                              alignItems: hasSize ? "center" : undefined,
+                              alignItems: hasSize ? (ov.vAlign === "top" ? "flex-start" : ov.vAlign === "bottom" ? "flex-end" : "center") : undefined,
                               justifyContent: hasSize ? (ov.align === "left" ? "flex-start" : ov.align === "right" ? "flex-end" : "center") : undefined,
                               width: hasSize ? "100%" : undefined,
                               height: hasSize ? "100%" : undefined,
@@ -928,13 +931,27 @@ function OverlayToolbar({
       </Section>
 
       <Section padTop={0}>
-        <SectionLabel>Вирівнювання тексту</SectionLabel>
+        <SectionLabel>Вирівнювання по горизонталі</SectionLabel>
         <div style={{ display: "flex", gap: "5px" }}>
           {(["left", "center", "right"] as const).map(a => {
             const active = (ov.align || "center") === a;
             return (
               <ToggleBtn key={a} flex active={active} onClick={() => updateOverlay(ov.id, { align: a })} title={a === "left" ? "Ліворуч" : a === "right" ? "Праворуч" : "По центру"}>
                 {a === "left" ? "⯇" : a === "right" ? "⯈" : "≡"}
+              </ToggleBtn>
+            );
+          })}
+        </div>
+      </Section>
+
+      <Section padTop={0}>
+        <SectionLabel>Вирівнювання по вертикалі</SectionLabel>
+        <div style={{ display: "flex", gap: "5px" }}>
+          {(["top", "center", "bottom"] as const).map(v => {
+            const active = (ov.vAlign || "center") === v;
+            return (
+              <ToggleBtn key={v} flex active={active} onClick={() => updateOverlay(ov.id, { vAlign: v })} title={v === "top" ? "По верхньому краю" : v === "bottom" ? "По нижньому краю" : "По центру"}>
+                {v === "top" ? "⏶" : v === "bottom" ? "⏷" : "≡"}
               </ToggleBtn>
             );
           })}

@@ -35,6 +35,11 @@ interface Options {
    *  360×400). Якщо задано, height resize клампиться до цього значення, щоб блок
    *  не вилазив за нижній край канвасу. */
   maxBlockHeight?: number;
+  /** Мінімально-корисна висота блока в px — залежить від типу (heading=24,
+   *  text=30, divider=8 тощо). Дефолт 60. Без цієї опції resize-handle стрибав би
+   *  до 60 при спробі зменшити блок, що менший за цей floor (auto-fit-блоки в
+   *  тісному канвасі), або при maxBlockHeight < 60. */
+  minBlockHeight?: number;
 }
 
 export function useBlockResize({
@@ -42,8 +47,11 @@ export function useBlockResize({
   onSetWidth, onSetWidthAndData, onPreviewWidth, onClearPreview,
   onPreviewHeight, onClearPreviewHeight, onChange,
   onReportHeight, getSameRowHeights, snapThreshold,
-  maxBlockHeight,
+  maxBlockHeight, minBlockHeight,
 }: Options) {
+  // Універсальний floor висоти для всіх resize-операцій. Якщо blockType-floor
+  // не передано — лишаємо історичні 60px (backward compat для page-builder-а).
+  const minH = minBlockHeight && minBlockHeight > 0 ? minBlockHeight : 60;
   const blockRef = useRef<HTMLDivElement | null>(null);
   const [resizingW, setResizingW] = useState(false);
   const [resizingH, setResizingH] = useState(false);
@@ -184,10 +192,13 @@ export function useBlockResize({
     }
 
     const onMove = (ev: MouseEvent) => {
-      let rawH = Math.max(60, startH + ev.clientY - startY);
-      // У fixedHeight-режимі (preview-картка) обмежуємо висоту так, щоб блок
-      // не міг бути розтягнутий за нижній край canvas-у. maxBlockHeight = canvasHeight - block.y.
-      if (typeof maxBlockHeight === "number" && maxBlockHeight > 60) {
+      // Floor → minH (per-type). Ceiling → maxBlockHeight (canvasHeight - block.y).
+      // Раніше floor був жорстко 60, і clamp до maxBlockHeight застосовувався лише
+      // якщо maxBlockHeight > 60 — у fixedHeight-канвасі, де auto-fit міг покласти
+      // блок з h<60, mousedown стрибав до 60 і блок вилазив за canvas-bottom →
+      // handle "тікав" з-під курсора. Зараз floor дізкий, ceiling завжди клампимо.
+      let rawH = Math.max(minH, startH + ev.clientY - startY);
+      if (typeof maxBlockHeight === "number" && maxBlockHeight >= minH) {
         rawH = Math.min(rawH, maxBlockHeight);
       }
       const freeMode = ev.shiftKey;
@@ -339,12 +350,15 @@ export function useBlockResize({
         // Shift: вільний resize — висота лише від dy (можна обрізати пропорції).
         newH = Math.max(60, startPxH + dy);
       } else {
-        // Non-image: висота за aspect блока.
-        newH = Math.max(60, Math.round(snappedPxW / blockAspect));
+        // Non-image: висота за aspect блока. Floor — per-type minH (heading=24,
+        // text=30 тощо), не жорсткі 60.
+        newH = Math.max(minH, Math.round(snappedPxW / blockAspect));
         setMinHeight(newH);
       }
       // У fixedHeight (preview-картка) клампимо до canvasHeight - block.y.
-      if (typeof maxBlockHeight === "number" && maxBlockHeight > 60) {
+      // Завжди клампимо (раніше було лише maxBlockHeight > 60 → blocks
+      // в тісних слотах вилазили за canvas).
+      if (typeof maxBlockHeight === "number" && maxBlockHeight >= minH) {
         newH = Math.min(newH, maxBlockHeight);
       }
       currentH = newH;

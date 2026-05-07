@@ -40,6 +40,10 @@ interface Props {
   onMoveUp: (id: string) => void;
   onMoveDown: (id: string) => void;
   onDuplicate: (id: string) => void;
+  /** Опціональний content-snippet для другого рядка info-strip-а. Передається з
+   *  BlockItem-а (наприклад, для heading/text/quote — перші 30 символів тексту;
+   *  для image — alt; для youtube — URL). Якщо не задано — fallback на ширину%. */
+  blockSubtitle?: string;
 }
 
 const LABELS: Record<string, string> = { text: "Текст", heading: "Заголовок", image: "Фото", youtube: "YouTube", quote: "Цитата", divider: "Роздільник", card: "Картка" };
@@ -177,50 +181,68 @@ function ActionBtn({ title, onClick, children }: { title: string; onClick: () =>
 export default function BlockItemHeader({
   blockId, blockType, blockAlign, blockVAlign, blockBgColor, displayPct,
   onSetAlign, onSetVAlign, onSetBg, onDuplicate,
+  blockSubtitle,
 }: Props) {
-  // Прозорий "Без фону" варіант + UIMP кольори. Для divider align не має сенсу — приховаємо.
-  const showAlign = blockType !== "divider";
+  // "Розміщення блока" (block-level alignment у потоці канвасу) — НЕ показуємо для:
+  //   - divider (лінія завжди 100% width)
+  //   - image / youtube (мають окрему логіку розміщення через resize/aspect)
+  // Для решти — тільки text-bearing блоки, де block-level alignment визначає
+  // куди блок сідає в горизонтальному ряду.
+  const showAlign = blockType !== "divider" && blockType !== "image" && blockType !== "youtube";
   // Вертикальне вирівнювання має сенс тільки коли блок має фіксовану висоту і простір
   // зверху/знизу від тексту — поки що тільки для heading.
   const showVAlign = blockType === "heading";
   const showBg = blockType !== "divider";
 
+  // Subtitle для другого рядка info-strip-а: контент-snippet (з blockSubtitle)
+  // або ширина% як fallback. Для порожнього text-block-а — "(порожньо)".
+  const subtitle = blockSubtitle !== undefined && blockSubtitle !== ""
+    ? blockSubtitle
+    : blockSubtitle === ""
+      ? "(порожньо)"
+      : `${displayPct}%`;
+
   return (
     <div style={{ background: "#FFFFFF", fontFamily: ff }}>
-      {/* Block info strip — компактний рядок з типом блока, шириною та діями */}
+      {/* Block info-strip — overlay-style design (дзеркало OverlayToolbar з ImageEditor):
+          amber icon-square 22×22 + 2-line layout (тип блока + content-preview). */}
       <div style={{
         display: "flex",
         alignItems: "center",
-        gap: "7px",
-        padding: "5px 10px",
+        gap: "8px",
+        padding: "7px 12px",
         background: "#FAF6F0",
       }}>
         <div style={{
-          width: "20px",
-          height: "20px",
-          borderRadius: "5px",
-          background: "#1C3A2E",
-          color: "#D4A843",
+          width: "22px",
+          height: "22px",
+          borderRadius: "6px",
+          background: "#D4A843",
+          color: "#1C3A2E",
           display: "inline-flex",
           alignItems: "center",
           justifyContent: "center",
-          fontSize: blockType === "image" ? "10px" : "11px",
-          fontWeight: 700,
+          fontSize: blockType === "image" ? "12px" : "11px",
+          fontWeight: 800,
           flexShrink: 0,
         }}>{ICONS[blockType]}</div>
 
-        <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "baseline", gap: "6px" }}>
-          <span style={{
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{
             fontSize: "11px",
             fontWeight: 700,
             color: "#1C3A2E",
             lineHeight: 1.1,
-          }}>{LABELS[blockType]}</span>
-          <span style={{
+          }}>{LABELS[blockType]}</div>
+          <div style={{
             fontSize: "10px",
             color: "#9CA3AF",
+            marginTop: "2px",
             lineHeight: 1,
-          }}>{`${displayPct}%`}</span>
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}>{subtitle}</div>
         </div>
 
         {blockType === "image" && (
@@ -234,7 +256,7 @@ export default function BlockItemHeader({
 
       {showAlign && (
         <Section>
-          <SectionLabel>Вирівнювання</SectionLabel>
+          <SectionLabel>Розміщення блока</SectionLabel>
           <div style={{ display: "flex", gap: "5px" }}>
             {(["left", "center", "right"] as BlockAlign[]).map(a => (
               <AlignBtn key={a} a={a} active={blockAlign === a} onClick={() => onSetAlign(blockId, a)} />
@@ -244,8 +266,8 @@ export default function BlockItemHeader({
       )}
 
       {showVAlign && (
-        <Section padTop={0}>
-          <SectionLabel>Вертикаль</SectionLabel>
+        <Section padTop={showAlign ? 0 : 6}>
+          <SectionLabel>Вертикаль тексту</SectionLabel>
           <div style={{ display: "flex", gap: "5px" }}>
             {(["top", "center", "bottom"] as BlockVAlign[]).map(v => (
               <VAlignBtn key={v} v={v} active={blockVAlign === v} onClick={() => onSetVAlign(blockId, v)} />
