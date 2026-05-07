@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
-import { HiOutlineRocketLaunch, HiOutlineEnvelopeOpen, HiOutlineArrowPath, HiOutlineUserPlus, HiOutlineSquares2X2 } from 'react-icons/hi2';
+import { HiOutlineRocketLaunch, HiOutlineEnvelopeOpen, HiOutlineArrowPath, HiOutlineUserPlus, HiOutlineSquares2X2, HiOutlineArrowUturnLeft } from 'react-icons/hi2';
 import type { Theme } from '../../_components/adminTheme';
 import type { CohortListItem } from './types';
 import TelegramChannelButton, { type TelegramSettingsState } from './TelegramChannelButton';
@@ -25,11 +25,14 @@ export default function CohortActions({
   theme,
   graceDays,
   telegramSettings,
+  isSuperAdmin,
 }: {
   cohort: CohortListItem;
   theme: Theme;
   graceDays: number;
   telegramSettings: TelegramSettingsState;
+  /// Super-admin розблоковує кнопку «Відмінити Запуск програми» (rare-операція).
+  isSuperAdmin: boolean;
 }) {
   const dark = theme === 'dark';
   const router = useRouter();
@@ -42,6 +45,41 @@ export default function CohortActions({
   // Кількість підписок, яким при запуску не вдалося відкрити доступ. Лишаємо від запуску, поки
   // менеджер не повторить — кнопка "Повторити запуск" з'являється поряд.
   const [failedCount, setFailedCount] = useState<number>(0);
+
+  async function unlaunch() {
+    const ok = await confirm({
+      title: 'Відмінити запуск програми?',
+      description: cohort.launchedAt
+        ? 'Знімаємо прапорець "запущено" з cohort-у. SendPulse-доступ у тих, кому вже відкрито, лишається відкритим. Welcome-листи, які вже надіслані — теж лишаються. Це чисто rollback кнопки запуску для повторного тестування.'
+        : 'Скасовуємо заплановану дату запуску. Cohort повертається у стан "не запущено".',
+      bullets: [
+        { icon: '↩️', text: 'launchedAt → null, launchScheduledFor → null, emailScheduledFor → null' },
+        { icon: '🔓', text: 'SendPulse-доступ у студентів НЕ закривається' },
+        { icon: '📅', text: 'expiresAt підписок НЕ змінюється' },
+        { icon: '✉️', text: 'Раніше надіслані welcome-листи не скасовуються' },
+      ],
+      confirmLabel: 'Відмінити запуск',
+      destructive: true,
+    });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/admin/yearly-program/cohorts/${cohort.id}/unlaunch`, {
+        method: 'POST',
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast('error', data.error ?? res.statusText);
+        return;
+      }
+      toast('success', '↩️ Запуск відмінено');
+      router.refresh();
+    } catch (e) {
+      toast('error', (e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function retry() {
     const ok = await confirm({
@@ -109,6 +147,29 @@ export default function CohortActions({
                   : '🔓 Відкриває доступ у SendPulse усім, хто оплатив\n📅 Перераховує "Доступ до" по новій логіці (від дати запуску)\n🚀 Фіксує дату фактичного запуску\n✉️ За замовчуванням одразу надсилає welcome-лист (можна вимкнути в модалці)\n\nДва режими: запустити одразу або запланувати на дату.'
             }
           />
+          {isSuperAdmin && (cohort.launchedAt || cohort.launchScheduledFor) && (
+            <>
+              <button
+                type="button"
+                onClick={unlaunch}
+                disabled={busy}
+                title="Super Admin: відмінити запуск (повертає cohort у стан 'не запущено')"
+                className={`inline-flex items-center gap-2 px-3 py-2.5 rounded-lg text-[12px] font-semibold border transition-colors disabled:opacity-50 ${
+                  dark
+                    ? 'bg-rose-500/10 border-rose-400/30 text-rose-200 hover:bg-rose-500/20 hover:border-rose-400/50'
+                    : 'bg-rose-50 border-rose-300/60 text-rose-900 hover:bg-rose-100 hover:border-rose-400/70'
+                }`}
+              >
+                <HiOutlineArrowUturnLeft className="text-base" />
+                Відмінити запуск
+              </button>
+              <HoverInfo
+                theme={theme}
+                title="🛡 Super Admin · Відмінити запуск"
+                body={'Скидає прапорці запуску у БД (launchedAt, launchScheduledFor, emailScheduledFor → null).\n\nНЕ закриває SendPulse-доступ і не змінює expiresAt підписок — це чисто rollback стану кнопки для повторного тестування. Welcome-листи, які вже надіслані, теж лишаються (emailSentAt не чіпаємо).\n\nДоступно лише обліковим записам зі списку SUPER_ADMIN_EMAILS.'}
+              />
+            </>
+          )}
         </div>
 
         {cohort.launchedAt && (

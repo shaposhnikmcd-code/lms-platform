@@ -130,6 +130,9 @@ export default function YearlyProgramView(props: {
   /// SSR-prewarm-payload: templates lists і recipients для launched cohort-ів. Дозволяє
   /// відкривати модалки одразу без додаткового HTTP roundtrip і skeleton-у.
   prewarm: YearlyProgramAdminPrewarm;
+  /// Чи поточний користувач — super-admin (env-allowlist). Розблоковує rare-операції
+  /// типу «Відмінити Запуск програми» у CohortActions.
+  isSuperAdmin: boolean;
 }) {
   const { theme, setTheme } = useAdminTheme();
 
@@ -172,6 +175,7 @@ function YearlyProgramViewInner({
   telegramSettings,
   theme,
   setTheme,
+  isSuperAdmin,
 }: {
   rows: Row[];
   summary: SummaryData;
@@ -182,6 +186,7 @@ function YearlyProgramViewInner({
   telegramSettings: TelegramSettingsState;
   theme: Theme;
   setTheme: (t: Theme) => void;
+  isSuperAdmin: boolean;
   // prewarm проходить через spread у props, але тут не використовується — кеш заповнюється
   // у YearlyProgramView (parent) до mount-у inner-а.
   prewarm?: YearlyProgramAdminPrewarm;
@@ -318,6 +323,7 @@ function YearlyProgramViewInner({
               theme={theme}
               graceDays={graceDays}
               telegramSettings={telegramSettings}
+              isSuperAdmin={isSuperAdmin}
             />
           </>
         )}
