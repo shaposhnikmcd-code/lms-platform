@@ -151,8 +151,10 @@ export default function TextEditor({ block, onChange, selected = false, containe
       )}
       <style>{`
         [data-news-block-type="text"] .ProseMirror{outline:none;min-height:80px;color:#1C3A2E}
+        /* Виділення = 28% від кольору тексту → адаптується до фону блока і
+           кастомних кольорів тексту автоматично. */
         [data-news-block-type="text"] .ProseMirror ::selection,
-        [data-news-block-type="text"] .ProseMirror::selection{background:rgba(212,168,67,0.32);color:inherit}
+        [data-news-block-type="text"] .ProseMirror::selection{background:color-mix(in srgb, currentColor 28%, transparent);color:inherit}
         [data-news-block-type="text"] .ProseMirror p.is-editor-empty:first-child::before{
           color:#9CA3AF;content:attr(data-placeholder);float:left;height:0;pointer-events:none
         }

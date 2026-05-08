@@ -101,6 +101,41 @@ export const NEWS_BLOCK_CSS = `
   [data-news-block-type="heading"][data-level="2"] { font-size: 24px }
   [data-news-block-type="heading"][data-level="3"] { font-size: 20px }
   [data-news-block-type="heading"] p { margin: 0 }
+  /* Лінки в заголовках: текст не міняє ні кольору, ні підкреслення; маркер
+     клікабельності — золотиста external-link стрілка ↗ після слова. !important
+     перебиває UA :link стилі. */
+  [data-news-block-type="heading"] a,
+  [data-news-block-type="heading"] a:link,
+  [data-news-block-type="heading"] a:visited {
+    text-decoration: none !important;
+    color: inherit !important;
+    cursor: pointer;
+  }
+  /* External-link icon в заголовку. Розташовуємо ::after на ОСТАННЬОМУ <span>
+     всередині <a> (там лежить inline-color з TipTap TextStyle), а fallback —
+     прямо на <a> якщо span-а нема. Так icon завжди успадковує реальний колір
+     тексту, який бачить юзер, а не дефолтний контраст від <h1>. */
+  [data-news-block-type="heading"] a:not(:has(span))::after,
+  [data-news-block-type="heading"] a > span:last-child::after {
+    content: "";
+    display: inline-block;
+    width: 0.55em;
+    height: 0.55em;
+    margin-left: 0.28em;
+    /* Піднімаємо icon ~15% від font-size — стандартна "superscript-style"
+       позиція для external-link маркерів (як у Wikipedia/MDN). */
+    vertical-align: 0.18em;
+    background-color: currentColor;
+    -webkit-mask: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6'/%3E%3Cpath d='M15 3h6v6'/%3E%3Cpath d='M10 14 21 3'/%3E%3C/svg%3E") no-repeat center / contain;
+    mask: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6'/%3E%3Cpath d='M15 3h6v6'/%3E%3Cpath d='M10 14 21 3'/%3E%3C/svg%3E") no-repeat center / contain;
+    opacity: 0.6;
+    transition: transform 0.15s, opacity 0.15s;
+  }
+  [data-news-block-type="heading"] a:hover:not(:has(span))::after,
+  [data-news-block-type="heading"] a:hover > span:last-child::after {
+    opacity: 0.95;
+    transform: translate(1px, -1px);
+  }
 
   [data-news-block-type="quote"] {
     font-family: ${NEWS_BLOCK_FF};
@@ -735,15 +770,11 @@ export function BlockInner({
       if (localizedPreview) {
         const previewParsed = parseBlocks(localizedPreview);
         if (previewParsed.isJson && previewParsed.blocks.length > 0) {
-          // Превʼю авторовано на 360×400 канвасі. PreviewCardScale (client) — observe-ить
-          // фактичну ширину батьківського елемента і CSS-scale-ить вміст до неї. Висота
-          // авто-пропорційна через padding-bottom aspect-ratio. Це гарантує однаковий
-          // вигляд при будь-якій ширині newsCard на /news і ВРІВНОВАЖУЄ live-resize в
-          // адмін-білдері (статичний scale з block.width не оновлюється під час preview).
+          // newsCard preview має padding=0 на AbsoluteBlockRender (без -32). Усі
+          // preview-блоки нормалізовані до однакового block.width % (auto-fit),
+          // тому SSR-scale коректний; ResizeObserver уточнить після hydration.
           const blockWPct = Number(block.width) || 100;
-          // Початковий scale для SSR — рахуємо статично; після hydration ResizeObserver
-          // одразу перерахує по реальній ширині. -32 = padding 0 16px на AbsoluteBlockRender.
-          const initialActualWidth = Math.max(60, (CANVAS_WIDTH * blockWPct) / 100 - 32);
+          const initialActualWidth = Math.max(60, (CANVAS_WIDTH * blockWPct) / 100);
           const initialScale = initialActualWidth / PREVIEW_CARD_WIDTH;
           return (
             <a
@@ -854,9 +885,11 @@ export function AbsoluteBlockRender({
         left: `${x}%`,
         top: `${y}px`,
         width: `${w}%`,
+        // newsCard preview: висота auto через aspect-ratio 360:400 — щоб картка
+        // мала однакові пропорції незалежно від canvas-ширини. Усі preview-блоки
+        // мусять мати однаковий block.width % (auto-fit нормалізує) → візуально
+        // однаковий розмір.
         height: isNewsCardPreview ? "auto" : (h ? `${h}px` : "auto"),
-        // Точна 360:400 пропорція. 16px горизонтальний padding для newsCard preview
-        // знятий, щоб card-контент займав весь outer без зміщення aspect-у.
         aspectRatio: isNewsCardPreview ? "360 / 400" : undefined,
         background: block.bgColor || "transparent",
         borderRadius: block.bgColor ? "8px" : 0,

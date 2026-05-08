@@ -191,29 +191,15 @@ export default function BlockItem({
           // позиціоновані внутрішні блоки виглядають криво (контент авторовано на
           // 100% canvas-у). Force-set один раз при переключенні в expanded.
           targetWidth = "100";
-        } else if (mode === "preview" && it.previewContent) {
-          // Превʼю авторовано на 360×400 фіксованому канвасі. Внутрішній рендер
-          // у render.tsx scale-иться через CSS transform, тому ВИСОТА зовнішнього
-          // newsCard блока має теж бути scaled, щоб картка зберігала aspect
-          // 360:400 на /news (де newsCard може бути будь-якою шириною).
-          const wPct = Number(block.width) || 100;
-          // -32: AbsoluteBlockRender внутрішня ширина після padding 0 16px.
-          // Має співпадати зі scale-розрахунком у render.tsx (newsCard preview).
-          const actualWidth = Math.max(60, (containerWidthPx * wPct) / 100 - 32);
-          const scale = actualWidth / PREVIEW_CARD_WIDTH;
-          total = Math.max(60, Math.round(PREVIEW_CARD_HEIGHT * scale));
         } else {
-          // mode === "preview" БЕЗ кастомного previewContent — auto-card. Якщо блок
-          // зараз "роздутий" від попереднього expanded стану (100% × велика висота),
-          // повертаємо дефолтні розміри auto-картки. Інакше — лишаємо як є (юзер
-          // міг сам ресайзити).
-          const isOversized = (Number(block.width) || 100) >= 90 && (block.height || 0) > 420;
-          if (isOversized) {
-            targetWidth = "33";
-            total = 380;
-          } else {
-            return; // preview default — auto-card, не чіпаємо
-          }
+          // mode === "preview" — нормалізуємо ВСІ preview-блоки до однакового
+          // block.width % (відповідає 360 px на канвасі 920 = PREVIEW_CARD_WIDTH/CANVAS_WIDTH).
+          // CSS aspect-ratio 360:400 (див. AbsoluteBlock/AbsoluteBlockRender)
+          // тримає пропорції автоматично — block.height теж проставляємо для
+          // canvasHeight() та коли aspect-ratio не активний.
+          const widthPct = Math.round((PREVIEW_CARD_WIDTH / 920) * 1000) / 10; // 39.1
+          targetWidth = String(widthPct);
+          total = Math.round(PREVIEW_CARD_HEIGHT * (widthPct / 100) * (920 / PREVIEW_CARD_WIDTH)); // ≈400
         }
         if (total === 0) return;
 
@@ -386,6 +372,9 @@ export default function BlockItem({
         {block.type === "divider" && <hr style={{ border: "none", borderTopWidth: "2px", borderTopStyle: "solid", borderTopColor: "#D4A843", margin: "8px 0" }} />}
       </div>
 
+      {/* Resize handles — приховані для newsCard preview, бо блок завжди 360×400. */}
+      {!(block.type === "newsCard" && (block.data.displayMode || "preview") === "preview") && (
+      <>
       {/* Right resize handle */}
       <div
         data-no-block-drag
@@ -441,6 +430,8 @@ export default function BlockItem({
           <line x1="13" y1="9" x2="9" y2="13" stroke="#fff" strokeWidth="1.2" />
         </svg>
       </div>
+      </>
+      )}
     </div>
   );
 }

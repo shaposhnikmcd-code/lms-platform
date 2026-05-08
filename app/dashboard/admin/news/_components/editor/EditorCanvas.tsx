@@ -1818,11 +1818,9 @@ function AbsoluteBlock(props: {
         left: `${x}%`,
         top: `${y}px`,
         width: `${widthPct}%`,
-        // newsCard у режимі preview: висота auto-derived від ширини через
-        // aspect-ratio (PREVIEW_CARD_WIDTH × горизонтальний padding 16+16) /
-        // PREVIEW_CARD_HEIGHT — щоб під час resize ширини outer-обгортка одразу
-        // підлаштовувалась проп. до 360:400 і inner PreviewCardScale не overflow-ив.
-        // У всіх інших випадках — фіксована height (з previewHeight або block.height).
+        // newsCard preview: висота auto через aspect-ratio 360:400. Усі preview-
+        // блоки мають однаковий block.width (auto-fit нормалізує) → однаковий
+        // розмір на канвасі. Дзеркало AbsoluteBlockRender на /news.
         height: (block.type === "newsCard" && (block.data.displayMode || "preview") === "preview")
           ? "auto"
           : ((previewHeight && previewHeight > 0)

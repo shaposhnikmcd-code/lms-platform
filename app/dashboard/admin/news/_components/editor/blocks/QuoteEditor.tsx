@@ -163,8 +163,11 @@ export default function QuoteEditor({ block, onChange, selected = false, contain
       )}
       <style>{`
         [data-news-block-type="quote"] .ProseMirror{outline:none;min-height:60px;color:#1C3A2E}
+        /* Selection-bg = 28% currentColor — підлаштовується під фон блока і
+           колір тексту автоматично (на темному фоні зі світлим текстом — світла
+           плашка, на світлому з темним — темна). */
         [data-news-block-type="quote"] .ProseMirror ::selection,
-        [data-news-block-type="quote"] .ProseMirror::selection{background:rgba(212,168,67,0.32);color:inherit}
+        [data-news-block-type="quote"] .ProseMirror::selection{background:color-mix(in srgb, currentColor 28%, transparent);color:inherit}
         [data-news-block-type="quote"] .ProseMirror p.is-editor-empty:first-child::before{
           color:#9CA3AF;content:attr(data-placeholder);float:left;height:0;pointer-events:none;font-style:normal
         }

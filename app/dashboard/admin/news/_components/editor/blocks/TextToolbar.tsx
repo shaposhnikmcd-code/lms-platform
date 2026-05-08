@@ -212,12 +212,24 @@ export default function SectionedTextToolbar({ editor }: { editor: Editor }) {
                 placeholder="https://..."
                 style={{ ...inputBase, flex: 1, minWidth: 0, padding: "0 8px" }}
               />
+              {/* ✓ показуємо ТІЛЬКИ під час активного вводу/редагування. Після
+                  збереження (setLinkOpen(false)) залишається лише input з
+                  поточним посиланням і 🗑 для видалення. Так юзер не плутається
+                  «чи треба ще раз тиснути ✓ — лінк вже записаний?». */}
+              {linkOpen && (
               <button
                 type="button"
                 onClick={() => {
                   const url = linkInput.trim();
                   if (!url) return;
-                  editor.chain().focus().extendMarkRange("link").setLink({ href: url }).run();
+                  // Якщо нічого не виділено — лінк нема куди прикріпити (link
+                  // mark створиться на курсорі без тексту). Виділяємо весь
+                  // вміст редактора (для заголовків це слово/фраза, для тексту
+                  // — все що написано), щоб setLink реально обгорнув <a>.
+                  const { from, to } = editor.state.selection;
+                  const chain = editor.chain().focus();
+                  if (from === to) chain.selectAll();
+                  chain.extendMarkRange("link").setLink({ href: url }).run();
                   setLinkOpen(false);
                 }}
                 title={currentLink ? "Оновити" : "Зберегти"}
@@ -228,6 +240,7 @@ export default function SectionedTextToolbar({ editor }: { editor: Editor }) {
                   cursor: "pointer", fontFamily: ff, flexShrink: 0,
                 }}
               >✓</button>
+              )}
               {currentLink && (
                 <button
                   type="button"

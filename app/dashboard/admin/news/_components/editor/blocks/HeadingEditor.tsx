@@ -8,6 +8,7 @@ import TextAlign from "@tiptap/extension-text-align";
 import { TextStyle, FontSize } from "@tiptap/extension-text-style";
 import Color from "@tiptap/extension-color";
 import Highlight from "@tiptap/extension-highlight";
+import Link from "@tiptap/extension-link";
 import FontFamily from "@tiptap/extension-font-family";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
@@ -62,6 +63,9 @@ export default function HeadingEditor({ block, onChange, selected = false, onSet
       FontFamily,
       FontSize,
       Highlight.configure({ multicolor: true }),
+      // Link mark — без нього editor.setLink() з toolbar-у silently no-op-ить:
+      // ProseMirror-схема не знає про link mark і парс HTML викидає <a> теги.
+      Link.configure({ openOnClick: false, autolink: false, linkOnPaste: true }),
     ],
     content: headingInitialHtml(block.data),
     onUpdate: ({ editor }) => {
@@ -192,8 +196,45 @@ export default function HeadingEditor({ block, onChange, selected = false, onSet
            auto-контрасту) розповсюджувався на ProseMirror. Раніше hardcoded
            #1C3A2E ламав WYSIWYG: на public був custom color, а в білдері — стандартний. */
         [data-news-block-type="heading"] .ProseMirror{outline:none;color:inherit;font-weight:700}
+        /* Лінки в заголовку: текст без підкреслення/синього. Маркер — стрілка ↗
+           після слова (external-link icon). !important потрібен щоб перебити UA
+           :link стиль. */
+        [data-news-block-type="heading"] .ProseMirror a,
+        [data-news-block-type="heading"] .ProseMirror a:link,
+        [data-news-block-type="heading"] .ProseMirror a:visited{
+          text-decoration:none !important;
+          color:inherit !important;
+          cursor:pointer;
+        }
+        /* External-link SVG icon через mask-image — успадковує currentColor
+           (контраст з будь-яким фоном), чіткий на будь-якому розмірі. */
+        /* External-link icon на ОСТАННЬОМУ <span> у <a> (там TipTap TextStyle
+           ставить inline color), fallback на <a> якщо span-а нема. currentColor
+           береться з реального видимого кольору тексту. */
+        [data-news-block-type="heading"] .ProseMirror a:not(:has(span))::after,
+        [data-news-block-type="heading"] .ProseMirror a > span:last-child::after{
+          content:"";
+          display:inline-block;
+          width:0.55em;
+          height:0.55em;
+          margin-left:0.28em;
+          vertical-align:0.18em;
+          background-color:currentColor;
+          -webkit-mask:url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6'/%3E%3Cpath d='M15 3h6v6'/%3E%3Cpath d='M10 14 21 3'/%3E%3C/svg%3E") no-repeat center / contain;
+          mask:url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6'/%3E%3Cpath d='M15 3h6v6'/%3E%3Cpath d='M10 14 21 3'/%3E%3C/svg%3E") no-repeat center / contain;
+          opacity:0.6;
+          transition:transform 0.15s, opacity 0.15s;
+        }
+        [data-news-block-type="heading"] .ProseMirror a:hover:not(:has(span))::after,
+        [data-news-block-type="heading"] .ProseMirror a:hover > span:last-child::after{
+          opacity:0.95;
+          transform:translate(1px,-1px);
+        }
+        /* Виділення тримаємо як 28% від кольору тексту: на темному фоні з білим
+           текстом — світла плашка, на світлому з темним — темна. Працює без
+           логіки в JS, просто через currentColor. */
         [data-news-block-type="heading"] .ProseMirror ::selection,
-        [data-news-block-type="heading"] .ProseMirror::selection{background:rgba(212,168,67,0.32);color:inherit}
+        [data-news-block-type="heading"] .ProseMirror::selection{background:color-mix(in srgb, currentColor 28%, transparent);color:inherit}
         [data-news-block-type="heading"] .ProseMirror p{margin:0}
         [data-news-block-type="heading"] .ProseMirror p.is-editor-empty:first-child::before{
           color:#9CA3AF;content:attr(data-placeholder);float:left;height:0;pointer-events:none;font-weight:400
