@@ -34,6 +34,29 @@ export default function CohortHeader({
   const [nameDraft, setNameDraft] = useState('');
   const [savingName, setSavingName] = useState(false);
   const nameInputRef = useRef<HTMLInputElement | null>(null);
+  const dropdownRef = useRef<HTMLDivElement | null>(null);
+
+  // Закрити дропдаун при кліку поза ним або по Escape — стандартний патерн.
+  useEffect(() => {
+    if (!open) return;
+    function onPointerDown(e: MouseEvent | TouchEvent) {
+      const target = e.target as Node | null;
+      if (dropdownRef.current && target && !dropdownRef.current.contains(target)) {
+        setOpen(false);
+      }
+    }
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') setOpen(false);
+    }
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('touchstart', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('touchstart', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [open]);
   const active = cohorts.find((c) => c.id === activeCohortId) ?? null;
   const currentCohort = cohorts.find((c) => c.isCurrent) ?? null;
   const canRenameActive = !!active && !active.launchedAt;
@@ -167,7 +190,7 @@ export default function CohortHeader({
           <div className={`text-[10px] uppercase tracking-[0.18em] font-medium mb-1 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
             Запуск програми
           </div>
-          <div className="flex items-center gap-3 flex-wrap">
+          <div ref={dropdownRef} className="flex items-center gap-3 flex-wrap relative">
             {editingName && active ? (
               <div className="flex items-center gap-2">
                 <input
@@ -270,10 +293,9 @@ export default function CohortHeader({
 
           {open && (
             <div
-              className={`absolute z-30 mt-2 max-h-[420px] overflow-y-auto rounded-lg border min-w-[400px] shadow-2xl ${
+              className={`absolute left-0 top-full z-30 mt-2 max-h-[420px] overflow-y-auto rounded-lg border min-w-[400px] shadow-2xl ${
                 dark ? 'bg-zinc-900 border-white/10' : 'bg-white border-stone-200'
               }`}
-              onMouseLeave={() => setOpen(false)}
             >
               <button
                 type="button"
