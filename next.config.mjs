@@ -10,16 +10,17 @@ const isDev = process.env.NODE_ENV !== "production";
 // будує form і POST-ить на secure.wayforpay.com/pay.
 const cspDirectives = [
   "default-src 'self'",
-  `script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob:${isDev ? " 'unsafe-eval'" : ""} https://*.googletagmanager.com https://*.google-analytics.com`,
+  `script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob:${isDev ? " 'unsafe-eval'" : ""} https://*.googletagmanager.com https://*.google-analytics.com https://vercel.live`,
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob: https://res.cloudinary.com https://lh3.googleusercontent.com https://*.googletagmanager.com https://*.google-analytics.com https://flagcdn.com",
-  "font-src 'self' data:",
-  "connect-src 'self' blob: data: https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com https://res.cloudinary.com https://staticimgly.com",
+  "img-src 'self' data: blob: https://res.cloudinary.com https://lh3.googleusercontent.com https://*.googletagmanager.com https://*.google-analytics.com https://flagcdn.com https://vercel.live",
+  "font-src 'self' data: https://vercel.live https://assets.vercel.com",
+  "connect-src 'self' blob: data: https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com https://res.cloudinary.com https://staticimgly.com https://vercel.live wss://ws-us3.pusher.com",
   "worker-src 'self' blob:",
   "child-src 'self' blob:",
   // frame-src: дозволяємо YouTube embed (single video, playlist, shorts) у новинах.
+  // vercel.live — для Vercel Live overlay (тільки preview-деплой, на проді не існує).
   // Якщо frame-src не вказати — браузер фолбекається на child-src, де YouTube заблокований.
-  "frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com https://youtube.com",
+  "frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com https://youtube.com https://vercel.live",
   "frame-ancestors 'self'",
   "form-action 'self' https://secure.wayforpay.com",
   "base-uri 'self'",
