@@ -1,6 +1,8 @@
 import { Link } from '@/i18n/navigation';
 import AutoRedirect from './_components/AutoRedirect';
+import PurchaseTracker from './_components/PurchaseTracker';
 import { resolvePaymentByOrderRef, type PaymentResolution } from '@/lib/paymentStatus';
+import { buildPurchaseEvent, type GA4PurchaseEvent } from '@/lib/analytics/buildPurchaseEvent';
 
 interface Props {
   searchParams: Promise<{ type?: string; orderRef?: string }>;
@@ -15,9 +17,17 @@ export default async function PaymentSuccessPage({ searchParams }: Props) {
   // Verify payment status against our DB rather than trust the WFP redirect.
   // No orderRef → legacy/unknown flow → behave as before (assume success).
   let resolution: PaymentResolution = 'PAID';
+  let purchaseEvent: GA4PurchaseEvent | null = null;
   if (orderRef) {
     const r = await resolvePaymentByOrderRef(orderRef);
     resolution = r.resolution === 'NOT_FOUND' ? 'PAID' : r.resolution;
+    if (resolution === 'PAID') {
+      try {
+        purchaseEvent = await buildPurchaseEvent(orderRef);
+      } catch {
+        purchaseEvent = null;
+      }
+    }
   }
 
   if (resolution === 'FAILED') {
@@ -77,6 +87,7 @@ export default async function PaymentSuccessPage({ searchParams }: Props) {
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
       <AutoRedirect type={type} orderRef={orderRef} />
+      {purchaseEvent && <PurchaseTracker event={purchaseEvent} />}
       <div className="bg-white rounded-2xl shadow-lg p-10 max-w-md w-full text-center">
         <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
           <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
