@@ -15,7 +15,6 @@ import {
   HiOutlineChevronLeft,
   HiOutlineChevronRight,
   HiOutlineCheck,
-  HiOutlineEnvelope,
   HiOutlineCurrencyDollar,
   HiOutlineExclamationTriangle,
 } from 'react-icons/hi2';
@@ -35,11 +34,9 @@ import type { YearlyProgramAdminPrewarm } from '@/lib/yearlyProgramAdminPrefetch
 // Завантажуються тільки коли менеджер реально натискає кнопку → initial bundle сторінки менший.
 // `ssr: false` — модалки використовують Portal/document, server render для них немає сенсу.
 const CreateCohortModal = dynamic(() => import('./CreateCohortModal'), { ssr: false });
-const PaymentTemplatesModal = dynamic(() => import('./PaymentTemplatesModal'), { ssr: false });
-const RemindersTemplatesModal = dynamic(
-  () => import('./PaymentTemplatesModal').then((m) => ({ default: m.RemindersTemplatesModal })),
-  { ssr: false },
-);
+// Listи Платежів / Нагадування перенесено на /dashboard/admin/emails (картки-категорії).
+// Звідси імпортувати модалки більше не потрібно — код модалок лишається у цій теці й
+// підтягується з /emails-сторінки.
 const IssuesModal = dynamic(() => import('./IssuesModal'), { ssr: false });
 import ProgramSettingButton from './ProgramSettingButton';
 import { type TelegramSettingsState } from './TelegramChannelButton';
@@ -216,8 +213,6 @@ function YearlyProgramViewInner({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [pageSize, setPageSize] = useState<number>(25);
   const [page, setPage] = useState<number>(1);
-  const [emailModalOpen, setEmailModalOpen] = useState(false);
-  const [paymentTemplatesOpen, setPaymentTemplatesOpen] = useState(false);
   const [graceModalOpen, setGraceModalOpen] = useState(false);
   const [pricingModalOpen, setPricingModalOpen] = useState(false);
   const [issuesOpen, setIssuesOpen] = useState(false);
@@ -402,22 +397,6 @@ function YearlyProgramViewInner({
 
         <AdminPanel theme={theme} padding="p-3" className="w-fit">
           <div className="flex items-center gap-2 flex-wrap">
-            <div className="flex items-center gap-1">
-              <ProgramSettingButton
-                theme={theme}
-                icon={<HiOutlineEnvelope className="text-base" />}
-                label="Листи Нагадування"
-                title="Налаштувати email-нагадування користувачам"
-                onClick={() => setEmailModalOpen(true)}
-              />
-              <ProgramSettingButton
-                theme={theme}
-                icon={<HiOutlineEnvelope className="text-base" />}
-                label="Листи платежів"
-                title="Редагувати транзакційні листи (welcome, receipt, plan-changed, admin-actions)"
-                onClick={() => setPaymentTemplatesOpen(true)}
-              />
-            </div>
             <input
               type="search"
               value={search}
@@ -462,8 +441,6 @@ function YearlyProgramViewInner({
           </button>
         </AdminPanel>
       </div>
-      {emailModalOpen && <RemindersTemplatesModal theme={theme} onClose={() => setEmailModalOpen(false)} />}
-      {paymentTemplatesOpen && <PaymentTemplatesModal theme={theme} onClose={() => setPaymentTemplatesOpen(false)} />}
       {graceModalOpen && (
         <GraceSettingsModal
           theme={theme}

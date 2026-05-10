@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { isAdmin, getAdminActor } from '@/lib/adminAuth';
-import { sendEmail } from '@/lib/mailer';
+import { sendEmail, esc } from '@/lib/mailer';
 import {
   generateInviteForSubscription,
   getYearlyProgramTelegramSettings,
   renderTelegramInviteEmailBlock,
 } from '@/lib/yearlyProgramTelegram';
+import { getPaymentTemplate, renderTemplate } from '@/lib/emailTemplates/paymentTemplates';
 
 /// Manual-trigger Telegram invite для конкретної підписки.
 /// Body: { force?: boolean, sendEmail?: boolean }
@@ -66,15 +67,11 @@ export async function POST(
   let emailResult: { sent: boolean; error?: string } = { sent: false };
   if (body.sendEmail !== false && sub.user?.email) {
     const greeting = sub.user.name && sub.user.name.trim()
-      ? `Доброго дня, ${sub.user.name.trim()}!`
+      ? `Доброго дня, ${esc(sub.user.name.trim())}!`
       : 'Доброго дня!';
-    const intro = `
-<div style="font-family: Arial, Helvetica, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; color: #1a1a1a; line-height: 1.6;">
-  <h2 style="margin: 0 0 16px;">Запрошення до Telegram-каналу</h2>
-  <p style="margin: 0 0 12px;">${greeting}</p>
-  <p style="margin: 0 0 16px;">Долучайтесь до нашого Telegram-каналу Річної програми Українського інституту Душеопіки та Психотерапії (UIMP) — там ми ділимось новинами, нагадуваннями та відповідаємо на питання щодо організації навчання.</p>
-</div>`.trim();
-    const fullHtml = intro + renderTelegramInviteEmailBlock(result.inviteLink);
+    const inviteBlock = renderTelegramInviteEmailBlock(result.inviteLink);
+    const tpl = await getPaymentTemplate('yearly-telegram-invite');
+    const vars = { greeting, inviteBlock };
     // Унікалізуємо subject timestamp-ом, щоб Gmail не схлопнув кілька resend-листів
     // у thread як "процитований контент" (виглядає як "..." у тілі для отримувача).
     const now = new Date();
@@ -82,8 +79,8 @@ export async function POST(
     try {
       const r = await sendEmail({
         to: sub.user.email,
-        subject: `Запрошення до Telegram-каналу Річної програми · ${stamp}`,
-        html: fullHtml,
+        subject: `${renderTemplate(tpl.subject, vars)} · ${stamp}`,
+        html: renderTemplate(tpl.bodyHtml, vars),
         replyTo: 'edu@uimp.com.ua',
       });
       emailResult = { sent: r.ok, error: r.error };

@@ -14,6 +14,7 @@ import {
   HiOutlineCalendarDays,
   HiOutlineCubeTransparent,
   HiOutlineDocumentText,
+  HiOutlineEnvelope,
 } from 'react-icons/hi2';
 import SyncDivisionsButton from './SyncDivisionsButton';
 import { useAdminTheme, type Theme } from './adminTheme';
@@ -119,6 +120,7 @@ export default function AdminDashboardView({ data }: { data: AdminDashboardData 
     { href: '/dashboard/admin/connector', label: 'Конектор', desc: 'Замовлення гри', icon: HiOutlineCubeTransparent, badge: b.connector },
     { href: '/dashboard/admin/payments', label: 'Платежі', desc: 'Транзакції', icon: HiOutlineCreditCard, badge: b.payments },
     { href: '/dashboard/admin/payment-logs', label: 'Логи', desc: 'WayForPay callback-и', icon: HiOutlineClock, badge: null as SectionBadge },
+    { href: '/dashboard/admin/emails', label: 'Листи', desc: 'Email-шаблони', icon: HiOutlineEnvelope, badge: null as SectionBadge },
   ];
 
   return (

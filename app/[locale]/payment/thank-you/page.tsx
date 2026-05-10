@@ -102,10 +102,22 @@ export default async function ThankYouPage({ searchParams }: Props) {
             <p className="text-gray-600 mb-2">
               Перевірте папку «Вхідні» — а також «Спам», якщо листа не видно протягом кількох хвилин.
             </p>
-            <p className="text-gray-600 mb-8">
+            <p className="text-gray-600 mb-6">
               Для входу на платформу та доступу до {isBundle ? 'курсів вашого пакету' : 'курсу'}{' '}
               перейдіть за посиланням нижче.
             </p>
+
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-8 text-left">
+              <p className="text-sm text-amber-900 font-semibold mb-1.5 flex items-start gap-2">
+                <svg className="w-4 h-4 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                Якщо при вході SendPulse покаже «не оплачено»
+              </p>
+              <p className="text-sm text-amber-800 leading-relaxed">
+                Зачекайте 1-2 хвилини й оновіть сторінку (Ctrl+F5). Доступ до {isBundle ? 'курсів' : 'курсу'} синхронізується протягом кількох хвилин після оплати — це нормально.
+              </p>
+            </div>
 
             <a
               href={SENDPULSE_LOGIN_URL}

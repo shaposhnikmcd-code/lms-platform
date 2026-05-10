@@ -5,7 +5,8 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
 import { sendConnectorMessage, isConnectorBotConfigured, ConnectorTelegramError } from '@/lib/telegramConnector';
-import { sendEmail } from '@/lib/mailer';
+import { sendEmail, esc } from '@/lib/mailer';
+import { getPaymentTemplate, renderTemplate } from '@/lib/emailTemplates/paymentTemplates';
 
 async function requireStaff() {
   const session = await getServerSession(authOptions);
@@ -49,16 +50,12 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
 
     if (m.email && m.emailEnabled) {
       try {
+        const tpl = await getPaymentTemplate('connector-manager-test');
+        const vars = { managerLabel: esc(m.label) };
         const r = await sendEmail({
           to: m.email,
-          subject: '🧪 Тестове повідомлення — UIMP «Конектор»',
-          html: `
-            <div style="font-family:-apple-system,sans-serif;padding:24px;background:#fafaf9">
-              <div style="max-width:480px;margin:0 auto;background:#fff;border:1px solid #e7e5e4;border-radius:12px;padding:24px">
-                <h2 style="margin:0 0 12px;color:#1c1917">🧪 Тест канал email</h2>
-                <p style="color:#57534e;line-height:1.6">Якщо ти бачиш цей лист — email-канал для менеджера <b>${m.label}</b> працює коректно. Реальні повідомлення про замовлення приходитимуть у такому ж форматі.</p>
-              </div>
-            </div>`,
+          subject: renderTemplate(tpl.subject, vars),
+          html: renderTemplate(tpl.bodyHtml, vars),
         });
         results.push({ channel: 'email', ok: r.ok, error: r.error });
       } catch (e) {

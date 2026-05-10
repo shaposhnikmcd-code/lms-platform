@@ -101,6 +101,7 @@ export default function CoursePurchaseDialog({
   const [isRecurring, setIsRecurring] = useState<boolean | null>(inviteAutoRenew);
   type FieldErrors = Partial<Record<'email' | 'firstName' | 'lastName' | 'phone' | 'country' | 'telegram' | 'payType' | 'general', string>>;
   const [errors, setErrors] = useState<FieldErrors>({});
+  const [alreadyPurchased, setAlreadyPurchased] = useState(false);
   const clearError = (k: keyof FieldErrors) =>
     setErrors((prev) => (prev[k] ? { ...prev, [k]: undefined } : prev));
 
@@ -224,7 +225,15 @@ export default function CoursePurchaseDialog({
         }),
       });
       if (!response.ok) {
-        const errBody = await response.json().catch(() => ({}));
+        const errBody = await response.json().catch(() => ({})) as { error?: string; code?: string };
+        // Спеціальний кейс: курс вже куплено цим email. Показуємо amber-banner
+        // (не червоний — це не помилка платежу, а інформативне повідомлення).
+        if (errBody.code === 'course_already_purchased') {
+          setAlreadyPurchased(true);
+          setLoading(false);
+          inFlightRef.current = false;
+          return;
+        }
         throw new Error(errBody.error || t('errorPayment'));
       }
       const paymentData = await response.json();
@@ -360,7 +369,7 @@ export default function CoursePurchaseDialog({
                 id="purchase-email"
                 type="email"
                 value={email}
-                onChange={(e) => { setEmail(e.target.value); clearError('email'); }}
+                onChange={(e) => { setEmail(e.target.value); clearError('email'); setAlreadyPurchased(false); }}
                 placeholder="username@gmail.com"
                 autoComplete="email"
                 aria-invalid={!!errors.email}
@@ -378,6 +387,12 @@ export default function CoursePurchaseDialog({
                 <p className="mt-1.5 text-xs text-amber-700 flex items-center gap-1">
                   <span aria-hidden>📨</span>
                   Запрошення від менеджера UIMP — email зафіксований
+                </p>
+              )}
+              {!inviteToken && !errors.email && (
+                <p className="mt-1.5 text-xs text-gray-500 flex items-start gap-1">
+                  <span aria-hidden>⚠️</span>
+                  <span>Перевірте email перед оплатою — на нього прийде доступ до курсу. Помилка в одній букві створить новий акаунт.</span>
                 </p>
               )}
               {errors.email && <p className="mt-1.5 text-xs text-red-600 flex items-center gap-1"><span aria-hidden>•</span>{errors.email}</p>}
@@ -632,6 +647,21 @@ export default function CoursePurchaseDialog({
               <div className="mb-3 px-4 py-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm flex items-start gap-2">
                 <span className="mt-0.5" aria-hidden>⚠</span>
                 <span>{errors.general}</span>
+              </div>
+            )}
+
+            {alreadyPurchased && (
+              <div className="mb-3 px-4 py-3 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-sm flex items-start gap-2.5">
+                <span className="text-lg mt-0.5" aria-hidden>✅</span>
+                <div>
+                  <p className="font-semibold mb-1">Цей курс уже придбано</p>
+                  <p className="leading-relaxed">
+                    На пошту <strong>{email}</strong> ви вже маєте доступ до курсу <strong>«{courseName}»</strong>. Перевірте свої листи (та папку «Спам») або зайдіть на платформу SendPulse — курс вже у вашому кабінеті.
+                  </p>
+                  <p className="mt-2 text-[12px] text-amber-800">
+                    Помилка? Напишіть на <a href="mailto:edu@uimp.com.ua" className="underline">edu@uimp.com.ua</a>.
+                  </p>
+                </div>
               </div>
             )}
 

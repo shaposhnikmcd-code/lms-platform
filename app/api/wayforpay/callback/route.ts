@@ -12,6 +12,7 @@ import { sendYearlyProgramPaymentReceiptEmail } from '@/lib/yearlyProgramPayment
 import { timingSafeEqualStr } from '@/lib/authTiming';
 import { getYearlyProgramSettings } from '@/lib/yearlyProgramSettings';
 import { provisionPayment } from '@/lib/paymentProvisioning';
+import { sendBundlePurchaseEmail } from '@/lib/bundlePurchaseEmail';
 import { getWayforpayCreds } from '@/lib/wayforpay';
 import { calculateAccessUntil, maxAutopayChargeCount } from '@/lib/yearlyProgramAccess';
 import { notifyManagers as notifyConnectorManagers } from '@/lib/connectorNotifications';
@@ -211,6 +212,36 @@ export async function POST(req: NextRequest) {
                 console.error('⚠️ Provision deferred to recon cron:', orderReference, provision.errors);
                 // Не виставляємо errorMsg — Payment вже PAID, recon догенерує. Помилки
                 // лежать у Payment.provisionError для діагностики.
+              }
+
+              // Bundle purchase confirmation email — шлемо ОДИН раз тут (тільки на
+              // wasFirstApproved=true, тобто всередині гілки claim.count>0). Recon не
+              // йде через цей шлях, тому дублів не буде. Незалежний від SP-воронки —
+              // гарантований лист навіть якщо студент вже має курси з пакета на SP.
+              if (fresh.bundleId) {
+                try {
+                  const user = await prisma.user.findUnique({
+                    where: { id: fresh.userId },
+                    select: { email: true, name: true },
+                  });
+                  if (user?.email) {
+                    const r = await sendBundlePurchaseEmail({
+                      to: user.email,
+                      name: user.name,
+                      bundleId: fresh.bundleId,
+                      freeSlugs: fresh.freeSlugs ?? [],
+                    });
+                    if (r.ok) {
+                      actions.push('bundle-email:sent');
+                    } else {
+                      actions.push(`bundle-email:failed(${r.error ?? 'unknown'})`);
+                      console.error('⚠️ Bundle email failed:', orderReference, r.error);
+                    }
+                  }
+                } catch (e) {
+                  console.error('⚠️ Bundle email throw:', orderReference, e);
+                  actions.push('bundle-email:throw');
+                }
               }
             }
           }

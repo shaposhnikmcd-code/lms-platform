@@ -101,7 +101,7 @@ export function RemindersTemplatesModal({ theme, onClose }: { theme: Theme; onCl
   return <EmailTemplatesModal config={REMINDER_CONFIG} theme={theme} onClose={onClose} />;
 }
 
-function EmailTemplatesModal({
+export function EmailTemplatesModal({
   config,
   theme,
   onClose,

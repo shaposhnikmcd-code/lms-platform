@@ -131,6 +131,26 @@ export async function POST(req: NextRequest) {
         });
       }
 
+      // Duplicate-purchase guard для індивідуального курсу: якщо юзер уже має Enrollment
+      // на цей курс — блокуємо повторну оплату на етапі форми (до WFP-редіректу).
+      // Для пакетів і Річної цей блок не застосовується — пакети валідуємо нижче,
+      // Річна має власну логіку cross-plan blocks вище.
+      if (paymentCourseId && !bundleId && !yearlyKind) {
+        const existingEnrollment = await prisma.enrollment.findUnique({
+          where: { userId_courseId: { userId: user.id, courseId: paymentCourseId } },
+          select: { id: true },
+        });
+        if (existingEnrollment) {
+          return NextResponse.json(
+            {
+              error: 'У вас уже є цей курс — доступ до нього відкритий на платформі SendPulse. Якщо не можете увійти або потрібна допомога — напишіть на edu@uimp.com.ua',
+              code: 'course_already_purchased',
+            },
+            { status: 409 },
+          );
+        }
+      }
+
       // Для bundle — валідація вибору безкоштовних (CHOICE_FREE) + обчислення finalFreeSlugs
       let finalFreeSlugs: string[] = [];
       if (bundleId) {

@@ -19,9 +19,13 @@ export type PaymentTemplateKey =
   | 'receipt-one-time'
   | 'admin-cancelled'
   | 'admin-archived'
-  | 'admin-access-closed';
+  | 'admin-access-closed'
+  | 'bundle-purchase'
+  | 'password-reset'
+  | 'connector-manager-test'
+  | 'yearly-telegram-invite';
 
-export type PaymentTemplateGroup = 'payment' | 'manual-add' | 'plan-change' | 'admin-end';
+export type PaymentTemplateGroup = 'payment' | 'manual-add' | 'plan-change' | 'admin-end' | 'bundle' | 'system' | 'yearly-telegram';
 
 export interface PaymentTemplateMeta {
   key: PaymentTemplateKey;
@@ -45,6 +49,9 @@ export const PAYMENT_TEMPLATE_GROUPS: { id: PaymentTemplateGroup; title: string;
   { id: 'manual-add', title: '✉️ Запрошення вручну', description: 'Лист з персональним посиланням на оплату — коли менеджер додає студента вручну.' },
   { id: 'plan-change', title: '🔄 Зміна плану', description: 'Коли користувач переключається між разовою/автоплатежем.' },
   { id: 'admin-end', title: '🚪 Закриття менеджером', description: 'Коли менеджер скасовує/архівує/закриває доступ.' },
+  { id: 'bundle', title: '📦 Пакет', description: 'Підтвердження покупки пакета з переліком курсів — шлеться один раз після успішної оплати.' },
+  { id: 'system', title: '🛠 Системні', description: 'Скидання пароля, тестові повідомлення менеджерам.' },
+  { id: 'yearly-telegram', title: '📡 Річна Telegram', description: 'Запрошення до Telegram-каналу Річної програми (повторне надсилання менеджером).' },
 ];
 
 const layout = (innerHtml: string): string =>
@@ -103,6 +110,38 @@ export const PLACEHOLDER_DESCRIPTIONS: Record<string, { what: string; consequenc
   cohortName: {
     what: 'Назва запуску (cohort-у), куди приєднується студент — наприклад «Річна 2026».',
     consequence: 'БЕЗ цього поля студент не побачить до якого саме запуску він приєднується.',
+  },
+  bundleTitle: {
+    what: 'Назва пакета, який придбано — наприклад «Основи психології + Військова психологія».',
+    consequence: 'БЕЗ цього поля отримувач не побачить, який саме пакет він купив.',
+  },
+  coursesList: {
+    what: 'Готовий HTML-список курсів, що входять у пакет (з позначкою «у подарунок» для безкоштовних).',
+    consequence: 'БЕЗ цього поля студент не побачить, до яких курсів відкрито доступ.',
+  },
+  dashboardButton: {
+    what: 'Готова кнопка «Перейти на платформу SendPulse» з посиланням на навчальну платформу.',
+    consequence: 'БЕЗ цього поля у листі не буде кнопки — студент муситиме шукати посилання на SP сам.',
+  },
+  resetUrl: {
+    what: 'Посилання, за яким користувач може створити новий пароль (одноразове, з обмеженим терміном дії).',
+    consequence: 'БЕЗ цього поля юзер не зможе скинути пароль — лист стане безглуздим.',
+  },
+  resetButton: {
+    what: 'Готова кнопка «Створити новий пароль» зі стилями і посиланням всередині.',
+    consequence: 'БЕЗ цього поля у листі не буде кнопки — юзер муситиме шукати посилання у тексті.',
+  },
+  expiresHuman: {
+    what: 'Дата і час, до яких діє посилання — наприклад «12.05.2026, 14:30».',
+    consequence: 'БЕЗ цього поля юзер не побачить, скільки часу в нього є на скидання.',
+  },
+  managerLabel: {
+    what: 'Назва менеджера у системі — наприклад «Олена Менеджер».',
+    consequence: 'БЕЗ цього поля у листі не буде вказано, для якого саме менеджера тестується канал.',
+  },
+  inviteBlock: {
+    what: 'Готовий HTML-блок з кнопкою «Долучитись у Telegram» (запрошувальне посилання вже всередині).',
+    consequence: 'БЕЗ цього поля юзер не отримає посилання на канал — лист стане безглуздим.',
   },
 };
 
@@ -297,6 +336,83 @@ export const PAYMENT_TEMPLATES: Record<PaymentTemplateKey, PaymentTemplateMeta> 
     {autoRenewBullet}
     <li style="margin-bottom: 8px;">Якщо це сталось помилково — напишіть на <a href="mailto:edu@uimp.com.ua" style="color: #b08d3f;">edu@uimp.com.ua</a>.</li>
   </ul>`),
+  },
+  'password-reset': {
+    key: 'password-reset',
+    group: 'system',
+    title: '🔐 Скидання пароля',
+    when: 'Юзер натиснув «Забув пароль» на сторінці входу. Шлемо лист з кнопкою для створення нового пароля. Посилання дійсне ~1 годину.',
+    placeholders: ['greeting', 'resetButton', 'resetUrl', 'expiresHuman'],
+    sampleData: {
+      greeting: 'Здрастуйте, Іван Петренко!',
+      resetButton:
+        '<p style="margin: 24px 0;"><a href="https://www.uimp.com.ua/uk/reset-password?token=SAMPLE" style="display: inline-block; background: #D4A017; color: #fff; padding: 12px 28px; border-radius: 10px; text-decoration: none; font-weight: 600; font-size: 15px;">Створити новий пароль</a></p>',
+      resetUrl: 'https://www.uimp.com.ua/uk/reset-password?token=SAMPLE',
+      expiresHuman: '12.05.2026, 14:30',
+    },
+    defaultSubject: 'UIMP — скидання пароля',
+    defaultBodyHtml: layout(`  <h2 style="color: #1a1a1a; margin: 0 0 16px;">Скидання пароля</h2>
+  <p style="margin: 0 0 12px;">{greeting}</p>
+  <p style="margin: 0 0 16px;">Ви (або хтось, хто знає вашу пошту) запросили скидання пароля. Щоб створити новий пароль, перейдіть за посиланням:</p>
+  {resetButton}
+  <p style="margin: 0 0 8px; font-size: 13px; color: #555;">Посилання дійсне до <b>{expiresHuman}</b>.</p>
+  <p style="margin: 0 0 16px; font-size: 13px; color: #555;">Якщо ви не запитували скидання — просто проігноруйте цей лист. Ваш поточний пароль залишиться без змін.</p>`),
+  },
+  'connector-manager-test': {
+    key: 'connector-manager-test',
+    group: 'system',
+    title: '🧩 Конектор — тест каналу email',
+    when: 'Адмін у `/admin/connector` → Менеджери натиснув «Надіслати тест». Перевіряє, що email-канал менеджера працює.',
+    placeholders: ['managerLabel'],
+    sampleData: {
+      managerLabel: 'Олена Менеджер',
+    },
+    defaultSubject: '🧪 Тестове повідомлення — UIMP «Конектор»',
+    defaultBodyHtml: layout(`  <h2 style="color: #1a1a1a; margin: 0 0 16px;">🧪 Тест каналу email</h2>
+  <p style="margin: 0 0 16px;">Якщо ти бачиш цей лист — email-канал для менеджера <b>{managerLabel}</b> працює коректно. Реальні повідомлення про замовлення приходитимуть у такому ж форматі.</p>`),
+  },
+  'yearly-telegram-invite': {
+    key: 'yearly-telegram-invite',
+    group: 'yearly-telegram',
+    title: '📡 Telegram-invite Річної',
+    when: 'Адмін у адмін-картці підписки натиснув «Надіслати запрошення в Telegram» (resend). Шле invite-кнопку студенту, який не приєднався до каналу автоматично.',
+    placeholders: ['greeting', 'inviteBlock'],
+    sampleData: {
+      greeting: 'Доброго дня, Іван Петренко!',
+      inviteBlock:
+        '<p style="margin: 24px 0;"><a href="https://t.me/+SAMPLE_INVITE" style="display: inline-block; background: #229ED9; color: #fff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">Долучитись у Telegram</a></p>',
+    },
+    defaultSubject: 'Запрошення до Telegram-каналу Річної програми',
+    defaultBodyHtml: layout(`  <h2 style="color: #1a1a1a; margin: 0 0 16px;">Запрошення до Telegram-каналу</h2>
+  <p style="margin: 0 0 12px;">{greeting}</p>
+  <p style="margin: 0 0 16px;">Долучайтесь до нашого Telegram-каналу Річної програми Українського інституту Душеопіки та Психотерапії (UIMP) — там ми ділимось новинами, нагадуваннями та відповідаємо на питання щодо організації навчання.</p>
+  {inviteBlock}`),
+  },
+  'bundle-purchase': {
+    key: 'bundle-purchase',
+    group: 'bundle',
+    title: '📦 Пакет — підтвердження покупки',
+    when: 'Шлеться один раз одразу після успішної оплати пакета (bundle). Перелічує всі курси, що входять у пакет, і дає посилання в особистий кабінет. Не залежить від SendPulse-воронки — гарантований лист навіть якщо SP-event дедуплікований.',
+    placeholders: ['greeting', 'bundleTitle', 'coursesList', 'dashboardButton'],
+    sampleData: {
+      greeting: 'Доброго дня, Іван Петренко!',
+      bundleTitle: 'Основи психології + Військова психологія',
+      coursesList:
+        '<ul style="margin: 0 0 16px; padding-left: 20px;"><li style="margin-bottom: 6px;">Основи психології</li><li style="margin-bottom: 6px;">Військова психологія <span style="color: #6b7280;">— у подарунок</span></li></ul>',
+      dashboardButton:
+        '<p style="margin: 24px 0;"><a href="https://uimp-edu.sendpulse.online/courses/auth/login" style="display: inline-block; background: #b08d3f; color: #fff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">Перейти на платформу SendPulse</a></p>',
+    },
+    defaultSubject: 'Дякуємо за покупку — пакет «{bundleTitle}»',
+    defaultBodyHtml: layout(`  <h2 style="color: #1a1a1a; margin: 0 0 16px;">Дякуємо за покупку</h2>
+  <p style="margin: 0 0 12px;">{greeting}</p>
+  <p style="margin: 0 0 16px;">Ваш пакет <b>«{bundleTitle}»</b> успішно оплачено. Доступ відкрито до таких курсів:</p>
+  {coursesList}
+  <h3 style="margin: 24px 0 8px;">Як отримати доступ</h3>
+  <ul style="margin: 0 0 16px; padding-left: 20px;">
+    <li style="margin-bottom: 8px;">На вашу пошту надійде окремий лист з логіном і паролем до навчальної платформи SendPulse — він може прийти протягом кількох хвилин і часом потрапляє у Спам.</li>
+    <li style="margin-bottom: 8px;">Якщо ви вже маєте акаунт SendPulse — нові курси автоматично з'являться у вашому особистому кабінеті там.</li>
+  </ul>
+  {dashboardButton}`),
   },
   'admin-access-closed': {
     key: 'admin-access-closed',

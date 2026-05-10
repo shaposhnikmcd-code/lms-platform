@@ -9,8 +9,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { createPasswordResetToken } from '@/lib/passwordResetToken';
-import { sendEmail, appBaseUrl } from '@/lib/mailer';
-import { resetEmailHtml } from '@/lib/emailTemplates/passwordReset';
+import { sendEmail, appBaseUrl, esc } from '@/lib/mailer';
+import { getPaymentTemplate, renderTemplate } from '@/lib/emailTemplates/paymentTemplates';
 import { checkRateLimit } from '@/lib/ratelimit';
 
 const GENERIC_RESPONSE = {
@@ -46,16 +46,24 @@ export async function POST(req: NextRequest) {
     });
 
     const resetUrl = `${appBaseUrl()}/uk/reset-password?token=${encodeURIComponent(rawToken)}`;
+    const displayName = user.name?.trim() || user.email;
+    const expiresHuman = expiresAt.toLocaleString('uk-UA', {
+      day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
+    });
+    const resetButton = `<p style="margin: 24px 0;"><a href="${resetUrl}" style="display: inline-block; background: #D4A017; color: #fff; padding: 12px 28px; border-radius: 10px; text-decoration: none; font-weight: 600; font-size: 15px;">Створити новий пароль</a></p>`;
+
+    const tpl = await getPaymentTemplate('password-reset');
+    const vars = {
+      greeting: `Здрастуйте, ${esc(displayName)}!`,
+      resetButton,
+      resetUrl,
+      expiresHuman: esc(expiresHuman),
+    };
 
     await sendEmail({
       to: user.email,
-      subject: 'UIMP — скидання пароля',
-      html: resetEmailHtml({
-        userName: user.name,
-        userEmail: user.email,
-        resetUrl,
-        expiresAt,
-      }),
+      subject: renderTemplate(tpl.subject, vars),
+      html: renderTemplate(tpl.bodyHtml, vars),
       devPreviewHint: resetUrl,
     });
 
