@@ -114,13 +114,13 @@ export default function AdminDashboardView({ data }: { data: AdminDashboardData 
     { href: '/dashboard/admin/bundles', label: 'Пакети', desc: 'Курси зі знижкою', icon: HiOutlineSparkles, badge: b.bundles },
     { href: '/dashboard/admin/yearly-program', label: 'Річна програма', desc: 'Підписки та доступ', icon: HiOutlineCalendarDays, badge: b.yearlyProgram },
     { href: '/dashboard/admin/certificates', label: 'Сертифікати', desc: 'Видача та облік', icon: HiOutlineDocumentText, badge: null as SectionBadge },
+    { href: '/dashboard/admin/emails', label: 'Листи', desc: 'Email-шаблони', icon: HiOutlineEnvelope, badge: null as SectionBadge },
     { href: '/dashboard/admin/news', label: 'Новини', desc: 'Публікації', icon: HiOutlineNewspaper, badge: b.news },
     { href: '/dashboard/admin/specialists', label: 'Спеціалісти', desc: 'Ціни та запис', icon: HiOutlineUsers, badge: null as SectionBadge },
     { href: '/dashboard/admin/users', label: 'Користувачі', desc: 'Акаунти та ролі', icon: HiOutlineUserGroup, badge: b.users },
     { href: '/dashboard/admin/connector', label: 'Конектор', desc: 'Замовлення гри', icon: HiOutlineCubeTransparent, badge: b.connector },
     { href: '/dashboard/admin/payments', label: 'Платежі', desc: 'Транзакції', icon: HiOutlineCreditCard, badge: b.payments },
     { href: '/dashboard/admin/payment-logs', label: 'Логи', desc: 'WayForPay callback-и', icon: HiOutlineClock, badge: null as SectionBadge },
-    { href: '/dashboard/admin/emails', label: 'Листи', desc: 'Email-шаблони', icon: HiOutlineEnvelope, badge: null as SectionBadge },
   ];
 
   return (
