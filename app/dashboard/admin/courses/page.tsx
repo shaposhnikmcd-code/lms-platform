@@ -67,6 +67,10 @@ export default async function AdminCourses() {
       promo1Price: p?.promo1Price ?? null,
       promo1StartsAt: p?.promo1StartsAt ? p.promo1StartsAt.toISOString() : null,
       promo1ExpiresAt: p?.promo1ExpiresAt ? p.promo1ExpiresAt.toISOString() : null,
+      promo2Code: p?.promo2Code ?? null,
+      promo2Price: p?.promo2Price ?? null,
+      promo2StartsAt: p?.promo2StartsAt ? p.promo2StartsAt.toISOString() : null,
+      promo2ExpiresAt: p?.promo2ExpiresAt ? p.promo2ExpiresAt.toISOString() : null,
     };
   };
   const categoryRows = [

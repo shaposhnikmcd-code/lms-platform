@@ -1050,6 +1050,10 @@ model CategoryPromoOverride {
   promo1Price     Int?
   promo1StartsAt  DateTime?
   promo1ExpiresAt DateTime?
+  promo2Code      String?
+  promo2Price     Int?
+  promo2StartsAt  DateTime?
+  promo2ExpiresAt DateTime?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 }

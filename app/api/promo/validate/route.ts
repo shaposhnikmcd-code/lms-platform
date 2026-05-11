@@ -97,6 +97,10 @@ export async function POST(req: NextRequest) {
           promo1Price: true,
           promo1StartsAt: true,
           promo1ExpiresAt: true,
+          promo2Code: true,
+          promo2Price: true,
+          promo2StartsAt: true,
+          promo2ExpiresAt: true,
         },
       });
       if (cat?.promo1Code === upper && cat.promo1Price !== null) {
@@ -110,6 +114,19 @@ export async function POST(req: NextRequest) {
           valid: true,
           discountType: 'FIXED_PRICE',
           fixedPrice: Math.max(1, cat.promo1Price),
+        });
+      }
+      if (cat?.promo2Code === upper && cat.promo2Price !== null) {
+        if (!isPromoWindowActive(cat.promo2StartsAt, cat.promo2ExpiresAt, now)) {
+          return NextResponse.json({
+            valid: false,
+            message: windowFeedback(cat.promo2StartsAt, cat.promo2ExpiresAt, now),
+          });
+        }
+        return NextResponse.json({
+          valid: true,
+          discountType: 'FIXED_PRICE',
+          fixedPrice: Math.max(1, cat.promo2Price),
         });
       }
     }

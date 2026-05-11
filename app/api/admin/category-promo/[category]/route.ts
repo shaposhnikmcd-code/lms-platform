@@ -82,6 +82,61 @@ function revalidateForCategory(category: string) {
   }
 }
 
+interface PromoSlot {
+  code: string | null;
+  price: number | null;
+  startsAt: Date | null;
+  expiresAt: Date | null;
+}
+
+/// Парсить один слот промокоду з body, з fallback на before-значення для полів,
+/// яких немає в payload (часткові патчі).
+function parseSlot(
+  body: Record<string, unknown>,
+  prefix: "promo1" | "promo2",
+  before: PromoSlot,
+): PromoSlot | { error: string } {
+  const has = (k: string) => Object.prototype.hasOwnProperty.call(body, k);
+
+  const codeRaw = has(`${prefix}Code`) ? parsePromoCode(body[`${prefix}Code`]) : before.code;
+  const priceRaw = has(`${prefix}Price`) ? parsePrice(body[`${prefix}Price`]) : before.price;
+  const startsRaw = has(`${prefix}StartsAt`)
+    ? parseDate(body[`${prefix}StartsAt`])
+    : before.startsAt;
+  const expiresRaw = has(`${prefix}ExpiresAt`)
+    ? parseDate(body[`${prefix}ExpiresAt`])
+    : before.expiresAt;
+
+  if (priceRaw === "invalid") return { error: "Ціна має бути цілим числом ≥ 0" };
+  if (codeRaw === "invalid") {
+    return { error: "Промокод має бути 2–32 символи (латиниця, цифри, - та _)" };
+  }
+  if (startsRaw === "invalid" || expiresRaw === "invalid") {
+    return { error: "Невалідна дата дії промокоду" };
+  }
+
+  if ((codeRaw === null) !== (priceRaw === null)) {
+    return { error: "Заповніть і код, і ціну (або очистіть обидва)" };
+  }
+  if (startsRaw && expiresRaw && startsRaw.getTime() >= expiresRaw.getTime()) {
+    return { error: "Дата початку має бути раніше за дату завершення" };
+  }
+  if (codeRaw === null && (startsRaw !== null || expiresRaw !== null)) {
+    return { error: "Не можна задавати таймер без промокоду" };
+  }
+
+  return {
+    code: codeRaw,
+    price: priceRaw,
+    startsAt: startsRaw,
+    expiresAt: expiresRaw,
+  };
+}
+
+function slotIsEmpty(s: PromoSlot): boolean {
+  return s.code === null && s.price === null && s.startsAt === null && s.expiresAt === null;
+}
+
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ category: string }> },
@@ -96,90 +151,79 @@ export async function PATCH(
     return NextResponse.json({ error: "Невідома категорія" }, { status: 400 });
   }
 
-  const body = await req.json().catch(() => ({}));
-  const has = (k: string) => Object.prototype.hasOwnProperty.call(body ?? {}, k);
-
+  const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
   const before = await prisma.categoryPromoOverride.findUnique({ where: { category } });
 
-  const promo1Code = has("promo1Code")
-    ? parsePromoCode(body.promo1Code)
-    : (before?.promo1Code ?? null);
-  const promo1Price = has("promo1Price")
-    ? parsePrice(body.promo1Price)
-    : (before?.promo1Price ?? null);
-  const promo1StartsAt = has("promo1StartsAt")
-    ? parseDate(body.promo1StartsAt)
-    : (before?.promo1StartsAt ?? null);
-  const promo1ExpiresAt = has("promo1ExpiresAt")
-    ? parseDate(body.promo1ExpiresAt)
-    : (before?.promo1ExpiresAt ?? null);
+  const beforeSlot1: PromoSlot = {
+    code: before?.promo1Code ?? null,
+    price: before?.promo1Price ?? null,
+    startsAt: before?.promo1StartsAt ?? null,
+    expiresAt: before?.promo1ExpiresAt ?? null,
+  };
+  const beforeSlot2: PromoSlot = {
+    code: before?.promo2Code ?? null,
+    price: before?.promo2Price ?? null,
+    startsAt: before?.promo2StartsAt ?? null,
+    expiresAt: before?.promo2ExpiresAt ?? null,
+  };
 
-  if (promo1Price === "invalid") {
-    return NextResponse.json({ error: "Ціна має бути цілим числом ≥ 0" }, { status: 400 });
-  }
-  if (promo1Code === "invalid") {
-    return NextResponse.json(
-      { error: "Промокод має бути 2–32 символи (латиниця, цифри, - та _)" },
-      { status: 400 },
-    );
-  }
-  if (promo1StartsAt === "invalid" || promo1ExpiresAt === "invalid") {
-    return NextResponse.json({ error: "Невалідна дата дії промокоду" }, { status: 400 });
-  }
+  const slot1 = parseSlot(body, "promo1", beforeSlot1);
+  if ("error" in slot1) return NextResponse.json({ error: slot1.error }, { status: 400 });
+  const slot2 = parseSlot(body, "promo2", beforeSlot2);
+  if ("error" in slot2) return NextResponse.json({ error: slot2.error }, { status: 400 });
 
-  if ((promo1Code === null) !== (promo1Price === null)) {
+  if (slot1.code && slot2.code && slot1.code === slot2.code) {
     return NextResponse.json(
-      { error: "Заповніть і код, і ціну (або очистіть обидва)" },
-      { status: 400 },
-    );
-  }
-  if (
-    promo1StartsAt &&
-    promo1ExpiresAt &&
-    promo1StartsAt.getTime() >= promo1ExpiresAt.getTime()
-  ) {
-    return NextResponse.json(
-      { error: "Дата початку має бути раніше за дату завершення" },
-      { status: 400 },
-    );
-  }
-  if (promo1Code === null && (promo1StartsAt !== null || promo1ExpiresAt !== null)) {
-    return NextResponse.json(
-      { error: "Не можна задавати таймер без промокоду" },
+      { error: "Промокод 1 і Промокод 2 не можуть співпадати" },
       { status: 400 },
     );
   }
 
-  const allNull =
-    promo1Code === null &&
-    promo1Price === null &&
-    promo1StartsAt === null &&
-    promo1ExpiresAt === null;
-  if (allNull) {
+  const allEmpty = slotIsEmpty(slot1) && slotIsEmpty(slot2);
+  if (allEmpty) {
     if (before) {
       await prisma.categoryPromoOverride.delete({ where: { category } });
       const changes: ChangesMap = {};
-      diffField("promo1Code", before.promo1Code, null, changes);
-      diffField("promo1Price", before.promo1Price, null, changes);
-      diffDateField("promo1StartsAt", before.promo1StartsAt ?? null, null, changes);
-      diffDateField("promo1ExpiresAt", before.promo1ExpiresAt ?? null, null, changes);
+      diffField("promo1Code", beforeSlot1.code, null, changes);
+      diffField("promo1Price", beforeSlot1.price, null, changes);
+      diffDateField("promo1StartsAt", beforeSlot1.startsAt, null, changes);
+      diffDateField("promo1ExpiresAt", beforeSlot1.expiresAt, null, changes);
+      diffField("promo2Code", beforeSlot2.code, null, changes);
+      diffField("promo2Price", beforeSlot2.price, null, changes);
+      diffDateField("promo2StartsAt", beforeSlot2.startsAt, null, changes);
+      diffDateField("promo2ExpiresAt", beforeSlot2.expiresAt, null, changes);
       await writeAudit(category, actor, "update", changes);
     }
     revalidateForCategory(category);
     return NextResponse.json({ ok: true, cleared: true });
   }
 
+  const data = {
+    promo1Code: slot1.code,
+    promo1Price: slot1.price,
+    promo1StartsAt: slot1.startsAt,
+    promo1ExpiresAt: slot1.expiresAt,
+    promo2Code: slot2.code,
+    promo2Price: slot2.price,
+    promo2StartsAt: slot2.startsAt,
+    promo2ExpiresAt: slot2.expiresAt,
+  };
+
   const override = await prisma.categoryPromoOverride.upsert({
     where: { category },
-    create: { category, promo1Code, promo1Price, promo1StartsAt, promo1ExpiresAt },
-    update: { promo1Code, promo1Price, promo1StartsAt, promo1ExpiresAt },
+    create: { category, ...data },
+    update: data,
   });
 
   const changes: ChangesMap = {};
-  diffField("promo1Code", before?.promo1Code ?? null, promo1Code, changes);
-  diffField("promo1Price", before?.promo1Price ?? null, promo1Price, changes);
-  diffDateField("promo1StartsAt", before?.promo1StartsAt ?? null, promo1StartsAt, changes);
-  diffDateField("promo1ExpiresAt", before?.promo1ExpiresAt ?? null, promo1ExpiresAt, changes);
+  diffField("promo1Code", beforeSlot1.code, slot1.code, changes);
+  diffField("promo1Price", beforeSlot1.price, slot1.price, changes);
+  diffDateField("promo1StartsAt", beforeSlot1.startsAt, slot1.startsAt, changes);
+  diffDateField("promo1ExpiresAt", beforeSlot1.expiresAt, slot1.expiresAt, changes);
+  diffField("promo2Code", beforeSlot2.code, slot2.code, changes);
+  diffField("promo2Price", beforeSlot2.price, slot2.price, changes);
+  diffDateField("promo2StartsAt", beforeSlot2.startsAt, slot2.startsAt, changes);
+  diffDateField("promo2ExpiresAt", beforeSlot2.expiresAt, slot2.expiresAt, changes);
   await writeAudit(category, actor, "update", changes);
 
   revalidateForCategory(category);
@@ -209,6 +253,10 @@ export async function DELETE(
     diffField("promo1Price", before.promo1Price, null, changes);
     diffDateField("promo1StartsAt", before.promo1StartsAt ?? null, null, changes);
     diffDateField("promo1ExpiresAt", before.promo1ExpiresAt ?? null, null, changes);
+    diffField("promo2Code", before.promo2Code, null, changes);
+    diffField("promo2Price", before.promo2Price, null, changes);
+    diffDateField("promo2StartsAt", before.promo2StartsAt ?? null, null, changes);
+    diffDateField("promo2ExpiresAt", before.promo2ExpiresAt ?? null, null, changes);
     await writeAudit(category, actor, "reset", changes);
   }
 

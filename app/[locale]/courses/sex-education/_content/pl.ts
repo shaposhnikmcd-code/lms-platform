@@ -51,7 +51,7 @@ export const content = {
     subtitle: "Wybierz najlepszą opcję dla swojego rozwoju",
     access: "Pełny dostęp",
     currency: "UAH",
-    features: ["Wszystkie wykłady", "Dostęp 6 miesięcy", "Dodatkowe materiały"],
+    features: ["15 wykładów", "Dostęp 6 miesięcy", "Dodatkowe materiały"],
     btnBuy: "Kup kurs",
   },
 };

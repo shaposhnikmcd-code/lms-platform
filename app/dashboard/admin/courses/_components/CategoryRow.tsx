@@ -7,16 +7,28 @@ import { FaRotateLeft, FaCheck } from 'react-icons/fa6';
 import type { Theme } from '../../_components/adminTheme';
 import PromoTimer from './PromoTimer';
 
+/// UI mapping для категорій (історично):
+///   UI "Промокод 1" / "Ціна 1"  → БД promo2*  (новий публічний промокод, додано 2026-05-11)
+///   UI "Промокод 2" / "Ціна 2"  → БД promo1*  (де історично лежить SECRETPASS / адмін-тариф)
+///
+/// Зроблено так, щоб не мігрувати існуючі дані: SECRETPASS залишається в колонці "Промокод 2"
+/// (як user звик), а нове порожнє поле для публічного промо з'являється в "Промокод 1".
 export interface CategoryRowData {
   category: 'bundle' | 'connector' | 'yearly' | 'monthly';
   titleUk: string;
   icon: string;
   accent: string;
   hint: string;
+  // promo1* — БД слот, рендериться як UI "Промокод 2" (SECRETPASS)
   promo1Code: string | null;
   promo1Price: number | null;
   promo1StartsAt: string | null;
   promo1ExpiresAt: string | null;
+  // promo2* — БД слот, рендериться як UI "Промокод 1" (публічний)
+  promo2Code: string | null;
+  promo2Price: number | null;
+  promo2StartsAt: string | null;
+  promo2ExpiresAt: string | null;
 }
 
 function parsePriceInput(value: string): { ok: boolean; num: number | null } {
@@ -48,17 +60,24 @@ export default function CategoryRow({
   const router = useRouter();
   const dark = theme === 'dark';
 
+  // БД-слот promo1 → UI "Промокод 2" (SECRETPASS)
   const [promo1CodeStr, setPromo1CodeStr] = useState(row.promo1Code ?? '');
   const [promo1PriceStr, setPromo1PriceStr] = useState(
     row.promo1Price !== null ? String(row.promo1Price) : '',
   );
   const [promo1StartsAt, setPromo1StartsAt] = useState<string | null>(row.promo1StartsAt);
   const [promo1ExpiresAt, setPromo1ExpiresAt] = useState<string | null>(row.promo1ExpiresAt);
+  // БД-слот promo2 → UI "Промокод 1" (публічний)
+  const [promo2CodeStr, setPromo2CodeStr] = useState(row.promo2Code ?? '');
+  const [promo2PriceStr, setPromo2PriceStr] = useState(
+    row.promo2Price !== null ? String(row.promo2Price) : '',
+  );
+  const [promo2StartsAt, setPromo2StartsAt] = useState<string | null>(row.promo2StartsAt);
+  const [promo2ExpiresAt, setPromo2ExpiresAt] = useState<string | null>(row.promo2ExpiresAt);
   const [saving, setSaving] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
 
-  // Draft persistence — щоб незбережені зміни не зникали при перезавантаженні сторінки.
   const draftKey = `lms-admin-category-promo-draft-${row.category}`;
   const [draftHydrated, setDraftHydrated] = useState(false);
   useEffect(() => {
@@ -73,6 +92,12 @@ export default function CategoryRow({
             setPromo1StartsAt(d.promo1StartsAt as string | null);
           if (d.promo1ExpiresAt === null || typeof d.promo1ExpiresAt === 'string')
             setPromo1ExpiresAt(d.promo1ExpiresAt as string | null);
+          if (typeof d.promo2CodeStr === 'string') setPromo2CodeStr(d.promo2CodeStr);
+          if (typeof d.promo2PriceStr === 'string') setPromo2PriceStr(d.promo2PriceStr);
+          if (d.promo2StartsAt === null || typeof d.promo2StartsAt === 'string')
+            setPromo2StartsAt(d.promo2StartsAt as string | null);
+          if (d.promo2ExpiresAt === null || typeof d.promo2ExpiresAt === 'string')
+            setPromo2ExpiresAt(d.promo2ExpiresAt as string | null);
         }
       }
     } catch {
@@ -84,28 +109,45 @@ export default function CategoryRow({
 
   const promo1CodeParsed = parsePromoInput(promo1CodeStr);
   const promo1PriceParsed = parsePriceInput(promo1PriceStr);
-  const promo1PairOk =
-    (promo1CodeParsed.code !== null) === (promo1PriceParsed.num !== null);
+  const promo1PairOk = (promo1CodeParsed.code !== null) === (promo1PriceParsed.num !== null);
+  const promo2CodeParsed = parsePromoInput(promo2CodeStr);
+  const promo2PriceParsed = parsePriceInput(promo2PriceStr);
+  const promo2PairOk = (promo2CodeParsed.code !== null) === (promo2PriceParsed.num !== null);
 
   const effPromo1Starts = promo1CodeParsed.code === null ? null : promo1StartsAt;
   const effPromo1Expires = promo1CodeParsed.code === null ? null : promo1ExpiresAt;
+  const effPromo2Starts = promo2CodeParsed.code === null ? null : promo2StartsAt;
+  const effPromo2Expires = promo2CodeParsed.code === null ? null : promo2ExpiresAt;
+
+  const codesDistinct =
+    !promo1CodeParsed.code ||
+    !promo2CodeParsed.code ||
+    promo1CodeParsed.code !== promo2CodeParsed.code;
 
   const formValid =
     promo1CodeParsed.ok &&
     promo1PriceParsed.ok &&
-    promo1PairOk;
+    promo1PairOk &&
+    promo2CodeParsed.ok &&
+    promo2PriceParsed.ok &&
+    promo2PairOk &&
+    codesDistinct;
 
   const dirty =
-    formValid && (
+    formValid &&
+    (
       (promo1CodeParsed.code ?? null) !== (row.promo1Code ?? null) ||
       (promo1PriceParsed.num ?? null) !== (row.promo1Price ?? null) ||
       effPromo1Starts !== row.promo1StartsAt ||
-      effPromo1Expires !== row.promo1ExpiresAt
+      effPromo1Expires !== row.promo1ExpiresAt ||
+      (promo2CodeParsed.code ?? null) !== (row.promo2Code ?? null) ||
+      (promo2PriceParsed.num ?? null) !== (row.promo2Price ?? null) ||
+      effPromo2Starts !== row.promo2StartsAt ||
+      effPromo2Expires !== row.promo2ExpiresAt
     );
 
-  const hasOverride = row.promo1Code !== null;
+  const hasOverride = row.promo1Code !== null || row.promo2Code !== null;
 
-  // Зберігаємо draft у localStorage поки є незбережені зміни; чистимо коли все «застосовано».
   useEffect(() => {
     if (!draftHydrated) return;
     try {
@@ -120,6 +162,10 @@ export default function CategoryRow({
           promo1PriceStr,
           promo1StartsAt,
           promo1ExpiresAt,
+          promo2CodeStr,
+          promo2PriceStr,
+          promo2StartsAt,
+          promo2ExpiresAt,
         }),
       );
     } catch {
@@ -133,6 +179,10 @@ export default function CategoryRow({
     promo1PriceStr,
     promo1StartsAt,
     promo1ExpiresAt,
+    promo2CodeStr,
+    promo2PriceStr,
+    promo2StartsAt,
+    promo2ExpiresAt,
   ]);
 
   async function handleSave() {
@@ -144,6 +194,10 @@ export default function CategoryRow({
         promo1Price: promo1PriceParsed.num,
         promo1StartsAt: effPromo1Starts,
         promo1ExpiresAt: effPromo1Expires,
+        promo2Code: promo2CodeParsed.code,
+        promo2Price: promo2PriceParsed.num,
+        promo2StartsAt: effPromo2Starts,
+        promo2ExpiresAt: effPromo2Expires,
       };
       const res = await fetch(`/api/admin/category-promo/${row.category}`, {
         method: 'PATCH',
@@ -180,6 +234,10 @@ export default function CategoryRow({
       setPromo1PriceStr('');
       setPromo1StartsAt(null);
       setPromo1ExpiresAt(null);
+      setPromo2CodeStr('');
+      setPromo2PriceStr('');
+      setPromo2StartsAt(null);
+      setPromo2ExpiresAt(null);
       router.refresh();
     } catch (err) {
       alert(`Помилка: ${err}`);
@@ -197,8 +255,10 @@ export default function CategoryRow({
     ? 'bg-rose-500/10 border-rose-400/40 text-rose-200 focus:ring-rose-400/40'
     : 'bg-rose-100/60 border-rose-400/60 text-rose-900 focus:ring-rose-500/40';
 
-  const promo1CodeCls = `${inputBase} text-center ${promo1CodeParsed.ok && promo1PairOk ? inputOk : inputBad}`;
+  const promo1CodeCls = `${inputBase} text-center ${promo1CodeParsed.ok && promo1PairOk && codesDistinct ? inputOk : inputBad}`;
   const promo1PriceCls = `${inputBase} text-center ${promo1PriceParsed.ok && promo1PairOk ? inputOk : inputBad}`;
+  const promo2CodeCls = `${inputBase} text-center ${promo2CodeParsed.ok && promo2PairOk && codesDistinct ? inputOk : inputBad}`;
+  const promo2PriceCls = `${inputBase} text-center ${promo2PriceParsed.ok && promo2PairOk ? inputOk : inputBad}`;
 
   const titleCell = (
     <div className="flex items-center gap-3">
@@ -217,7 +277,43 @@ export default function CategoryRow({
     </div>
   );
 
-  const promo1CodeCell = (
+  // UI "Промокод 1" / "Ціна 1" → БД promo2* (публічний)
+  const uiPromo1CodeCell = (
+    <div className="flex items-center gap-1.5">
+      <input
+        type="text"
+        placeholder="—"
+        className={`${promo2CodeCls} uppercase flex-1 min-w-0`}
+        value={promo2CodeStr}
+        onChange={e => setPromo2CodeStr(e.target.value)}
+        title="2–32 символи: латиниця, цифри, дефіс, підкреслення"
+      />
+      <PromoTimer
+        theme={theme}
+        startsAt={promo2StartsAt}
+        expiresAt={promo2ExpiresAt}
+        hasCode={promo2CodeParsed.code !== null}
+        label={`Промокод 1 · ${row.titleUk}${row.hint ? ' ' + row.hint : ''}`}
+        onChange={({ startsAt, expiresAt }) => {
+          setPromo2StartsAt(startsAt);
+          setPromo2ExpiresAt(expiresAt);
+        }}
+      />
+    </div>
+  );
+  const uiPromo1PriceCell = (
+    <input
+      type="text"
+      inputMode="numeric"
+      placeholder="—"
+      className={promo2PriceCls}
+      value={promo2PriceStr}
+      onChange={e => setPromo2PriceStr(e.target.value)}
+    />
+  );
+
+  // UI "Промокод 2" / "Ціна 2" → БД promo1* (SECRETPASS)
+  const uiPromo2CodeCell = (
     <div className="flex items-center gap-1.5">
       <input
         type="text"
@@ -232,7 +328,7 @@ export default function CategoryRow({
         startsAt={promo1StartsAt}
         expiresAt={promo1ExpiresAt}
         hasCode={promo1CodeParsed.code !== null}
-        label={`Промокод · ${row.titleUk}${row.hint ? ' ' + row.hint : ''}`}
+        label={`Промокод 2 · ${row.titleUk}${row.hint ? ' ' + row.hint : ''}`}
         onChange={({ startsAt, expiresAt }) => {
           setPromo1StartsAt(startsAt);
           setPromo1ExpiresAt(expiresAt);
@@ -240,7 +336,7 @@ export default function CategoryRow({
       />
     </div>
   );
-  const promo1PriceCell = (
+  const uiPromo2PriceCell = (
     <input
       type="text"
       inputMode="numeric"
@@ -298,13 +394,25 @@ export default function CategoryRow({
             <div className={`text-[10px] uppercase tracking-[0.18em] font-medium mb-1 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
               Промокод 1
             </div>
-            {promo1CodeCell}
+            {uiPromo1CodeCell}
           </div>
           <div>
             <div className={`text-[10px] uppercase tracking-[0.18em] font-medium mb-1 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
               Ціна 1, ₴
             </div>
-            {promo1PriceCell}
+            {uiPromo1PriceCell}
+          </div>
+          <div>
+            <div className={`text-[10px] uppercase tracking-[0.18em] font-medium mb-1 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+              Промокод 2
+            </div>
+            {uiPromo2CodeCell}
+          </div>
+          <div>
+            <div className={`text-[10px] uppercase tracking-[0.18em] font-medium mb-1 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+              Ціна 2, ₴
+            </div>
+            {uiPromo2PriceCell}
           </div>
         </div>
         <div className="flex justify-end">{actionsCell}</div>
@@ -320,11 +428,10 @@ export default function CategoryRow({
       <td className="px-2 py-2.5 align-middle" />
       <td className="px-2 py-2.5 align-middle" />
       <td className="px-2 py-2.5 align-middle" />
-      {/* Промокод 1 / Ціна 1 — пусті для категорій (поля винесені в колонки 2) */}
-      <td className="px-2 py-2.5 align-middle" />
-      <td className="px-2 py-2.5 align-middle" />
-      <td className="px-2 py-2.5 align-middle">{promo1CodeCell}</td>
-      <td className="px-2 py-2.5 align-middle">{promo1PriceCell}</td>
+      <td className="px-2 py-2.5 align-middle">{uiPromo1CodeCell}</td>
+      <td className="px-2 py-2.5 align-middle">{uiPromo1PriceCell}</td>
+      <td className="px-2 py-2.5 align-middle">{uiPromo2CodeCell}</td>
+      <td className="px-2 py-2.5 align-middle">{uiPromo2PriceCell}</td>
       <td className="px-2 py-2.5 align-middle">{actionsCell}</td>
     </tr>
   );
@@ -372,9 +479,9 @@ function ResetModal({
         }`}
         onClick={e => e.stopPropagation()}
       >
-        <h3 className="text-lg font-semibold mb-1">Скинути промокод?</h3>
+        <h3 className="text-lg font-semibold mb-1">Скинути промокоди?</h3>
         <p className={`text-sm mb-5 ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
-          Промокод для{' '}
+          Обидва промокоди для{' '}
           <span className={`font-semibold ${dark ? 'text-slate-100' : 'text-stone-900'}`}>«{title}»</span>{' '}
           буде видалено.
         </p>

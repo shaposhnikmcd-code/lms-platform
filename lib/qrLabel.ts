@@ -1,10 +1,10 @@
 export function getQrLabel(locale: string): { line1: string; line2: string } {
   switch (locale) {
     case 'en':
-      return { line1: 'Scan', line2: 'to open the course' };
+      return { line1: 'Scan', line2: 'to open the course on your phone' };
     case 'pl':
-      return { line1: 'Zeskanuj,', line2: 'aby otworzyć kurs' };
+      return { line1: 'Zeskanuj,', line2: 'aby otworzyć kurs na telefonie' };
     default:
-      return { line1: 'Скануйте,', line2: 'щоб відкрити курс' };
+      return { line1: 'Скануйте,', line2: 'щоб відкрити курс на телефоні' };
   }
 }

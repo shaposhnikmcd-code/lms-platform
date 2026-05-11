@@ -202,6 +202,10 @@ export async function applyPromoServerSide(args: {
         promo1Price: true,
         promo1StartsAt: true,
         promo1ExpiresAt: true,
+        promo2Code: true,
+        promo2Price: true,
+        promo2StartsAt: true,
+        promo2ExpiresAt: true,
       },
     });
     if (
@@ -211,6 +215,14 @@ export async function applyPromoServerSide(args: {
       isPromoWindowActive(cat.promo1StartsAt, cat.promo1ExpiresAt, now)
     ) {
       return { finalPrice: Math.max(1, cat.promo1Price), promoId: null };
+    }
+    if (
+      cat?.promo2Code &&
+      cat.promo2Code === code &&
+      cat.promo2Price !== null &&
+      isPromoWindowActive(cat.promo2StartsAt, cat.promo2ExpiresAt, now)
+    ) {
+      return { finalPrice: Math.max(1, cat.promo2Price), promoId: null };
     }
   }
 
