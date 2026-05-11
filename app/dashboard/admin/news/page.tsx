@@ -24,6 +24,8 @@ import {
   parseBlocks,
 } from '@/lib/news/render';
 import PreviewCardScale from '@/lib/news/PreviewCardScale';
+import TemplatePreviewCard from '@/lib/news/templates/TemplatePreviewCard';
+import { parseTemplateData, templateKindLabel, type TemplateKind } from '@/lib/news/templates/types';
 
 interface NewsItem {
   id: string;
@@ -38,6 +40,11 @@ interface NewsItem {
   pageBgColor: string | null;
   category: string;
   published: boolean;
+  isTemplate?: boolean;
+  /** Якщо задано — render-имо через шаблонний компонент (lib/news/templates).
+   *  В цьому разі `previewContent` ігнорується, превʼю автогенерується. */
+  templateKind?: 'ARTICLE' | 'EVENT' | null;
+  templateData?: string | null;
   suspendedAt: string | null;
   resumeAt: string | null;
   createdAt: string;
@@ -50,6 +57,9 @@ export default function AdminNewsPage() {
   const dark = theme === 'dark';
 
   const [news, setNews] = useState<NewsItem[]>([]);
+  const [templates, setTemplates] = useState<NewsItem[]>([]);
+  // Створені з blueprint-ів — рендеряться у тій же секції «Шаблони» під blueprint-ами.
+  const [templateNews, setTemplateNews] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null);
@@ -68,13 +78,18 @@ export default function AdminNewsPage() {
     | null
   >(null);
 
-  // Esc + body-scroll lock для будь-якої з двох превʼю-модалок.
-  const anyModalOpen = pagePreviewOpen || itemPreview !== null;
+  // Який confirm-діалог відкритий для staged-секції (`null` — закрито).
+  // Оголошуємо до Esc-handler-а нижче, інакше TDZ.
+  const [stagedConfirm, setStagedConfirm] = useState<null | 'publishNow' | 'discard'>(null);
+
+  // Esc + body-scroll lock для будь-якої з модалок.
+  const anyModalOpen = pagePreviewOpen || itemPreview !== null || stagedConfirm !== null;
   useEffect(() => {
     if (!anyModalOpen) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       if (itemPreview) setItemPreview(null);
+      else if (stagedConfirm) setStagedConfirm(null);
       else if (pagePreviewOpen) setPagePreviewOpen(false);
     };
     window.addEventListener('keydown', onKey);
@@ -84,7 +99,7 @@ export default function AdminNewsPage() {
       window.removeEventListener('keydown', onKey);
       document.body.style.overflow = prevOverflow;
     };
-  }, [anyModalOpen, pagePreviewOpen, itemPreview]);
+  }, [anyModalOpen, pagePreviewOpen, itemPreview, stagedConfirm]);
 
   // Staged ("Наступна сторінка") стан — для countdown і дій у адмінці.
   // `publishOn` — Київ-календарна дата (YYYY-MM-DD); час фіксований 06:00 Київ.
@@ -210,11 +225,13 @@ export default function AdminNewsPage() {
   }, []);
 
   const publishStagedNow = async () => {
-    if (!confirm('Опублікувати наступну сторінку зараз? Поточна live-версія буде замінена.')) return;
+    setStagedConfirm(null);
     setStagedActionPending('publishNow');
     try {
       const res = await fetch('/api/admin/news/page-content/next', { method: 'POST' });
       if (res.ok) {
+        // Staged консумовано → локальну editor-чернетку теж тру (див. коментар у discardStaged).
+        try { localStorage.removeItem('uimp_draft_page___news_page_next__'); } catch { /* ignore */ }
         setToast({ message: 'Опубліковано — наступна сторінка стала live', type: 'success' });
         refreshStaged();
       } else {
@@ -229,11 +246,16 @@ export default function AdminNewsPage() {
   };
 
   const discardStaged = async () => {
-    if (!confirm('Очистити чернетку «Наступної сторінки»? Контент і дату публікації буде видалено.')) return;
+    setStagedConfirm(null);
     setStagedActionPending('discard');
     try {
       const res = await fetch('/api/admin/news/page-content/next', { method: 'DELETE' });
       if (res.ok) {
+        // Бекенд очистив staged, але NewsEditor у білдері /page-builder/next
+        // має ще й локальну чернетку у localStorage (`uimp_draft_page___news_page_next__`)
+        // — без її видалення «Створити наступну» відкриється з тими ж блоками,
+        // що й до Очищення (editor-draft restore-иться поверх порожнього API-payload).
+        try { localStorage.removeItem('uimp_draft_page___news_page_next__'); } catch { /* ignore */ }
         setToast({ message: 'Чернетку видалено', type: 'success' });
         refreshStaged();
       } else {
@@ -281,10 +303,25 @@ export default function AdminNewsPage() {
   useEffect(() => {
     (async () => {
       try {
-        const r = await fetch('/api/admin/news');
-        if (!r.ok) throw new Error('Не вдалося завантажити новини');
-        const d = await r.json();
-        setNews(Array.isArray(d) ? d : []);
+        // Паралельно: 3 списки — blueprints + template-news (створені з шаблонів)
+        // + free-form news. Структура UI: «Шаблони» = blueprints+template-news,
+        // «Новини» = free-form. Розділення на API-рівні щоб не міксувати в клієнті.
+        const [rNews, rTpl, rTplNews] = await Promise.all([
+          fetch('/api/admin/news'),
+          fetch('/api/admin/news?type=templates'),
+          fetch('/api/admin/news?type=template-news'),
+        ]);
+        if (!rNews.ok) throw new Error('Не вдалося завантажити новини');
+        const dNews = await rNews.json();
+        setNews(Array.isArray(dNews) ? dNews : []);
+        if (rTpl.ok) {
+          const dTpl = await rTpl.json();
+          setTemplates(Array.isArray(dTpl) ? dTpl : []);
+        }
+        if (rTplNews.ok) {
+          const dTplNews = await rTplNews.json();
+          setTemplateNews(Array.isArray(dTplNews) ? dTplNews : []);
+        }
       } catch (err) {
         setToast({
           message: err instanceof Error ? err.message : 'Помилка завантаження',
@@ -307,7 +344,10 @@ export default function AdminNewsPage() {
         setToast({ message: data.error || 'Не вдалося видалити', type: 'error' });
         return;
       }
-      setNews(news.filter(n => n.id !== id));
+      // Видаляємо з обох списків — template-news живе у templateNews, free-form
+      // у news. Без цього UI не оновився б для template-картки під blueprint-ом.
+      setNews(prev => prev.filter(n => n.id !== id));
+      setTemplateNews(prev => prev.filter(n => n.id !== id));
       setToast({ message: 'Новину видалено', type: 'success' });
       setDeleteTarget(null);
     } catch {
@@ -354,7 +394,7 @@ export default function AdminNewsPage() {
           логічно очевидний, але це дві самостійні картки, що відповідає тому,
           що вони ведуть у РІЗНІ редактори (превʼю-картки vs контент новини).
           На вузьких екранах (<1280px) стек в одну колонку. */}
-      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(0,3fr)] gap-6 items-start">
+      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,0.85fr)_minmax(0,3.6fr)] gap-6 items-start">
         {/* ╭─ ЛІВА КОЛОНКА: операції зі сторінкою /news ─────────────────╮ */}
         <aside className="min-w-0">
           <div className={`flex items-center gap-2 mb-4 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
@@ -593,7 +633,7 @@ export default function AdminNewsPage() {
                       </div>
                       <button
                         type="button"
-                        onClick={publishStagedNow}
+                        onClick={() => setStagedConfirm('publishNow')}
                         disabled={stagedActionPending !== null}
                         title="Опублікувати чернетку негайно (без очікування дати)"
                         className={`flex-shrink-0 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-[12px] font-semibold rounded-lg transition-all disabled:opacity-50 ${
@@ -642,7 +682,7 @@ export default function AdminNewsPage() {
                 }`}>
                   <button
                     type="button"
-                    onClick={discardStaged}
+                    onClick={() => setStagedConfirm('discard')}
                     disabled={stagedActionPending !== null}
                     title="Видалити чернетку: контент і дату публікації буде стерто"
                     className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-full text-[12px] font-medium border transition-colors disabled:opacity-50 ${
@@ -711,6 +751,308 @@ export default function AdminNewsPage() {
             AbsoluteBlockRender (1-в-1 з білдером і публічним /news), права —
             title/excerpt/date + action-row. Зв'язок «картка ↔ новина» очевидний. */}
         <section className="min-w-0">
+          {/* ─── Секція ШАБЛОНИ ─── */}
+          {/* Шаблони — зверстані заготовки «Превʼю + Новина», які менеджер
+              наповнює інформацією. Структура попередньо професійно дизайнерська
+              (editorial article + event announcement) — досить замінити плейсхолдери
+              на власний текст/фото. Edit-кнопки відкривають ті ж білдери, що й
+              у новин: /[id]/preview для превʼю-картки і /[id]/edit для контенту. */}
+          <style>{NEWS_BLOCK_CSS}</style>
+          <div className={`flex items-center gap-3 mb-4 h-[36px] ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
+            <span className="text-[10px] font-bold tracking-[0.18em] uppercase whitespace-nowrap">
+              Шаблони <span className={`font-normal opacity-70`}>· {templates.length}</span>
+            </span>
+            <span className={`flex-1 h-px ${dark ? 'bg-white/[0.06]' : 'bg-stone-300/60'}`} />
+          </div>
+
+          {/* «Blueprint families» — 2-колонковий лейаут на десктопі: кожен kind
+              у власній колонці, всередині — blueprint card зверху і список
+              створених під ним. Чітка ієрархія parent→children, при цьому
+              паралельні колонки за kind-ом — менеджер одразу бачить ARTICLE
+              окремо від EVENT, не перемішується. */}
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-10">
+            {templates.map((tpl) => {
+              const kind = (tpl.templateKind || 'ARTICLE') as TemplateKind;
+              const data = parseTemplateData(kind, tpl.templateData);
+              const cleanTitle = tpl.title.replace(/^\[Шаблон\]\s*/i, '');
+              const children = templateNews.filter(tn => tn.templateKind === kind);
+              const childrenPub = children.filter(c => c.published).length;
+              const isEvent = kind === 'EVENT';
+              // Розмір preview blueprint-а у вузькій колонці: компактніше, ніж було.
+              // ARTICLE — портрет 180×200, EVENT — горизонтал 240×160.
+              const bpPreviewW = isEvent ? 240 : 180;
+              const bpPreviewH = isEvent
+                ? Math.round(bpPreviewW * (400 / 600))
+                : Math.round(bpPreviewW * (PREVIEW_CARD_HEIGHT / PREVIEW_CARD_WIDTH));
+              return (
+                <div key={tpl.id} className="flex flex-col">
+                  {/* ── BLUEPRINT card (full width, key visual для родини) ── */}
+                  <article
+                    className={`rounded-2xl border transition-all ${
+                      dark
+                        ? 'bg-sky-400/[0.04] border-sky-300/20 hover:border-sky-300/40'
+                        : 'bg-sky-50/65 border-sky-300/45 hover:border-sky-500/55'
+                    }`}
+                  >
+                    <header className="flex items-center gap-2.5 px-4 pt-3 pb-2.5 min-w-0">
+                      <span className={`inline-flex items-center justify-center w-7 h-7 rounded-lg text-[14px] flex-shrink-0 ${
+                        dark
+                          ? 'bg-sky-400/15 border border-sky-300/25'
+                          : 'bg-sky-100/80 border border-sky-600/25'
+                      }`} aria-hidden>
+                        {isEvent ? '🎟' : '📰'}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className={`text-[10px] font-bold tracking-[0.16em] uppercase ${
+                          dark ? 'text-sky-300/85' : 'text-sky-700/80'
+                        }`}>
+                          Шаблон · Blueprint
+                        </div>
+                        <div className={`text-[15px] font-semibold leading-tight mt-0.5 ${
+                          dark ? 'text-slate-100' : 'text-stone-900'
+                        }`}>
+                          {templateKindLabel(kind)}
+                        </div>
+                      </div>
+                      <span className={`flex-shrink-0 inline-flex items-center gap-1.5 px-2.5 h-[24px] rounded-full text-[10px] font-semibold ${
+                        dark
+                          ? 'bg-sky-400/10 text-sky-200/90 border border-sky-300/20'
+                          : 'bg-white/80 text-sky-800/85 border border-sky-600/20'
+                      }`}>
+                        <span aria-hidden>📂</span>
+                        <span>{children.length} створено{children.length > 0 ? ` · ${childrenPub} на /news` : ''}</span>
+                      </span>
+                    </header>
+
+                    <div className="flex gap-4 px-4 pb-4 items-stretch flex-wrap md:flex-nowrap">
+                      {/* Preview blueprint-а — kind-aware (portrait/horizontal) */}
+                      <div
+                        className={`group/preview relative flex-shrink-0 rounded-xl overflow-hidden border ${
+                          dark ? 'border-sky-300/20' : 'border-sky-300/40'
+                        }`}
+                        style={{
+                          width: bpPreviewW,
+                          height: bpPreviewH,
+                          background: '#FFFFFF',
+                        }}
+                      >
+                        <div className="w-full h-full" style={{ pointerEvents: 'none' }} aria-hidden>
+                          <PreviewCardScale
+                            baseWidth={isEvent ? 600 : PREVIEW_CARD_WIDTH}
+                            baseHeight={isEvent ? 400 : PREVIEW_CARD_HEIGHT}
+                            initialScale={1}
+                          >
+                            <TemplatePreviewCard kind={kind} data={data} />
+                          </PreviewCardScale>
+                        </div>
+                      </div>
+
+                      {/* Meta + actions */}
+                      <div
+                        className={`flex-1 min-w-0 rounded-xl border backdrop-blur-sm flex flex-col p-4 ${
+                          dark
+                            ? 'bg-white/[0.04] border-white/[0.08]'
+                            : 'bg-white/85 border-stone-300/50'
+                        }`}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <h3 className={`text-[15px] font-semibold leading-snug ${
+                            dark ? 'text-slate-100' : 'text-stone-900'
+                          }`}>
+                            {cleanTitle}
+                          </h3>
+                          {tpl.excerpt && (
+                            <p className={`mt-2 text-[12.5px] leading-relaxed line-clamp-3 ${
+                              dark ? 'text-slate-400' : 'text-stone-500'
+                            }`}>
+                              {tpl.excerpt}
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex flex-col sm:flex-row gap-2 mt-4">
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                const res = await fetch('/api/admin/news/from-template', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ blueprintId: tpl.id }),
+                                });
+                                if (!res.ok) {
+                                  const j = await res.json().catch(() => ({}));
+                                  setToast({ message: j?.error || 'Не вдалось створити з шаблону', type: 'error' });
+                                  return;
+                                }
+                                const j = await res.json();
+                                window.location.href = `/dashboard/admin/news/${j.id}/template`;
+                              } catch (e) {
+                                setToast({ message: e instanceof Error ? e.message : 'Помилка мережі', type: 'error' });
+                              }
+                            }}
+                            className={`flex-1 inline-flex items-center justify-center gap-1.5 px-4 h-10 text-[13px] font-semibold rounded-lg transition-all ${
+                              dark
+                                ? 'bg-sky-400/90 text-stone-900 hover:bg-sky-300 shadow-[0_0_16px_-4px_rgba(56,189,248,0.45)]'
+                                : 'bg-sky-700 text-white hover:bg-sky-800 shadow-[0_2px_8px_-2px_rgba(2,132,199,0.35)]'
+                            }`}
+                          >
+                            <FaPlus className="text-[11px]" />
+                            Створити з шаблону
+                          </button>
+                          <Link
+                            href={`/dashboard/admin/news/${tpl.id}/template`}
+                            className={`inline-flex items-center justify-center gap-1.5 px-4 h-10 text-[12px] font-medium rounded-lg border transition-colors ${
+                              dark
+                                ? 'bg-white/[0.04] border-white/[0.10] text-slate-300 hover:bg-white/[0.10] hover:text-slate-100'
+                                : 'bg-white/80 border-stone-300/60 text-stone-700 hover:bg-white hover:text-stone-900'
+                            }`}
+                          >
+                            <FaEdit className="text-[10px]" />
+                            Дефолти
+                          </Link>
+                        </div>
+                      </div>
+                    </div>
+                  </article>
+
+                  {/* ── CHILDREN — створені з цього blueprint-у ── */}
+                  {/* Indent + ліва акцентна смужка → візуально читається як children
+                      tree. Empty state ненав'язливий. */}
+                  <div
+                    className={`relative ml-6 mt-3 pl-6 ${
+                      dark ? 'border-l-2 border-sky-400/15' : 'border-l-2 border-sky-300/40'
+                    }`}
+                  >
+                    {/* Connector "tee" — маленька горизонтальна риска від смужки до header-а */}
+                    <span
+                      aria-hidden
+                      className={`absolute left-0 top-3 w-4 h-px ${
+                        dark ? 'bg-sky-400/15' : 'bg-sky-300/40'
+                      }`}
+                    />
+                    <div className={`flex items-center gap-2 mb-3 text-[10px] font-bold uppercase tracking-[0.14em] ${
+                      dark ? 'text-slate-500' : 'text-stone-500'
+                    }`}>
+                      <span>Створені з цього шаблону</span>
+                      <span className={`font-normal opacity-70 normal-case tracking-normal text-[11px]`}>
+                        · {children.length}
+                      </span>
+                    </div>
+
+                    {children.length === 0 ? (
+                      <div className={`rounded-xl border border-dashed px-4 py-5 text-[12px] ${
+                        dark
+                          ? 'border-white/[0.08] text-slate-500 bg-white/[0.02]'
+                          : 'border-stone-300/60 text-stone-500 bg-white/40'
+                      }`}>
+                        Поки що нічого не створено. Натисни <strong>«+ Створити з шаблону»</strong> вище — заповнюй поля, і нова новина зʼявиться тут.
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 gap-3">
+                        {children.map((tn) => {
+                          const tnData = parseTemplateData(kind, tn.templateData);
+                          const created = new Date(tn.createdAt);
+                          const dateStr = created.toLocaleDateString('uk-UA', { day: '2-digit', month: 'short' });
+                          const isPublished = !!tn.published;
+                          // Дитяча preview-картка: kind-aware aspect, ширина адаптивна
+                          const previewBaseW = isEvent ? 600 : PREVIEW_CARD_WIDTH;
+                          const previewBaseH = isEvent ? 400 : PREVIEW_CARD_HEIGHT;
+                          return (
+                            <article
+                              key={tn.id}
+                              className={`group/tn rounded-xl border overflow-hidden flex flex-col transition-all ${
+                                dark
+                                  ? 'bg-white/[0.025] border-white/[0.08] hover:border-sky-400/35 hover:bg-white/[0.04]'
+                                  : 'bg-white/85 border-stone-300/55 hover:border-sky-500/45 hover:bg-white'
+                              }`}
+                            >
+                              {/* Preview thumbnail — натуральне співвідношення kind-у */}
+                              <Link
+                                href={`/dashboard/admin/news/${tn.id}/template`}
+                                className="block relative w-full"
+                                style={{ aspectRatio: `${previewBaseW} / ${previewBaseH}`, background: tn.pageBgColor || '#FFFFFF' }}
+                                aria-label={`Редагувати «${tn.title}»`}
+                              >
+                                <div className="absolute inset-0" style={{ pointerEvents: 'none' }} aria-hidden>
+                                  <PreviewCardScale
+                                    baseWidth={previewBaseW}
+                                    baseHeight={previewBaseH}
+                                    initialScale={1}
+                                  >
+                                    <TemplatePreviewCard kind={kind} data={tnData} disableLinks />
+                                  </PreviewCardScale>
+                                </div>
+                                {/* Status overlay — top-right */}
+                                <span className={`absolute top-2 right-2 z-[1] inline-flex items-center gap-1 px-2 h-[20px] rounded-full text-[9px] font-bold uppercase tracking-[0.08em] backdrop-blur-md ${
+                                  isPublished
+                                    ? dark
+                                      ? 'bg-emerald-500/30 text-emerald-100 border border-emerald-400/40'
+                                      : 'bg-emerald-500/85 text-white border border-emerald-600/40'
+                                    : dark
+                                      ? 'bg-amber-500/30 text-amber-100 border border-amber-400/40'
+                                      : 'bg-amber-500/85 text-white border border-amber-600/40'
+                                }`}>
+                                  <span className={`inline-block w-1 h-1 rounded-full ${isPublished ? 'bg-emerald-300' : 'bg-amber-100'}`} />
+                                  <span>{isPublished ? 'На /news' : 'Чернетка'}</span>
+                                </span>
+                              </Link>
+
+                              {/* Body */}
+                              <div className="flex flex-col gap-1.5 p-3 flex-1 min-h-0">
+                                <h3 className={`text-[13.5px] font-semibold leading-snug line-clamp-2 ${
+                                  dark ? 'text-slate-100' : 'text-stone-900'
+                                }`} title={tn.title}>
+                                  {tn.title}
+                                </h3>
+                                <div className={`text-[10.5px] inline-flex items-center gap-1.5 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+                                  <FaCalendar className="text-[9px] opacity-70" />
+                                  <span>{dateStr}</span>
+                                  <span className="opacity-40">·</span>
+                                  <span className="font-mono opacity-70 truncate">{tn.slug}</span>
+                                </div>
+                              </div>
+
+                              {/* Footer-actions */}
+                              <div className={`flex items-center gap-1.5 px-3 py-2 border-t ${
+                                dark ? 'border-white/[0.06]' : 'border-stone-300/40'
+                              }`}>
+                                <Link
+                                  href={`/dashboard/admin/news/${tn.id}/template`}
+                                  className={`flex-1 inline-flex items-center justify-center gap-1.5 px-2 h-8 text-[12px] font-semibold rounded-md transition-all ${
+                                    dark
+                                      ? 'bg-amber-400/90 text-stone-900 hover:bg-amber-300'
+                                      : 'bg-stone-900 text-amber-100 hover:bg-stone-800'
+                                  }`}
+                                >
+                                  <FaEdit className="text-[10px]" />
+                                  Редагувати
+                                </Link>
+                                <button
+                                  type="button"
+                                  onClick={() => setDeleteTarget({ id: tn.id, title: tn.title })}
+                                  title="Видалити"
+                                  aria-label="Видалити"
+                                  className={`inline-flex items-center justify-center w-8 h-8 rounded-md border transition-colors ${
+                                    dark
+                                      ? 'bg-rose-500/[0.08] border-rose-400/20 text-rose-300 hover:bg-rose-500/20'
+                                      : 'bg-rose-50/60 border-rose-300/50 text-rose-700 hover:bg-rose-100'
+                                  }`}
+                                >
+                                  <FaTrash className="text-[10px]" />
+                                </button>
+                              </div>
+                            </article>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* ─── Секція НОВИНИ ─── */}
           {/* Section header: лейбл + лічильник + primary CTA «Створити новину». */}
           <div className={`flex items-center gap-3 mb-4 h-[36px] ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
             <span className="text-[10px] font-bold tracking-[0.18em] uppercase whitespace-nowrap">
@@ -779,6 +1121,20 @@ export default function AdminNewsPage() {
                   // коли новин > 9. Допомагає менеджеру referencing-ом усно.
                   const pairNum = String(idx + 1).padStart(2, '0');
 
+                  // Template-based новина: рендер preview автоматично з templateData,
+                  // edit-кнопка веде на form-based template editor.
+                  const isTemplateNews = !!item.templateKind;
+                  const tplKind = item.templateKind as TemplateKind | null;
+                  const tplData = isTemplateNews && tplKind
+                    ? parseTemplateData(tplKind, item.templateData)
+                    : null;
+                  const editHref = isTemplateNews
+                    ? `/dashboard/admin/news/${item.id}/template`
+                    : `/dashboard/admin/news/${item.id}/edit`;
+                  const previewEditHref = isTemplateNews
+                    ? `/dashboard/admin/news/${item.id}/template`
+                    : `/dashboard/admin/news/${item.id}/preview`;
+
                   // Висота sub-cards. 220 дає preview візуальну вагу, та чітку
                   // ритмічну сітку рядків з 2 пар.
                   const PAIR_H = 220;
@@ -814,6 +1170,16 @@ export default function AdminNewsPage() {
                         }`} title={item.title}>
                           {item.title}
                         </span>
+                        {isTemplateNews && tplKind && (
+                          <span className={`flex-shrink-0 inline-flex items-center gap-1 px-2 h-[22px] rounded-md text-[9px] font-bold uppercase tracking-[0.1em] ${
+                            dark
+                              ? 'bg-sky-400/15 text-sky-200 border border-sky-300/25'
+                              : 'bg-sky-50/80 text-sky-800 border border-sky-600/25'
+                          }`}>
+                            <span aria-hidden>{tplKind === 'ARTICLE' ? '📰' : '🎟'}</span>
+                            <span>{templateKindLabel(tplKind)}</span>
+                          </span>
+                        )}
                         <span className={`flex-shrink-0 inline-flex items-center gap-1 px-2 h-[22px] rounded-md text-[9px] font-bold uppercase tracking-[0.1em] ${
                           dark
                             ? 'bg-stone-900/40 text-amber-200 border border-amber-300/25'
@@ -841,7 +1207,17 @@ export default function AdminNewsPage() {
                             background: cardBg,
                           }}
                         >
-                          {hasPreview ? (
+                          {isTemplateNews && tplKind && tplData ? (
+                            <div className="w-full h-full" style={{ pointerEvents: 'none' }} aria-hidden>
+                              <PreviewCardScale
+                                baseWidth={PREVIEW_CARD_WIDTH}
+                                baseHeight={PREVIEW_CARD_HEIGHT}
+                                initialScale={1}
+                              >
+                                <TemplatePreviewCard kind={tplKind} data={tplData} disableLinks />
+                              </PreviewCardScale>
+                            </div>
+                          ) : hasPreview ? (
                             <div className="w-full h-full" style={{ pointerEvents: 'none' }} aria-hidden>
                               <PreviewCardScale
                                 baseWidth={PREVIEW_CARD_WIDTH}
@@ -869,11 +1245,11 @@ export default function AdminNewsPage() {
                             </div>
                           )}
 
-                          {/* Invisible Link — клік по всій картці → /preview-білдер. */}
+                          {/* Invisible Link — клік по всій картці → відповідний редактор. */}
                           <Link
-                            href={`/dashboard/admin/news/${item.id}/preview`}
-                            aria-label={`Редагувати превʼю-картку «${item.title}»`}
-                            title="Редагувати превʼю-картку"
+                            href={previewEditHref}
+                            aria-label={`Редагувати «${item.title}»`}
+                            title={isTemplateNews ? 'Відкрити шаблонний редактор' : 'Редагувати превʼю-картку'}
                             className="absolute inset-0 z-[1] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-amber-400 rounded-xl"
                           />
 
@@ -929,7 +1305,7 @@ export default function AdminNewsPage() {
                             dark ? 'border-white/[0.06]' : 'border-stone-300/40'
                           }`}>
                             <Link
-                              href={`/dashboard/admin/news/${item.id}/edit`}
+                              href={editHref}
                               className={`flex-1 inline-flex items-center justify-center gap-1.5 px-3 h-9 text-[12.5px] font-semibold rounded-lg transition-all ${
                                 dark
                                   ? 'bg-amber-400/90 text-stone-900 hover:bg-amber-300 shadow-[0_0_16px_-4px_rgba(251,191,36,0.50)]'
@@ -1073,6 +1449,94 @@ export default function AdminNewsPage() {
           </div>
         </div>
       )}
+
+      {/* Confirm-modal для дій над staged-сторінкою (publishNow / discard).
+          Заміщає native confirm() — у тому ж візуальному коді, що delete-модалка
+          (rounded-2xl, кремовий/темний фон, kremowa/dark тема). */}
+      {stagedConfirm && (() => {
+        const isDiscard = stagedConfirm === 'discard';
+        const cfg = isDiscard
+          ? {
+              icon: '🗑',
+              title: 'Очистити чернетку?',
+              body: (
+                <>
+                  Чернетку «<span className={`font-semibold ${dark ? 'text-slate-100' : 'text-stone-900'}`}>Наступна сторінка</span>» —
+                  контент і дату публікації — буде видалено. Поточна live-сторінка не зміниться.
+                </>
+              ),
+              confirmLabel: 'Очистити',
+              confirmClass: dark
+                ? 'bg-rose-500/90 text-white hover:bg-rose-500 shadow-[0_0_20px_-4px_rgba(244,63,94,0.5)]'
+                : 'bg-rose-600 text-white hover:bg-rose-700 shadow-sm',
+            }
+          : {
+              icon: '⚡',
+              title: 'Опублікувати наступну сторінку зараз?',
+              body: (
+                <>
+                  Поточна live-версія буде замінена негайно — без очікування запланованої дати.
+                  Сторінку <span className={`font-semibold ${dark ? 'text-slate-100' : 'text-stone-900'}`}>/news</span> побачать відвідувачі одразу.
+                </>
+              ),
+              confirmLabel: 'Опублікувати зараз',
+              confirmClass: dark
+                ? 'bg-emerald-400/90 text-stone-900 hover:bg-emerald-300 shadow-[0_0_20px_-4px_rgba(16,185,129,0.5)]'
+                : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm',
+            };
+        const pending = stagedActionPending !== null;
+        return (
+          <div
+            className={`fixed inset-0 flex items-center justify-center z-50 backdrop-blur-sm ${
+              dark ? 'bg-black/60' : 'bg-stone-900/30'
+            }`}
+            onClick={() => !pending && setStagedConfirm(null)}
+          >
+            <div
+              className={`rounded-2xl p-6 w-full max-w-sm mx-4 border shadow-2xl ${
+                dark ? 'bg-[#14161d] border-white/[0.08]' : 'bg-[#fbf7ec] border-stone-300/60'
+              }`}
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex items-start gap-3 mb-3">
+                <span className={`flex-shrink-0 inline-flex items-center justify-center w-10 h-10 rounded-full text-[18px] ${
+                  isDiscard
+                    ? dark ? 'bg-rose-500/15 text-rose-300' : 'bg-rose-100 text-rose-700'
+                    : dark ? 'bg-emerald-400/15 text-emerald-300' : 'bg-emerald-100 text-emerald-700'
+                }`}>{cfg.icon}</span>
+                <h3 className={`text-lg font-semibold leading-snug pt-1.5 ${dark ? 'text-slate-100' : 'text-stone-900'}`}>
+                  {cfg.title}
+                </h3>
+              </div>
+              <p className={`text-sm mb-5 leading-relaxed ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
+                {cfg.body}
+              </p>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setStagedConfirm(null)}
+                  disabled={pending}
+                  className={`flex-1 px-4 py-2.5 text-sm font-medium rounded-xl border transition-colors disabled:opacity-50 ${
+                    dark
+                      ? 'bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.08]'
+                      : 'bg-white/70 border-stone-300/60 text-stone-700 hover:bg-white'
+                  }`}
+                >
+                  Скасувати
+                </button>
+                <button
+                  type="button"
+                  onClick={() => isDiscard ? discardStaged() : publishStagedNow()}
+                  disabled={pending}
+                  className={`flex-1 px-4 py-2.5 text-sm font-medium rounded-xl transition-colors disabled:opacity-50 ${cfg.confirmClass}`}
+                >
+                  {pending ? '...' : cfg.confirmLabel}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Delete modal */}
       {deleteTarget && (

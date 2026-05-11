@@ -265,6 +265,9 @@ export interface NewsListItemForBlock {
   previewContentEn?: string | null;
   previewContentPl?: string | null;
   pageBgColor?: string | null;
+  /** Якщо задано — render-имо preview через TemplatePreviewCard замість блокового. */
+  templateKind?: "ARTICLE" | "EVENT" | null;
+  templateData?: string | null;
 }
 
 interface OverlayShape {
@@ -718,7 +721,32 @@ export function BlockInner({
         );
       }
 
-      // ── EXPANDED — рендеримо ВИКЛЮЧНО блоки новини, як вони були зверстані в білдері.
+      // ── EXPANDED (template-based) ──
+      if (displayMode === "expanded" && item.templateKind && item.templateData) {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { parseTemplateData } = require("./templates/types");
+        const tplData = parseTemplateData(item.templateKind, item.templateData);
+        if (item.templateKind === "ARTICLE") {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const ArticleTemplate = require("./templates/ArticleTemplate").default;
+          return (
+            <a href={`/${lc}/news/${item.slug}`} style={{ display: "block", textDecoration: "none", color: "inherit" }}>
+              <ArticleTemplate data={tplData} />
+            </a>
+          );
+        }
+        // EVENT
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const EventTemplate = require("./templates/EventTemplate").default;
+        return (
+          <a href={`/${lc}/news/${item.slug}`} style={{ display: "block", textDecoration: "none", color: "inherit" }}>
+            <EventTemplate data={tplData} />
+          </a>
+        );
+      }
+
+      // ── EXPANDED (free-canvas, legacy) ──
+      // Рендеримо ВИКЛЮЧНО блоки новини, як вони були зверстані в білдері.
       // Без cover/title/meta header-а і без footer-лінка — це повна репліка білдера новини.
       // Фон сторінки новини застосовуємо, бо її блоки могли бути зверстані з ним в розрахунку.
       if (displayMode === "expanded") {
@@ -760,7 +788,49 @@ export function BlockInner({
         );
       }
 
-      // ── PREVIEW ──
+      // ── PREVIEW (template-based) ──
+      // Якщо новина базується на шаблоні (templateKind), рендеримо preview через
+      // TemplatePreviewCard (auto з templateData). Жодних блоків — фіксована форма.
+      // Розміри картки залежать від kind: ARTICLE=360×400 (портрет), EVENT=600×400
+      // (горизонтальна 2-кол з фото фахівця + інфо).
+      if (item.templateKind && item.templateData) {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const TemplatePreviewCard = require("./templates/TemplatePreviewCard").default;
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { parseTemplateData, TEMPLATE_PREVIEW_DIMS } = require("./templates/types") as
+          typeof import("./templates/types") & { TEMPLATE_PREVIEW_DIMS?: never };
+        // TEMPLATE_PREVIEW_DIMS живе в TemplatePreviewCard, тягнемо звідти:
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { TEMPLATE_PREVIEW_DIMS: DIMS } = require("./templates/TemplatePreviewCard");
+        const dims = DIMS[item.templateKind] || { width: PREVIEW_CARD_WIDTH, height: PREVIEW_CARD_HEIGHT };
+        const blockWPct = Number(block.width) || 100;
+        const initialActualWidth = Math.max(60, (CANVAS_WIDTH * blockWPct) / 100);
+        const initialScale = initialActualWidth / dims.width;
+        const data = parseTemplateData(item.templateKind, item.templateData);
+        return (
+          <a
+            href={`/${lc}/news/${item.slug}`}
+            style={{
+              display: "block",
+              position: "relative",
+              width: "100%",
+              background: "transparent",
+              textDecoration: "none",
+              color: "inherit",
+            }}
+          >
+            <PreviewCardScale
+              baseWidth={dims.width}
+              baseHeight={dims.height}
+              initialScale={initialScale}
+            >
+              <TemplatePreviewCard kind={item.templateKind} data={data} disableLinks />
+            </PreviewCardScale>
+          </a>
+        );
+      }
+
+      // ── PREVIEW (free-canvas, legacy) ──
       // Якщо адмін зверстав кастомний layout превʼю в /dashboard/admin/news/[id]/preview —
       // рендеримо ті блоки 1-в-1 (повна свобода компоновки). Інакше — дефолтний auto-card.
       const localizedPreview =

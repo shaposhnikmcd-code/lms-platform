@@ -15,7 +15,22 @@ export async function GET(req: NextRequest) {
   // публічного рендеру). `previewContent` (uk-канон) повертаємо повністю —
   // адмінський список рендерить превʼю-картки 1-в-1 з білдером через
   // AbsoluteBlockRender (канвас 360×400, зазвичай одиниці KB).
+  // Параметр ?type=
+  //   - "templates" → blueprint-и (isTemplate=true). 2 шт.
+  //   - "template-news" → новини, створені з blueprint-у (isTemplate=false + templateKind!=null).
+  //   - "news" (default) → free-form новини (isTemplate=false + templateKind=null).
+  // Це розділення віддзеркалює структуру UI на /dashboard/admin/news:
+  // секція «Шаблони» = blueprints + template-news; секція «Новини» = free-form.
+  const url = new URL(req.url);
+  const typeParam = url.searchParams.get("type");
+  const where =
+    typeParam === "templates"
+      ? { isTemplate: true }
+      : typeParam === "template-news"
+        ? { isTemplate: false, templateKind: { not: null } }
+        : { isTemplate: false, templateKind: null };
   const items = await prisma.news.findMany({
+    where,
     orderBy: { createdAt: "desc" },
     select: {
       id: true,
@@ -25,6 +40,9 @@ export async function GET(req: NextRequest) {
       imageUrl: true,
       category: true,
       published: true,
+      isTemplate: true,
+      templateKind: true,
+      templateData: true,
       suspendedAt: true,
       resumeAt: true,
       createdAt: true,

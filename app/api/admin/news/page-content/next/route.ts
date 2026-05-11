@@ -38,16 +38,18 @@ export async function GET(req: NextRequest) {
   const page = await prisma.newsPage.findUnique({ where: { key: KEY } });
   if (!page) return NextResponse.json(null);
 
-  // Якщо staged-копії ще нема — повертаємо live як стартовий стан, щоб білдер
-  // відкрився з тим самим контентом і менеджер вносив зміни поверх, а не з нуля.
-  // Прапор `hasStaged` дає клієнту знати чи це справжня чернетка чи fallback.
+  // Якщо staged-копії нема — віддаємо порожній канвас, а не клон live.
+  // Поведінка очікувана менеджером: «Створити наступну» = чистий аркуш;
+  // «Очистити чернетку» → знову чистий аркуш. Якщо потрібно стартувати з
+  // копії live-сторінки, це робиться явно (окрема дія, не fallback).
+  // Прапор `hasStaged` дає клієнту знати чи це справжня чернетка.
   const hasStaged = page.nextContent !== null;
   return NextResponse.json({
     hasStaged,
-    content: page.nextContent ?? page.content,
-    contentEn: page.nextContentEn ?? page.contentEn,
-    contentPl: page.nextContentPl ?? page.contentPl,
-    pageBgColor: page.nextPageBgColor ?? page.pageBgColor,
+    content: page.nextContent ?? "",
+    contentEn: page.nextContentEn ?? "",
+    contentPl: page.nextContentPl ?? "",
+    pageBgColor: page.nextPageBgColor ?? "",
     // `publishOn` — Київ-календарна дата (YYYY-MM-DD). UI працює тільки з нею.
     // `publishAt` — повний UTC-інстант для довідкових рендерів (countdown).
     publishOn: utcToKyivDateStr(page.nextPublishAt),

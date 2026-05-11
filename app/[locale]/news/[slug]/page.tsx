@@ -18,6 +18,9 @@ import {
   repairBlocks,
   SequentialBlockRender,
 } from "@/lib/news/render";
+import ArticleTemplate from "@/lib/news/templates/ArticleTemplate";
+import EventTemplate from "@/lib/news/templates/EventTemplate";
+import { parseTemplateData, type TemplateKind } from "@/lib/news/templates/types";
 
 const getContent = getTranslatedContent(newsContent, "news-page", {
   en: () => import("../_content/en").then(m => m.default),
@@ -48,11 +51,14 @@ export default async function NewsItemPage({ params }: Props) {
     !!item?.suspendedAt &&
     new Date(item.suspendedAt) <= now &&
     (!item.resumeAt || new Date(item.resumeAt) > now);
-  if (!item || !item.published || isSuspended) notFound();
+  // Шаблони (isTemplate=true) ніколи не доступні публічно — це лише
+  // адмін-заготовки для спрощення створення новин.
+  if (!item || !item.published || isSuspended || item.isTemplate) notFound();
 
   const related = await prisma.news.findMany({
     where: {
       published: true,
+      isTemplate: false,
       id: { not: item.id },
       category: item.category,
       OR: [
@@ -75,6 +81,13 @@ export default async function NewsItemPage({ params }: Props) {
     : locale === "pl" ? (item.contentPl ?? item.content)
     : item.content;
 
+  // Template-based news: render through dedicated template component instead
+  // of free-canvas blocks. Skip the gradient hero (template has its own cover).
+  const isTemplateNews = !!item.templateKind;
+  const templateData = isTemplateNews && item.templateKind
+    ? parseTemplateData(item.templateKind as TemplateKind, item.templateData)
+    : null;
+
   let { isJson, blocks } = parseBlocks(localizedContent);
   // Якщо локалізована версія взагалі зламана — падаємо на UK-оригінал
   if (locale !== 'uk' && !isJson) {
@@ -95,33 +108,46 @@ export default async function NewsItemPage({ params }: Props) {
   return (
     <main className="min-h-screen bg-gray-50">
       <BackButton href="/news" label={c.back} />
-      <section className="bg-gradient-to-br from-[#1C3A2E] to-[#2a4f3f] text-white py-12">
-        <div className="max-w-4xl mx-auto px-4">
-          <h1 className="text-3xl md:text-4xl font-bold leading-tight">{title}</h1>
-          {excerpt && (
-            <p className="text-white/70 text-lg mt-4 leading-relaxed">{excerpt}</p>
-          )}
-          {item.showAuthorMeta && (
-            <div className="flex items-center gap-3 mt-6">
-              <span className="flex items-center gap-1 text-xs text-white/50">
-                <FaCalendar />{new Date(item.createdAt).toLocaleDateString(locale === "uk" ? "uk-UA" : locale === "pl" ? "pl-PL" : "en-US")}
-              </span>
-              {item.author?.name && (
+      {/* Gradient hero — тільки для НЕ-шаблонних новин. У шаблонах власний cover-hero. */}
+      {!isTemplateNews && (
+        <section className="bg-gradient-to-br from-[#1C3A2E] to-[#2a4f3f] text-white py-12">
+          <div className="max-w-4xl mx-auto px-4">
+            <h1 className="text-3xl md:text-4xl font-bold leading-tight">{title}</h1>
+            {excerpt && (
+              <p className="text-white/70 text-lg mt-4 leading-relaxed">{excerpt}</p>
+            )}
+            {item.showAuthorMeta && (
+              <div className="flex items-center gap-3 mt-6">
                 <span className="flex items-center gap-1 text-xs text-white/50">
-                  <FaUser />{item.author.name}
+                  <FaCalendar />{new Date(item.createdAt).toLocaleDateString(locale === "uk" ? "uk-UA" : locale === "pl" ? "pl-PL" : "en-US")}
                 </span>
-              )}
-            </div>
-          )}
-        </div>
-      </section>
+                {item.author?.name && (
+                  <span className="flex items-center gap-1 text-xs text-white/50">
+                    <FaUser />{item.author.name}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        </section>
+      )}
 
       <div className="mx-auto py-10 px-4 md:px-0" style={{ maxWidth: `${CANVAS_WIDTH + 64}px` }}>
         <div
           className="rounded-2xl shadow-sm"
-          style={{ background: item.pageBgColor || "#FFFFFF", padding: "32px" }}
+          style={{ background: item.pageBgColor || "#FFFFFF", padding: isTemplateNews ? "32px 24px" : "32px" }}
         >
-          {isJson && blocks.length > 0 && (() => {
+          {/* Template-render branch: рендериться повністю окремим компонентом
+              з фіксованими слотами (object-fit:cover) — нічого не зміщується,
+              hero/title/lead вже в розмітці шаблона. */}
+          {isTemplateNews && templateData && item.templateKind === "ARTICLE" && (
+            <ArticleTemplate data={templateData as import("@/lib/news/templates/types").ArticleData} />
+          )}
+          {isTemplateNews && templateData && item.templateKind === "EVENT" && (
+            <EventTemplate data={templateData as import("@/lib/news/templates/types").EventData} />
+          )}
+
+          {!isTemplateNews && isJson && blocks.length > 0 && (() => {
             const useAbsolute = hasCoords(blocks);
             // Для мобільного — сортуємо по y (потім по x) і стекаємо 100%
             const mobileOrdered = [...blocks].sort((a, b) => (a.y ?? 0) - (b.y ?? 0) || (a.x ?? 0) - (b.x ?? 0));
@@ -142,11 +168,11 @@ export default async function NewsItemPage({ params }: Props) {
             );
           })()}
 
-          {isOldHtml && (
+          {!isTemplateNews && isOldHtml && (
             <div className="news-content" dangerouslySetInnerHTML={{ __html: sanitizeHtml(item.content || "") }} />
           )}
 
-          {!isJson && !isOldHtml && (
+          {!isTemplateNews && !isJson && !isOldHtml && (
             <div className="text-gray-400 italic">{c.emptyContent}</div>
           )}
         </div>

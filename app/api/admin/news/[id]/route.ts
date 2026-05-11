@@ -47,7 +47,9 @@ export async function PATCH(
   let translations = {};
   if (needsRetranslate) {
     const current = await prisma.news.findUnique({ where: { id } });
-    if (current) {
+    // Шаблони не публікуються — переклади їм не потрібні (та й placeholder-тексти
+    // у дужках типу "[Заголовок]" не варто гонити через DeepL).
+    if (current && !current.isTemplate) {
       translations = await translateNewsAllLocales({
         title: data.title ?? current.title,
         excerpt: data.excerpt ?? current.excerpt,

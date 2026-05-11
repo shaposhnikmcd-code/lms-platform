@@ -40,8 +40,10 @@ export default function DashboardBackButton() {
     // Navigate up one level in the path. Деякі URL-патерни мають лиш-листові
     // ендпоінти (`/[id]/edit`, `/[id]/preview`) — їх dynamic-id level не має
     // page.tsx і дав би 404, тож skip-имо ще один сегмент.
+    // `/page-builder/next` — це staged-білдер; при поверненні очікувано йти
+    // не на /page-builder (live-білдер), а одразу на /dashboard/admin/news.
     const normalizedPath = pathname.replace(/\/$/, "");
-    const SKIP_TWO_SUFFIXES = ["/edit", "/preview"];
+    const SKIP_TWO_SUFFIXES = ["/edit", "/preview", "/template", "/page-builder/next"];
     const segments = normalizedPath.split("/");
     segments.pop();
     if (SKIP_TWO_SUFFIXES.some(s => normalizedPath.endsWith(s))) {

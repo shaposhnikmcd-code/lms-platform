@@ -560,6 +560,20 @@ model News {
   showAuthorMeta Boolean @default(false)
   category    NewsCategory @default(NEWS)
   published   Boolean      @default(false)
+  /// `isTemplate=true` — це BLUEPRINT (вічний пресет, зразок). Менеджер не редагує
+  /// blueprint напряму, а натискає «Створити з цього шаблону» — це клонує запис у
+  /// нову News (isTemplate=false, templateKind=blueprint.templateKind, templateData
+  /// = clone). Blueprints приховані від публічного /news.
+  /// `isTemplate=false + templateKind != null` — звичайна новина, відрендерена
+  /// шаблонним layout-ом. Видно публічно, якщо `published=true`.
+  isTemplate    Boolean           @default(false)
+  /// Шаблонна форма layout-у. null = звичайний free-canvas (старі новини).
+  /// Заповнено = render-иться через lib/news/templates/<kind>.
+  templateKind  NewsTemplateKind?
+  /// JSON-серіалізована форма-payload для templateKind. Структура типізована
+  /// у lib/news/templates/types.ts (ArticleData / EventData). Якщо null —
+  /// fallback на дефолти з blueprint-у того ж kind.
+  templateData  String?
   /// Коли задано — новина схована з вітрини. Використовується і для "паузи", і для відкладеної публікації (coupled з resumeAt).
   suspendedAt DateTime?
   /// Коли задано разом з suspendedAt — новина автоматично повертається на вітрину з цієї дати.
@@ -721,6 +735,18 @@ enum DiscountType {
 enum NewsCategory {
   NEWS
   ANNOUNCEMENT
+  ARTICLE
+  EVENT
+}
+
+/// Шаблонна форма (layout) — не довільний block-canvas, а зафіксована структура
+/// з типізованими слотами (cover, title, lead, sections[], cta тощо).
+/// Шаблон-news має `templateKind != null` + `templateData` (JSON форми).
+/// Контент рендериться окремим компонентом-шаблоном (lib/news/templates/*),
+/// а не блоковим renderer-ом — тому фото вписуються в слоти `object-fit:cover`
+/// і не зміщують сусідні елементи. Превʼю-картка автогенерується з тих самих
+/// полів (cover/title/lead) — окремий previewContent не потрібен.
+enum NewsTemplateKind {
   ARTICLE
   EVENT
 }

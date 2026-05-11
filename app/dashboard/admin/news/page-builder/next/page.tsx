@@ -55,6 +55,13 @@ export default function NewsPageBuilderNext() {
       .then(d => {
         if (d) {
           setHasStaged(!!d.hasStaged);
+          // Сервер — джерело правди. Якщо staged-чернетки нема (щойно очищено
+          // або ще ніколи не створювали) — будь-який осиротілий localStorage-draft
+          // NewsEditor-а вважаємо невалідним і видаляємо. Інакше editor restore-ить
+          // його поверх порожнього API-payload, і канвас не буде чистим.
+          if (!d.hasStaged) {
+            try { localStorage.removeItem('uimp_draft_page___news_page_next__'); } catch { /* ignore */ }
+          }
           setInitialMeta({
             title: "", slug: "", excerpt: "", category: "NEWS", imageUrl: "",
             pageBgColor: d.pageBgColor || "",
@@ -182,7 +189,7 @@ export default function NewsPageBuilderNext() {
               Наступна сторінка /news
             </div>
             <div style={{ fontSize: "10px", color: "#9B7C45", marginTop: "2px" }}>
-              {hasStaged ? "Чернетка вже існує — редагуєш існуючу версію" : "Стартує з копії live; зберегти створить чернетку"}
+              {hasStaged ? "Чернетка вже існує — редагуєш існуючу версію" : "Чиста сторінка — наповни блоками; зберегти створить чернетку"}
             </div>
           </div>
         </div>

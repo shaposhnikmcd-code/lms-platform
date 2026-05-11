@@ -40,7 +40,7 @@ export default async function NewsPage({ params }: { params: Promise<{ locale: s
   const [pageRow, publishedNews] = await Promise.all([
     prisma.newsPage.findUnique({ where: { key: "default" } }),
     prisma.news.findMany({
-      where: { published: true },
+      where: { published: true, isTemplate: false },
       orderBy: { createdAt: "desc" },
       include: { author: { select: { name: true } } },
     }),
@@ -68,6 +68,10 @@ export default async function NewsPage({ params }: { params: Promise<{ locale: s
     previewContentEn: n.previewContentEn,
     previewContentPl: n.previewContentPl,
     pageBgColor: n.pageBgColor,
+    // Template-based render: коли задано — newsCard рендериться через
+    // lib/news/templates замість блокового renderer-а.
+    templateKind: n.templateKind,
+    templateData: n.templateData,
   }));
 
   // Сторінка публікується тільки якщо адмін активував її через toggle на /dashboard/admin/news.
