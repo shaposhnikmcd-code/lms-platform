@@ -4,29 +4,25 @@
 // title H1, italic-лід, divider, секції H2 + body (паралельно опційне фото
 // 4:3 з підписом), pullquote, висновки, author-line.
 //
-// Фіксовані слоти:
-// - Hero cover: aspect-ratio 16:9, object-fit:cover. Будь-яке фото вписується
-//   у 920×518px без витискання сусідніх елементів.
-// - Section image: aspect-ratio 4:3, object-fit:cover, ширина 70%.
-// - Усі тексти — text wrapping; довжина рядка обмежена max-width на блоці.
+// Гнучкість:
+// - data.hidden[region] === true → секція не рендериться.
+// - data.order — порядок movable-регіонів (sections/pullquote/conclusion/author).
+//   Cover і header закріплені зверху (cover-zero/header-one), щоб не ламати
+//   ієрархію статті. Validation проходить через resolveArticleOrder.
 //
 // Сервер-компонент (без 'use client') — render у SSR-пайплайні /news/[slug].
 
 import React from "react";
-import type { ArticleData } from "./types";
+import type { ArticleData, ArticleRegionKey } from "./types";
+import { resolveArticleOrder } from "./types";
+
+export type ArticleRegion = ArticleRegionKey;
 
 /** Розрив параграфів за \n\n; trim, фільтр порожніх. */
 function paragraphs(text: string): string[] {
   if (!text) return [];
-  return text
-    .split(/\n{2,}/)
-    .map(p => p.trim())
-    .filter(Boolean);
+  return text.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
 }
-
-/** Region-id-и для field↔preview-зонування в редакторі. Мапляться на секції
- *  ArticleForm-у. */
-export type ArticleRegion = "cover" | "header" | "sections" | "pullquote" | "conclusion" | "author";
 
 interface Props {
   data: ArticleData;
@@ -50,33 +46,57 @@ function regionStyle(active: boolean): React.CSSProperties {
 }
 
 export default function ArticleTemplate({ data, showHero = true, highlight }: Props) {
+  const hidden = data.hidden || {};
+  const order = resolveArticleOrder(data.order);
   const h = (region: ArticleRegion) => regionStyle(highlight === region);
-  return (
-    <article className="article-template" style={{ width: "100%", maxWidth: 920, margin: "0 auto", fontFamily: "Inter, system-ui, -apple-system, sans-serif", color: "#1C1917" }}>
-      {showHero && data.cover.url && (
-        <figure
-          style={{
-            margin: 0,
-            width: "100%",
-            aspectRatio: "16 / 9",
-            background: "#F5F1E8",
-            borderRadius: 16,
-            overflow: "hidden",
-            ...h("cover"),
-          }}
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={data.cover.url}
-            alt={data.cover.alt || ""}
-            style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
-            loading="lazy"
-          />
-        </figure>
-      )}
+  const isHidden = (r: ArticleRegion) => hidden[r] === true;
 
-      {/* Header block: eyebrow → H1 → lead. Центрований, обмежений по ширині. */}
-      <header style={{ marginTop: showHero && data.cover.url ? 40 : 0, marginBottom: 32, textAlign: "center", maxWidth: 720, marginLeft: "auto", marginRight: "auto", padding: 4, ...h("header") }}>
+  // Render-functions кожного регіону — повертають null якщо нема контенту.
+  // Усі завжди беруть `h(region)` style — підсвітка стабільна навіть у reorder.
+  const renderCover = () => {
+    if (isHidden("cover")) return null;
+    if (!showHero || !data.cover.url) return null;
+    return (
+      <figure
+        key="cover"
+        style={{
+          margin: 0,
+          width: "100%",
+          aspectRatio: "16 / 9",
+          background: "#F5F1E8",
+          borderRadius: 16,
+          overflow: "hidden",
+          ...h("cover"),
+        }}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={data.cover.url}
+          alt={data.cover.alt || ""}
+          style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+          loading="lazy"
+        />
+      </figure>
+    );
+  };
+
+  const renderHeader = () => {
+    if (isHidden("header")) return null;
+    if (!data.category && !data.title && !data.lead) return null;
+    return (
+      <header
+        key="header"
+        style={{
+          marginTop: 40,
+          marginBottom: 32,
+          textAlign: "center",
+          maxWidth: 720,
+          marginLeft: "auto",
+          marginRight: "auto",
+          padding: 4,
+          ...h("header"),
+        }}
+      >
         {data.category && (
           <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "#B45309", marginBottom: 16 }}>
             {data.category}
@@ -93,105 +113,142 @@ export default function ArticleTemplate({ data, showHero = true, highlight }: Pr
           </p>
         )}
       </header>
+    );
+  };
 
-      <hr style={{ width: 80, height: 2, border: 0, background: "#D4A843", margin: "32px auto" }} />
+  const renderSections = () => {
+    if (isHidden("sections")) return null;
+    if (!data.sections.length) return null;
+    return (
+      <div key="sections" style={{ padding: 4, ...h("sections") }}>
+        {data.sections.map((section, idx) => (
+          <section key={idx} style={{ maxWidth: 720, margin: "0 auto", marginBottom: 56 }}>
+            {section.heading && (
+              <h2 style={{ fontSize: 30, fontWeight: 700, lineHeight: 1.25, margin: "0 0 20px", color: "#1C1917" }}>
+                {section.heading}
+              </h2>
+            )}
+            {paragraphs(section.body).map((p, pi) => (
+              <p key={pi} style={{ fontSize: 18, lineHeight: 1.7, color: "#292524", margin: "0 0 18px" }}>
+                {p}
+              </p>
+            ))}
+            {section.image?.url && (
+              <figure style={{ margin: "32px auto 0", width: "100%", maxWidth: 720 }}>
+                <div style={{ width: "100%", aspectRatio: "4 / 3", background: "#F5F1E8", borderRadius: 12, overflow: "hidden" }}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={section.image.url}
+                    alt={section.image.alt || ""}
+                    style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+                    loading="lazy"
+                  />
+                </div>
+                {section.image.caption && (
+                  <figcaption style={{ fontSize: 13, color: "#78716C", fontStyle: "italic", textAlign: "center", marginTop: 10 }}>
+                    {section.image.caption}
+                  </figcaption>
+                )}
+              </figure>
+            )}
+          </section>
+        ))}
+      </div>
+    );
+  };
 
-      {/* Sections — обгорнуті в один region, підсвічується весь блок коли
-          менеджер у формі править будь-який розділ. */}
-      {data.sections.length > 0 && (
-        <div style={{ padding: 4, ...h("sections") }}>
-          {data.sections.map((section, idx) => (
-            <section key={idx} style={{ maxWidth: 720, margin: "0 auto", marginBottom: 56 }}>
-              {section.heading && (
-                <h2 style={{ fontSize: 30, fontWeight: 700, lineHeight: 1.25, margin: "0 0 20px", color: "#1C1917" }}>
-                  {section.heading}
-                </h2>
-              )}
-              {paragraphs(section.body).map((p, pi) => (
-                <p key={pi} style={{ fontSize: 18, lineHeight: 1.7, color: "#292524", margin: pi === 0 ? "0 0 18px" : "0 0 18px" }}>
-                  {p}
-                </p>
-              ))}
-              {section.image?.url && (
-                <figure
-                  style={{
-                    margin: "32px auto 0",
-                    width: "100%",
-                    maxWidth: 720,
-                  }}
-                >
-                  <div
-                    style={{
-                      width: "100%",
-                      aspectRatio: "4 / 3",
-                      background: "#F5F1E8",
-                      borderRadius: 12,
-                      overflow: "hidden",
-                    }}
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={section.image.url}
-                      alt={section.image.alt || ""}
-                      style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
-                      loading="lazy"
-                    />
-                  </div>
-                  {section.image.caption && (
-                    <figcaption style={{ fontSize: 13, color: "#78716C", fontStyle: "italic", textAlign: "center", marginTop: 10 }}>
-                      {section.image.caption}
-                    </figcaption>
-                  )}
-                </figure>
-              )}
-            </section>
-          ))}
-        </div>
-      )}
+  const renderPullquote = () => {
+    if (isHidden("pullquote")) return null;
+    if (!data.pullquote) return null;
+    return (
+      <blockquote
+        key="pullquote"
+        style={{
+          maxWidth: 760,
+          margin: "0 auto 56px",
+          padding: "24px 32px",
+          borderLeft: "4px solid #D4A843",
+          background: "#FAF6F0",
+          borderRadius: "0 12px 12px 0",
+          fontSize: 22,
+          lineHeight: 1.5,
+          fontStyle: "italic",
+          color: "#1C3A2E",
+          ...h("pullquote"),
+        }}
+      >
+        {data.pullquote}
+      </blockquote>
+    );
+  };
 
-      {/* Pullquote */}
-      {data.pullquote && (
-        <blockquote
-          style={{
-            maxWidth: 760,
-            margin: "0 auto 56px",
-            padding: "24px 32px",
-            borderLeft: "4px solid #D4A843",
-            background: "#FAF6F0",
-            borderRadius: "0 12px 12px 0",
-            fontSize: 22,
-            lineHeight: 1.5,
-            fontStyle: "italic",
-            color: "#1C3A2E",
-            ...h("pullquote"),
-          }}
-        >
-          {data.pullquote}
-        </blockquote>
-      )}
+  const renderConclusion = () => {
+    if (isHidden("conclusion")) return null;
+    if (!data.conclusion) return null;
+    return (
+      <section key="conclusion" style={{ maxWidth: 720, margin: "0 auto", marginBottom: 40, padding: 4, ...h("conclusion") }}>
+        <h2 style={{ fontSize: 30, fontWeight: 700, lineHeight: 1.25, margin: "0 0 20px", color: "#1C1917" }}>
+          Висновки
+        </h2>
+        {paragraphs(data.conclusion).map((p, pi) => (
+          <p key={pi} style={{ fontSize: 18, lineHeight: 1.7, color: "#292524", margin: "0 0 18px" }}>
+            {p}
+          </p>
+        ))}
+      </section>
+    );
+  };
 
-      {/* Conclusion */}
-      {data.conclusion && (
-        <section style={{ maxWidth: 720, margin: "0 auto", marginBottom: 40, padding: 4, ...h("conclusion") }}>
-          <h2 style={{ fontSize: 30, fontWeight: 700, lineHeight: 1.25, margin: "0 0 20px", color: "#1C1917" }}>
-            Висновки
-          </h2>
-          {paragraphs(data.conclusion).map((p, pi) => (
-            <p key={pi} style={{ fontSize: 18, lineHeight: 1.7, color: "#292524", margin: "0 0 18px" }}>
-              {p}
-            </p>
-          ))}
-        </section>
-      )}
+  const renderAuthor = () => {
+    if (isHidden("author")) return null;
+    if (!data.authorLine) return null;
+    return (
+      <p key="author" style={{ textAlign: "center", fontSize: 13, color: "#78716C", margin: 0, paddingBottom: 8, ...h("author") }}>
+        {data.authorLine}
+      </p>
+    );
+  };
 
-      <hr style={{ width: 80, height: 2, border: 0, background: "#D4A843", margin: "32px auto" }} />
+  const renderers: Record<ArticleRegion, () => React.ReactNode> = {
+    cover: renderCover,
+    header: renderHeader,
+    sections: renderSections,
+    pullquote: renderPullquote,
+    conclusion: renderConclusion,
+    author: renderAuthor,
+  };
 
-      {/* Author / footer line */}
-      {data.authorLine && (
-        <p style={{ textAlign: "center", fontSize: 13, color: "#78716C", margin: 0, paddingBottom: 8, ...h("author") }}>
-          {data.authorLine}
-        </p>
-      )}
+  // Збираємо ноди, інтерпретуємо divider контекстуально:
+  // - divider після header перед першим non-empty body region (sections/pullquote/conclusion)
+  // - divider перед author, якщо author присутній і йому передує body region
+  const renderedNodes: { key: string; node: React.ReactNode }[] = [];
+  for (const region of order) {
+    const node = renderers[region]();
+    if (node) renderedNodes.push({ key: region, node });
+  }
+
+  // Інтерсперс divider'ів. Logic:
+  // - між "header" і наступним body — gold-divider.
+  // - перед "author" — gold-divider.
+  const bodyRegions: ArticleRegion[] = ["sections", "pullquote", "conclusion"];
+  const out: React.ReactNode[] = [];
+  for (let i = 0; i < renderedNodes.length; i++) {
+    const cur = renderedNodes[i];
+    const prev = renderedNodes[i - 1];
+    if (prev) {
+      const prevIsHeader = prev.key === "header";
+      const curIsBody = bodyRegions.includes(cur.key as ArticleRegion);
+      const curIsAuthor = cur.key === "author";
+      if ((prevIsHeader && curIsBody) || curIsAuthor) {
+        out.push(<hr key={`div-${i}`} style={{ width: 80, height: 2, border: 0, background: "#D4A843", margin: "32px auto" }} />);
+      }
+    }
+    out.push(cur.node);
+  }
+
+  return (
+    <article className="article-template" style={{ width: "100%", maxWidth: 920, margin: "0 auto", fontFamily: "Inter, system-ui, -apple-system, sans-serif", color: "#1C1917" }}>
+      {out}
     </article>
   );
 }

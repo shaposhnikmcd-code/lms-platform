@@ -4,7 +4,7 @@
 // фото фахівця + overlay-info + 2-секції про спеціаліста та освіту).
 
 import React from "react";
-import type { EventData, EventEducationItem } from "@/lib/news/templates/types";
+import type { EventData, EventEducationItem, EventRegionKey } from "@/lib/news/templates/types";
 import type { EventRegion } from "@/lib/news/templates/EventTemplate";
 import { TextInput, TextAreaInput, ImageInput, SectionHeader } from "./Inputs";
 
@@ -48,6 +48,17 @@ export default function EventForm({ data, onChange, onFocusRegion }: Props) {
     onChange({ ...data, [key]: value });
   };
 
+  // Show/hide toggle. Зберігаємо у data.hidden (sanitized у parseTemplateData).
+  // Тоggle: hidden[region] = true ⇄ delete hidden[region]. Якщо hidden стає
+  // пустим — лишаємо порожній obj (для consistency, simpler check у render).
+  const isHidden = (region: EventRegionKey) => data.hidden?.[region] === true;
+  const toggleHidden = (region: EventRegionKey) => {
+    const next = { ...(data.hidden || {}) };
+    if (next[region]) delete next[region];
+    else next[region] = true;
+    onChange({ ...data, hidden: next });
+  };
+
   const updateEducation = (idx: number, patch: Partial<EventEducationItem>) => {
     const next = data.education.map((e, i) => (i === idx ? { ...e, ...patch } : e));
     onChange({ ...data, education: next });
@@ -75,95 +86,135 @@ export default function EventForm({ data, onChange, onFocusRegion }: Props) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       <RegionGroup region="photo" onFocusRegion={onFocusRegion}>
-        <SectionHeader icon="📸" title="Фото фахівця" whereOnCard="ліва половина" />
-        <ImageInput
-          label="Фото"
-          value={data.photo}
-          onChange={v => update("photo", v)}
-          aspectRatio="3/4"
-          maxPreviewWidth={140}
+        <SectionHeader
+          icon="📸"
+          title="Фото фахівця"
+          whereOnCard="ліва половина"
+          hidden={isHidden("photo")}
+          onToggleHidden={() => toggleHidden("photo")}
         />
+        {!isHidden("photo") && (
+          <ImageInput
+            label="Фото"
+            value={data.photo}
+            onChange={v => update("photo", v)}
+            aspectRatio="3/4"
+            maxPreviewWidth={140}
+          />
+        )}
       </RegionGroup>
 
       <RegionGroup region="metrics" onFocusRegion={onFocusRegion}>
-        <SectionHeader icon="🎯" title="Вартість і тривалість" whereOnCard="overlay на фото" />
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-          <TextInput
-            label="Вартість"
-            value={data.price}
-            onChange={v => update("price", v)}
-            placeholder="1300 грн"
-            maxLength={40}
-          />
-          <TextInput
-            label="Тривалість"
-            value={data.duration}
-            onChange={v => update("duration", v)}
-            placeholder="50 хв"
-            maxLength={40}
-          />
-        </div>
+        <SectionHeader
+          icon="🎯"
+          title="Вартість і тривалість"
+          whereOnCard="overlay на фото"
+          hidden={isHidden("metrics")}
+          onToggleHidden={() => toggleHidden("metrics")}
+        />
+        {!isHidden("metrics") && (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <TextInput
+              label="Вартість"
+              value={data.price}
+              onChange={v => update("price", v)}
+              placeholder="1300 грн"
+              maxLength={40}
+            />
+            <TextInput
+              label="Тривалість"
+              value={data.duration}
+              onChange={v => update("duration", v)}
+              placeholder="50 хв"
+              maxLength={40}
+            />
+          </div>
+        )}
       </RegionGroup>
 
       <RegionGroup region="cta" onFocusRegion={onFocusRegion}>
-        <SectionHeader icon="🎟" title="CTA-кнопка" whereOnCard="золота кнопка" />
-        <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 220px) 1fr", gap: 8 }}>
-          <TextInput
-            label="Текст кнопки"
-            value={data.ctaLabel}
-            onChange={v => update("ctaLabel", v)}
-            placeholder="Записатися на консультацію"
-            maxLength={48}
-          />
-          <TextInput
-            label="URL посилання"
-            value={data.ctaHref}
-            onChange={v => update("ctaHref", v)}
-            placeholder="https://forms.gle/... або https://t.me/..."
-            hint="порожнє → disabled"
-          />
-        </div>
+        <SectionHeader
+          icon="🎟"
+          title="CTA-кнопка"
+          whereOnCard="золота кнопка"
+          hidden={isHidden("cta")}
+          onToggleHidden={() => toggleHidden("cta")}
+        />
+        {!isHidden("cta") && (
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 220px) 1fr", gap: 8 }}>
+            <TextInput
+              label="Текст кнопки"
+              value={data.ctaLabel}
+              onChange={v => update("ctaLabel", v)}
+              placeholder="Записатися на консультацію"
+              maxLength={48}
+            />
+            <TextInput
+              label="URL посилання"
+              value={data.ctaHref}
+              onChange={v => update("ctaHref", v)}
+              placeholder="https://forms.gle/... або https://t.me/..."
+              hint="порожнє → disabled"
+            />
+          </div>
+        )}
       </RegionGroup>
 
       <RegionGroup region="specialist" onFocusRegion={onFocusRegion}>
-        <SectionHeader icon="👤" title="Фахівець" whereOnCard="низ фото" />
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-          <TextInput
-            label="Імʼя"
-            value={data.specialistName}
-            onChange={v => update("specialistName", v)}
-            placeholder="Анна Гудзенко"
-            maxLength={80}
-          />
-          <TextInput
-            label="Роль / спеціалізація"
-            value={data.specialistRole}
-            onChange={v => update("specialistRole", v)}
-            placeholder="Психолог-консультант"
-            maxLength={80}
-          />
-          <div style={{ gridColumn: "1 / -1" }}>
+        <SectionHeader
+          icon="👤"
+          title="Фахівець"
+          whereOnCard="низ фото"
+          hidden={isHidden("specialist")}
+          onToggleHidden={() => toggleHidden("specialist")}
+        />
+        {!isHidden("specialist") && (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
             <TextInput
-              label="Tagline"
-              value={data.specialistTagline}
-              onChange={v => update("specialistTagline", v)}
-              placeholder="3+ роки в ментальному здоровʼї"
-              maxLength={120}
+              label="Імʼя"
+              value={data.specialistName}
+              onChange={v => update("specialistName", v)}
+              placeholder="Анна Гудзенко"
+              maxLength={80}
             />
+            <TextInput
+              label="Роль / спеціалізація"
+              value={data.specialistRole}
+              onChange={v => update("specialistRole", v)}
+              placeholder="Психолог-консультант"
+              maxLength={80}
+            />
+            <div style={{ gridColumn: "1 / -1" }}>
+              <TextInput
+                label="Tagline"
+                value={data.specialistTagline}
+                onChange={v => update("specialistTagline", v)}
+                placeholder="3+ роки в ментальному здоровʼї"
+                maxLength={120}
+              />
+            </div>
           </div>
-        </div>
+        )}
       </RegionGroup>
 
       <RegionGroup region="about" onFocusRegion={onFocusRegion}>
-        <SectionHeader icon="📖" title="Про фахівця" whereOnCard="права панель, верх" />
-        <TextAreaInput
-          label="Опис"
-          value={data.about}
-          onChange={v => update("about", v)}
-          placeholder="Описати підхід, з ким працює, у чому експертний..."
-          rows={4}
-          hint="нові абзаци — Enter Enter"
+        <SectionHeader
+          icon="📖"
+          title="Про фахівця"
+          whereOnCard="права панель, верх"
+          hidden={isHidden("about")}
+          onToggleHidden={() => toggleHidden("about")}
         />
+        {!isHidden("about") && (
+          <TextAreaInput
+            label="Опис"
+            value={data.about}
+            onChange={v => update("about", v)}
+            placeholder="Описати підхід, з ким працює, у чому експертний..."
+            rows={4}
+            hint="нові абзаци — Enter Enter"
+          />
+        )}
       </RegionGroup>
 
       <RegionGroup region="education" onFocusRegion={onFocusRegion}>
@@ -171,7 +222,10 @@ export default function EventForm({ data, onChange, onFocusRegion }: Props) {
         icon="🎓"
         title={`Освіта (${data.education.length})`}
         whereOnCard="права панель, низ"
+        hidden={isHidden("education")}
+        onToggleHidden={() => toggleHidden("education")}
       />
+      {!isHidden("education") && (
       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
         {data.education.map((edu, idx) => (
           <div
@@ -267,6 +321,7 @@ export default function EventForm({ data, onChange, onFocusRegion }: Props) {
           + Додати освіту
         </button>
       </div>
+      )}
       </RegionGroup>
     </div>
   );

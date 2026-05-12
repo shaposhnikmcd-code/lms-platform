@@ -57,9 +57,14 @@ function regionStyle(active: boolean): React.CSSProperties {
 
 export default function EventTemplate({ data, fixedHeight, disableLinks, highlight }: Props) {
   const h = (region: EventRegion) => regionStyle(highlight === region);
+  const hidden = data.hidden || {};
+  const isHidden = (r: EventRegion) => hidden[r] === true;
+  // Якщо photo приховано — колапсимо ліву колонку, info-панель стає full-width.
+  // Це професійний fallback: вертикальна 1-col картка без зайвого пустого місця.
+  const photoHidden = isHidden("photo");
   const cardStyle: React.CSSProperties = {
     display: "grid",
-    gridTemplateColumns: "minmax(0, 0.85fr) minmax(0, 1fr)",
+    gridTemplateColumns: photoHidden ? "1fr" : "minmax(0, 0.85fr) minmax(0, 1fr)",
     background: "#fff",
     borderRadius: 18,
     overflow: "hidden",
@@ -74,7 +79,8 @@ export default function EventTemplate({ data, fixedHeight, disableLinks, highlig
 
   return (
     <article style={cardStyle} className="event-tpl-card">
-      {/* ── LEFT: фото з overlay ───────────────────────────────────────────── */}
+      {/* ── LEFT: фото з overlay (приховано якщо hidden.photo) ─────────────── */}
+      {!photoHidden && (
       <div
         style={{
           position: "relative",
@@ -172,7 +178,7 @@ export default function EventTemplate({ data, fixedHeight, disableLinks, highlig
           }}
         >
           {/* Specialist block (name + role + tagline) — region "specialist" */}
-          {(data.specialistName || data.specialistRole || data.specialistTagline) && (
+          {!isHidden("specialist") && (data.specialistName || data.specialistRole || data.specialistTagline) && (
             <div style={{ ...h("specialist"), padding: highlight === "specialist" ? "4px 8px" : 0, margin: highlight === "specialist" ? "-4px -8px" : 0 }}>
               {data.specialistName && (
                 <div style={{ fontSize: 22, fontWeight: 700, lineHeight: 1.2, marginBottom: 4 }}>
@@ -193,7 +199,7 @@ export default function EventTemplate({ data, fixedHeight, disableLinks, highlig
           )}
 
           {/* Price + duration row — region "metrics" */}
-          {(data.price || data.duration) && (
+          {!isHidden("metrics") && (data.price || data.duration) && (
             <div
               style={{
                 display: "flex",
@@ -221,7 +227,7 @@ export default function EventTemplate({ data, fixedHeight, disableLinks, highlig
 
           {/* CTA. У disableLinks-режимі (картка вже всередині <Link>) рендеримо
               як <span> зі стилем кнопки — навігація піде через зовнішній <Link>. */}
-          {data.ctaLabel && (
+          {!isHidden("cta") && data.ctaLabel && (
             <div style={{ marginTop: 16, ...h("cta") }}>
               {data.ctaHref && !disableLinks ? (
                 <a
@@ -298,6 +304,7 @@ export default function EventTemplate({ data, fixedHeight, disableLinks, highlig
           )}
         </div>
       </div>
+      )}
 
       {/* ── RIGHT: інфо-картка ─────────────────────────────────────────────── */}
       {/* В fixedHeight-режимі (preview/thumbnail) інфо-панель може скролитись
@@ -317,7 +324,7 @@ export default function EventTemplate({ data, fixedHeight, disableLinks, highlig
         }}
       >
         {/* Про фахівця */}
-        {data.about && (
+        {!isHidden("about") && data.about && (
           <section style={h("about")}>
             <SectionLabel text="Про фахівця" />
             <div style={{ marginTop: 10 }}>
@@ -339,7 +346,7 @@ export default function EventTemplate({ data, fixedHeight, disableLinks, highlig
         )}
 
         {/* Освіта та кваліфікація */}
-        {data.education.length > 0 && (
+        {!isHidden("education") && data.education.length > 0 && (
           <section style={h("education")}>
             <SectionLabel text="Освіта та кваліфікація" />
             <ul style={{ listStyle: "none", padding: 0, margin: "10px 0 0" }}>

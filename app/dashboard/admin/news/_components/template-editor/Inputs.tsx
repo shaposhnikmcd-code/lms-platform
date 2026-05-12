@@ -359,6 +359,12 @@ export function SectionHeader({
   title,
   subtitle,
   whereOnCard,
+  hidden = false,
+  onToggleHidden,
+  onMoveUp,
+  onMoveDown,
+  canMoveUp = false,
+  canMoveDown = false,
 }: {
   icon?: string;
   title: string;
@@ -367,6 +373,16 @@ export function SectionHeader({
    *  тощо. Зменшує когнітивне навантаження — менеджер одразу бачить звʼязок
    *  поля з місцем на превʼю. */
   whereOnCard?: string;
+  /** Поточний стан видимості секції. true → візуальний `hidden` стиль (opacity
+   *  + line-through на title), щоб менеджер бачив що блок не на картці. */
+  hidden?: boolean;
+  /** Toggle для show/hide. Якщо не передано — кнопка не показується. */
+  onToggleHidden?: () => void;
+  /** Reorder controls. Передаються лише для рухомих регіонів (movable). */
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
+  canMoveUp?: boolean;
+  canMoveDown?: boolean;
 }) {
   return (
     <div
@@ -376,12 +392,24 @@ export function SectionHeader({
         paddingBottom: 6,
         borderBottom: "1px solid #E8D5B7",
         fontFamily: ff,
+        opacity: hidden ? 0.55 : 1,
+        transition: "opacity 0.18s",
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         {icon && <span style={{ fontSize: 15 }} aria-hidden>{icon}</span>}
-        <span style={{ fontSize: 13, fontWeight: 700, color: "#1C3A2E", letterSpacing: "0.02em" }}>{title}</span>
-        {whereOnCard && (
+        <span
+          style={{
+            fontSize: 13,
+            fontWeight: 700,
+            color: "#1C3A2E",
+            letterSpacing: "0.02em",
+            textDecoration: hidden ? "line-through" : "none",
+          }}
+        >
+          {title}
+        </span>
+        {whereOnCard && !hidden && (
           <span
             style={{
               display: "inline-flex",
@@ -401,10 +429,87 @@ export function SectionHeader({
             {whereOnCard}
           </span>
         )}
+        {hidden && (
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 3,
+              padding: "1px 7px",
+              borderRadius: 999,
+              background: "#F1F1ED",
+              color: "#78716C",
+              fontSize: 9.5,
+              fontWeight: 600,
+              letterSpacing: "0.02em",
+            }}
+          >
+            не на картці
+          </span>
+        )}
+        <div style={{ flex: 1 }} />
+        {/* Reorder controls (тільки для movable регіонів) */}
+        {(onMoveUp || onMoveDown) && (
+          <div style={{ display: "inline-flex", gap: 3 }}>
+            <button
+              type="button"
+              onClick={onMoveUp}
+              disabled={!canMoveUp}
+              title="Підняти вище"
+              aria-label="Підняти секцію вище"
+              style={sectionIconBtnStyle(!canMoveUp)}
+            >↑</button>
+            <button
+              type="button"
+              onClick={onMoveDown}
+              disabled={!canMoveDown}
+              title="Опустити нижче"
+              aria-label="Опустити секцію нижче"
+              style={sectionIconBtnStyle(!canMoveDown)}
+            >↓</button>
+          </div>
+        )}
+        {/* Show/hide toggle */}
+        {onToggleHidden && (
+          <button
+            type="button"
+            onClick={onToggleHidden}
+            title={hidden ? "Показати на картці" : "Сховати з картки"}
+            aria-label={hidden ? "Показати секцію" : "Сховати секцію"}
+            style={{
+              ...sectionIconBtnStyle(false),
+              width: 28,
+              background: hidden ? "#FFFFFF" : "#FAF6F0",
+              color: hidden ? "#9B7C45" : "#1C3A2E",
+            }}
+          >
+            {hidden ? "🚫" : "👁"}
+          </button>
+        )}
       </div>
-      {subtitle && (
+      {subtitle && !hidden && (
         <div style={{ fontSize: 10.5, color: "#9B7C45", marginTop: 3, lineHeight: 1.35 }}>{subtitle}</div>
       )}
     </div>
   );
+}
+
+function sectionIconBtnStyle(disabled: boolean): React.CSSProperties {
+  return {
+    width: 24,
+    height: 24,
+    borderRadius: 5,
+    border: "1px solid #E8D5B7",
+    background: "#FFFFFF",
+    color: "#1C3A2E",
+    fontSize: 11,
+    cursor: disabled ? "not-allowed" : "pointer",
+    opacity: disabled ? 0.35 : 1,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontFamily: ff,
+    padding: 0,
+    transition: "background 0.15s, opacity 0.15s",
+  };
 }

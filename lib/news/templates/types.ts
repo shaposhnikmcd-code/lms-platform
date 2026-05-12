@@ -33,6 +33,32 @@ export interface ArticleImage {
   caption?: string;
 }
 
+/** Region-id-и ARTICLE, що можна показувати/ховати і впорядковувати у render-і. */
+export type ArticleRegionKey = "cover" | "header" | "sections" | "pullquote" | "conclusion" | "author";
+
+/** Усі регіони (для validation + hidden map). */
+export const ARTICLE_ALL_REGIONS: ArticleRegionKey[] = [
+  "cover", "header", "sections", "pullquote", "conclusion", "author",
+];
+
+/** Рухомі регіони (можуть змінювати порядок у формі/render-і). Cover і header
+ *  закріплені на місці (структурно зверху статті) — інакше ламається ієрархія. */
+export const ARTICLE_MOVABLE_REGIONS: ArticleRegionKey[] = [
+  "sections", "pullquote", "conclusion", "author",
+];
+
+/** Effective render order = fixed prefix + sanitized movable. */
+export function resolveArticleOrder(userOrder: ArticleRegionKey[] | undefined): ArticleRegionKey[] {
+  const fixed: ArticleRegionKey[] = ["cover", "header"];
+  const movableValid = userOrder?.filter(k => ARTICLE_MOVABLE_REGIONS.includes(k));
+  const seen = new Set(movableValid || []);
+  const movableFull: ArticleRegionKey[] = [
+    ...(movableValid || []),
+    ...ARTICLE_MOVABLE_REGIONS.filter(k => !seen.has(k)),
+  ];
+  return [...fixed, ...movableFull];
+}
+
 export interface ArticleData {
   /** Cover image (16:9 hero). Завжди object-fit:cover у фіксований слот. */
   cover: ArticleImage;
@@ -50,6 +76,12 @@ export interface ArticleData {
   conclusion: string;
   /** Авторська лінія / контакти / джерела (footer-line, мала). */
   authorLine: string;
+  /** Map region→hidden. Якщо `hidden[region] === true` — секція не рендериться.
+   *  Відсутність ключа = показано. Default — все показано. */
+  hidden?: Partial<Record<ArticleRegionKey, boolean>>;
+  /** Порядок секцій у render-і. Якщо відсутнє або частина регіонів пропущена —
+   *  fallback на `ARTICLE_DEFAULT_ORDER` для відсутніх. */
+  order?: ArticleRegionKey[];
 }
 
 export const ARTICLE_DEFAULTS: ArticleData = {
@@ -105,6 +137,15 @@ export interface EventEducationItem {
   meta: string;
 }
 
+/** Region-id-и EVENT. У 2-колонному layout-і reorder не передбачено
+ *  (зони фіксовані), але hidden map дозволяє приховати окремі регіони. */
+export type EventRegionKey = "photo" | "specialist" | "metrics" | "cta" | "about" | "education";
+
+/** Усі регіони (для validation + hidden map). */
+export const EVENT_ALL_REGIONS: EventRegionKey[] = [
+  "photo", "specialist", "metrics", "cta", "about", "education",
+];
+
 export interface EventData {
   /** Фото фахівця — вертикальний crop 3:4. object-fit:cover у фіксований слот. */
   photo: ArticleImage;
@@ -128,6 +169,8 @@ export interface EventData {
   about: string;
   /** Список освітніх записів. Кожен — title + meta-рядок (роки/тип). */
   education: EventEducationItem[];
+  /** Map region→hidden. Якщо `hidden[region] === true` — секція не рендериться. */
+  hidden?: Partial<Record<EventRegionKey, boolean>>;
 }
 
 export const EVENT_DEFAULTS: EventData = {
@@ -181,6 +224,33 @@ export function parseTemplateData(kind: TemplateKind, raw: string | null | undef
   return defaultsFor(kind);
 }
 
+/** Validates optional `order` array — keeps only valid keys (with no duplicates).
+ *  Гарантує що render не зламається через невалідний user-input. */
+function sanitizeOrder<K extends string>(input: unknown, valid: readonly K[]): K[] | undefined {
+  if (!Array.isArray(input)) return undefined;
+  const validSet = valid as readonly string[];
+  const seen = new Set<string>();
+  const result: K[] = [];
+  for (const k of input) {
+    if (typeof k === "string" && validSet.includes(k) && !seen.has(k)) {
+      seen.add(k);
+      result.push(k as K);
+    }
+  }
+  return result.length > 0 ? result : undefined;
+}
+
+/** Sanitizes hidden map — keeps лише ключі що належать до валідних регіонів. */
+function sanitizeHidden<K extends string>(input: unknown, valid: readonly K[]): Partial<Record<K, boolean>> | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const validSet = valid as readonly string[];
+  const out: Partial<Record<K, boolean>> = {};
+  for (const [k, v] of Object.entries(input as Record<string, unknown>)) {
+    if (validSet.includes(k) && v === true) out[k as K] = true;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 /** Acceptable for inputs from form: shallow + nested merge для cover/cta/sections. */
 function mergeDefaults(kind: TemplateKind, src: Record<string, unknown>): ArticleData | EventData {
   const def = defaultsFor(kind);
@@ -204,6 +274,8 @@ function mergeDefaults(kind: TemplateKind, src: Record<string, unknown>): Articl
       pullquote: s.pullquote ?? d.pullquote,
       conclusion: s.conclusion ?? d.conclusion,
       authorLine: s.authorLine ?? d.authorLine,
+      hidden: sanitizeHidden(s.hidden, ARTICLE_ALL_REGIONS),
+      order: sanitizeOrder(s.order, ARTICLE_MOVABLE_REGIONS),
     };
   }
   const d = def as EventData;
@@ -222,6 +294,7 @@ function mergeDefaults(kind: TemplateKind, src: Record<string, unknown>): Articl
     education: Array.isArray(s.education) && s.education.length > 0
       ? s.education.map(e => ({ title: e?.title ?? "", meta: e?.meta ?? "" }))
       : d.education,
+    hidden: sanitizeHidden(s.hidden, EVENT_ALL_REGIONS),
   };
 }
 
