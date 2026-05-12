@@ -336,21 +336,28 @@ export default function AdminNewsPage() {
   const performDelete = async () => {
     if (!deleteTarget) return;
     const { id } = deleteTarget;
+    // Optimistic: миттєво прибираємо item з UI і закриваємо модалку — щоб
+    // менеджер бачив reaction на клік без 500-1500мс лагу від API. На fail
+    // — повертаємо state назад (rollback) + error-toast.
+    const prevNews = news;
+    const prevTpl = templateNews;
+    setNews(prev => prev.filter(n => n.id !== id));
+    setTemplateNews(prev => prev.filter(n => n.id !== id));
+    setDeleteTarget(null);
     setDeleting(true);
     try {
       const res = await fetch(`/api/admin/news/${id}`, { method: 'DELETE' });
       if (!res.ok) {
+        setNews(prevNews);
+        setTemplateNews(prevTpl);
         const data = await res.json().catch(() => ({}));
         setToast({ message: data.error || 'Не вдалося видалити', type: 'error' });
         return;
       }
-      // Видаляємо з обох списків — template-news живе у templateNews, free-form
-      // у news. Без цього UI не оновився б для template-картки під blueprint-ом.
-      setNews(prev => prev.filter(n => n.id !== id));
-      setTemplateNews(prev => prev.filter(n => n.id !== id));
       setToast({ message: 'Новину видалено', type: 'success' });
-      setDeleteTarget(null);
     } catch {
+      setNews(prevNews);
+      setTemplateNews(prevTpl);
       setToast({ message: 'Помилка запиту', type: 'error' });
     } finally {
       setDeleting(false);

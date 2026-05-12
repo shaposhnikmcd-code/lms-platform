@@ -53,7 +53,7 @@ export interface ArticleData {
 }
 
 export const ARTICLE_DEFAULTS: ArticleData = {
-  cover: { url: "", alt: "[Головне фото статті]", caption: "" },
+  cover: { url: "", alt: "", caption: "" },
   category: "СТАТТЯ · 5 ХВ ЧИТАННЯ",
   title: "[Заголовок статті]",
   lead: "Короткий лід — 1-2 речення, що задають контекст і інтригу. Розкривають тему до того, як читач піде у деталі.",
@@ -69,8 +69,8 @@ export const ARTICLE_DEFAULTS: ArticleData = {
       body: "Зміст другого розділу. Розгорніть тезу — поясніть, аргументуйте, наведіть приклади. Якщо є практичний інструмент — опишіть його крок за кроком.",
       image: {
         url: "",
-        alt: "[Ілюстрація до розділу]",
-        caption: "[Підпис до фото — джерело, контекст або коментар]",
+        alt: "",
+        caption: "",
       },
     },
   ],
@@ -131,7 +131,7 @@ export interface EventData {
 }
 
 export const EVENT_DEFAULTS: EventData = {
-  photo: { url: "", alt: "[Фото фахівця]", caption: "" },
+  photo: { url: "", alt: "", caption: "" },
   title: "[Назва події]",
   price: "[X грн]",
   duration: "[N хв]",

@@ -29,7 +29,7 @@ const prisma = new PrismaClient();
 console.log(`▸ Target: ${isProd ? 'PROD (.env)' : 'DEV (.env.local)'}`);
 
 const ARTICLE_DEFAULTS = {
-  cover: { url: '', alt: '[Головне фото статті]', caption: '' },
+  cover: { url: '', alt: '', caption: '' },
   category: 'СТАТТЯ · 5 ХВ ЧИТАННЯ',
   title: '[Заголовок статті]',
   lead: 'Короткий лід — 1-2 речення, що задають контекст і інтригу. Розкривають тему до того, як читач піде у деталі.',
@@ -45,8 +45,8 @@ const ARTICLE_DEFAULTS = {
       body: 'Зміст другого розділу. Розгорніть тезу — поясніть, аргументуйте, наведіть приклади. Якщо є практичний інструмент — опишіть його крок за кроком.',
       image: {
         url: '',
-        alt: '[Ілюстрація до розділу]',
-        caption: '[Підпис до фото — джерело, контекст або коментар]',
+        alt: '',
+        caption: '',
       },
     },
   ],
@@ -56,7 +56,7 @@ const ARTICLE_DEFAULTS = {
 };
 
 const EVENT_DEFAULTS = {
-  photo: { url: '', alt: '[Фото фахівця]', caption: '' },
+  photo: { url: '', alt: '', caption: '' },
   title: '[Назва події]',
   price: '[X грн]',
   duration: '[N хв]',

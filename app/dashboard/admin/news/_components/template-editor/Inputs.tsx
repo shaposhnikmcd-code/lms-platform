@@ -31,13 +31,13 @@ export function TextInput({ label, value, onChange, placeholder, hint, maxLength
         maxLength={maxLength}
         style={{
           width: "100%",
-          padding: "10px 12px",
-          fontSize: 14,
+          padding: "7px 10px",
+          fontSize: 13,
           fontFamily: ff,
           color: "#1C1917",
           background: "#FFFFFF",
           border: "1.5px solid #E8D5B7",
-          borderRadius: 8,
+          borderRadius: 7,
           outline: "none",
           transition: "border-color 0.15s",
         }}
@@ -72,17 +72,17 @@ export function TextAreaInput({ label, value, onChange, placeholder, hint, rows 
         maxLength={maxLength}
         style={{
           width: "100%",
-          padding: "10px 12px",
-          fontSize: 14,
+          padding: "8px 10px",
+          fontSize: 13,
           fontFamily: ff,
           color: "#1C1917",
           background: "#FFFFFF",
           border: "1.5px solid #E8D5B7",
-          borderRadius: 8,
+          borderRadius: 7,
           outline: "none",
           resize: "vertical",
-          minHeight: 80,
-          lineHeight: 1.55,
+          minHeight: 56,
+          lineHeight: 1.5,
           transition: "border-color 0.15s",
         }}
         onFocus={e => (e.currentTarget.style.borderColor = "#D4A843")}
@@ -95,16 +95,16 @@ export function TextAreaInput({ label, value, onChange, placeholder, hint, rows 
 // ── Field header (label + counter + hint) ───────────────────────────────────
 
 function FieldHeader({ label, hint, value, maxLength }: { label: string; hint?: string; value: string; maxLength?: number }) {
+  // Лічильник показуємо тільки коли є шанс впертися: ≥60% від ліміту або поле
+  // не порожнє і нема hint. Інакше — візуальний шум.
+  const showCounter = !hint && maxLength && value.length > 0 && (value.length / maxLength) > 0.6;
+  const rightText = hint || (showCounter ? `${value.length} / ${maxLength}` : "");
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
-      <span style={{ fontSize: 12, fontWeight: 600, color: "#1C3A2E", letterSpacing: "0.02em" }}>{label}</span>
-      <span style={{ fontSize: 10, color: "#9B7C45", fontStyle: hint ? "normal" : "italic" }}>
-        {hint
-          ? hint
-          : maxLength
-            ? `${value.length} / ${maxLength}`
-            : ""}
-      </span>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 3, gap: 8 }}>
+      <span style={{ fontSize: 11, fontWeight: 600, color: "#1C3A2E", letterSpacing: "0.02em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
+      {rightText && (
+        <span style={{ fontSize: 9.5, color: "#9B7C45", whiteSpace: "nowrap" }}>{rightText}</span>
+      )}
     </div>
   );
 }
@@ -120,9 +120,13 @@ interface ImageInputProps {
   /** Якщо true — поле caption доступне (для section image). Default false. */
   withCaption?: boolean;
   hint?: string;
+  /** Максимальна ширина preview-thumbnail у px. За замовчуванням повна ширина.
+   *  Використовується для портретних аспектів (3:4), щоб не розтягувати на всю
+   *  висоту сайдбару. */
+  maxPreviewWidth?: number;
 }
 
-export function ImageInput({ label, value, onChange, aspectRatio, withCaption = false, hint }: ImageInputProps) {
+export function ImageInput({ label, value, onChange, aspectRatio, withCaption = false, hint, maxPreviewWidth }: ImageInputProps) {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -148,80 +152,177 @@ export function ImageInput({ label, value, onChange, aspectRatio, withCaption = 
     }
   };
 
-  return (
-    <div style={{ fontFamily: ff }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
-        <span style={{ fontSize: 12, fontWeight: 600, color: "#1C3A2E", letterSpacing: "0.02em" }}>{label}</span>
-        <span style={{ fontSize: 10, color: "#9B7C45" }}>{hint || `aspect ${aspectRatio.replace("/", ":")}`}</span>
-      </div>
+  // Compact layout: коли є maxPreviewWidth (портретний 3:4), фото зліва +
+  // alt/clear/caption справа в колонці. Інакше — повний flow (cover 16/9).
+  const compact = !!maxPreviewWidth;
+  const thumbW = maxPreviewWidth ?? undefined;
 
-      {/* Preview thumbnail with fixed aspect ratio */}
-      <div
-        style={{
-          width: "100%",
-          aspectRatio,
-          background: value.url ? "transparent" : "#FAF6F0",
-          border: "1.5px dashed #E8D5B7",
-          borderRadius: 8,
-          overflow: "hidden",
-          position: "relative",
-          cursor: "pointer",
-        }}
-        onClick={() => inputRef.current?.click()}
-      >
-        {value.url ? (
-          <>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={value.url}
-              alt={value.alt || ""}
-              style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
-            />
-            {/* hover overlay with replace */}
-            <div
-              style={{
-                position: "absolute",
-                inset: 0,
-                background: "rgba(28,58,46,0.45)",
-                color: "#fff",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: 13,
-                fontWeight: 600,
-                opacity: 0,
-                transition: "opacity 0.18s",
-              }}
-              onMouseEnter={e => (e.currentTarget.style.opacity = "1")}
-              onMouseLeave={e => (e.currentTarget.style.opacity = "0")}
-            >
-              {uploading ? "Завантаження..." : "Замінити фото"}
-            </div>
-          </>
-        ) : (
+  const thumb = (
+    <div
+      style={{
+        width: compact ? thumbW : "100%",
+        flexShrink: 0,
+        aspectRatio,
+        background: value.url ? "transparent" : "#FAF6F0",
+        border: "1.5px dashed #E8D5B7",
+        borderRadius: 8,
+        overflow: "hidden",
+        position: "relative",
+        cursor: "pointer",
+      }}
+      onClick={() => inputRef.current?.click()}
+    >
+      {value.url ? (
+        <>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={value.url}
+            alt={value.alt || ""}
+            style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+          />
           <div
             style={{
-              width: "100%",
-              height: "100%",
+              position: "absolute",
+              inset: 0,
+              background: "rgba(28,58,46,0.45)",
+              color: "#fff",
               display: "flex",
-              flexDirection: "column",
               alignItems: "center",
               justifyContent: "center",
-              gap: 6,
-              color: "#9B7C45",
-              fontSize: 13,
+              fontSize: 12,
               fontWeight: 600,
+              opacity: 0,
+              transition: "opacity 0.18s",
             }}
+            onMouseEnter={e => (e.currentTarget.style.opacity = "1")}
+            onMouseLeave={e => (e.currentTarget.style.opacity = "0")}
           >
-            <span style={{ fontSize: 28 }} aria-hidden>🖼</span>
-            <span>{uploading ? "Завантаження..." : "Натисніть, щоб завантажити фото"}</span>
-            <span style={{ fontSize: 11, fontWeight: 400, color: "#A8956C" }}>JPG / PNG / WebP, до 8 MB</span>
+            {uploading ? "Завантаження..." : "Замінити"}
           </div>
-        )}
-      </div>
+        </>
+      ) : (
+        <div
+          style={{
+            width: "100%",
+            height: "100%",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 4,
+            color: "#9B7C45",
+            fontSize: 11,
+            fontWeight: 600,
+            textAlign: "center",
+            padding: 8,
+          }}
+        >
+          <span style={{ fontSize: 22 }} aria-hidden>🖼</span>
+          <span>{uploading ? "Завантаження..." : "Натисніть, щоб завантажити"}</span>
+          <span style={{ fontSize: 9.5, fontWeight: 400, color: "#A8956C" }}>JPG / PNG / WebP, до 8 MB</span>
+        </div>
+      )}
+    </div>
+  );
 
-      {error && (
-        <div style={{ fontSize: 11, color: "#DC2626", marginTop: 6 }}>{error}</div>
+  const sideFields = (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1, minWidth: 0 }}>
+      <label style={{ display: "block", fontFamily: ff }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: "#1C3A2E", letterSpacing: "0.02em", marginBottom: 3 }}>Alt-текст</div>
+        <input
+          type="text"
+          value={value.alt || ""}
+          onChange={e => onChange({ ...value, alt: e.target.value })}
+          placeholder="опис фото для a11y + SEO"
+          style={{
+            width: "100%",
+            padding: "7px 10px",
+            fontSize: 12,
+            fontFamily: ff,
+            border: "1px solid #E8D5B7",
+            borderRadius: 6,
+            outline: "none",
+            background: "#FFFFFF",
+            color: "#1C1917",
+          }}
+        />
+      </label>
+      {withCaption && (
+        <label style={{ display: "block", fontFamily: ff }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: "#1C3A2E", letterSpacing: "0.02em", marginBottom: 3 }}>Підпис</div>
+          <input
+            type="text"
+            value={value.caption || ""}
+            onChange={e => onChange({ ...value, caption: e.target.value })}
+            placeholder="підпис під фото"
+            style={{
+              width: "100%",
+              padding: "7px 10px",
+              fontSize: 12,
+              fontFamily: ff,
+              border: "1px solid #E8D5B7",
+              borderRadius: 6,
+              outline: "none",
+              background: "#FFFFFF",
+              color: "#1C1917",
+              fontStyle: "italic",
+            }}
+          />
+        </label>
+      )}
+      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          style={{
+            padding: "5px 10px",
+            fontSize: 11,
+            fontWeight: 600,
+            border: "1px solid #E8D5B7",
+            background: "#FAF6F0",
+            color: "#1C3A2E",
+            borderRadius: 6,
+            cursor: "pointer",
+            fontFamily: ff,
+          }}
+          title={value.url ? "Замінити фото" : "Завантажити фото"}
+        >
+          {value.url ? "↻ Замінити" : "↑ Завантажити"}
+        </button>
+        {value.url && (
+          <button
+            type="button"
+            onClick={() => onChange({ url: "", alt: "", caption: "" })}
+            style={{
+              padding: "5px 10px",
+              fontSize: 11,
+              border: "1px solid #FECACA",
+              background: "#FFFFFF",
+              color: "#B91C1C",
+              borderRadius: 6,
+              cursor: "pointer",
+              fontFamily: ff,
+            }}
+            title="Прибрати фото"
+          >
+            ✕
+          </button>
+        )}
+        <span style={{ fontSize: 9.5, color: "#A8956C", flex: 1, textAlign: "right" }}>
+          JPG · PNG · WebP · до 8 MB
+        </span>
+      </div>
+      {error && <div style={{ fontSize: 11, color: "#DC2626" }}>{error}</div>}
+    </div>
+  );
+
+  return (
+    <div style={{ fontFamily: ff }}>
+      {!compact && (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6, gap: 8 }}>
+          <span style={{ fontSize: 11, fontWeight: 600, color: "#1C3A2E", letterSpacing: "0.02em" }}>{label}</span>
+          <span style={{ fontSize: 9.5, color: "#9B7C45" }}>{hint || `aspect ${aspectRatio.replace("/", ":")}`}</span>
+        </div>
       )}
 
       <input
@@ -236,65 +337,16 @@ export function ImageInput({ label, value, onChange, aspectRatio, withCaption = 
         }}
       />
 
-      <div style={{ marginTop: 10, display: "flex", gap: 8, alignItems: "center" }}>
-        <input
-          type="text"
-          value={value.alt || ""}
-          onChange={e => onChange({ ...value, alt: e.target.value })}
-          placeholder="Alt-текст (для accessibility і SEO)"
-          style={{
-            flex: 1,
-            padding: "7px 10px",
-            fontSize: 12,
-            fontFamily: ff,
-            border: "1px solid #E8D5B7",
-            borderRadius: 6,
-            outline: "none",
-            background: "#FFFFFF",
-            color: "#1C1917",
-          }}
-        />
-        {value.url && (
-          <button
-            type="button"
-            onClick={() => onChange({ url: "", alt: "", caption: "" })}
-            style={{
-              padding: "6px 10px",
-              fontSize: 11,
-              border: "1px solid #FECACA",
-              background: "#FFFFFF",
-              color: "#B91C1C",
-              borderRadius: 6,
-              cursor: "pointer",
-              fontFamily: ff,
-            }}
-            title="Прибрати фото"
-          >
-            Очистити
-          </button>
-        )}
-      </div>
-
-      {withCaption && (
-        <input
-          type="text"
-          value={value.caption || ""}
-          onChange={e => onChange({ ...value, caption: e.target.value })}
-          placeholder="Підпис під фото (italic)"
-          style={{
-            marginTop: 8,
-            width: "100%",
-            padding: "7px 10px",
-            fontSize: 12,
-            fontFamily: ff,
-            border: "1px solid #E8D5B7",
-            borderRadius: 6,
-            outline: "none",
-            background: "#FFFFFF",
-            color: "#1C1917",
-            fontStyle: "italic",
-          }}
-        />
+      {compact ? (
+        <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+          {thumb}
+          {sideFields}
+        </div>
+      ) : (
+        <>
+          {thumb}
+          <div style={{ marginTop: 8 }}>{sideFields}</div>
+        </>
       )}
     </div>
   );
@@ -319,40 +371,39 @@ export function SectionHeader({
   return (
     <div
       style={{
-        marginTop: 28,
-        marginBottom: 16,
-        paddingBottom: 10,
+        marginTop: 14,
+        marginBottom: 10,
+        paddingBottom: 6,
         borderBottom: "1px solid #E8D5B7",
         fontFamily: ff,
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-        {icon && <span style={{ fontSize: 16 }} aria-hidden>{icon}</span>}
-        <span style={{ fontSize: 14, fontWeight: 700, color: "#1C3A2E", letterSpacing: "0.02em" }}>{title}</span>
+        {icon && <span style={{ fontSize: 15 }} aria-hidden>{icon}</span>}
+        <span style={{ fontSize: 13, fontWeight: 700, color: "#1C3A2E", letterSpacing: "0.02em" }}>{title}</span>
         {whereOnCard && (
           <span
             style={{
               display: "inline-flex",
               alignItems: "center",
-              gap: 4,
-              padding: "2px 8px",
+              gap: 3,
+              padding: "1px 7px",
               borderRadius: 999,
               background: "#F5E1A4",
               color: "#5C4513",
-              fontSize: 10,
-              fontWeight: 700,
-              letterSpacing: "0.04em",
-              textTransform: "uppercase",
+              fontSize: 9.5,
+              fontWeight: 600,
+              letterSpacing: "0.02em",
             }}
             title={`Куди це піде на картці: ${whereOnCard}`}
           >
-            <span aria-hidden>↗</span>
+            <span aria-hidden style={{ fontSize: 8 }}>↗</span>
             {whereOnCard}
           </span>
         )}
       </div>
       {subtitle && (
-        <div style={{ fontSize: 11, color: "#9B7C45", marginTop: 4, lineHeight: 1.4 }}>{subtitle}</div>
+        <div style={{ fontSize: 10.5, color: "#9B7C45", marginTop: 3, lineHeight: 1.35 }}>{subtitle}</div>
       )}
     </div>
   );

@@ -25,9 +25,10 @@ import ArticleTemplate from "@/lib/news/templates/ArticleTemplate";
 // page-mode використовується ArticleTemplate.
 import TemplatePreviewCard from "@/lib/news/templates/TemplatePreviewCard";
 import type { EventRegion } from "@/lib/news/templates/EventTemplate";
+import type { ArticleRegion } from "@/lib/news/templates/ArticleTemplate";
 import ArticleForm from "./ArticleForm";
 import EventForm from "./EventForm";
-import { TextInput, TextAreaInput } from "./Inputs";
+import { TextInput } from "./Inputs";
 import { slugifyNewsTitle } from "@/lib/news/slug";
 
 const ff = "Inter, system-ui, -apple-system, sans-serif";
@@ -52,9 +53,11 @@ export default function TemplateEditor({ newsId }: Props) {
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
   // Час останнього успішного save — для inline-стану кнопки «✓ Збережено».
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
-  // Підсвічена зона на preview-картці. Виставляється при фокусі поля у формі,
-  // скидається на blur. Tip: focus-events bubble через wrapper-divs у формі.
+  // Підсвічена зона на preview. EVENT і ARTICLE мають різні набори region-id,
+  // тому два окремих state — кожна форма керує своїм. focus-events bubble
+  // через wrapper-divs у формах (RegionGroup).
   const [focusedRegion, setFocusedRegion] = useState<EventRegion | null>(null);
+  const [focusedArticleRegion, setFocusedArticleRegion] = useState<ArticleRegion | null>(null);
 
   const [kind, setKind] = useState<TemplateKind | null>(null);
   const [data, setData] = useState<ArticleData | EventData | null>(null);
@@ -218,7 +221,7 @@ export default function TemplateEditor({ newsId }: Props) {
           zIndex: 30,
           background: "#FFFFFF",
           borderBottom: "1px solid #E8D5B7",
-          padding: "14px 24px",
+          padding: "14px 128px 14px 24px",
           display: "flex",
           alignItems: "center",
           gap: 16,
@@ -340,7 +343,7 @@ export default function TemplateEditor({ newsId }: Props) {
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "minmax(360px, 480px) 1fr",
+          gridTemplateColumns: "minmax(440px, 540px) 1fr",
           gap: 0,
           alignItems: "start",
           minHeight: "calc(100vh - 60px)",
@@ -349,7 +352,7 @@ export default function TemplateEditor({ newsId }: Props) {
         {/* ── LEFT: form ────────────────────────────────────────────────────── */}
         <aside
           style={{
-            padding: "24px 24px 80px",
+            padding: "18px 22px 32px",
             borderRight: "1px solid #E8D5B7",
             background: "#FFFFFF",
             position: "sticky",
@@ -358,42 +361,59 @@ export default function TemplateEditor({ newsId }: Props) {
             overflowY: "auto",
           }}
         >
-          {/* ── Зверху: TITLE only — внутрішня назва ───────────────────────── */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 18 }}>
+          {/* ── META block (зверху): Заголовок + Slug + Excerpt разом ──────
+              Логіка: усе що не на картці (адмінка + SEO + URL) згруповано
+              нагорі. Менеджер бачить мета-частину один раз і далі редагує
+              контент. */}
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: 8,
+              paddingBottom: 12,
+              marginBottom: 6,
+              borderBottom: "1px solid #E8D5B7",
+            }}
+          >
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 180px", gap: 8 }}>
+              <TextInput
+                label="Заголовок"
+                value={meta.title}
+                onChange={v => setMeta({ ...meta, title: v })}
+                hint="адмін + SEO-title"
+              />
+              <TextInput
+                label="Slug (URL)"
+                value={meta.slug}
+                onChange={v => setMeta({ ...meta, slug: v })}
+                hint="кирилиця → latin"
+              />
+            </div>
             <TextInput
-              label="Заголовок"
-              value={meta.title}
-              onChange={v => setMeta({ ...meta, title: v })}
-              hint="для адмінки, пошуку, SEO-title. На самій картці не показується."
+              label="SEO-excerpt"
+              value={meta.excerpt}
+              onChange={v => setMeta({ ...meta, excerpt: v })}
+              hint={kind === "ARTICLE" ? "резюме для Google · default = лід" : "резюме для Google · default = 1-й абзац опису"}
             />
           </div>
 
-          {/* ── Чіткий розділювач — ЗМІСТ ───────────────────────────────────
-              Менеджер мав плутанину: писав у SEO-excerpt і не бачив на картці.
-              Цей баннер однозначно каже: «нижче — те, що видно на картці». */}
+          {/* Divider-label замість декоративного банера */}
           <div
             style={{
-              padding: "10px 14px",
-              marginBottom: 14,
-              borderRadius: 10,
-              background: "linear-gradient(90deg, #1C3A2E 0%, #2a4f3f 100%)",
-              color: "#F5E1A4",
-              fontFamily: ff,
               display: "flex",
               alignItems: "center",
               gap: 10,
-              boxShadow: "0 2px 8px rgba(28,58,46,0.18)",
+              marginTop: 4,
+              marginBottom: 8,
+              fontFamily: ff,
             }}
           >
-            <span aria-hidden style={{ fontSize: 16 }}>{kind === "ARTICLE" ? "📰" : "🎟"}</span>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.16em", textTransform: "uppercase" }}>
-                Зміст картки
-              </div>
-              <div style={{ fontSize: 11, color: "rgba(245,225,164,0.75)", marginTop: 2 }}>
-                Усе нижче — те, що побачить відвідувач /news
-              </div>
-            </div>
+            <span aria-hidden style={{ fontSize: 12 }}>{kind === "ARTICLE" ? "📰" : "🎟"}</span>
+            <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.16em", textTransform: "uppercase", color: "#1C3A2E" }}>
+              Зміст картки
+            </span>
+            <span style={{ flex: 1, height: 1, background: "#E8D5B7" }} />
+            <span style={{ fontSize: 10, color: "#9B7C45" }}>видно на /news</span>
           </div>
 
           {/* Kind-specific form (фактичний контент картки) */}
@@ -401,6 +421,7 @@ export default function TemplateEditor({ newsId }: Props) {
             <ArticleForm
               data={data as ArticleData}
               onChange={d => setData(d)}
+              onFocusRegion={setFocusedArticleRegion}
             />
           ) : (
             <EventForm
@@ -409,54 +430,6 @@ export default function TemplateEditor({ newsId }: Props) {
               onFocusRegion={setFocusedRegion}
             />
           )}
-
-          {/* ── Внизу: SEO + URL — не на картці, тільки для адмінки/Google ── */}
-          <div
-            style={{
-              marginTop: 26,
-              padding: "14px 16px 16px",
-              borderRadius: 12,
-              background: "#FAF6F0",
-              border: "1px dashed #D4A843",
-              fontFamily: ff,
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                marginBottom: 12,
-              }}
-            >
-              <span aria-hidden style={{ fontSize: 14 }}>⚙️</span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: "#1C3A2E" }}>
-                  Адмін + SEO
-                </div>
-                <div style={{ fontSize: 11, color: "#9B7C45", marginTop: 2 }}>
-                  Це НЕ показується на картці — тільки для адмінки і Google
-                </div>
-              </div>
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <TextInput
-                label="Slug (URL)"
-                value={meta.slug}
-                onChange={v => setMeta({ ...meta, slug: v })}
-                hint="/news/{slug} · кириличні слова → latinized автоматично"
-              />
-              <TextAreaInput
-                label="SEO-excerpt"
-                value={meta.excerpt}
-                onChange={v => setMeta({ ...meta, excerpt: v })}
-                rows={2}
-                hint={kind === "ARTICLE"
-                  ? "коротке резюме для Google/соц-мережей · за замовчуванням = лід шаблону"
-                  : "коротке резюме для Google/соц-мережей · за замовчуванням = перший абзац опису фахівця"}
-              />
-            </div>
-          </div>
         </aside>
 
         {/* ── RIGHT: live preview ───────────────────────────────────────────── */}
@@ -519,14 +492,14 @@ export default function TemplateEditor({ newsId }: Props) {
               Для ARTICLE — пер preview-mode (card vs повна сторінка). */}
           {kind === "EVENT" || previewMode === "card" ? (
             <PreviewCanvas>
-              <div style={{ padding: "60px 0", display: "flex", justifyContent: "center" }}>
+              <div style={{ padding: "32px 24px", display: "flex", justifyContent: "center" }}>
                 <TemplatePreviewCard kind={kind} data={data} highlight={focusedRegion} />
               </div>
             </PreviewCanvas>
           ) : (
             <PreviewCanvas>
-              <div style={{ padding: "40px 24px", background: "#FFFFFF" }}>
-                <ArticleTemplate data={data as ArticleData} />
+              <div style={{ padding: "32px 24px", background: "#FFFFFF", width: "100%" }}>
+                <ArticleTemplate data={data as ArticleData} highlight={focusedArticleRegion} />
               </div>
             </PreviewCanvas>
           )}
@@ -570,8 +543,10 @@ function PreviewCanvas({ children }: { children: React.ReactNode }) {
         background: "#F5F1E8",
         borderRadius: 16,
         border: "1px solid #E8D5B7",
-        minHeight: 600,
         overflow: "hidden",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
       }}
     >
       {children}
