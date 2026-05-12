@@ -16,6 +16,7 @@ interface Props {
   gameSubtitle: string;
   cards: Card[];
   price: string;
+  oldPrice?: string | null;
   currency: string;
   btnOrder: string;
   deliveryBadgeMain?: string;
@@ -191,7 +192,16 @@ const imageStyle: React.CSSProperties = {
   borderRadius: '12px',
 };
 
-export default function GamesHero({ pageTitle, gameTitle, gameSubtitle, cards, price, currency, btnOrder, deliveryBadgeMain = '📦 Доставка Нова пошта', deliveryBadgeNote = '(оплачується додатково)', onOrder }: Props) {
+const oldPriceStyle: React.CSSProperties = {
+  color: 'rgba(245,237,214,0.45)',
+  fontFamily: sysFont,
+  fontSize: '1.15rem',
+  fontWeight: 500,
+  textDecoration: 'line-through',
+  marginRight: '0.6rem',
+};
+
+export default function GamesHero({ pageTitle, gameTitle, gameSubtitle, cards, price, oldPrice, currency, btnOrder, deliveryBadgeMain = '📦 Доставка Нова пошта', deliveryBadgeNote = '(оплачується додатково)', onOrder }: Props) {
   return (
     <section style={heroBgStyle}>
       <div style={heroInnerStyle} className="games-hero-grid">
@@ -212,6 +222,7 @@ export default function GamesHero({ pageTitle, gameTitle, gameSubtitle, cards, p
             <div>
               <span style={priceLblStyle}>{gameTitle}</span>
               <div>
+                {oldPrice && <span style={oldPriceStyle}>{oldPrice}</span>}
                 <span style={priceValStyle}>{price}</span>
                 <span style={priceCurrStyle}>{currency}</span>
               </div>

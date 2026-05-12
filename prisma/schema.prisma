@@ -1072,6 +1072,11 @@ model CoursePriceAuditLog {
 model CategoryPromoOverride {
   id              String    @id @default(cuid())
   category        String    @unique
+  /// Override базової ціни для категорії (connector / yearly / monthly).
+  /// Якщо null — використовується дефолт із коду.
+  price           Int?
+  /// «Стара ціна» — якщо заповнена, на сторінці продукту показується перекресленою.
+  oldPrice        Int?
   promo1Code      String?
   promo1Price     Int?
   promo1StartsAt  DateTime?

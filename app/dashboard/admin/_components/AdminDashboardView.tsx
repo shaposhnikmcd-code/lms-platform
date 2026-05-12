@@ -247,7 +247,7 @@ export default function AdminDashboardView({ data }: { data: AdminDashboardData 
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
         {/* Analytics — chart + KPI strip */}
-        <div className="lg:col-span-9 flex flex-col gap-4">
+        <div className="lg:col-span-8 flex flex-col gap-4">
           <AdminPanel theme={theme} padding="p-5">
             <div className="flex items-center gap-4 flex-wrap mb-4">
               <div className="min-w-0">
@@ -302,7 +302,7 @@ export default function AdminDashboardView({ data }: { data: AdminDashboardData 
         </div>
 
         {/* Quick actions — вертикальна колонка справа */}
-        <aside className="lg:col-span-3">
+        <aside className="lg:col-span-4">
           <AdminPanel theme={theme} padding="p-5" className="lg:sticky lg:top-6">
             <div className="flex items-center justify-between mb-4">
               <div>
@@ -322,7 +322,7 @@ export default function AdminDashboardView({ data }: { data: AdminDashboardData 
               </span>
             </div>
 
-            <nav className="flex flex-col gap-1">
+            <nav className="grid grid-cols-2 gap-1.5">
               {quickActions.map(a => (
                 <Link
                   key={a.href}

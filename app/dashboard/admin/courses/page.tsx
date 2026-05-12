@@ -3,6 +3,8 @@ import { COURSES_CATALOG } from "@/lib/coursesCatalog";
 import { PSYCHOLOGY_COURSE } from "@/app/[locale]/courses/psychology-basics/config";
 import { MILITARY_PSYCHOLOGY_COURSE } from "@/app/[locale]/courses/military-psychology/config";
 import { syncCatalogCourses } from "@/lib/syncCatalogCourses";
+import { CONNECTOR_DEFAULT_PRICE } from "@/lib/connectorPricing";
+import { YEARLY_DEFAULT_PRICE, MONTHLY_DEFAULT_PRICE } from "@/lib/yearlyPricing";
 import CoursesView from "./_components/CoursesView";
 
 export const revalidate = 30;
@@ -49,6 +51,12 @@ export default async function AdminCourses() {
   });
 
   const promosByCategory = new Map(categoryPromos.map((c) => [c.category, c]));
+  const CATEGORY_DEFAULT_PRICE: Record<'bundle' | 'connector' | 'yearly' | 'monthly', number | null> = {
+    bundle: null,
+    connector: CONNECTOR_DEFAULT_PRICE,
+    yearly: YEARLY_DEFAULT_PRICE,
+    monthly: MONTHLY_DEFAULT_PRICE,
+  };
   const buildCategoryRow = (
     category: 'bundle' | 'connector' | 'yearly' | 'monthly',
     titleUk: string,
@@ -63,6 +71,9 @@ export default async function AdminCourses() {
       icon,
       accent,
       hint,
+      defaultPrice: CATEGORY_DEFAULT_PRICE[category],
+      price: p?.price ?? null,
+      oldPrice: p?.oldPrice ?? null,
       promo1Code: p?.promo1Code ?? null,
       promo1Price: p?.promo1Price ?? null,
       promo1StartsAt: p?.promo1StartsAt ? p.promo1StartsAt.toISOString() : null,
@@ -74,8 +85,8 @@ export default async function AdminCourses() {
     };
   };
   const categoryRows = [
-    buildCategoryRow('bundle', 'Пакети курсів', '📦', '#D4A843', 'Один промокод на всі пакети'),
     buildCategoryRow('connector', 'Гра Конектор', '🧩', '#7C9D7C', 'Промокод обнуляє доставку'),
+    buildCategoryRow('bundle', 'Пакети курсів', '📦', '#D4A843', 'Один промокод на всі пакети'),
     buildCategoryRow('yearly', 'Річна програма', '📅', '#9C6FB6', '(Річна підписка)'),
     buildCategoryRow('monthly', 'Річна програма', '🔁', '#6FA8B6', '(Місячний платіж)'),
   ];

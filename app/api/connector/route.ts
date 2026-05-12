@@ -5,6 +5,7 @@ import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
 import { isPromoWindowActive } from '@/lib/paymentPricing';
 import { notifyManagers } from '@/lib/connectorNotifications';
+import { getConnectorPricing } from '@/lib/connectorPricing';
 
 const CONNECTOR_ORDER_STATUSES = ['NEW', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED'] as const;
 
@@ -16,7 +17,7 @@ async function requireStaff() {
 
 export async function POST(req: NextRequest) {
   try {
-    const { email, fullName, phone, city, postOffice, gamePrice, shippingCost, callMe, promoCode } = await req.json();
+    const { email, fullName, phone, city, postOffice, shippingCost, callMe, promoCode } = await req.json();
 
     const session = await getServerSession(authOptions);
     const sessionRole = (session?.user as { role?: string } | undefined)?.role;
@@ -59,7 +60,9 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const baseGamePrice = isAdmin ? 1 : (typeof gamePrice === 'number' ? gamePrice : 1099);
+    // Ціна гри резолвиться на сервері з БД (override з адмінки) — не довіряємо клієнту.
+    const pricing = await getConnectorPricing();
+    const baseGamePrice = isAdmin ? 1 : pricing.price;
     const baseShippingCost = isAdmin ? 0 : (typeof shippingCost === 'number' ? shippingCost : 0);
     const finalGamePrice = promoApplied ? promoFixedPrice! : baseGamePrice;
     const finalShippingCost = promoApplied ? 0 : baseShippingCost;

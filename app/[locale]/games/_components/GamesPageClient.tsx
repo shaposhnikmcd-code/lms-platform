@@ -97,10 +97,17 @@ interface Content {
 interface Props {
   content: Content;
   currency: string;
+  /// Override ціни з адмінки (рядок для рендеру). Якщо undefined — fallback на content.price.
+  price?: string;
+  /// Стара ціна (перекреслена) — якщо задана в адмінці.
+  oldPrice?: string | null;
+  /// Числова ціна для передачі в OrderForm (для замовлення на чекауті).
+  gamePrice?: number;
 }
 
-export default function GamesPageClient({ content, currency }: Props) {
+export default function GamesPageClient({ content, currency, price, oldPrice, gamePrice }: Props) {
   const [showOrderForm, setShowOrderForm] = useState(false);
+  const displayPrice = price ?? content.price;
 
   return (
     <div style={{ fontFamily: sysFont, background: '#FAF6F0' }}>
@@ -109,7 +116,8 @@ export default function GamesPageClient({ content, currency }: Props) {
         gameTitle={content.gameTitle}
         gameSubtitle={content.gameSubtitle}
         cards={content.cards}
-        price={content.price}
+        price={displayPrice}
+        oldPrice={oldPrice ?? null}
         currency={currency}
         btnOrder={content.btnOrder}
         deliveryBadgeMain={content.deliveryBadgeMain}
@@ -120,7 +128,7 @@ export default function GamesPageClient({ content, currency }: Props) {
       <GamesQuote quote={content.quote} quoteAuthor={content.quoteAuthor} comingSoon={content.comingSoon} />
       {/* Умовний рендер: OrderForm JS завантажується лише після першого "Замовити" */}
       {showOrderForm && (
-        <OrderForm isOpen={showOrderForm} onClose={() => setShowOrderForm(false)} labels={content.form} />
+        <OrderForm isOpen={showOrderForm} onClose={() => setShowOrderForm(false)} labels={content.form} gamePrice={gamePrice} />
       )}
       <style>{`
         @media (max-width: 768px) {

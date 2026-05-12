@@ -25,7 +25,9 @@ type Props = {
     courseNameMonth: string;
   };
   yearlyPrice: number;
+  yearlyOldPrice?: number | null;
   monthlyPrice: number;
+  monthlyOldPrice?: number | null;
   registrationOpen: boolean;
   /// Invite-flow: якщо передано — обидві карточки активні, email pre-filled у формі.
   /// Студент сам обирає Yearly / Monthly Autopay / Monthly One-time на цьому екрані.
@@ -53,7 +55,7 @@ function DisabledButton({ label, variant }: { label: string; variant: 'light' | 
   );
 }
 
-export default function PricingSection({ t, yearlyPrice, monthlyPrice, registrationOpen, invite }: Props) {
+export default function PricingSection({ t, yearlyPrice, yearlyOldPrice, monthlyPrice, monthlyOldPrice, registrationOpen, invite }: Props) {
   const open = registrationOpen;
   const totalMonthly = monthlyPrice * TOTAL_MONTHLY_PAYMENTS;
   const premium = totalMonthly - yearlyPrice;
@@ -80,6 +82,9 @@ export default function PricingSection({ t, yearlyPrice, monthlyPrice, registrat
               <p className="text-white/40 text-sm mb-5">{t.yearSubtitle}</p>
 
               <div className="flex items-baseline justify-center gap-1.5 mb-2">
+                {yearlyOldPrice != null && (
+                  <span className="text-white/35 text-xl font-medium line-through mr-1">{yearlyOldPrice}</span>
+                )}
                 <span className="text-5xl font-black text-white tracking-tight">{yearlyPrice}</span>
                 <span className="text-white/50 text-sm font-medium">{t.currency}</span>
               </div>
@@ -130,6 +135,9 @@ export default function PricingSection({ t, yearlyPrice, monthlyPrice, registrat
             <p className="text-gray-400 text-sm mb-5">{t.monthInstallment ?? 'Розсрочка на 9 місяців програми'}</p>
 
             <div className="flex items-baseline justify-center gap-1.5 mb-2">
+              {monthlyOldPrice != null && (
+                <span className="text-gray-400 text-xl font-medium line-through mr-1">{monthlyOldPrice}</span>
+              )}
               <span className="text-5xl font-black text-[#1C3A2E] tracking-tight">{monthlyPrice}</span>
               <span className="text-gray-400 text-sm font-medium">{t.currencyMonth}</span>
             </div>

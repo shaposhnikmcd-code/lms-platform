@@ -19,6 +19,12 @@ export interface CategoryRowData {
   icon: string;
   accent: string;
   hint: string;
+  /// Дефолтна базова ціна з коду (для bundle — null, цінами керують самі пакети).
+  defaultPrice: number | null;
+  /// Override базової ціни (з CategoryPromoOverride.price). null = використати defaultPrice.
+  price: number | null;
+  /// Стара (перекреслена) ціна. null = не показувати.
+  oldPrice: number | null;
   // promo1* — БД слот, рендериться як UI "Промокод 2" (SECRETPASS)
   promo1Code: string | null;
   promo1Price: number | null;
@@ -59,6 +65,11 @@ export default function CategoryRow({
 }) {
   const router = useRouter();
   const dark = theme === 'dark';
+  const hasPriceField = row.defaultPrice !== null;
+
+  // Ціна / Стара ціна (тільки для connector / yearly / monthly).
+  const [priceStr, setPriceStr] = useState(row.price !== null ? String(row.price) : '');
+  const [oldPriceStr, setOldPriceStr] = useState(row.oldPrice !== null ? String(row.oldPrice) : '');
 
   // БД-слот promo1 → UI "Промокод 2" (SECRETPASS)
   const [promo1CodeStr, setPromo1CodeStr] = useState(row.promo1Code ?? '');
@@ -86,6 +97,8 @@ export default function CategoryRow({
       if (raw) {
         const d = JSON.parse(raw) as Record<string, unknown>;
         if (d && typeof d === 'object') {
+          if (typeof d.priceStr === 'string') setPriceStr(d.priceStr);
+          if (typeof d.oldPriceStr === 'string') setOldPriceStr(d.oldPriceStr);
           if (typeof d.promo1CodeStr === 'string') setPromo1CodeStr(d.promo1CodeStr);
           if (typeof d.promo1PriceStr === 'string') setPromo1PriceStr(d.promo1PriceStr);
           if (d.promo1StartsAt === null || typeof d.promo1StartsAt === 'string')
@@ -107,6 +120,8 @@ export default function CategoryRow({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const priceParsed = parsePriceInput(priceStr);
+  const oldPriceParsed = parsePriceInput(oldPriceStr);
   const promo1CodeParsed = parsePromoInput(promo1CodeStr);
   const promo1PriceParsed = parsePriceInput(promo1PriceStr);
   const promo1PairOk = (promo1CodeParsed.code !== null) === (promo1PriceParsed.num !== null);
@@ -125,6 +140,8 @@ export default function CategoryRow({
     promo1CodeParsed.code !== promo2CodeParsed.code;
 
   const formValid =
+    priceParsed.ok &&
+    oldPriceParsed.ok &&
     promo1CodeParsed.ok &&
     promo1PriceParsed.ok &&
     promo1PairOk &&
@@ -136,6 +153,8 @@ export default function CategoryRow({
   const dirty =
     formValid &&
     (
+      (priceParsed.num ?? null) !== (row.price ?? null) ||
+      (oldPriceParsed.num ?? null) !== (row.oldPrice ?? null) ||
       (promo1CodeParsed.code ?? null) !== (row.promo1Code ?? null) ||
       (promo1PriceParsed.num ?? null) !== (row.promo1Price ?? null) ||
       effPromo1Starts !== row.promo1StartsAt ||
@@ -146,7 +165,11 @@ export default function CategoryRow({
       effPromo2Expires !== row.promo2ExpiresAt
     );
 
-  const hasOverride = row.promo1Code !== null || row.promo2Code !== null;
+  const hasOverride =
+    row.price !== null ||
+    row.oldPrice !== null ||
+    row.promo1Code !== null ||
+    row.promo2Code !== null;
 
   useEffect(() => {
     if (!draftHydrated) return;
@@ -158,6 +181,8 @@ export default function CategoryRow({
       window.localStorage.setItem(
         draftKey,
         JSON.stringify({
+          priceStr,
+          oldPriceStr,
           promo1CodeStr,
           promo1PriceStr,
           promo1StartsAt,
@@ -175,6 +200,8 @@ export default function CategoryRow({
     draftHydrated,
     draftKey,
     dirty,
+    priceStr,
+    oldPriceStr,
     promo1CodeStr,
     promo1PriceStr,
     promo1StartsAt,
@@ -190,6 +217,8 @@ export default function CategoryRow({
     setSaving(true);
     try {
       const payload = {
+        price: priceParsed.num,
+        oldPrice: oldPriceParsed.num,
         promo1Code: promo1CodeParsed.code,
         promo1Price: promo1PriceParsed.num,
         promo1StartsAt: effPromo1Starts,
@@ -230,6 +259,8 @@ export default function CategoryRow({
         alert(data?.error || 'Не вдалося скинути');
         return;
       }
+      setPriceStr('');
+      setOldPriceStr('');
       setPromo1CodeStr('');
       setPromo1PriceStr('');
       setPromo1StartsAt(null);
@@ -255,10 +286,35 @@ export default function CategoryRow({
     ? 'bg-rose-500/10 border-rose-400/40 text-rose-200 focus:ring-rose-400/40'
     : 'bg-rose-100/60 border-rose-400/60 text-rose-900 focus:ring-rose-500/40';
 
+  const priceCls = `${inputBase} text-center ${priceParsed.ok ? inputOk : inputBad}`;
+  const oldPriceCls = `${inputBase} text-center ${oldPriceParsed.ok ? inputOk : inputBad}`;
   const promo1CodeCls = `${inputBase} text-center ${promo1CodeParsed.ok && promo1PairOk && codesDistinct ? inputOk : inputBad}`;
   const promo1PriceCls = `${inputBase} text-center ${promo1PriceParsed.ok && promo1PairOk ? inputOk : inputBad}`;
   const promo2CodeCls = `${inputBase} text-center ${promo2CodeParsed.ok && promo2PairOk && codesDistinct ? inputOk : inputBad}`;
   const promo2PriceCls = `${inputBase} text-center ${promo2PriceParsed.ok && promo2PairOk ? inputOk : inputBad}`;
+
+  const priceCell = hasPriceField ? (
+    <input
+      type="text"
+      inputMode="numeric"
+      placeholder={row.defaultPrice !== null ? String(row.defaultPrice) : '—'}
+      className={priceCls}
+      value={priceStr}
+      onChange={e => setPriceStr(e.target.value)}
+      title="Базова ціна. Залиш порожнім — буде використана дефолтна."
+    />
+  ) : null;
+  const oldPriceCell = hasPriceField ? (
+    <input
+      type="text"
+      inputMode="numeric"
+      placeholder="—"
+      className={oldPriceCls}
+      value={oldPriceStr}
+      onChange={e => setOldPriceStr(e.target.value)}
+      title="Стара ціна. Якщо заповнена — на сторінці продукту покаже перекресленою."
+    />
+  ) : null;
 
   const titleCell = (
     <div className="flex items-center gap-3">
@@ -389,6 +445,22 @@ export default function CategoryRow({
     return (
       <div className="p-4 space-y-3">
         {titleCell}
+        {hasPriceField && (
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <div className={`text-[10px] uppercase tracking-[0.18em] font-medium mb-1 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+                Ціна, ₴
+              </div>
+              {priceCell}
+            </div>
+            <div>
+              <div className={`text-[10px] uppercase tracking-[0.18em] font-medium mb-1 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+                Стара ціна
+              </div>
+              {oldPriceCell}
+            </div>
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-3">
           <div>
             <div className={`text-[10px] uppercase tracking-[0.18em] font-medium mb-1 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
@@ -423,9 +495,9 @@ export default function CategoryRow({
   return (
     <tr className={dark ? 'hover:bg-white/[0.02]' : 'hover:bg-stone-50/80'}>
       <td className="px-3 py-2.5 align-middle">{titleCell}</td>
-      {/* Ціна / Стара ціна / SP ID / Дефолт — пусті для категорій */}
-      <td className="px-2 py-2.5 align-middle" />
-      <td className="px-2 py-2.5 align-middle" />
+      <td className="px-2 py-2.5 align-middle">{priceCell}</td>
+      <td className="px-2 py-2.5 align-middle">{oldPriceCell}</td>
+      {/* SP ID / Дефолт — пусті для категорій */}
       <td className="px-2 py-2.5 align-middle" />
       <td className="px-2 py-2.5 align-middle" />
       <td className="px-2 py-2.5 align-middle">{uiPromo1CodeCell}</td>

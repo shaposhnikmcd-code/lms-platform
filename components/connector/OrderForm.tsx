@@ -77,9 +77,11 @@ interface OrderFormProps {
   isOpen: boolean;
   onClose: () => void;
   labels?: FormLabels;
+  /// Поточна ціна гри (override з адмінки або дефолт). Якщо не передано — fallback 1099.
+  gamePrice?: number;
 }
 
-const GAME_PRICE = 1099;
+const GAME_PRICE_FALLBACK = 1099;
 const ADMIN_TEST_PRICE = 1;
 
 const defaultLabels: FormLabels = {
@@ -139,8 +141,9 @@ const defaultLabels: FormLabels = {
   nameFullError: "Введіть повне ПІБ: Прізвище Ім'я По батькові",
 };
 
-export default function OrderForm({ isOpen, onClose, labels }: OrderFormProps) {
+export default function OrderForm({ isOpen, onClose, labels, gamePrice }: OrderFormProps) {
   const l = labels ?? defaultLabels;
+  const resolvedGamePrice = typeof gamePrice === 'number' && gamePrice > 0 ? gamePrice : GAME_PRICE_FALLBACK;
   const { data: session } = useSession();
   const sessionRole = (session?.user as any)?.role;
   const isAdmin = sessionRole === 'ADMIN' || sessionRole === 'MANAGER';
@@ -187,7 +190,7 @@ export default function OrderForm({ isOpen, onClose, labels }: OrderFormProps) {
   const euCityDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isUkraine = formData.country === 'UA';
-  const baseGamePrice = isAdmin ? ADMIN_TEST_PRICE : GAME_PRICE;
+  const baseGamePrice = isAdmin ? ADMIN_TEST_PRICE : resolvedGamePrice;
   const baseDeliveryCost = isAdmin ? 0 : deliveryCost;
   const effectiveGamePrice = promoApplied && promoPrice !== null ? promoPrice : baseGamePrice;
   const effectiveDeliveryCost = promoApplied ? 0 : baseDeliveryCost;

@@ -79,6 +79,11 @@ function diffDateField(
 function revalidateForCategory(category: string) {
   if (category === "bundle") {
     revalidateLocalized("/courses");
+  } else if (category === "connector") {
+    revalidateLocalized("/games/connector");
+    revalidateLocalized("/links/connector");
+  } else if (category === "yearly" || category === "monthly") {
+    revalidateLocalized("/yearly-program");
   }
 }
 
@@ -179,11 +184,27 @@ export async function PATCH(
     );
   }
 
-  const allEmpty = slotIsEmpty(slot1) && slotIsEmpty(slot2);
+  const hasPriceKey = Object.prototype.hasOwnProperty.call(body, "price");
+  const hasOldPriceKey = Object.prototype.hasOwnProperty.call(body, "oldPrice");
+  const beforePrice = before?.price ?? null;
+  const beforeOldPrice = before?.oldPrice ?? null;
+  const priceParsed = hasPriceKey ? parsePrice(body.price) : beforePrice;
+  const oldPriceParsed = hasOldPriceKey ? parsePrice(body.oldPrice) : beforeOldPrice;
+  if (priceParsed === "invalid") {
+    return NextResponse.json({ error: "Ціна має бути цілим числом ≥ 0" }, { status: 400 });
+  }
+  if (oldPriceParsed === "invalid") {
+    return NextResponse.json({ error: "Стара ціна має бути цілим числом ≥ 0" }, { status: 400 });
+  }
+  const finalPrice = priceParsed as number | null;
+  const finalOldPrice = oldPriceParsed as number | null;
+
   if (allEmpty) {
     if (before) {
       await prisma.categoryPromoOverride.delete({ where: { category } });
       const changes: ChangesMap = {};
+      diffField("price", beforePrice, null, changes);
+      diffField("oldPrice", beforeOldPrice, null, changes);
       diffField("promo1Code", beforeSlot1.code, null, changes);
       diffField("promo1Price", beforeSlot1.price, null, changes);
       diffDateField("promo1StartsAt", beforeSlot1.startsAt, null, changes);
@@ -199,6 +220,8 @@ export async function PATCH(
   }
 
   const data = {
+    price: finalPrice,
+    oldPrice: finalOldPrice,
     promo1Code: slot1.code,
     promo1Price: slot1.price,
     promo1StartsAt: slot1.startsAt,
@@ -216,6 +239,8 @@ export async function PATCH(
   });
 
   const changes: ChangesMap = {};
+  diffField("price", beforePrice, finalPrice, changes);
+  diffField("oldPrice", beforeOldPrice, finalOldPrice, changes);
   diffField("promo1Code", beforeSlot1.code, slot1.code, changes);
   diffField("promo1Price", beforeSlot1.price, slot1.price, changes);
   diffDateField("promo1StartsAt", beforeSlot1.startsAt, slot1.startsAt, changes);
@@ -249,6 +274,8 @@ export async function DELETE(
 
   if (before) {
     const changes: ChangesMap = {};
+    diffField("price", before.price, null, changes);
+    diffField("oldPrice", before.oldPrice, null, changes);
     diffField("promo1Code", before.promo1Code, null, changes);
     diffField("promo1Price", before.promo1Price, null, changes);
     diffDateField("promo1StartsAt", before.promo1StartsAt ?? null, null, changes);

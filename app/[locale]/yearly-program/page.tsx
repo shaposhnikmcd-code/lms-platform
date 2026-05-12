@@ -106,7 +106,9 @@ export default async function YearlyProgramPage({
       <PricingSection
         t={{ ...c.pricingSection, btnYear: btnLabel, btnMonth: btnLabel }}
         yearlyPrice={settings.yearlyPrice}
+        yearlyOldPrice={settings.yearlyOldPrice}
         monthlyPrice={settings.monthlyPrice}
+        monthlyOldPrice={settings.monthlyOldPrice}
         registrationOpen={registrationOpenForUser}
         invite={invitePayload && inviteToken ? {
           token: inviteToken,

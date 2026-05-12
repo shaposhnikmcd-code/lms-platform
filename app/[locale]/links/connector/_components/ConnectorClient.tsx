@@ -83,12 +83,16 @@ interface Props {
     share: { title: string; copy: string; copied: string };
   };
   currency: string;
+  price?: string;
+  oldPrice?: string | null;
+  gamePrice?: number;
 }
 
 const shareUrl = "https://www.uimp.com.ua/links/connector";
 const shareTitle = "Гра «Конектор» — психологічна гра для пар від UIMP";
 
-export default function ConnectorClient({ content, currency }: Props) {
+export default function ConnectorClient({ content, currency, price, oldPrice, gamePrice }: Props) {
+  const displayPrice = price ?? content.price;
   const [showOrderForm, setShowOrderForm] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -168,7 +172,10 @@ export default function ConnectorClient({ content, currency }: Props) {
 
             <div className="w-full bg-[#E8E3C9] rounded-xl p-4">
               <div className="text-center mb-2">
-                <span className="text-[#003d30] text-2xl font-bold">{content.price}</span>
+                {oldPrice && (
+                  <span className="text-[#003d30]/40 text-base font-medium line-through mr-2">{oldPrice}</span>
+                )}
+                <span className="text-[#003d30] text-2xl font-bold">{displayPrice}</span>
                 <span className="text-[#003d30] text-base"> {currency}</span>
               </div>
               <div className="space-y-1 mb-3">
@@ -252,7 +259,7 @@ export default function ConnectorClient({ content, currency }: Props) {
         </div>
       )}
 
-      <OrderForm isOpen={showOrderForm} onClose={() => setShowOrderForm(false)} labels={content.form} />
+      <OrderForm isOpen={showOrderForm} onClose={() => setShowOrderForm(false)} labels={content.form} gamePrice={gamePrice} />
     </div>
   );
 }
