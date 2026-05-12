@@ -199,6 +199,11 @@ export async function PATCH(
   const finalPrice = priceParsed as number | null;
   const finalOldPrice = oldPriceParsed as number | null;
 
+  const allEmpty =
+    slotIsEmpty(slot1) &&
+    slotIsEmpty(slot2) &&
+    finalPrice === null &&
+    finalOldPrice === null;
   if (allEmpty) {
     if (before) {
       await prisma.categoryPromoOverride.delete({ where: { category } });
