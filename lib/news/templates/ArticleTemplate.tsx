@@ -15,6 +15,7 @@
 import React from "react";
 import type { ArticleData, ArticleRegionKey } from "./types";
 import { resolveArticleOrder } from "./types";
+import CoverImageBox from "./CoverImageBox";
 
 export type ArticleRegion = ArticleRegionKey;
 
@@ -31,6 +32,35 @@ interface Props {
   showHero?: boolean;
   /** Підсвічена зона при фокусі поля у редакторі. null → без підсвітки. */
   highlight?: ArticleRegion | null;
+  /** Якщо задано — клік по cover-фото викликає колбек з focal-координатами
+   *  у відсотках (0..100). Використовується редактором для focal-point picker. */
+  onCoverFocalClick?: (x: number, y: number) => void;
+}
+
+/** Маркер точки фокусу — невелике коло на cover-зображенні. Показується лише
+ *  в редакторі (коли передано onCoverFocalClick). На SSR-рендері /news/[slug]
+ *  не присутнє — це чисто editor-affordance. */
+function FocalDot({ x, y }: { x: number; y: number }) {
+  return (
+    <span
+      aria-hidden
+      style={{
+        position: "absolute",
+        left: `${x}%`,
+        top: `${y}%`,
+        width: 14,
+        height: 14,
+        marginLeft: -7,
+        marginTop: -7,
+        borderRadius: "50%",
+        background: "#D4A843",
+        border: "2px solid #FFFFFF",
+        boxShadow: "0 0 0 1px rgba(28,58,46,0.5), 0 2px 6px rgba(0,0,0,0.35)",
+        pointerEvents: "none",
+        transition: "left 0.12s, top 0.12s",
+      }}
+    />
+  );
 }
 
 /** Стиль region-обводки. Не міняє layout — лише outline + box-shadow. */
@@ -45,7 +75,7 @@ function regionStyle(active: boolean): React.CSSProperties {
   };
 }
 
-export default function ArticleTemplate({ data, showHero = true, highlight }: Props) {
+export default function ArticleTemplate({ data, showHero = true, highlight, onCoverFocalClick }: Props) {
   const hidden = data.hidden || {};
   const order = resolveArticleOrder(data.order);
   const h = (region: ArticleRegion) => regionStyle(highlight === region);
@@ -56,9 +86,18 @@ export default function ArticleTemplate({ data, showHero = true, highlight }: Pr
   const renderCover = () => {
     if (isHidden("cover")) return null;
     if (!showHero || !data.cover.url) return null;
+    const onClick = onCoverFocalClick
+      ? (e: React.MouseEvent<HTMLElement>) => {
+          const rect = e.currentTarget.getBoundingClientRect();
+          const x = ((e.clientX - rect.left) / rect.width) * 100;
+          const y = ((e.clientY - rect.top) / rect.height) * 100;
+          onCoverFocalClick(Math.max(0, Math.min(100, x)), Math.max(0, Math.min(100, y)));
+        }
+      : undefined;
     return (
       <figure
         key="cover"
+        onClick={onClick}
         style={{
           margin: 0,
           width: "100%",
@@ -66,16 +105,15 @@ export default function ArticleTemplate({ data, showHero = true, highlight }: Pr
           background: "#F5F1E8",
           borderRadius: 16,
           overflow: "hidden",
+          cursor: onCoverFocalClick ? "crosshair" : undefined,
+          position: "relative",
           ...h("cover"),
         }}
       >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={data.cover.url}
-          alt={data.cover.alt || ""}
-          style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
-          loading="lazy"
-        />
+        <CoverImageBox image={data.cover} role="page" />
+        {onCoverFocalClick && (
+          <FocalDot x={data.cover.focalX ?? 50} y={data.cover.focalY ?? 50} />
+        )}
       </figure>
     );
   };
@@ -135,14 +173,8 @@ export default function ArticleTemplate({ data, showHero = true, highlight }: Pr
             ))}
             {section.image?.url && (
               <figure style={{ margin: "32px auto 0", width: "100%", maxWidth: 720 }}>
-                <div style={{ width: "100%", aspectRatio: "4 / 3", background: "#F5F1E8", borderRadius: 12, overflow: "hidden" }}>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={section.image.url}
-                    alt={section.image.alt || ""}
-                    style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
-                    loading="lazy"
-                  />
+                <div style={{ width: "100%", aspectRatio: "4 / 3", background: "#F5F1E8", borderRadius: 12, overflow: "hidden", position: "relative" }}>
+                  <CoverImageBox image={section.image} role="page" />
                 </div>
                 {section.image.caption && (
                   <figcaption style={{ fontSize: 13, color: "#78716C", fontStyle: "italic", textAlign: "center", marginTop: 10 }}>

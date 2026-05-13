@@ -16,6 +16,7 @@ import {
   parseTemplateData,
   templateKindLabel,
   type ArticleData,
+  type ArticleImage,
   type EventData,
   type TemplateKind,
 } from "@/lib/news/templates/types";
@@ -591,9 +592,18 @@ export default function TemplateEditor({ newsId }: Props) {
                 hint="так картка зʼявиться у списку новин"
                 accent="#A8956C"
               >
+                <CoverImageToolbar
+                  scope="preview"
+                  cover={(data as ArticleData).cover}
+                  onChange={patch => updateArticleCover(setData, patch)}
+                />
                 <PreviewCanvas>
                   <div style={{ padding: "32px 24px", display: "flex", justifyContent: "center" }}>
-                    <TemplatePreviewCard kind={kind} data={data} />
+                    <TemplatePreviewCard
+                      kind={kind}
+                      data={data}
+                      onCoverFocalClick={(x, y) => updateArticleCover(setData, { focalX: x, focalY: y })}
+                    />
                   </div>
                 </PreviewCanvas>
               </PreviewSection>
@@ -603,9 +613,18 @@ export default function TemplateEditor({ newsId }: Props) {
                 hint="/news/{slug}"
                 accent="#1C3A2E"
               >
+                <CoverImageToolbar
+                  scope="page"
+                  cover={(data as ArticleData).cover}
+                  onChange={patch => updateArticleCover(setData, patch)}
+                />
                 <PreviewCanvas>
                   <div style={{ padding: "32px 24px", background: "#FFFFFF", width: "100%" }}>
-                    <ArticleTemplate data={data as ArticleData} highlight={focusedArticleRegion} />
+                    <ArticleTemplate
+                      data={data as ArticleData}
+                      highlight={focusedArticleRegion}
+                      onCoverFocalClick={(x, y) => updateArticleCover(setData, { focalX: x, focalY: y })}
+                    />
                   </div>
                 </PreviewCanvas>
               </PreviewSection>
@@ -665,6 +684,168 @@ function PreviewSection({
       </div>
       {children}
     </section>
+  );
+}
+
+/** Applies a patch to data.cover та оновлює state. Якщо linkScale=true і
+ *  патч торкає preview-полів — дублює зміни на page-поля (і навпаки). */
+function updateArticleCover(
+  setData: React.Dispatch<React.SetStateAction<ArticleData | EventData | null>>,
+  patch: Partial<ArticleImage>
+) {
+  setData(prev => {
+    if (!prev) return prev;
+    const article = prev as ArticleData;
+    const cover = article.cover;
+    let next: ArticleImage = { ...cover, ...patch };
+
+    // Sync logic: коли linkScale=true, fit/scale зміни віддзеркалюються між
+    // preview і page. Focal point завжди спільний (за дизайном).
+    if (next.linkScale) {
+      if (patch.previewFit !== undefined) next.pageFit = patch.previewFit;
+      if (patch.pageFit !== undefined) next.previewFit = patch.pageFit;
+      if (patch.previewScale !== undefined) next.pageScale = patch.previewScale;
+      if (patch.pageScale !== undefined) next.previewScale = patch.pageScale;
+    }
+    // Якщо щойно увімкнули linkScale — підтягуємо page-параметри до preview
+    // (preview приймається за provider, як зазначено у toolbar UI).
+    if (patch.linkScale === true && cover.linkScale !== true) {
+      next.pageFit = next.previewFit;
+      next.pageScale = next.previewScale;
+    }
+    return { ...article, cover: next };
+  });
+}
+
+/** Toolbar над preview-блоком для керування cover-зображенням.
+ *  scope визначає чи редагуємо preview-конфіг чи page-конфіг. Lock 🔗 живе
+ *  лише на page-toolbar (preview — provider). */
+function CoverImageToolbar({
+  scope,
+  cover,
+  onChange,
+}: {
+  scope: "preview" | "page";
+  cover: ArticleImage;
+  onChange: (patch: Partial<ArticleImage>) => void;
+}) {
+  const fit = scope === "preview" ? (cover.previewFit ?? "cover") : (cover.pageFit ?? "cover");
+  const scale = scope === "preview" ? (cover.previewScale ?? 1) : (cover.pageScale ?? 1);
+  const linked = cover.linkScale === true;
+  const fitKey = scope === "preview" ? "previewFit" : "pageFit";
+  const scaleKey = scope === "preview" ? "previewScale" : "pageScale";
+  const disabled = !cover.url;
+  // Slider діапазон залежно від режиму:
+  // - Cover: 100-200% (зменшення < 100% дає «крихітне обрізане» → нелогічно).
+  // - Contain: 50-200% (фото — ціле, можна зменшити з letterbox або збільшити).
+  const sliderMin = fit === "cover" ? 100 : 50;
+  const sliderMax = 200;
+  // Якщо при переключенні в Cover поточний scale < 1 — clamp на 1.
+  const handleFitChange = (next: "cover" | "contain") => {
+    const patch: Partial<ArticleImage> = { [fitKey]: next };
+    if (next === "cover" && scale < 1) patch[scaleKey] = 1;
+    onChange(patch);
+  };
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 16,
+        flexWrap: "wrap",
+        padding: "8px 14px",
+        marginBottom: 8,
+        background: "#FFFFFF",
+        border: "1px solid #E8D5B7",
+        borderRadius: 10,
+        fontFamily: ff,
+        fontSize: 12,
+        opacity: disabled ? 0.55 : 1,
+        pointerEvents: disabled ? "none" : undefined,
+      }}
+      title={disabled ? "Додай Cover фото у формі, щоб відкрити налаштування" : undefined}
+    >
+      <span style={{ fontSize: 11, fontWeight: 700, color: "#1C3A2E", letterSpacing: "0.04em", textTransform: "uppercase" }}>
+        🖼 Фото
+      </span>
+
+      {/* Cover / Contain toggle */}
+      <div style={{ display: "inline-flex", border: "1px solid #E8D5B7", borderRadius: 6, overflow: "hidden" }}>
+        {(["cover", "contain"] as const).map(opt => (
+          <button
+            key={opt}
+            type="button"
+            onClick={() => handleFitChange(opt)}
+            style={{
+              padding: "5px 10px",
+              fontSize: 11,
+              fontWeight: 600,
+              border: "none",
+              background: fit === opt ? "#1C3A2E" : "#FFFFFF",
+              color: fit === opt ? "#D4A843" : "#57534E",
+              cursor: "pointer",
+              fontFamily: ff,
+            }}
+            title={opt === "cover" ? "Заповнити слот — кропати щоб не було вільного місця" : "Вписати ціле фото — допустимий letterbox"}
+          >
+            {opt === "cover" ? "Заповнити" : "Вписати"}
+          </button>
+        ))}
+      </div>
+
+      {/* Zoom slider */}
+      <label style={{ display: "inline-flex", alignItems: "center", gap: 8, color: "#57534E" }}>
+        <span style={{ fontSize: 11, fontWeight: 600 }}>🔍 Розмір</span>
+        <input
+          type="range"
+          min={sliderMin}
+          max={sliderMax}
+          step={1}
+          value={Math.round(scale * 100)}
+          onChange={e => onChange({ [scaleKey]: Number(e.target.value) / 100 })}
+          style={{ width: 140, accentColor: "#D4A843" }}
+        />
+        <span style={{ fontSize: 11, fontVariantNumeric: "tabular-nums", color: "#9B7C45", minWidth: 36 }}>
+          {Math.round(scale * 100)}%
+        </span>
+      </label>
+
+      {/* Focal hint */}
+      <span style={{ fontSize: 11, color: "#9B7C45" }}>
+        🎯 Клік по фото — точка фокусу
+      </span>
+
+      <span style={{ flex: 1 }} />
+
+      {/* Lock — лише на page-toolbar, бо preview — provider */}
+      {scope === "page" && (
+        <label
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "4px 10px",
+            borderRadius: 999,
+            border: `1px solid ${linked ? "#D4A843" : "#E8D5B7"}`,
+            background: linked ? "rgba(212,168,67,0.14)" : "#FFFFFF",
+            cursor: "pointer",
+            userSelect: "none",
+          }}
+          title="Синхронізувати з налаштуваннями у стрічці"
+        >
+          <input
+            type="checkbox"
+            checked={linked}
+            onChange={e => onChange({ linkScale: e.target.checked })}
+            style={{ accentColor: "#D4A843" }}
+          />
+          <span style={{ fontSize: 11, fontWeight: 700, color: linked ? "#8B6F2D" : "#57534E" }}>
+            🔗 Синхрон зі стрічкою
+          </span>
+        </label>
+      )}
+    </div>
   );
 }
 

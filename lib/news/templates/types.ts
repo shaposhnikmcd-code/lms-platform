@@ -31,6 +31,46 @@ export interface ArticleImage {
   alt?: string;
   /** Підпис під фото (italic, мала). */
   caption?: string;
+  /** Як вписувати фото у preview-слот: "cover" заповнює і кропає, "contain"
+   *  показує цілком з паддінгом. Default "cover". */
+  previewFit?: "cover" | "contain";
+  /** Як вписувати фото у page-слот (повна сторінка). Default "cover". */
+  pageFit?: "cover" | "contain";
+  /** Масштаб у preview, 0.5..1.5. CSS transform: scale(...). Default 1. */
+  previewScale?: number;
+  /** Масштаб на повній сторінці, 0.5..1.5. Default 1. */
+  pageScale?: number;
+  /** Точка фокусу X у відсотках 0..100. CSS object-position. Default 50 (центр). */
+  focalX?: number;
+  /** Точка фокусу Y у відсотках 0..100. Default 50 (центр). */
+  focalY?: number;
+  /** Якщо true — зміни у preview-контролах синхронізуються на page-контроли. */
+  linkScale?: boolean;
+}
+
+/** Clamp helper для числових полів (fit/scale). */
+function clampNum(v: unknown, min: number, max: number, def: number): number {
+  const n = typeof v === "number" && isFinite(v) ? v : def;
+  return Math.min(max, Math.max(min, n));
+}
+
+/** Нормалізує ArticleImage — гарантує дефолти для нових fit/scale/focal полів. */
+export function sanitizeArticleImage(input: unknown): ArticleImage {
+  const src = (input && typeof input === "object" ? input : {}) as Partial<ArticleImage>;
+  const previewFit = src.previewFit === "contain" ? "contain" : "cover";
+  const pageFit = src.pageFit === "contain" ? "contain" : "cover";
+  return {
+    url: typeof src.url === "string" ? src.url : "",
+    alt: typeof src.alt === "string" ? src.alt : "",
+    caption: typeof src.caption === "string" ? src.caption : "",
+    previewFit,
+    pageFit,
+    previewScale: clampNum(src.previewScale, 0.5, 1.5, 1),
+    pageScale: clampNum(src.pageScale, 0.5, 1.5, 1),
+    focalX: clampNum(src.focalX, 0, 100, 50),
+    focalY: clampNum(src.focalY, 0, 100, 50),
+    linkScale: src.linkScale === true,
+  };
 }
 
 /** Region-id-и ARTICLE, що можна показувати/ховати і впорядковувати у render-і. */
@@ -258,7 +298,7 @@ function mergeDefaults(kind: TemplateKind, src: Record<string, unknown>): Articl
     const d = def as ArticleData;
     const s = src as Partial<ArticleData>;
     return {
-      cover: { ...d.cover, ...(s.cover || {}) },
+      cover: sanitizeArticleImage({ ...d.cover, ...(s.cover || {}) }),
       category: s.category ?? d.category,
       title: s.title ?? d.title,
       lead: s.lead ?? d.lead,
@@ -267,7 +307,7 @@ function mergeDefaults(kind: TemplateKind, src: Record<string, unknown>): Articl
             heading: sec?.heading ?? "",
             body: sec?.body ?? "",
             image: sec?.image
-              ? { url: sec.image.url ?? "", alt: sec.image.alt ?? "", caption: sec.image.caption ?? "" }
+              ? sanitizeArticleImage(sec.image)
               : undefined,
           }))
         : d.sections,
@@ -281,7 +321,7 @@ function mergeDefaults(kind: TemplateKind, src: Record<string, unknown>): Articl
   const d = def as EventData;
   const s = src as Partial<EventData>;
   return {
-    photo: { ...d.photo, ...(s.photo || {}) },
+    photo: sanitizeArticleImage({ ...d.photo, ...(s.photo || {}) }),
     title: s.title ?? d.title,
     price: s.price ?? d.price,
     duration: s.duration ?? d.duration,

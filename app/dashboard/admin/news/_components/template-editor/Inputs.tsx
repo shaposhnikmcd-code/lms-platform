@@ -228,7 +228,10 @@ export function ImageInput({ label, value, onChange, aspectRatio, withCaption = 
   const sideFields = (
     <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1, minWidth: 0 }}>
       <label style={{ display: "block", fontFamily: ff }}>
-        <div style={{ fontSize: 11, fontWeight: 600, color: "#1C3A2E", letterSpacing: "0.02em", marginBottom: 3 }}>Alt-текст</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 3 }}>
+          <span style={{ fontSize: 11, fontWeight: 600, color: "#1C3A2E", letterSpacing: "0.02em" }}>Alt-текст</span>
+          <InfoTip text="Короткий опис фото словами — навіщо потрібен:&#10;&#10;• A11Y — програми для незрячих читають це голосом замість фото.&#10;• SEO — Google Images враховує цей текст у пошуковій видачі.&#10;• Fallback — якщо фото не завантажиться, у слоті покажеться цей текст.&#10;&#10;Приклад: «Логотип UIMP» або «Анна Гудзенко, психолог-консультант».&#10;Для декоративних фото можна лишити порожнім." />
+        </div>
         <input
           type="text"
           value={value.alt || ""}
@@ -349,6 +352,75 @@ export function ImageInput({ label, value, onChange, aspectRatio, withCaption = 
         </>
       )}
     </div>
+  );
+}
+
+// ── InfoTip (іконка ⓘ з hover-tooltip для пояснень полів) ───────────────────
+
+/** Маленька «ⓘ» іконка біля підпису поля. При наведенні показує tooltip-картку
+ *  з поясненням. Текст підтримує перенос рядка через `\n` або `&#10;`. */
+export function InfoTip({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <span
+      style={{ position: "relative", display: "inline-flex", alignItems: "center" }}
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+    >
+      <span
+        role="img"
+        aria-label="інформація"
+        tabIndex={0}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          width: 14,
+          height: 14,
+          borderRadius: "50%",
+          background: open ? "#1C3A2E" : "#E8D5B7",
+          color: open ? "#D4A843" : "#1C3A2E",
+          fontSize: 9,
+          fontWeight: 800,
+          cursor: "help",
+          transition: "background 0.15s, color 0.15s",
+          userSelect: "none",
+          fontStyle: "italic",
+          fontFamily: "Georgia, serif",
+        }}
+      >
+        i
+      </span>
+      {open && (
+        <span
+          role="tooltip"
+          style={{
+            position: "absolute",
+            top: "calc(100% + 8px)",
+            left: 0,
+            zIndex: 50,
+            minWidth: 260,
+            maxWidth: 340,
+            padding: "10px 12px",
+            background: "#1C3A2E",
+            color: "#FAF6F0",
+            borderRadius: 8,
+            fontSize: 11,
+            lineHeight: 1.55,
+            fontWeight: 400,
+            fontFamily: ff,
+            boxShadow: "0 8px 24px -6px rgba(0,0,0,0.35)",
+            whiteSpace: "pre-line",
+            letterSpacing: "0.01em",
+            pointerEvents: "none",
+          }}
+        >
+          {text}
+        </span>
+      )}
+    </span>
   );
 }
 
