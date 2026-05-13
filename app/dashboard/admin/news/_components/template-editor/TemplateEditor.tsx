@@ -203,9 +203,6 @@ export default function TemplateEditor({ newsId }: Props) {
     }
   };
 
-  // Live preview pane state.
-  const [previewMode, setPreviewMode] = useState<"card" | "page">("card");
-
   if (loading) {
     return (
       <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 300 }}>
@@ -447,74 +444,50 @@ export default function TemplateEditor({ newsId }: Props) {
 
         {/* ── RIGHT: live preview ───────────────────────────────────────────── */}
         <main style={{ padding: "24px 32px 80px" }}>
-          {/* Preview-mode toggle — тільки для ARTICLE, бо там 2 РІЗНІ рендери:
-              compact preview-card (360×400) на /news listing і повна сторінка
-              /news/{slug} з hero, секціями, ілюстраціями. Для EVENT — обидва
-              контексти рендеряться ТИМ САМИМ EventTemplate (2-кол картка
-              фахівця), тому tabs не дають value. Показуємо просто single label. */}
+          {/* ARTICLE: stacked preview — превʼю-картка (як виглядає у feed)
+              ЗВЕРХУ + повна сторінка статті ПІД нею. Менеджер бачить обидва
+              контексти одночасно без перемикання табів. EVENT: один рендер
+              (preview-картка = повна сторінка), показуємо без зайвих labels. */}
           {kind === "ARTICLE" ? (
-            <div
-              style={{
-                display: "inline-flex",
-                gap: 0,
-                padding: 4,
-                background: "#F5F1E8",
-                borderRadius: 10,
-                marginBottom: 24,
-              }}
-            >
-              <PreviewModeButton
-                active={previewMode === "card"}
-                onClick={() => setPreviewMode("card")}
-                label="🃏 Превʼю-картка"
-                hint="на /news listing"
-              />
-              <PreviewModeButton
-                active={previewMode === "page"}
-                onClick={() => setPreviewMode("page")}
-                label="📄 Сторінка статті"
+            <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+              <PreviewSection
+                badge="🃏"
+                title="У стрічці /news"
+                hint="так картка зʼявиться у списку новин"
+                accent="#A8956C"
+              >
+                <PreviewCanvas>
+                  <div style={{ padding: "32px 24px", display: "flex", justifyContent: "center" }}>
+                    <TemplatePreviewCard kind={kind} data={data} />
+                  </div>
+                </PreviewCanvas>
+              </PreviewSection>
+              <PreviewSection
+                badge="📄"
+                title="Повна сторінка"
                 hint="/news/{slug}"
-              />
+                accent="#1C3A2E"
+              >
+                <PreviewCanvas>
+                  <div style={{ padding: "32px 24px", background: "#FFFFFF", width: "100%" }}>
+                    <ArticleTemplate data={data as ArticleData} highlight={focusedArticleRegion} />
+                  </div>
+                </PreviewCanvas>
+              </PreviewSection>
             </div>
           ) : (
-            <div
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 8,
-                padding: "8px 14px",
-                background: "#F5F1E8",
-                borderRadius: 10,
-                marginBottom: 24,
-                fontFamily: ff,
-              }}
+            <PreviewSection
+              badge="🎟"
+              title="Картка фахівця"
+              hint="однаковий рендер на /news і на /news/{slug}"
+              accent="#1C3A2E"
             >
-              <span aria-hidden style={{ fontSize: 14 }}>🎟</span>
-              <div>
-                <div style={{ fontSize: 12, fontWeight: 700, color: "#1C3A2E", lineHeight: 1.1 }}>
-                  Картка фахівця
+              <PreviewCanvas>
+                <div style={{ padding: "32px 24px", display: "flex", justifyContent: "center" }}>
+                  <TemplatePreviewCard kind={kind} data={data} highlight={focusedRegion} />
                 </div>
-                <div style={{ fontSize: 10, color: "#9B7C45", marginTop: 1 }}>
-                  однаковий рендер на /news і на /news/{`{slug}`}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Render: для EVENT — завжди card-mode (один-єдиний рендер).
-              Для ARTICLE — пер preview-mode (card vs повна сторінка). */}
-          {kind === "EVENT" || previewMode === "card" ? (
-            <PreviewCanvas>
-              <div style={{ padding: "32px 24px", display: "flex", justifyContent: "center" }}>
-                <TemplatePreviewCard kind={kind} data={data} highlight={focusedRegion} />
-              </div>
-            </PreviewCanvas>
-          ) : (
-            <PreviewCanvas>
-              <div style={{ padding: "32px 24px", background: "#FFFFFF", width: "100%" }}>
-                <ArticleTemplate data={data as ArticleData} highlight={focusedArticleRegion} />
-              </div>
-            </PreviewCanvas>
+              </PreviewCanvas>
+            </PreviewSection>
           )}
         </main>
       </div>
@@ -524,28 +497,39 @@ export default function TemplateEditor({ newsId }: Props) {
   );
 }
 
-function PreviewModeButton({ active, onClick, label, hint }: { active: boolean; onClick: () => void; label: string; hint: string }) {
+function PreviewSection({
+  badge,
+  title,
+  hint,
+  accent,
+  children,
+}: {
+  badge: string;
+  title: string;
+  hint: string;
+  accent: string;
+  children: React.ReactNode;
+}) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      style={{
-        padding: "8px 16px",
-        background: active ? "#FFFFFF" : "transparent",
-        border: "none",
-        borderRadius: 8,
-        cursor: "pointer",
-        fontFamily: ff,
-        boxShadow: active ? "0 2px 6px rgba(28,58,46,0.08)" : "none",
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "flex-start",
-        gap: 2,
-      }}
-    >
-      <span style={{ fontSize: 12, fontWeight: 700, color: active ? "#1C3A2E" : "#9B7C45" }}>{label}</span>
-      <span style={{ fontSize: 10, color: "#9B7C45", fontWeight: 400 }}>{hint}</span>
-    </button>
+    <section>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "baseline",
+          gap: 10,
+          marginBottom: 10,
+          fontFamily: ff,
+        }}
+      >
+        <span aria-hidden style={{ fontSize: 14 }}>{badge}</span>
+        <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.16em", textTransform: "uppercase", color: accent }}>
+          {title}
+        </span>
+        <span style={{ fontSize: 11, color: "#9B7C45" }}>· {hint}</span>
+        <span style={{ flex: 1, height: 1, background: "#E8D5B7", marginTop: 4 }} />
+      </div>
+      {children}
+    </section>
   );
 }
 
