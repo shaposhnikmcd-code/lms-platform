@@ -58,6 +58,9 @@ export default function TemplateEditor({ newsId }: Props) {
   // через wrapper-divs у формах (RegionGroup).
   const [focusedRegion, setFocusedRegion] = useState<EventRegion | null>(null);
   const [focusedArticleRegion, setFocusedArticleRegion] = useState<ArticleRegion | null>(null);
+  // SEO-розкривашка: за замовчуванням закрита, бо excerpt auto-derive з контенту
+  // і менеджеру не треба його чіпати. Розкривається коли треба override для Google.
+  const [seoOpen, setSeoOpen] = useState(false);
 
   const [kind, setKind] = useState<TemplateKind | null>(null);
   const [data, setData] = useState<ArticleData | EventData | null>(null);
@@ -408,12 +411,46 @@ export default function TemplateEditor({ newsId }: Props) {
                 hint="кирилиця → latin"
               />
             </div>
-            <TextInput
-              label="SEO-excerpt"
-              value={meta.excerpt}
-              onChange={v => setMeta({ ...meta, excerpt: v })}
-              hint={kind === "ARTICLE" ? "резюме для Google · default = лід" : "резюме для Google · default = 1-й абзац опису"}
-            />
+            {/* SEO-excerpt — приховано за toggle, бо auto-derive з контенту.
+                Менеджеру не треба знати про це поле в 95% випадків. Розкривається
+                якщо потрібно перевизначити опис для Google search-видачі. */}
+            <button
+              type="button"
+              onClick={() => setSeoOpen(o => !o)}
+              style={{
+                alignSelf: "flex-start",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "5px 10px",
+                fontSize: 11,
+                fontWeight: 600,
+                color: "#9B7C45",
+                background: seoOpen ? "#FAF6F0" : "transparent",
+                border: "1px dashed #E8D5B7",
+                borderRadius: 6,
+                cursor: "pointer",
+                fontFamily: ff,
+                transition: "background 0.15s",
+              }}
+              aria-expanded={seoOpen}
+            >
+              <span aria-hidden>{seoOpen ? "▾" : "▸"}</span>
+              <span>🔍 Опис для Google</span>
+              <span style={{ fontWeight: 400, color: "#A8956C" }}>
+                {seoOpen ? "" : `· авто з ${kind === "ARTICLE" ? "ліду" : "опису"}`}
+              </span>
+            </button>
+            {seoOpen && (
+              <div style={{ paddingLeft: 4 }}>
+                <TextInput
+                  label="Опис у пошуковій видачі"
+                  value={meta.excerpt}
+                  onChange={v => setMeta({ ...meta, excerpt: v })}
+                  hint={`auto = ${kind === "ARTICLE" ? "лід" : "1-й абзац опису"} · ~155 симв для Google`}
+                />
+              </div>
+            )}
           </div>
 
           {/* Divider-label замість декоративного банера */}
