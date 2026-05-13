@@ -35,7 +35,7 @@ export const content = {
     title: "Викладачі курсу",
     items: [
       { name: "Тетяна Шапошник", role: "Президентка UIMP", subtitle: "психотерапевт, авторка програми", image: "tetiana-shaposhnik", stats: "15 років досвіду" },
-      { name: "Марта Холява", role: "Директорка консультаційного центру", subtitle: "психологиня-консультантка", image: "marta-kholiava", stats: "10+ років практики" },
+      { name: "Марта Холява", role: "Директорка консультаційного центру", subtitle: "психологиня-консультантка", image: "marta-kholiava", stats: "10+ років досвіду" },
     ],
   },
   program: {

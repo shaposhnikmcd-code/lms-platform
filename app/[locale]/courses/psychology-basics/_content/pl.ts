@@ -35,7 +35,7 @@ export const content = {
     title: "Wykładowcy kursu",
     items: [
       { name: "Tetiana Shaposhnyk", role: "Prezydent UIMP", subtitle: "psychoterapeutka, autorka programu", image: "tetiana-shaposhnik", stats: "15 lat doświadczenia" },
-      { name: "Marta Kholiava", role: "Dyrektorka centrum konsultacyjnego", subtitle: "psycholog-konsultantka", image: "marta-kholiava", stats: "10+ lat praktyki" },
+      { name: "Marta Kholiava", role: "Dyrektorka centrum konsultacyjnego", subtitle: "psycholog-konsultantka", image: "marta-kholiava", stats: "10+ lat doświadczenia" },
     ],
   },
   program: {

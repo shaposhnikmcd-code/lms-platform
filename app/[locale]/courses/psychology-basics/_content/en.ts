@@ -35,7 +35,7 @@ export const content = {
     title: "Course teachers",
     items: [
       { name: "Tetiana Shaposhnyk", role: "President of UIMP", subtitle: "psychotherapist, author of the program", image: "tetiana-shaposhnik", stats: "15 years of experience" },
-      { name: "Marta Kholiava", role: "Director of the counseling center", subtitle: "psychologist-counselor", image: "marta-kholiava", stats: "10+ years of practice" },
+      { name: "Marta Kholiava", role: "Director of the counseling center", subtitle: "psychologist-counselor", image: "marta-kholiava", stats: "10+ years of experience" },
     ],
   },
   program: {

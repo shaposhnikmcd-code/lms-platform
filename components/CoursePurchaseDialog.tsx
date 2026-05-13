@@ -58,6 +58,12 @@ export default function CoursePurchaseDialog({
   /// Поля "Країна проживання" і "Telegram username" обов'язкові тільки для покупок
   /// Річної програми (yearly + monthly). На звичайні курси/пакети — не показуємо.
   const isYearlyProgram = courseId === 'yearly-program' || courseId === 'yearly-program-monthly';
+  /// Pre-submit enrollment check ганяємо лише для звичайних курсів. Пакети/Річна/конектор
+  /// мають власні політики ownership і їх /api/wayforpay не блокує по дублю.
+  const isRegularCoursePurchase = !isYearlyProgram
+    && !courseId.startsWith('bundle_')
+    && courseId !== 'connector'
+    && !courseId.startsWith('connector_');
   /// Висота полів зменшена в обох yearly-формах, щоб компенсувати додаткові секції
   /// (Тип оплати в monthly, нижній блок ціни в yearly) і вирівняти загальну висоту:
   ///   - yearly (одноразова): ~8% менше padding
@@ -116,6 +122,31 @@ export default function CoursePurchaseDialog({
   useEffect(() => {
     if (!promoApplied) setFinalPrice(effectivePrice);
   }, [effectivePrice, promoApplied]);
+
+  // Pre-submit enrollment check: коли email заповнений — питаємо сервер, чи цей email
+  // вже має enrollment на цей курс. Якщо так — показуємо amber-банер одразу, ще до того,
+  // як юзер ввів промокод і клацнув "Купити". Server-side guard на /api/wayforpay
+  // лишається — це лише UX-сигнал. Скоуп — звичайні курси.
+  useEffect(() => {
+    if (!isRegularCoursePurchase) return;
+    const trimmed = email.trim();
+    if (!trimmed || !trimmed.includes('@')) return;
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => {
+      fetch('/api/courses/check-enrollment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: trimmed, courseId }),
+        signal: ctrl.signal,
+      })
+        .then((r) => r.json())
+        .then((data) => {
+          if (data?.enrolled === true) setAlreadyPurchased(true);
+        })
+        .catch(() => { /* ignore — server-side check на /api/wayforpay лишається authoritative */ });
+    }, 500);
+    return () => { clearTimeout(tid); ctrl.abort(); };
+  }, [email, courseId, isRegularCoursePurchase]);
 
   // Dialog рендериться лише коли isOpen=true у батька, тому гарантовано відкритий.
   // Esc + scroll lock активуються відразу на mount і знімаються на unmount.
@@ -605,7 +636,7 @@ export default function CoursePurchaseDialog({
                 />
                 <button
                   onClick={handlePromoCheck}
-                  disabled={promoLoading || !promoCode.trim()}
+                  disabled={promoLoading || !promoCode.trim() || alreadyPurchased}
                   className={`px-4 ${inputPadY} bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium transition-colors disabled:opacity-50 shrink-0`}
                 >
                   {promoLoading ? (
@@ -667,10 +698,10 @@ export default function CoursePurchaseDialog({
 
             <button
               onClick={handlePay}
-              disabled={loading}
+              disabled={loading || alreadyPurchased}
               className="w-full py-2.5 bg-[#1C3A2E] text-white font-bold rounded-xl hover:bg-[#2a4f3f] transition-all text-base disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {loading ? t('loading') : t('btnPay')}
+              {loading ? t('loading') : alreadyPurchased ? 'Курс уже у вас' : t('btnPay')}
             </button>
           </div>
         </div>
