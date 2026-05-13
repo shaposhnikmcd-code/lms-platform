@@ -109,13 +109,22 @@ export default function TemplateEditor({ newsId }: Props) {
         const k = d.templateKind as TemplateKind;
         setKind(k);
         setData(parseTemplateData(k, d.templateData));
+        const loadedSlug: string = d.slug || "";
         setMeta({
           title: d.title || "",
-          slug: d.slug || "",
+          slug: loadedSlug,
           excerpt: d.excerpt || "",
           published: !!d.published,
           isTemplate: !!d.isTemplate,
         });
+        // Помічаємо initial slug як «авто-managed». Це дозволяє title→slug
+        // sync переписувати його коли менеджер починає вводити заголовок
+        // (бо blueprint-clone-и приходять з random-slug `article-XXX` /
+        // `event-XXX`, який technically НЕ дорівнює slugifyNewsTitle()
+        // майбутнього заголовка — без цього sync не спрацьовував). Як тільки
+        // менеджер свідомо править slug руками, він перестане збігатись з
+        // lastAutoSlugRef → стане custom → подальші зміни title його не торкнуть.
+        lastAutoSlugRef.current = loadedSlug;
         setLoading(false);
       })
       .catch(e => { setError("Помилка завантаження: " + e.message); setLoading(false); });
