@@ -48,6 +48,12 @@ function toNewsListItem(it: LibraryNewsItem): NewsListItemForBlock {
     content: it.content ?? null,
     previewContent: it.previewContent ?? null,
     pageBgColor: it.pageBgColor ?? null,
+    // Без цих двох render у `lib/news/render.tsx` падає у legacy free-canvas
+    // гілку і малює auto-картку замість TemplatePreviewCard — тоді розміри/
+    // компоновка фото відрізняються від того, що менеджер бачив у шаблонному
+    // редакторі.
+    templateKind: it.templateKind ?? null,
+    templateData: it.templateData ?? null,
   };
 }
 

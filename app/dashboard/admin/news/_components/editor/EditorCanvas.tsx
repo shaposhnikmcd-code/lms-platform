@@ -108,6 +108,11 @@ export default function EditorCanvas({
   // (preview-картка) додатково містить `height`, обчислену через findAvailableFitInColumn —
   // щоб ghost рендерився точно тієї ж висоти, що й майбутній блок (не 80px-default).
   const dropPreviewRef = useRef<{ x: number; y: number; width: number; height?: number } | null>(null);
+  // rAF-throttle для важкої displaceBlocksAround сим у handleDragMove —
+  // обмежує її одним викликом на frame, інакше mousemove події (60+ Hz)
+  // лагають весь drag через каскад re-render-ів.
+  const liveSimRafRef = useRef<number | null>(null);
+  const liveSimPendingRef = useRef<{ x: number; y: number; wPct: number; bh: number; bId: string } | null>(null);
   const [dropPreview, setDropPreview] = useState<{ x: number; y: number; width: number; height?: number } | null>(null);
   // Alignment guides — Figma-style лінії що тягнуться від блока який тягнемо
   // до тих, з ким він вирівнюється (left-left, right-right, top-top, bottom-bottom,
@@ -194,10 +199,11 @@ export default function EditorCanvas({
   }, [selectedBlockId]);
 
   const {
-    previewWidths, previewXs, previewHeights, blockHeights,
+    previewWidths, previewXs, previewYs, previewHeights, blockHeights,
     updateBlock, deleteBlock, moveBlock, duplicateBlock,
     setWidth, setWidthAndData, setAlign, setVAlign, setBg,
     setPreview, clearPreview, setPreviewX, clearPreviewX,
+    setPreviewY, clearPreviewY,
     setPreviewHeight, clearPreviewHeight, reportHeight,
   } = useBlockManager(blocks, onBlocksChange);
 
@@ -205,16 +211,31 @@ export default function EditorCanvas({
 
   const canvasWidthPx = canvasRectRef.current?.width ?? PAGE_WIDTH;
 
-  // Реальна висота блока — спершу з DOM (найточніше, враховує актуальний рендер),
+  // Реальна висота блока — ПРІОРИТЕТ: DOM (найточніше, враховує CSS aspect-ratio,
+  // overflow:visible експандованих шаблонів, тощо), потім block.height,
   // потім reported-height, потім type-based дефолт.
+  //
+  // ЧОМУ DOM-first: snap-логіка і displaceBlocksAround мають враховувати реальний
+  // візуальний bottom-edge, а не stale `block.height`. Для newsCard preview
+  // wrapper має `height: auto + aspect-ratio` → block.height не відображає
+  // реальний розмір. Для newsCard expanded — block.height (1700) може бути
+  // менше за rendered ArticleTemplate. У всіх кейсах DOM-вимір надійніший.
   function measureBlockHeight(b: Block): number {
-    if (typeof b.height === "number") return b.height;
     if (canvasRef.current) {
       const el = canvasRef.current.querySelector<HTMLElement>(`[data-block-id="${b.id}"]`);
-      if (el && el.offsetHeight > 0) return el.offsetHeight;
+      if (el && el.offsetHeight > 20) return el.offsetHeight;
     }
+    if (typeof b.height === "number" && b.height > 0) return b.height;
     const measured = blockHeights[b.id] ?? blockHeightsRef.current[b.id];
     if (measured && measured > 20) return measured;
+    // Fallback для newsCard preview: aspect-розрахунок (DOM ще не доступний
+    // на перших frame-ах рендеру).
+    const isNewsCardPreview = b.type === "newsCard" && (b.data.displayMode || "preview") === "preview";
+    if (isNewsCardPreview) {
+      const wPct = Number(b.width) || 100;
+      const widthPx = (wPct / 100) * (canvasRectRef.current?.width ?? PAGE_WIDTH);
+      return Math.round(widthPx * (400 / 360));
+    }
     return TYPE_HEIGHT[b.type] ?? 100;
   }
   // BOTTOM_SLACK — вільний простір під найнижчим блоком, щоб юзер міг легко
@@ -426,13 +447,16 @@ export default function EditorCanvas({
   // для постфактумної детекції — блок вже мав би бути на цій позиції після snap-у.
   const detectAlignmentsAt = useCallback((selfId: string, ax: number, ay: number, aw: number, ah: number) => {
     const TIGHT_X = 0.5;
-    const TIGHT_Y = 2;
-    const SIZE_MATCH_PX = 4;
-    const SIZE_MATCH_PCT = 0.6;
+    // TIGHT_Y синхронізований зі SNAP_TOL_Y у handleDragMove — щоб guide-лінія
+    // з'являлась у тому ж моменті, що й snap. Раніше 2 vs 10 → snap фіксував
+    // позицію, але guide мовчав, бо diff лишався > 2.
+    const TIGHT_Y = 8;
+    const SIZE_MATCH_PX = 8;     // Розширено з 4 — менеджеру не треба піксельної точності.
+    const SIZE_MATCH_PCT = 0.8;
     // Proximity для size-match: показуємо "= H" / "= W" лише коли блоки в одному
-    // рядку/колонці, інакше badge стає шумним (показує match для далеких блоків).
-    const SIZE_PROX_Y_PX = 14;
-    const SIZE_PROX_X_PCT = 2;
+    // рядку/колонці. Розширено з 14/2 — toleranт для блоків розділених невеликим gap-ом.
+    const SIZE_PROX_Y_PX = 24;
+    const SIZE_PROX_X_PCT = 3;
 
     const guideMap = new Map<string, AlignGuide>();
     const addGuide = (g: AlignGuide) => {
@@ -541,10 +565,21 @@ export default function EditorCanvas({
       setPreview(id, appliedW);
     }
 
-    // Alignment guides під час resize: поточна позиція + нова ширина.
+    // Alignment guides під час resize: позиція + нова ширина + НОВА висота.
+    // Для newsCard preview з aspect-ratio 360:400 width-resize змінює height
+    // (CSS auto). Рахуємо висоту з нового appliedW заздалегідь — DOM ще не
+    // оновився, а stored block.height — stale. Без цього bottom-edge guide
+    // ніколи не фіксувався, бо порівнював старий aBottom з новим oBottom.
     const bx = b.x ?? 0;
     const by = b.y ?? 0;
-    const bh = Number(b.height) || measureBlockHeight(b);
+    const isNewsCardPreview = b.type === "newsCard" && (b.data.displayMode || "preview") === "preview";
+    let bh: number;
+    if (isNewsCardPreview) {
+      const widthPx = (appliedW / 100) * (canvasRectRef.current?.width ?? PAGE_WIDTH);
+      bh = Math.round(widthPx * (400 / 360));
+    } else {
+      bh = measureBlockHeight(b);
+    }
     detectAlignmentsAt(id, bx, by, appliedW, bh);
   }, [blocks, setPreview, setPreviewX, detectAlignmentsAt]);
 
@@ -870,12 +905,12 @@ export default function EditorCanvas({
         let { x, y } = clampXY(rawX, rawY, wPct);
 
         // === Snap + Alignment guides (Figma-style) ===
-        // Толеранси зменшено: 0.6%/3px замість 1.8/8 — щоб blocks не "смикались"
-        // до сусідів коли користувач намагається поставити їх трохи інакше.
-        // Canvas-edge teж: 1.5%/6px — snap тільки коли реально близько до краю.
+        // Толеранс по Y збільшено до 10px — щоб менеджеру було легше зловити
+        // adjacent-snap (top↔bottom). Раніше 3px був занадто вузький для drag-у мишкою.
+        // X-вісь і canvas-edge — тонше, бо там менше "магнітних" точок поспіль.
         const SNAP_TOL_X = 0.6;      // pct — толеранс снапу по X
-        const SNAP_TOL_Y = 3;        // px — толеранс снапу по Y
-        const Y_PROX_PX = 14;        // вертикальна "близькість" — лише блоки в межах рахуємо
+        const SNAP_TOL_Y = 10;       // px — толеранс снапу по Y (touch/edge alignment)
+        const Y_PROX_PX = 20;        // вертикальна "близькість" — лише блоки в межах рахуємо
         const X_PROX_PCT = 2;
         const CANVAS_EDGE_PCT = 1.5;
         const CANVAS_EDGE_PX = 6;
@@ -961,39 +996,54 @@ export default function EditorCanvas({
         dropPreviewRef.current = { x, y, width: wPct };
         setDropPreview({ x, y, width: wPct });
 
-        // Live displacement preview: симулюємо displaceBlocksAround для поточної drop-позиції
-        // і пушимо результат у previewWidths/previewXs, щоб сусіди звужувались/зсувались
-        // плавно ВЖЕ під час drag, а не різко на drop.
-        const simRect = { x, y, width: wPct, height: bh };
-        const simulated = displaceBlocksAround(simRect, blocks, b.id);
-        const changed = new Set<string>();
-        for (const sim of simulated) {
-          if (sim.id === b.id) continue;
-          const orig = blocks.find(o => o.id === sim.id);
-          if (!orig) continue;
-          const origW = Number(orig.width) || 100;
-          const simW = Number(sim.width) || 100;
-          const origX = orig.x ?? 0;
-          const simX = sim.x ?? 0;
-          if (Math.abs(simW - origW) > 0.5) {
-            setPreview(sim.id, simW);
-            changed.add(sim.id);
-          }
-          if (Math.abs(simX - origX) > 0.5) {
-            setPreviewX(sim.id, simX);
-            changed.add(sim.id);
-          }
-        }
-        // Очищуємо preview для блоків, які при цій drop-позиції не зачіпаються —
-        // інакше вони "застрягнуть" у попередньому preview-стані з минулого frame.
-        for (const o of blocks) {
-          if (o.id === b.id || changed.has(o.id)) continue;
-          clearPreview(o.id);
-          clearPreviewX(o.id);
+        // Live displacement preview: симулюємо displaceBlocksAround для поточної drop-
+        // позиції. Виконується через requestAnimationFrame — інакше mousemove (60+ Hz)
+        // спамить сим (до 30 iterations × кількість блоків) і весь drag лагає.
+        liveSimPendingRef.current = { x, y, wPct, bh, bId: b.id };
+        if (liveSimRafRef.current === null) {
+          liveSimRafRef.current = requestAnimationFrame(() => {
+            liveSimRafRef.current = null;
+            const pending = liveSimPendingRef.current;
+            if (!pending) return;
+            const simRect = { x: pending.x, y: pending.y, width: pending.wPct, height: pending.bh };
+            const simulated = displaceBlocksAround(simRect, blocks, pending.bId);
+            const changed = new Set<string>();
+            for (const sim of simulated) {
+              if (sim.id === pending.bId) continue;
+              const orig = blocks.find(o => o.id === sim.id);
+              if (!orig) continue;
+              const origW = Number(orig.width) || 100;
+              const simW = Number(sim.width) || 100;
+              const origX = orig.x ?? 0;
+              const simX = sim.x ?? 0;
+              const origY = orig.y ?? 0;
+              const simY = sim.y ?? 0;
+              if (Math.abs(simW - origW) > 0.5) {
+                setPreview(sim.id, simW);
+                changed.add(sim.id);
+              }
+              if (Math.abs(simX - origX) > 0.5) {
+                setPreviewX(sim.id, simX);
+                changed.add(sim.id);
+              }
+              if (Math.abs(simY - origY) > 1) {
+                setPreviewY(sim.id, simY);
+                changed.add(sim.id);
+              }
+            }
+            // Очищуємо preview для блоків, які при цій drop-позиції не зачіпаються —
+            // інакше вони "застрягнуть" у попередньому preview-стані з минулого frame.
+            for (const o of blocks) {
+              if (o.id === pending.bId || changed.has(o.id)) continue;
+              clearPreview(o.id);
+              clearPreviewX(o.id);
+              clearPreviewY(o.id);
+            }
+          });
         }
       }
     }
-  }, [blocks, canvasWidthPx, setPreview, setPreviewX, clearPreview, clearPreviewX, detectAlignmentsAt]);
+  }, [blocks, canvasWidthPx, setPreview, setPreviewX, setPreviewY, clearPreview, clearPreviewX, clearPreviewY, detectAlignmentsAt]);
 
   // Перевіряє чи позиція x/y/width+height перекриває якийсь блок (крім excludeId).
   function hasCollision(x: number, y: number, width: number, height: number, excludeId: string | null): boolean {
@@ -1096,6 +1146,11 @@ export default function EditorCanvas({
     setDropPreview(null);
     setAlignGuides([]);
     setSizeMatches([]);
+    if (liveSimRafRef.current !== null) {
+      cancelAnimationFrame(liveSimRafRef.current);
+      liveSimRafRef.current = null;
+    }
+    liveSimPendingRef.current = null;
 
     if (isFromPalette) {
       if (!rect) return;
@@ -1217,35 +1272,55 @@ export default function EditorCanvas({
     }
 
     // Existing block drag — block лишається де ти його кинув, сусіди адаптуються.
-    if (!preview) return;
     const idx = blocks.findIndex(b => b.id === idStr);
     if (idx < 0) return;
     clearPreview(idStr);
     const b = blocks[idx];
     const bh = measureBlockHeight(b);
 
+    // Fallback: якщо handleDragMove не встиг проставити dropPreview (швидкий
+    // drag через важкі сусіди, або throw у sim) — обчислюємо позицію з
+    // event.delta. Інакше блок «снапить» назад на старе місце, що плутає.
+    let resolvedPreview = preview;
+    if (!resolvedPreview) {
+      const wPct = Number(b.width) || 100;
+      const currentX = b.x ?? 0;
+      const currentY = b.y ?? 0;
+      const deltaXPct = rect ? ((event.delta?.x || 0) / rect.width) * 100 : 0;
+      const deltaYPx = event.delta?.y || 0;
+      const fbX = Math.max(0, Math.min(100 - wPct, currentX + deltaXPct));
+      const fbY = Math.max(0, currentY + deltaYPx);
+      resolvedPreview = { x: fbX, y: fbY, width: wPct };
+    }
+
     // У fixedHeight-режимі ще раз клампимо Y по нижньому краю canvas-у —
     // safety net на випадок коли preview не пройшов через clampYBottom.
-    const finalY = clampYBottom(preview.y, bh);
+    const finalY = clampYBottom(resolvedPreview.y, bh);
 
     let next = blocks.slice();
-    next[idx] = { ...next[idx], x: preview.x, y: finalY };
+    next[idx] = { ...next[idx], x: resolvedPreview.x, y: finalY };
 
-    if (hasCollision(preview.x, finalY, preview.width, bh, b.id)) {
+    if (hasCollision(resolvedPreview.x, finalY, resolvedPreview.width, bh, b.id)) {
       next = displaceBlocksAround(
-        { x: preview.x, y: finalY, width: preview.width, height: bh },
+        { x: resolvedPreview.x, y: finalY, width: resolvedPreview.width, height: bh },
         next,
         b.id,
       );
       // У card-builder-і — якщо overlap не розв'язано (canvas повний), скасовуємо
       // переміщення: блок повертається на місце.
-      if (fixedHeight && hasCollisionIn(preview.x, finalY, preview.width, bh, next, b.id)) {
+      if (fixedHeight && hasCollisionIn(resolvedPreview.x, finalY, resolvedPreview.width, bh, next, b.id)) {
         return;
       }
     }
 
     onBlocksChange(next);
-  }, [blocks, onBlocksChange, clearPreview, canvasHeight]);
+    // Очищаємо всі previewX/Y у сусідів — drag завершено, далі block.x/.y канонічні.
+    for (const o of blocks) {
+      if (o.id === idStr) continue;
+      clearPreviewX(o.id);
+      clearPreviewY(o.id);
+    }
+  }, [blocks, onBlocksChange, clearPreview, clearPreviewX, clearPreviewY, canvasHeight]);
 
   const paletteBlock = (activeId?.startsWith("palette:") || activeId?.startsWith("news-card:"))
     ? activePaletteRef.current
@@ -1450,9 +1525,11 @@ export default function EditorCanvas({
 
                 {blocks.map(block => {
                   const wPct = blockWidthPct(block);
-                  // Якщо previewX є (сусід під час resize-drag) — використовуємо його, інакше block.x
+                  // Якщо previewX/Y є (сусід під час drag-у когось іншого) — використовуємо його,
+                  // інакше block.x/block.y. previewY дає live cascade-down при naвсувaнні нового
+                  // блока зверху на існуючий (handleDragMove симулює displaceBlocksAround).
                   const x = previewXs[block.id] !== undefined ? previewXs[block.id] : (block.x ?? 0);
-                  const y = block.y ?? 0;
+                  const y = previewYs[block.id] !== undefined ? previewYs[block.id] : (block.y ?? 0);
                   return (
                     <AbsoluteBlock
                       key={block.id}
@@ -1481,6 +1558,27 @@ export default function EditorCanvas({
                         blockHeightsRef.current[id] = h;
                         reportHeight(id, h);
                         forceTick(t => (t + 1) % 1024);
+                      }}
+                      getSameRowHeights={() => {
+                        // Heights блоків, що перетинаються по Y з поточним блоком
+                        // (тобто стоять у тому ж візуальному ряді). Дозволяє
+                        // useBlockResize snap-нути висоту до сусіда — і одночасно
+                        // показати `= H` size-match badge.
+                        const ay = block.y ?? 0;
+                        const ah = measureBlockHeight(block);
+                        const aBottom = ay + ah;
+                        const out: number[] = [];
+                        for (const o of blocks) {
+                          if (o.id === block.id) continue;
+                          const oy = o.y ?? 0;
+                          const oh = measureBlockHeight(o);
+                          const oBottom = oy + oh;
+                          // Y-overlap: будь-який спільний вертикальний діапазон.
+                          if (ay < oBottom && aBottom > oy) {
+                            out.push(oh);
+                          }
+                        }
+                        return out;
                       }}
                       isActive={activeId === block.id}
                       selected={selectedBlockId === block.id}
@@ -1742,6 +1840,10 @@ function AbsoluteBlock(props: {
   onPreviewHeight: (id: string, h: number) => void;
   onClearPreviewHeight: (id: string) => void;
   onReportHeight: (id: string, h: number) => void;
+  /** Heights усіх блоків у тому ж вертикальному ряді — для snap-to-match-height
+   *  при resize-у висоти. Без цього useBlockResize не може запропонувати
+   *  «вирівняй під сусіда». */
+  getSameRowHeights: () => number[];
   selected: boolean;
   onSelect: (id: string) => void;
   /** Пікс. компенсація скролу під час drag — додається до transform.y щоб блок
@@ -1821,7 +1923,11 @@ function AbsoluteBlock(props: {
         // newsCard preview: висота auto через aspect-ratio 360:400. Усі preview-
         // блоки мають однаковий block.width (auto-fit нормалізує) → однаковий
         // розмір на канвасі. Дзеркало AbsoluteBlockRender на /news.
-        height: (block.type === "newsCard" && (block.data.displayMode || "preview") === "preview")
+        // newsCard expanded: теж height auto — ArticleTemplate/EventTemplate
+        // має власний контент-розмір, а block.height (1700/680) — лише грубий
+        // дефолт для canvasHeight() кешу і snap-логіки. Без auto wrapper обрізає
+        // довшу статтю → content виглядає як overflow в сусідні блоки.
+        height: block.type === "newsCard"
           ? "auto"
           : ((previewHeight && previewHeight > 0)
               ? `${previewHeight}px`
@@ -1881,7 +1987,7 @@ function AbsoluteBlock(props: {
         onClearPreviewHeight={props.onClearPreviewHeight}
         previewHeight={previewHeight}
         onReportHeight={props.onReportHeight}
-        getSameRowHeights={() => []}
+        getSameRowHeights={props.getSameRowHeights}
         snapThreshold={8}
         onSelectBlock={props.onSelect}
         maxBlockHeight={maxBlockHeight}

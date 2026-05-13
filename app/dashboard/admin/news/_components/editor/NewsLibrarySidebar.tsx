@@ -174,45 +174,17 @@ interface Props {
 
 export default function NewsLibrarySidebar({ meta, onChange, placedNewsIds }: Props) {
   const [items, setItems] = useState<LibraryNewsItem[] | null>(null);
-  const [blueprints, setBlueprints] = useState<LibraryNewsItem[] | null>(null);
-  const [cloning, setCloning] = useState<string | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    // Паралельно: published-новини (для Превʼю/Новини) + blueprints
-    // (для секції «Створити з шаблону» вгорі). Blueprints — НЕ draggable;
-    // клік створює нову template-news і веде в редактор.
-    Promise.all([
-      fetch("/api/admin/news/library").then(r => r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status))),
-      fetch("/api/admin/news?type=templates").then(r => r.ok ? r.json() : []),
-    ])
-      .then(([libData, tplData]) => {
-        setItems(Array.isArray(libData) ? libData : []);
-        setBlueprints(Array.isArray(tplData) ? tplData : []);
-      })
+    // Опубліковані новини для секцій «Шаблонні новини», «Превʼю», «Новини без Превʼю».
+    // Створення нових з blueprint-у живе на /dashboard/admin/news — у білдері-сторінки
+    // ми лише розкладаємо вже створені картки.
+    fetch("/api/admin/news/library")
+      .then(r => r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status)))
+      .then(libData => setItems(Array.isArray(libData) ? libData : []))
       .catch(e => setError("Помилка: " + e.message));
   }, []);
-
-  const cloneFromBlueprint = async (blueprintId: string) => {
-    setCloning(blueprintId);
-    try {
-      const res = await fetch("/api/admin/news/from-template", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ blueprintId }),
-      });
-      if (!res.ok) {
-        setError("Не вдалось створити з шаблону");
-        return;
-      }
-      const j = await res.json();
-      window.location.href = `/dashboard/admin/news/${j.id}/template`;
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Помилка мережі");
-    } finally {
-      setCloning(null);
-    }
-  };
 
   // Розділяємо опубліковані новини: template-based (з templateKind) → секція
   // «Шаблонні новини» вгорі. Free-form → секції «Превʼю» і «Новини без Превʼю».
@@ -274,67 +246,6 @@ export default function NewsLibrarySidebar({ meta, onChange, placedNewsIds }: Pr
             ))}
           </div>
 
-          {/* Швидкий шлях створення нової з blueprint-у */}
-          {blueprints && blueprints.length > 0 && (
-            <div
-              style={{
-                marginTop: 8,
-                paddingTop: 10,
-                borderTop: "1px dashed #E8D5B7",
-                display: "flex",
-                flexDirection: "column",
-                gap: 6,
-              }}
-            >
-              <div style={{ fontSize: 10, fontWeight: 700, color: "#9B7C45", letterSpacing: "0.08em", textTransform: "uppercase" }}>
-                + Створити нову з шаблону
-              </div>
-              {blueprints.map(bp => {
-                const kind = (bp as { templateKind?: string }).templateKind;
-                const icon = kind === "EVENT" ? "🎟" : "📰";
-                const label = kind === "EVENT" ? "Подія / Фахівець" : "Стаття / Огляд";
-                const isLoading = cloning === bp.id;
-                return (
-                  <button
-                    key={bp.id}
-                    type="button"
-                    disabled={isLoading}
-                    onClick={() => cloneFromBlueprint(bp.id)}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 8,
-                      padding: "8px 10px",
-                      borderRadius: 8,
-                      border: "1px solid #E8D5B7",
-                      background: isLoading ? "#FAF6F0" : "#fff",
-                      textAlign: "left",
-                      cursor: isLoading ? "wait" : "pointer",
-                      fontFamily: ff,
-                      transition: "all 0.15s",
-                    }}
-                    onMouseEnter={e => {
-                      if (!isLoading) {
-                        e.currentTarget.style.background = "rgba(212,168,67,0.06)";
-                        e.currentTarget.style.borderColor = "rgba(212,168,67,0.45)";
-                      }
-                    }}
-                    onMouseLeave={e => {
-                      if (!isLoading) {
-                        e.currentTarget.style.background = "#fff";
-                        e.currentTarget.style.borderColor = "#E8D5B7";
-                      }
-                    }}
-                  >
-                    <span style={{ fontSize: 14, lineHeight: 1, flexShrink: 0 }}>{icon}</span>
-                    <span style={{ flex: 1, minWidth: 0, fontSize: 11, fontWeight: 600, color: "#1C3A2E" }}>
-                      {isLoading ? "Створюємо..." : label}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
         </div>
       </div>
 

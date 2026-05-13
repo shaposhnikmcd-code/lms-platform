@@ -90,6 +90,40 @@ export default function BlockItem({
     }
   };
 
+  // Для newsCard preview: коли користувач сам ресайзить блок — позначаємо
+  // manualSize="1" у data, щоб auto-snap effect (нижче) більше не повертав
+  // блок до дефолтної ширини. Висоту автоматично перераховуємо за aspect
+  // PREVIEW_CARD_WIDTH:PREVIEW_CARD_HEIGHT (360:400), бо контент картки —
+  // фіксований канвас, який PreviewCardScale тримає у пропорціях.
+  const computeNewsCardPreviewHeight = React.useCallback((widthPct: string): number => {
+    const pct = Number(widthPct) || 100;
+    const blockPxW = (pct / 100) * containerWidthPx;
+    return Math.max(60, Math.round(blockPxW * (PREVIEW_CARD_HEIGHT / PREVIEW_CARD_WIDTH)));
+  }, [containerWidthPx]);
+
+  const isNewsCardPreview = block.type === "newsCard" && (block.data.displayMode || "preview") === "preview";
+
+  const onSetWidthAndDataMarked = React.useCallback(
+    (id: string, w: BlockWidth, data: Record<string, string>, h?: number) => {
+      if (isNewsCardPreview) {
+        onSetWidthAndData(id, w, { ...data, manualSize: "1" }, computeNewsCardPreviewHeight(w));
+      } else {
+        onSetWidthAndData(id, w, data, h);
+      }
+    },
+    [isNewsCardPreview, computeNewsCardPreviewHeight, onSetWidthAndData]
+  );
+  const onSetWidthMarked = React.useCallback(
+    (id: string, w: BlockWidth) => {
+      if (isNewsCardPreview) {
+        onSetWidthAndData(id, w, { ...block.data, manualSize: "1" }, computeNewsCardPreviewHeight(w));
+      } else {
+        onSetWidth(id, w);
+      }
+    },
+    [isNewsCardPreview, computeNewsCardPreviewHeight, block.data, onSetWidth, onSetWidthAndData]
+  );
+
   const {
     blockRef, resizingW, resizingH, resizingD,
     displayPct, minHeight, snapGuideH,
@@ -100,8 +134,8 @@ export default function BlockItem({
     blockData: block.data,
     blockWidth: block.width,
     containerWidthPx,
-    onSetWidth,
-    onSetWidthAndData,
+    onSetWidth: onSetWidthMarked,
+    onSetWidthAndData: onSetWidthAndDataMarked,
     onPreviewWidth,
     onClearPreview,
     onPreviewHeight,
@@ -170,13 +204,16 @@ export default function BlockItem({
     const newsId = block.data.newsId || "";
     if (!newsId) return;
     if (containerWidthPx <= 0) return;
+    // Якщо користувач сам ресайзив preview-блок — не повертаємо до 39.1%.
+    // Expanded-mode завжди force-set 100% (контент авторовано на full canvas).
+    if (mode === "preview" && block.data.manualSize === "1") return;
 
     let cancelled = false;
     (async () => {
       try {
         const r = await fetch("/api/admin/news/library");
         if (!r.ok) return;
-        const list = await r.json() as { id: string; content?: string | null; previewContent?: string | null }[];
+        const list = await r.json() as { id: string; content?: string | null; previewContent?: string | null; templateKind?: string | null }[];
         if (!Array.isArray(list)) return;
         const it = list.find(x => x.id === newsId);
         if (!it) return;
@@ -184,9 +221,20 @@ export default function BlockItem({
         let total = 0;
         let targetWidth = block.width;
         if (mode === "expanded") {
-          const parsed = parseInnerBlocks(it.content || "");
-          const innerH = parsed.isJson ? innerCanvasHeight(parsed.blocks) : 0;
-          total = innerH > 0 ? innerH + 20 : 240;
+          // Template-based новини (ARTICLE/EVENT) рендеряться через `ArticleTemplate`/
+          // `EventTemplate` із `templateData` — legacy `content`-blocks ігноруються
+          // у render.tsx. Якщо новина має `templateKind`, фіксована висота за kind-ом
+          // (1700/680) — innerCanvasHeight з content-у не релевантна.
+          // Free-canvas новини (без templateKind) — як раніше: innerH або fallback 240.
+          if (it.templateKind === "ARTICLE") {
+            total = 1700;
+          } else if (it.templateKind === "EVENT") {
+            total = 680;
+          } else {
+            const parsed = parseInnerBlocks(it.content || "");
+            const innerH = parsed.isJson ? innerCanvasHeight(parsed.blocks) : 0;
+            total = innerH > 0 ? innerH + 20 : 240;
+          }
           // Розгорнута новина має займати повну ширину канвасу — інакше абсолютно
           // позиціоновані внутрішні блоки виглядають криво (контент авторовано на
           // 100% canvas-у). Force-set один раз при переключенні в expanded.
@@ -372,8 +420,9 @@ export default function BlockItem({
         {block.type === "divider" && <hr style={{ border: "none", borderTopWidth: "2px", borderTopStyle: "solid", borderTopColor: "#D4A843", margin: "8px 0" }} />}
       </div>
 
-      {/* Resize handles — приховані для newsCard preview, бо блок завжди 360×400. */}
-      {!(block.type === "newsCard" && (block.data.displayMode || "preview") === "preview") && (
+      {/* Resize handles доступні для всіх блоків включно з newsCard preview —
+          aspect-ratio 360:400 тримається через CSS, висота auto-підлаштовується. */}
+      {true && (
       <>
       {/* Right resize handle */}
       <div

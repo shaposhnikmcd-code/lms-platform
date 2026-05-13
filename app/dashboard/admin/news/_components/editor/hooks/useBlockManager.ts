@@ -4,6 +4,7 @@ import { Block, BlockAlign, BlockVAlign, BlockWidth } from "../types";
 export function useBlockManager(initial: Block[], onChange: (blocks: Block[]) => void) {
   const [previewWidths, setPreviewWidths] = useState<Record<string, number>>({});
   const [previewXs, setPreviewXs] = useState<Record<string, number>>({});
+  const [previewYs, setPreviewYs] = useState<Record<string, number>>({});
   const [previewHeights, setPreviewHeights] = useState<Record<string, number>>({});
   const [blockHeights, setBlockHeights] = useState<Record<string, number>>({});
 
@@ -76,6 +77,12 @@ export function useBlockManager(initial: Block[], onChange: (blocks: Block[]) =>
   const clearPreviewX = useCallback((id: string) =>
     setPreviewXs(prev => { const n = { ...prev }; delete n[id]; return n; }), []);
 
+  const setPreviewY = useCallback((id: string, yPx: number) =>
+    setPreviewYs(prev => ({ ...prev, [id]: yPx })), []);
+
+  const clearPreviewY = useCallback((id: string) =>
+    setPreviewYs(prev => { const n = { ...prev }; delete n[id]; return n; }), []);
+
   const setPreviewHeight = useCallback((id: string, h: number) =>
     setPreviewHeights(prev => ({ ...prev, [id]: h })), []);
 
@@ -86,10 +93,11 @@ export function useBlockManager(initial: Block[], onChange: (blocks: Block[]) =>
     setBlockHeights(prev => prev[id] === h ? prev : { ...prev, [id]: h }), []);
 
   return {
-    previewWidths, previewXs, previewHeights, blockHeights,
+    previewWidths, previewXs, previewYs, previewHeights, blockHeights,
     updateBlock, deleteBlock, moveBlock, duplicateBlock,
     setWidth, setWidthAndData, setAlign, setVAlign, setBg,
     setPreview, clearPreview, setPreviewX, clearPreviewX,
+    setPreviewY, clearPreviewY,
     setPreviewHeight, clearPreviewHeight, reportHeight,
   };
 }
