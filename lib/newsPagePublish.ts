@@ -26,21 +26,40 @@ export async function publishStagedNewsPage(): Promise<PublishResult> {
   }
 
   const now = new Date();
-  await prisma.newsPage.update({
-    where: { key: KEY },
-    data: {
-      content: page.nextContent,
-      contentEn: page.nextContentEn,
-      contentPl: page.nextContentPl,
-      pageBgColor: page.nextPageBgColor,
-      // Чистимо staged.
-      nextContent: null,
-      nextContentEn: null,
-      nextContentPl: null,
-      nextPageBgColor: null,
-      nextPublishAt: null,
-      nextUpdatedAt: null,
-    },
+  // Архівуємо поточну live-версію перед заміною. Якщо `content` порожнє —
+  // не зберігаємо «нульовий» snapshot (це початкова порожня сторінка перед
+  // першою публікацією).
+  const hasLiveContent = page.content && page.content.trim().length > 0 && page.content !== "[]";
+  await prisma.$transaction(async tx => {
+    if (hasLiveContent) {
+      await tx.newsPageArchive.create({
+        data: {
+          pageKey: KEY,
+          content: page.content,
+          contentEn: page.contentEn,
+          contentPl: page.contentPl,
+          pageBgColor: page.pageBgColor,
+          wasPublished: page.published,
+          archivedAt: now,
+        },
+      });
+    }
+    await tx.newsPage.update({
+      where: { key: KEY },
+      data: {
+        content: page.nextContent!,
+        contentEn: page.nextContentEn,
+        contentPl: page.nextContentPl,
+        pageBgColor: page.nextPageBgColor,
+        // Чистимо staged.
+        nextContent: null,
+        nextContentEn: null,
+        nextContentPl: null,
+        nextPageBgColor: null,
+        nextPublishAt: null,
+        nextUpdatedAt: null,
+      },
+    });
   });
 
   // Інвалідуємо ISR-кеш /news щоб новий контент з'явився одразу — і для cron

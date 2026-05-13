@@ -534,6 +534,28 @@ model NewsPage {
   @@index([nextPublishAt])
 }
 
+/// Архів замінених версій сторінки /news. Запис створюється перед тим, як
+/// staged-копія замінює live (publishStagedNewsPage). Дозволяє менеджеру
+/// переглянути попередні версії сторінки після публікації нової.
+model NewsPageArchive {
+  id          String   @id @default(cuid())
+  /// Ключ батьківської сторінки (NewsPage.key). Завжди "default" для singleton-а,
+  /// тримаємо для майбутніх категорійних landing-сторінок.
+  pageKey     String   @default("default")
+  /// Snapshot live-полів на момент архівації.
+  content     String
+  contentEn   String?
+  contentPl   String?
+  pageBgColor String?
+  /// Чи був snapshot активним (NewsPage.published) у момент архівації — для
+  /// довідки в адмінці.
+  wasPublished Boolean @default(false)
+  /// Коли цей snapshot перестав бути live (момент заміни новою версією).
+  archivedAt  DateTime @default(now())
+
+  @@index([pageKey, archivedAt])
+}
+
 model News {
   id          String       @id @default(cuid())
   title       String
