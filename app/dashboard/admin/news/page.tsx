@@ -68,7 +68,13 @@ export default function AdminNewsPage() {
   // Стан публікації сторінки /news (NewsPage.published) + локальний toggle.
   const [pagePublished, setPagePublished] = useState<boolean | null>(null);
   const [togglingPublish, setTogglingPublish] = useState(false);
-  const [pagePreviewOpen, setPagePreviewOpen] = useState(false);
+  // Превʼю сторінки /news — або поточна live-версія, або staged "наступна",
+  // або конкретний архівний snapshot. null → закрито.
+  const [pagePreviewSource, setPagePreviewSource] = useState<
+    null | { kind: "live" } | { kind: "next" } | { kind: "archive"; id: string; archivedAt: string }
+  >(null);
+  const pagePreviewOpen = pagePreviewSource !== null;
+  const setPagePreviewOpen = (open: boolean) => setPagePreviewSource(open ? { kind: "live" } : null);
 
   // Превʼю окремої новини — або превʼю-картки в контексті /news, або
   // повної сторінки статті /news/{slug}. Iframe-режим — точна копія
@@ -105,6 +111,15 @@ export default function AdminNewsPage() {
   // `publishOn` — Київ-календарна дата (YYYY-MM-DD); час фіксований 06:00 Київ.
   const [staged, setStaged] = useState<{ hasStaged: boolean; publishOn: string | null; nextUpdatedAt: string | null } | null>(null);
   const [stagedActionPending, setStagedActionPending] = useState<null | 'publishNow' | 'discard'>(null);
+  // Архів замінених live-сторінок. Заповнюється з GET /api/admin/news/page-content/archive.
+  // null до першого fetch-у; [] якщо архів порожній.
+  const [archive, setArchive] = useState<Array<{ id: string; archivedAt: string; wasPublished: boolean; contentLength: number }> | null>(null);
+  const refreshArchive = React.useCallback(() => {
+    fetch('/api/admin/news/page-content/archive')
+      .then(r => r.ok ? r.json() : [])
+      .then((d: unknown) => setArchive(Array.isArray(d) ? d as typeof archive : []))
+      .catch(() => setArchive([]));
+  }, []);
   const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [scheduleInput, setScheduleInput] = useState<string>(''); // YYYY-MM-DD
   const [scheduleSaveState, setScheduleSaveState] = useState<'idle' | 'saving' | 'saved'>('idle');
@@ -222,7 +237,8 @@ export default function AdminNewsPage() {
       .then(d => { if (d) setPagePublished(!!d.published); else setPagePublished(false); })
       .catch(() => setPagePublished(false));
     refreshStaged();
-  }, []);
+    refreshArchive();
+  }, [refreshArchive]);
 
   const publishStagedNow = async () => {
     setStagedConfirm(null);
@@ -234,6 +250,7 @@ export default function AdminNewsPage() {
         try { localStorage.removeItem('uimp_draft_page___news_page_next__'); } catch { /* ignore */ }
         setToast({ message: 'Опубліковано — наступна сторінка стала live', type: 'success' });
         refreshStaged();
+        refreshArchive();
       } else {
         const body = await res.json().catch(() => ({}));
         setToast({ message: body?.error || 'Не вдалось опублікувати', type: 'error' });
@@ -485,31 +502,15 @@ export default function AdminNewsPage() {
               </div>
             </div>
 
-        {/* Footer-панель: зліва — Активувати/Деактивувати (toggle видимості
-            сторінки на сайті), справа — основний CTA «Редагувати поточну». */}
-        <div className={`px-5 py-3 border-t flex items-center justify-between gap-3 ${
+        {/* Footer-панель: завжди стек вертикально — панель живе у вузькій лівій
+            колонці на xl+ (0.85fr від 4.45fr ≈ 19% ширини), де горизонталь
+            давала overflow. Primary CTA зверху на повну ширину, destructive нижче. */}
+        <div className={`px-5 py-3 border-t flex flex-col gap-2 ${
           dark ? 'border-white/[0.04] bg-white/[0.015]' : 'border-stone-200/50 bg-white/40'
         }`}>
-          <button
-            type="button"
-            onClick={togglePagePublish}
-            disabled={pagePublished === null || togglingPublish}
-            title={pagePublished ? 'Прибрати сторінку з сайту (показуватиметься empty state)' : 'Показати сторінку на сайті'}
-            className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-full text-[12px] font-medium border transition-colors disabled:opacity-50 ${
-              pagePublished
-                ? dark
-                  ? 'bg-rose-500/10 text-rose-200 border-rose-400/30 hover:bg-rose-500/20'
-                  : 'bg-rose-100/60 text-rose-800 border-rose-300/60 hover:bg-rose-100'
-                : dark
-                  ? 'bg-emerald-400/90 text-stone-900 border-transparent hover:bg-emerald-300 shadow-[0_0_14px_-4px_rgba(16,185,129,0.5)]'
-                  : 'bg-emerald-600 text-white border-transparent hover:bg-emerald-700 shadow-sm'
-            }`}
-          >
-            {togglingPublish ? '...' : pagePublished ? 'Деактивувати' : 'Активувати'}
-          </button>
           <Link
             href="/dashboard/admin/news/page-builder"
-            className={`group relative inline-flex items-center gap-2 px-4 py-2 rounded-full text-[12px] font-medium transition-all duration-300 overflow-hidden border ${
+            className={`group relative inline-flex items-center justify-center gap-2 px-4 py-2 rounded-full text-[12px] font-medium transition-all duration-300 overflow-hidden border whitespace-nowrap ${
               dark
                 ? 'bg-transparent border-amber-300/40 text-amber-200 hover:border-amber-300/70 hover:bg-amber-300/10 hover:shadow-[0_0_18px_-4px_rgba(251,191,36,0.45)]'
                 : 'bg-white/60 border-amber-700/40 text-amber-800 hover:border-amber-700/70 hover:bg-amber-50 hover:shadow-[0_4px_14px_-6px_rgba(180,83,9,0.35)]'
@@ -525,6 +526,23 @@ export default function AdminNewsPage() {
             <FaPlus className="relative text-[11px]" />
             <span className="relative">Редагувати поточну</span>
           </Link>
+          <button
+            type="button"
+            onClick={togglePagePublish}
+            disabled={pagePublished === null || togglingPublish}
+            title={pagePublished ? 'Прибрати сторінку з сайту (показуватиметься empty state)' : 'Показати сторінку на сайті'}
+            className={`inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-full text-[12px] font-medium border transition-colors disabled:opacity-50 ${
+              pagePublished
+                ? dark
+                  ? 'bg-rose-500/10 text-rose-200 border-rose-400/30 hover:bg-rose-500/20'
+                  : 'bg-rose-100/60 text-rose-800 border-rose-300/60 hover:bg-rose-100'
+                : dark
+                  ? 'bg-emerald-400/90 text-stone-900 border-transparent hover:bg-emerald-300 shadow-[0_0_14px_-4px_rgba(16,185,129,0.5)]'
+                  : 'bg-emerald-600 text-white border-transparent hover:bg-emerald-700 shadow-sm'
+            }`}
+          >
+            {togglingPublish ? '...' : pagePublished ? 'Деактивувати' : 'Активувати'}
+          </button>
         </div>
       </div>
 
@@ -684,23 +702,13 @@ export default function AdminNewsPage() {
                 {/* Footer-панель: зліва — destructive «Очистити чернетку»
                     (рідкісна дія, але має бути доступна), справа — основний CTA
                     «Редагувати наступну». */}
-                <div className={`px-5 py-3 border-t flex items-center justify-between gap-3 ${
+                <div className={`px-5 py-3 border-t flex flex-col gap-2 ${
                   dark ? 'border-white/[0.06] bg-white/[0.02]' : 'border-amber-500/20 bg-amber-50/50'
                 }`}>
-                  <button
-                    type="button"
-                    onClick={() => setStagedConfirm('discard')}
-                    disabled={stagedActionPending !== null}
-                    title="Видалити чернетку: контент і дату публікації буде стерто"
-                    className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-full text-[12px] font-medium border transition-colors disabled:opacity-50 ${
-                      dark
-                        ? 'bg-rose-500/10 text-rose-200 border-rose-400/30 hover:bg-rose-500/20'
-                        : 'bg-rose-100/60 text-rose-800 border-rose-300/60 hover:bg-rose-100'
-                    }`}
-                  >{stagedActionPending === 'discard' ? '...' : 'Очистити чернетку'}</button>
+                  {/* Primary CTA — повну ширину зверху */}
                   <Link
                     href="/dashboard/admin/news/page-builder/next"
-                    className={`group relative inline-flex items-center gap-2 px-4 py-2 rounded-full text-[12px] font-medium transition-all duration-300 overflow-hidden border ${
+                    className={`group relative inline-flex items-center justify-center gap-2 px-4 py-2 rounded-full text-[12px] font-medium transition-all duration-300 overflow-hidden border whitespace-nowrap ${
                       dark
                         ? 'bg-amber-400/15 border-amber-300/60 text-amber-200 hover:bg-amber-400/25 hover:shadow-[0_0_18px_-4px_rgba(251,191,36,0.45)]'
                         : 'bg-amber-100/80 border-amber-700/50 text-amber-900 hover:bg-amber-100 hover:shadow-[0_4px_14px_-6px_rgba(180,83,9,0.35)]'
@@ -716,6 +724,33 @@ export default function AdminNewsPage() {
                     <span aria-hidden className="relative text-[11px]">{'🕒'}</span>
                     <span className="relative">Редагувати наступну</span>
                   </Link>
+                  {/* Secondary row: Превʼю + Очистити, 50/50 */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setPagePreviewSource({ kind: 'next' })}
+                      title="Превʼю чернетки наступної сторінки"
+                      className={`inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-full text-[12px] font-medium border transition-colors ${
+                        dark
+                          ? 'bg-white/[0.04] text-amber-200 border-white/[0.10] hover:bg-white/[0.10]'
+                          : 'bg-white/70 text-amber-900 border-amber-700/40 hover:bg-white'
+                      }`}
+                    >
+                      <span aria-hidden>👁</span>
+                      <span>Превʼю</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setStagedConfirm('discard')}
+                      disabled={stagedActionPending !== null}
+                      title="Видалити чернетку: контент і дату публікації буде стерто"
+                      className={`inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-full text-[12px] font-medium border transition-colors disabled:opacity-50 ${
+                        dark
+                          ? 'bg-rose-500/10 text-rose-200 border-rose-400/30 hover:bg-rose-500/20'
+                          : 'bg-rose-100/60 text-rose-800 border-rose-300/60 hover:bg-rose-100'
+                      }`}
+                    >{stagedActionPending === 'discard' ? '...' : 'Очистити чернетку'}</button>
+                  </div>
                 </div>
               </div>
             ) : (
@@ -748,6 +783,57 @@ export default function AdminNewsPage() {
           </>
         );
       })()}
+
+      {/* ─── Підсекція 3: АРХІВ замінених версій ─── */}
+      {(archive && archive.length > 0) && (
+        <>
+          <div className={`flex items-center gap-2 mb-2.5 mt-6 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
+            <span className={`inline-block w-1.5 h-1.5 rounded-full ${dark ? 'bg-stone-500' : 'bg-stone-400'}`} />
+            <span className="text-[11px] font-bold tracking-[0.12em] uppercase">Архів</span>
+            <span className="text-[10px] font-normal opacity-70 normal-case tracking-normal">
+              · {archive.length} {archive.length === 1 ? 'версія' : archive.length < 5 ? 'версії' : 'версій'}
+            </span>
+          </div>
+          <div className={`rounded-xl border overflow-hidden ${
+            dark ? 'bg-white/[0.02] border-white/[0.06]' : 'bg-white/40 border-stone-300/40'
+          }`}>
+            <ul className="divide-y divide-stone-200/40 dark:divide-white/[0.05]">
+              {archive.map(entry => {
+                const date = new Date(entry.archivedAt);
+                const dateLabel = date.toLocaleDateString('uk-UA', {
+                  day: 'numeric', month: 'short', year: 'numeric',
+                });
+                const timeLabel = date.toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' });
+                return (
+                  <li key={entry.id} className="flex items-center justify-between gap-2 px-4 py-2.5">
+                    <div className="min-w-0 flex-1">
+                      <div className={`text-[12px] font-medium ${dark ? 'text-slate-200' : 'text-stone-800'}`}>
+                        {dateLabel}
+                      </div>
+                      <div className={`text-[10.5px] opacity-70 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
+                        замінено о {timeLabel}{entry.wasPublished ? ' · була live' : ' · була прихована'}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setPagePreviewSource({ kind: 'archive', id: entry.id, archivedAt: entry.archivedAt })}
+                      title="Превʼю архівної версії"
+                      className={`flex-shrink-0 inline-flex items-center gap-1.5 px-2.5 h-7 rounded-full border text-[11px] font-medium transition-colors ${
+                        dark
+                          ? 'bg-white/[0.04] text-slate-300 border-white/[0.10] hover:bg-white/[0.10] hover:text-slate-100'
+                          : 'bg-white/70 text-stone-700 border-stone-300/60 hover:bg-white hover:text-stone-900'
+                      }`}
+                    >
+                      <span aria-hidden>👁</span>
+                      <span>Превʼю</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        </>
+      )}
 
         </aside>
         {/* ╰─ кінець лівої колонки ──────────────────────────────────────╯ */}
@@ -1364,30 +1450,42 @@ export default function AdminNewsPage() {
       {/* Fullscreen-превʼю «Поточної сторінки». Рендериться 1-в-1 публічний
           /news через NewsPagePreview (auto-scale до доступної ширини). Esc /
           клік по бекдропу / X — закривають. */}
-      {pagePreviewOpen && (
+      {pagePreviewSource !== null && (
         <div
           className="fixed inset-0 z-[60] flex flex-col bg-stone-900/85 backdrop-blur-md"
-          onClick={() => setPagePreviewOpen(false)}
+          onClick={() => setPagePreviewSource(null)}
         >
           <div className="flex items-center justify-between px-5 py-3 border-b border-white/10">
             <div className="flex items-center gap-3 text-white/90">
               <span className="text-[11px] font-bold tracking-[0.18em] uppercase">
-                Превʼю · /news
+                Превʼю · {pagePreviewSource.kind === "next" ? "наступна /news" : pagePreviewSource.kind === "archive" ? "архів /news" : "/news"}
               </span>
-              <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider ${
-                pagePublished
-                  ? 'bg-emerald-500/20 text-emerald-200 border border-emerald-400/30'
-                  : 'bg-amber-500/20 text-amber-200 border border-amber-400/30'
-              }`}>
-                <span className={`inline-block w-1.5 h-1.5 rounded-full ${
-                  pagePublished ? 'bg-emerald-400' : 'bg-amber-400'
-                }`} />
-                {pagePublished === null ? '...' : pagePublished ? 'На сайті' : 'Прихована'}
-              </span>
+              {pagePreviewSource.kind === "next" ? (
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider bg-amber-500/20 text-amber-200 border border-amber-400/30">
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400" />
+                  Чернетка
+                </span>
+              ) : pagePreviewSource.kind === "archive" ? (
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider bg-stone-500/20 text-stone-200 border border-stone-400/30">
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-stone-400" />
+                  Архів · {formatDateChip(pagePreviewSource.archivedAt.slice(0, 10))}
+                </span>
+              ) : (
+                <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider ${
+                  pagePublished
+                    ? 'bg-emerald-500/20 text-emerald-200 border border-emerald-400/30'
+                    : 'bg-amber-500/20 text-amber-200 border border-amber-400/30'
+                }`}>
+                  <span className={`inline-block w-1.5 h-1.5 rounded-full ${
+                    pagePublished ? 'bg-emerald-400' : 'bg-amber-400'
+                  }`} />
+                  {pagePublished === null ? '...' : pagePublished ? 'На сайті' : 'Прихована'}
+                </span>
+              )}
             </div>
             <button
               type="button"
-              onClick={(e) => { e.stopPropagation(); setPagePreviewOpen(false); }}
+              onClick={(e) => { e.stopPropagation(); setPagePreviewSource(null); }}
               title="Закрити (Esc)"
               className="inline-flex items-center justify-center w-9 h-9 rounded-lg bg-white/[0.06] border border-white/10 text-white/80 hover:bg-white/[0.12] hover:text-white transition-colors"
             >
@@ -1402,7 +1500,10 @@ export default function AdminNewsPage() {
               className="mx-auto rounded-lg overflow-hidden shadow-2xl"
               style={{ maxWidth: '1280px', background: '#FFFFFF' }}
             >
-              <NewsPagePreview />
+              <NewsPagePreview
+                source={pagePreviewSource.kind}
+                archiveId={pagePreviewSource.kind === "archive" ? pagePreviewSource.id : undefined}
+              />
             </div>
           </div>
         </div>

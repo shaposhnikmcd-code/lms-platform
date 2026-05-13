@@ -34,7 +34,11 @@ interface LibraryNewsRaw {
 // Превʼю сторінки /news для адмін-листа. Фетчить layout + library, рендерить
 // через ту саму AbsoluteBlockRender, що й public — щоб адмін бачив 1-в-1
 // результат до публікації. Масштабовано через CSS transform: scale.
-export default function NewsPagePreview() {
+//
+// `source="live"` (default) — поточна опублікована сторінка /news.
+// `source="next"` — staged-чернетка наступної сторінки (NewsPage.nextContent).
+// `source="archive"` + `archiveId` — конкретний snapshot з NewsPageArchive.
+export default function NewsPagePreview({ source = "live", archiveId }: { source?: "live" | "next" | "archive"; archiveId?: string }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
   const [page, setPage] = useState<PageContent | null>(null);
@@ -43,8 +47,14 @@ export default function NewsPagePreview() {
   const [error, setError] = useState("");
 
   useEffect(() => {
+    const pageUrl =
+      source === "next"
+        ? "/api/admin/news/page-content/next"
+        : source === "archive" && archiveId
+          ? `/api/admin/news/page-content/archive?id=${encodeURIComponent(archiveId)}`
+          : "/api/admin/news/page-content";
     Promise.all([
-      fetch("/api/admin/news/page-content").then(r => r.ok ? r.json() : null),
+      fetch(pageUrl).then(r => r.ok ? r.json() : null),
       fetch("/api/admin/news/library").then(r => r.ok ? r.json() : []),
     ]).then(([pageData, libRaw]) => {
       setPage(pageData ? {
@@ -68,7 +78,7 @@ export default function NewsPagePreview() {
       })));
       setLoading(false);
     }).catch(e => { setError(String(e?.message || e)); setLoading(false); });
-  }, []);
+  }, [source, archiveId]);
 
   // Парсимо блоки і застосовуємо ту саму фільтрацію, що й публічна /news:
   //  - newsCard з невідомим/непублікованим newsId — викидаємо
