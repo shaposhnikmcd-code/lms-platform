@@ -132,6 +132,19 @@ export default function TemplateEditor({ newsId }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kind === "ARTICLE" ? (data as ArticleData | null)?.lead : (data as EventData | null)?.about]);
 
+  // ARTICLE: News.title — єдине джерело правди для заголовка статті. Sync
+  // `meta.title → data.title` щоб render статті/preview-картки показував те
+  // саме, що вводить менеджер у верхньому полі. Без цього поле дублювалось
+  // в формі і збивало з пантелику. Для EVENT — `data.title` не на картці
+  // взагалі (поле dead), тому sync не потрібен.
+  useEffect(() => {
+    if (!data || kind !== "ARTICLE") return;
+    const current = (data as ArticleData).title;
+    if (current === meta.title) return;
+    setData(prev => prev ? ({ ...(prev as ArticleData), title: meta.title }) : prev);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [meta.title, kind]);
+
   const save = async (publishOverride?: boolean) => {
     if (!data || !kind) return;
     // Client-side guard — щоб PATCH не вилетів з 500 від Prisma unique-null-violation.

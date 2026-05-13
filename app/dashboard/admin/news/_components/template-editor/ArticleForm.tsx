@@ -153,30 +153,22 @@ export default function ArticleForm({ data, onChange, onFocusRegion }: Props) {
           <RegionGroup key="header" region="header" onFocusRegion={onFocusRegion}>
             <SectionHeader
               icon="✍️"
-              title="Заголовок та лід"
+              title="Eyebrow та лід"
               whereOnCard="header, центр"
+              subtitle="Заголовок статті береться з поля «Заголовок» зверху — один на форму, без дублів."
               hidden={isHidden("header")}
               onToggleHidden={() => toggleHidden("header")}
             />
             {!isHidden("header") && (
               <>
-                <div style={{ display: "grid", gridTemplateColumns: "200px 1fr", gap: 8 }}>
-                  <TextInput
-                    label="Eyebrow / категорія"
-                    value={data.category}
-                    onChange={v => update("category", v)}
-                    placeholder="СТАТТЯ · 5 ХВ"
-                    hint="caps над title"
-                    maxLength={60}
-                  />
-                  <TextInput
-                    label="Заголовок"
-                    value={data.title}
-                    onChange={v => update("title", v)}
-                    placeholder="Заголовок статті"
-                    maxLength={120}
-                  />
-                </div>
+                <TextInput
+                  label="Eyebrow / категорія"
+                  value={data.category}
+                  onChange={v => update("category", v)}
+                  placeholder="СТАТТЯ · 5 ХВ ЧИТАННЯ"
+                  hint="caps над title"
+                  maxLength={60}
+                />
                 <div style={{ marginTop: 8 }}>
                   <TextAreaInput
                     label="Лід"
