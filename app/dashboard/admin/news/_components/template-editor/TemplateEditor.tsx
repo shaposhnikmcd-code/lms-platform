@@ -61,6 +61,17 @@ export default function TemplateEditor({ newsId }: Props) {
   // SEO-розкривашка: за замовчуванням закрита, бо excerpt auto-derive з контенту
   // і менеджеру не треба його чіпати. Розкривається коли треба override для Google.
   const [seoOpen, setSeoOpen] = useState(false);
+  // Dirty state — є локальні зміни, ще не збережені на сервер. Показуємо
+  // «Чернетка · не збережено» badge у sticky header; cleared на save success.
+  const [isDirty, setIsDirty] = useState(false);
+  // Скільки змін зроблено — щоб показати menager-у в badge ("3 зміни").
+  const [draftChangeCount, setDraftChangeCount] = useState(0);
+  // hydrated = форма завантажила server data (і опційно перекрила local draft).
+  // Поки false, дочірні setData/setMeta — це just hydration і не повинні
+  // тригерити dirty / localStorage запис.
+  const hydratedRef = React.useRef(false);
+
+  const draftKey = `news-template-draft-${newsId}`;
 
   const [kind, setKind] = useState<TemplateKind | null>(null);
   const [data, setData] = useState<ArticleData | EventData | null>(null);
@@ -99,7 +110,9 @@ export default function TemplateEditor({ newsId }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [meta.title]);
 
-  // Load.
+  // Load. Спочатку server snapshot (для kind + initial canonical state), потім
+  // якщо в localStorage є draft — overlay-имо. Це дозволяє менеджеру оновити
+  // сторінку, повернутись пізніше, або випадково закрити — нічого не втрачено.
   useEffect(() => {
     fetch(`/api/admin/news/${newsId}`)
       .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
@@ -111,27 +124,69 @@ export default function TemplateEditor({ newsId }: Props) {
         }
         const k = d.templateKind as TemplateKind;
         setKind(k);
-        setData(parseTemplateData(k, d.templateData));
+        const serverData = parseTemplateData(k, d.templateData);
         const loadedSlug: string = d.slug || "";
-        setMeta({
+        const serverMeta: Meta = {
           title: d.title || "",
           slug: loadedSlug,
           excerpt: d.excerpt || "",
           published: !!d.published,
           isTemplate: !!d.isTemplate,
-        });
-        // Помічаємо initial slug як «авто-managed». Це дозволяє title→slug
-        // sync переписувати його коли менеджер починає вводити заголовок
-        // (бо blueprint-clone-и приходять з random-slug `article-XXX` /
-        // `event-XXX`, який technically НЕ дорівнює slugifyNewsTitle()
-        // майбутнього заголовка — без цього sync не спрацьовував). Як тільки
-        // менеджер свідомо править slug руками, він перестане збігатись з
-        // lastAutoSlugRef → стане custom → подальші зміни title його не торкнуть.
-        lastAutoSlugRef.current = loadedSlug;
+        };
+
+        // Перевіряємо localStorage на draft саме цієї новини.
+        let restoredFromDraft = false;
+        try {
+          const raw = typeof window !== "undefined" ? window.localStorage.getItem(draftKey) : null;
+          if (raw) {
+            const draft = JSON.parse(raw) as { data?: unknown; meta?: Meta; changeCount?: number };
+            if (draft.data && draft.meta) {
+              setData(draft.data as ArticleData | EventData);
+              setMeta(draft.meta);
+              setIsDirty(true);
+              setDraftChangeCount(draft.changeCount || 0);
+              restoredFromDraft = true;
+            }
+          }
+        } catch {
+          // Невалідний JSON у localStorage — ігноруємо і використовуємо server.
+        }
+
+        if (!restoredFromDraft) {
+          setData(serverData);
+          setMeta(serverMeta);
+        }
+
+        // Помічаємо initial slug як «авто-managed». Дозволяє title→slug sync
+        // переписувати його коли менеджер починає вводити заголовок (blueprint-
+        // clone-и приходять з random-slug, який не співпадає з slugifyNewsTitle).
+        // Якщо менеджер свідомо змінив slug руками — він стане custom і подальші
+        // зміни title його не зачеплять.
+        lastAutoSlugRef.current = restoredFromDraft ? (JSON.parse(localStorage.getItem(draftKey) || "{}").meta?.slug || loadedSlug) : loadedSlug;
         setLoading(false);
+        // Після hydration усі наступні setData/setMeta — це user-edits;
+        // дозволяємо їм оновлювати draft в localStorage + позначати dirty.
+        hydratedRef.current = true;
       })
       .catch(e => { setError("Помилка завантаження: " + e.message); setLoading(false); });
-  }, [newsId]);
+  }, [newsId, draftKey]);
+
+  // Auto-save draft у localStorage при будь-якій зміні форми (debounced 400ms).
+  // Це джерело правди для refresh/recovery. На save success — clear draft.
+  useEffect(() => {
+    if (!hydratedRef.current || !data) return;
+    const t = setTimeout(() => {
+      try {
+        window.localStorage.setItem(draftKey, JSON.stringify({ data, meta, changeCount: draftChangeCount + 1, savedAt: Date.now() }));
+        setIsDirty(true);
+        setDraftChangeCount(c => c + 1);
+      } catch {
+        // Сховище повне / приватний режим — silent. На save піде server-PATCH.
+      }
+    }, 400);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, meta]);
 
   // Auto-sync excerpt: для ARTICLE — з lead, для EVENT — з first paragraph
   // about-блоку (бо lead-у в новій EventData нема). Менеджер може override-ити.
@@ -195,6 +250,11 @@ export default function TemplateEditor({ newsId }: Props) {
       if (res.ok) {
         setLastSavedAt(Date.now());
         setMeta(m => ({ ...m, published: nextPublished }));
+        // Save success — очищаємо local draft. Тепер server canonical state
+        // = поточний; isDirty=false, counter reset.
+        try { window.localStorage.removeItem(draftKey); } catch {}
+        setIsDirty(false);
+        setDraftChangeCount(0);
         if (typeof publishOverride === "boolean") {
           // Toggle public/unpublic — лишаємось у редакторі, бо менеджер може
           // ще щось доправити після зміни видимості.
@@ -286,6 +346,35 @@ export default function TemplateEditor({ newsId }: Props) {
         </div>
 
         <div style={{ flex: 1 }} />
+
+        {/* Status badge — поточний стан змін відносно сервера.
+            - isDirty=true  → «● Чернетка · X змін»  (amber)
+            - isDirty=false → нічого (за замовч. — все збережено)
+            При successful save показуємо «✓ Опубліковано» (через showSavedFlash). */}
+        {isDirty && !showSavedFlash && (
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "5px 12px",
+              borderRadius: 999,
+              background: "rgba(212,168,67,0.14)",
+              border: "1px solid rgba(212,168,67,0.45)",
+              color: "#8B6F2D",
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: "0.04em",
+            }}
+            title="Зміни зберігаються у браузері. Натисни «Зберегти» щоб опублікувати на /news"
+          >
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#D4A843" }} aria-hidden />
+            <span>Чернетка</span>
+            {draftChangeCount > 0 && (
+              <span style={{ color: "#A8956C", fontWeight: 500 }}>· {draftChangeCount} змін</span>
+            )}
+          </span>
+        )}
 
         {/* Publish-toggle прибрано: save = одразу опубліковано на /news, окрема
             кнопка зайва. Якщо потрібно сховати — менеджер видаляє новину
