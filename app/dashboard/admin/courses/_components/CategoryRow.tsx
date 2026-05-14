@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { FaRotateLeft, FaCheck } from 'react-icons/fa6';
 import type { Theme } from '../../_components/adminTheme';
-import PromoTimer from './PromoTimer';
+import PromoTimer, { getPromoWindowState } from './PromoTimer';
 
 /// UI mapping для категорій (історично):
 ///   UI "Промокод 1" / "Ціна 1"  → БД promo2*  (новий публічний промокод, додано 2026-05-11)
@@ -288,10 +288,25 @@ export default function CategoryRow({
 
   const priceCls = `${inputBase} text-center ${priceParsed.ok ? inputOk : inputBad}`;
   const oldPriceCls = `${inputBase} text-center ${oldPriceParsed.ok ? inputOk : inputBad}`;
-  const promo1CodeCls = `${inputBase} text-center ${promo1CodeParsed.ok && promo1PairOk && codesDistinct ? inputOk : inputBad}`;
-  const promo1PriceCls = `${inputBase} text-center ${promo1PriceParsed.ok && promo1PairOk ? inputOk : inputBad}`;
-  const promo2CodeCls = `${inputBase} text-center ${promo2CodeParsed.ok && promo2PairOk && codesDistinct ? inputOk : inputBad}`;
-  const promo2PriceCls = `${inputBase} text-center ${promo2PriceParsed.ok && promo2PairOk ? inputOk : inputBad}`;
+
+  // Промо не діє коли є код, але вікно — pending або expired → нейтральний стиль + strike на ціні.
+  const promo1State = getPromoWindowState(promo1StartsAt, promo1ExpiresAt);
+  const promo2State = getPromoWindowState(promo2StartsAt, promo2ExpiresAt);
+  const promo1Inactive = promo1CodeParsed.code !== null && (promo1State === 'expired' || promo1State === 'pending');
+  const promo2Inactive = promo2CodeParsed.code !== null && (promo2State === 'expired' || promo2State === 'pending');
+
+  const promoInactiveCode = dark
+    ? 'bg-white/[0.02] border-white/[0.06] text-slate-500 placeholder:text-slate-700 focus:ring-amber-400/30 focus:border-amber-400/30 focus:text-slate-200'
+    : 'bg-stone-100/40 border-stone-200/60 text-stone-400 placeholder:text-stone-300 focus:ring-amber-500/30 focus:border-amber-500/40 focus:text-stone-700';
+  const promoInactivePrice = `${promoInactiveCode} line-through`;
+
+  const okOrInactive = (inactive: boolean) => (inactive ? promoInactiveCode : inputOk);
+  const okOrInactivePrice = (inactive: boolean) => (inactive ? promoInactivePrice : inputOk);
+
+  const promo1CodeCls = `${inputBase} text-center ${promo1CodeParsed.ok && promo1PairOk && codesDistinct ? okOrInactive(promo1Inactive) : inputBad}`;
+  const promo1PriceCls = `${inputBase} text-center ${promo1PriceParsed.ok && promo1PairOk ? okOrInactivePrice(promo1Inactive) : inputBad}`;
+  const promo2CodeCls = `${inputBase} text-center ${promo2CodeParsed.ok && promo2PairOk && codesDistinct ? okOrInactive(promo2Inactive) : inputBad}`;
+  const promo2PriceCls = `${inputBase} text-center ${promo2PriceParsed.ok && promo2PairOk ? okOrInactivePrice(promo2Inactive) : inputBad}`;
 
   const priceCell = hasPriceField ? (
     <input
