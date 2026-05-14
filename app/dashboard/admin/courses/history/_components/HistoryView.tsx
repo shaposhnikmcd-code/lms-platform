@@ -25,10 +25,92 @@ const FIELD_LABELS: Record<string, string> = {
   oldPrice: 'Стара ціна',
   promo1Code: 'Промокод 1',
   promo1Price: 'Ціна по Промокоду 1',
+  promo1StartsAt: 'Промокод 1 — старт',
+  promo1ExpiresAt: 'Промокод 1 — кінець',
   promo2Code: 'Промокод 2',
   promo2Price: 'Ціна по Промокоду 2',
+  promo2StartsAt: 'Промокод 2 — старт',
+  promo2ExpiresAt: 'Промокод 2 — кінець',
   sendpulseCourseId: 'SP course ID',
 };
+
+/// Категоризує конкретну зміну в людський статус. Семантика "додано / прибрано
+/// / змінено" виводиться з null-переходів. Для таймерів промо обʼєднуємо в
+/// один статус, щоб не плодити три пілки на одну зміну.
+type ActionTone = 'added' | 'removed' | 'changed';
+function classifyChange(field: string, old: unknown, nw: unknown): { label: string; tone: ActionTone } | null {
+  const wasNull = old === null || old === undefined || old === '';
+  const isNull = nw === null || nw === undefined || nw === '';
+  if (wasNull && isNull) return null;
+
+  // Promo code field визначає семантику для пари (code + price + timer).
+  // Окремий promo*Price/StartsAt/ExpiresAt не показуємо як власні дії, бо
+  // вони ловляться обробкою promo*Code; повертаємо null для них.
+  if (field === 'promo1Price' || field === 'promo2Price') return null;
+  if (field === 'promo1StartsAt' || field === 'promo1ExpiresAt') return null;
+  if (field === 'promo2StartsAt' || field === 'promo2ExpiresAt') return null;
+
+  const baseMap: Record<string, string> = {
+    price: 'ціну курсу',
+    oldPrice: 'стару ціну',
+    promo1Code: 'Промокод 1',
+    promo2Code: 'Промокод 2',
+    sendpulseCourseId: 'SP course ID',
+  };
+  const base = baseMap[field] ?? FIELD_LABELS[field] ?? field;
+
+  if (wasNull && !isNull) return { label: `Додано ${base}`, tone: 'added' };
+  if (!wasNull && isNull) return { label: `Видалено ${base}`, tone: 'removed' };
+  return { label: `Змінено ${base}`, tone: 'changed' };
+}
+
+/// Зміна таймеру промо (без зміни самого коду) — окрема пілка. Викликаємо
+/// окремо щоб не дублювалося з classifyChange коли code теж змінився
+/// (тоді промо-зміна вже покриває таймер).
+function timerChangeFor(
+  promoIdx: 1 | 2,
+  changes: Record<string, { old: unknown; new: unknown }>,
+): { label: string; tone: ActionTone } | null {
+  const codeField = `promo${promoIdx}Code`;
+  if (changes[codeField]) return null; // покрито classifyChange(promoXCode)
+  const startsField = `promo${promoIdx}StartsAt`;
+  const expiresField = `promo${promoIdx}ExpiresAt`;
+  const startChanged = changes[startsField];
+  const expChanged = changes[expiresField];
+  if (!startChanged && !expChanged) return null;
+
+  const startBefore = startChanged ? startChanged.old : null;
+  const startAfter = startChanged ? startChanged.new : null;
+  const expBefore = expChanged ? expChanged.old : null;
+  const expAfter = expChanged ? expChanged.new : null;
+  const wasOff =
+    (startBefore === null || startBefore === undefined) &&
+    (expBefore === null || expBefore === undefined);
+  const isOff =
+    (startAfter === null || startAfter === undefined) &&
+    (expAfter === null || expAfter === undefined);
+
+  if (wasOff && !isOff) return { label: `Додано таймер Промокоду ${promoIdx}`, tone: 'added' };
+  if (!wasOff && isOff) return { label: `Прибрано таймер Промокоду ${promoIdx}`, tone: 'removed' };
+  return { label: `Змінено таймер Промокоду ${promoIdx}`, tone: 'changed' };
+}
+
+function actionsFor(entry: HistoryEntry): { label: string; tone: ActionTone | 'reset' }[] {
+  if (entry.action === 'reset') {
+    return [{ label: 'Скинуто всі ціни і промокоди', tone: 'reset' }];
+  }
+  const out: { label: string; tone: ActionTone | 'reset' }[] = [];
+  for (const [field, { old, new: nw }] of Object.entries(entry.changes)) {
+    const a = classifyChange(field, old, nw);
+    if (a) out.push(a);
+  }
+  const t1 = timerChangeFor(1, entry.changes);
+  if (t1) out.push(t1);
+  const t2 = timerChangeFor(2, entry.changes);
+  if (t2) out.push(t2);
+  if (out.length === 0) out.push({ label: 'Оновлено', tone: 'changed' });
+  return out;
+}
 
 function formatValue(field: string, val: unknown): string {
   if (val === null || val === undefined) return '—';
@@ -210,7 +292,7 @@ export default function HistoryView({
                   <Th theme={theme} width={140}>Дата</Th>
                   <Th theme={theme} width={240}>Курс</Th>
                   <Th theme={theme} width={220}>Користувач</Th>
-                  <Th theme={theme} width={100}>Дія</Th>
+                  <Th theme={theme} width={200}>Дія</Th>
                   <Th theme={theme}>Зміни</Th>
                 </tr>
               </thead>
@@ -250,17 +332,30 @@ export default function HistoryView({
                         )}
                       </td>
                       <td className="px-3 py-3 align-top">
-                        <span className={`inline-flex items-center text-[10px] font-medium rounded-full px-2 py-0.5 border whitespace-nowrap ${
-                          e.action === 'reset'
-                            ? dark
-                              ? 'text-rose-200 bg-rose-500/10 border-rose-500/30'
-                              : 'text-rose-900 bg-rose-100/70 border-rose-400/50'
-                            : dark
-                              ? 'text-amber-200 bg-amber-500/10 border-amber-500/25'
-                              : 'text-amber-900 bg-amber-200/50 border-amber-500/40'
-                        }`}>
-                          {e.action === 'reset' ? 'скинуто' : 'оновлено'}
-                        </span>
+                        <div className="flex flex-wrap gap-1">
+                          {actionsFor(e).map((a, i) => {
+                            const toneCls =
+                              a.tone === 'added'
+                                ? dark
+                                  ? 'text-emerald-200 bg-emerald-500/10 border-emerald-500/30'
+                                  : 'text-emerald-900 bg-emerald-100/70 border-emerald-500/40'
+                                : a.tone === 'removed' || a.tone === 'reset'
+                                  ? dark
+                                    ? 'text-rose-200 bg-rose-500/10 border-rose-500/30'
+                                    : 'text-rose-900 bg-rose-100/70 border-rose-400/50'
+                                  : dark
+                                    ? 'text-amber-200 bg-amber-500/10 border-amber-500/25'
+                                    : 'text-amber-900 bg-amber-200/50 border-amber-500/40';
+                            return (
+                              <span
+                                key={i}
+                                className={`inline-flex items-center text-[10px] font-medium rounded-full px-2 py-0.5 border whitespace-nowrap ${toneCls}`}
+                              >
+                                {a.label}
+                              </span>
+                            );
+                          })}
+                        </div>
                       </td>
                       <td className="px-3 py-3 align-top">
                         <div className="space-y-1">
