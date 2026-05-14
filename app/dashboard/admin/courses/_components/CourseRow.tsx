@@ -79,7 +79,6 @@ export default function CourseRow({
   const [spIdStr, setSpIdStr] = useState(
     row.sendpulseCourseId !== null ? String(row.sendpulseCourseId) : '',
   );
-  const [savingSp, setSavingSp] = useState(false);
   const [saving, setSaving] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
@@ -136,6 +135,15 @@ export default function CourseRow({
     !(promo1CodeParsed.code && promo2CodeParsed.code &&
       promo1CodeParsed.code === promo2CodeParsed.code);
 
+  // SP ID валідація: порожньо OK (null у БД) або позитивне ціле число.
+  const spIdParsed = (() => {
+    const t = spIdStr.trim();
+    if (t === '') return { ok: true, num: null as number | null };
+    const n = Number(t);
+    if (!Number.isFinite(n) || !Number.isInteger(n) || n <= 0) return { ok: false, num: null };
+    return { ok: true, num: n };
+  })();
+
   const formValid =
     priceParsed.ok &&
     oldPriceParsed.ok &&
@@ -146,7 +154,8 @@ export default function CourseRow({
     promo2PriceParsed.ok &&
     promo1PairOk &&
     promo2PairOk &&
-    promosNotDup;
+    promosNotDup &&
+    spIdParsed.ok;
 
   const currentPrice = priceParsed.num;
   const currentOldPrice = oldPriceParsed.num;
@@ -162,6 +171,7 @@ export default function CourseRow({
     formValid && (
       currentPrice !== initialPrice ||
       currentOldPrice !== initialOldPrice ||
+      (spIdParsed.num ?? null) !== (row.sendpulseCourseId ?? null) ||
       (promo1CodeParsed.code ?? null) !== (row.promo1Code ?? null) ||
       (promo1PriceParsed.num ?? null) !== (row.promo1Price ?? null) ||
       effPromo1Starts !== row.promo1StartsAt ||
@@ -186,6 +196,7 @@ export default function CourseRow({
       const payload = {
         price: priceMatchesDefault ? null : currentPrice,
         oldPrice: oldPriceMatchesDefault ? null : currentOldPrice,
+        sendpulseCourseId: spIdParsed.num,
         promo1Code: promo1CodeParsed.code,
         promo1Price: promo1PriceParsed.num,
         promo1StartsAt: effPromo1Starts,
@@ -213,16 +224,6 @@ export default function CourseRow({
       setSaving(false);
     }
   }
-
-  const spIdParsed = (() => {
-    const t = spIdStr.trim();
-    if (t === '') return { ok: true, num: null as number | null };
-    const n = Number(t);
-    if (!Number.isFinite(n) || !Number.isInteger(n) || n <= 0) return { ok: false, num: null };
-    return { ok: true, num: n };
-  })();
-  const spDirty =
-    spIdParsed.ok && (spIdParsed.num ?? null) !== (row.sendpulseCourseId ?? null);
 
   // Зберігаємо draft у localStorage поки є незбережені зміни; чистимо коли все «застосовано».
   useEffect(() => {
@@ -265,29 +266,6 @@ export default function CourseRow({
     promo2StartsAt,
     promo2ExpiresAt,
   ]);
-
-  async function handleSaveSpId() {
-    if (!spIdParsed.ok) return;
-    setSavingSp(true);
-    try {
-      const res = await fetch(`/api/admin/courses/${row.slug}`, {
-        method: 'PATCH',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sendpulseCourseId: spIdParsed.num }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        alert(data?.error || 'Не вдалося зберегти SP ID');
-        return;
-      }
-      router.refresh();
-    } catch (err) {
-      alert(`Помилка: ${err}`);
-    } finally {
-      setSavingSp(false);
-    }
-  }
 
   async function handleReset() {
     setResetting(true);
@@ -406,61 +384,16 @@ export default function CourseRow({
     : 'bg-stone-100/60 border-stone-200/60 text-stone-400 focus:ring-amber-500/30 focus:border-amber-500/40 focus:text-stone-700 placeholder:text-stone-300';
   const spIdCls = `${inputBase} text-center ${spIdParsed.ok ? spIdMuted : inputBad}`;
 
-  // Три стани кнопки/галки SP ID:
-  //   dirty   — введене значення відрізняється від БД → амбер «Зберегти»
-  //   synced  — значення збігається з БД і не пусте  → зелений індикатор «вже збережено» (no-op)
-  //   empty   — інпут порожній і в БД null           → нейтральний placeholder
-  // Раніше тут просто був disabled-gray для всіх не-dirty станів, через що «введи й підтверди» виглядало як «зламано».
-  const spSynced = spIdParsed.ok && !spDirty && spIdParsed.num !== null;
-  const spIdBtnCls = (() => {
-    if (!spIdParsed.ok) {
-      return dark
-        ? 'bg-rose-500/15 text-rose-300 cursor-not-allowed'
-        : 'bg-rose-100/70 text-rose-700 cursor-not-allowed';
-    }
-    if (spDirty) {
-      return dark
-        ? 'bg-amber-400/90 text-stone-900 hover:bg-amber-300 cursor-pointer'
-        : 'bg-stone-900 text-amber-100 hover:bg-stone-800 cursor-pointer';
-    }
-    if (spSynced) {
-      return dark
-        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 cursor-default'
-        : 'bg-emerald-100/70 text-emerald-700 border border-emerald-500/30 cursor-default';
-    }
-    return dark
-      ? 'bg-white/[0.04] text-slate-600 cursor-default'
-      : 'bg-stone-100/60 text-stone-400 cursor-default';
-  })();
-  const spIdBtnTitle = !spIdParsed.ok
-    ? 'Невалідний ID'
-    : spDirty
-      ? 'Зберегти SP ID'
-      : spSynced
-        ? 'SP ID збережений у БД'
-        : 'Введіть SP ID';
-
   const spIdCell = (
-    <div className="flex items-center gap-1.5 justify-center">
-      <input
-        type="text"
-        inputMode="numeric"
-        placeholder="—"
-        className={spIdCls}
-        value={spIdStr}
-        onChange={e => setSpIdStr(e.target.value)}
-        title="ID курсу в SendPulse Education. Без нього cron не видасть сертифікат автоматично."
-      />
-      <button
-        type="button"
-        onClick={spDirty ? handleSaveSpId : undefined}
-        disabled={savingSp || !spIdParsed.ok || (!spDirty && !spSynced)}
-        title={spIdBtnTitle}
-        className={`flex-shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-lg transition-colors disabled:opacity-60 ${spIdBtnCls}`}
-      >
-        <FaCheck className="text-[10px]" />
-      </button>
-    </div>
+    <input
+      type="text"
+      inputMode="numeric"
+      placeholder="—"
+      className={spIdCls}
+      value={spIdStr}
+      onChange={e => setSpIdStr(e.target.value)}
+      title="ID курсу в SendPulse Education. Без нього cron не видасть сертифікат автоматично. Зберігається разом з іншими змінами кнопкою «Зберегти»."
+    />
   );
 
   const promo1CodeCell = (

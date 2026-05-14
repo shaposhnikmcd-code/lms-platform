@@ -101,7 +101,11 @@ export async function PATCH(
   const body = await req.json().catch(() => ({}));
   const has = (k: string) => Object.prototype.hasOwnProperty.call(body ?? {}, k);
 
-  // Зміна SP course ID — окремо, бо це поле моделі Course, не override.
+  // Парсимо SP course ID якщо переданий — це поле моделі Course (не override).
+  // Раніше ця гілка була `if (has("sendpulseCourseId")) return …` (early return).
+  // Тепер SP ID може йти у спільному payload з ціною/промокодами — застосуємо одразу,
+  // далі продовжимо звичайну обробку override.
+  let spIdChange: { old: number | null; new: number | null } | null = null;
   if (has("sendpulseCourseId")) {
     const raw = body.sendpulseCourseId;
     let spId: number | null;
@@ -117,15 +121,15 @@ export async function PATCH(
       }
       spId = num;
     }
-    const before = await prisma.course.findUnique({
+    const courseBefore = await prisma.course.findUnique({
       where: { id: slug },
       select: { sendpulseCourseId: true },
     });
-    await prisma.course.update({ where: { id: slug }, data: { sendpulseCourseId: spId } });
-    const changes: ChangesMap = {};
-    diffField("sendpulseCourseId", before?.sendpulseCourseId ?? null, spId, changes);
-    await writeAudit(slug, actor, "update", changes);
-    return NextResponse.json({ ok: true, sendpulseCourseId: spId });
+    const prev = courseBefore?.sendpulseCourseId ?? null;
+    if (prev !== spId) {
+      await prisma.course.update({ where: { id: slug }, data: { sendpulseCourseId: spId } });
+      spIdChange = { old: prev, new: spId };
+    }
   }
 
   // Збір нових значень з body — приймаємо лише ті поля, що передані.
@@ -254,9 +258,9 @@ export async function PATCH(
     promo2ExpiresAt === null;
 
   if (allNull) {
+    const changes: ChangesMap = {};
     if (before) {
       await prisma.coursePriceOverride.delete({ where: { slug } });
-      const changes: ChangesMap = {};
       diffField("price", before.price, null, changes);
       diffField("oldPrice", before.oldPrice, null, changes);
       diffField("promo1Code", before.promo1Code, null, changes);
@@ -267,6 +271,11 @@ export async function PATCH(
       diffField("promo2Price", before.promo2Price, null, changes);
       diffDateField("promo2StartsAt", before.promo2StartsAt ?? null, null, changes);
       diffDateField("promo2ExpiresAt", before.promo2ExpiresAt ?? null, null, changes);
+    }
+    if (spIdChange) {
+      changes["sendpulseCourseId"] = spIdChange;
+    }
+    if (Object.keys(changes).length > 0) {
       await writeAudit(slug, actor, "update", changes);
     }
     await recalcAutoPricedBundlesForCourse(slug);
@@ -314,7 +323,12 @@ export async function PATCH(
   diffField("promo2Price", before?.promo2Price ?? null, promo2Price, changes);
   diffDateField("promo2StartsAt", before?.promo2StartsAt ?? null, promo2StartsAt, changes);
   diffDateField("promo2ExpiresAt", before?.promo2ExpiresAt ?? null, promo2ExpiresAt, changes);
-  await writeAudit(slug, actor, "update", changes);
+  if (spIdChange) {
+    changes["sendpulseCourseId"] = spIdChange;
+  }
+  if (Object.keys(changes).length > 0) {
+    await writeAudit(slug, actor, "update", changes);
+  }
 
   await recalcAutoPricedBundlesForCourse(slug);
   revalidateCoursesPages(slug);
