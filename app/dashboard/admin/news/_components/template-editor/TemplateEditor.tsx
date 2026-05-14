@@ -78,6 +78,97 @@ export default function TemplateEditor({ newsId }: Props) {
   const [data, setData] = useState<ArticleData | EventData | null>(null);
   const [meta, setMeta] = useState<Meta>({ title: "", slug: "", excerpt: "", published: false, isTemplate: false });
 
+  // ── Undo/Redo історія для data + meta ──────────────────────────────────────
+  // history-stack ref-based (без re-render на push). Pointer показує позицію
+  // у history; undo рухає назад, redo вперед. user-edit (через editData/editMeta)
+  // pushить snapshot. setData/setMeta з undo/redo — пропускає push через флаг.
+  type Snapshot = { data: ArticleData | EventData; meta: Meta };
+  const historyRef = React.useRef<Snapshot[]>([]);
+  const historyPointerRef = React.useRef(-1);
+  const skipHistoryRef = React.useRef(false);
+  const [historyTick, setHistoryTick] = useState(0);
+  void historyTick;
+  const HISTORY_CAP = 80;
+
+  const pushHistory = React.useCallback((snap: Snapshot) => {
+    if (skipHistoryRef.current) { skipHistoryRef.current = false; return; }
+    const cur = historyRef.current;
+    const ptr = historyPointerRef.current;
+    // Якщо вже були undo — обрізаємо «майбутнє» перед push нового стану.
+    const trimmed = cur.slice(0, ptr + 1);
+    // Skip duplicate (consecutive identical snapshots).
+    const last = trimmed[trimmed.length - 1];
+    if (last && JSON.stringify(last) === JSON.stringify(snap)) return;
+    trimmed.push(snap);
+    if (trimmed.length > HISTORY_CAP) trimmed.shift();
+    historyRef.current = trimmed;
+    historyPointerRef.current = trimmed.length - 1;
+    setHistoryTick(t => t + 1);
+  }, []);
+
+  // user-edit wrappers: викликаються формами замість setData/setMeta напряму,
+  // push snapshot перед застосуванням зміни.
+  const editData = React.useCallback((next: ArticleData | EventData) => {
+    if (data && meta) pushHistory({ data, meta });
+    setData(next);
+  }, [data, meta, pushHistory]);
+
+  const undo = React.useCallback(() => {
+    const ptr = historyPointerRef.current;
+    if (ptr <= 0) return;
+    historyPointerRef.current = ptr - 1;
+    const snap = historyRef.current[historyPointerRef.current];
+    skipHistoryRef.current = true;
+    setData(snap.data);
+    setMeta(snap.meta);
+    setHistoryTick(t => t + 1);
+  }, []);
+
+  const redo = React.useCallback(() => {
+    const ptr = historyPointerRef.current;
+    if (ptr >= historyRef.current.length - 1) return;
+    historyPointerRef.current = ptr + 1;
+    const snap = historyRef.current[historyPointerRef.current];
+    skipHistoryRef.current = true;
+    setData(snap.data);
+    setMeta(snap.meta);
+    setHistoryTick(t => t + 1);
+  }, []);
+
+  const canUndo = historyPointerRef.current > 0;
+  const canRedo = historyPointerRef.current < historyRef.current.length - 1;
+
+  // Keyboard shortcuts Ctrl+Z / Ctrl+Shift+Z. Skip коли фокус у тексті — там
+  // власний undo (browser-level для input/textarea).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
+      const cmd = isMac ? e.metaKey : e.ctrlKey;
+      if (!cmd) return;
+      const key = e.key.toLowerCase();
+      if (key !== "z" && key !== "y") return;
+      const target = e.target as HTMLElement | null;
+      if (target) {
+        const tag = target.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA") return;
+        if (target.isContentEditable) return;
+      }
+      e.preventDefault();
+      if (key === "z" && !e.shiftKey) undo();
+      else redo();
+    };
+    document.addEventListener("keydown", onKey, { capture: true });
+    return () => document.removeEventListener("keydown", onKey, { capture: true });
+  }, [undo, redo]);
+
+  // Початковий snapshot — після першого hydration (server або draft).
+  useEffect(() => {
+    if (!hydratedRef.current || !data || historyRef.current.length > 0) return;
+    historyRef.current = [{ data, meta }];
+    historyPointerRef.current = 0;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
   // Auto-dismiss toast.
   useEffect(() => {
     if (!toast) return;
@@ -348,6 +439,55 @@ export default function TemplateEditor({ newsId }: Props) {
 
         <div style={{ flex: 1 }} />
 
+        {/* Undo / Redo — глобальна історія data+meta. Ctrl+Z / Ctrl+Shift+Z теж
+            працюють (keyboard handler у useEffect). */}
+        <div style={{ display: "inline-flex", gap: 4 }}>
+          <button
+            type="button"
+            onClick={undo}
+            disabled={!canUndo}
+            title="Скасувати (Ctrl+Z)"
+            aria-label="Скасувати"
+            style={{
+              width: 34,
+              height: 34,
+              borderRadius: 8,
+              border: "1px solid #E8D5B7",
+              background: "#FFFFFF",
+              color: canUndo ? "#1C3A2E" : "#D6CFC0",
+              cursor: canUndo ? "pointer" : "not-allowed",
+              fontSize: 15,
+              fontFamily: ff,
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              transition: "background 0.15s, color 0.15s",
+            }}
+          >↶</button>
+          <button
+            type="button"
+            onClick={redo}
+            disabled={!canRedo}
+            title="Повторити (Ctrl+Shift+Z)"
+            aria-label="Повторити"
+            style={{
+              width: 34,
+              height: 34,
+              borderRadius: 8,
+              border: "1px solid #E8D5B7",
+              background: "#FFFFFF",
+              color: canRedo ? "#1C3A2E" : "#D6CFC0",
+              cursor: canRedo ? "pointer" : "not-allowed",
+              fontSize: 15,
+              fontFamily: ff,
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              transition: "background 0.15s, color 0.15s",
+            }}
+          >↷</button>
+        </div>
+
         {/* Status badge — поточний стан змін відносно сервера.
             - isDirty=true  → «● Чернетка · X змін»  (amber)
             - isDirty=false → нічого (за замовч. — все збережено)
@@ -566,13 +706,13 @@ export default function TemplateEditor({ newsId }: Props) {
           {kind === "ARTICLE" ? (
             <ArticleForm
               data={data as ArticleData}
-              onChange={d => setData(d)}
+              onChange={d => editData(d)}
               onFocusRegion={setFocusedArticleRegion}
             />
           ) : (
             <EventForm
               data={data as EventData}
-              onChange={d => setData(d)}
+              onChange={d => editData(d)}
               onFocusRegion={setFocusedRegion}
             />
           )}
@@ -595,14 +735,14 @@ export default function TemplateEditor({ newsId }: Props) {
                 <CoverImageToolbar
                   scope="preview"
                   cover={(data as ArticleData).cover}
-                  onChange={patch => updateArticleCover(setData, patch)}
+                  onChange={patch => data && editData(applyArticleCoverPatch(data as ArticleData, patch))}
                 />
                 <PreviewCanvas>
                   <div style={{ padding: "32px 24px", display: "flex", justifyContent: "center" }}>
                     <TemplatePreviewCard
                       kind={kind}
                       data={data}
-                      onCoverFocalClick={(x, y) => updateArticleCover(setData, { focalX: x, focalY: y })}
+                      onCoverFocalClick={(x, y) => data && editData(applyArticleCoverPatch(data as ArticleData, { focalX: x, focalY: y }))}
                     />
                   </div>
                 </PreviewCanvas>
@@ -616,14 +756,14 @@ export default function TemplateEditor({ newsId }: Props) {
                 <CoverImageToolbar
                   scope="page"
                   cover={(data as ArticleData).cover}
-                  onChange={patch => updateArticleCover(setData, patch)}
+                  onChange={patch => data && editData(applyArticleCoverPatch(data as ArticleData, patch))}
                 />
                 <PreviewCanvas>
                   <div style={{ padding: "32px 24px", background: "#FFFFFF", width: "100%" }}>
                     <ArticleTemplate
                       data={data as ArticleData}
                       highlight={focusedArticleRegion}
-                      onCoverFocalClick={(x, y) => updateArticleCover(setData, { focalX: x, focalY: y })}
+                      onCoverFocalClick={(x, y) => data && editData(applyArticleCoverPatch(data as ArticleData, { focalX: x, focalY: y }))}
                     />
                   </div>
                 </PreviewCanvas>
@@ -689,32 +829,22 @@ function PreviewSection({
 
 /** Applies a patch to data.cover та оновлює state. Якщо linkScale=true і
  *  патч торкає preview-полів — дублює зміни на page-поля (і навпаки). */
-function updateArticleCover(
-  setData: React.Dispatch<React.SetStateAction<ArticleData | EventData | null>>,
-  patch: Partial<ArticleImage>
-) {
-  setData(prev => {
-    if (!prev) return prev;
-    const article = prev as ArticleData;
-    const cover = article.cover;
-    let next: ArticleImage = { ...cover, ...patch };
-
-    // Sync logic: коли linkScale=true, fit/scale зміни віддзеркалюються між
-    // preview і page. Focal point завжди спільний (за дизайном).
-    if (next.linkScale) {
-      if (patch.previewFit !== undefined) next.pageFit = patch.previewFit;
-      if (patch.pageFit !== undefined) next.previewFit = patch.pageFit;
-      if (patch.previewScale !== undefined) next.pageScale = patch.previewScale;
-      if (patch.pageScale !== undefined) next.previewScale = patch.pageScale;
-    }
-    // Якщо щойно увімкнули linkScale — підтягуємо page-параметри до preview
-    // (preview приймається за provider, як зазначено у toolbar UI).
-    if (patch.linkScale === true && cover.linkScale !== true) {
-      next.pageFit = next.previewFit;
-      next.pageScale = next.previewScale;
-    }
-    return { ...article, cover: next };
-  });
+/** Pure-функція: обчислити наступний ArticleData при patch-у cover.
+ *  Caller сам викликає editData(next) щоб збереглось у undo-history. */
+function applyArticleCoverPatch(article: ArticleData, patch: Partial<ArticleImage>): ArticleData {
+  const cover = article.cover;
+  const next: ArticleImage = { ...cover, ...patch };
+  if (next.linkScale) {
+    if (patch.previewFit !== undefined) next.pageFit = patch.previewFit;
+    if (patch.pageFit !== undefined) next.previewFit = patch.pageFit;
+    if (patch.previewScale !== undefined) next.pageScale = patch.previewScale;
+    if (patch.pageScale !== undefined) next.previewScale = patch.pageScale;
+  }
+  if (patch.linkScale === true && cover.linkScale !== true) {
+    next.pageFit = next.previewFit;
+    next.pageScale = next.previewScale;
+  }
+  return { ...article, cover: next };
 }
 
 /** Toolbar над preview-блоком для керування cover-зображенням.
@@ -729,23 +859,17 @@ function CoverImageToolbar({
   cover: ArticleImage;
   onChange: (patch: Partial<ArticleImage>) => void;
 }) {
-  const fit = scope === "preview" ? (cover.previewFit ?? "cover") : (cover.pageFit ?? "cover");
   const scale = scope === "preview" ? (cover.previewScale ?? 1) : (cover.pageScale ?? 1);
   const linked = cover.linkScale === true;
   const fitKey = scope === "preview" ? "previewFit" : "pageFit";
   const scaleKey = scope === "preview" ? "previewScale" : "pageScale";
   const disabled = !cover.url;
-  // Slider діапазон залежно від режиму:
-  // - Cover: 100-200% (зменшення < 100% дає «крихітне обрізане» → нелогічно).
-  // - Contain: 50-200% (фото — ціле, можна зменшити з letterbox або збільшити).
-  const sliderMin = fit === "cover" ? 100 : 50;
+  const sliderMin = 50;
   const sliderMax = 200;
-  // Якщо при переключенні в Cover поточний scale < 1 — clamp на 1.
-  const handleFitChange = (next: "cover" | "contain") => {
-    const patch: Partial<ArticleImage> = { [fitKey]: next };
-    if (next === "cover" && scale < 1) patch[scaleKey] = 1;
-    onChange(patch);
-  };
+  // Quick-action: фото в реальних пропорціях, повністю видно (contain, scale=1)
+  const expandToFit = () => onChange({ [fitKey]: "contain", [scaleKey]: 1 });
+  // Quick-action: фото заповнює весь слот, можливий crop (cover, scale=1)
+  const fillSlot = () => onChange({ [fitKey]: "cover", [scaleKey]: 1 });
 
   return (
     <div
@@ -770,28 +894,45 @@ function CoverImageToolbar({
         🖼 Фото
       </span>
 
-      {/* Cover / Contain toggle */}
-      <div style={{ display: "inline-flex", border: "1px solid #E8D5B7", borderRadius: 6, overflow: "hidden" }}>
-        {(["cover", "contain"] as const).map(opt => (
-          <button
-            key={opt}
-            type="button"
-            onClick={() => handleFitChange(opt)}
-            style={{
-              padding: "5px 10px",
-              fontSize: 11,
-              fontWeight: 600,
-              border: "none",
-              background: fit === opt ? "#1C3A2E" : "#FFFFFF",
-              color: fit === opt ? "#D4A843" : "#57534E",
-              cursor: "pointer",
-              fontFamily: ff,
-            }}
-            title={opt === "cover" ? "Заповнити слот — кропати щоб не було вільного місця" : "Вписати ціле фото — допустимий letterbox"}
-          >
-            {opt === "cover" ? "Заповнити" : "Вписати"}
-          </button>
-        ))}
+      {/* Quick-actions: Розгорнути (contain до краю по довшій стороні) +
+          Заповнити (cover, всі краї впритул). */}
+      <div style={{ display: "inline-flex", gap: 4 }}>
+        <button
+          type="button"
+          onClick={expandToFit}
+          style={{
+            padding: "5px 10px",
+            fontSize: 11,
+            fontWeight: 600,
+            border: "1px solid #E8D5B7",
+            background: "#FFFFFF",
+            color: "#57534E",
+            cursor: "pointer",
+            fontFamily: ff,
+            borderRadius: 6,
+          }}
+          title="Розгорнути — фото у реальних пропорціях, по довшій стороні впритул до краю слоту"
+        >
+          ⤢ Розгорнути
+        </button>
+        <button
+          type="button"
+          onClick={fillSlot}
+          style={{
+            padding: "5px 10px",
+            fontSize: 11,
+            fontWeight: 600,
+            border: "1px solid #E8D5B7",
+            background: "#FFFFFF",
+            color: "#57534E",
+            cursor: "pointer",
+            fontFamily: ff,
+            borderRadius: 6,
+          }}
+          title="Заповнити — фото на весь слот, всі краї впритул (можливий crop)"
+        >
+          ⛶ Заповнити
+        </button>
       </div>
 
       {/* Zoom slider */}
@@ -845,6 +986,30 @@ function CoverImageToolbar({
           </span>
         </label>
       )}
+
+      {/* Видалити фото — очищає URL (фото зникає з preview і page). */}
+      <button
+        type="button"
+        onClick={() => onChange({ url: "", alt: "", caption: "" })}
+        title="Видалити фото"
+        aria-label="Видалити фото"
+        style={{
+          width: 28,
+          height: 28,
+          borderRadius: 6,
+          border: "1px solid #FCA5A5",
+          background: "#FFFFFF",
+          color: "#B91C1C",
+          cursor: "pointer",
+          fontSize: 13,
+          fontWeight: 700,
+          fontFamily: ff,
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          flexShrink: 0,
+        }}
+      >✕</button>
     </div>
   );
 }

@@ -27,41 +27,18 @@ interface Props {
 }
 
 export default function CoverImageBox({ image, role }: Props) {
-  const fit = (role === "preview" ? image.previewFit : image.pageFit) ?? "cover";
+  const fit = (role === "preview" ? image.previewFit : image.pageFit) ?? "contain";
   const scale = (role === "preview" ? image.previewScale : image.pageScale) ?? 1;
   const fx = image.focalX ?? 50;
   const fy = image.focalY ?? 50;
 
-  if (fit === "cover") {
-    // Cover: object-fit:cover + object-position + transform:scale (тільки >=1).
-    // Slider у toolbar обмежено 100-200% → scale тут завжди ≥ 1.
-    const safeScale = Math.max(1, scale);
-    return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={image.url}
-        alt={image.alt || ""}
-        style={{
-          width: "100%",
-          height: "100%",
-          objectFit: "cover",
-          objectPosition: `${fx}% ${fy}%`,
-          transform: safeScale === 1 ? undefined : `scale(${safeScale})`,
-          transformOrigin: `${fx}% ${fy}%`,
-          display: "block",
-        }}
-        loading="lazy"
-        draggable={false}
-      />
-    );
-  }
-
-  // Contain: img розтягується на scale*100% слоту, object-fit:contain зберігає
-  // пропорції зображення всередині цього збільшеного/зменшеного box-а.
-  // Wrapper-overflow:hidden у батьківському компоненті обрізає те що поза слотом.
-  const pct = scale * 100;
-  // Зміщення для центрування (бо ми не використовуємо translate)
-  const offset = 50 - pct / 2;
+  // Дві базові моделі вписування + загальний zoom-scale:
+  //   • fit="contain" (Розгорнути) — фото повністю видно, можлива letterbox.
+  //     scale=1 = вписане ціле, >1 = зум від focal-точки.
+  //   • fit="cover" (Заповнити) — фото заповнює слот повністю, можливий crop.
+  //     scale=1 = базовий cover, >1 = додатковий зум від focal-точки.
+  // У будь-якому режимі transformOrigin = focal point, щоб зум не «плив»
+  // в бік, а збільшувався туди, куди клікнув користувач.
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img
@@ -69,12 +46,13 @@ export default function CoverImageBox({ image, role }: Props) {
       alt={image.alt || ""}
       style={{
         position: "absolute",
-        width: `${pct}%`,
-        height: `${pct}%`,
-        left: `${offset}%`,
-        top: `${offset}%`,
-        objectFit: "contain",
+        inset: 0,
+        width: "100%",
+        height: "100%",
+        objectFit: fit === "cover" ? "cover" : "contain",
         objectPosition: `${fx}% ${fy}%`,
+        transform: scale === 1 ? undefined : `scale(${scale})`,
+        transformOrigin: `${fx}% ${fy}%`,
         display: "block",
       }}
       loading="lazy"

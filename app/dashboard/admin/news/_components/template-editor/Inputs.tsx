@@ -4,6 +4,7 @@
 // Стиль — узгоджений з адмінкою (#1C3A2E акцент, #FAF6F0 фон, #E8D5B7 рамка).
 
 import React, { useRef, useState } from "react";
+import TextStudioModal from "../editor/blocks/TextStudioModal";
 
 const ff = "Inter, system-ui, -apple-system, sans-serif";
 
@@ -92,6 +93,137 @@ export function TextAreaInput({ label, value, onChange, placeholder, hint, rows 
   );
 }
 
+// ── Rich-text field (textarea preview + кнопка «✎ Редактор» → TextStudioModal) ─
+
+interface RichTextFieldProps {
+  label: string;
+  /** HTML-рядок. Для backward-compat plain text auto-wrap у <p>...</p> на open. */
+  value: string;
+  onChange: (html: string) => void;
+  placeholder?: string;
+  hint?: string;
+  rows?: number;
+  maxLength?: number;
+}
+
+function stripHtmlForPreview(html: string): string {
+  if (!html) return "";
+  // Replace <br>/<p>/closing tags → newlines + strip останніх тегів. Дає preview
+  // близький до того що користувач набрав, без HTML noise у формі.
+  return html
+    .replace(/<br\s*\/?\s*>/gi, "\n")
+    .replace(/<\/(p|div|h[1-6]|li)>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function wrapPlainAsHtml(text: string): string {
+  if (!text) return "";
+  // Якщо вже HTML — лишаємо. Інакше parse plain → <p> per абзац.
+  if (/<\w+[^>]*>/.test(text)) return text;
+  const paragraphs = text.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
+  return paragraphs.map(p => `<p>${p.replace(/\n/g, "<br>")}</p>`).join("");
+}
+
+export function RichTextField({ label, value, onChange, placeholder, hint, rows = 4, maxLength }: RichTextFieldProps) {
+  const [open, setOpen] = useState(false);
+  // Якщо value — HTML, у textarea показуємо stripped plain, але редагування
+  // вільне: користувач може набирати/вставляти як завжди. Перехід у формат-режим
+  // через кнопку ✎ Редактор (опційно). Це поведінка як в Notion/Substack:
+  // основний шлях — plain text; форматування — окремий жест.
+  const isHtml = /<\w+[^>]*>/.test(value || "");
+  const textareaValue = isHtml ? stripHtmlForPreview(value) : value;
+  return (
+    <div style={{ display: "block", fontFamily: ff }}>
+      <FieldHeader label={label} hint={hint} value={textareaValue} maxLength={maxLength} />
+      <div style={{ position: "relative" }}>
+        <textarea
+          value={textareaValue}
+          onChange={e => onChange(e.target.value)}
+          placeholder={placeholder}
+          rows={rows}
+          maxLength={maxLength}
+          style={{
+            width: "100%",
+            padding: "8px 10px",
+            fontSize: 13,
+            fontFamily: ff,
+            color: "#1C1917",
+            background: "#FFFFFF",
+            border: "1.5px solid #E8D5B7",
+            borderRadius: 7,
+            outline: "none",
+            resize: "vertical",
+            minHeight: 56,
+            lineHeight: 1.5,
+            transition: "border-color 0.15s",
+          }}
+          onFocus={e => (e.currentTarget.style.borderColor = "#D4A843")}
+          onBlur={e => (e.currentTarget.style.borderColor = "#E8D5B7")}
+        />
+        {/* ✎ — опційна кнопка у нижньому правому куті, не перекриває область
+            тексту і не блокує введення. Дзеркало як «Розгорнути на весь екран»
+            у Gmail/Linear. */}
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          title="Відкрити повноцінний редактор з форматуванням (B/I/U, кольори, посилання)"
+          style={{
+            position: "absolute",
+            bottom: 8,
+            right: 8,
+            padding: "3px 7px",
+            fontSize: 10,
+            fontWeight: 600,
+            border: "1px solid #E8D5B7",
+            background: "rgba(255,255,255,0.92)",
+            color: "#9B7C45",
+            borderRadius: 5,
+            cursor: "pointer",
+            fontFamily: ff,
+            letterSpacing: "0.04em",
+            backdropFilter: "blur(2px)",
+            opacity: 0.85,
+            transition: "opacity 0.15s, color 0.15s, border-color 0.15s",
+          }}
+          onMouseEnter={e => {
+            e.currentTarget.style.opacity = "1";
+            e.currentTarget.style.color = "#1C3A2E";
+            e.currentTarget.style.borderColor = "#D4A843";
+          }}
+          onMouseLeave={e => {
+            e.currentTarget.style.opacity = "0.85";
+            e.currentTarget.style.color = "#9B7C45";
+            e.currentTarget.style.borderColor = "#E8D5B7";
+          }}
+        >
+          ✎ Редактор
+        </button>
+      </div>
+      {open && (
+        <TextStudioModal
+          title={`Редактор · ${label}`}
+          icon="¶"
+          blockType="text"
+          initialHtml={wrapPlainAsHtml(value)}
+          onCancel={() => setOpen(false)}
+          onSave={(html) => {
+            onChange(html);
+            setOpen(false);
+          }}
+          paperBgColor=""
+          paperAlign="left"
+        />
+      )}
+    </div>
+  );
+}
+
 // ── Field header (label + counter + hint) ───────────────────────────────────
 
 function FieldHeader({ label, hint, value, maxLength }: { label: string; hint?: string; value: string; maxLength?: number }) {
@@ -130,6 +262,20 @@ export function ImageInput({ label, value, onChange, aspectRatio, withCaption = 
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  // Останнє видалене фото — для inline-undo (як у Gmail "Mail moved. Undo").
+  // Зберігається у local-state на час сесії редактора, до перезавантаження.
+  const [lastDeleted, setLastDeleted] = useState<typeof value | null>(null);
+
+  const handleDelete = () => {
+    if (!value.url) return;
+    setLastDeleted(value);
+    onChange({ url: "", alt: "", caption: "" });
+  };
+  const handleUndo = () => {
+    if (!lastDeleted) return;
+    onChange(lastDeleted);
+    setLastDeleted(null);
+  };
 
   const upload = async (file: File) => {
     setUploading(true);
@@ -295,20 +441,50 @@ export function ImageInput({ label, value, onChange, aspectRatio, withCaption = 
         {value.url && (
           <button
             type="button"
-            onClick={() => onChange({ url: "", alt: "", caption: "" })}
+            onClick={handleDelete}
             style={{
               padding: "5px 10px",
               fontSize: 11,
+              fontWeight: 600,
               border: "1px solid #FECACA",
               background: "#FFFFFF",
               color: "#B91C1C",
               borderRadius: 6,
               cursor: "pointer",
               fontFamily: ff,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
             }}
-            title="Прибрати фото"
+            title="Видалити фото"
           >
-            ✕
+            🗑 Видалити фото
+          </button>
+        )}
+        {/* ↻ Повернути — показуємо коли є last-deleted backup і поточне поле
+           порожнє. Inline-undo як у Gmail/Notion: миттєвий revert без пошуку
+           через глобальний Ctrl+Z. */}
+        {!value.url && lastDeleted && (
+          <button
+            type="button"
+            onClick={handleUndo}
+            style={{
+              padding: "5px 10px",
+              fontSize: 11,
+              fontWeight: 600,
+              border: "1px solid #D4A843",
+              background: "#FAF6F0",
+              color: "#8B6F2D",
+              borderRadius: 6,
+              cursor: "pointer",
+              fontFamily: ff,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+            }}
+            title="Повернути щойно видалене фото"
+          >
+            ↻ Повернути
           </button>
         )}
         <span style={{ fontSize: 9.5, color: "#A8956C", flex: 1, textAlign: "right" }}>

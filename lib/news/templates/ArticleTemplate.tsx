@@ -16,6 +16,29 @@ import React from "react";
 import type { ArticleData, ArticleRegionKey } from "./types";
 import { resolveArticleOrder } from "./types";
 import CoverImageBox from "./CoverImageBox";
+import { sanitizeHtml } from "@/lib/sanitizeHtml";
+
+/** Чи value виглядає як HTML (містить <тег>). Для backward-compat: plain text
+ *  значення з міграції шаблонів все ще працює через paragraphs(). */
+function looksLikeHtml(value: string): boolean {
+  return /<\w+[^>]*>/.test(value || "");
+}
+
+/** Рендерить значення як rich-HTML (через sanitizeHtml + dangerouslySetInnerHTML)
+ *  якщо це HTML; інакше — fallback на paragraphs (\n\n → <p>). */
+function RichText({ value, style }: { value: string; style: React.CSSProperties }) {
+  if (!value) return null;
+  if (looksLikeHtml(value)) {
+    return <div style={style} dangerouslySetInnerHTML={{ __html: sanitizeHtml(value) }} />;
+  }
+  return (
+    <>
+      {paragraphs(value).map((p, i) => (
+        <p key={i} style={style}>{p}</p>
+      ))}
+    </>
+  );
+}
 
 export type ArticleRegion = ArticleRegionKey;
 
@@ -146,9 +169,9 @@ export default function ArticleTemplate({ data, showHero = true, highlight, onCo
           </h1>
         )}
         {data.lead && (
-          <p style={{ fontSize: 19, lineHeight: 1.55, color: "#57534E", fontStyle: "italic", marginTop: 20, marginBottom: 0 }}>
-            {data.lead}
-          </p>
+          <div style={{ fontSize: 19, lineHeight: 1.55, color: "#57534E", fontStyle: "italic", marginTop: 20 }}>
+            <RichText value={data.lead} style={{ margin: 0, fontSize: 19, lineHeight: 1.55, color: "#57534E", fontStyle: "italic" }} />
+          </div>
         )}
       </header>
     );
@@ -166,11 +189,10 @@ export default function ArticleTemplate({ data, showHero = true, highlight, onCo
                 {section.heading}
               </h2>
             )}
-            {paragraphs(section.body).map((p, pi) => (
-              <p key={pi} style={{ fontSize: 18, lineHeight: 1.7, color: "#292524", margin: "0 0 18px" }}>
-                {p}
-              </p>
-            ))}
+            <RichText
+              value={section.body}
+              style={{ fontSize: 18, lineHeight: 1.7, color: "#292524", margin: "0 0 18px" }}
+            />
             {section.image?.url && (
               <figure style={{ margin: "32px auto 0", width: "100%", maxWidth: 720 }}>
                 <div style={{ width: "100%", aspectRatio: "4 / 3", background: "#F5F1E8", borderRadius: 12, overflow: "hidden", position: "relative" }}>
@@ -209,7 +231,7 @@ export default function ArticleTemplate({ data, showHero = true, highlight, onCo
           ...h("pullquote"),
         }}
       >
-        {data.pullquote}
+        <RichText value={data.pullquote} style={{ margin: 0, fontSize: 22, lineHeight: 1.5, fontStyle: "italic", color: "#1C3A2E" }} />
       </blockquote>
     );
   };
@@ -222,11 +244,10 @@ export default function ArticleTemplate({ data, showHero = true, highlight, onCo
         <h2 style={{ fontSize: 30, fontWeight: 700, lineHeight: 1.25, margin: "0 0 20px", color: "#1C1917" }}>
           Висновки
         </h2>
-        {paragraphs(data.conclusion).map((p, pi) => (
-          <p key={pi} style={{ fontSize: 18, lineHeight: 1.7, color: "#292524", margin: "0 0 18px" }}>
-            {p}
-          </p>
-        ))}
+        <RichText
+          value={data.conclusion}
+          style={{ fontSize: 18, lineHeight: 1.7, color: "#292524", margin: "0 0 18px" }}
+        />
       </section>
     );
   };

@@ -18,7 +18,7 @@ import {
   resolveArticleOrder,
 } from "@/lib/news/templates/types";
 import type { ArticleRegion } from "@/lib/news/templates/ArticleTemplate";
-import { TextInput, TextAreaInput, ImageInput, SectionHeader } from "./Inputs";
+import { TextInput, TextAreaInput, RichTextField, ImageInput, SectionHeader } from "./Inputs";
 
 interface Props {
   data: ArticleData;
@@ -170,7 +170,7 @@ export default function ArticleForm({ data, onChange, onFocusRegion }: Props) {
                   maxLength={60}
                 />
                 <div style={{ marginTop: 8 }}>
-                  <TextAreaInput
+                  <RichTextField
                     label="Лід"
                     value={data.lead}
                     onChange={v => update("lead", v)}
@@ -266,13 +266,13 @@ export default function ArticleForm({ data, onChange, onFocusRegion }: Props) {
                         >✕</button>
                       </div>
                     </div>
-                    <TextAreaInput
+                    <RichTextField
                       label="Тіло"
                       value={s.body}
                       onChange={v => updateSection(idx, { body: v })}
                       placeholder="Параграфи через порожній рядок..."
                       rows={3}
-                      hint="Enter Enter = новий абзац"
+                      hint="✎ Редактор → форматування"
                     />
                     {s.image && (
                       <ImageInput
@@ -329,7 +329,7 @@ export default function ArticleForm({ data, onChange, onFocusRegion }: Props) {
               {...movableProps("pullquote")}
             />
             {!isHidden("pullquote") && (
-              <TextAreaInput
+              <RichTextField
                 label="Цитата"
                 value={data.pullquote}
                 onChange={v => update("pullquote", v)}
@@ -353,7 +353,7 @@ export default function ArticleForm({ data, onChange, onFocusRegion }: Props) {
               {...movableProps("conclusion")}
             />
             {!isHidden("conclusion") && (
-              <TextAreaInput
+              <RichTextField
                 label="Підсумок"
                 value={data.conclusion}
                 onChange={v => update("conclusion", v)}

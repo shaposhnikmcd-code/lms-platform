@@ -32,9 +32,10 @@ export interface ArticleImage {
   /** Підпис під фото (italic, мала). */
   caption?: string;
   /** Як вписувати фото у preview-слот: "cover" заповнює і кропає, "contain"
-   *  показує цілком з паддінгом. Default "cover". */
+   *  показує цілком з паддінгом. Default "contain" — щоб фото підгружалось у
+   *  реальних пропорціях, користувач явно вмикає crop через «Заповнити». */
   previewFit?: "cover" | "contain";
-  /** Як вписувати фото у page-слот (повна сторінка). Default "cover". */
+  /** Як вписувати фото у page-слот (повна сторінка). Default "contain". */
   pageFit?: "cover" | "contain";
   /** Масштаб у preview, 0.5..1.5. CSS transform: scale(...). Default 1. */
   previewScale?: number;
@@ -57,8 +58,8 @@ function clampNum(v: unknown, min: number, max: number, def: number): number {
 /** Нормалізує ArticleImage — гарантує дефолти для нових fit/scale/focal полів. */
 export function sanitizeArticleImage(input: unknown): ArticleImage {
   const src = (input && typeof input === "object" ? input : {}) as Partial<ArticleImage>;
-  const previewFit = src.previewFit === "contain" ? "contain" : "cover";
-  const pageFit = src.pageFit === "contain" ? "contain" : "cover";
+  const previewFit: "cover" | "contain" = src.previewFit === "cover" ? "cover" : "contain";
+  const pageFit: "cover" | "contain" = src.pageFit === "cover" ? "cover" : "contain";
   return {
     url: typeof src.url === "string" ? src.url : "",
     alt: typeof src.alt === "string" ? src.alt : "",
