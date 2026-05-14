@@ -41,6 +41,12 @@ interface Props {
    *  блок на превʼю отримує amber-ring outline + box-shadow. Допомагає
    *  візуально мапнути field→preview. null = немає підсвітки. */
   highlight?: EventRegion | null;
+  /** Якщо передано — обмежує native width картки і центрує її у батьківському
+   *  контейнері. Використовується на /news/{slug} (full-page render) — щоб
+   *  картка відображалась у тій же ширині, що менеджер обрав у редакторі,
+   *  а не розтягувалась на 100% контейнера сторінки. Якщо undefined —
+   *  width 100% (картка заповнює довірений батьком слот). */
+  maxWidth?: number;
 }
 
 /** Стиль region-обводки коли активний. Не міняє layout (outline + box-shadow). */
@@ -55,7 +61,7 @@ function regionStyle(active: boolean): React.CSSProperties {
   };
 }
 
-export default function EventTemplate({ data, fixedHeight, disableLinks, highlight }: Props) {
+export default function EventTemplate({ data, fixedHeight, disableLinks, highlight, maxWidth }: Props) {
   const h = (region: EventRegion) => regionStyle(highlight === region);
   const hidden = data.hidden || {};
   const isHidden = (r: EventRegion) => hidden[r] === true;
@@ -72,6 +78,9 @@ export default function EventTemplate({ data, fixedHeight, disableLinks, highlig
     fontFamily: "Inter, system-ui, -apple-system, sans-serif",
     color: "#1C1917",
     width: "100%",
+    maxWidth: maxWidth ? `${maxWidth}px` : undefined,
+    marginLeft: maxWidth ? "auto" : undefined,
+    marginRight: maxWidth ? "auto" : undefined,
     height: fixedHeight ? `${fixedHeight}px` : undefined,
     minHeight: fixedHeight ? undefined : 460,
     containerType: "inline-size",

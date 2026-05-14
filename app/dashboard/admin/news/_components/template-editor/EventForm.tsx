@@ -85,6 +85,9 @@ export default function EventForm({ data, onChange, onFocusRegion }: Props) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {/* Розмір картки керується drag-handle-ами на самій preview-картці справа
+          (right edge — width). Тут поле більше не дублюємо. */}
+
       <RegionGroup region="photo" onFocusRegion={onFocusRegion}>
         <SectionHeader
           icon="📸"

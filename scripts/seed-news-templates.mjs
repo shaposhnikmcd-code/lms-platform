@@ -73,6 +73,7 @@ const EVENT_DEFAULTS = {
     { title: '[Друга освіта]', meta: '[Програма · рік завершення]' },
     { title: '[Курс підвищення]', meta: '[Школа · рік]' },
   ],
+  cardWidth: 600,
 };
 
 const BLUEPRINTS = [

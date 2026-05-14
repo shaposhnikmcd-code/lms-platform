@@ -20,7 +20,7 @@ import {
 } from "@/lib/news/render";
 import ArticleTemplate from "@/lib/news/templates/ArticleTemplate";
 import EventTemplate from "@/lib/news/templates/EventTemplate";
-import { parseTemplateData, type TemplateKind } from "@/lib/news/templates/types";
+import { parseTemplateData, type TemplateKind, type EventData } from "@/lib/news/templates/types";
 
 const getContent = getTranslatedContent(newsContent, "news-page", {
   en: () => import("../_content/en").then(m => m.default),
@@ -132,7 +132,17 @@ export default async function NewsItemPage({ params }: Props) {
         </section>
       )}
 
-      <div className="mx-auto py-10 px-4 md:px-0" style={{ maxWidth: `${CANVAS_WIDTH + 64}px` }}>
+      {(() => {
+        // Контейнер сторінки розширюється, якщо EVENT-картка ширша за CANVAS_WIDTH:
+        // менеджер у редакторі обрав напр. 1100px — на /news/{slug} стаття не має
+        // обрізатись 920px-канвасом. Беремо max(CANVAS_WIDTH, eventCardWidth) + 64
+        // на padding. ARTICLE та non-template — стандартний CANVAS_WIDTH+64.
+        const eventCardWidth = isTemplateNews && item.templateKind === "EVENT" && templateData
+          ? (templateData as EventData).cardWidth || 0
+          : 0;
+        const pageMaxWidth = Math.max(CANVAS_WIDTH, eventCardWidth) + 64;
+        return (
+      <div className="mx-auto py-10 px-4 md:px-0" style={{ maxWidth: `${pageMaxWidth}px` }}>
         <div
           className="rounded-2xl shadow-sm"
           style={{ background: item.pageBgColor || "#FFFFFF", padding: isTemplateNews ? "32px 24px" : "32px" }}
@@ -144,7 +154,10 @@ export default async function NewsItemPage({ params }: Props) {
             <ArticleTemplate data={templateData as import("@/lib/news/templates/types").ArticleData} />
           )}
           {isTemplateNews && templateData && item.templateKind === "EVENT" && (
-            <EventTemplate data={templateData as import("@/lib/news/templates/types").EventData} />
+            <EventTemplate
+              data={templateData as EventData}
+              maxWidth={(templateData as EventData).cardWidth || undefined}
+            />
           )}
 
           {!isTemplateNews && isJson && blocks.length > 0 && (() => {
@@ -205,6 +218,8 @@ export default async function NewsItemPage({ params }: Props) {
           </div>
         )}
       </div>
+        );
+      })()}
 
       <style>{NEWS_BLOCK_CSS + `
         /* Legacy: підтримка старих новин що зберегли HTML напряму у data.content

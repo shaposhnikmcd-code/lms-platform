@@ -738,9 +738,12 @@ export function BlockInner({
         // EVENT
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const EventTemplate = require("./templates/EventTemplate").default;
+        // На /news у page-builder блоці шанурмо native cardWidth картки, але
+        // не виходимо за ширину блока на канвасі — об'єдинюємо як maxWidth.
+        const eventCardWidth = (tplData as { cardWidth?: number }).cardWidth || undefined;
         return (
           <a href={`/${lc}/news/${item.slug}`} style={{ display: "block", textDecoration: "none", color: "inherit" }}>
-            <EventTemplate data={tplData} />
+            <EventTemplate data={tplData} maxWidth={eventCardWidth} />
           </a>
         );
       }
@@ -791,22 +794,22 @@ export function BlockInner({
       // ── PREVIEW (template-based) ──
       // Якщо новина базується на шаблоні (templateKind), рендеримо preview через
       // TemplatePreviewCard (auto з templateData). Жодних блоків — фіксована форма.
-      // Розміри картки залежать від kind: ARTICLE=360×400 (портрет), EVENT=600×400
-      // (горизонтальна 2-кол з фото фахівця + інфо).
+      // Розміри картки: ARTICLE — портретна 360×400, EVENT — `data.cardWidth`×400
+      // (горизонтальна 2-кол з фото фахівця + інфо; менеджер контролює ширину).
       if (item.templateKind && item.templateData) {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const TemplatePreviewCard = require("./templates/TemplatePreviewCard").default;
         // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { parseTemplateData, TEMPLATE_PREVIEW_DIMS } = require("./templates/types") as
-          typeof import("./templates/types") & { TEMPLATE_PREVIEW_DIMS?: never };
-        // TEMPLATE_PREVIEW_DIMS живе в TemplatePreviewCard, тягнемо звідти:
+        const { parseTemplateData } = require("./templates/types");
         // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { TEMPLATE_PREVIEW_DIMS: DIMS } = require("./templates/TemplatePreviewCard");
-        const dims = DIMS[item.templateKind] || { width: PREVIEW_CARD_WIDTH, height: PREVIEW_CARD_HEIGHT };
+        const { TEMPLATE_PREVIEW_DIMS: DIMS, getEventPreviewDims } = require("./templates/TemplatePreviewCard");
+        const data = parseTemplateData(item.templateKind, item.templateData);
+        const dims = item.templateKind === "EVENT"
+          ? getEventPreviewDims(data)
+          : (DIMS[item.templateKind] || { width: PREVIEW_CARD_WIDTH, height: PREVIEW_CARD_HEIGHT });
         const blockWPct = Number(block.width) || 100;
         const initialActualWidth = Math.max(60, (CANVAS_WIDTH * blockWPct) / 100);
         const initialScale = initialActualWidth / dims.width;
-        const data = parseTemplateData(item.templateKind, item.templateData);
         return (
           <a
             href={`/${lc}/news/${item.slug}`}

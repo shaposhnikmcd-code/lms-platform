@@ -15,6 +15,9 @@ import {
   EVENT_DEFAULTS,
   parseTemplateData,
   templateKindLabel,
+  EVENT_CARD_WIDTH_MIN,
+  EVENT_CARD_WIDTH_MAX,
+  EVENT_CARD_WIDTH_DEFAULT,
   type ArticleData,
   type ArticleImage,
   type EventData,
@@ -773,14 +776,14 @@ export default function TemplateEditor({ newsId }: Props) {
             <PreviewSection
               badge="🎟"
               title="Картка фахівця"
-              hint="однаковий рендер на /news і на /news/{slug}"
+              hint="однаковий рендер на /news і на /news/{slug} · потягни праву грань щоб змінити ширину"
               accent="#1C3A2E"
             >
-              <PreviewCanvas>
-                <div style={{ padding: "32px 24px", display: "flex", justifyContent: "center" }}>
-                  <TemplatePreviewCard kind={kind} data={data} highlight={focusedRegion} />
-                </div>
-              </PreviewCanvas>
+              <ResizableEventPreview
+                data={data as EventData}
+                onChange={d => editData(d)}
+                highlight={focusedRegion}
+              />
             </PreviewSection>
           )}
         </main>
@@ -1010,6 +1013,147 @@ function CoverImageToolbar({
           flexShrink: 0,
         }}
       >✕</button>
+    </div>
+  );
+}
+
+/** Preview-канвас з drag-resize: користувач тягне праву грань картки щоб
+ *  змінити її ширину. Поведінка така ж як у звичайному news-block resize
+ *  ([BlockItem.tsx → useBlockResize]), але спрощена — лише ew-resize (висота
+ *  EVENT-картки фіксована 400). Ширина зберігається у `data.cardWidth`. */
+function ResizableEventPreview({
+  data,
+  onChange,
+  highlight,
+}: {
+  data: EventData;
+  onChange: (next: EventData) => void;
+  highlight: EventRegion | null;
+}) {
+  const currentWidth = data.cardWidth || EVENT_CARD_WIDTH_DEFAULT;
+  const [resizing, setResizing] = useState(false);
+  const [hover, setHover] = useState(false);
+  const startXRef = React.useRef(0);
+  const startWRef = React.useRef(0);
+  const draftWRef = React.useRef(currentWidth);
+
+  const startResize = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    startXRef.current = e.clientX;
+    startWRef.current = currentWidth;
+    draftWRef.current = currentWidth;
+    setResizing(true);
+
+    const onMove = (ev: MouseEvent) => {
+      const delta = ev.clientX - startXRef.current;
+      const next = Math.max(
+        EVENT_CARD_WIDTH_MIN,
+        Math.min(EVENT_CARD_WIDTH_MAX, Math.round((startWRef.current + delta) / 10) * 10),
+      );
+      if (next === draftWRef.current) return;
+      draftWRef.current = next;
+      onChange({ ...data, cardWidth: next });
+    };
+    const onUp = () => {
+      setResizing(false);
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    document.body.style.cursor = "ew-resize";
+    document.body.style.userSelect = "none";
+  };
+
+  const showHandle = hover || resizing;
+
+  return (
+    <div
+      style={{
+        background: "#F5F1E8",
+        borderRadius: 16,
+        border: "1px solid #E8D5B7",
+        overflowX: "auto",
+        overflowY: "hidden",
+      }}
+    >
+      <div style={{ padding: "32px 24px", display: "flex", justifyContent: "center", minWidth: "min-content" }}>
+        <div
+          onMouseEnter={() => setHover(true)}
+          onMouseLeave={() => setHover(false)}
+          style={{ position: "relative", display: "inline-block" }}
+        >
+          <div
+            style={{
+              outline: resizing || hover ? "2px solid #D4A843" : "2px solid transparent",
+              outlineOffset: 2,
+              borderRadius: 16,
+              transition: "outline-color 0.15s",
+            }}
+          >
+            <TemplatePreviewCard kind="EVENT" data={data} highlight={highlight} />
+          </div>
+
+          {/* Right resize handle — тягни праву грань щоб змінити ширину картки.
+              Pattern взято з BlockItem.tsx (news-block resize). */}
+          <div
+            onMouseDown={startResize}
+            title={`Ширина: ${currentWidth}px · потягни щоб змінити (${EVENT_CARD_WIDTH_MIN}–${EVENT_CARD_WIDTH_MAX})`}
+            style={{
+              position: "absolute",
+              right: -8,
+              top: "20%",
+              bottom: "20%",
+              width: 16,
+              cursor: "ew-resize",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              zIndex: 10,
+              opacity: showHandle ? 1 : 0,
+              transition: "opacity 0.15s",
+            }}
+          >
+            <div
+              style={{
+                width: 4,
+                height: 40,
+                borderRadius: 4,
+                background: resizing ? "#D4A843" : "#1C3A2E",
+                transition: "background 0.15s",
+                boxShadow: "0 1px 4px rgba(0,0,0,0.2)",
+              }}
+            />
+          </div>
+
+          {/* Float-badge з поточним px — показуємо під час drag, щоб менеджер
+              бачив значення без відкриття форми. */}
+          {(resizing || hover) && (
+            <div
+              style={{
+                position: "absolute",
+                right: -8,
+                top: -28,
+                padding: "3px 8px",
+                background: "#1C3A2E",
+                color: "#F5E1A4",
+                fontSize: 11,
+                fontWeight: 700,
+                fontFamily: ff,
+                borderRadius: 6,
+                fontVariantNumeric: "tabular-nums",
+                pointerEvents: "none",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {currentWidth} px
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

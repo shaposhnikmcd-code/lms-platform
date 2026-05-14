@@ -13,13 +13,26 @@
 
 import React from "react";
 import type { ArticleData, EventData, TemplateKind } from "./types";
+import { EVENT_CARD_WIDTH_DEFAULT } from "./types";
 import EventTemplate, { type EventRegion } from "./EventTemplate";
 import CoverImageBox from "./CoverImageBox";
 
+/** Дефолтні preview-розміри для template-карток. Для EVENT width — це лише
+ *  fallback, коли немає `data.cardWidth` (старі записи); реальну ширину
+ *  передає `getEventPreviewDims(data)`. ARTICLE — фіксована 360×400 портретна. */
 export const TEMPLATE_PREVIEW_DIMS: Record<TemplateKind, { width: number; height: number }> = {
   ARTICLE: { width: 360, height: 400 },
-  EVENT: { width: 600, height: 400 },
+  EVENT: { width: EVENT_CARD_WIDTH_DEFAULT, height: 400 },
 };
+
+/** Повертає preview-розмір EVENT-картки з урахуванням `data.cardWidth`.
+ *  Висота лишається 400 (фіксований feed-aspect); ширина — з даних. */
+export function getEventPreviewDims(data: EventData): { width: number; height: number } {
+  return {
+    width: data.cardWidth || EVENT_CARD_WIDTH_DEFAULT,
+    height: TEMPLATE_PREVIEW_DIMS.EVENT.height,
+  };
+}
 
 interface Props {
   kind: TemplateKind;
@@ -40,7 +53,9 @@ interface Props {
 }
 
 export default function TemplatePreviewCard({ kind, data, href, width, height, disableLinks, highlight, onCoverFocalClick }: Props) {
-  const dims = TEMPLATE_PREVIEW_DIMS[kind];
+  // EVENT: native width читаємо з data.cardWidth (якщо props.width не override).
+  // ARTICLE: фіксовані dims з TEMPLATE_PREVIEW_DIMS — портретна 360×400.
+  const dims = kind === "EVENT" ? getEventPreviewDims(data as EventData) : TEMPLATE_PREVIEW_DIMS[kind];
   const w = width ?? dims.width;
   const h = height ?? dims.height;
   // Якщо є зовнішній href — автоматично глушимо внутрішні links (інакше <a> у <a>).

@@ -187,6 +187,32 @@ export const EVENT_ALL_REGIONS: EventRegionKey[] = [
   "photo", "specialist", "metrics", "cta", "about", "education",
 ];
 
+/** Native-розмір картки фахівця у пікселях. Це **внутрішня** ширина рендеру:
+ *  на /news/{slug} обмежує контейнер сторінки, у редакторі — задає базу preview,
+ *  у feed-блоці page-builder-а слугує `baseWidth` для PreviewCardScale (далі
+ *  блок-розмір на канвасі масштабує її до своєї ширини). Висота лишається auto
+ *  (контент диктує) на single-page; у preview-режимі — fixed 400px aspect. */
+export const EVENT_CARD_WIDTH_MIN = 600;
+export const EVENT_CARD_WIDTH_MAX = 1200;
+export const EVENT_CARD_WIDTH_DEFAULT = 600;
+
+/** Пресети для UI. Числа підібрано під /news layout:
+ *  - 600  → 2 картки в ряд на feed-сторінці (компакт)
+ *  - 760  → 2 картки в ряд з більшим повітрям (стандарт)
+ *  - 900  → 1 картка на ряд, помірно (широка)
+ *  - 1100 → банер на всю доступну ширину контенту /news (повна) */
+export interface EventCardWidthPreset {
+  key: "compact" | "regular" | "wide" | "full";
+  label: string;
+  px: number;
+}
+export const EVENT_CARD_WIDTH_PRESETS: EventCardWidthPreset[] = [
+  { key: "compact", label: "Компакт", px: 600 },
+  { key: "regular", label: "Стандарт", px: 760 },
+  { key: "wide", label: "Широка", px: 900 },
+  { key: "full", label: "На всю ширину", px: 1100 },
+];
+
 export interface EventData {
   /** Фото фахівця — вертикальний crop 3:4. object-fit:cover у фіксований слот. */
   photo: ArticleImage;
@@ -212,6 +238,10 @@ export interface EventData {
   education: EventEducationItem[];
   /** Map region→hidden. Якщо `hidden[region] === true` — секція не рендериться. */
   hidden?: Partial<Record<EventRegionKey, boolean>>;
+  /** Native-ширина картки в пікселях. Контролює base-розмір рендеру у всіх
+   *  точках споживання (single-page /news/{slug}, feed-блок у page-builder-і,
+   *  preview у редакторі). Default — EVENT_CARD_WIDTH_DEFAULT (600). */
+  cardWidth: number;
 }
 
 export const EVENT_DEFAULTS: EventData = {
@@ -232,6 +262,7 @@ export const EVENT_DEFAULTS: EventData = {
     { title: "[Друга освіта]", meta: "[Програма · рік завершення]" },
     { title: "[Курс підвищення]", meta: "[Школа · рік]" },
   ],
+  cardWidth: EVENT_CARD_WIDTH_DEFAULT,
 };
 
 // =============================================================================
@@ -336,6 +367,7 @@ function mergeDefaults(kind: TemplateKind, src: Record<string, unknown>): Articl
       ? s.education.map(e => ({ title: e?.title ?? "", meta: e?.meta ?? "" }))
       : d.education,
     hidden: sanitizeHidden(s.hidden, EVENT_ALL_REGIONS),
+    cardWidth: clampNum(s.cardWidth, EVENT_CARD_WIDTH_MIN, EVENT_CARD_WIDTH_MAX, EVENT_CARD_WIDTH_DEFAULT),
   };
 }
 
