@@ -107,7 +107,10 @@ export default function CourseRow({
             setPromo2StartsAt(d.promo2StartsAt as string | null);
           if (d.promo2ExpiresAt === null || typeof d.promo2ExpiresAt === 'string')
             setPromo2ExpiresAt(d.promo2ExpiresAt as string | null);
-          if (typeof d.spIdStr === 'string') setSpIdStr(d.spIdStr);
+          // spIdStr навмисно НЕ гідруємо з draft — це окремий 1-кнопковий save,
+          // який зберігається миттєво. Якщо тримати в draft, після reset БД
+          // в інпуті висне порожнє значення, а юзер бачить рядок з реальним
+          // ID у БД і не може його "підтвердити" (кнопка disabled, бо не dirty).
         }
       }
     } catch {
@@ -225,7 +228,7 @@ export default function CourseRow({
   useEffect(() => {
     if (!draftHydrated) return;
     try {
-      if (!dirty && !spDirty) {
+      if (!dirty) {
         window.localStorage.removeItem(draftKey);
         return;
       }
@@ -242,7 +245,6 @@ export default function CourseRow({
           promo2PriceStr,
           promo2StartsAt,
           promo2ExpiresAt,
-          spIdStr,
         }),
       );
     } catch {
@@ -252,7 +254,6 @@ export default function CourseRow({
     draftHydrated,
     draftKey,
     dirty,
-    spDirty,
     priceStr,
     oldPriceStr,
     promo1CodeStr,
@@ -263,7 +264,6 @@ export default function CourseRow({
     promo2PriceStr,
     promo2StartsAt,
     promo2ExpiresAt,
-    spIdStr,
   ]);
 
   async function handleSaveSpId() {
@@ -405,6 +405,41 @@ export default function CourseRow({
     ? 'bg-white/[0.02] border-white/[0.06] text-slate-500 focus:ring-amber-400/30 focus:border-amber-400/30 focus:text-slate-200 placeholder:text-slate-700'
     : 'bg-stone-100/60 border-stone-200/60 text-stone-400 focus:ring-amber-500/30 focus:border-amber-500/40 focus:text-stone-700 placeholder:text-stone-300';
   const spIdCls = `${inputBase} text-center ${spIdParsed.ok ? spIdMuted : inputBad}`;
+
+  // Три стани кнопки/галки SP ID:
+  //   dirty   — введене значення відрізняється від БД → амбер «Зберегти»
+  //   synced  — значення збігається з БД і не пусте  → зелений індикатор «вже збережено» (no-op)
+  //   empty   — інпут порожній і в БД null           → нейтральний placeholder
+  // Раніше тут просто був disabled-gray для всіх не-dirty станів, через що «введи й підтверди» виглядало як «зламано».
+  const spSynced = spIdParsed.ok && !spDirty && spIdParsed.num !== null;
+  const spIdBtnCls = (() => {
+    if (!spIdParsed.ok) {
+      return dark
+        ? 'bg-rose-500/15 text-rose-300 cursor-not-allowed'
+        : 'bg-rose-100/70 text-rose-700 cursor-not-allowed';
+    }
+    if (spDirty) {
+      return dark
+        ? 'bg-amber-400/90 text-stone-900 hover:bg-amber-300 cursor-pointer'
+        : 'bg-stone-900 text-amber-100 hover:bg-stone-800 cursor-pointer';
+    }
+    if (spSynced) {
+      return dark
+        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 cursor-default'
+        : 'bg-emerald-100/70 text-emerald-700 border border-emerald-500/30 cursor-default';
+    }
+    return dark
+      ? 'bg-white/[0.04] text-slate-600 cursor-default'
+      : 'bg-stone-100/60 text-stone-400 cursor-default';
+  })();
+  const spIdBtnTitle = !spIdParsed.ok
+    ? 'Невалідний ID'
+    : spDirty
+      ? 'Зберегти SP ID'
+      : spSynced
+        ? 'SP ID збережений у БД'
+        : 'Введіть SP ID';
+
   const spIdCell = (
     <div className="flex items-center gap-1.5 justify-center">
       <input
@@ -418,14 +453,10 @@ export default function CourseRow({
       />
       <button
         type="button"
-        onClick={handleSaveSpId}
-        disabled={!spDirty || savingSp || !spIdParsed.ok}
-        title="Зберегти SP ID"
-        className={`flex-shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
-          dark
-            ? 'bg-amber-400/90 text-stone-900 hover:bg-amber-300 disabled:bg-white/[0.06] disabled:text-slate-500'
-            : 'bg-stone-900 text-amber-100 hover:bg-stone-800 disabled:bg-stone-200 disabled:text-stone-400'
-        }`}
+        onClick={spDirty ? handleSaveSpId : undefined}
+        disabled={savingSp || !spIdParsed.ok || (!spDirty && !spSynced)}
+        title={spIdBtnTitle}
+        className={`flex-shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-lg transition-colors disabled:opacity-60 ${spIdBtnCls}`}
       >
         <FaCheck className="text-[10px]" />
       </button>
@@ -541,6 +572,11 @@ export default function CourseRow({
         <ResetModal
           theme={theme}
           title={row.titleUk}
+          defaultPrice={row.defaultPrice}
+          currentPrice={row.overridePrice ?? row.defaultPrice}
+          currentOldPrice={row.overrideOldPrice}
+          promo1={row.promo1Code ? { code: row.promo1Code, price: row.promo1Price } : null}
+          promo2={row.promo2Code ? { code: row.promo2Code, price: row.promo2Price } : null}
           onCancel={() => setShowResetModal(false)}
           onConfirm={handleReset}
           resetting={resetting}
@@ -631,12 +667,22 @@ export default function CourseRow({
 function ResetModal({
   theme,
   title,
+  defaultPrice,
+  currentPrice,
+  currentOldPrice,
+  promo1,
+  promo2,
   onCancel,
   onConfirm,
   resetting,
 }: {
   theme: Theme;
   title: string;
+  defaultPrice: number;
+  currentPrice: number;
+  currentOldPrice: number | null;
+  promo1: { code: string; price: number | null } | null;
+  promo2: { code: string; price: number | null } | null;
   onCancel: () => void;
   onConfirm: () => void;
   resetting: boolean;
@@ -655,6 +701,9 @@ function ResetModal({
 
   if (!mounted) return null;
 
+  const priceChanges = currentPrice !== defaultPrice;
+  const hasPromos = !!promo1 || !!promo2;
+
   return createPortal(
     <div
       className={`fixed inset-0 flex items-center justify-center z-[100] backdrop-blur-sm ${
@@ -663,7 +712,7 @@ function ResetModal({
       onClick={onCancel}
     >
       <div
-        className={`rounded-2xl p-6 w-full max-w-sm mx-4 border shadow-2xl ${
+        className={`rounded-2xl p-6 w-full max-w-md mx-4 border shadow-2xl ${
           dark
             ? 'bg-[#14161d] border-white/[0.08] text-slate-100'
             : 'bg-[#fbf7ec] border-stone-300/60 text-stone-900'
@@ -671,11 +720,62 @@ function ResetModal({
         onClick={e => e.stopPropagation()}
       >
         <h3 className="text-lg font-semibold mb-1">Скинути ціни?</h3>
-        <p className={`text-sm mb-5 ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
-          Ціна, стара ціна та обидва промокоди курсу{' '}
+        <p className={`text-sm mb-4 ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
+          Курс{' '}
           <span className={`font-semibold ${dark ? 'text-slate-100' : 'text-stone-900'}`}>«{title}»</span>{' '}
-          повернуться до дефолтних значень із коду.
+          — буде застосовано:
         </p>
+        <ul className={`text-[13px] mb-5 space-y-1.5 rounded-lg border px-3 py-2.5 ${
+          dark ? 'bg-white/[0.02] border-white/[0.06]' : 'bg-white/60 border-stone-300/40'
+        }`}>
+          <li className="flex items-baseline justify-between gap-3">
+            <span className={dark ? 'text-slate-400' : 'text-stone-600'}>Ціна:</span>
+            <span className="tabular-nums">
+              {priceChanges ? (
+                <>
+                  <span className={dark ? 'text-slate-500 line-through mr-2' : 'text-stone-400 line-through mr-2'}>{currentPrice} ₴</span>
+                  <span className="font-semibold">{defaultPrice} ₴</span>
+                </>
+              ) : (
+                <span className={dark ? 'text-slate-400' : 'text-stone-500'}>{defaultPrice} ₴ (без змін)</span>
+              )}
+            </span>
+          </li>
+          {currentOldPrice !== null && (
+            <li className="flex items-baseline justify-between gap-3">
+              <span className={dark ? 'text-slate-400' : 'text-stone-600'}>Стара ціна:</span>
+              <span className="tabular-nums">
+                <span className={dark ? 'text-slate-500 line-through mr-2' : 'text-stone-400 line-through mr-2'}>{currentOldPrice} ₴</span>
+                <span className={`font-semibold ${dark ? 'text-rose-300' : 'text-rose-700'}`}>прибрано</span>
+              </span>
+            </li>
+          )}
+          {promo1 && (
+            <li className="flex items-baseline justify-between gap-3">
+              <span className={dark ? 'text-slate-400' : 'text-stone-600'}>Промокод 1:</span>
+              <span>
+                <span className="font-mono">{promo1.code}</span>
+                {promo1.price !== null && <span className={dark ? 'text-slate-500 ml-1' : 'text-stone-500 ml-1'}>({promo1.price} ₴)</span>}
+                <span className={`ml-2 font-semibold ${dark ? 'text-rose-300' : 'text-rose-700'}`}>видалити</span>
+              </span>
+            </li>
+          )}
+          {promo2 && (
+            <li className="flex items-baseline justify-between gap-3">
+              <span className={dark ? 'text-slate-400' : 'text-stone-600'}>Промокод 2:</span>
+              <span>
+                <span className="font-mono">{promo2.code}</span>
+                {promo2.price !== null && <span className={dark ? 'text-slate-500 ml-1' : 'text-stone-500 ml-1'}>({promo2.price} ₴)</span>}
+                <span className={`ml-2 font-semibold ${dark ? 'text-rose-300' : 'text-rose-700'}`}>видалити</span>
+              </span>
+            </li>
+          )}
+        </ul>
+        {hasPromos && (
+          <p className={`text-[12px] mb-4 -mt-2 ${dark ? 'text-amber-300/70' : 'text-amber-800/80'}`}>
+            ⚠ Скидаються всі промокоди разом із цінами. Якщо потрібно зберегти промо — спочатку скопіюй їх.
+          </p>
+        )}
         <div className="flex gap-2">
           <button
             onClick={onCancel}
