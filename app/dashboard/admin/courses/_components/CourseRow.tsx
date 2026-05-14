@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { FaRotateLeft, FaCheck } from 'react-icons/fa6';
 import type { Theme } from '../../_components/adminTheme';
-import PromoTimer from './PromoTimer';
+import PromoTimer, { getPromoWindowState } from './PromoTimer';
 
 export interface CourseRowData {
   slug: string;
@@ -335,10 +335,27 @@ export default function CourseRow({
   const oldPriceTone = row.overrideOldPrice !== null ? inputOverride : inputOk;
   const priceCls = `${inputBase} text-center ${priceParsed.ok && priceParsed.num !== null ? priceTone : inputBad}`;
   const oldPriceCls = `${inputBase} text-center ${oldPriceParsed.ok ? oldPriceTone : inputBad}`;
-  const promo1CodeCls = `${inputBase} text-center ${promo1CodeParsed.ok && promo1PairOk && promosNotDup ? inputOk : inputBad}`;
-  const promo1PriceCls = `${inputBase} text-center ${promo1PriceParsed.ok && promo1PairOk ? inputOk : inputBad}`;
-  const promo2CodeCls = `${inputBase} text-center ${promo2CodeParsed.ok && promo2PairOk && promosNotDup ? inputOk : inputBad}`;
-  const promo2PriceCls = `${inputBase} text-center ${promo2PriceParsed.ok && promo2PairOk ? inputOk : inputBad}`;
+
+  // Промо вважається "не діючим" коли є код, але вікно дії — pending або expired.
+  // У цих станах вирубляємо amber-підсвітку і strikethrough на ціні, щоб адмін бачив
+  // різницю між "діє" і "збережено, але не застосовується".
+  const promo1State = getPromoWindowState(promo1StartsAt, promo1ExpiresAt);
+  const promo2State = getPromoWindowState(promo2StartsAt, promo2ExpiresAt);
+  const promo1Inactive = promo1CodeParsed.code !== null && (promo1State === 'expired' || promo1State === 'pending');
+  const promo2Inactive = promo2CodeParsed.code !== null && (promo2State === 'expired' || promo2State === 'pending');
+
+  const promoInactiveCode = dark
+    ? 'bg-white/[0.02] border-white/[0.06] text-slate-500 placeholder:text-slate-700 focus:ring-amber-400/30 focus:border-amber-400/30 focus:text-slate-200'
+    : 'bg-stone-100/40 border-stone-200/60 text-stone-400 placeholder:text-stone-300 focus:ring-amber-500/30 focus:border-amber-500/40 focus:text-stone-700';
+  const promoInactivePrice = `${promoInactiveCode} line-through`;
+
+  const okOrInactive = (inactive: boolean) => (inactive ? promoInactiveCode : inputOk);
+  const okOrInactivePrice = (inactive: boolean) => (inactive ? promoInactivePrice : inputOk);
+
+  const promo1CodeCls = `${inputBase} text-center ${promo1CodeParsed.ok && promo1PairOk && promosNotDup ? okOrInactive(promo1Inactive) : inputBad}`;
+  const promo1PriceCls = `${inputBase} text-center ${promo1PriceParsed.ok && promo1PairOk ? okOrInactivePrice(promo1Inactive) : inputBad}`;
+  const promo2CodeCls = `${inputBase} text-center ${promo2CodeParsed.ok && promo2PairOk && promosNotDup ? okOrInactive(promo2Inactive) : inputBad}`;
+  const promo2PriceCls = `${inputBase} text-center ${promo2PriceParsed.ok && promo2PairOk ? okOrInactivePrice(promo2Inactive) : inputBad}`;
 
   const titleCell = (
     <div className="flex items-center gap-3">

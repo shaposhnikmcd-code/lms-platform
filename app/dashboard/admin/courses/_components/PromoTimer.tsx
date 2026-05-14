@@ -590,8 +590,6 @@ function InlineCalendar({
   }
   const isSelected = (y: number, mo: number, d: number) =>
     !!parsed && parsed.y === y && parsed.mo === mo && parsed.d === d;
-  const isToday = (y: number, mo: number, d: number) =>
-    today.getFullYear() === y && today.getMonth() === mo && today.getDate() === d;
 
   return (
     <div
@@ -644,7 +642,6 @@ function InlineCalendar({
         {cells.map((c, i) => {
           const disabled = isBeforeMin(c.y, c.mo, c.d);
           const sel = isSelected(c.y, c.mo, c.d);
-          const tod = isToday(c.y, c.mo, c.d);
           const cls = sel
             ? dark
               ? 'bg-emerald-500/90 text-white font-semibold shadow-[0_0_10px_-2px_rgba(16,185,129,0.5)]'
@@ -657,10 +654,6 @@ function InlineCalendar({
             ? dark
               ? 'text-slate-600 hover:bg-white/[0.04]'
               : 'text-stone-400 hover:bg-stone-200/40'
-            : tod
-            ? dark
-              ? 'text-amber-300 ring-1 ring-amber-400/40 hover:bg-white/[0.06]'
-              : 'text-amber-700 ring-1 ring-amber-500/40 hover:bg-amber-50'
             : dark
             ? 'text-slate-200 hover:bg-white/[0.06]'
             : 'text-stone-800 hover:bg-stone-200/50';
