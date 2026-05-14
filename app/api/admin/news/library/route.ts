@@ -11,11 +11,12 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Немає доступу" }, { status: 403 });
   }
 
-  // isTemplate=false: blueprint-и не для draggable-сайдбара — це лише
-  // взірці, з яких створюються template-news. У sidebar показуємо тільки
-  // готові (published) новини, включно з template-based.
+  // isTemplate=false: blueprint-и не для draggable-сайдбара — це лише взірці.
+  // Показуємо всі решта новин (published + draft) — у sidebar є бейдж
+  // «чернетка», щоб менеджер бачив свою недозавершену роботу і міг
+  // розмістити її на сторінці після публікації.
   const items = await prisma.news.findMany({
-    where: { published: true, isTemplate: false },
+    where: { isTemplate: false },
     orderBy: { createdAt: "desc" },
     select: {
       id: true,
@@ -25,6 +26,7 @@ export async function GET(req: NextRequest) {
       content: true,    // потрібно для displayMode=expanded — рендер повного тіла новини інлайн
       previewContent: true, // кастомний layout превʼю-картки (білдер /news/[id]/preview)
       pageBgColor: true,
+      published: true,  // для бейджа «чернетка» у sidebar
       templateKind: true, // template-based render у newsCard preview/expanded
       templateData: true,
       imageUrl: true,

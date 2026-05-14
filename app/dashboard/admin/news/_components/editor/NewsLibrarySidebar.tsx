@@ -26,6 +26,8 @@ export interface LibraryNewsItem {
   /** Якщо задано — це шаблонна новина: рендер через TemplatePreviewCard з auto-derive. */
   templateKind?: "ARTICLE" | "EVENT" | null;
   templateData?: string | null;
+  /** Опубліковано? Якщо false — у sidebar показуємо бейдж «Чернетка». */
+  published?: boolean;
 }
 
 const cardStyle: React.CSSProperties = {
@@ -120,14 +122,29 @@ function NewsLibraryCard({
               що саме перетягуємо. Категорія новини (NEWS) тут не показується, бо
               менеджеру вже зрозуміло з заголовку секції в сайдбарі. */}
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{
-              fontSize: 9,
-              fontWeight: 700,
-              textTransform: "uppercase",
-              letterSpacing: "0.06em",
-              color: "#9B7C45",
-              marginBottom: 3,
-            }}>{mode === "preview" ? "Превʼю" : "Новина"}</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 3 }}>
+              <span style={{
+                fontSize: 9,
+                fontWeight: 700,
+                textTransform: "uppercase",
+                letterSpacing: "0.06em",
+                color: "#9B7C45",
+              }}>{mode === "preview" ? "Превʼю" : "Новина"}</span>
+              {item.published === false && (
+                <span style={{
+                  fontSize: 8,
+                  fontWeight: 800,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.06em",
+                  color: "#92400E",
+                  background: "#FEF3C7",
+                  border: "1px solid #FCD34D",
+                  borderRadius: 4,
+                  padding: "1px 5px",
+                  lineHeight: 1.2,
+                }}>Чернетка</span>
+              )}
+            </div>
             <div style={{
               fontSize: 12,
               fontWeight: 600,
