@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { HiOutlineFunnel, HiOutlineBanknotes, HiOutlineCheckCircle, HiOutlineClock, HiOutlineCreditCard, HiOutlineChevronLeft, HiOutlineChevronRight, HiOutlineClipboard, HiCheck, HiOutlineInformationCircle } from 'react-icons/hi2';
 import { useAdminTheme, type Theme } from '../../_components/adminTheme';
 import { AdminShell, AdminPanel } from '../../_components/AdminShell';
@@ -21,6 +21,10 @@ export type Row = {
   /// Для course/bundle/connector — назва продукту. Для yearly — "Річна підписка" або "Місячна на 1 міс." / "Місячна Автоплатіж".
   productLabel: string;
   amount: number;
+  /// Очікувана базова ціна продукту на момент рендеру (Course.price/override чи Bundle.price чи
+  /// стандартний цінник Конектора). null для yearly (різні плани) і для тестових 1-2₴.
+  /// Якщо amount < basePrice → платіж пройшов з акцією/промокодом — рядок маркується амбером.
+  basePrice: number | null;
   status: string;
   orderReference: string;
 };
@@ -52,12 +56,35 @@ export default function PaymentsView({ rows }: { rows: Row[] }) {
   const { theme, setTheme } = useAdminTheme();
   const dark = theme === 'dark';
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const refFromUrl = searchParams.get('ref');
 
   const [typeFilter, setTypeFilter] = useState<string>('ALL');
   const [productFilter, setProductFilter] = useState<string>('ALL');
   const [statusFilter, setStatusFilter] = useState<string>('PAID');
   const [pageSize, setPageSize] = useState<number>(25);
   const [page, setPage] = useState<number>(1);
+  /// Локальний state-копія `ref` URL-параметра щоб можна було вимкнути підсвітку
+  /// після скролу/таймера, не чіпаючи самого URL (інакше React Router scroll-restoration
+  /// може смикнути сторінку при перерендері).
+  const [highlightRef, setHighlightRef] = useState<string | null>(null);
+  useEffect(() => {
+    setHighlightRef(refFromUrl);
+  }, [refFromUrl]);
+  // Через 4 сек ховаємо підсвітку — щоб довго не дратувала, але встигла привернути увагу.
+  useEffect(() => {
+    if (!highlightRef) return;
+    const t = setTimeout(() => setHighlightRef(null), 4000);
+    return () => clearTimeout(t);
+  }, [highlightRef]);
+
+  // Якщо прийшли по ref-у — скидаємо фільтри, щоб не приховати цільовий рядок.
+  useEffect(() => {
+    if (!refFromUrl) return;
+    setTypeFilter('ALL');
+    setProductFilter('ALL');
+    setStatusFilter('ALL');
+  }, [refFromUrl]);
 
   const productOptions = useMemo(() => {
     const PRODUCT_PREFIX: Record<Row['source'], string> = {
@@ -109,6 +136,27 @@ export default function PaymentsView({ rows }: { rows: Row[] }) {
   const pageStart = (page - 1) * pageSize;
   const pageEnd = Math.min(pageStart + pageSize, filtered.length);
   const paged = filtered.slice(pageStart, pageEnd);
+
+  // Якщо є ref у URL — знаходимо рядок у filtered і виставляємо сторінку.
+  useEffect(() => {
+    if (!refFromUrl) return;
+    const idx = filtered.findIndex(r => r.orderReference === refFromUrl);
+    if (idx === -1) return;
+    const targetPage = Math.floor(idx / pageSize) + 1;
+    if (targetPage !== page) setPage(targetPage);
+  }, [refFromUrl, filtered, pageSize, page]);
+
+  // Після того як цільовий рядок зрендерився на поточній сторінці — скролимо до нього.
+  useEffect(() => {
+    if (!highlightRef) return;
+    const el = document.querySelector<HTMLTableRowElement>(
+      `tr[data-order-ref="${CSS.escape(highlightRef)}"]`,
+    );
+    if (el) {
+      // Дрібний відступ зверху — щоб рядок не прилипав до хедера таблиці.
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [highlightRef, page, paged]);
 
   return (
     <AdminShell
@@ -206,11 +254,27 @@ export default function PaymentsView({ rows }: { rows: Row[] }) {
                     paged.map(row => {
                       const date = new Date(row.createdAt);
                       const isClickable = row.source === 'connector';
+                      const isHighlighted = highlightRef === row.orderReference;
+                      const isDiscounted =
+                        row.status === 'PAID' &&
+                        row.basePrice !== null &&
+                        row.amount < row.basePrice;
                       return (
                         <tr
                           key={row.id}
+                          data-order-ref={row.orderReference}
                           onClick={isClickable ? () => router.push(`/dashboard/manager?order=${encodeURIComponent(row.orderReference)}`) : undefined}
                           className={`transition-colors ${
+                            isHighlighted
+                              ? dark
+                                ? 'bg-amber-500/15 ring-2 ring-inset ring-amber-400/60'
+                                : 'bg-amber-200/40 ring-2 ring-inset ring-amber-500/60'
+                              : isDiscounted
+                                ? dark
+                                  ? 'bg-amber-500/[0.04]'
+                                  : 'bg-amber-100/30'
+                                : ''
+                          } ${
                             isClickable
                               ? dark ? 'cursor-pointer hover:bg-white/[0.04]' : 'cursor-pointer hover:bg-stone-100/70'
                               : dark ? 'hover:bg-white/[0.02]' : 'hover:bg-stone-50/60'
@@ -246,7 +310,22 @@ export default function PaymentsView({ rows }: { rows: Row[] }) {
                             <ProductCell theme={theme} row={row} />
                           </td>
                           <td className={`px-5 py-3 text-[13px] font-semibold tabular-nums whitespace-nowrap ${dark ? 'text-slate-100' : 'text-stone-900'}`}>
-                            {row.amount.toLocaleString()} ₴
+                            <div className="flex flex-col gap-0.5">
+                              <span>{row.amount.toLocaleString()} ₴</span>
+                              {isDiscounted && row.basePrice !== null && (
+                                <span
+                                  title={`Базова ціна: ${row.basePrice.toLocaleString()} ₴ · знижка ${(row.basePrice - row.amount).toLocaleString()} ₴`}
+                                  className={`inline-flex items-center gap-1 text-[10px] font-medium tabular-nums ${
+                                    dark ? 'text-amber-300' : 'text-amber-800'
+                                  }`}
+                                >
+                                  <span className={dark ? 'text-slate-500 line-through' : 'text-stone-400 line-through'}>
+                                    {row.basePrice.toLocaleString()}
+                                  </span>
+                                  <span>−{(row.basePrice - row.amount).toLocaleString()} ₴</span>
+                                </span>
+                              )}
+                            </div>
                           </td>
                           <td className="px-5 py-3">
                             <StatusPill theme={theme} status={row.status} />

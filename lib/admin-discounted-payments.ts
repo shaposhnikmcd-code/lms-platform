@@ -2,6 +2,7 @@ import prisma from '@/lib/prisma';
 
 export type DiscountedPayment = {
   paymentId: string;
+  orderReference: string;
   productKind: 'course' | 'bundle';
   productName: string;
   amount: number;
@@ -37,6 +38,7 @@ export async function getDiscountedPayments(
       },
       select: {
         id: true,
+        orderReference: true,
         amount: true,
         courseId: true,
         bundleId: true,
@@ -74,6 +76,7 @@ export async function getDiscountedPayments(
     if (productKind && basePrice !== null && basePrice > 0 && p.amount < basePrice) {
       out.push({
         paymentId: p.id,
+        orderReference: p.orderReference,
         productKind,
         productName,
         amount: p.amount,

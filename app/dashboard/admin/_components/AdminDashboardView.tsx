@@ -111,13 +111,14 @@ export default function AdminDashboardView({ data }: { data: AdminDashboardData 
       tone: 'warning',
     });
   }
-  // Кожна оплата нижче базової ціни — окремий рядок з продуктом + сумою + поточником.
+  // Кожна оплата нижче базової ціни — окремий рядок з продуктом + сумою + покупцем.
+  // href містить ?ref=orderReference щоб у Платежах підсвітити конкретний рядок.
   for (const dp of data.discountedPayments) {
     const productPrefix = dp.productKind === 'bundle' ? '📦 ' : '';
     attentionItems.push({
       label: `${productPrefix}${dp.productName} · ${dp.buyerEmail} — ${dp.amount.toLocaleString()}₴ замість ${dp.basePrice.toLocaleString()}₴`,
       count: dp.discount,
-      href: `/dashboard/admin/payments`,
+      href: `/dashboard/admin/payments?ref=${encodeURIComponent(dp.orderReference)}`,
       tone: 'warning',
     });
   }
