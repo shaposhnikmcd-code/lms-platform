@@ -199,7 +199,7 @@ export default function EditorCanvas({
   }, [selectedBlockId]);
 
   const {
-    previewWidths, previewXs, previewYs, previewHeights, blockHeights,
+    previewWidths, previewWidthsRef, previewXs, previewYs, previewHeights, blockHeights,
     updateBlock, deleteBlock, moveBlock, duplicateBlock,
     setWidth, setWidthAndData, setAlign, setVAlign, setBg,
     setPreview, clearPreview, setPreviewX, clearPreviewX,
@@ -446,11 +446,13 @@ export default function EditorCanvas({
   // і виставляє guide-лінії + size-match badges. Допуски TIGHT_X/Y використовуються
   // для постфактумної детекції — блок вже мав би бути на цій позиції після snap-у.
   const detectAlignmentsAt = useCallback((selfId: string, ax: number, ay: number, aw: number, ah: number) => {
-    const TIGHT_X = 0.5;
-    // TIGHT_Y синхронізований зі SNAP_TOL_Y у handleDragMove — щоб guide-лінія
-    // з'являлась у тому ж моменті, що й snap. Раніше 2 vs 10 → snap фіксував
-    // позицію, але guide мовчав, бо diff лишався > 2.
+    // Єдиний px-толеранс для обох осей: snap у drag/resize ↔ guide-line у detector.
+    // Якщо ці значення розходяться (наприклад X=0.5% при canvasWidthPx=920 → ~4.6px,
+    // а edge-snap у resize фіксує на 8px) — snap фіксує позицію, але guide-line
+    // мовчить. TIGHT_X тепер похідний від TIGHT_Y_PX через canvasWidthPx,
+    // щоб діапазон спрацювання був ідентичний по обох осях.
     const TIGHT_Y = 8;
+    const TIGHT_X = (TIGHT_Y / canvasWidthPx) * 100;
     const SIZE_MATCH_PX = 8;     // Розширено з 4 — менеджеру не треба піксельної точності.
     const SIZE_MATCH_PCT = 0.8;
     // Proximity для size-match: показуємо "= H" / "= W" лише коли блоки в одному
@@ -527,7 +529,7 @@ export default function EditorCanvas({
 
     setAlignGuides(Array.from(guideMap.values()));
     setSizeMatches(matches);
-  }, [blocks]);
+  }, [blocks, canvasHeight, canvasWidthPx]);
 
   const clearAlignmentGuides = useCallback(() => {
     setAlignGuides([]);
@@ -596,17 +598,24 @@ export default function EditorCanvas({
   }, [clearPreview, clearPreviewX, blocks, clearAlignmentGuides]);
 
   // Wrapper над setPreviewHeight — додає alignment-detection під час resize-у висоти.
+  // КРИТИЧНО: читаємо previewWidthsRef.current[id] (ref) замість previewWidths[id] (state).
+  // Причина: handlePreviewHeight спрацьовує СИНХРОННО після handlePreviewWidth у aspect-locked
+  // resize (image / newsCard preview). State через useState ще не оновлений до next-render,
+  // closure захоплює stale previewWidths без новопоставленої ширини → detectAlignmentsAt
+  // отримує СТАРУ ширину і ОЧИЩАЄ guide-лінії, які щойно поставив попередній виклик.
   const handlePreviewHeight = useCallback((id: string, h: number) => {
+    setResizingBlockId(id);
     setPreviewHeight(id, h);
     const b = blocks.find(x => x.id === id);
     if (!b) return;
     const bx = b.x ?? 0;
     const by = b.y ?? 0;
-    const w = previewWidths[id] ?? (Number(b.width) || 100);
+    const w = previewWidthsRef.current[id] ?? (Number(b.width) || 100);
     detectAlignmentsAt(id, bx, by, w, h);
-  }, [blocks, previewWidths, setPreviewHeight, detectAlignmentsAt]);
+  }, [blocks, previewWidthsRef, setPreviewHeight, detectAlignmentsAt]);
 
   const handleClearPreviewHeight = useCallback((id: string) => {
+    setResizingBlockId(prev => prev === id ? null : prev);
     clearPreviewHeight(id);
     clearAlignmentGuides();
   }, [clearPreviewHeight, clearAlignmentGuides]);
@@ -1540,6 +1549,7 @@ export default function EditorCanvas({
                       canvasWidthPx={canvasWidthPx}
                       lastAddedId={lastAddedId}
                       previewHeight={previewHeights[block.id]}
+                      isResizing={resizingBlockId === block.id}
                       onChange={handleUpdateBlock}
                       onMoveUp={id => moveBlock(id, "up")}
                       onMoveDown={id => moveBlock(id, "down")}
@@ -1559,26 +1569,37 @@ export default function EditorCanvas({
                         reportHeight(id, h);
                         forceTick(t => (t + 1) % 1024);
                       }}
-                      getSameRowHeights={() => {
-                        // Heights блоків, що перетинаються по Y з поточним блоком
-                        // (тобто стоять у тому ж візуальному ряді). Дозволяє
-                        // useBlockResize snap-нути висоту до сусіда — і одночасно
-                        // показати `= H` size-match badge.
+                      getEdgeSnapTargets={() => {
+                        // Figma-style edge-snap під час resize. Збираємо всі краї
+                        // (top/bottom/centerY у px; left/right/centerX у %)
+                        // усіх інших блоків + краї канвасу. useBlockResize використає їх
+                        // щоб магнітити край ресайзованого блока до сусіднього краю —
+                        // незалежно від того, чи це height/width/diagonal handle.
+                        //
+                        // rowHeights — окремо, для legacy "= H" size-match (тільки
+                        // блоки у тому ж візуальному ряді).
+                        const cH = canvasHeight;
+                        const yEdges: number[] = [0, cH];
+                        const xEdges: number[] = [0, 100];
+                        const rowHeights: number[] = [];
+
                         const ay = block.y ?? 0;
                         const ah = measureBlockHeight(block);
                         const aBottom = ay + ah;
-                        const out: number[] = [];
+
                         for (const o of blocks) {
                           if (o.id === block.id) continue;
                           const oy = o.y ?? 0;
                           const oh = measureBlockHeight(o);
-                          const oBottom = oy + oh;
-                          // Y-overlap: будь-який спільний вертикальний діапазон.
-                          if (ay < oBottom && aBottom > oy) {
-                            out.push(oh);
-                          }
+                          const ox = o.x ?? 0;
+                          const ow = Number(o.width) || 100;
+                          // Усі краї всіх блоків — резонансна Figma-поведінка.
+                          // detectAlignmentsAt сам відфільтрує які guide-лінії показати.
+                          yEdges.push(oy, oy + oh, oy + oh / 2);
+                          xEdges.push(ox, ox + ow, ox + ow / 2);
+                          if (ay < oy + oh && aBottom > oy) rowHeights.push(oh);
                         }
-                        return out;
+                        return { yEdges, xEdges, rowHeights };
                       }}
                       isActive={activeId === block.id}
                       selected={selectedBlockId === block.id}
@@ -1840,10 +1861,10 @@ function AbsoluteBlock(props: {
   onPreviewHeight: (id: string, h: number) => void;
   onClearPreviewHeight: (id: string) => void;
   onReportHeight: (id: string, h: number) => void;
-  /** Heights усіх блоків у тому ж вертикальному ряді — для snap-to-match-height
-   *  при resize-у висоти. Без цього useBlockResize не може запропонувати
-   *  «вирівняй під сусіда». */
-  getSameRowHeights: () => number[];
+  /** Figma-style edge-snap дані: Y-краї (px) і X-краї (%) усіх інших блоків +
+   *  країв канвасу. useBlockResize магнітить будь-який край ресайзованого блока
+   *  до найближчого краю сусіда. rowHeights — окремо, для legacy "= H" badge. */
+  getEdgeSnapTargets: () => { yEdges: number[]; xEdges: number[]; rowHeights: number[] };
   selected: boolean;
   onSelect: (id: string) => void;
   /** Пікс. компенсація скролу під час drag — додається до transform.y щоб блок
@@ -1855,8 +1876,12 @@ function AbsoluteBlock(props: {
    *  якщо block.height у БД більший, візуально блок не вилазив за canvas. */
   maxBlockHeight?: number;
   fixedHeight?: boolean;
+  /** Чи блок зараз ресайзиться (width/height/diagonal handle активний).
+   *  При true — відключаємо CSS width/left/top transition, інакше блок
+   *  «їде» за курсором з 120ms лагом і відчувається як «відірваний». */
+  isResizing?: boolean;
 }) {
-  const { block, x, y, widthPct, lastAddedId, previewHeight, isActive, canvasWidthPx, selected, scrollCompensation = 0, maxBlockHeight, fixedHeight } = props;
+  const { block, x, y, widthPct, lastAddedId, previewHeight, isActive, canvasWidthPx, selected, scrollCompensation = 0, maxBlockHeight, fixedHeight, isResizing = false } = props;
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: block.id });
 
   const tx = transform?.x ?? 0;
@@ -1952,7 +1977,7 @@ function AbsoluteBlock(props: {
         // користувач міг схопити саме виділений (а не той, що візуально зверху).
         zIndex: isActive || isDragging ? 30 : (selected ? 20 : 1),
         opacity: isDragging ? 0.65 : 1,
-        transition: isDragging ? "none" : "left 0.12s, top 0.12s, width 0.12s",
+        transition: (isDragging || isResizing) ? "none" : "left 0.12s, top 0.12s, width 0.12s",
         outline: selected ? "2px solid #D4A843" : "none",
         outlineOffset: "2px",
         borderRadius: selected ? "12px" : 0,
@@ -1987,10 +2012,12 @@ function AbsoluteBlock(props: {
         onClearPreviewHeight={props.onClearPreviewHeight}
         previewHeight={previewHeight}
         onReportHeight={props.onReportHeight}
-        getSameRowHeights={props.getSameRowHeights}
+        getEdgeSnapTargets={props.getEdgeSnapTargets}
         snapThreshold={8}
         onSelectBlock={props.onSelect}
         maxBlockHeight={maxBlockHeight}
+        blockX={x}
+        blockY={y}
       />
     </div>
   );

@@ -48,8 +48,13 @@ interface Props {
   onClearPreviewHeight: (id: string) => void;
   previewHeight?: number;
   onReportHeight: (id: string, h: number) => void;
-  getSameRowHeights: () => number[];
+  /** Figma-style edge-snap дані з EditorCanvas: краї всіх інших блоків + канвасу. */
+  getEdgeSnapTargets: () => { yEdges: number[]; xEdges: number[]; rowHeights: number[] };
   snapThreshold: number;
+  /** Координати блока на канвасі — потрібні useBlockResize-у щоб обчислювати
+   *  абсолютні позиції країв (newBottom = blockY + newH). */
+  blockX: number;
+  blockY: number;
   /** Опційний колбек: дозволяє вкладеним редакторам (ImageEditor → overlay click)
    *  виділити батьківський блок. Використовується щоб при кліку на overlay-текст
    *  слот налаштувань відкривався (бо BlockItemHeader портал-иться лише коли
@@ -68,7 +73,8 @@ export default function BlockItem({
   onSetWidth, onSetWidthAndData, onSetAlign, onSetVAlign, onSetBg,
   onUpload, containerWidthPx, onPreviewWidth, onClearPreview,
   onPreviewHeight, onClearPreviewHeight, previewHeight,
-  onReportHeight, getSameRowHeights, snapThreshold,
+  onReportHeight, getEdgeSnapTargets, snapThreshold,
+  blockX, blockY,
   onSelectBlock, maxBlockHeight,
 }: Props) {
   // Чи активний зараз вкладений overlay (для image-блоків з тестом-на-фото).
@@ -142,10 +148,18 @@ export default function BlockItem({
     onClearPreviewHeight,
     onChange,
     onReportHeight,
-    getSameRowHeights,
+    getEdgeSnapTargets,
     snapThreshold,
     maxBlockHeight,
     minBlockHeight: MIN_BLOCK_HEIGHT_BY_TYPE[block.type],
+    blockX,
+    blockY,
+    // newsCard preview має CSS aspect-ratio 360:400 — useBlockResize використає
+    // цей factor щоб проєктувати нову висоту з нової ширини під час width-resize
+    // (потрібно для bottom-edge snap до сусідніх блоків).
+    widthAspectFactor: isNewsCardPreview
+      ? (containerWidthPx / 100) * (PREVIEW_CARD_HEIGHT / PREVIEW_CARD_WIDTH)
+      : 0,
   });
 
   // Auto-bump висоти для legacy YouTube блоків — драфти, збережені до того,
@@ -382,7 +396,13 @@ export default function BlockItem({
         style={{
           background: block.bgColor || "transparent",
           color: textColor,
-          textAlign: block.align,
+          // Для текст-блоків (text/heading/quote) text-align керується через
+          // TipTap mark на рівні параграфа (кнопка «Вирівнювання по горизонталі»
+          // у панелі), тому НЕ застосовуємо block.align на wrapper — інакше
+          // CSS-cascade переб'є per-paragraph alignment.
+          textAlign: (block.type === "text" || block.type === "heading" || block.type === "quote")
+            ? undefined
+            : block.align,
           outline: `1.5px solid ${outlineColor}`,
           outlineOffset: "0px",
           borderRadius: "8px",
@@ -410,11 +430,11 @@ export default function BlockItem({
           <BlockItemSnapGuide snapGuideH={snapGuideH} />
         )}
 
-        {block.type === "text"    && <TextEditor    block={block} onChange={d => onChange(block.id, d)} selected={selected} containerWidthPx={containerWidthPx} />}
+        {block.type === "text"    && <TextEditor    block={block} onChange={d => onChange(block.id, d)} selected={selected} onSetVAlign={v => onSetVAlign(block.id, v)} containerWidthPx={containerWidthPx} />}
         {block.type === "heading" && <HeadingEditor block={block} onChange={d => onChange(block.id, d)} selected={selected} onSetVAlign={v => onSetVAlign(block.id, v)} containerWidthPx={containerWidthPx} />}
         {block.type === "image"   && <ImageEditor   block={block} onChange={d => onChange(block.id, d)} onUpload={onUpload} previewHeight={previewHeight} selected={selected} onSelectBlock={onSelectBlock} onOverlayActiveChange={setOverlayActive} containerWidthPx={containerWidthPx} />}
         {block.type === "youtube" && <YoutubeEditor block={block} onChange={d => onChange(block.id, d)} selected={selected} />}
-        {block.type === "quote"   && <QuoteEditor   block={block} onChange={d => onChange(block.id, d)} selected={selected} containerWidthPx={containerWidthPx} />}
+        {block.type === "quote"   && <QuoteEditor   block={block} onChange={d => onChange(block.id, d)} selected={selected} onSetVAlign={v => onSetVAlign(block.id, v)} containerWidthPx={containerWidthPx} />}
         {block.type === "card"    && <CardEditor    block={block} onChange={d => onChange(block.id, d)} onUpload={onUpload} />}
         {block.type === "newsCard"&& <NewsCardEditor block={block} onChange={d => onChange(block.id, d)} selected={selected} />}
         {block.type === "divider" && <hr style={{ border: "none", borderTopWidth: "2px", borderTopStyle: "solid", borderTopColor: "#D4A843", margin: "8px 0" }} />}

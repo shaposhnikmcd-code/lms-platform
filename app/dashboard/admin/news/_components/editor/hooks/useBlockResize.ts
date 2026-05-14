@@ -29,8 +29,19 @@ interface Options {
   onClearPreviewHeight: (id: string) => void;
   onChange: (id: string, data: Record<string, string>) => void;
   onReportHeight: (id: string, h: number) => void;
-  getSameRowHeights: () => number[];
+  /** Figma-style edge-snap targets: краї всіх блоків + канвасу.
+   *  yEdges — у px (top/bottom/centerY), xEdges — у % (left/right/centerX).
+   *  rowHeights — висоти блоків з того ж візуального ряду (для "= H" legacy snap-у). */
+  getEdgeSnapTargets: () => { yEdges: number[]; xEdges: number[]; rowHeights: number[] };
   snapThreshold: number;
+  /** Координати блока (x у %, y у px) — потрібні для обчислення абсолютних
+   *  позицій країв (newBottom = blockY + newH). */
+  blockX: number;
+  blockY: number;
+  /** Якщо блок має CSS aspect-lock (newsCard preview): кількість px висоти на 1% ширини.
+   *  Дозволяє width-resize-у snap-нути в момент коли bottom-edge збігається з сусіднім.
+   *  0 — для блоків без aspect-lock через width (image обробляється окремо через aspectRatio). */
+  widthAspectFactor: number;
   /** Максимальна дозволена висота блока в px — для fixedHeight канвасу (preview-картка
    *  360×400). Якщо задано, height resize клампиться до цього значення, щоб блок
    *  не вилазив за нижній край канвасу. */
@@ -46,9 +57,99 @@ export function useBlockResize({
   blockId, blockData, blockWidth, containerWidthPx,
   onSetWidth, onSetWidthAndData, onPreviewWidth, onClearPreview,
   onPreviewHeight, onClearPreviewHeight, onChange,
-  onReportHeight, getSameRowHeights, snapThreshold,
+  onReportHeight, getEdgeSnapTargets, snapThreshold,
+  blockX, blockY, widthAspectFactor,
   maxBlockHeight, minBlockHeight,
 }: Options) {
+  // Figma-style edge-snap helper. Магнітить ширину і висоту так, щоб правий
+  // край (blockX + newW) або нижній край (blockY + newH) блока ляг рівно на
+  // край сусіда (або канвасу). Для aspect-locked блоків (newsCard preview,
+  // image з aspect) ширина і висота повʼязані — snap по одному краю автоматично
+  // підтягує інший.
+  //
+  // thresholdPx — толеранс на Y-осі (px). Для X-осі конвертуємо у % через
+  // containerWidthPx — щоб магніт спрацьовував у тому самому пікс-діапазоні
+  // незалежно від того, ресайзиш по краю чи по висоті.
+  //
+  // invertHeightFromWidth — функція, яка для image з aspectRatio і IMAGE_INNER_DELTA
+  // знає, як з нової висоти отримати нову ширину (не лінійна формула).
+  // Для newsCard preview і інших — просто h / widthAspectFactor.
+  const findEdgeSnap = useCallback((args: {
+    rawWidth: number;       // pct
+    rawHeight: number;      // px
+    widthFixed: boolean;    // true — height-only resize, ширину не чіпаємо
+    heightFixed: boolean;   // true — width-resize на блоці без aspect-lock
+    invertHeightFromWidth: ((h: number) => number) | null;  // h(px) → w(pct) для aspect
+    projectHeightFromWidth: ((w: number) => number) | null; // w(pct) → h(px) для aspect
+  }): { width?: number; height?: number } => {
+    const { rawWidth, rawHeight, widthFixed, heightFixed, invertHeightFromWidth, projectHeightFromWidth } = args;
+    const targets = getEdgeSnapTargets();
+    const thresholdPx = snapThreshold;
+    // Всі delta нормалізуємо у px — інакше pct і px змішуються у bestDelta й
+    // порівняння "найближчий магніт виграє" стає некоректним.
+    const pxPerPct = containerWidthPx / 100;
+
+    let snapW: number | undefined;
+    let snapH: number | undefined;
+    let bestDeltaPx = Infinity;
+
+    // (A) Bottom-edge → Y-edge сусіда. Якщо aspect-lock — підтягуємо ширину теж.
+    if (!heightFixed) {
+      for (const yEdge of targets.yEdges) {
+        const targetH = yEdge - blockY;
+        if (targetH <= 0) continue;
+
+        if (invertHeightFromWidth && !widthFixed) {
+          // Aspect-locked: рахуємо потрібну ширину і її delta (у pct → конверт у px).
+          const targetW = invertHeightFromWidth(targetH);
+          if (targetW <= 0) continue;
+          const deltaPx = Math.abs(targetW - rawWidth) * pxPerPct;
+          if (deltaPx < thresholdPx && deltaPx < bestDeltaPx) {
+            snapW = targetW;
+            snapH = targetH;
+            bestDeltaPx = deltaPx;
+          }
+        } else {
+          // Independent height resize.
+          const deltaPx = Math.abs(targetH - rawHeight);
+          if (deltaPx < thresholdPx && deltaPx < bestDeltaPx) {
+            snapH = targetH;
+            bestDeltaPx = deltaPx;
+          }
+        }
+      }
+    }
+
+    // (B) Right-edge → X-edge сусіда. Якщо aspect-lock — підтягуємо висоту.
+    if (!widthFixed) {
+      for (const xEdge of targets.xEdges) {
+        const targetW = xEdge - blockX;
+        if (targetW <= 0) continue;
+        const deltaPx = Math.abs(targetW - rawWidth) * pxPerPct;
+        if (deltaPx < thresholdPx && deltaPx < bestDeltaPx) {
+          snapW = targetW;
+          bestDeltaPx = deltaPx;
+          snapH = projectHeightFromWidth ? projectHeightFromWidth(targetW) : undefined;
+        }
+      }
+    }
+
+    // (C) Legacy height-match (= H) — тільки коли height resize незалежний
+    // (без aspect-lock). Subsumed by (A) коли y однакові, але корисний коли
+    // зміщення y невелике — користувач хоче "така ж висота".
+    if (!heightFixed && !invertHeightFromWidth) {
+      for (const rh of targets.rowHeights) {
+        const deltaPx = Math.abs(rh - rawHeight);
+        if (deltaPx < thresholdPx && deltaPx < bestDeltaPx) {
+          snapH = rh;
+          bestDeltaPx = deltaPx;
+        }
+      }
+    }
+
+    return { width: snapW, height: snapH };
+  }, [getEdgeSnapTargets, snapThreshold, containerWidthPx, blockX, blockY]);
+
   // Універсальний floor висоти для всіх resize-операцій. Якщо blockType-floor
   // не передано — лишаємо історичні 60px (backward compat для page-builder-а).
   const minH = minBlockHeight && minBlockHeight > 0 ? minBlockHeight : 60;
@@ -109,17 +210,69 @@ export function useBlockResize({
       const imgW = Math.max(60, pxW - IMAGE_INNER_DELTA);
       return Math.max(60, Math.round(imgW / effectiveAspect));
     };
+    // Інверсія computeImageH: з h(px) → w(pct). Зворотній мап з aspect через
+    // IMAGE_INNER_DELTA (паддінг блока) — нелінійна формула.
+    const computeImageW = (h: number): number => {
+      if (effectiveAspect <= 0) return 0;
+      const imgW = Math.max(60, h * effectiveAspect);
+      const pxW = imgW + IMAGE_INNER_DELTA;
+      return (pxW / containerWidthPx) * 100;
+    };
+
+    // CSS-aspect-lock (newsCard preview з aspect-ratio 360:400 на wrapper-і) ЗАВЖДИ
+    // має пріоритет над img-aspect — навіть якщо всередині блока є <img>, висота
+    // керується CSS, а не природніми пропорціями фото. Без цього пріоритету:
+    // resize newsCard preview → useBlockResize детектить <img>, рахує newH з
+    // img.naturalAspect, шле onPreviewHeight з НЕПРАВИЛЬНОЮ висотою → handlePreviewHeight
+    // викликає detectAlignmentsAt з тією ж stale висотою і затирає guide-лінії,
+    // які щойно правильно поставив handlePreviewWidth.
+    const hasCssAspectLock = widthAspectFactor > 0;
+    const hasImageAspectLock = isImage && effectiveAspect > 0 && !hasCssAspectLock;
+    const isWidthAspectLocked = hasImageAspectLock || hasCssAspectLock;
+
+    const projectHeightFromWidth = (pct: number): number => {
+      if (hasCssAspectLock) return pct * widthAspectFactor;
+      if (hasImageAspectLock) return computeImageH(pct);
+      return currentH;
+    };
+    const invertHeightFromWidth = (h: number): number => {
+      if (hasCssAspectLock) return h / widthAspectFactor;
+      if (hasImageAspectLock) return computeImageW(h);
+      return 0;
+    };
 
     const onMove = (ev: MouseEvent) => {
       const freeMode = ev.shiftKey;
       const pct = ((startPx + ev.clientX - startX) / containerWidthPx) * 100;
-      const snapped = Number(snapWidth(pct));
+      let snapped = Number(snapWidth(pct));
+
+      // Figma edge-snap: магнітимо ширину так, щоб правий край блока ліг на
+      // X-край сусіда АБО (якщо aspect-locked) щоб нижній край ліг на Y-край.
+      // Snap до пресетів (snapWidth) йде ПЕРШИМ; edge-snap може перебити пресет
+      // якщо сусід ближче — Figma-семантика «найближчий магніт виграє».
+      if (!freeMode) {
+        const projectedH = projectHeightFromWidth(snapped);
+        const edgeSnap = findEdgeSnap({
+          rawWidth: snapped,
+          rawHeight: projectedH,
+          widthFixed: false,
+          heightFixed: !isWidthAspectLocked,
+          invertHeightFromWidth: isWidthAspectLocked ? invertHeightFromWidth : null,
+          projectHeightFromWidth: isWidthAspectLocked ? projectHeightFromWidth : null,
+        });
+        if (edgeSnap.width !== undefined) {
+          snapped = edgeSnap.width;
+        }
+      }
       currentSnappedPct = snapped;
       setLivePct(snapped);
       onPreviewWidth(blockId, snapped);
       // Auto-aspect для фото: висота йде за шириною. Shift = вільний (юзер сам обрізає
       // пропорції — корисно якщо треба вписати фото в нестандартний слот).
-      if (isImage && !freeMode) {
+      // ВАЖЛИВО: skip-аємо для hasCssAspectLock — там висота керується CSS aspect-ratio,
+      // а не JS-проставленим minHeight; onPreviewHeight з img-aspect-висотою ламає
+      // detectAlignmentsAt (див. handlePreviewHeight у EditorCanvas).
+      if (isImage && !freeMode && !hasCssAspectLock) {
         const newH = computeImageH(snapped);
         currentH = newH;
         onPreviewHeight(blockId, newH);
@@ -128,7 +281,7 @@ export function useBlockResize({
 
     const onUp = () => {
       const finalW = snapWidth(currentSnappedPct);
-      if (isImage) {
+      if (isImage && !hasCssAspectLock) {
         // НЕ зберігаємо minHeight у data — block.height тепер канонічне джерело,
         // stale minHeight ламає геометрію wrapper-а. Див. startResizeHeight.onUp.
         const cleanData = { ...blockData };
@@ -136,6 +289,8 @@ export function useBlockResize({
         onSetWidthAndData(blockId, finalW, cleanData, currentH);
         onClearPreviewHeight(blockId);
       } else {
+        // CSS-aspect-locked (newsCard preview) теж йде сюди — onSetWidth → BlockItem
+        // onSetWidthMarked сам перевизначить height через computeNewsCardPreviewHeight.
         onSetWidth(blockId, finalW);
       }
       onClearPreview(blockId);
@@ -146,7 +301,7 @@ export function useBlockResize({
 
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
-  }, [aspectRatio, blockId, blockData, blockWidth, containerWidthPx, onSetWidth, onSetWidthAndData, onPreviewWidth, onClearPreview, onPreviewHeight, onClearPreviewHeight]);
+  }, [aspectRatio, blockId, blockData, blockWidth, containerWidthPx, onSetWidth, onSetWidthAndData, onPreviewWidth, onClearPreview, onPreviewHeight, onClearPreviewHeight, widthAspectFactor, findEdgeSnap]);
 
   const startResizeHeight = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -170,7 +325,11 @@ export function useBlockResize({
       const h = imgEl.naturalHeight || imgEl.offsetHeight;
       if (w > 0 && h > 0) effectiveAspect = w / h;
     }
-    const hasImageAspect = isImage && effectiveAspect > 0;
+    // CSS-aspect-lock (newsCard preview) має пріоритет над img-aspect — інакше
+    // resize рахує висоту з natural-aspect фото всередині шаблону, що не співпадає
+    // з CSS aspect-ratio 360:400 на wrapper-і, і ламає detectAlignmentsAt.
+    const hasCssAspectLock = widthAspectFactor > 0;
+    const hasImageAspect = isImage && effectiveAspect > 0 && !hasCssAspectLock;
 
     let currentH = startH;
     let currentSnappedPct = Number(blockWidth);
@@ -211,7 +370,32 @@ export function useBlockResize({
           const newImgW = Math.max(60, Math.round(rawH * effectiveAspect));
           const newBlockPxW = newImgW + IMAGE_INNER_DELTA;
           const pctRaw = (newBlockPxW / containerWidthPx) * 100;
-          const snapped = Number(snapWidth(pctRaw));
+          let snapped = Number(snapWidth(pctRaw));
+
+          // Figma edge-snap: магнітимо до сусідніх країв (X-edge → ширина,
+          // Y-edge → висота). Aspect зберігається — snap по одній осі підтягує іншу.
+          const projectImgH = (pct: number): number => {
+            const pxW = (pct / 100) * containerWidthPx;
+            const imgW = Math.max(60, pxW - IMAGE_INNER_DELTA);
+            return Math.max(60, Math.round(imgW / effectiveAspect));
+          };
+          const invertImgW = (h: number): number => {
+            const imgW = Math.max(60, h * effectiveAspect);
+            const pxW = imgW + IMAGE_INNER_DELTA;
+            return (pxW / containerWidthPx) * 100;
+          };
+          const edgeSnap = findEdgeSnap({
+            rawWidth: snapped,
+            rawHeight: projectImgH(snapped),
+            widthFixed: false,
+            heightFixed: false,
+            invertHeightFromWidth: invertImgW,
+            projectHeightFromWidth: projectImgH,
+          });
+          if (edgeSnap.width !== undefined) {
+            snapped = Number(snapWidth(edgeSnap.width));
+          }
+
           currentSnappedPct = snapped;
           const snappedPxW = (snapped / 100) * containerWidthPx;
           const finalImgW = Math.max(60, snappedPxW - IMAGE_INNER_DELTA);
@@ -233,12 +417,19 @@ export function useBlockResize({
         }
         return;
       }
-      const rowHeights = getSameRowHeights();
-      let snapped = rawH;
-      let guideH: number | null = null;
-      for (const rh of rowHeights) {
-        if (Math.abs(rawH - rh) <= snapThreshold) { snapped = rh; guideH = rh; break; }
-      }
+      // Non-image height-resize: snap по нижньому краю блока до Y-краю сусіда
+      // (top/bottom/centerY) АБО до висоти сусіда (legacy = H). findEdgeSnap
+      // обʼєднує обидва підходи — найближчий магніт виграє.
+      const edgeSnap = findEdgeSnap({
+        rawWidth: Number(blockWidth),
+        rawHeight: rawH,
+        widthFixed: true,
+        heightFixed: false,
+        invertHeightFromWidth: null,
+        projectHeightFromWidth: null,
+      });
+      const snapped = edgeSnap.height ?? rawH;
+      const guideH = edgeSnap.height !== undefined ? snapped : null;
       currentH = snapped;
       setMinHeight(snapped);
       setSnapGuideH(guideH);
@@ -254,10 +445,18 @@ export function useBlockResize({
     const onUp = () => {
       let finalH = currentH;
       if (!isImage) {
-        const rowHeights = getSameRowHeights();
-        for (const rh of rowHeights) {
-          if (Math.abs(currentH - rh) <= snapThreshold) { finalH = rh; break; }
-        }
+        // currentH вже snapped через findEdgeSnap у onMove — додаткова passa
+        // не потрібна. Зберігаємо лише safety-net для випадку коли користувач
+        // не рухав мишкою (currentH = startH, snap не йшов).
+        const safety = findEdgeSnap({
+          rawWidth: Number(blockWidth),
+          rawHeight: currentH,
+          widthFixed: true,
+          heightFixed: false,
+          invertHeightFromWidth: null,
+          projectHeightFromWidth: null,
+        });
+        if (safety.height !== undefined) finalH = safety.height;
         setMinHeight(finalH);
         setSnapGuideH(null);
         setResizingH(false);
@@ -292,7 +491,7 @@ export function useBlockResize({
 
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
-  }, [aspectRatio, blockId, blockData, blockWidth, containerWidthPx, onSetWidthAndData, onPreviewWidth, onClearPreview, onPreviewHeight, onClearPreviewHeight, getSameRowHeights, snapThreshold]);
+  }, [aspectRatio, blockId, blockData, blockWidth, containerWidthPx, onSetWidthAndData, onPreviewWidth, onClearPreview, onPreviewHeight, onClearPreviewHeight, findEdgeSnap, minH, maxBlockHeight, widthAspectFactor]);
 
   const startResizeDiagonal = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -304,13 +503,18 @@ export function useBlockResize({
     // Image-блок детектимо через DOM. Для aspect — пріоритет natural з blockData,
     // fallback — рендерені розміри <img>.
     const imgEl = blockRef.current?.querySelector("img") as HTMLImageElement | null;
-    const isImage = !!imgEl;
+    const rawIsImage = !!imgEl;
     let effectiveAspect = aspectRatio;
-    if (isImage && effectiveAspect <= 0 && imgEl) {
+    if (rawIsImage && effectiveAspect <= 0 && imgEl) {
       const w = imgEl.naturalWidth || imgEl.offsetWidth;
       const h = imgEl.naturalHeight || imgEl.offsetHeight;
       if (w > 0 && h > 0) effectiveAspect = w / h;
     }
+    // newsCard preview має CSS aspect-lock — img всередині шаблону не є primary content,
+    // тому resize-логіка не повинна тримати його pixel-aspect. Лікуємо як non-image
+    // блок, але aspect зберігається через blockAspect (поточне співвідношення block-а).
+    const hasCssAspectLock = widthAspectFactor > 0;
+    const isImage = rawIsImage && !hasCssAspectLock;
     const blockAspect = startPxW / startPxH;
     setResizingD(true);
     // Для фото — знімаємо "підлогу" min-height блока на час drag, щоб блок міг вільно
@@ -334,7 +538,37 @@ export function useBlockResize({
       const effectiveDx = freeMode ? dx : (Math.abs(dx) >= Math.abs(dxFromDy) ? dx : dxFromDy);
       const newPxW = Math.max(80, startPxW + effectiveDx);
       const pct = (newPxW / containerWidthPx) * 100;
-      const snapped = Number(snapWidth(pct));
+      let snapped = Number(snapWidth(pct));
+
+      // Figma edge-snap для діагоналі: магнітимо ширину так, щоб правий або
+      // нижній край ляг на сусіда. Aspect блока (image або blockAspect) зберігається.
+      if (!freeMode) {
+        const aspectForH = isImage && effectiveAspect > 0 ? effectiveAspect : blockAspect;
+        const projectDiagH = (p: number): number => {
+          const pxW = (p / 100) * containerWidthPx;
+          if (isImage) {
+            const imgW = Math.max(60, pxW - IMAGE_INNER_DELTA);
+            return Math.max(60, Math.round(imgW / aspectForH));
+          }
+          return Math.max(minH, Math.round(pxW / aspectForH));
+        };
+        const invertDiagW = (h: number): number => {
+          const pxW = isImage ? (h * aspectForH + IMAGE_INNER_DELTA) : (h * aspectForH);
+          return (pxW / containerWidthPx) * 100;
+        };
+        const edgeSnap = findEdgeSnap({
+          rawWidth: snapped,
+          rawHeight: projectDiagH(snapped),
+          widthFixed: false,
+          heightFixed: false,
+          invertHeightFromWidth: invertDiagW,
+          projectHeightFromWidth: projectDiagH,
+        });
+        if (edgeSnap.width !== undefined) {
+          snapped = Number(snapWidth(edgeSnap.width));
+        }
+      }
+
       currentSnappedPct = snapped;
       setLivePct(snapped);
       onPreviewWidth(blockId, snapped);
@@ -379,7 +613,7 @@ export function useBlockResize({
 
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
-  }, [aspectRatio, blockId, blockData, blockWidth, containerWidthPx, onSetWidthAndData, onPreviewWidth, onPreviewHeight, onClearPreviewHeight]);
+  }, [aspectRatio, blockId, blockData, blockWidth, containerWidthPx, onSetWidthAndData, onPreviewWidth, onPreviewHeight, onClearPreviewHeight, minH, maxBlockHeight, findEdgeSnap, widthAspectFactor]);
 
   // displayPct показує live preview ширини під час будь-якого resize.
   // Включаємо resizingH, бо image-aspect-режим bottom-handle теж змінює ширину.

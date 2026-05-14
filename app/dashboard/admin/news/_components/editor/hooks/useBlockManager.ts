@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { Block, BlockAlign, BlockVAlign, BlockWidth } from "../types";
 
 export function useBlockManager(initial: Block[], onChange: (blocks: Block[]) => void) {
@@ -7,6 +7,13 @@ export function useBlockManager(initial: Block[], onChange: (blocks: Block[]) =>
   const [previewYs, setPreviewYs] = useState<Record<string, number>>({});
   const [previewHeights, setPreviewHeights] = useState<Record<string, number>>({});
   const [blockHeights, setBlockHeights] = useState<Record<string, number>>({});
+
+  // Ref-дзеркало previewWidths — щоб handlePreviewHeight, який спрацьовує
+  // ОДРАЗУ після handlePreviewWidth у aspect-locked resize (image / newsCard),
+  // міг прочитати свіже значення width БЕЗ чекання React-рендеру. Без цього
+  // друга detectAlignmentsAt-перевірка йде зі stale-width і стирає guide-лінії,
+  // які щойно поставив перший виклик.
+  const previewWidthsRef = useRef<Record<string, number>>({});
 
   const updateBlock = useCallback((id: string, data: Record<string, string>) =>
     onChange(initial.map(b => b.id === id ? { ...b, data } : b)), [initial, onChange]);
@@ -42,6 +49,7 @@ export function useBlockManager(initial: Block[], onChange: (blocks: Block[]) =>
   }, [initial, onChange]);
 
   const setWidth = useCallback((id: string, w: BlockWidth) => {
+    delete previewWidthsRef.current[id];
     setPreviewWidths(prev => { const n = { ...prev }; delete n[id]; return n; });
     onChange(initial.map(b => b.id === id ? { ...b, width: w } : b));
   }, [initial, onChange]);
@@ -49,6 +57,7 @@ export function useBlockManager(initial: Block[], onChange: (blocks: Block[]) =>
   // Атомарний апдейт: одночасно ширина + data + (опційно) висота блока.
   // Використовується для діагонального resize щоб уникнути stale-closure overlap.
   const setWidthAndData = useCallback((id: string, w: BlockWidth, data: Record<string, string>, height?: number) => {
+    delete previewWidthsRef.current[id];
     setPreviewWidths(prev => { const n = { ...prev }; delete n[id]; return n; });
     onChange(initial.map(b => b.id === id
       ? { ...b, width: w, data, ...(height !== undefined ? { height } : {}) }
@@ -65,11 +74,15 @@ export function useBlockManager(initial: Block[], onChange: (blocks: Block[]) =>
   const setBg = useCallback((id: string, c: string) =>
     onChange(initial.map(b => b.id === id ? { ...b, bgColor: c } : b)), [initial, onChange]);
 
-  const setPreview = useCallback((id: string, pct: number) =>
-    setPreviewWidths(prev => ({ ...prev, [id]: pct })), []);
+  const setPreview = useCallback((id: string, pct: number) => {
+    previewWidthsRef.current[id] = pct;
+    setPreviewWidths(prev => ({ ...prev, [id]: pct }));
+  }, []);
 
-  const clearPreview = useCallback((id: string) =>
-    setPreviewWidths(prev => { const n = { ...prev }; delete n[id]; return n; }), []);
+  const clearPreview = useCallback((id: string) => {
+    delete previewWidthsRef.current[id];
+    setPreviewWidths(prev => { const n = { ...prev }; delete n[id]; return n; });
+  }, []);
 
   const setPreviewX = useCallback((id: string, xPct: number) =>
     setPreviewXs(prev => ({ ...prev, [id]: xPct })), []);
@@ -93,7 +106,7 @@ export function useBlockManager(initial: Block[], onChange: (blocks: Block[]) =>
     setBlockHeights(prev => prev[id] === h ? prev : { ...prev, [id]: h }), []);
 
   return {
-    previewWidths, previewXs, previewYs, previewHeights, blockHeights,
+    previewWidths, previewWidthsRef, previewXs, previewYs, previewHeights, blockHeights,
     updateBlock, deleteBlock, moveBlock, duplicateBlock,
     setWidth, setWidthAndData, setAlign, setVAlign, setBg,
     setPreview, clearPreview, setPreviewX, clearPreviewX,
