@@ -309,8 +309,16 @@ export default function CourseRow({
     ? 'bg-rose-500/10 border-rose-400/40 text-rose-200 focus:ring-rose-400/40'
     : 'bg-rose-100/60 border-rose-400/60 text-rose-900 focus:ring-rose-500/40';
 
-  const priceTone = row.overridePrice !== null ? inputOverride : inputOk;
-  const oldPriceTone = row.overrideOldPrice !== null ? inputOverride : inputOk;
+  // Amber-рамка показує що значення відрізняється від код-дефолту, а не просто
+  // «існує override у БД». Інакше: коли користувач явно зрівняв override з
+  // дефолтом (наприклад код-ціна = 8499 і override = 8499) — рамка горіла без
+  // підстав, бо БД-рядок є, але візуальний ефект нульовий.
+  const priceTone =
+    row.overridePrice !== null && row.overridePrice !== row.defaultPrice ? inputOverride : inputOk;
+  const oldPriceTone =
+    row.overrideOldPrice !== null && row.overrideOldPrice !== row.defaultOldPrice
+      ? inputOverride
+      : inputOk;
   const priceCls = `${inputBase} text-center ${priceParsed.ok && priceParsed.num !== null ? priceTone : inputBad}`;
   const oldPriceCls = `${inputBase} text-center ${oldPriceParsed.ok ? oldPriceTone : inputBad}`;
 
