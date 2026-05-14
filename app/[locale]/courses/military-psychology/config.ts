@@ -1,5 +1,5 @@
 export const MILITARY_PSYCHOLOGY_COURSE = {
-  price: '5999',
+  price: '8499',
   priceOld: '8499',
   deadline: '10 травня',
   courseId: 'military-psychology',

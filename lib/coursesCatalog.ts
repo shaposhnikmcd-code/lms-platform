@@ -70,7 +70,7 @@ export const COURSES_CATALOG: CatalogCourse[] = [
     slug: 'military-psychology',
     titleUk: 'Військова психологія',
     titleKey: 'courses.militaryPsy.title',
-    price: 5999,
+    price: 8499,
     icon: '🪖',
     accent: '#1C3A2E',
     accentRgb: '28,58,46',
