@@ -31,7 +31,7 @@ export default function SectionedTextToolbar({
   editor: Editor;
   vAlign?: BlockVAlign;
   onSetVAlign?: (v: BlockVAlign) => void;
-  /** Чи показувати секцію «Списки та блоки» (•/1./❝/—). У білдер-sidebar
+  /** Чи показувати секцію «Структура» (списки, цитата, code-block, розділювачі). У білдер-sidebar
    *  default=false (короткий toolbar), у TextStudioModal — true (повноцінний). */
   showLists?: boolean;
 }) {
@@ -130,7 +130,7 @@ export default function SectionedTextToolbar({
   // Порядок секцій 1-в-1 з OverlayToolbar (Текст на фото):
   //   Дії(inline) → Колір тексту → Колір фону → Шрифт+розмір → Стиль →
   //   Гориз → Верт → Форма підкладки → Ефекти → Посилання
-  // Унікальні для текст-блока (нема в overlay) — Списки та блоки, Виділення —
+  // Унікальні для текст-блока (нема в overlay) — Структура, Виділення —
   // вставлені перед Посиланням, щоб не ламати overlay-порядок зверху.
   return (
     <div style={{ fontFamily: ff }}>
@@ -272,8 +272,9 @@ export default function SectionedTextToolbar({
 
       {showLists && (
         <Section padTop={0}>
-          <SectionLabel>Списки та блоки</SectionLabel>
-          <div style={{ display: "flex", gap: "5px" }}>
+          <SectionLabel>Структура</SectionLabel>
+          {/* Списки */}
+          <div style={{ display: "flex", gap: "5px", marginBottom: 5 }}>
             <ToggleBtn flex active={editor.isActive("bulletList")} onClick={() => editor.chain().focus().toggleBulletList().run()} title="Маркований список">
               <span style={{ fontSize: "14px" }}>•</span>
             </ToggleBtn>
@@ -283,8 +284,23 @@ export default function SectionedTextToolbar({
             <ToggleBtn flex active={editor.isActive("blockquote")} onClick={() => editor.chain().focus().toggleBlockquote().run()} title="Цитата">
               <span style={{ fontSize: "13px" }}>❝</span>
             </ToggleBtn>
+            <ToggleBtn flex active={editor.isActive("codeBlock")} onClick={() => editor.chain().focus().toggleCodeBlock().run()} title="Кодовий блок (моноширинний)">
+              <span style={{ fontSize: "11px", fontFamily: "ui-monospace, monospace" }}>{"</>"}</span>
+            </ToggleBtn>
+          </div>
+          {/* Розділювачі і вставки */}
+          <div style={{ display: "flex", gap: "5px" }}>
             <ToggleBtn flex active={false} onClick={() => editor.chain().focus().setHorizontalRule().run()} title="Горизонтальна лінія">
               <span style={{ fontSize: "11px", letterSpacing: "-1px" }}>—</span>
+            </ToggleBtn>
+            <ToggleBtn flex active={false} onClick={() => editor.chain().focus().insertContent('<p style="text-align:center;color:#9B7C45;letter-spacing:0.6em;margin:24px 0;font-size:14px">✦ ✦ ✦</p><p></p>').run()} title="Декоративний розділювач (✦ ✦ ✦)">
+              <span style={{ fontSize: "11px", letterSpacing: "0.15em", color: "#9B7C45" }}>✦✦✦</span>
+            </ToggleBtn>
+            <ToggleBtn flex active={false} onClick={() => editor.chain().focus().insertContent('<p style="background:#FAF6F0;border-left:4px solid #D4A843;padding:12px 16px;border-radius:0 8px 8px 0;color:#1C3A2E;font-style:italic;margin:12px 0">💡 Важливо: …</p><p></p>').run()} title="Виноска / нотатка (✦ важливо)">
+              <span style={{ fontSize: "13px" }}>💡</span>
+            </ToggleBtn>
+            <ToggleBtn flex active={false} onClick={() => editor.chain().focus().setHardBreak().run()} title="Розрив рядка (Shift+Enter)">
+              <span style={{ fontSize: "11px" }}>↵</span>
             </ToggleBtn>
           </div>
         </Section>

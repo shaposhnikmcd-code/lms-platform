@@ -6,7 +6,7 @@
 import React from "react";
 import type { EventData, EventEducationItem, EventRegionKey } from "@/lib/news/templates/types";
 import type { EventRegion } from "@/lib/news/templates/EventTemplate";
-import { TextInput, TextAreaInput, ImageInput, SectionHeader } from "./Inputs";
+import { TextInput, RichTextInput, RichTextField, ImageInput, SectionHeader } from "./Inputs";
 
 interface Props {
   data: EventData;
@@ -107,6 +107,46 @@ export default function EventForm({ data, onChange, onFocusRegion }: Props) {
         )}
       </RegionGroup>
 
+      {/* Порядок відповідає візуальному порядку на картці:
+          фото → фахівець (Імʼя/роль зверху overlay) → вартість/тривалість →
+          CTA → права панель (Про → Освіта). */}
+      <RegionGroup region="specialist" onFocusRegion={onFocusRegion}>
+        <SectionHeader
+          icon="👤"
+          title="Фахівець"
+          whereOnCard="низ фото"
+          hidden={isHidden("specialist")}
+          onToggleHidden={() => toggleHidden("specialist")}
+        />
+        {!isHidden("specialist") && (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <RichTextInput
+              label="Імʼя"
+              value={data.specialistName}
+              onChange={v => update("specialistName", v)}
+              placeholder="Анна Гудзенко"
+              maxLength={80}
+            />
+            <RichTextInput
+              label="Роль / спеціалізація"
+              value={data.specialistRole}
+              onChange={v => update("specialistRole", v)}
+              placeholder="Психолог-консультант"
+              maxLength={80}
+            />
+            <div style={{ gridColumn: "1 / -1" }}>
+              <RichTextInput
+                label="Tagline"
+                value={data.specialistTagline}
+                onChange={v => update("specialistTagline", v)}
+                placeholder="3+ роки в ментальному здоровʼї"
+                maxLength={120}
+              />
+            </div>
+          </div>
+        )}
+      </RegionGroup>
+
       <RegionGroup region="metrics" onFocusRegion={onFocusRegion}>
         <SectionHeader
           icon="🎯"
@@ -117,20 +157,38 @@ export default function EventForm({ data, onChange, onFocusRegion }: Props) {
         />
         {!isHidden("metrics") && (
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-            <TextInput
-              label="Вартість"
-              value={data.price}
-              onChange={v => update("price", v)}
-              placeholder="1300 грн"
-              maxLength={40}
-            />
-            <TextInput
-              label="Тривалість"
-              value={data.duration}
-              onChange={v => update("duration", v)}
-              placeholder="50 хв"
-              maxLength={40}
-            />
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <RichTextInput
+                label="Підпис вартості"
+                value={data.priceLabel}
+                onChange={v => update("priceLabel", v)}
+                placeholder="ВАРТІСТЬ"
+                maxLength={40}
+              />
+              <RichTextInput
+                label="Вартість"
+                value={data.price}
+                onChange={v => update("price", v)}
+                placeholder="1300 грн"
+                maxLength={40}
+              />
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <RichTextInput
+                label="Підпис тривалості"
+                value={data.durationLabel}
+                onChange={v => update("durationLabel", v)}
+                placeholder="ТРИВАЛІСТЬ"
+                maxLength={40}
+              />
+              <RichTextInput
+                label="Тривалість"
+                value={data.duration}
+                onChange={v => update("duration", v)}
+                placeholder="50 хв"
+                maxLength={40}
+              />
+            </div>
           </div>
         )}
       </RegionGroup>
@@ -145,7 +203,7 @@ export default function EventForm({ data, onChange, onFocusRegion }: Props) {
         />
         {!isHidden("cta") && (
           <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 220px) 1fr", gap: 8 }}>
-            <TextInput
+            <RichTextInput
               label="Текст кнопки"
               value={data.ctaLabel}
               onChange={v => update("ctaLabel", v)}
@@ -163,43 +221,6 @@ export default function EventForm({ data, onChange, onFocusRegion }: Props) {
         )}
       </RegionGroup>
 
-      <RegionGroup region="specialist" onFocusRegion={onFocusRegion}>
-        <SectionHeader
-          icon="👤"
-          title="Фахівець"
-          whereOnCard="низ фото"
-          hidden={isHidden("specialist")}
-          onToggleHidden={() => toggleHidden("specialist")}
-        />
-        {!isHidden("specialist") && (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-            <TextInput
-              label="Імʼя"
-              value={data.specialistName}
-              onChange={v => update("specialistName", v)}
-              placeholder="Анна Гудзенко"
-              maxLength={80}
-            />
-            <TextInput
-              label="Роль / спеціалізація"
-              value={data.specialistRole}
-              onChange={v => update("specialistRole", v)}
-              placeholder="Психолог-консультант"
-              maxLength={80}
-            />
-            <div style={{ gridColumn: "1 / -1" }}>
-              <TextInput
-                label="Tagline"
-                value={data.specialistTagline}
-                onChange={v => update("specialistTagline", v)}
-                placeholder="3+ роки в ментальному здоровʼї"
-                maxLength={120}
-              />
-            </div>
-          </div>
-        )}
-      </RegionGroup>
-
       <RegionGroup region="about" onFocusRegion={onFocusRegion}>
         <SectionHeader
           icon="📖"
@@ -209,14 +230,22 @@ export default function EventForm({ data, onChange, onFocusRegion }: Props) {
           onToggleHidden={() => toggleHidden("about")}
         />
         {!isHidden("about") && (
-          <TextAreaInput
-            label="Опис"
-            value={data.about}
-            onChange={v => update("about", v)}
-            placeholder="Описати підхід, з ким працює, у чому експертний..."
-            rows={4}
-            hint="нові абзаци — Enter Enter"
-          />
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <HeadingField
+              label="Заголовок секції"
+              value={data.aboutHeading}
+              fallback="Про фахівця"
+              placeholder="напр. Про фахівця"
+              onChange={v => update("aboutHeading", v)}
+            />
+            <RichTextField
+              label="Опис"
+              value={data.about}
+              onChange={v => update("about", v)}
+              placeholder="Описати підхід, з ким працює, у чому експертний..."
+              rows={4}
+            />
+          </div>
         )}
       </RegionGroup>
 
@@ -228,6 +257,17 @@ export default function EventForm({ data, onChange, onFocusRegion }: Props) {
         hidden={isHidden("education")}
         onToggleHidden={() => toggleHidden("education")}
       />
+      {!isHidden("education") && (
+        <div style={{ marginBottom: 6 }}>
+          <HeadingField
+            label="Заголовок секції"
+            value={data.educationHeading}
+            fallback="Освіта та кваліфікація"
+            placeholder="напр. Освіта та кваліфікація"
+            onChange={v => update("educationHeading", v)}
+          />
+        </div>
+      )}
       {!isHidden("education") && (
       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
         {data.education.map((edu, idx) => (
@@ -326,6 +366,93 @@ export default function EventForm({ data, onChange, onFocusRegion }: Props) {
       </div>
       )}
       </RegionGroup>
+    </div>
+  );
+}
+
+/** Поле редагування заголовка секції з toggle «прибрати/додати».
+ *  Порожній рядок = label не рендериться у preview-картці. Кнопка «✕ Прибрати»
+ *  очищає значення; коли поле порожнє — показуємо «+ Додати заголовок» який
+ *  повертає fallback (дефолтний текст). */
+function HeadingField({
+  label,
+  value,
+  fallback,
+  placeholder,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  fallback: string;
+  placeholder?: string;
+  onChange: (v: string) => void;
+}) {
+  const ff = "Inter, system-ui, -apple-system, sans-serif";
+  const safeValue = typeof value === "string" ? value : "";
+  const isEmpty = safeValue.trim() === "";
+  if (isEmpty) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0" }}>
+        <span style={{ fontSize: 11, color: "#9B7C45", fontFamily: ff, fontStyle: "italic" }}>
+          {label} прихований
+        </span>
+        <button
+          type="button"
+          onClick={() => onChange(fallback)}
+          title="Повернути заголовок секції"
+          style={{
+            padding: "5px 10px",
+            fontSize: 11,
+            fontWeight: 600,
+            fontFamily: ff,
+            background: "#FFFFFF",
+            color: "#1C3A2E",
+            border: "1.5px dashed #D4A843",
+            borderRadius: 6,
+            cursor: "pointer",
+          }}
+        >
+          + Додати заголовок
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div style={{ display: "flex", alignItems: "flex-end", gap: 6 }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <RichTextInput
+          label={label}
+          value={safeValue}
+          onChange={onChange}
+          placeholder={placeholder}
+          maxLength={80}
+        />
+      </div>
+      <button
+        type="button"
+        onClick={() => onChange("")}
+        title="Прибрати заголовок (текст секції лишається)"
+        aria-label="Прибрати заголовок"
+        style={{
+          width: 28,
+          height: 30,
+          marginBottom: 0,
+          borderRadius: 6,
+          border: "1px solid #FECACA",
+          background: "#FFFFFF",
+          color: "#B91C1C",
+          cursor: "pointer",
+          fontSize: 13,
+          fontWeight: 700,
+          fontFamily: ff,
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          flexShrink: 0,
+        }}
+      >
+        ✕
+      </button>
     </div>
   );
 }

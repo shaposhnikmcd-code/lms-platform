@@ -16,15 +16,39 @@
 
 import React from "react";
 import type { EventData } from "./types";
+import { sanitizeHtml } from "@/lib/sanitizeHtml";
+import CoverImageBox from "./CoverImageBox";
 
 function paragraphs(text: string): string[] {
   if (!text) return [];
   return text.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
 }
 
+/** Чи value виглядає як HTML (містить <тег>). Для backward-compat: plain text
+ *  значення з міграції шаблонів все ще працює через paragraphs(). */
+function looksLikeHtml(value: string): boolean {
+  return /<\w+[^>]*>/.test(value || "");
+}
+
+/** Рендер inline-значення: якщо HTML — через sanitizeHtml + dangerouslySetInnerHTML,
+ *  інакше — як plain text. Використовується для коротких полів (імʼя, роль, ціна,
+ *  CTA, заголовки секцій), де користувач може застосовувати inline-форматування
+ *  через ✎ Редактор. Тег-обгортка (span/h2/div) — задає caller. */
+function Inline({ value, as: Tag = "span", style, className }: {
+  value: string;
+  as?: "span" | "div";
+  style?: React.CSSProperties;
+  className?: string;
+}) {
+  if (looksLikeHtml(value)) {
+    return <Tag style={style} className={className} dangerouslySetInnerHTML={{ __html: sanitizeHtml(value) }} />;
+  }
+  return <Tag style={style} className={className}>{value}</Tag>;
+}
+
 /** Region-id-и для field↔preview-зонування в редакторі. Кожен мапиться на
  *  відповідний section у формі лівого панелю. */
-export type EventRegion = "photo" | "metrics" | "cta" | "specialist" | "about" | "education";
+export type EventRegion = "title" | "photo" | "metrics" | "cta" | "specialist" | "about" | "education";
 
 interface Props {
   data: EventData;
@@ -47,6 +71,12 @@ interface Props {
    *  а не розтягувалась на 100% контейнера сторінки. Якщо undefined —
    *  width 100% (картка заповнює довірений батьком слот). */
   maxWidth?: number;
+  /** Який набір photo-параметрів використовувати при рендері: preview-fit/scale
+   *  для feed-картки і page-fit/scale для повної сторінки. Default — "page". */
+  photoRole?: "preview" | "page";
+  /** Якщо задано — клік по фото викликає колбек з focal-координатами 0..100.
+   *  Активує crosshair cursor + дот-маркер у точці фокусу. Лише для editor. */
+  onPhotoFocalClick?: (x: number, y: number) => void;
 }
 
 /** Стиль region-обводки коли активний. Не міняє layout (outline + box-shadow). */
@@ -61,7 +91,7 @@ function regionStyle(active: boolean): React.CSSProperties {
   };
 }
 
-export default function EventTemplate({ data, fixedHeight, disableLinks, highlight, maxWidth }: Props) {
+export default function EventTemplate({ data, fixedHeight, disableLinks, highlight, maxWidth, photoRole = "page", onPhotoFocalClick }: Props) {
   const h = (region: EventRegion) => regionStyle(highlight === region);
   const hidden = data.hidden || {};
   const isHidden = (r: EventRegion) => hidden[r] === true;
@@ -86,34 +116,65 @@ export default function EventTemplate({ data, fixedHeight, disableLinks, highlig
     containerType: "inline-size",
   };
 
-  return (
-    <article style={cardStyle} className="event-tpl-card">
+  // Title-блок НАД карткою — використовує спільне поле `data.title` (= News.title,
+   // тобто та сама «Заголовок» з мета-форми). Toggle через hidden.title.
+   // Рендериться лише якщо менеджер увімкнув цю опцію і title непорожній.
+  const showCardHeading = !isHidden("title") && !!data.title && data.title.trim() !== "";
+
+  const wrapperStyle: React.CSSProperties = maxWidth
+    ? { width: "100%", maxWidth: `${maxWidth}px`, marginLeft: "auto", marginRight: "auto" }
+    : { width: "100%" };
+
+  // Якщо є heading — wrap-аємо у fragment, інакше — повертаємо тільки article.
+  const cardEl = (
+    <article style={{ ...cardStyle, marginLeft: undefined, marginRight: undefined, maxWidth: undefined, width: "100%" }} className="event-tpl-card">
       {/* ── LEFT: фото з overlay (приховано якщо hidden.photo) ─────────────── */}
       {!photoHidden && (
       <div
+        onClick={
+          onPhotoFocalClick && data.photo.url
+            ? (e) => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                const x = ((e.clientX - rect.left) / rect.width) * 100;
+                const y = ((e.clientY - rect.top) / rect.height) * 100;
+                onPhotoFocalClick(Math.max(0, Math.min(100, x)), Math.max(0, Math.min(100, y)));
+              }
+            : undefined
+        }
         style={{
           position: "relative",
           background: "#1C3A2E",
           minHeight: 360,
           overflow: "hidden",
+          cursor: onPhotoFocalClick && data.photo.url ? "crosshair" : undefined,
           ...h("photo"),
         }}
       >
         {data.photo.url ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={data.photo.url}
-            alt={data.photo.alt || data.specialistName || ""}
-            style={{
-              position: "absolute",
-              inset: 0,
-              width: "100%",
-              height: "100%",
-              objectFit: "cover",
-              display: "block",
-            }}
-            loading="lazy"
-          />
+          <>
+            <CoverImageBox image={data.photo} role={photoRole} />
+            {onPhotoFocalClick && (
+              <span
+                aria-hidden
+                style={{
+                  position: "absolute",
+                  left: `${data.photo.focalX ?? 50}%`,
+                  top: `${data.photo.focalY ?? 50}%`,
+                  width: 14,
+                  height: 14,
+                  marginLeft: -7,
+                  marginTop: -7,
+                  borderRadius: "50%",
+                  background: "#D4A843",
+                  border: "2px solid #FFFFFF",
+                  boxShadow: "0 0 0 1px rgba(28,58,46,0.5), 0 2px 6px rgba(0,0,0,0.35)",
+                  pointerEvents: "none",
+                  transition: "left 0.12s, top 0.12s",
+                  zIndex: 5,
+                }}
+              />
+            )}
+          </>
         ) : (
           // Soft "no photo yet" стан — diagonal pinstripe + центрований icon.
           // Не різкий емоджі на пустому темному фоні, а делікатний placeholder.
@@ -190,18 +251,22 @@ export default function EventTemplate({ data, fixedHeight, disableLinks, highlig
           {!isHidden("specialist") && (data.specialistName || data.specialistRole || data.specialistTagline) && (
             <div style={{ ...h("specialist"), padding: highlight === "specialist" ? "4px 8px" : 0, margin: highlight === "specialist" ? "-4px -8px" : 0 }}>
               {data.specialistName && (
-                <div style={{ fontSize: 22, fontWeight: 700, lineHeight: 1.2, marginBottom: 4 }}>
-                  {data.specialistName}
-                </div>
+                <Inline
+                  as="div"
+                  value={data.specialistName}
+                  style={{ fontSize: 22, fontWeight: 700, lineHeight: 1.2, marginBottom: 4 }}
+                />
               )}
               {data.specialistRole && (
-                <div style={{ fontSize: 12, fontWeight: 600, color: "#F5E1A4", letterSpacing: "0.04em" }}>
-                  {data.specialistRole}
-                </div>
+                <Inline
+                  as="div"
+                  value={data.specialistRole}
+                  style={{ fontSize: 12, fontWeight: 600, color: "#F5E1A4", letterSpacing: "0.04em" }}
+                />
               )}
               {data.specialistTagline && (
                 <div style={{ fontSize: 12, color: "rgba(255,255,255,0.78)", fontWeight: 500, marginTop: 2 }}>
-                  ▪ {data.specialistTagline}
+                  ▪ <Inline as="span" value={data.specialistTagline} />
                 </div>
               )}
             </div>
@@ -221,14 +286,18 @@ export default function EventTemplate({ data, fixedHeight, disableLinks, highlig
             >
               {data.price && (
                 <div>
-                  <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.16em", color: "rgba(245,225,164,0.85)" }}>ВАРТІСТЬ</div>
-                  <div style={{ fontSize: 18, fontWeight: 700, marginTop: 2 }}>{data.price}</div>
+                  {data.priceLabel && (
+                    <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.16em", color: "rgba(245,225,164,0.85)" }}>{data.priceLabel}</div>
+                  )}
+                  <Inline as="div" value={data.price} style={{ fontSize: 18, fontWeight: 700, marginTop: data.priceLabel ? 2 : 0 }} />
                 </div>
               )}
               {data.duration && (
                 <div>
-                  <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.16em", color: "rgba(245,225,164,0.85)" }}>ТРИВАЛІСТЬ</div>
-                  <div style={{ fontSize: 18, fontWeight: 700, marginTop: 2 }}>{data.duration}</div>
+                  {data.durationLabel && (
+                    <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.16em", color: "rgba(245,225,164,0.85)" }}>{data.durationLabel}</div>
+                  )}
+                  <Inline as="div" value={data.duration} style={{ fontSize: 18, fontWeight: 700, marginTop: data.durationLabel ? 2 : 0 }} />
                 </div>
               )}
             </div>
@@ -261,7 +330,7 @@ export default function EventTemplate({ data, fixedHeight, disableLinks, highlig
                     transition: "background 0.15s",
                   }}
                 >
-                  {data.ctaLabel}
+                  <Inline as="span" value={data.ctaLabel} />
                 </a>
               ) : disableLinks ? (
                 // disableLinks=true — preview/thumbnail контекст: рендеримо нормальну
@@ -285,7 +354,7 @@ export default function EventTemplate({ data, fixedHeight, disableLinks, highlig
                     boxShadow: data.ctaHref ? "0 4px 12px -4px rgba(212,168,67,0.55)" : "none",
                   }}
                 >
-                  {data.ctaLabel}
+                  <Inline as="span" value={data.ctaLabel} />
                 </span>
               ) : (
                 // Editor (full page mode) + порожній URL → subtle warning, щоб
@@ -335,21 +404,31 @@ export default function EventTemplate({ data, fixedHeight, disableLinks, highlig
         {/* Про фахівця */}
         {!isHidden("about") && data.about && (
           <section style={h("about")}>
-            <SectionLabel text="Про фахівця" />
-            <div style={{ marginTop: 10 }}>
-              {paragraphs(data.about).map((p, i) => (
-                <p
-                  key={i}
-                  style={{
-                    fontSize: 13.5,
-                    lineHeight: 1.65,
-                    color: "#292524",
-                    margin: i === 0 ? "0" : "10px 0 0",
-                  }}
-                >
-                  {p}
-                </p>
-              ))}
+            {data.aboutHeading && <SectionLabel text={data.aboutHeading} />}
+            <div
+              className="event-tpl-about"
+              style={{ marginTop: data.aboutHeading ? 10 : 0 }}
+            >
+              {looksLikeHtml(data.about) ? (
+                <div
+                  style={{ fontSize: 13.5, lineHeight: 1.65, color: "#292524" }}
+                  dangerouslySetInnerHTML={{ __html: sanitizeHtml(data.about) }}
+                />
+              ) : (
+                paragraphs(data.about).map((p, i) => (
+                  <p
+                    key={i}
+                    style={{
+                      fontSize: 13.5,
+                      lineHeight: 1.65,
+                      color: "#292524",
+                      margin: i === 0 ? "0" : "10px 0 0",
+                    }}
+                  >
+                    {p}
+                  </p>
+                ))
+              )}
             </div>
           </section>
         )}
@@ -357,8 +436,8 @@ export default function EventTemplate({ data, fixedHeight, disableLinks, highlig
         {/* Освіта та кваліфікація */}
         {!isHidden("education") && data.education.length > 0 && (
           <section style={h("education")}>
-            <SectionLabel text="Освіта та кваліфікація" />
-            <ul style={{ listStyle: "none", padding: 0, margin: "10px 0 0" }}>
+            {data.educationHeading && <SectionLabel text={data.educationHeading} />}
+            <ul style={{ listStyle: "none", padding: 0, margin: `${data.educationHeading ? 10 : 0}px 0 0` }}>
               {data.education.map((edu, i) => (
                 <li
                   key={i}
@@ -418,16 +497,49 @@ export default function EventTemplate({ data, fixedHeight, disableLinks, highlig
         .event-tpl-info::-webkit-scrollbar-thumb:hover {
           background: rgba(28,58,46,0.32);
         }
+        .event-tpl-about p { margin: 0 0 10px; }
+        .event-tpl-about p:last-child { margin-bottom: 0; }
+        .event-tpl-about a { color: #1C3A2E; text-decoration: underline; }
+        .event-tpl-card-heading p { margin: 0 0 6px; }
+        .event-tpl-card-heading p:last-child { margin-bottom: 0; }
       `}</style>
     </article>
+  );
+
+  if (!showCardHeading) return cardEl;
+
+  return (
+    <div style={wrapperStyle}>
+      <div
+        className="event-tpl-card-heading"
+        style={{
+          padding: "26px 28px 24px",
+          marginBottom: 12,
+          background: "#FFFFFF",
+          borderRadius: 18,
+          boxShadow: "0 6px 20px -10px rgba(28,58,46,0.15)",
+          textAlign: "center",
+          fontFamily: "Inter, system-ui, -apple-system, sans-serif",
+          color: "#1C3A2E",
+          fontSize: 20,
+          fontWeight: 700,
+          lineHeight: 1.35,
+          ...h("title"),
+        }}
+      >
+        {data.title}
+      </div>
+      {cardEl}
+    </div>
   );
 }
 
 function SectionLabel({ text }: { text: string }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-      <span style={{ width: 14, height: 2, background: "#1C3A2E", flexShrink: 0 }} aria-hidden />
-      <span
+    <div>
+      <Inline
+        as="span"
+        value={text}
         style={{
           fontSize: 10,
           fontWeight: 800,
@@ -435,9 +547,7 @@ function SectionLabel({ text }: { text: string }) {
           textTransform: "uppercase",
           color: "#1C3A2E",
         }}
-      >
-        {text}
-      </span>
+      />
     </div>
   );
 }

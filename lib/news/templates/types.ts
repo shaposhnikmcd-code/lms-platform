@@ -180,11 +180,11 @@ export interface EventEducationItem {
 
 /** Region-id-и EVENT. У 2-колонному layout-і reorder не передбачено
  *  (зони фіксовані), але hidden map дозволяє приховати окремі регіони. */
-export type EventRegionKey = "photo" | "specialist" | "metrics" | "cta" | "about" | "education";
+export type EventRegionKey = "title" | "photo" | "specialist" | "metrics" | "cta" | "about" | "education";
 
 /** Усі регіони (для validation + hidden map). */
 export const EVENT_ALL_REGIONS: EventRegionKey[] = [
-  "photo", "specialist", "metrics", "cta", "about", "education",
+  "title", "photo", "specialist", "metrics", "cta", "about", "education",
 ];
 
 /** Native-розмір картки фахівця у пікселях. Це **внутрішня** ширина рендеру:
@@ -195,6 +195,9 @@ export const EVENT_ALL_REGIONS: EventRegionKey[] = [
 export const EVENT_CARD_WIDTH_MIN = 600;
 export const EVENT_CARD_WIDTH_MAX = 1200;
 export const EVENT_CARD_WIDTH_DEFAULT = 600;
+export const EVENT_CARD_HEIGHT_MIN = 320;
+export const EVENT_CARD_HEIGHT_MAX = 900;
+export const EVENT_CARD_HEIGHT_DEFAULT = 400;
 
 /** Пресети для UI. Числа підібрано під /news layout:
  *  - 600  → 2 картки в ряд на feed-сторінці (компакт)
@@ -218,8 +221,14 @@ export interface EventData {
   photo: ArticleImage;
   /** Назва події (overlay на фото зверху або підпис). */
   title: string;
+  /** Підпис над вартістю на overlay. Default — «ВАРТІСТЬ». Менеджер може
+   *  змінити (наприклад «ЦІНА», «ВНЕСОК», «AT THE DOOR» тощо) або зробити
+   *  порожнім — тоді label не рендериться, лишається тільки значення. */
+  priceLabel: string;
   /** Вартість, наприклад «1300 грн». */
   price: string;
+  /** Підпис над тривалістю. Default — «ТРИВАЛІСТЬ». Аналогічно до priceLabel. */
+  durationLabel: string;
   /** Тривалість, наприклад «50 хвилин». */
   duration: string;
   /** Текст CTA-кнопки: «Записатися на консультацію» або «Придбати запис». */
@@ -232,8 +241,16 @@ export interface EventData {
   specialistRole: string;
   /** Підпис-tagline під роллю, напр. «3+ роки в ментальному здоровʼї». */
   specialistTagline: string;
+  /** Заголовок секції «Про фахівця». Менеджер може змінити або зробити порожнім —
+   *  тоді label-смужка над текстом не рендериться (сам текст лишається). Default
+   *  у EVENT_DEFAULTS — «Про фахівця». */
+  aboutHeading: string;
   /** Текст «Про фахівця» — кілька абзаців через \n\n. */
   about: string;
+  /** Заголовок секції «Освіта та кваліфікація». Аналогічно до aboutHeading —
+   *  порожній → label прихований, список лишається. Default — «Освіта та
+   *  кваліфікація». */
+  educationHeading: string;
   /** Список освітніх записів. Кожен — title + meta-рядок (роки/тип). */
   education: EventEducationItem[];
   /** Map region→hidden. Якщо `hidden[region] === true` — секція не рендериться. */
@@ -242,27 +259,37 @@ export interface EventData {
    *  точках споживання (single-page /news/{slug}, feed-блок у page-builder-і,
    *  preview у редакторі). Default — EVENT_CARD_WIDTH_DEFAULT (600). */
   cardWidth: number;
+  /** Native-висота картки в пікселях. Використовується як `baseHeight` для
+   *  preview-карток (feed-блок + редактор-превʼю). На /news/{slug} картка
+   *  рендериться з auto-висотою (контент диктує), тому це поле впливає лише
+   *  на feed/preview-режим. Default — EVENT_CARD_HEIGHT_DEFAULT (400). */
+  cardHeight: number;
 }
 
 export const EVENT_DEFAULTS: EventData = {
   photo: { url: "", alt: "", caption: "" },
   title: "[Назва події]",
+  priceLabel: "ВАРТІСТЬ",
   price: "[X грн]",
+  durationLabel: "ТРИВАЛІСТЬ",
   duration: "[N хв]",
   ctaLabel: "Записатися на консультацію",
   ctaHref: "",
   specialistName: "[Імʼя Прізвище]",
   specialistRole: "[Посада / спеціалізація]",
   specialistTagline: "[Tagline — досвід або фокус, 1 рядок]",
+  aboutHeading: "Про фахівця",
   about:
     "Опишіть фахівця — підхід, з ким працює, у чому експертний. 2-3 речення, без зайвої теорії — конкретика про користь для клієнта.\n\n" +
     "Можна додати другий абзац: про що клієнти найчастіше звертаються, який формат сесій, очікувані результати.",
+  educationHeading: "Освіта та кваліфікація",
   education: [
     { title: "[Назва освіти]", meta: "[Тип / диплом · роки]" },
     { title: "[Друга освіта]", meta: "[Програма · рік завершення]" },
     { title: "[Курс підвищення]", meta: "[Школа · рік]" },
   ],
   cardWidth: EVENT_CARD_WIDTH_DEFAULT,
+  cardHeight: EVENT_CARD_HEIGHT_DEFAULT,
 };
 
 // =============================================================================
@@ -355,19 +382,33 @@ function mergeDefaults(kind: TemplateKind, src: Record<string, unknown>): Articl
   return {
     photo: sanitizeArticleImage({ ...d.photo, ...(s.photo || {}) }),
     title: s.title ?? d.title,
+    priceLabel: typeof s.priceLabel === "string" ? s.priceLabel : d.priceLabel,
     price: s.price ?? d.price,
+    durationLabel: typeof s.durationLabel === "string" ? s.durationLabel : d.durationLabel,
     duration: s.duration ?? d.duration,
     ctaLabel: s.ctaLabel ?? d.ctaLabel,
     ctaHref: s.ctaHref ?? d.ctaHref,
     specialistName: s.specialistName ?? d.specialistName,
     specialistRole: s.specialistRole ?? d.specialistRole,
     specialistTagline: s.specialistTagline ?? d.specialistTagline,
+    aboutHeading: typeof s.aboutHeading === "string" ? s.aboutHeading : d.aboutHeading,
     about: s.about ?? d.about,
+    educationHeading: typeof s.educationHeading === "string" ? s.educationHeading : d.educationHeading,
     education: Array.isArray(s.education) && s.education.length > 0
       ? s.education.map(e => ({ title: e?.title ?? "", meta: e?.meta ?? "" }))
       : d.education,
-    hidden: sanitizeHidden(s.hidden, EVENT_ALL_REGIONS),
+    // Title-over-card — opt-in: для backward compat (старі EVENT-записи без
+    // hidden.title не повинні раптом показати заголовок над карткою). Якщо
+    // в source `hidden` взагалі відсутній — вважаємо що менеджер ще не торкав
+    // тогл, тримаємо title прихованим. Якщо `hidden` присутній (хай і без
+    // ключа title) — менеджер уже свідомо керував видимістю, не нав'язуємо.
+    hidden: (() => {
+      const sanitized = sanitizeHidden(s.hidden, EVENT_ALL_REGIONS) || {};
+      if (!s.hidden) sanitized.title = true;
+      return Object.keys(sanitized).length > 0 ? sanitized : undefined;
+    })(),
     cardWidth: clampNum(s.cardWidth, EVENT_CARD_WIDTH_MIN, EVENT_CARD_WIDTH_MAX, EVENT_CARD_WIDTH_DEFAULT),
+    cardHeight: clampNum(s.cardHeight, EVENT_CARD_HEIGHT_MIN, EVENT_CARD_HEIGHT_MAX, EVENT_CARD_HEIGHT_DEFAULT),
   };
 }
 

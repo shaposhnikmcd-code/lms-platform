@@ -13,7 +13,7 @@
 
 import React from "react";
 import type { ArticleData, EventData, TemplateKind } from "./types";
-import { EVENT_CARD_WIDTH_DEFAULT } from "./types";
+import { EVENT_CARD_WIDTH_DEFAULT, EVENT_CARD_HEIGHT_DEFAULT } from "./types";
 import EventTemplate, { type EventRegion } from "./EventTemplate";
 import CoverImageBox from "./CoverImageBox";
 
@@ -22,15 +22,15 @@ import CoverImageBox from "./CoverImageBox";
  *  передає `getEventPreviewDims(data)`. ARTICLE — фіксована 360×400 портретна. */
 export const TEMPLATE_PREVIEW_DIMS: Record<TemplateKind, { width: number; height: number }> = {
   ARTICLE: { width: 360, height: 400 },
-  EVENT: { width: EVENT_CARD_WIDTH_DEFAULT, height: 400 },
+  EVENT: { width: EVENT_CARD_WIDTH_DEFAULT, height: EVENT_CARD_HEIGHT_DEFAULT },
 };
 
-/** Повертає preview-розмір EVENT-картки з урахуванням `data.cardWidth`.
- *  Висота лишається 400 (фіксований feed-aspect); ширина — з даних. */
+/** Повертає preview-розмір EVENT-картки з урахуванням `data.cardWidth` і
+ *  `data.cardHeight`. Обидва числа задаються менеджером у редакторі. */
 export function getEventPreviewDims(data: EventData): { width: number; height: number } {
   return {
     width: data.cardWidth || EVENT_CARD_WIDTH_DEFAULT,
-    height: TEMPLATE_PREVIEW_DIMS.EVENT.height,
+    height: data.cardHeight || EVENT_CARD_HEIGHT_DEFAULT,
   };
 }
 
@@ -50,9 +50,11 @@ interface Props {
   highlight?: EventRegion | null;
   /** Якщо задано — клік по cover-фото викликає колбек з focal-координатами 0..100. */
   onCoverFocalClick?: (x: number, y: number) => void;
+  /** EVENT-only: клік по фото фахівця для focal-point picker у редакторі. */
+  onPhotoFocalClick?: (x: number, y: number) => void;
 }
 
-export default function TemplatePreviewCard({ kind, data, href, width, height, disableLinks, highlight, onCoverFocalClick }: Props) {
+export default function TemplatePreviewCard({ kind, data, href, width, height, disableLinks, highlight, onCoverFocalClick, onPhotoFocalClick }: Props) {
   // EVENT: native width читаємо з data.cardWidth (якщо props.width не override).
   // ARTICLE: фіксовані dims з TEMPLATE_PREVIEW_DIMS — портретна 360×400.
   const dims = kind === "EVENT" ? getEventPreviewDims(data as EventData) : TEMPLATE_PREVIEW_DIMS[kind];
@@ -64,7 +66,14 @@ export default function TemplatePreviewCard({ kind, data, href, width, height, d
   if (kind === "EVENT") {
     const inner = (
       <div style={{ width: w, height: h, display: "flex" }}>
-        <EventTemplate data={data as EventData} fixedHeight={h} disableLinks={noInnerLinks} highlight={highlight} />
+        <EventTemplate
+          data={data as EventData}
+          fixedHeight={h}
+          disableLinks={noInnerLinks}
+          highlight={highlight}
+          photoRole="preview"
+          onPhotoFocalClick={onPhotoFocalClick}
+        />
       </div>
     );
     if (href) {

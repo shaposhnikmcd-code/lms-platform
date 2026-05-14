@@ -224,6 +224,125 @@ export function RichTextField({ label, value, onChange, placeholder, hint, rows 
   );
 }
 
+// ── Rich-text single-line input (input + малий ✎ → TextStudioModal) ─────────
+
+interface RichTextInputProps {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  hint?: string;
+  maxLength?: number;
+}
+
+/** Видаляє <p>-обгортки навколо контенту — щоб HTML був inline-safe для
+ *  рендера всередині <h*>, <span>, <div> з inline-форматуванням. Зберігає
+ *  inline-теги (<strong>, <em>, <span style>, <a>, <br>). */
+function stripBlockTags(html: string): string {
+  if (!html) return "";
+  return html
+    .replace(/<\/?p[^>]*>/gi, "")
+    .replace(/<\/?div[^>]*>/gi, "")
+    .replace(/<\/?h[1-6][^>]*>/gi, "")
+    .trim();
+}
+
+export function RichTextInput({ label, value, onChange, placeholder, hint, maxLength }: RichTextInputProps) {
+  const [open, setOpen] = useState(false);
+  // Safe-coalesce: старі чернетки в localStorage можуть не мати нових полів
+  // (priceLabel/durationLabel тощо) → undefined пробивається сюди. Не падаємо.
+  const safeValue = typeof value === "string" ? value : "";
+  const isHtml = /<\w+[^>]*>/.test(safeValue);
+  const inputValue = isHtml ? stripHtmlForPreview(safeValue) : safeValue;
+  return (
+    <label style={{ display: "block", fontFamily: ff }}>
+      <FieldHeader label={label} hint={hint} value={inputValue} maxLength={maxLength} />
+      <div style={{ position: "relative" }}>
+        <input
+          type="text"
+          value={inputValue}
+          onChange={e => onChange(e.target.value)}
+          placeholder={placeholder}
+          maxLength={maxLength}
+          style={{
+            width: "100%",
+            padding: "7px 32px 7px 10px",
+            fontSize: 13,
+            fontFamily: ff,
+            color: "#1C1917",
+            background: "#FFFFFF",
+            border: "1.5px solid #E8D5B7",
+            borderRadius: 7,
+            outline: "none",
+            transition: "border-color 0.15s",
+          }}
+          onFocus={e => (e.currentTarget.style.borderColor = "#D4A843")}
+          onBlur={e => (e.currentTarget.style.borderColor = "#E8D5B7")}
+        />
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          title="Відкрити редактор з форматуванням (B/I/U, кольори, посилання)"
+          aria-label="Редактор"
+          style={{
+            position: "absolute",
+            top: "50%",
+            right: 6,
+            transform: "translateY(-50%)",
+            width: 22,
+            height: 22,
+            padding: 0,
+            border: "1px solid transparent",
+            background: "transparent",
+            color: "#9B7C45",
+            borderRadius: 4,
+            cursor: "pointer",
+            fontFamily: ff,
+            fontSize: 12,
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            transition: "color 0.15s, background 0.15s, border-color 0.15s",
+          }}
+          onMouseEnter={e => {
+            e.currentTarget.style.color = "#1C3A2E";
+            e.currentTarget.style.background = "#FAF6F0";
+            e.currentTarget.style.borderColor = "#D4A843";
+          }}
+          onMouseLeave={e => {
+            e.currentTarget.style.color = "#9B7C45";
+            e.currentTarget.style.background = "transparent";
+            e.currentTarget.style.borderColor = "transparent";
+          }}
+        >
+          ✎
+        </button>
+      </div>
+      {open && (
+        <TextStudioModal
+          title={`Редактор · ${label}`}
+          icon="¶"
+          blockType="text"
+          initialHtml={isHtml ? safeValue : (safeValue ? `<p>${safeValue}</p>` : "")}
+          onCancel={() => setOpen(false)}
+          onSave={(html) => {
+            // Inline-safe: видаляємо <p>/<div>/<h*>-обгортки, лишаємо тільки
+            // inline-форматування. Якщо результат після стрипу == plain text —
+            // зберігаємо як plain (без HTML-noise).
+            const stripped = stripBlockTags(html);
+            const plainProbe = stripped.replace(/<[^>]+>/g, "").trim();
+            const isJustPlain = !/<\w+[^>]*>/.test(stripped);
+            onChange(isJustPlain ? plainProbe : stripped);
+            setOpen(false);
+          }}
+          paperBgColor=""
+          paperAlign="left"
+        />
+      )}
+    </label>
+  );
+}
+
 // ── Field header (label + counter + hint) ───────────────────────────────────
 
 function FieldHeader({ label, hint, value, maxLength }: { label: string; hint?: string; value: string; maxLength?: number }) {
@@ -365,7 +484,6 @@ export function ImageInput({ label, value, onChange, aspectRatio, withCaption = 
         >
           <span style={{ fontSize: 22 }} aria-hidden>🖼</span>
           <span>{uploading ? "Завантаження..." : "Натисніть, щоб завантажити"}</span>
-          <span style={{ fontSize: 9.5, fontWeight: 400, color: "#A8956C" }}>JPG / PNG / WebP, до 8 MB</span>
         </div>
       )}
     </div>
@@ -487,9 +605,6 @@ export function ImageInput({ label, value, onChange, aspectRatio, withCaption = 
             ↻ Повернути
           </button>
         )}
-        <span style={{ fontSize: 9.5, color: "#A8956C", flex: 1, textAlign: "right" }}>
-          JPG · PNG · WebP · до 8 MB
-        </span>
       </div>
       {error && <div style={{ fontSize: 11, color: "#DC2626" }}>{error}</div>}
     </div>
@@ -657,26 +772,7 @@ export function SectionHeader({
         >
           {title}
         </span>
-        {whereOnCard && !hidden && (
-          <span
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 3,
-              padding: "1px 7px",
-              borderRadius: 999,
-              background: "#F5E1A4",
-              color: "#5C4513",
-              fontSize: 9.5,
-              fontWeight: 600,
-              letterSpacing: "0.02em",
-            }}
-            title={`Куди це піде на картці: ${whereOnCard}`}
-          >
-            <span aria-hidden style={{ fontSize: 8 }}>↗</span>
-            {whereOnCard}
-          </span>
-        )}
+        {/* whereOnCard-чипи прибрано — дублюють інфо preview-підсвітки. */}
         {hidden && (
           <span
             style={{

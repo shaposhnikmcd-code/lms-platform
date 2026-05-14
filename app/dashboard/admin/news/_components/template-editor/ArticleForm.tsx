@@ -272,7 +272,6 @@ export default function ArticleForm({ data, onChange, onFocusRegion }: Props) {
                       onChange={v => updateSection(idx, { body: v })}
                       placeholder="Параграфи через порожній рядок..."
                       rows={3}
-                      hint="✎ Редактор → форматування"
                     />
                     {s.image && (
                       <ImageInput

@@ -18,15 +18,18 @@ import {
   EVENT_CARD_WIDTH_MIN,
   EVENT_CARD_WIDTH_MAX,
   EVENT_CARD_WIDTH_DEFAULT,
+  EVENT_CARD_HEIGHT_MIN,
+  EVENT_CARD_HEIGHT_MAX,
+  EVENT_CARD_HEIGHT_DEFAULT,
   type ArticleData,
   type ArticleImage,
   type EventData,
   type TemplateKind,
 } from "@/lib/news/templates/types";
 import ArticleTemplate from "@/lib/news/templates/ArticleTemplate";
-// EventTemplate більше не імпортуємо напряму — для EVENT preview використовується
-// TemplatePreviewCard (який всередині рендерить EventTemplate). Для ARTICLE
-// page-mode використовується ArticleTemplate.
+// EventTemplate імпортуємо для page-mode preview ("Повна сторінка") — на feed-mode
+// preview ("У стрічці /news") використовується TemplatePreviewCard.
+import EventTemplate from "@/lib/news/templates/EventTemplate";
 import TemplatePreviewCard from "@/lib/news/templates/TemplatePreviewCard";
 import type { EventRegion } from "@/lib/news/templates/EventTemplate";
 import type { ArticleRegion } from "@/lib/news/templates/ArticleTemplate";
@@ -65,6 +68,15 @@ export default function TemplateEditor({ newsId }: Props) {
   // SEO-розкривашка: за замовчуванням закрита, бо excerpt auto-derive з контенту
   // і менеджеру не треба його чіпати. Розкривається коли треба override для Google.
   const [seoOpen, setSeoOpen] = useState(false);
+  // Fullscreen iframe-превʼю — той самий паттерн що в /dashboard/admin/news.
+  const [previewOpen, setPreviewOpen] = useState(false);
+  // Esc закриває модалку.
+  useEffect(() => {
+    if (!previewOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setPreviewOpen(false); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [previewOpen]);
   // Dirty state — є локальні зміни, ще не збережені на сервер. Показуємо
   // «Чернетка · не збережено» badge у sticky header; cleared на save success.
   const [isDirty, setIsDirty] = useState(false);
@@ -524,6 +536,46 @@ export default function TemplateEditor({ newsId }: Props) {
             кнопка зайва. Якщо потрібно сховати — менеджер видаляє новину
             кнопкою Trash на /dashboard/admin/news. */}
 
+        {/* Превʼю — fullscreen iframe з /uk/news/{slug}?preview=1
+            (той самий паттерн що в /dashboard/admin/news). */}
+        <button
+          type="button"
+          onClick={() => {
+            if (!meta.slug.trim()) {
+              setToast({ message: "Заповни slug, щоб подивитись превʼю", type: "error" });
+              return;
+            }
+            setPreviewOpen(true);
+          }}
+          title={`Превʼю · /news/${meta.slug}`}
+          style={{
+            padding: "10px 14px",
+            fontSize: 13,
+            fontWeight: 700,
+            background: "#FFFFFF",
+            color: "#1C3A2E",
+            border: "1px solid #E8D5B7",
+            borderRadius: 10,
+            cursor: "pointer",
+            fontFamily: ff,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            transition: "background 0.15s, border-color 0.15s",
+          }}
+          onMouseEnter={e => {
+            e.currentTarget.style.background = "#FAF6F0";
+            e.currentTarget.style.borderColor = "#D4A843";
+          }}
+          onMouseLeave={e => {
+            e.currentTarget.style.background = "#FFFFFF";
+            e.currentTarget.style.borderColor = "#E8D5B7";
+          }}
+        >
+          <span aria-hidden>👁</span>
+          <span>Превʼю</span>
+        </button>
+
         <button
           type="button"
           onClick={() => save()}
@@ -553,6 +605,88 @@ export default function TemplateEditor({ newsId }: Props) {
               : "💾 Зберегти"}
         </button>
       </div>
+
+      {/* Fullscreen iframe-превʼю. Той самий паттерн що в /dashboard/admin/news
+          (itemPreview modal): backdrop + центрований iframe з ?preview=1 для
+          unpublished/template новин. Закриття: backdrop click, Esc, ✕ кнопка. */}
+      {previewOpen && (
+        <div
+          onClick={() => setPreviewOpen(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 80,
+            background: "rgba(28,25,23,0.85)",
+            backdropFilter: "blur(8px)",
+            display: "flex",
+            flexDirection: "column",
+            fontFamily: ff,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "12px 20px",
+              borderBottom: "1px solid rgba(255,255,255,0.1)",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 12, color: "rgba(255,255,255,0.9)", minWidth: 0 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", whiteSpace: "nowrap" }}>
+                Превʼю · /news/{meta.slug}
+              </span>
+              <span style={{ fontSize: 12, color: "rgba(255,255,255,0.6)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {meta.title}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); setPreviewOpen(false); }}
+              title="Закрити (Esc)"
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: 8,
+                background: "rgba(255,255,255,0.06)",
+                border: "1px solid rgba(255,255,255,0.1)",
+                color: "rgba(255,255,255,0.8)",
+                cursor: "pointer",
+                fontSize: 16,
+                fontFamily: ff,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              ✕
+            </button>
+          </div>
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ flex: 1, overflow: "hidden", padding: 24 }}
+          >
+            <div
+              style={{
+                margin: "0 auto",
+                height: "100%",
+                maxWidth: 1280,
+                borderRadius: 10,
+                overflow: "hidden",
+                boxShadow: "0 20px 60px rgba(0,0,0,0.45)",
+                background: "#FFFFFF",
+              }}
+            >
+              <iframe
+                key={meta.slug}
+                src={`/uk/news/${meta.slug}?preview=1`}
+                title={`Превʼю · ${meta.title}`}
+                style={{ width: "100%", height: "100%", border: 0 }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Toast — bottom-right, solid colors, animated entry. Не вгорі, щоб не
           конкурувати з floating DashboardBackButton. */}
@@ -622,6 +756,7 @@ export default function TemplateEditor({ newsId }: Props) {
               контент. */}
           <div
             style={{
+              position: "relative",
               display: "flex",
               flexDirection: "column",
               gap: 8,
@@ -635,15 +770,58 @@ export default function TemplateEditor({ newsId }: Props) {
                 label="Заголовок"
                 value={meta.title}
                 onChange={v => setMeta({ ...meta, title: v })}
-                hint="адмін + SEO-title"
               />
               <TextInput
                 label="Slug (URL)"
                 value={meta.slug}
                 onChange={v => setMeta({ ...meta, slug: v })}
-                hint="кирилиця → latin"
               />
             </div>
+            {/* EVENT-only: око 👁 — позиціоновано АБСОЛЮТНО у правому нижньому
+                куті мета-блоку, на 6px вище нижньої риски (як у SectionHeader-ах
+                з paddingBottom:6). Однакова X-координата і відступ від риски,
+                як у Фото фахівця, Фахівець, Вартість і тривалість. */}
+            {kind === "EVENT" && (() => {
+              const eventData = data as EventData;
+              const titleHidden = eventData.hidden?.title === true;
+              const toggle = () => {
+                const next = { ...(eventData.hidden || {}) };
+                if (titleHidden) delete next.title;
+                else next.title = true;
+                editData({ ...eventData, hidden: next });
+              };
+              return (
+                <button
+                  type="button"
+                  onClick={toggle}
+                  onMouseEnter={() => setFocusedRegion("title")}
+                  onMouseLeave={() => setFocusedRegion(null)}
+                  title={titleHidden ? "Показати заголовок над карткою" : "Сховати заголовок з-над картки"}
+                  aria-label={titleHidden ? "Показати заголовок" : "Сховати заголовок"}
+                  style={{
+                    position: "absolute",
+                    right: 0,
+                    top: -10,
+                    width: 28,
+                    height: 24,
+                    borderRadius: 5,
+                    border: "1px solid #E8D5B7",
+                    background: titleHidden ? "#FFFFFF" : "#FAF6F0",
+                    color: titleHidden ? "#9B7C45" : "#1C3A2E",
+                    cursor: "pointer",
+                    fontSize: 11,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontFamily: ff,
+                    padding: 0,
+                    zIndex: 1,
+                  }}
+                >
+                  {titleHidden ? "🚫" : "👁"}
+                </button>
+              );
+            })()}
             {/* SEO-excerpt — приховано за toggle, бо auto-derive з контенту.
                 Менеджеру не треба знати про це поле в 95% випадків. Розкривається
                 якщо потрібно перевизначити опис для Google search-видачі. */}
@@ -684,25 +862,6 @@ export default function TemplateEditor({ newsId }: Props) {
                 />
               </div>
             )}
-          </div>
-
-          {/* Divider-label замість декоративного банера */}
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-              marginTop: 4,
-              marginBottom: 8,
-              fontFamily: ff,
-            }}
-          >
-            <span aria-hidden style={{ fontSize: 12 }}>{kind === "ARTICLE" ? "📰" : "🎟"}</span>
-            <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.16em", textTransform: "uppercase", color: "#1C3A2E" }}>
-              Зміст картки
-            </span>
-            <span style={{ flex: 1, height: 1, background: "#E8D5B7" }} />
-            <span style={{ fontSize: 10, color: "#9B7C45" }}>видно на /news</span>
           </div>
 
           {/* Kind-specific form (фактичний контент картки) */}
@@ -773,18 +932,49 @@ export default function TemplateEditor({ newsId }: Props) {
               </PreviewSection>
             </div>
           ) : (
-            <PreviewSection
-              badge="🎟"
-              title="Картка фахівця"
-              hint="однаковий рендер на /news і на /news/{slug} · потягни праву грань щоб змінити ширину"
-              accent="#1C3A2E"
-            >
-              <ResizableEventPreview
-                data={data as EventData}
-                onChange={d => editData(d)}
-                highlight={focusedRegion}
-              />
-            </PreviewSection>
+            <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+              <PreviewSection
+                badge="🃏"
+                title="У стрічці /news"
+                hint="так картка зʼявиться у списку новин · потягни кут щоб змінити розмір"
+                accent="#A8956C"
+              >
+                <CoverImageToolbar
+                  scope="preview"
+                  cover={(data as EventData).photo}
+                  onChange={patch => data && editData(applyEventPhotoPatch(data as EventData, patch))}
+                />
+                <ResizableEventPreview
+                  data={data as EventData}
+                  onChange={d => editData(d)}
+                  highlight={focusedRegion}
+                  onPhotoFocalClick={(x, y) => data && editData(applyEventPhotoPatch(data as EventData, { focalX: x, focalY: y }))}
+                />
+              </PreviewSection>
+              <PreviewSection
+                badge="📄"
+                title="Повна сторінка"
+                hint="/news/{slug}"
+                accent="#1C3A2E"
+              >
+                <CoverImageToolbar
+                  scope="page"
+                  cover={(data as EventData).photo}
+                  onChange={patch => data && editData(applyEventPhotoPatch(data as EventData, patch))}
+                />
+                <PreviewCanvas>
+                  <div style={{ padding: "32px 24px", background: "#FFFFFF", width: "100%" }}>
+                    <EventTemplate
+                      data={data as EventData}
+                      highlight={focusedRegion}
+                      maxWidth={(data as EventData).cardWidth || undefined}
+                      photoRole="page"
+                      onPhotoFocalClick={(x, y) => data && editData(applyEventPhotoPatch(data as EventData, { focalX: x, focalY: y }))}
+                    />
+                  </div>
+                </PreviewCanvas>
+              </PreviewSection>
+            </div>
           )}
         </main>
       </div>
@@ -848,6 +1038,23 @@ function applyArticleCoverPatch(article: ArticleData, patch: Partial<ArticleImag
     next.pageScale = next.previewScale;
   }
   return { ...article, cover: next };
+}
+
+/** EVENT-version applyArticleCoverPatch для data.photo. */
+function applyEventPhotoPatch(event: EventData, patch: Partial<ArticleImage>): EventData {
+  const photo = event.photo;
+  const next: ArticleImage = { ...photo, ...patch };
+  if (next.linkScale) {
+    if (patch.previewFit !== undefined) next.pageFit = patch.previewFit;
+    if (patch.pageFit !== undefined) next.previewFit = patch.pageFit;
+    if (patch.previewScale !== undefined) next.pageScale = patch.previewScale;
+    if (patch.pageScale !== undefined) next.previewScale = patch.previewScale;
+  }
+  if (patch.linkScale === true && photo.linkScale !== true) {
+    next.pageFit = next.previewFit;
+    next.pageScale = next.previewScale;
+  }
+  return { ...event, photo: next };
 }
 
 /** Toolbar над preview-блоком для керування cover-зображенням.
@@ -1017,46 +1224,72 @@ function CoverImageToolbar({
   );
 }
 
-/** Preview-канвас з drag-resize: користувач тягне праву грань картки щоб
- *  змінити її ширину. Поведінка така ж як у звичайному news-block resize
- *  ([BlockItem.tsx → useBlockResize]), але спрощена — лише ew-resize (висота
- *  EVENT-картки фіксована 400). Ширина зберігається у `data.cardWidth`. */
+/** Preview-канвас з drag-resize: користувач тягне праву грань (тільки ширина),
+ *  нижню грань (тільки висота) або правий-нижній кут (діагональ — обидва
+ *  виміри одночасно). Розміри зберігаються у `data.cardWidth` + `data.cardHeight`.
+ *  Кнопка «↺ Стандартний розмір» скидає обидва до дефолтних. */
 function ResizableEventPreview({
   data,
   onChange,
   highlight,
+  onPhotoFocalClick,
 }: {
   data: EventData;
   onChange: (next: EventData) => void;
   highlight: EventRegion | null;
+  onPhotoFocalClick?: (x: number, y: number) => void;
 }) {
   const currentWidth = data.cardWidth || EVENT_CARD_WIDTH_DEFAULT;
-  const [resizing, setResizing] = useState(false);
+  const currentHeight = data.cardHeight || EVENT_CARD_HEIGHT_DEFAULT;
+  type ResizeMode = "x" | "y" | "xy";
+  const [resizing, setResizing] = useState<ResizeMode | null>(null);
   const [hover, setHover] = useState(false);
   const startXRef = React.useRef(0);
+  const startYRef = React.useRef(0);
   const startWRef = React.useRef(0);
+  const startHRef = React.useRef(0);
   const draftWRef = React.useRef(currentWidth);
+  const draftHRef = React.useRef(currentHeight);
 
-  const startResize = (e: React.MouseEvent) => {
+  const isDefaultSize = currentWidth === EVENT_CARD_WIDTH_DEFAULT && currentHeight === EVENT_CARD_HEIGHT_DEFAULT;
+
+  const beginResize = (mode: ResizeMode, e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     startXRef.current = e.clientX;
+    startYRef.current = e.clientY;
     startWRef.current = currentWidth;
+    startHRef.current = currentHeight;
     draftWRef.current = currentWidth;
-    setResizing(true);
+    draftHRef.current = currentHeight;
+    setResizing(mode);
+
+    const cursor = mode === "x" ? "ew-resize" : mode === "y" ? "ns-resize" : "nwse-resize";
 
     const onMove = (ev: MouseEvent) => {
-      const delta = ev.clientX - startXRef.current;
-      const next = Math.max(
-        EVENT_CARD_WIDTH_MIN,
-        Math.min(EVENT_CARD_WIDTH_MAX, Math.round((startWRef.current + delta) / 10) * 10),
-      );
-      if (next === draftWRef.current) return;
-      draftWRef.current = next;
-      onChange({ ...data, cardWidth: next });
+      let nextW = draftWRef.current;
+      let nextH = draftHRef.current;
+      if (mode === "x" || mode === "xy") {
+        const dx = ev.clientX - startXRef.current;
+        nextW = Math.max(
+          EVENT_CARD_WIDTH_MIN,
+          Math.min(EVENT_CARD_WIDTH_MAX, Math.round((startWRef.current + dx) / 10) * 10),
+        );
+      }
+      if (mode === "y" || mode === "xy") {
+        const dy = ev.clientY - startYRef.current;
+        nextH = Math.max(
+          EVENT_CARD_HEIGHT_MIN,
+          Math.min(EVENT_CARD_HEIGHT_MAX, Math.round((startHRef.current + dy) / 10) * 10),
+        );
+      }
+      if (nextW === draftWRef.current && nextH === draftHRef.current) return;
+      draftWRef.current = nextW;
+      draftHRef.current = nextH;
+      onChange({ ...data, cardWidth: nextW, cardHeight: nextH });
     };
     const onUp = () => {
-      setResizing(false);
+      setResizing(null);
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
       document.body.style.cursor = "";
@@ -1064,11 +1297,15 @@ function ResizableEventPreview({
     };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
-    document.body.style.cursor = "ew-resize";
+    document.body.style.cursor = cursor;
     document.body.style.userSelect = "none";
   };
 
-  const showHandle = hover || resizing;
+  const resetSize = () => {
+    onChange({ ...data, cardWidth: EVENT_CARD_WIDTH_DEFAULT, cardHeight: EVENT_CARD_HEIGHT_DEFAULT });
+  };
+
+  const showHandles = hover || resizing !== null;
 
   return (
     <div
@@ -1078,8 +1315,41 @@ function ResizableEventPreview({
         border: "1px solid #E8D5B7",
         overflowX: "auto",
         overflowY: "hidden",
+        position: "relative",
       }}
     >
+      {/* Reset-кнопка — над канвасом, праворуч. Disabled коли вже стандартний
+          розмір (щоб менеджер не клікав даремно і бачив поточний стан). */}
+      <div style={{ position: "absolute", top: 12, right: 12, zIndex: 20 }}>
+        <button
+          type="button"
+          onClick={resetSize}
+          disabled={isDefaultSize}
+          title={isDefaultSize
+            ? "Картка вже стандартного розміру"
+            : `Повернути до стандартного розміру (${EVENT_CARD_WIDTH_DEFAULT}×${EVENT_CARD_HEIGHT_DEFAULT})`}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "6px 12px",
+            fontSize: 11,
+            fontWeight: 700,
+            fontFamily: ff,
+            color: isDefaultSize ? "#A8956C" : "#1C3A2E",
+            background: isDefaultSize ? "rgba(255,255,255,0.6)" : "#FFFFFF",
+            border: `1px solid ${isDefaultSize ? "#E8D5B7" : "#D4A843"}`,
+            borderRadius: 8,
+            cursor: isDefaultSize ? "not-allowed" : "pointer",
+            boxShadow: isDefaultSize ? "none" : "0 2px 6px -2px rgba(28,58,46,0.18)",
+            transition: "background 0.15s, color 0.15s, border-color 0.15s",
+          }}
+        >
+          <span aria-hidden style={{ fontSize: 13, lineHeight: 1 }}>↺</span>
+          <span>Стандартний розмір</span>
+        </button>
+      </div>
+
       <div style={{ padding: "32px 24px", display: "flex", justifyContent: "center", minWidth: "min-content" }}>
         <div
           onMouseEnter={() => setHover(true)}
@@ -1088,20 +1358,19 @@ function ResizableEventPreview({
         >
           <div
             style={{
-              outline: resizing || hover ? "2px solid #D4A843" : "2px solid transparent",
+              outline: resizing !== null || hover ? "2px solid #D4A843" : "2px solid transparent",
               outlineOffset: 2,
               borderRadius: 16,
               transition: "outline-color 0.15s",
             }}
           >
-            <TemplatePreviewCard kind="EVENT" data={data} highlight={highlight} />
+            <TemplatePreviewCard kind="EVENT" data={data} highlight={highlight} onPhotoFocalClick={onPhotoFocalClick} />
           </div>
 
-          {/* Right resize handle — тягни праву грань щоб змінити ширину картки.
-              Pattern взято з BlockItem.tsx (news-block resize). */}
+          {/* Right edge — лише ширина */}
           <div
-            onMouseDown={startResize}
-            title={`Ширина: ${currentWidth}px · потягни щоб змінити (${EVENT_CARD_WIDTH_MIN}–${EVENT_CARD_WIDTH_MAX})`}
+            onMouseDown={(e) => beginResize("x", e)}
+            title={`Ширина: ${currentWidth}px · потягни (${EVENT_CARD_WIDTH_MIN}–${EVENT_CARD_WIDTH_MAX})`}
             style={{
               position: "absolute",
               right: -8,
@@ -1113,7 +1382,7 @@ function ResizableEventPreview({
               alignItems: "center",
               justifyContent: "center",
               zIndex: 10,
-              opacity: showHandle ? 1 : 0,
+              opacity: showHandles ? 1 : 0,
               transition: "opacity 0.15s",
             }}
           >
@@ -1122,16 +1391,106 @@ function ResizableEventPreview({
                 width: 4,
                 height: 40,
                 borderRadius: 4,
-                background: resizing ? "#D4A843" : "#1C3A2E",
+                background: resizing === "x" ? "#D4A843" : "#1C3A2E",
                 transition: "background 0.15s",
                 boxShadow: "0 1px 4px rgba(0,0,0,0.2)",
               }}
             />
           </div>
 
-          {/* Float-badge з поточним px — показуємо під час drag, щоб менеджер
-              бачив значення без відкриття форми. */}
-          {(resizing || hover) && (
+          {/* Bottom edge — лише висота */}
+          <div
+            onMouseDown={(e) => beginResize("y", e)}
+            title={`Висота: ${currentHeight}px · потягни (${EVENT_CARD_HEIGHT_MIN}–${EVENT_CARD_HEIGHT_MAX})`}
+            style={{
+              position: "absolute",
+              left: "20%",
+              right: "20%",
+              bottom: -8,
+              height: 16,
+              cursor: "ns-resize",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              zIndex: 10,
+              opacity: showHandles ? 1 : 0,
+              transition: "opacity 0.15s",
+            }}
+          >
+            <div
+              style={{
+                height: 4,
+                width: 40,
+                borderRadius: 4,
+                background: resizing === "y" ? "#D4A843" : "#1C3A2E",
+                transition: "background 0.15s",
+                boxShadow: "0 1px 4px rgba(0,0,0,0.2)",
+              }}
+            />
+          </div>
+
+          {/* SE corner — діагональ (обидва виміри). */}
+          <div
+            onMouseDown={(e) => beginResize("xy", e)}
+            title={`Розмір: ${currentWidth}×${currentHeight}px · потягни діагонально`}
+            style={{
+              position: "absolute",
+              right: -10,
+              bottom: -10,
+              width: 22,
+              height: 22,
+              cursor: "nwse-resize",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              zIndex: 12,
+              opacity: showHandles ? 1 : 0,
+              transition: "opacity 0.15s",
+            }}
+          >
+            <div
+              aria-hidden
+              style={{
+                width: 16,
+                height: 16,
+                borderRadius: 4,
+                background: resizing === "xy" ? "#D4A843" : "#1C3A2E",
+                boxShadow: "0 2px 6px rgba(0,0,0,0.25)",
+                position: "relative",
+              }}
+            >
+              {/* Дві білі риски в куті — Figma-style corner-indicator */}
+              <span
+                style={{
+                  position: "absolute",
+                  right: 3,
+                  bottom: 3,
+                  width: 9,
+                  height: 2,
+                  background: "#F5E1A4",
+                  transform: "rotate(-45deg)",
+                  transformOrigin: "right bottom",
+                  borderRadius: 1,
+                }}
+              />
+              <span
+                style={{
+                  position: "absolute",
+                  right: 3,
+                  bottom: 7,
+                  width: 5,
+                  height: 2,
+                  background: "#F5E1A4",
+                  transform: "rotate(-45deg)",
+                  transformOrigin: "right bottom",
+                  borderRadius: 1,
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Float-badge з поточним розміром під час drag/hover. */}
+          {(resizing !== null || hover) && (
             <div
               style={{
                 position: "absolute",
@@ -1149,7 +1508,7 @@ function ResizableEventPreview({
                 whiteSpace: "nowrap",
               }}
             >
-              {currentWidth} px
+              {currentWidth} × {currentHeight} px
             </div>
           )}
         </div>

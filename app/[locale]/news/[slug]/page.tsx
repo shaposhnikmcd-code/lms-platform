@@ -21,6 +21,8 @@ import {
 import ArticleTemplate from "@/lib/news/templates/ArticleTemplate";
 import EventTemplate from "@/lib/news/templates/EventTemplate";
 import { parseTemplateData, type TemplateKind, type EventData } from "@/lib/news/templates/types";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 
 const getContent = getTranslatedContent(newsContent, "news-page", {
   en: () => import("../_content/en").then(m => m.default),
@@ -33,11 +35,26 @@ const CATEGORY_COLORS: Record<string, string> = {
   ARTICLE: "bg-green-100 text-green-700",
 };
 
-type Props = { params: Promise<{ slug: string; locale: string }> };
+type Props = {
+  params: Promise<{ slug: string; locale: string }>;
+  searchParams?: Promise<{ preview?: string }>;
+};
 
-export default async function NewsItemPage({ params }: Props) {
+export default async function NewsItemPage({ params, searchParams }: Props) {
   const { slug, locale } = await params;
+  const sp = searchParams ? await searchParams : {};
   const c = await getContent(locale);
+
+  // Preview-режим (?preview=1) — авторизований superuser/manager бачить
+  // unpublished або isTemplate=true новини. Використовується iframe-превʼю
+  // в /dashboard/admin/news і в template-editor.
+  const isPreview = sp.preview === "1";
+  let allowDraft = false;
+  if (isPreview) {
+    const session = await getServerSession(authOptions);
+    const role = session?.user?.role;
+    allowDraft = role === "ADMIN" || role === "MANAGER";
+  }
 
   const item = await prisma.news.findUnique({
     where: { slug },
@@ -53,7 +70,10 @@ export default async function NewsItemPage({ params }: Props) {
     (!item.resumeAt || new Date(item.resumeAt) > now);
   // Шаблони (isTemplate=true) ніколи не доступні публічно — це лише
   // адмін-заготовки для спрощення створення новин.
-  if (!item || !item.published || isSuspended || item.isTemplate) notFound();
+  // У preview-режимі (адмін/менеджер) показуємо й unpublished/template — для
+  // редакторського превʼю до публікації.
+  if (!item) notFound();
+  if (!allowDraft && (!item.published || isSuspended || item.isTemplate)) notFound();
 
   const related = await prisma.news.findMany({
     where: {
