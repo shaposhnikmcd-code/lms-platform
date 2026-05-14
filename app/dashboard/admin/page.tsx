@@ -2,6 +2,7 @@ import prisma from "@/lib/prisma";
 import AdminDashboardView from "./_components/AdminDashboardView";
 import { getSalesAnalytics, type SalesPeriod } from "@/lib/admin-sales-analytics";
 import { getSalesByProduct } from "@/lib/admin-sales-by-product";
+import { getDiscountedPaymentsCount } from "@/lib/admin-discounted-payments";
 
 const CONNECTOR_STANDARD_PRICE = 1099;
 const CONNECTOR_ADMIN_TEST_PRICE = 1;
@@ -86,6 +87,8 @@ export default async function AdminDashboard({
     return price !== CONNECTOR_STANDARD_PRICE && price !== CONNECTOR_ADMIN_TEST_PRICE;
   }).length;
 
+  const discountedPayments = await getDiscountedPaymentsCount(series.rangeStart, series.rangeEnd);
+
   /// Бейджі на картках у «Швидкі дії». Показуємо лише той, що варто уваги
   /// (`warning` — залипли замовлення/платежі; інакше нейтральна загальна цифра).
   type BadgeTone = 'neutral' | 'warning' | 'success';
@@ -133,6 +136,7 @@ export default async function AdminDashboard({
         connectorStuckNew,
         connectorStuckProcessing,
         bundleSuspended,
+        discountedPayments,
         connectorStandardPrice: CONNECTOR_STANDARD_PRICE,
         periodOptions: PERIOD_OPTIONS,
         sectionBadges,

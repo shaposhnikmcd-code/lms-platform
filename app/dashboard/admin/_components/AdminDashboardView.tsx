@@ -42,6 +42,7 @@ export type AdminDashboardData = {
   connectorStuckNew: number;
   connectorStuckProcessing: number;
   bundleSuspended: number;
+  discountedPayments: number;
   connectorStandardPrice: number;
   periodOptions: { value: SalesPeriod; label: string }[];
   sectionBadges: {
@@ -106,6 +107,14 @@ export default function AdminDashboardView({ data }: { data: AdminDashboardData 
       label: 'Пакети призупинено',
       count: data.bundleSuspended,
       href: '/dashboard/admin/bundles',
+      tone: 'warning',
+    });
+  }
+  if (data.discountedPayments > 0) {
+    attentionItems.push({
+      label: 'Оплати нижче базової ціни',
+      count: data.discountedPayments,
+      href: '/dashboard/admin/payments',
       tone: 'warning',
     });
   }
