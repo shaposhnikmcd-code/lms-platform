@@ -234,7 +234,7 @@ export default function AdminDashboardView({ data }: { data: AdminDashboardData 
               {visibleAttention.length}
             </span>
           </div>
-          <div className="grid sm:grid-cols-2 gap-1">
+          <div className="flex flex-col gap-1">
             {visibleAttention.map(item => (
               <div
                 key={item.label}
