@@ -86,12 +86,9 @@ export default function CourseRow({
   // («активна → ... → активна → disabled» поки router.refresh підвантажить
   // оновлений row prop). Кнопка показує зелене "✓ Збережено" 1.6с, потім
   // природним чином іде в disabled (бо dirty=false).
+  // Тримаємо «Збережено»-стан поки користувач не залишить сторінку (component unmount)
+  // або не почне нову зміну (rendering логіка нижче ховає бейдж коли dirty=true).
   const [justSaved, setJustSaved] = useState(false);
-  useEffect(() => {
-    if (!justSaved) return;
-    const t = setTimeout(() => setJustSaved(false), 1600);
-    return () => clearTimeout(t);
-  }, [justSaved]);
 
   // Draft persistence — щоб незбережені зміни не зникали при перезавантаженні сторінки.
   const draftKey = `lms-admin-course-draft-${row.slug}`;
@@ -500,7 +497,7 @@ export default function CourseRow({
 
   const actionsCell = (
     <div className="flex flex-row gap-1.5 items-center justify-center">
-      {justSaved ? (
+      {justSaved && !dirty ? (
         <span className={justSavedBtnCls}>
           <FaCheck className="text-[10px]" />
           Збережено
