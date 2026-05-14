@@ -58,7 +58,6 @@ export default function CoursesView({
                 <Th theme={theme} width={78} align="center">Ціна, ₴</Th>
                 <Th theme={theme} width={78} align="center">Стара ціна</Th>
                 <Th theme={theme} width={94} align="center">SP ID</Th>
-                <Th theme={theme} width={86} align="center">Дефолт</Th>
                 <Th theme={theme} width={143} align="center">Промокод 1</Th>
                 <Th theme={theme} width={66} align="center">Ціна 1, ₴</Th>
                 <Th theme={theme} width={143} align="center">Промокод 2</Th>
@@ -102,7 +101,6 @@ export default function CoursesView({
           <li>Список формується з коду (<code className={`px-1 py-0.5 rounded ${dark ? 'bg-white/[0.05]' : 'bg-white/60'}`}>lib/coursesCatalog.ts</code>). Додавання нового — через розробника.</li>
           <li>«Ціна» — значення, яке зараз бачать відвідувачі сайту.</li>
           <li>«Стара ціна» — якщо заповнена, на сторінці курсу зʼявиться перекреслена. На «Освітніх проєктах» — лише актуальна.</li>
-          <li>«Дефолт» — оригінальна ціна з коду. Збігається — override не зберігається.</li>
           <li>«Промокод 1/2» — до двох промокодів на курс. Якщо клієнт введе цей код у формі оплати — отримає вказану «Ціну 1/2» замість поточної. Один код можна використати на різних курсах: на кожному курсі ціна буде своя. Заповнюй пару «код + ціна» разом — або обидва, або жодного.</li>
           <li>Іконка-годинник <span className="inline-block align-middle mx-0.5">🕒</span> біля коду — таймер дії: задай «Активний з» / «Активний до» (одну дату або обидві). Колір сигналізує стан: <span className={`font-semibold ${dark ? 'text-amber-300' : 'text-amber-700'}`}>амбер</span> — діє зараз, <span className={`font-semibold ${dark ? 'text-sky-300' : 'text-sky-700'}`}>блакитний</span> — ще не активний (стартує пізніше), <span className={`font-semibold ${dark ? 'text-rose-300' : 'text-rose-700'}`}>червоний</span> — прострочений. Без таймера — діє завжди.</li>
           <li>«Скинути» — повертає всі поля (ціну, стару ціну, обидва промокоди) до дефолтних.</li>

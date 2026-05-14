@@ -482,17 +482,6 @@ export default function CourseRow({
     />
   );
 
-  const defaultCell = (
-    <div className={`text-[12px] tabular-nums leading-relaxed text-center ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
-      <div>{row.defaultPrice.toLocaleString()} ₴</div>
-      {row.defaultOldPrice !== null && (
-        <div className={dark ? 'text-slate-500' : 'text-stone-400'}>
-          <span className="line-through">{row.defaultOldPrice.toLocaleString()}</span> ₴
-        </div>
-      )}
-    </div>
-  );
-
   const saveBtnCls = `inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-[12px] font-medium rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
     dark
       ? 'bg-amber-400/90 text-stone-900 hover:bg-amber-300 shadow-[0_0_18px_-4px_rgba(251,191,36,0.5)] disabled:shadow-none disabled:bg-white/[0.06] disabled:text-slate-500'
@@ -599,15 +588,7 @@ export default function CourseRow({
             {promo2PriceCell}
           </div>
         </div>
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <div className={`text-[10px] uppercase tracking-[0.18em] font-medium mb-1 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
-              Дефолт
-            </div>
-            {defaultCell}
-          </div>
-          <div className="flex-shrink-0">{actionsCell}</div>
-        </div>
+        <div className="flex justify-end">{actionsCell}</div>
       </div>
     );
   }
@@ -618,7 +599,6 @@ export default function CourseRow({
       <td className="px-2 py-2.5 align-middle">{priceCell}</td>
       <td className="px-2 py-2.5 align-middle">{oldPriceCell}</td>
       <td className="px-2 py-2.5 align-middle">{spIdCell}</td>
-      <td className="px-2 py-2.5 align-middle">{defaultCell}</td>
       <td className="px-2 py-2.5 align-middle">{promo1CodeCell}</td>
       <td className="px-2 py-2.5 align-middle">{promo1PriceCell}</td>
       <td className="px-2 py-2.5 align-middle">{promo2CodeCell}</td>

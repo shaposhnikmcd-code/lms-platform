@@ -512,8 +512,7 @@ export default function CategoryRow({
       <td className="px-3 py-2.5 align-middle">{titleCell}</td>
       <td className="px-2 py-2.5 align-middle">{priceCell}</td>
       <td className="px-2 py-2.5 align-middle">{oldPriceCell}</td>
-      {/* SP ID / Дефолт — пусті для категорій */}
-      <td className="px-2 py-2.5 align-middle" />
+      {/* SP ID — пусте для категорій */}
       <td className="px-2 py-2.5 align-middle" />
       <td className="px-2 py-2.5 align-middle">{uiPromo1CodeCell}</td>
       <td className="px-2 py-2.5 align-middle">{uiPromo1PriceCell}</td>
