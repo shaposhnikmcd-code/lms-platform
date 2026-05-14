@@ -1,27 +1,38 @@
 import prisma from '@/lib/prisma';
 
+export type DiscountedPayment = {
+  paymentId: string;
+  productKind: 'course' | 'bundle';
+  productName: string;
+  amount: number;
+  basePrice: number;
+  /// Знижка в гривнях (basePrice - amount). Завжди > 0.
+  discount: number;
+  buyerEmail: string;
+  createdAt: string; // ISO
+};
+
 /**
- * Рахує оплати в заданому вікні, де клієнт заплатив МЕНШЕ за базову ціну
- * продукту (тобто з промокодом, акцією, чи будь-якою знижкою).
+ * Повертає список оплат, де клієнт заплатив МЕНШЕ за базову ціну продукту
+ * (з промокодом, акцією, чи будь-якою іншою знижкою).
  *
- * Виключає:
- *   - адмін/менеджер test-payments (1₴/2₴) — їх ловить роль або сам amount ≤ 2
- *   - річну програму (там окрема логіка плану)
+ * Виключає: тестові 1-2₴, ADMIN/MANAGER, річну програму (інша модель цін).
  *
  * Базова ціна:
- *   - для bundle:  Bundle.price (поточна ціна пакету)
- *   - для course:  CoursePriceOverride.price ?? Course.price
- *
- * Yearly програма не входить, бо там окремі стандартні суми (15000/2200).
+ *   - bundle: Bundle.price
+ *   - course: CoursePriceOverride.price ?? Course.price
  */
-export async function getDiscountedPaymentsCount(rangeStart: Date, rangeEnd: Date) {
+export async function getDiscountedPayments(
+  rangeStart: Date,
+  rangeEnd: Date,
+): Promise<DiscountedPayment[]> {
   const [payments, overrides] = await Promise.all([
     prisma.payment.findMany({
       where: {
         status: 'PAID',
         createdAt: { gte: rangeStart, lte: rangeEnd },
         yearlyProgramSubscriptionId: null,
-        amount: { gt: 2 }, // відсікти тестові 1₴/2₴
+        amount: { gt: 2 },
         user: { role: { notIn: ['ADMIN', 'MANAGER'] } },
       },
       select: {
@@ -29,9 +40,12 @@ export async function getDiscountedPaymentsCount(rangeStart: Date, rangeEnd: Dat
         amount: true,
         courseId: true,
         bundleId: true,
-        course: { select: { slug: true, price: true } },
-        bundle: { select: { price: true } },
+        createdAt: true,
+        user: { select: { email: true, name: true } },
+        course: { select: { slug: true, price: true, title: true } },
+        bundle: { select: { price: true, title: true } },
       },
+      orderBy: { createdAt: 'desc' },
     }),
     prisma.coursePriceOverride.findMany({ select: { slug: true, price: true } }),
   ]);
@@ -39,19 +53,36 @@ export async function getDiscountedPaymentsCount(rangeStart: Date, rangeEnd: Dat
   const overrideBySlug = new Map<string, number | null>();
   for (const o of overrides) overrideBySlug.set(o.slug, o.price);
 
-  let count = 0;
+  const out: DiscountedPayment[] = [];
   for (const p of payments) {
     let basePrice: number | null = null;
+    let productKind: 'course' | 'bundle' | null = null;
+    let productName = '—';
+
     if (p.bundleId && p.bundle) {
       basePrice = p.bundle.price;
+      productKind = 'bundle';
+      productName = p.bundle.title ?? '—';
     } else if (p.courseId && p.course) {
       const slugKey = p.course.slug ?? p.courseId;
       const overridePrice = overrideBySlug.get(slugKey);
       basePrice = overridePrice ?? p.course.price;
+      productKind = 'course';
+      productName = p.course.title ?? '—';
     }
-    if (basePrice !== null && basePrice > 0 && p.amount < basePrice) {
-      count++;
+
+    if (productKind && basePrice !== null && basePrice > 0 && p.amount < basePrice) {
+      out.push({
+        paymentId: p.id,
+        productKind,
+        productName,
+        amount: p.amount,
+        basePrice,
+        discount: basePrice - p.amount,
+        buyerEmail: p.user.email ?? '',
+        createdAt: p.createdAt.toISOString(),
+      });
     }
   }
-  return count;
+  return out;
 }

@@ -25,6 +25,7 @@ import SalesChart from './SalesChart';
 import SalesByProductBlock from './SalesByProductBlock';
 import type { SalesSeries, SalesKpiBuckets, SalesPeriod } from '@/lib/admin-sales-analytics';
 import type { ProductSalesData } from '@/lib/admin-sales-by-product';
+import type { DiscountedPayment } from '@/lib/admin-discounted-payments';
 
 type BadgeTone = 'neutral' | 'warning' | 'success';
 type SectionBadge = { value: string; tone: BadgeTone } | null;
@@ -42,7 +43,7 @@ export type AdminDashboardData = {
   connectorStuckNew: number;
   connectorStuckProcessing: number;
   bundleSuspended: number;
-  discountedPayments: number;
+  discountedPayments: DiscountedPayment[];
   connectorStandardPrice: number;
   periodOptions: { value: SalesPeriod; label: string }[];
   sectionBadges: {
@@ -110,11 +111,13 @@ export default function AdminDashboardView({ data }: { data: AdminDashboardData 
       tone: 'warning',
     });
   }
-  if (data.discountedPayments > 0) {
+  // Кожна оплата нижче базової ціни — окремий рядок з продуктом + сумою + поточником.
+  for (const dp of data.discountedPayments) {
+    const productPrefix = dp.productKind === 'bundle' ? '📦 ' : '';
     attentionItems.push({
-      label: 'Оплати нижче базової ціни',
-      count: data.discountedPayments,
-      href: '/dashboard/admin/payments',
+      label: `${productPrefix}${dp.productName} · ${dp.buyerEmail} — ${dp.amount.toLocaleString()}₴ замість ${dp.basePrice.toLocaleString()}₴`,
+      count: dp.discount,
+      href: `/dashboard/admin/payments`,
       tone: 'warning',
     });
   }
@@ -239,7 +242,7 @@ export default function AdminDashboardView({ data }: { data: AdminDashboardData 
                   dark ? 'hover:bg-white/5' : 'hover:bg-white/60'
                 }`}
               >
-                <Link href={item.href} className="flex items-center gap-2.5 min-w-0 flex-1">
+                <Link href={item.href} title={item.label} className="flex items-center gap-2.5 min-w-0 flex-1">
                   <span
                     className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
                       item.tone === 'danger'
