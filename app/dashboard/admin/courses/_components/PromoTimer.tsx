@@ -317,6 +317,7 @@ export default function PromoTimer({ theme, startsAt, expiresAt, hasCode, onChan
             value={activeValue}
             onChange={setActiveValue}
             min={activeMin}
+            disableMinDay={activeField === 'start'}
             dark={dark}
           />
 
@@ -507,11 +508,16 @@ function InlineCalendar({
   onChange,
   dark,
   min,
+  disableMinDay = false,
 }: {
   value: string;
   onChange: (v: string) => void;
   dark: boolean;
   min?: string;
+  /// Для «Активний з» сьогодні забороняємо вибирати — користувач має вибрати
+  /// наступну дату після поточної. Для «Активний до» залишаємо як було
+  /// (можна закінчувати того ж дня, коли стартує).
+  disableMinDay?: boolean;
 }) {
   const parsed = parseDraft(value);
   const minParts = min ? parseDraft(min) : null;
@@ -586,7 +592,7 @@ function InlineCalendar({
     if (!minParts) return false;
     if (y !== minParts.y) return y < minParts.y;
     if (mo !== minParts.mo) return mo < minParts.mo;
-    return d < minParts.d;
+    return disableMinDay ? d <= minParts.d : d < minParts.d;
   }
   const isSelected = (y: number, mo: number, d: number) =>
     !!parsed && parsed.y === y && parsed.mo === mo && parsed.d === d;
@@ -711,17 +717,19 @@ function InlineCalendar({
           }`}
         />
         <div className="flex-1" />
-        <button
-          type="button"
-          onClick={pickNow}
-          className={`text-[10.5px] font-medium px-2 py-1 rounded border transition-colors ${
-            dark
-              ? 'bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.08]'
-              : 'bg-white/70 border-stone-300/60 text-stone-700 hover:bg-white'
-          }`}
-        >
-          Зараз
-        </button>
+        {!disableMinDay && (
+          <button
+            type="button"
+            onClick={pickNow}
+            className={`text-[10.5px] font-medium px-2 py-1 rounded border transition-colors ${
+              dark
+                ? 'bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.08]'
+                : 'bg-white/70 border-stone-300/60 text-stone-700 hover:bg-white'
+            }`}
+          >
+            Зараз
+          </button>
+        )}
       </div>
     </div>
   );
