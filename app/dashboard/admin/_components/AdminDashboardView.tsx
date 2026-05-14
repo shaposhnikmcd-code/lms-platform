@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import {
   HiOutlineUserGroup,
@@ -15,6 +16,7 @@ import {
   HiOutlineCubeTransparent,
   HiOutlineDocumentText,
   HiOutlineEnvelope,
+  HiOutlineXMark,
 } from 'react-icons/hi2';
 import SyncDivisionsButton from './SyncDivisionsButton';
 import { useAdminTheme, type Theme } from './adminTheme';
@@ -108,6 +110,32 @@ export default function AdminDashboardView({ data }: { data: AdminDashboardData 
     });
   }
 
+  // Dismissals: localStorage `{label: countAtDismissal}`. Якщо count змінився
+  // (нова кількість «зависань», наприклад) — попередній dismiss не діє і
+  // елемент знову показується.
+  const DISMISS_KEY = 'admin-attention-dismissed';
+  const [dismissed, setDismissed] = useState<Record<string, number>>({});
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(DISMISS_KEY);
+      if (raw) setDismissed(JSON.parse(raw));
+    } catch {
+      // ignore
+    }
+  }, []);
+  function dismiss(label: string, count: number) {
+    const next = { ...dismissed, [label]: count };
+    setDismissed(next);
+    try {
+      window.localStorage.setItem(DISMISS_KEY, JSON.stringify(next));
+    } catch {
+      // ignore
+    }
+  }
+  const visibleAttention = attentionItems.filter(
+    item => dismissed[item.label] !== item.count,
+  );
+
   const b = data.sectionBadges;
   const quickActions = [
     { href: '/dashboard/admin/courses', label: 'Курси', desc: 'Ціни курсів', icon: HiOutlineBookOpen, badge: b.courses },
@@ -133,7 +161,7 @@ export default function AdminDashboardView({ data }: { data: AdminDashboardData 
       maxWidth="max-w-[1480px]"
       rightSlot={
         <>
-          {attentionItems.length === 0 && (
+          {visibleAttention.length === 0 && (
             <div
               className={`hidden sm:inline-flex items-center px-2.5 py-1 rounded-full border text-[11px] font-medium ${
                 dark
@@ -169,7 +197,7 @@ export default function AdminDashboardView({ data }: { data: AdminDashboardData 
         </>
       }
     >
-      {attentionItems.length > 0 && (
+      {visibleAttention.length > 0 && (
         <section
           className={`mb-6 rounded-2xl p-5 backdrop-blur-sm border ${
             dark
@@ -191,19 +219,18 @@ export default function AdminDashboardView({ data }: { data: AdminDashboardData 
                 dark ? 'text-amber-200/50' : 'text-amber-800/70'
               }`}
             >
-              {attentionItems.length}
+              {visibleAttention.length}
             </span>
           </div>
           <div className="grid sm:grid-cols-2 gap-1">
-            {attentionItems.map(item => (
-              <Link
+            {visibleAttention.map(item => (
+              <div
                 key={item.label}
-                href={item.href}
                 className={`group flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg transition-colors ${
                   dark ? 'hover:bg-white/5' : 'hover:bg-white/60'
                 }`}
               >
-                <span className="flex items-center gap-2.5 min-w-0">
+                <Link href={item.href} className="flex items-center gap-2.5 min-w-0 flex-1">
                   <span
                     className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
                       item.tone === 'danger'
@@ -218,9 +245,10 @@ export default function AdminDashboardView({ data }: { data: AdminDashboardData 
                   <span className={`text-[13px] truncate ${dark ? 'text-slate-200' : 'text-stone-800'}`}>
                     {item.label}
                   </span>
-                </span>
+                </Link>
                 <span className="flex items-center gap-2 flex-shrink-0">
-                  <span
+                  <Link
+                    href={item.href}
                     className={`text-[13px] font-semibold tabular-nums ${
                       item.tone === 'danger'
                         ? dark
@@ -232,14 +260,29 @@ export default function AdminDashboardView({ data }: { data: AdminDashboardData 
                     }`}
                   >
                     {item.count}
-                  </span>
-                  <HiOutlineArrowRight
-                    className={`text-sm group-hover:translate-x-0.5 transition-all ${
-                      dark ? 'text-slate-500 group-hover:text-slate-200' : 'text-stone-400 group-hover:text-stone-700'
+                  </Link>
+                  <Link href={item.href} aria-label="Перейти">
+                    <HiOutlineArrowRight
+                      className={`text-sm group-hover:translate-x-0.5 transition-all ${
+                        dark ? 'text-slate-500 group-hover:text-slate-200' : 'text-stone-400 group-hover:text-stone-700'
+                      }`}
+                    />
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => dismiss(item.label, item.count)}
+                    aria-label="Прибрати з переліку"
+                    title="Прибрати з переліку (зʼявиться знову коли кількість зміниться)"
+                    className={`inline-flex items-center justify-center w-5 h-5 rounded-md transition-colors ${
+                      dark
+                        ? 'text-slate-500 hover:bg-white/10 hover:text-slate-200'
+                        : 'text-stone-400 hover:bg-stone-200/60 hover:text-stone-700'
                     }`}
-                  />
+                  >
+                    <HiOutlineXMark className="text-[13px]" />
+                  </button>
                 </span>
-              </Link>
+              </div>
             ))}
           </div>
         </section>
