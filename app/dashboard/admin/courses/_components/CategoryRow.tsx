@@ -418,7 +418,7 @@ export default function CategoryRow({
     />
   );
 
-  const saveBtnCls = `inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-[12px] font-medium rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
+  const saveBtnCls = `inline-flex items-center justify-center gap-1.5 px-3 py-1.5 min-w-[112px] text-[12px] font-medium rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
     dark
       ? 'bg-amber-400/90 text-stone-900 hover:bg-amber-300 shadow-[0_0_18px_-4px_rgba(251,191,36,0.5)] disabled:shadow-none disabled:bg-white/[0.06] disabled:text-slate-500'
       : 'bg-stone-900 text-amber-100 hover:bg-stone-800 shadow-sm disabled:shadow-none disabled:bg-stone-200 disabled:text-stone-400'
