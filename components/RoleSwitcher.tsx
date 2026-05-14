@@ -1,7 +1,8 @@
 'use client';
 
 import { useSession } from 'next-auth/react';
-import { useState } from 'react';
+import { usePathname } from 'next/navigation';
+import { useEffect, useState } from 'react';
 
 const ROLE_LABELS: Record<string, string> = {
   ADMIN: 'Адмін',
@@ -18,14 +19,38 @@ const ROLE_HIERARCHY: Record<string, string[]> = {
   MANAGER: ['MANAGER'],
 };
 
+/** Визначає активну роль із URL — source of truth для UI toggle. session.activeRole
+ *  може лишатись «MANAGER» після browser-back на admin-сторінку, тоді toggle
+ *  показував би неправильно. Робимо так, як у GitHub/Linear: URL вирішує, що
+ *  «активно» зараз. */
+function roleFromPathname(pathname: string | null): 'ADMIN' | 'MANAGER' | null {
+  if (!pathname) return null;
+  if (pathname.startsWith('/dashboard/manager')) return 'MANAGER';
+  if (pathname.startsWith('/dashboard/admin')) return 'ADMIN';
+  return null;
+}
+
 export default function RoleSwitcher() {
   const { data: session, update } = useSession();
+  const pathname = usePathname();
   const [loading, setLoading] = useState(false);
+
+  // Sync session.activeRole з фактичним URL — щоб server-guard теж бачив актуальну
+  // роль після browser-back. Без infinite-loop: тригер лише коли реально mismatch.
+  useEffect(() => {
+    if (!session?.user) return;
+    const urlRole = roleFromPathname(pathname);
+    if (!urlRole) return;
+    if (session.user.activeRole === urlRole) return;
+    update({ activeRole: urlRole });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]);
 
   if (!session?.user) return null;
 
   const realRole = session.user.role;
-  const activeRole = session.user.activeRole;
+  // UI-режим визначаємо за URL, fallback на session — для проміжного стану до useEffect.
+  const activeRole = roleFromPathname(pathname) ?? session.user.activeRole;
   const allowedRoles = ROLE_HIERARCHY[realRole] ?? [];
 
   if (allowedRoles.length <= 1) return null;
