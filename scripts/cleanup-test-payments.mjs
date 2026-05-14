@@ -3,16 +3,17 @@
 //
 // БЕРЕ ПРОД БД (.env, не .env.local). Pre-production і main — той самий Neon.
 //
-// Скоуп видалення:
-//   - Payment.amount IN (1, 2) AND user.role IN ('ADMIN','MANAGER')
+// Скоуп видалення (БЕЗ role-filter — всі юзери, бо тестові акаунти бувають і STUDENT):
+//   - Payment.amount IN (1, 2)
 //     ├─ caascade: Enrollment(userId, courseId|bundle.courseIds)
 //     ├─ caascade: CourseProgress(userId, courseId|bundle.courseIds)
 //     ├─ caascade: LessonProgress(userId, lesson.module.courseId)
-//     └─ caascade: YearlyProgramSubscription (events каскадом, payments — спочатку null, потім delete)
+//     ├─ caascade: Certificate(userId, courseId) + CertificateEvent (cascade)
+//     └─ caascade: YearlyProgramSubscription (events каскадом, Certificate(subscriptionId) теж, payments null+delete)
 //   - ConnectorOrder.amount IN (1, 2) — повністю (tracking logs каскадом)
 //
-// ТАКОЖ ВИДАЛЯЄ: PaymentCallbackLog де amount IN (1, 2) (логи тестових callback-ів).
-// НЕ ЧІПАЄ: Certificate, SendPulse доступи.
+// ТАКОЖ ВИДАЛЯЄ: PaymentCallbackLog де amount IN (1, 2) або orderReference тестових (логи).
+// НЕ ЧІПАЄ: SendPulse доступи (вручну закривати в кабінеті SP).
 
 import { config } from 'dotenv';
 import { fileURLToPath } from 'node:url';
@@ -58,17 +59,13 @@ async function main() {
     orderBy: { createdAt: 'desc' },
   });
 
-  // Safety: тільки ADMIN/MANAGER
-  const safe = payments.filter(p => p.user.role === 'ADMIN' || p.user.role === 'MANAGER');
-  const unsafe = payments.filter(p => p.user.role !== 'ADMIN' && p.user.role !== 'MANAGER');
-
-  if (unsafe.length) {
-    console.log(`⚠️  ${unsafe.length} payments з amount IN (1,2) у НЕ-адмін/менеджер акаунтах — ПРОПУСКАЮ:`);
-    for (const p of unsafe) {
-      console.log(`   - ${p.orderReference} | ${p.amount}₴ | ${p.user.email} (${p.user.role})`);
-    }
-    console.log('');
-  }
+  // БЕЗ role-filter: всі payments amount IN (1,2) вважаємо тестовими
+  const safe = payments;
+  const roleBreakdown = payments.reduce((acc, p) => {
+    acc[p.user.role] = (acc[p.user.role] || 0) + 1;
+    return acc;
+  }, {});
+  console.log(`📊 Role breakdown: ${Object.entries(roleBreakdown).map(([r,n]) => `${r}=${n}`).join(', ')}\n`);
 
   // Розділити на типи. Yearly визначаємо за префіксом orderReference (включно з orphan-ами без subId)
   const byType = { course: [], bundle: [], yearly: [], unknown: [] };
@@ -79,7 +76,7 @@ async function main() {
     else byType.unknown.push(p);
   }
 
-  console.log(`📊 Payments to delete (ADMIN/MANAGER, amount IN [1,2]):`);
+  console.log(`📊 Payments to delete (amount IN [1,2], всі ролі):`);
   console.log(`   - Курси:           ${byType.course.length}`);
   console.log(`   - Пакети:          ${byType.bundle.length}`);
   console.log(`   - Річна програма:  ${byType.yearly.length}`);
@@ -157,6 +154,28 @@ async function main() {
   });
   console.log(`📊 PaymentCallbackLog rows to delete: ${callbackLogsCount}\n`);
 
+  // Certificates: за (userId,courseId) парами + за yearly subscriptionId
+  const certCourseConds = [];
+  for (const pair of accessPairs) {
+    const [userId, courseId] = pair.split('|');
+    certCourseConds.push({ userId, courseId });
+  }
+  const certCandidates = await prisma.certificate.findMany({
+    where: {
+      OR: [
+        ...(certCourseConds.length ? certCourseConds : []),
+        ...(yearlySubIds.length ? [{ subscriptionId: { in: yearlySubIds } }] : []),
+      ],
+    },
+    select: { id: true, certNumber: true, type: true, recipientEmail: true, courseName: true, createdAt: true },
+  });
+  console.log(`📊 Certificates to delete (linked to test payments): ${certCandidates.length}`);
+  for (const c of certCandidates.slice(0, 20)) {
+    console.log(`   - ${c.certNumber} | ${c.type} | ${c.recipientEmail} | ${c.courseName || '—'} | ${c.createdAt.toISOString().slice(0,10)}`);
+  }
+  if (certCandidates.length > 20) console.log(`   ... + ще ${certCandidates.length - 20}`);
+  console.log('');
+
   // Розшифрування Payment
   console.log(`📋 Detail (top 30 newest):`);
   for (const p of safe.slice(0, 30)) {
@@ -203,7 +222,14 @@ async function main() {
     }
     console.log(`✅ Enrollment deleted: ${enrDel}`);
 
-    // 4. Спочатку відв'язати Payment-и від YearlyProgramSubscription (FK без cascade)
+    // 4. Certificates (events каскадом). Робимо ДО subscription-delete (FK без cascade).
+    const certIds = certCandidates.map(c => c.id);
+    if (certIds.length) {
+      const certDel = await tx.certificate.deleteMany({ where: { id: { in: certIds } } });
+      console.log(`✅ Certificate deleted: ${certDel.count}`);
+    }
+
+    // 5. Спочатку відв'язати Payment-и від YearlyProgramSubscription (FK без cascade)
     //    і видалити Payment-и
     const paymentIds = safe.map(p => p.id);
     const payDel = await tx.payment.deleteMany({ where: { id: { in: paymentIds } } });
