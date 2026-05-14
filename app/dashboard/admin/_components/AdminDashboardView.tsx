@@ -62,11 +62,20 @@ export default function AdminDashboardView({ data }: { data: AdminDashboardData 
   const dark = theme === 'dark';
 
   type AttentionTone = 'warning' | 'danger';
-  const attentionItems: Array<{ label: string; count: number; href: string; tone: AttentionTone }> = [];
+  /// `countDisplay` — те, що ми малюємо у позиції числа (для дрібних кейсів — це сам count;
+  /// для discounted-оплат мітку вже вшито в label, тож тут null → нічого не рендеримо).
+  const attentionItems: Array<{
+    label: string;
+    count: number;
+    countDisplay: string | null;
+    href: string;
+    tone: AttentionTone;
+  }> = [];
   if (data.connectorAwaitingManager > 0) {
     attentionItems.push({
       label: 'Конектор очікує менеджера',
       count: data.connectorAwaitingManager,
+      countDisplay: String(data.connectorAwaitingManager),
       href: '/dashboard/manager',
       tone: 'warning',
     });
@@ -75,6 +84,7 @@ export default function AdminDashboardView({ data }: { data: AdminDashboardData 
     attentionItems.push({
       label: 'Конектор «Нове» > 12 год',
       count: data.connectorStuckNew,
+      countDisplay: String(data.connectorStuckNew),
       href: '/dashboard/manager',
       tone: 'danger',
     });
@@ -83,6 +93,7 @@ export default function AdminDashboardView({ data }: { data: AdminDashboardData 
     attentionItems.push({
       label: 'Конектор «В обробці» > 24 год',
       count: data.connectorStuckProcessing,
+      countDisplay: String(data.connectorStuckProcessing),
       href: '/dashboard/manager',
       tone: 'danger',
     });
@@ -91,6 +102,7 @@ export default function AdminDashboardView({ data }: { data: AdminDashboardData 
     attentionItems.push({
       label: 'Конектор — очікують оплати',
       count: data.connectorPendingPayment,
+      countDisplay: String(data.connectorPendingPayment),
       href: '/dashboard/manager',
       tone: 'warning',
     });
@@ -99,6 +111,7 @@ export default function AdminDashboardView({ data }: { data: AdminDashboardData 
     attentionItems.push({
       label: `Замовлення не за стандартом (≠ ${data.connectorStandardPrice}₴)`,
       count: data.connectorNonStandard,
+      countDisplay: String(data.connectorNonStandard),
       href: '/dashboard/manager',
       tone: 'danger',
     });
@@ -107,17 +120,21 @@ export default function AdminDashboardView({ data }: { data: AdminDashboardData 
     attentionItems.push({
       label: 'Пакети призупинено',
       count: data.bundleSuspended,
+      countDisplay: String(data.bundleSuspended),
       href: '/dashboard/admin/bundles',
       tone: 'warning',
     });
   }
   // Кожна оплата нижче базової ціни — окремий рядок з продуктом + сумою + покупцем.
   // href містить ?ref=orderReference щоб у Платежах підсвітити конкретний рядок.
+  // countDisplay=null бо знижка вже зашита в label («1 349₴ замість 1 499₴»);
+  // дублювати число окремо — плутає.
   for (const dp of data.discountedPayments) {
     const productPrefix = dp.productKind === 'bundle' ? '📦 ' : '';
     attentionItems.push({
       label: `${productPrefix}${dp.productName} · ${dp.buyerEmail} — ${dp.amount.toLocaleString()}₴ замість ${dp.basePrice.toLocaleString()}₴`,
       count: dp.discount,
+      countDisplay: null,
       href: `/dashboard/admin/payments?ref=${encodeURIComponent(dp.orderReference)}`,
       tone: 'warning',
     });
@@ -259,20 +276,22 @@ export default function AdminDashboardView({ data }: { data: AdminDashboardData 
                     {item.label}
                   </span>
                 </Link>
-                <Link
-                  href={item.href}
-                  className={`text-[13px] font-semibold tabular-nums ${
-                    item.tone === 'danger'
-                      ? dark
-                        ? 'text-rose-300'
-                        : 'text-rose-700'
-                      : dark
-                        ? 'text-amber-300'
-                        : 'text-amber-800'
-                  }`}
-                >
-                  {item.count}
-                </Link>
+                {item.countDisplay !== null && (
+                  <Link
+                    href={item.href}
+                    className={`text-[13px] font-semibold tabular-nums ${
+                      item.tone === 'danger'
+                        ? dark
+                          ? 'text-rose-300'
+                          : 'text-rose-700'
+                        : dark
+                          ? 'text-amber-300'
+                          : 'text-amber-800'
+                    }`}
+                  >
+                    {item.countDisplay}
+                  </Link>
+                )}
                 <Link href={item.href} aria-label="Перейти" className="inline-flex items-center">
                   <HiOutlineArrowRight
                     className={`text-sm group-hover:translate-x-0.5 transition-all ${
