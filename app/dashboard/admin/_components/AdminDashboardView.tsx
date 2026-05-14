@@ -239,11 +239,11 @@ export default function AdminDashboardView({ data }: { data: AdminDashboardData 
             {visibleAttention.map(item => (
               <div
                 key={item.label}
-                className={`group flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg transition-colors ${
+                className={`group flex items-center gap-2 px-3 py-2.5 rounded-lg transition-colors ${
                   dark ? 'hover:bg-white/5' : 'hover:bg-white/60'
                 }`}
               >
-                <Link href={item.href} title={item.label} className="flex items-center gap-2.5 min-w-0 flex-1">
+                <Link href={item.href} title={item.label} className="flex items-center gap-2.5 min-w-0">
                   <span
                     className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
                       item.tone === 'danger'
@@ -255,46 +255,44 @@ export default function AdminDashboardView({ data }: { data: AdminDashboardData 
                           : 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.4)]'
                     }`}
                   />
-                  <span className={`text-[13px] truncate ${dark ? 'text-slate-200' : 'text-stone-800'}`}>
+                  <span className={`text-[13px] ${dark ? 'text-slate-200' : 'text-stone-800'}`}>
                     {item.label}
                   </span>
                 </Link>
-                <span className="flex items-center gap-2 flex-shrink-0">
-                  <Link
-                    href={item.href}
-                    className={`text-[13px] font-semibold tabular-nums ${
-                      item.tone === 'danger'
-                        ? dark
-                          ? 'text-rose-300'
-                          : 'text-rose-700'
-                        : dark
-                          ? 'text-amber-300'
-                          : 'text-amber-800'
+                <Link
+                  href={item.href}
+                  className={`text-[13px] font-semibold tabular-nums ${
+                    item.tone === 'danger'
+                      ? dark
+                        ? 'text-rose-300'
+                        : 'text-rose-700'
+                      : dark
+                        ? 'text-amber-300'
+                        : 'text-amber-800'
+                  }`}
+                >
+                  {item.count}
+                </Link>
+                <Link href={item.href} aria-label="Перейти" className="inline-flex items-center">
+                  <HiOutlineArrowRight
+                    className={`text-sm group-hover:translate-x-0.5 transition-all ${
+                      dark ? 'text-slate-500 group-hover:text-slate-200' : 'text-stone-400 group-hover:text-stone-700'
                     }`}
-                  >
-                    {item.count}
-                  </Link>
-                  <Link href={item.href} aria-label="Перейти">
-                    <HiOutlineArrowRight
-                      className={`text-sm group-hover:translate-x-0.5 transition-all ${
-                        dark ? 'text-slate-500 group-hover:text-slate-200' : 'text-stone-400 group-hover:text-stone-700'
-                      }`}
-                    />
-                  </Link>
-                  <button
-                    type="button"
-                    onClick={() => dismiss(item.label, item.count)}
-                    aria-label="Прибрати з переліку"
-                    title="Прибрати з переліку (зʼявиться знову коли кількість зміниться)"
-                    className={`inline-flex items-center justify-center w-5 h-5 rounded-md transition-colors ${
-                      dark
-                        ? 'text-slate-500 hover:bg-white/10 hover:text-slate-200'
-                        : 'text-stone-400 hover:bg-stone-200/60 hover:text-stone-700'
-                    }`}
-                  >
-                    <HiOutlineXMark className="text-[13px]" />
-                  </button>
-                </span>
+                  />
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => dismiss(item.label, item.count)}
+                  aria-label="Прибрати з переліку"
+                  title="Прибрати з переліку (зʼявиться знову коли кількість зміниться)"
+                  className={`inline-flex items-center justify-center w-5 h-5 rounded-md transition-colors ${
+                    dark
+                      ? 'text-slate-500 hover:bg-white/10 hover:text-slate-200'
+                      : 'text-stone-400 hover:bg-stone-200/60 hover:text-stone-700'
+                  }`}
+                >
+                  <HiOutlineXMark className="text-[13px]" />
+                </button>
               </div>
             ))}
           </div>
