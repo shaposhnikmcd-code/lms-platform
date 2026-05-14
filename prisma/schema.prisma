@@ -582,13 +582,26 @@ model News {
   showAuthorMeta Boolean @default(false)
   category    NewsCategory @default(NEWS)
   published   Boolean      @default(false)
-  /// `isTemplate=true` — це BLUEPRINT (вічний пресет, зразок). Менеджер не редагує
-  /// blueprint напряму, а натискає «Створити з цього шаблону» — це клонує запис у
-  /// нову News (isTemplate=false, templateKind=blueprint.templateKind, templateData
-  /// = clone). Blueprints приховані від публічного /news.
+  /// `isTemplate=true` — це BLUEPRINT (пресет, зразок). Двох типів:
+  ///   - **Дефолтний blueprint** (seeded): `parentTemplateId=null`. Стартовий
+  ///     зразок з factory defaults; на його основі менеджер створює власні.
+  ///   - **Кастомний blueprint** менеджера: `parentTemplateId=<defaultId>`.
+  ///     Підписаний шаблон з відредагованими дефолтами. Видно як міні-картки
+  ///     під дефолтом у /dashboard/admin/news. На його основі теж створюються
+  ///     звичайні новини («Створити з шаблону»).
+  /// Усі blueprint-и приховані від публічного /news.
   /// `isTemplate=false + templateKind != null` — звичайна новина, відрендерена
   /// шаблонним layout-ом. Видно публічно, якщо `published=true`.
   isTemplate    Boolean           @default(false)
+  /// FK на blueprint, з якого створено цей запис. Заповнено для:
+  ///   - кастомних blueprint-ів (parentTemplateId = id дефолтного blueprint-у)
+  ///   - новин створених через «Створити з шаблону» (parentTemplateId = id того
+  ///     blueprint-у — дефолтного або кастомного — з якого створили)
+  /// Дефолтні blueprint-и мають parentTemplateId=null. Видалення parent-а
+  /// розриває звʼязок (SetNull) — children лишаються незалежними копіями.
+  parentTemplateId String?
+  parentTemplate   News?    @relation("NewsTemplateChildren", fields: [parentTemplateId], references: [id], onDelete: SetNull)
+  templateChildren News[]   @relation("NewsTemplateChildren")
   /// Шаблонна форма layout-у. null = звичайний free-canvas (старі новини).
   /// Заповнено = render-иться через lib/news/templates/<kind>.
   templateKind  NewsTemplateKind?
@@ -606,6 +619,7 @@ model News {
   author      User?        @relation(fields: [authorId], references: [id])
 
   @@index([published, createdAt])
+  @@index([isTemplate, parentTemplateId])
 }
 
 model NovaPostDivision {

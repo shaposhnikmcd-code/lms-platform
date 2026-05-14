@@ -41,6 +41,7 @@ export async function GET(req: NextRequest) {
       category: true,
       published: true,
       isTemplate: true,
+      parentTemplateId: true,
       templateKind: true,
       templateData: true,
       suspendedAt: true,
