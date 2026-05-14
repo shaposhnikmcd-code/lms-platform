@@ -12,8 +12,10 @@ import Link from "@tiptap/extension-link";
 import FontFamily from "@tiptap/extension-font-family";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { Block } from "../types";
+import { Block, BlockVAlign } from "../types";
 import { ff, Section, SectionLabel } from "./_settingsPrimitives";
+import { BackgroundFill } from "./backgroundFillMark";
+import { FontWeight } from "./fontWeightExtension";
 import TextStudioModal from "./TextStudioModal";
 import SectionedTextToolbar from "./TextToolbar";
 
@@ -29,6 +31,7 @@ interface Props {
   block: Block;
   onChange: (data: Record<string, string>) => void;
   selected?: boolean;
+  onSetVAlign?: (v: BlockVAlign) => void;
   /** Px-ширина канвасу — для paperWidthPx у TextStudioModal (1-в-1 з канвасом). */
   containerWidthPx?: number;
 }
@@ -47,7 +50,7 @@ function escapeHtml(s: string): string {
     .replace(/>/g, "&gt;");
 }
 
-export default function QuoteEditor({ block, onChange, selected = false, containerWidthPx = 0 }: Props) {
+export default function QuoteEditor({ block, onChange, selected = false, onSetVAlign, containerWidthPx = 0 }: Props) {
   const [studioOpen, setStudioOpen] = useState(false);
 
   const editor = useEditor({
@@ -62,6 +65,8 @@ export default function QuoteEditor({ block, onChange, selected = false, contain
       FontFamily,
       FontSize,
       Highlight.configure({ multicolor: true }),
+      BackgroundFill,
+      FontWeight,
       Link.configure({ openOnClick: false, autolink: true, linkOnPaste: true }),
     ],
     content: quoteInitialHtml(block.data),
@@ -91,10 +96,14 @@ export default function QuoteEditor({ block, onChange, selected = false, contain
       {/* Інлайн toolbar (шрифт+розмір, стилі, списки, кольори, highlight) —
           командить TipTap-редактор напряму. Той самий функціонал, що в
           overlay-блоці «Текст на фото». */}
-      <SectionedTextToolbar editor={editor} />
+      <SectionedTextToolbar
+        editor={editor}
+        vAlign={block.vAlign || "top"}
+        onSetVAlign={onSetVAlign}
+      />
 
       <Section padTop={6}>
-        <SectionLabel>Редактор цитати</SectionLabel>
+        <SectionLabel>Повноцінний редактор</SectionLabel>
         <button
           type="button"
           onClick={() => setStudioOpen(true)}
@@ -112,9 +121,6 @@ export default function QuoteEditor({ block, onChange, selected = false, contain
             letterSpacing: "0.04em",
           }}
         >✎ Відкрити на весь екран</button>
-        <div style={{ fontSize: "10px", color: "#9CA3AF", lineHeight: 1.5, marginTop: "6px" }}>
-          Розширений режим — для довгих текстів, посилань і fine-tuning.
-        </div>
       </Section>
     </div>
   );
@@ -162,7 +168,7 @@ export default function QuoteEditor({ block, onChange, selected = false, contain
         />
       )}
       <style>{`
-        [data-news-block-type="quote"] .ProseMirror{outline:none;min-height:60px;color:#1C3A2E}
+        [data-news-block-type="quote"] .ProseMirror{outline:none;min-height:60px;color:#1C3A2E;font-family:var(--font-inter), Inter, system-ui, sans-serif}
         /* Selection-bg = 28% currentColor — підлаштовується під фон блока і
            колір тексту автоматично (на темному фоні зі світлим текстом — світла
            плашка, на світлому з темним — темна). */

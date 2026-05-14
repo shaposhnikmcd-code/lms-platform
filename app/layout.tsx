@@ -1,4 +1,17 @@
 import Script from "next/script";
+import { Inter } from "next/font/google";
+
+// Inter — variable font з повним діапазоном ваг 100..900. Завантажується через
+// next/font/google (self-hosted, без CSS-запиту до Google → нуль layout shift).
+// Експорт CSS variable `--font-inter` робить шрифт доступним у будь-якому місці
+// як `var(--font-inter)`. Для news editor дозволяє плавно змінювати font-weight
+// (через слайдер 100..900) без fallback-хаків.
+const inter = Inter({
+  subsets: ["latin", "cyrillic", "latin-ext", "cyrillic-ext"],
+  display: "swap",
+  variable: "--font-inter",
+  axes: ["opsz"],
+});
 
 export default function RootLayout({
   children,
@@ -9,7 +22,7 @@ export default function RootLayout({
   const gtmId = process.env.NEXT_PUBLIC_GTM_ID;
 
   return (
-    <html suppressHydrationWarning>
+    <html className={inter.variable} suppressHydrationWarning>
       <head>
         {gaId && (
           <>

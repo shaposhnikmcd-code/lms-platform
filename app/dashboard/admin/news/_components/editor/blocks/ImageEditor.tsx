@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Block, UIMP_COLORS } from "../types";
 import ImageStudioModal, { buildCornerRadiusCss } from "./ImageStudioModal";
+import { NewsEditorActionsContext } from "../NewsEditor";
 
 const ff = "-apple-system, BlinkMacSystemFont, sans-serif";
 
@@ -64,15 +65,12 @@ export interface ImageOverlay {
   href?: string;          // якщо заданий — overlay стає клікабельним посиланням
 }
 
-export const OVERLAY_FONTS: { label: string; value: string }[] = [
-  { label: "Системний",      value: "" },
-  { label: "Inter",          value: "Inter, system-ui, sans-serif" },
-  { label: "Bebas Neue",     value: '"BebasNeue", Impact, sans-serif' },
-  { label: "Bowlby One",     value: '"BowlbyOne", Impact, sans-serif' },
-  { label: "Cinzel",         value: '"Cinzel", Georgia, serif' },
-  { label: "Cormorant",      value: '"CormorantGaramond", Georgia, serif' },
-  { label: "Russo One",      value: '"RussoOne", Impact, sans-serif' },
-];
+// OVERLAY_FONTS — реекспорт з editorFonts.ts (єдине джерело правди каталога
+// шрифтів редактора). Word-like вибір з 5 категорій. Завантаження через
+// Google Fonts CSS-bundle в NewsEditor.tsx.
+import { EDITOR_FONTS } from "./editorFonts";
+export const OVERLAY_FONTS: { label: string; value: string; category?: string; variable?: boolean }[] =
+  EDITOR_FONTS.map(f => ({ label: f.label, value: f.value, category: f.category, variable: f.variable }));
 
 const FONT_SIZE_PRESETS = [12, 14, 16, 18, 24, 32, 40, 48, 64, 80, 96, 120];
 
@@ -810,6 +808,56 @@ function ToggleBtn({
   );
 }
 
+function OverlayLinkRow({
+  href, onApply, onClear, inputBase,
+}: {
+  href: string;
+  onApply: (v: string) => void;
+  onClear: () => void;
+  inputBase: React.CSSProperties;
+}) {
+  const [draft, setDraft] = useState(href);
+  useEffect(() => { setDraft(href); }, [href]);
+  return (
+    <Section padTop={0}>
+      <SectionLabel>Посилання</SectionLabel>
+      <div style={{ display: "flex", gap: "5px" }}>
+        <input
+          type="text"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); onApply(draft.trim()); } }}
+          placeholder="https://..."
+          style={{ ...inputBase, flex: 1, padding: "0 8px" }}
+        />
+        {draft.trim() && draft.trim() !== href && (
+          <button
+            type="button"
+            onClick={() => onApply(draft.trim())}
+            title="Зберегти посилання"
+            style={{
+              ...inputBase, width: "32px",
+              cursor: "pointer",
+              color: "#FFFFFF",
+              background: "#059669",
+              borderColor: "#059669",
+              fontWeight: 700,
+            }}
+          >✓</button>
+        )}
+        {href && (
+          <button
+            type="button"
+            onClick={onClear}
+            title="Прибрати посилання"
+            style={{ ...inputBase, width: "32px", color: "#B91C1C", cursor: "pointer" }}
+          >✕</button>
+        )}
+      </div>
+    </Section>
+  );
+}
+
 function OverlayToolbar({
   ov, updateOverlay, setEditingOverlayId, removeOverlay,
 }: {
@@ -818,6 +866,37 @@ function OverlayToolbar({
   setEditingOverlayId: (id: string | null) => void;
   removeOverlay: (id: string) => void;
 }) {
+  const editorActions = useContext(NewsEditorActionsContext);
+  // hasAnyMark — чи є на цьому overlay щось крім дефолтних значень. Якщо так —
+  // кнопка ✕ T робить очищення активною (повна непрозорість).
+  const hasAnyMark = !!(
+    ov.italic || ov.underline || ov.fontFamily ||
+    (ov.weight && ov.weight !== 400) ||
+    (ov.fontSize && ov.fontSize !== 32) ||
+    (ov.color && ov.color.toUpperCase() !== "#FFFFFF") ||
+    ov.bgColor || ov.radius || ov.shadow ||
+    (ov.align && ov.align !== "center") ||
+    (ov.vAlign && ov.vAlign !== "center") ||
+    ov.letterSpacing || ov.lineHeight || ov.href
+  );
+  const clearFormatting = () => {
+    updateOverlay(ov.id, {
+      fontSize: 32,
+      color: "#FFFFFF",
+      weight: 400,
+      bgColor: undefined,
+      radius: undefined,
+      shadow: undefined,
+      fontFamily: undefined,
+      italic: undefined,
+      underline: undefined,
+      align: "center",
+      vAlign: "center",
+      letterSpacing: undefined,
+      lineHeight: undefined,
+      href: undefined,
+    });
+  };
   const inputBase: React.CSSProperties = {
     height: "26px",
     borderRadius: "6px",
@@ -863,7 +942,30 @@ function OverlayToolbar({
         >🗑</button>
       </div>
 
-      <Section>
+      {/* Дії — undo/redo білдера + clear formatting цього overlay.
+          undo/redo беруться з NewsEditorActionsContext (той самий обробник,
+          що Ctrl+Z / Ctrl+Shift+Z). ✕ T скидає всі стилі цього напису до
+          дефолту (текст лишається). */}
+      <div style={{ padding: "6px 10px 6px", display: "flex", alignItems: "center", gap: "10px" }}>
+        <div style={{
+          fontSize: "9px", fontWeight: 800, color: "#9B7C45",
+          letterSpacing: "0.14em", textTransform: "uppercase",
+          fontFamily: ff, whiteSpace: "nowrap", flexShrink: 0,
+        }}>Дії</div>
+        <div style={{ display: "flex", gap: "5px", flex: 1 }}>
+          <ToggleBtn flex active={false} onClick={() => editorActions?.undo()} title="Скасувати (Ctrl+Z)">
+            <span style={{ fontSize: "13px" }}>↶</span>
+          </ToggleBtn>
+          <ToggleBtn flex active={false} onClick={() => editorActions?.redo()} title="Повторити (Ctrl+Shift+Z)">
+            <span style={{ fontSize: "13px" }}>↷</span>
+          </ToggleBtn>
+          <ToggleBtn flex active={false} onClick={clearFormatting} title="Очистити форматування цього напису">
+            <span style={{ fontSize: "11px", opacity: hasAnyMark ? 1 : 0.4 }}>✕ T</span>
+          </ToggleBtn>
+        </div>
+      </div>
+
+      <Section padTop={0}>
         <SectionLabel>Колір тексту</SectionLabel>
         <ColorSwatchRow current={ov.color} onChange={(c) => updateOverlay(ov.id, { color: c })} />
       </Section>
@@ -998,26 +1100,12 @@ function OverlayToolbar({
         </div>
       </Section>
 
-      <Section padTop={0}>
-        <SectionLabel>Посилання</SectionLabel>
-        <div style={{ display: "flex", gap: "5px" }}>
-          <input
-            type="text"
-            value={ov.href || ""}
-            onChange={(e) => updateOverlay(ov.id, { href: e.target.value })}
-            placeholder="https://..."
-            style={{ ...inputBase, flex: 1, padding: "0 8px" }}
-          />
-          {ov.href && (
-            <button
-              type="button"
-              onClick={() => updateOverlay(ov.id, { href: "" })}
-              title="Прибрати посилання"
-              style={{ ...inputBase, width: "32px", color: "#6B7280", cursor: "pointer" }}
-            >✕</button>
-          )}
-        </div>
-      </Section>
+      <OverlayLinkRow
+        href={ov.href || ""}
+        onApply={(v) => updateOverlay(ov.id, { href: v })}
+        onClear={() => updateOverlay(ov.id, { href: "" })}
+        inputBase={inputBase}
+      />
     </div>
   );
 }

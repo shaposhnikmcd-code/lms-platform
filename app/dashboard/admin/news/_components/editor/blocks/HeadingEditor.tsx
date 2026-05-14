@@ -10,14 +10,12 @@ import Color from "@tiptap/extension-color";
 import Highlight from "@tiptap/extension-highlight";
 import Link from "@tiptap/extension-link";
 import FontFamily from "@tiptap/extension-font-family";
+import { BackgroundFill } from "./backgroundFillMark";
+import { FontWeight } from "./fontWeightExtension";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Block, BlockVAlign } from "../types";
-import {
-  ff,
-  Section,
-  SectionLabel,
-} from "./_settingsPrimitives";
+import { ff, Section, SectionLabel } from "./_settingsPrimitives";
 import TextStudioModal from "./TextStudioModal";
 import SectionedTextToolbar from "./TextToolbar";
 
@@ -63,6 +61,8 @@ export default function HeadingEditor({ block, onChange, selected = false, onSet
       FontFamily,
       FontSize,
       Highlight.configure({ multicolor: true }),
+      BackgroundFill,
+      FontWeight,
       // Link mark — без нього editor.setLink() з toolbar-у silently no-op-ить:
       // ProseMirror-схема не знає про link mark і парс HTML викидає <a> теги.
       Link.configure({ openOnClick: false, autolink: false, linkOnPaste: true }),
@@ -94,10 +94,14 @@ export default function HeadingEditor({ block, onChange, selected = false, onSet
           Секція H1/H2/H3 прибрана: рівень тегу не змінює візуального вигляду
           в білдері (через однакові стилі), і користувачу не потрібен. Доступний
           у TextStudioModal якщо знадобиться. */}
-      <SectionedTextToolbar editor={editor} />
+      <SectionedTextToolbar
+        editor={editor}
+        vAlign={block.vAlign || "top"}
+        onSetVAlign={onSetVAlign}
+      />
 
       <Section padTop={6}>
-        <SectionLabel>Редактор заголовка</SectionLabel>
+        <SectionLabel>Повноцінний редактор</SectionLabel>
         <button
           type="button"
           onClick={() => setStudioOpen(true)}
@@ -115,9 +119,6 @@ export default function HeadingEditor({ block, onChange, selected = false, onSet
             letterSpacing: "0.04em",
           }}
         >✎ Відкрити на весь екран</button>
-        <div style={{ fontSize: "10px", color: "#9CA3AF", lineHeight: 1.5, marginTop: "6px" }}>
-          Розширений режим — для довгих текстів і fine-tuning.
-        </div>
       </Section>
     </div>
   );
@@ -195,7 +196,11 @@ export default function HeadingEditor({ block, onChange, selected = false, onSet
         /* color: inherit — щоб inline-style на wrapper-і (з data.color або
            auto-контрасту) розповсюджувався на ProseMirror. Раніше hardcoded
            #1C3A2E ламав WYSIWYG: на public був custom color, а в білдері — стандартний. */
-        [data-news-block-type="heading"] .ProseMirror{outline:none;color:inherit;font-weight:700}
+        /* Inter Variable за замовчуванням — забезпечує плавний font-weight 100..900
+           через font-variation-settings. Якщо користувач явно обрав інший шрифт,
+           setMark("textStyle", { fontFamily }) ставить inline style з вищим
+           пріоритетом і перекриває цей default. */
+        [data-news-block-type="heading"] .ProseMirror{outline:none;color:inherit;font-weight:700;font-family:var(--font-inter), Inter, system-ui, sans-serif}
         /* Лінки в заголовку: текст без підкреслення/синього. Маркер — стрілка ↗
            після слова (external-link icon). !important потрібен щоб перебити UA
            :link стиль. */

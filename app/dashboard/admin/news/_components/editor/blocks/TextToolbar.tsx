@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Editor } from "@tiptap/react";
 import { OVERLAY_FONTS } from "./ImageEditor";
 import {
@@ -14,20 +14,75 @@ import {
   FontSelect,
   inputBase,
 } from "./_settingsPrimitives";
+import type { BlockVAlign } from "../types";
 
-const FONT_SIZE_PRESETS = ["12px", "13px", "14px", "15px", "16px", "18px", "20px", "24px", "28px", "32px", "36px"];
+const FONT_SIZE_MIN = 8;
+const FONT_SIZE_MAX = 400;
 
 // Sectioned toolbar для блоків Текст / Заголовок / Цитата.
 // Layout — дзеркало OverlayToolbar (Текст на фото): SectionLabel зверху,
 // контроли знизу, всі секції впритул (padTop=0 крім першої).
-export default function SectionedTextToolbar({ editor }: { editor: Editor }) {
+export default function SectionedTextToolbar({
+  editor,
+  vAlign,
+  onSetVAlign,
+  showLists = false,
+}: {
+  editor: Editor;
+  vAlign?: BlockVAlign;
+  onSetVAlign?: (v: BlockVAlign) => void;
+  /** Чи показувати секцію «Списки та блоки» (•/1./❝/—). У білдер-sidebar
+   *  default=false (короткий toolbar), у TextStudioModal — true (повноцінний). */
+  showLists?: boolean;
+}) {
   const currentColor = (editor.getAttributes("textStyle").color as string | undefined) || "";
   const currentHl = (editor.getAttributes("highlight").color as string | undefined) || "";
   const currentSize = (editor.getAttributes("textStyle").fontSize as string | undefined) || "";
   const currentFont = (editor.getAttributes("textStyle").fontFamily as string | undefined) || "";
-  const currentLink = (editor.getAttributes("link").href as string | undefined) || "";
-  const [linkInput, setLinkInput] = useState("");
-  const [linkOpen, setLinkOpen] = useState(false);
+  // currentLink: спершу шукаємо link-mark на поточному selection (TipTap
+  // standard), якщо там пусто — обходимо документ і беремо перший link mark.
+  // Без цього після undo input не показував би лінк, якщо курсор стояв поза
+  // текстом з link mark-ом.
+  const currentLink = (() => {
+    const sel = (editor.getAttributes("link").href as string | undefined) || "";
+    if (sel) return sel;
+    let found = "";
+    editor.state.doc.descendants((node) => {
+      if (found) return false;
+      for (const m of node.marks) {
+        if (m.type.name === "link" && typeof m.attrs.href === "string" && m.attrs.href) {
+          found = m.attrs.href;
+          return false;
+        }
+      }
+      return true;
+    });
+    return found;
+  })();
+  // Контрольований input для лінка. Sync з editor: коли currentLink змінився
+  // ззовні (undo/redo, ввімкнувся інший блок) і input НЕ у фокусі — підтягуємо.
+  // Поки користувач друкує — value сидить локально, бо setLink-на-кожен-ключ
+  // викликає selectAll(), що ламає UX набору.
+  const [linkDraft, setLinkDraft] = useState(currentLink);
+  const linkInputRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    if (document.activeElement !== linkInputRef.current) setLinkDraft(currentLink);
+  }, [currentLink]);
+  const commitLink = (raw: string) => {
+    const url = raw.trim();
+    if (!url) {
+      if (currentLink) editor.chain().focus().extendMarkRange("link").unsetLink().run();
+      return;
+    }
+    const { from, to } = editor.state.selection;
+    const chain = editor.chain().focus();
+    if (from === to) chain.selectAll();
+    chain.extendMarkRange("link").setLink({ href: url }).run();
+  };
+  const clearLink = () => {
+    setLinkDraft("");
+    editor.chain().focus().extendMarkRange("link").unsetLink().run();
+  };
 
   let effectiveSize: number | null = null;
   if (typeof window !== "undefined" && editor.view?.dom) {
@@ -36,10 +91,47 @@ export default function SectionedTextToolbar({ editor }: { editor: Editor }) {
     if (Number.isFinite(px)) effectiveSize = Math.round(px);
   }
 
+  // Для stepper-а: parsed-px з currentSize (TipTap textStyle.fontSize), або
+  // ефективний computed-розмір з DOM (для незаданого textStyle). Без явного
+  // setFontSize це effectiveSize; інакше — number з "32px".
+  const parsedSize = (() => {
+    const m = currentSize.match(/^(\d+(?:\.\d+)?)px$/);
+    return m ? Math.round(parseFloat(m[1])) : null;
+  })();
+  const displaySize = parsedSize ?? effectiveSize ?? 16;
+  const applySize = (n: number) => {
+    const clamped = Math.max(FONT_SIZE_MIN, Math.min(FONT_SIZE_MAX, n));
+    editor.chain().focus().setFontSize(`${clamped}px`).run();
+  };
+
+  // Font-weight slider: значення з textStyle.fontWeight. Fallback на 700 якщо
+  // bold-mark активний (B-кнопка кладе bold через окремий mark, не textStyle),
+  // інакше 400 (нормальний). Step 100, як стандартні CSS font-weight значення.
+  const rawWeight = editor.getAttributes("textStyle").fontWeight as string | undefined;
+  const displayWeight = (() => {
+    const n = rawWeight ? Number(rawWeight) : NaN;
+    if (Number.isFinite(n) && n >= 100 && n <= 900) return n;
+    return editor.isActive("bold") ? 700 : 400;
+  })();
+  const applyWeight = (w: number) => {
+    const clamped = Math.max(100, Math.min(900, Math.round(w / 10) * 10));
+    // Стандартна TipTap-поведінка: mark діє на виділений діапазон. Без виділення
+    // — лише "режим набору" для наступного вводу (видимої зміни не буде).
+    const chain = editor.chain().focus();
+    if (editor.isActive("bold")) chain.unsetBold();
+    chain.setMark("textStyle", { fontWeight: String(clamped) }).run();
+  };
+
   const hasAnyMark =
     editor.isActive("bold") || editor.isActive("italic") || editor.isActive("underline") ||
-    editor.isActive("strike") || editor.isActive("highlight") || !!currentColor || !!currentSize || !!currentFont;
+    editor.isActive("strike") || editor.isActive("highlight") || !!currentColor || !!currentSize || !!currentFont || !!rawWeight;
 
+
+  // Порядок секцій 1-в-1 з OverlayToolbar (Текст на фото):
+  //   Дії(inline) → Колір тексту → Колір фону → Шрифт+розмір → Стиль →
+  //   Гориз → Верт → Форма підкладки → Ефекти → Посилання
+  // Унікальні для текст-блока (нема в overlay) — Списки та блоки, Виділення —
+  // вставлені перед Посиланням, щоб не ламати overlay-порядок зверху.
   return (
     <div style={{ fontFamily: ff }}>
       <div style={{ padding: "6px 10px 6px", display: "flex", alignItems: "center", gap: "10px" }}>
@@ -63,8 +155,8 @@ export default function SectionedTextToolbar({ editor }: { editor: Editor }) {
 
       <Section padTop={0}>
         <SectionLabel>Шрифт та розмір</SectionLabel>
-        <div style={{ display: "flex", gap: "5px" }}>
-          <div style={{ flex: 2, minWidth: 0 }}>
+        <div style={{ display: "flex", flexDirection: "row", gap: "6px", alignItems: "center" }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
             <FontSelect
               value={currentFont}
               onChange={v => {
@@ -74,32 +166,40 @@ export default function SectionedTextToolbar({ editor }: { editor: Editor }) {
               options={OVERLAY_FONTS}
             />
           </div>
-          <select
-            value={currentSize}
-            onChange={e => {
-              const v = e.target.value;
-              if (!v) editor.chain().focus().unsetFontSize().run();
-              else editor.chain().focus().setFontSize(v).run();
-            }}
-            style={{ ...inputBase, padding: "0 6px", cursor: "pointer", flex: 1, minWidth: 0 }}
-            title="Розмір шрифту"
-          >
-            <option value="">{effectiveSize ? `Авто (${effectiveSize})` : "Авто"}</option>
-            {FONT_SIZE_PRESETS.map(s => (
-              <option key={s} value={s}>{s.replace("px", "")}</option>
-            ))}
-          </select>
+          <div style={{ display: "inline-flex", gap: "4px", alignItems: "center", flexShrink: 0 }}>
+            <button
+              type="button"
+              onClick={() => applySize(displaySize - 1)}
+              title="Менше"
+              style={{ ...inputBase, width: "22px", fontSize: "14px", fontWeight: 700, cursor: "pointer" }}
+            >−</button>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={displaySize}
+              onChange={(e) => {
+                const v = e.target.value.replace(/[^0-9]/g, "");
+                if (v === "") return;
+                const n = Number(v);
+                if (Number.isFinite(n) && n >= FONT_SIZE_MIN && n <= FONT_SIZE_MAX) applySize(n);
+              }}
+              title="Розмір шрифту (px)"
+              style={{ ...inputBase, width: "38px", textAlign: "center", padding: "0 4px" }}
+            />
+            <button
+              type="button"
+              onClick={() => applySize(displaySize + 1)}
+              title="Більше"
+              style={{ ...inputBase, width: "22px", fontSize: "14px", fontWeight: 700, cursor: "pointer" }}
+            >+</button>
+          </div>
         </div>
       </Section>
 
-      <div style={{ padding: "0 10px 6px", display: "flex", alignItems: "center", gap: "10px" }}>
-        <div style={{
-          fontSize: "9px", fontWeight: 800, color: "#9B7C45",
-          letterSpacing: "0.14em", textTransform: "uppercase",
-          fontFamily: ff, whiteSpace: "nowrap", flexShrink: 0,
-        }}>Стиль</div>
-        <div style={{ display: "flex", gap: "5px", flex: 1 }}>
-          <ToggleBtn flex active={editor.isActive("bold")} onClick={() => editor.chain().focus().toggleBold().run()} title="Жирний (Ctrl+B)">
+      <Section padTop={0}>
+        <SectionLabel>Стиль</SectionLabel>
+        <div style={{ display: "flex", gap: "5px" }}>
+          <ToggleBtn flex active={displayWeight >= 600} onClick={() => applyWeight(displayWeight >= 600 ? 400 : 700)} title="Жирний (Ctrl+B)">
             <span style={{ fontWeight: 700 }}>B</span>
           </ToggleBtn>
           <ToggleBtn flex active={editor.isActive("italic")} onClick={() => editor.chain().focus().toggleItalic().run()} title="Курсив (Ctrl+I)">
@@ -108,49 +208,92 @@ export default function SectionedTextToolbar({ editor }: { editor: Editor }) {
           <ToggleBtn flex active={editor.isActive("underline")} onClick={() => editor.chain().focus().toggleUnderline().run()} title="Підкреслений (Ctrl+U)">
             <span style={{ textDecoration: "underline", fontWeight: 600 }}>U</span>
           </ToggleBtn>
-          <ToggleBtn flex active={editor.isActive("strike")} onClick={() => editor.chain().focus().toggleStrike().run()} title="Закреслений">
-            <span style={{ textDecoration: "line-through", fontWeight: 600 }}>S</span>
-          </ToggleBtn>
         </div>
-      </div>
-
-      <Section padTop={0}>
-        <SectionLabel>Вирівнювання абзацу</SectionLabel>
-        <div style={{ display: "flex", gap: "5px" }}>
-          <ToggleBtn flex active={editor.isActive({ textAlign: "left" })} onClick={() => editor.chain().focus().setTextAlign("left").run()} title="По лівому">
-            <span style={{ fontSize: "11px" }}>⯇</span>
-          </ToggleBtn>
-          <ToggleBtn flex active={editor.isActive({ textAlign: "center" })} onClick={() => editor.chain().focus().setTextAlign("center").run()} title="По центру">
-            <span style={{ fontSize: "11px" }}>≡</span>
-          </ToggleBtn>
-          <ToggleBtn flex active={editor.isActive({ textAlign: "right" })} onClick={() => editor.chain().focus().setTextAlign("right").run()} title="По правому">
-            <span style={{ fontSize: "11px" }}>⯈</span>
-          </ToggleBtn>
-          <ToggleBtn flex active={editor.isActive({ textAlign: "justify" })} onClick={() => editor.chain().focus().setTextAlign("justify").run()} title="По ширині">
-            <span style={{ fontSize: "11px", letterSpacing: "-1px" }}>≣</span>
-          </ToggleBtn>
+        {/* Жирність — плавна. Slider 100..900 з кроком 100 (стандартні CSS-вагові ступені).
+            Поруч цифрове значення з натяком на пресет (Thin/Light/Regular/Medium/Bold/Black). */}
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "6px" }}>
+          <input
+            type="range"
+            min={100}
+            max={900}
+            step={10}
+            value={displayWeight}
+            onChange={(e) => applyWeight(Number(e.target.value))}
+            title="Жирність шрифту (100..900)"
+            style={{ flex: 1, accentColor: "#D4A843", cursor: "pointer" }}
+          />
+          <span style={{
+            fontSize: "10px", fontWeight: 700, color: "#9B7C45",
+            minWidth: "26px", textAlign: "right", fontFamily: ff,
+          }}>{displayWeight}</span>
         </div>
       </Section>
 
       <Section padTop={0}>
-        <SectionLabel>Списки та блоки</SectionLabel>
+        <SectionLabel>Вирівнювання по горизонталі</SectionLabel>
         <div style={{ display: "flex", gap: "5px" }}>
-          <ToggleBtn flex active={editor.isActive("bulletList")} onClick={() => editor.chain().focus().toggleBulletList().run()} title="Маркований список">
-            <span style={{ fontSize: "14px" }}>•</span>
-          </ToggleBtn>
-          <ToggleBtn flex active={editor.isActive("orderedList")} onClick={() => editor.chain().focus().toggleOrderedList().run()} title="Нумерований список">
-            <span style={{ fontSize: "11px" }}>1.</span>
-          </ToggleBtn>
-          <ToggleBtn flex active={editor.isActive("blockquote")} onClick={() => editor.chain().focus().toggleBlockquote().run()} title="Цитата">
-            <span style={{ fontSize: "13px" }}>❝</span>
-          </ToggleBtn>
-          <ToggleBtn flex active={false} onClick={() => editor.chain().focus().setHorizontalRule().run()} title="Горизонтальна лінія">
-            <span style={{ fontSize: "11px", letterSpacing: "-1px" }}>—</span>
-          </ToggleBtn>
+          {(["left", "center", "right"] as const).map(a => (
+            <ToggleBtn
+              key={a}
+              flex
+              active={editor.isActive({ textAlign: a })}
+              onClick={() => editor.chain().focus().setTextAlign(a).run()}
+              title={a === "left" ? "Ліворуч" : a === "right" ? "Праворуч" : "По центру"}
+            >
+              {a === "left" ? "⯇" : a === "right" ? "⯈" : "≡"}
+            </ToggleBtn>
+          ))}
         </div>
       </Section>
 
-      {/* Колір тексту + Виділення поруч в одному рядку, щоб зекономити висоту. */}
+      <Section padTop={0}>
+        <SectionLabel>Вирівнювання по вертикалі</SectionLabel>
+        <div style={{ display: "flex", gap: "5px" }}>
+          {(["top", "center", "bottom"] as const).map(v => {
+            const active = (vAlign || "top") === v;
+            const disabled = !onSetVAlign;
+            return (
+              <ToggleBtn
+                key={v}
+                flex
+                active={active}
+                onClick={() => onSetVAlign?.(v)}
+                title={disabled ? "Недоступно" : v === "top" ? "Зверху" : v === "bottom" ? "Знизу" : "По центру"}
+              >
+                <span style={{ opacity: disabled ? 0.4 : 1 }}>
+                  {v === "top" ? "⏶" : v === "bottom" ? "⏷" : "≡"}
+                </span>
+              </ToggleBtn>
+            );
+          })}
+        </div>
+      </Section>
+
+
+      {showLists && (
+        <Section padTop={0}>
+          <SectionLabel>Списки та блоки</SectionLabel>
+          <div style={{ display: "flex", gap: "5px" }}>
+            <ToggleBtn flex active={editor.isActive("bulletList")} onClick={() => editor.chain().focus().toggleBulletList().run()} title="Маркований список">
+              <span style={{ fontSize: "14px" }}>•</span>
+            </ToggleBtn>
+            <ToggleBtn flex active={editor.isActive("orderedList")} onClick={() => editor.chain().focus().toggleOrderedList().run()} title="Нумерований список">
+              <span style={{ fontSize: "11px" }}>1.</span>
+            </ToggleBtn>
+            <ToggleBtn flex active={editor.isActive("blockquote")} onClick={() => editor.chain().focus().toggleBlockquote().run()} title="Цитата">
+              <span style={{ fontSize: "13px" }}>❝</span>
+            </ToggleBtn>
+            <ToggleBtn flex active={false} onClick={() => editor.chain().focus().setHorizontalRule().run()} title="Горизонтальна лінія">
+              <span style={{ fontSize: "11px", letterSpacing: "-1px" }}>—</span>
+            </ToggleBtn>
+          </div>
+        </Section>
+      )}
+
+      {/* Колір тексту + Виділення поряд (Word-like).
+          Колір тексту — повна 6-col Word-палітра (30 swatches),
+          Виділення — компактна 1×6 (highlight-marker). Розташовуємо в єдиному
+          Section з flex-row + gap, щоб мати спільний нижній padding. */}
       <Section padTop={0}>
         <div style={{ display: "flex", gap: "12px", alignItems: "flex-start" }}>
           <div style={{ flexShrink: 0 }}>
@@ -180,88 +323,52 @@ export default function SectionedTextToolbar({ editor }: { editor: Editor }) {
         </div>
       </Section>
 
-      <div style={{ padding: "0 10px 6px", display: "flex", alignItems: "center", gap: "10px" }}>
-        <div style={{
-          fontSize: "9px", fontWeight: 800, color: "#9B7C45",
-          letterSpacing: "0.14em", textTransform: "uppercase",
-          fontFamily: ff, whiteSpace: "nowrap", flexShrink: 0,
-        }}>Посилання</div>
-        <div style={{ flex: 1, minWidth: 0, display: "flex", gap: "4px" }}>
-          {!linkOpen && !currentLink && (
+      <Section padTop={0}>
+        <SectionLabel>Посилання</SectionLabel>
+        <div style={{ display: "flex", gap: "5px" }}>
+          <input
+            ref={linkInputRef}
+            type="text"
+            value={linkDraft}
+            onChange={(e) => setLinkDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                commitLink(linkDraft);
+                linkInputRef.current?.blur();
+              }
+            }}
+            placeholder="https://..."
+            style={{ ...inputBase, flex: 1, padding: "0 8px" }}
+          />
+          {/* ✓ показуємо тільки коли є pending-зміни (draft ≠ примінений лінк).
+             Після успішного коміту галочка зникає → лишається лише ✕.
+             Це дає чіткий сигнал "збережено", як user-expected. */}
+          {linkDraft.trim() && linkDraft.trim() !== currentLink && (
             <button
               type="button"
-              onClick={() => { setLinkOpen(true); setLinkInput(""); }}
+              onClick={() => commitLink(linkDraft)}
+              title="Зберегти посилання"
               style={{
-                flex: 1, height: "26px",
-                borderRadius: "6px",
-                border: "1px dashed #D4A843",
-                background: "transparent",
-                color: "#9B7C45",
-                fontSize: "11px", fontWeight: 600,
-                cursor: "pointer", fontFamily: ff,
+                ...inputBase, width: "32px",
+                cursor: "pointer",
+                color: "#FFFFFF",
+                background: "#059669",
+                borderColor: "#059669",
+                fontWeight: 700,
               }}
-            >🔗 Додати</button>
+            >✓</button>
           )}
-          {(linkOpen || currentLink) && (
-            <>
-              <input
-                type="text"
-                value={linkOpen ? linkInput : currentLink}
-                onChange={(e) => setLinkInput(e.target.value)}
-                onFocus={() => { if (currentLink && !linkOpen) { setLinkInput(currentLink); setLinkOpen(true); } }}
-                placeholder="https://..."
-                style={{ ...inputBase, flex: 1, minWidth: 0, padding: "0 8px" }}
-              />
-              {/* ✓ показуємо ТІЛЬКИ під час активного вводу/редагування. Після
-                  збереження (setLinkOpen(false)) залишається лише input з
-                  поточним посиланням і 🗑 для видалення. Так юзер не плутається
-                  «чи треба ще раз тиснути ✓ — лінк вже записаний?». */}
-              {linkOpen && (
-              <button
-                type="button"
-                onClick={() => {
-                  const url = linkInput.trim();
-                  if (!url) return;
-                  // Якщо нічого не виділено — лінк нема куди прикріпити (link
-                  // mark створиться на курсорі без тексту). Виділяємо весь
-                  // вміст редактора (для заголовків це слово/фраза, для тексту
-                  // — все що написано), щоб setLink реально обгорнув <a>.
-                  const { from, to } = editor.state.selection;
-                  const chain = editor.chain().focus();
-                  if (from === to) chain.selectAll();
-                  chain.extendMarkRange("link").setLink({ href: url }).run();
-                  setLinkOpen(false);
-                }}
-                title={currentLink ? "Оновити" : "Зберегти"}
-                style={{
-                  width: "26px", height: "26px", borderRadius: "5px",
-                  border: "1px solid #D4A843", background: "#1C3A2E",
-                  color: "#D4A843", fontSize: "11px", fontWeight: 700,
-                  cursor: "pointer", fontFamily: ff, flexShrink: 0,
-                }}
-              >✓</button>
-              )}
-              {currentLink && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    editor.chain().focus().extendMarkRange("link").unsetLink().run();
-                    setLinkInput("");
-                    setLinkOpen(false);
-                  }}
-                  title="Видалити посилання"
-                  style={{
-                    width: "26px", height: "26px", borderRadius: "5px",
-                    border: "1px solid #FCA5A5", background: "#FFFFFF",
-                    color: "#B91C1C", fontSize: "11px", fontWeight: 700,
-                    cursor: "pointer", fontFamily: ff, flexShrink: 0,
-                  }}
-                >🗑</button>
-              )}
-            </>
+          {currentLink && (
+            <button
+              type="button"
+              onClick={clearLink}
+              title="Прибрати посилання"
+              style={{ ...inputBase, width: "32px", color: "#B91C1C", cursor: "pointer" }}
+            >✕</button>
           )}
         </div>
-      </div>
+      </Section>
     </div>
   );
 }

@@ -12,12 +12,10 @@ import Link from "@tiptap/extension-link";
 import FontFamily from "@tiptap/extension-font-family";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { Block } from "../types";
-import {
-  ff,
-  Section,
-  SectionLabel,
-} from "./_settingsPrimitives";
+import { Block, BlockVAlign } from "../types";
+import { ff, Section, SectionLabel } from "./_settingsPrimitives";
+import { BackgroundFill } from "./backgroundFillMark";
+import { FontWeight } from "./fontWeightExtension";
 import TextStudioModal from "./TextStudioModal";
 import SectionedTextToolbar from "./TextToolbar";
 
@@ -31,13 +29,15 @@ interface Props {
   /** Чи блок selected — кнопка "Відкрити редактор" портал-иться у
    *  #news-block-settings-slot тільки коли selected. */
   selected?: boolean;
+  /** Сетер vAlign на рівні блока — дублює BlockItemHeader, доступний з панелі. */
+  onSetVAlign?: (v: BlockVAlign) => void;
   /** Px-ширина канвасу білдера (passed з BlockItem). Потрібна щоб обчислити
    *  paperWidthPx для TextStudioModal — фуллскрін рендерить блок у тих же
    *  розмірах, що в білдері. */
   containerWidthPx?: number;
 }
 
-export default function TextEditor({ block, onChange, selected = false, containerWidthPx = 0 }: Props) {
+export default function TextEditor({ block, onChange, selected = false, onSetVAlign, containerWidthPx = 0 }: Props) {
   const [studioOpen, setStudioOpen] = useState(false);
 
   const editor = useEditor({
@@ -55,6 +55,8 @@ export default function TextEditor({ block, onChange, selected = false, containe
       FontFamily,
       FontSize,
       Highlight.configure({ multicolor: true }),
+      BackgroundFill,
+      FontWeight,
       Link.configure({ openOnClick: false, autolink: true, linkOnPaste: true }),
     ],
     content: block.data.html || "",
@@ -81,10 +83,14 @@ export default function TextEditor({ block, onChange, selected = false, containe
       {/* Інлайн toolbar (шрифт+розмір, стилі, списки, кольори, highlight) —
           командить TipTap-редактор напряму. Той самий функціонал, що в
           overlay-блоці «Текст на фото». */}
-      <SectionedTextToolbar editor={editor} />
+      <SectionedTextToolbar
+        editor={editor}
+        vAlign={block.vAlign || "top"}
+        onSetVAlign={onSetVAlign}
+      />
 
       <Section padTop={6}>
-        <SectionLabel>Редактор тексту</SectionLabel>
+        <SectionLabel>Повноцінний редактор</SectionLabel>
         <button
           type="button"
           onClick={() => setStudioOpen(true)}
@@ -102,9 +108,6 @@ export default function TextEditor({ block, onChange, selected = false, containe
             letterSpacing: "0.04em",
           }}
         >✎ Відкрити на весь екран</button>
-        <div style={{ fontSize: "10px", color: "#9CA3AF", lineHeight: 1.5, marginTop: "6px" }}>
-          Розширений режим — для довгих текстів, посилань і fine-tuning.
-        </div>
       </Section>
     </div>
   );
@@ -150,7 +153,7 @@ export default function TextEditor({ block, onChange, selected = false, containe
         />
       )}
       <style>{`
-        [data-news-block-type="text"] .ProseMirror{outline:none;min-height:80px;color:#1C3A2E}
+        [data-news-block-type="text"] .ProseMirror{outline:none;min-height:80px;color:#1C3A2E;font-family:var(--font-inter), Inter, system-ui, sans-serif}
         /* Виділення = 28% від кольору тексту → адаптується до фону блока і
            кастомних кольорів тексту автоматично. */
         [data-news-block-type="text"] .ProseMirror ::selection,

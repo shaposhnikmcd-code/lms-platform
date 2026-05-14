@@ -10,6 +10,8 @@ import Color from "@tiptap/extension-color";
 import Highlight from "@tiptap/extension-highlight";
 import Link from "@tiptap/extension-link";
 import FontFamily from "@tiptap/extension-font-family";
+import { BackgroundFill } from "./backgroundFillMark";
+import { FontWeight } from "./fontWeightExtension";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import SectionedTextToolbar from "./TextToolbar";
@@ -105,6 +107,8 @@ export default function TextStudioModal({
       FontFamily,
       FontSize,
       Highlight.configure({ multicolor: true }),
+      BackgroundFill,
+      FontWeight,
       Link.configure({ openOnClick: false, autolink: true, linkOnPaste: true }),
     ],
     content: initialHtml || "",
@@ -252,7 +256,7 @@ export default function TextStudioModal({
                 </div>
               </Section>
             )}
-            {editor && <SectionedTextToolbar editor={editor} />}
+            {editor && <SectionedTextToolbar editor={editor} showLists />}
           </div>
 
           {/* Editor area. Папір — точна копія блока на канвасі білдера:

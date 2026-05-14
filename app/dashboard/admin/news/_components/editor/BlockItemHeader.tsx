@@ -37,30 +37,6 @@ interface Props {
 const LABELS: Record<string, string> = { text: "Текст", heading: "Заголовок", image: "Фото", youtube: "YouTube", quote: "Цитата", divider: "Роздільник", card: "Картка" };
 const ICONS: Record<string, string> = { text: "¶", heading: "H", image: "🖼", youtube: "▶", quote: "❝", divider: "—", card: "▦" };
 
-const ALIGN_GLYPHS: Record<BlockAlign, React.ReactElement> = {
-  left: (
-    <svg width="14" height="10" viewBox="0 0 14 10" fill="none">
-      <rect x="0" y="0" width="14" height="1.6" rx="0.8" fill="currentColor" />
-      <rect x="0" y="4.2" width="9" height="1.6" rx="0.8" fill="currentColor" />
-      <rect x="0" y="8.4" width="11" height="1.6" rx="0.8" fill="currentColor" />
-    </svg>
-  ),
-  center: (
-    <svg width="14" height="10" viewBox="0 0 14 10" fill="none">
-      <rect x="0" y="0" width="14" height="1.6" rx="0.8" fill="currentColor" />
-      <rect x="2.5" y="4.2" width="9" height="1.6" rx="0.8" fill="currentColor" />
-      <rect x="1.5" y="8.4" width="11" height="1.6" rx="0.8" fill="currentColor" />
-    </svg>
-  ),
-  right: (
-    <svg width="14" height="10" viewBox="0 0 14 10" fill="none">
-      <rect x="0" y="0" width="14" height="1.6" rx="0.8" fill="currentColor" />
-      <rect x="5" y="4.2" width="9" height="1.6" rx="0.8" fill="currentColor" />
-      <rect x="3" y="8.4" width="11" height="1.6" rx="0.8" fill="currentColor" />
-    </svg>
-  ),
-};
-
 // Гліфи для вертикального вирівнювання — три горизонтальні смужки на висоті 14px,
 // що показують positioning тексту в колонці (top / center / bottom).
 const VALIGN_GLYPHS: Record<BlockVAlign, React.ReactElement> = {
@@ -83,33 +59,6 @@ const VALIGN_GLYPHS: Record<BlockVAlign, React.ReactElement> = {
     </svg>
   ),
 };
-
-function AlignBtn({ a, active, onClick }: { a: BlockAlign; active: boolean; onClick: () => void }) {
-  const [hov, setHov] = useState(false);
-  return (
-    <button
-      type="button"
-      title={a === "left" ? "Ліворуч" : a === "right" ? "Праворуч" : "По центру"}
-      onClick={onClick}
-      onMouseEnter={() => setHov(true)}
-      onMouseLeave={() => setHov(false)}
-      style={{
-        flex: 1,
-        height: "22px",
-        borderRadius: "5px",
-        border: `1px solid ${active ? "#D4A843" : "#E8D5B7"}`,
-        background: active ? "#1C3A2E" : hov ? "#FAF6F0" : "#FFFFFF",
-        color: active ? "#D4A843" : "#1C3A2E",
-        cursor: "pointer",
-        padding: 0,
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        transition: "all 0.12s",
-      }}
-    >{ALIGN_GLYPHS[a]}</button>
-  );
-}
 
 function VAlignBtn({ v, active, onClick }: { v: BlockVAlign; active: boolean; onClick: () => void }) {
   const [hov, setHov] = useState(false);
@@ -171,12 +120,10 @@ export default function BlockItemHeader({
   onSetAlign, onSetVAlign, onSetBg, onDuplicate,
   blockSubtitle,
 }: Props) {
-  // "Розміщення блока" (block-level alignment у потоці канвасу) — НЕ показуємо для:
-  //   - divider (лінія завжди 100% width)
-  //   - image / youtube (мають окрему логіку розміщення через resize/aspect)
-  // Для решти — тільки text-bearing блоки, де block-level alignment визначає
-  // куди блок сідає в горизонтальному ряду.
-  const showAlign = blockType !== "divider" && blockType !== "image" && blockType !== "youtube";
+  // "Розміщення блока" прибрано з шапки (рішення 2026-05-14) — дублювало
+  // text-align з панелі. onSetAlign залишається в props (caller-cascade), просто
+  // не викликається тут.
+  void onSetAlign;
   const showVAlign = false;
   const showBg = blockType !== "divider";
 
@@ -240,19 +187,8 @@ export default function BlockItemHeader({
         <ActionBtn title="Дублювати блок" onClick={() => onDuplicate(blockId)}>⎘</ActionBtn>
       </div>
 
-      {showAlign && (
-        <Section>
-          <SectionLabel>Розміщення блока</SectionLabel>
-          <div style={{ display: "flex", gap: "5px" }}>
-            {(["left", "center", "right"] as BlockAlign[]).map(a => (
-              <AlignBtn key={a} a={a} active={blockAlign === a} onClick={() => onSetAlign(blockId, a)} />
-            ))}
-          </div>
-        </Section>
-      )}
-
       {showVAlign && (
-        <Section padTop={showAlign ? 0 : 6}>
+        <Section padTop={6}>
           <SectionLabel>Вертикаль тексту</SectionLabel>
           <div style={{ display: "flex", gap: "5px" }}>
             {(["top", "center", "bottom"] as BlockVAlign[]).map(v => (

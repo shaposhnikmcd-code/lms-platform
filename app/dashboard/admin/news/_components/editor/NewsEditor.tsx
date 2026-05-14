@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo, createContext } from "react";
 import { HiOutlineCheckCircle } from "react-icons/hi2";
 import { Block, NewsMeta, blocksToJson, jsonToBlocks } from "./types";
 import EditorCanvas from "./EditorCanvas";
@@ -8,6 +8,7 @@ import MetaSidebar from "./MetaSidebar";
 import NewsLibrarySidebar from "./NewsLibrarySidebar";
 import SlugSidebar from "./SlugSidebar";
 import { NEWS_BLOCK_CSS } from "@/lib/news/render";
+import { buildGoogleFontsHref } from "./blocks/editorFonts";
 
 // Multi-tab NewsEditor.
 // Backward-compat: одиночний контент (initialContent + onSave) працює як раніше.
@@ -21,6 +22,13 @@ import { NEWS_BLOCK_CSS } from "@/lib/news/render";
 const HISTORY_CAP = 80;
 const HISTORY_DEBOUNCE_MS = 350;
 const DEFAULT_TAB_KEY = "main";
+
+// Глобальні дії білдера (undo/redo історії), доступні з deep-nested панелей
+// (OverlayToolbar тощо) без пропс-пробросу через 5 рівнів.
+export const NewsEditorActionsContext = createContext<{
+  undo: () => void;
+  redo: () => void;
+} | null>(null);
 
 interface TabConfig {
   key: string;
@@ -194,20 +202,56 @@ export default function NewsEditor(props: Props) {
 
   const isMultiTab = effectiveTabs.length > 1;
 
-  // Відновлення з localStorage при першому маунті.
-  const initialDraft = loadDraft(newsId, mode);
-
-  const [meta, setMeta] = useState<NewsMeta>(() => initialDraft?.meta ?? { ...def, ...initialMeta });
-
-  // blocksByTab — Record<TabKey, Block[]>. Якщо в драфті є ключ — беремо звідти, інакше з initialContent.
+  // Стартовий state — ЗАВЖДИ з server data (initialMeta / initialContent).
+  // Локальний draft з localStorage використовується лише через banner-prompt
+  // нижче — користувач явно вирішує "Відновити" чи "Відхилити". Без цього UX
+  // плутав: повернувся на сторінку → бачив свої незбережені зміни так, ніби
+  // натиснув Save (хоча не натискав).
+  const [meta, setMeta] = useState<NewsMeta>(() => ({ ...def, ...initialMeta }));
   const [blocksByTab, setBlocksByTab] = useState<Record<string, Block[]>>(() => {
     const out: Record<string, Block[]> = {};
     for (const t of effectiveTabs) {
-      const draftBlocks = initialDraft?.blocksByTab?.[t.key];
-      out[t.key] = draftBlocks ?? jsonToBlocks(t.initialContent || "");
+      out[t.key] = jsonToBlocks(t.initialContent || "");
     }
     return out;
   });
+
+  // pendingDraft — знайдений локальний чорновик, якщо відрізняється від
+  // server-стану. Showd у banner при mount. Після Restore/Discard — null.
+  const [pendingDraft, setPendingDraft] = useState<DraftPayload | null>(null);
+  const draftCheckedRef = useRef(false);
+  useEffect(() => {
+    if (draftCheckedRef.current) return;
+    draftCheckedRef.current = true;
+    const d = loadDraft(newsId, mode);
+    if (!d) return;
+    // Порівняння: серіалізуємо обидва і дивимось чи різні.
+    const serverBlocks: Record<string, Block[]> = {};
+    for (const t of effectiveTabs) serverBlocks[t.key] = jsonToBlocks(t.initialContent || "");
+    const sameBlocks = JSON.stringify(d.blocksByTab) === JSON.stringify(serverBlocks);
+    const sameMeta = JSON.stringify(d.meta) === JSON.stringify({ ...def, ...initialMeta });
+    if (sameBlocks && sameMeta) {
+      // Draft = server → нічого не пропонуємо, прибираємо застарілий ключ.
+      clearDraft(newsId, mode);
+      return;
+    }
+    setPendingDraft(d);
+  }, [newsId, mode, effectiveTabs, def, initialMeta]);
+
+  const restoreDraft = useCallback(() => {
+    if (!pendingDraft) return;
+    setMeta(pendingDraft.meta);
+    const out: Record<string, Block[]> = {};
+    for (const t of effectiveTabs) {
+      out[t.key] = pendingDraft.blocksByTab[t.key] ?? jsonToBlocks(t.initialContent || "");
+    }
+    setBlocksByTab(out);
+    setPendingDraft(null);
+  }, [pendingDraft, effectiveTabs]);
+  const discardDraft = useCallback(() => {
+    clearDraft(newsId, mode);
+    setPendingDraft(null);
+  }, [newsId, mode]);
 
   // Selection per tab — щоб перемикання табів не "переносило" виділення між канвасами.
   const [selectedByTab, setSelectedByTab] = useState<Record<string, string | null>>(() => {
@@ -496,8 +540,17 @@ export default function NewsEditor(props: Props) {
   const setSelectedFor = (tabKey: string) => (id: string | null) =>
     setSelectedByTab(prev => ({ ...prev, [tabKey]: id }));
 
+  const editorActions = useMemo(() => ({ undo, redo }), [undo, redo]);
+
   return (
+    <NewsEditorActionsContext.Provider value={editorActions}>
     <div ref={editorRootRef} className="min-h-screen bg-slate-100" style={{ zoom }}>
+      {/* Google Fonts CSS-bundle для редактора. Один request з усіма family
+          (Google API оптимізує payload). display=swap → текст видно одразу,
+          без FOIT. Лінк лише в admin-edit-page, не зачіпає public render. */}
+      <link rel="preconnect" href="https://fonts.googleapis.com" />
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
+      <link rel="stylesheet" href={buildGoogleFontsHref()} />
       <style>{NEWS_BLOCK_CSS}</style>
       <div className="max-w-[1520px] mx-auto px-6 py-10">
         {/* Header */}
@@ -521,6 +574,7 @@ export default function NewsEditor(props: Props) {
             </p>
           )}
         </div>
+
 
         {/* Tab switcher (тільки в multi-tab режимі) */}
         {isMultiTab && (
@@ -614,6 +668,49 @@ export default function NewsEditor(props: Props) {
         <span>{saving ? "Збереження…" : "Зберегти"}</span>
       </button>
 
+      {/* Toast відновлення чорновика — bottom-center (стандарт для undo/restore
+          у Notion/Linear/Gmail). Не перекриває контент і одразу видимий. */}
+      {pendingDraft && (
+        <div
+          role="alert"
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 max-w-[420px] flex items-center gap-3 px-4 py-3 rounded-xl bg-white border border-amber-300 shadow-2xl animate-[slideInDown_0.2s_ease-out]"
+          style={{ boxShadow: "0 12px 32px -8px rgba(217, 119, 6, 0.25), 0 4px 12px rgba(0,0,0,0.12)" }}
+        >
+          <span className="flex-shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-full bg-amber-100 text-amber-700 text-[14px] font-bold">⟲</span>
+          <div className="flex-1 min-w-0">
+            <p className="text-[13px] font-semibold text-slate-900 leading-tight">Незбережений чорновик</p>
+            <p className="text-[11px] text-slate-500 mt-0.5 leading-tight">
+              {(() => {
+                const diff = Date.now() - pendingDraft.savedAt;
+                const min = Math.round(diff / 60000);
+                if (min < 1) return "Останнє редагування щойно";
+                if (min < 60) return `Останнє редагування ${min} хв тому`;
+                const h = Math.round(min / 60);
+                if (h < 24) return `Останнє редагування ${h} год тому`;
+                return new Date(pendingDraft.savedAt).toLocaleString("uk-UA");
+              })()}
+            </p>
+          </div>
+          <div className="flex-shrink-0 flex gap-2">
+            <button
+              type="button"
+              onClick={restoreDraft}
+              className="px-3.5 py-1.5 rounded-md text-[12px] font-semibold bg-amber-500 hover:bg-amber-600 text-white transition-colors"
+            >
+              Відновити
+            </button>
+            <button
+              type="button"
+              onClick={discardDraft}
+              aria-label="Відхилити"
+              className="w-8 h-8 inline-flex items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors text-[14px]"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+
       {message && (
         <div
           role="alert"
@@ -633,5 +730,6 @@ export default function NewsEditor(props: Props) {
         </div>
       )}
     </div>
+    </NewsEditorActionsContext.Provider>
   );
 }

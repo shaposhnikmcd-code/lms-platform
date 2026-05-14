@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { UIMP_COLORS } from "../types";
 
 // Спільні UI-примітиви для sectioned-панелей Налаштування блока
@@ -375,26 +375,137 @@ export function Stepper({
   );
 }
 
-// Стандартний select для шрифту (preview шрифту в опціях).
+// Custom FontSelect — на native <select> покладатись не можна, бо браузер сам
+// обирає напрямок відкриття (вгору, якщо знизу мало місця). Тут — кнопка-тригер
+// + absolute-positioned dropdown ЗАВЖДИ під полем, з max-height + scroll.
+// Категорії (sans/serif/...) розділяються заголовками всередині списку.
+const CATEGORY_LABELS: Record<string, string> = {
+  sans: "Sans-serif",
+  serif: "Serif",
+  display: "Display",
+  handwriting: "Рукописні",
+  mono: "Monospace",
+};
+type FontOption = { label: string; value: string; category?: string; variable?: boolean };
+
 export function FontSelect({
   value, onChange, options,
 }: {
   value: string;
   onChange: (v: string) => void;
-  options: { label: string; value: string }[];
+  options: FontOption[];
 }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
+  // Click-outside / Esc — закриваємо dropdown.
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const current = options.find(o => o.value === value);
+  const currentLabel = current?.label || "Системний";
+
+  const hasCategories = options.some(o => !!o.category);
+  const grouped = (() => {
+    if (!hasCategories) return null;
+    const groups: Record<string, FontOption[]> = {};
+    for (const o of options) {
+      const k = o.category || "other";
+      (groups[k] = groups[k] || []).push(o);
+    }
+    return groups;
+  })();
+
+  const itemBtn = (o: FontOption): React.ReactElement => {
+    const active = o.value === value;
+    return (
+      <button
+        key={o.label}
+        type="button"
+        onClick={() => { onChange(o.value); setOpen(false); }}
+        style={{
+          width: "100%",
+          padding: "6px 10px",
+          border: "none",
+          background: active ? "#FAF6F0" : "transparent",
+          color: "#1C3A2E",
+          fontFamily: o.value || ff,
+          fontSize: "13px",
+          textAlign: "left",
+          cursor: "pointer",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: "6px",
+        }}
+        onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "#FAF6F0"; }}
+        onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = active ? "#FAF6F0" : "transparent"; }}
+      >
+        <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{o.label}</span>
+        {o.variable && <span title="Variable font — плавна жирність" style={{ fontSize: "10px", color: "#9B7C45", flexShrink: 0 }}>ⓥ</span>}
+      </button>
+    );
+  };
+
   return (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      style={{
-        ...inputBase, padding: "0 6px",
-        fontFamily: value || ff, cursor: "pointer", width: "100%",
-      }}
-    >
-      {options.map(o => (
-        <option key={o.label} value={o.value} style={{ fontFamily: o.value || ff }}>{o.label}</option>
-      ))}
-    </select>
+    <div ref={rootRef} style={{ position: "relative", width: "100%" }}>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        style={{
+          ...inputBase, padding: "0 8px",
+          fontFamily: value || ff, cursor: "pointer", width: "100%",
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          gap: "6px",
+        }}
+      >
+        <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{currentLabel}</span>
+        <span style={{ fontSize: "9px", color: "#9B7C45", flexShrink: 0 }}>{open ? "▲" : "▼"}</span>
+      </button>
+      {open && (
+        <div
+          style={{
+            position: "absolute",
+            top: "calc(100% + 4px)",
+            left: 0,
+            right: 0,
+            zIndex: 1000,
+            maxHeight: "280px",
+            overflowY: "auto",
+            background: "#FFFFFF",
+            border: "1px solid #E8D5B7",
+            borderRadius: "6px",
+            boxShadow: "0 6px 20px rgba(0,0,0,0.12)",
+            paddingTop: "4px",
+            paddingBottom: "4px",
+          }}
+        >
+          {grouped
+            ? Object.entries(grouped).map(([cat, list]) => (
+                <div key={cat}>
+                  <div style={{
+                    padding: "6px 10px 2px",
+                    fontSize: "9px", fontWeight: 800, color: "#9B7C45",
+                    letterSpacing: "0.14em", textTransform: "uppercase",
+                    fontFamily: ff,
+                  }}>{CATEGORY_LABELS[cat] || cat}</div>
+                  {list.map(itemBtn)}
+                </div>
+              ))
+            : options.map(itemBtn)}
+        </div>
+      )}
+    </div>
   );
 }
