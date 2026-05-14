@@ -14,7 +14,6 @@ import {
 } from 'react-icons/fa';
 import { useAdminTheme } from '../_components/adminTheme';
 import { AdminShell, AdminPanel } from '../_components/AdminShell';
-import NewsPagePreview from './_components/NewsPagePreview';
 import InlineDatePicker, { formatDateChip } from '../_components/InlineDatePicker';
 import {
   AbsoluteBlockRender,
@@ -357,13 +356,15 @@ export default function AdminNewsPage() {
   const performDelete = async () => {
     if (!deleteTarget) return;
     const { id } = deleteTarget;
-    // Optimistic: миттєво прибираємо item з UI і закриваємо модалку — щоб
-    // менеджер бачив reaction на клік без 500-1500мс лагу від API. На fail
-    // — повертаємо state назад (rollback) + error-toast.
+    // Optimistic: миттєво прибираємо item з усіх 3 списків (news, templateNews,
+    // templates — кастомні blueprint-и) і закриваємо модалку. На fail повертаємо
+    // state назад (rollback) + error-toast.
     const prevNews = news;
     const prevTpl = templateNews;
+    const prevTemplates = templates;
     setNews(prev => prev.filter(n => n.id !== id));
     setTemplateNews(prev => prev.filter(n => n.id !== id));
+    setTemplates(prev => prev.filter(n => n.id !== id));
     setDeleteTarget(null);
     setDeleting(true);
     try {
@@ -371,14 +372,16 @@ export default function AdminNewsPage() {
       if (!res.ok) {
         setNews(prevNews);
         setTemplateNews(prevTpl);
+        setTemplates(prevTemplates);
         const data = await res.json().catch(() => ({}));
         setToast({ message: data.error || 'Не вдалося видалити', type: 'error' });
         return;
       }
-      setToast({ message: 'Новину видалено', type: 'success' });
+      setToast({ message: 'Видалено', type: 'success' });
     } catch {
       setNews(prevNews);
       setTemplateNews(prevTpl);
+      setTemplates(prevTemplates);
       setToast({ message: 'Помилка запиту', type: 'error' });
     } finally {
       setDeleting(false);
@@ -458,15 +461,9 @@ export default function AdminNewsPage() {
                 : 'bg-gradient-to-r from-amber-500/0 via-amber-500/70 to-amber-500/0'
             }`} />
 
-            {/* Header — клік відкриває превʼю на повний екран. */}
-            <div
-              className={`flex items-center justify-between gap-3 px-4 py-2.5 cursor-pointer select-none transition-colors ${
-                dark ? 'hover:bg-white/[0.02]' : 'hover:bg-white/40'
-              }`}
-              onClick={() => setPagePreviewOpen(true)}
-            >
+            {/* Header — інфо про стан + icon-only Прев'ю (👁). Симетрично з НАСТУПНА. */}
+            <div className="flex items-center justify-between gap-3 px-4 py-2.5">
               <div className="flex items-center gap-2.5 min-w-0">
-                {/* Статус-pill з іконкою і коротким лейблом */}
                 <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-[0.08em] flex-shrink-0 ${
                   pagePublished
                     ? dark ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-400/20' : 'bg-emerald-100 text-emerald-800 border border-emerald-500/20'
@@ -485,66 +482,56 @@ export default function AdminNewsPage() {
                       : '/news показує empty state'}
                 </span>
               </div>
-
-              <div className="flex items-center gap-1.5 flex-shrink-0" onClick={e => e.stopPropagation()}>
-                <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); setPagePreviewOpen(true); }}
-                  title="Відкрити превʼю на повний екран"
-                  className={`inline-flex items-center gap-1.5 px-2.5 h-7 rounded-lg border transition-all text-[11px] font-medium ${
-                    dark
-                      ? 'bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.08] hover:text-slate-100'
-                      : 'bg-white/70 border-stone-300/60 text-stone-700 hover:bg-white hover:text-stone-900'
-                  }`}
-                >
-                  <FaExpand className="text-[9px]" />
-                  <span>Превʼю</span>
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={() => setPagePreviewOpen(true)}
+                title="Превʼю поточної сторінки"
+                aria-label="Превʼю"
+                className={`flex-shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-full border transition-colors ${
+                  dark
+                    ? 'bg-white/[0.04] border-white/[0.10] text-slate-300 hover:bg-white/[0.10] hover:text-slate-100'
+                    : 'bg-white/70 border-stone-300/60 text-stone-700 hover:bg-white hover:text-stone-900'
+                }`}
+              >
+                <span aria-hidden className="text-[13px]">👁</span>
+              </button>
             </div>
 
-        {/* Footer-панель: 2 кнопки в ряд (грід 2-col), бо тепер ми в широкій
-            колонці, не у вузькому сайдбарі. */}
-        <div className={`px-3 py-2 border-t grid grid-cols-2 gap-2 ${
-          dark ? 'border-white/[0.04] bg-white/[0.015]' : 'border-stone-200/50 bg-white/40'
-        }`}>
-          <Link
-            href="/dashboard/admin/news/page-builder"
-            className={`group relative inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full text-[11.5px] font-medium transition-all duration-300 overflow-hidden border whitespace-nowrap ${
-              dark
-                ? 'bg-transparent border-amber-300/40 text-amber-200 hover:border-amber-300/70 hover:bg-amber-300/10 hover:shadow-[0_0_18px_-4px_rgba(251,191,36,0.45)]'
-                : 'bg-white/60 border-amber-700/40 text-amber-800 hover:border-amber-700/70 hover:bg-amber-50 hover:shadow-[0_4px_14px_-6px_rgba(180,83,9,0.35)]'
-            }`}
-            title="Редагувати live-сторінку /news (миттєве оновлення)"
-          >
-            <span
-              aria-hidden
-              className={`pointer-events-none absolute inset-y-0 -left-1/2 w-1/2 skew-x-[-20deg] opacity-0 group-hover:opacity-100 group-hover:translate-x-[260%] transition-all duration-[900ms] ease-out ${
-                dark ? 'bg-amber-300/20' : 'bg-amber-300/30'
-              }`}
-            />
-            <FaPlus className="relative text-[10px]" />
-            <span className="relative">Редагувати</span>
-          </Link>
-          <button
-            type="button"
-            onClick={togglePagePublish}
-            disabled={pagePublished === null || togglingPublish}
-            title={pagePublished ? 'Прибрати сторінку з сайту (показуватиметься empty state)' : 'Показати сторінку на сайті'}
-            className={`inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full text-[11.5px] font-medium border transition-colors disabled:opacity-50 ${
-              pagePublished
-                ? dark
-                  ? 'bg-rose-500/10 text-rose-200 border-rose-400/30 hover:bg-rose-500/20'
-                  : 'bg-rose-100/60 text-rose-800 border-rose-300/60 hover:bg-rose-100'
-                : dark
-                  ? 'bg-emerald-400/90 text-stone-900 border-transparent hover:bg-emerald-300 shadow-[0_0_14px_-4px_rgba(16,185,129,0.5)]'
-                  : 'bg-emerald-600 text-white border-transparent hover:bg-emerald-700 shadow-sm'
-            }`}
-          >
-            {togglingPublish ? '...' : pagePublished ? 'Деактивувати' : 'Активувати'}
-          </button>
-        </div>
-      </div>
+            {/* Actions row — 2 рівноважні pill-кнопки. */}
+            <div className={`px-3 py-2 border-t flex items-center gap-2 ${
+              dark ? 'border-white/[0.04] bg-white/[0.015]' : 'border-stone-200/50 bg-white/40'
+            }`}>
+              <Link
+                href="/dashboard/admin/news/page-builder"
+                className={`flex-1 inline-flex items-center justify-center gap-1.5 px-3 h-8 rounded-full text-[11.5px] font-medium border transition-colors whitespace-nowrap ${
+                  dark
+                    ? 'bg-transparent border-amber-300/40 text-amber-200 hover:border-amber-300/70 hover:bg-amber-300/10'
+                    : 'bg-white/60 border-amber-700/40 text-amber-800 hover:border-amber-700/70 hover:bg-amber-50'
+                }`}
+                title="Редагувати live-сторінку /news"
+              >
+                <FaPlus className="text-[10px]" />
+                <span>Редагувати</span>
+              </Link>
+              <button
+                type="button"
+                onClick={togglePagePublish}
+                disabled={pagePublished === null || togglingPublish}
+                title={pagePublished ? 'Прибрати сторінку з сайту' : 'Показати сторінку на сайті'}
+                className={`flex-1 inline-flex items-center justify-center gap-1.5 px-3 h-8 rounded-full text-[11.5px] font-medium border transition-colors whitespace-nowrap disabled:opacity-50 ${
+                  pagePublished
+                    ? dark
+                      ? 'bg-rose-500/10 text-rose-200 border-rose-400/30 hover:bg-rose-500/20'
+                      : 'bg-rose-100/60 text-rose-800 border-rose-300/60 hover:bg-rose-100'
+                    : dark
+                      ? 'bg-emerald-400/90 text-stone-900 border-transparent hover:bg-emerald-300'
+                      : 'bg-emerald-600 text-white border-transparent hover:bg-emerald-700'
+                }`}
+              >
+                {togglingPublish ? '...' : pagePublished ? 'Деактивувати' : 'Активувати'}
+              </button>
+            </div>
+          </div>
           </div>
           {/* ╰─ кінець колонки 1 ─╯ */}
 
@@ -594,162 +581,162 @@ export default function AdminNewsPage() {
             </div>
 
             {hasStaged ? (
-              <div className={`rounded-xl border backdrop-blur-sm overflow-hidden ${
-                dark ? 'bg-amber-400/[0.06] border-amber-300/25' : 'bg-amber-50/80 border-amber-500/30'
+              <div className={`rounded-xl border backdrop-blur-sm overflow-hidden shadow-sm ${
+                dark
+                  ? overdue ? 'bg-gradient-to-br from-rose-500/[0.06] to-white/[0.02] border-rose-300/25' : 'bg-gradient-to-br from-amber-500/[0.06] to-white/[0.02] border-amber-300/25'
+                  : overdue ? 'bg-gradient-to-br from-rose-50/70 to-white/60 border-rose-500/25' : 'bg-gradient-to-br from-amber-50/70 to-white/60 border-amber-500/30'
               }`}>
-                <div className="px-4 py-2.5">
-                  <div className="flex items-center gap-2.5 min-w-0 mb-2">
-                    <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full flex-shrink-0 ${
+                {/* Accent-смужка зверху (симетрично з Поточна) */}
+                <div className={`h-0.5 ${
+                  overdue
+                    ? 'bg-gradient-to-r from-rose-500/0 via-rose-500/70 to-rose-500/0'
+                    : 'bg-gradient-to-r from-amber-500/0 via-amber-500/70 to-amber-500/0'
+                }`} />
+
+                {/* Header — status + countdown + Превʼю icon-button (симетрично з Поточна). */}
+                <div className="flex items-center justify-between gap-3 px-4 py-2.5">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-[0.08em] flex-shrink-0 ${
                       overdue
-                        ? dark ? 'bg-rose-400/20 text-rose-200' : 'bg-rose-100 text-rose-800'
-                        : dark ? 'bg-amber-400/25 text-amber-100' : 'bg-amber-200/80 text-amber-900'
-                    }`} style={{ fontSize: '11px' }}>{'🕒'}</span>
-                    <div className="min-w-0 flex-1">
-                      <div className={`text-[10px] font-semibold uppercase tracking-wider ${dark ? 'text-amber-200/85' : 'text-amber-800/85'}`}>
-                        Запланована публікація
-                      </div>
-                      <div className={`text-[10.5px] ${dark ? 'text-amber-200/70' : 'text-amber-800/75'}`}>
-                        {publishOn ? countdown : 'дату не встановлено — чекає ручної публікації'}
-                      </div>
+                        ? dark ? 'bg-rose-500/15 text-rose-300 border border-rose-400/25' : 'bg-rose-100 text-rose-800 border border-rose-500/25'
+                        : dark ? 'bg-amber-500/15 text-amber-300 border border-amber-400/25' : 'bg-amber-100 text-amber-800 border border-amber-500/25'
+                    }`}>
+                      <span aria-hidden>🕒</span>
+                      <span>{overdue ? 'Прострочено' : 'Заплановано'}</span>
                     </div>
+                    <span className={`text-[11px] truncate ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
+                      {publishOn ? countdown : 'дату не встановлено — чекає ручної публікації'}
+                    </span>
                     {scheduleSaveState !== 'idle' && (
-                      <span className={`text-[10px] flex-shrink-0 mt-1 ${
+                      <span className={`text-[10px] flex-shrink-0 ${
                         scheduleSaveState === 'saving'
                           ? (dark ? 'text-amber-200/60' : 'text-amber-800/60')
                           : (dark ? 'text-emerald-300' : 'text-emerald-700')
                       }`}>
-                        {scheduleSaveState === 'saving' ? 'збереження...' : '✓ збережено'}
+                        {scheduleSaveState === 'saving' ? '· збереження…' : '· ✓ збережено'}
                       </span>
                     )}
                   </div>
-
-                  {/* Один рядок: date-pill (з ✕ для скидання) + ⚡ Опублікувати зараз.
-                      Календар відкривається випадаючим меню під date-pill —
-                      компактний (240px), щоб не розпирав панель. */}
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1 flex items-center gap-1.5 min-w-0">
-                        <button
-                          type="button"
-                          ref={dateTriggerRef}
-                          onClick={() => setDatePickerOpen(o => !o)}
-                          className={`flex-1 min-w-0 inline-flex items-center justify-between gap-2 px-3 py-1.5 text-[11.5px] rounded-lg border transition-colors ${
-                            dark
-                              ? 'bg-white/[0.06] text-amber-100 border-amber-300/30 hover:border-amber-300/60'
-                              : 'bg-white text-amber-900 border-amber-500/40 hover:border-amber-700'
-                          }`}
-                        >
-                          <span className="inline-flex items-center gap-2 min-w-0">
-                            <span aria-hidden>📅</span>
-                            <span className="font-medium truncate">
-                              {scheduleInput ? formatDateChip(scheduleInput) : 'Обрати дату'}
-                            </span>
-                          </span>
-                          <FaChevronDown className={`text-[9px] flex-shrink-0 transition-transform ${datePickerOpen ? 'rotate-180' : ''}`} />
-                        </button>
-                        {scheduleInput && (
-                          <button
-                            type="button"
-                            onClick={() => { setScheduleInput(''); setDatePickerOpen(false); }}
-                            title="Прибрати дату — чернетка чекатиме ручної публікації"
-                            className={`flex-shrink-0 inline-flex items-center justify-center w-6 h-6 rounded-lg border transition-colors text-[10px] ${
-                              dark
-                                ? 'bg-white/[0.04] text-amber-200 border-white/[0.10] hover:bg-white/[0.10]'
-                                : 'bg-white/70 text-amber-800 border-stone-300/60 hover:bg-white'
-                            }`}
-                          >✕</button>
-                        )}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setStagedConfirm('publishNow')}
-                        disabled={stagedActionPending !== null}
-                        title="Опублікувати чернетку негайно (без очікування дати)"
-                        className={`flex-shrink-0 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-[11.5px] font-semibold rounded-lg transition-all disabled:opacity-50 ${
-                          dark
-                            ? 'bg-emerald-400/90 text-stone-900 hover:bg-emerald-300 shadow-[0_0_14px_-4px_rgba(16,185,129,0.5)]'
-                            : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm'
-                        }`}
-                      >{stagedActionPending === 'publishNow' ? '...' : '⚡ Опублікувати зараз'}</button>
-                    </div>
-
-                    {datePickerOpen && datePickerPos && typeof document !== 'undefined' && createPortal(
-                      <div
-                        id="news-date-popover"
-                        style={{
-                          position: 'fixed',
-                          top: datePickerPos.top,
-                          left: datePickerPos.left,
-                          width: 240,
-                          zIndex: 70,
-                        }}
-                        className={`rounded-lg shadow-xl overflow-hidden ${
-                          dark ? 'bg-[#1a1d26]' : 'bg-white'
-                        }`}
-                      >
-                        <InlineDatePicker
-                          value={scheduleInput}
-                          onChange={(v) => { setScheduleInput(v); setDatePickerOpen(false); }}
-                          theme={theme}
-                          min={minDate}
-                        />
-                        <p className={`px-2.5 pb-2 -mt-1 text-[10px] leading-snug ${dark ? 'text-amber-200/55' : 'text-amber-800/65'}`}>
-                          Заміна вранці обраного дня (06:00 Київ).
-                        </p>
-                      </div>,
-                      document.body,
-                    )}
-                  </div>
-
-                </div>
-
-                {/* Footer: 3 кнопки в один ряд — Редагувати / Превʼю / Очистити. */}
-                <div className={`px-3 py-2 border-t grid grid-cols-3 gap-2 ${
-                  dark ? 'border-white/[0.06] bg-white/[0.02]' : 'border-amber-500/20 bg-amber-50/50'
-                }`}>
-                  <Link
-                    href="/dashboard/admin/news/page-builder/next"
-                    className={`group relative inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full text-[11.5px] font-medium transition-all duration-300 overflow-hidden border whitespace-nowrap ${
-                      dark
-                        ? 'bg-amber-400/15 border-amber-300/60 text-amber-200 hover:bg-amber-400/25 hover:shadow-[0_0_18px_-4px_rgba(251,191,36,0.45)]'
-                        : 'bg-amber-100/80 border-amber-700/50 text-amber-900 hover:bg-amber-100 hover:shadow-[0_4px_14px_-6px_rgba(180,83,9,0.35)]'
-                    }`}
-                    title="Редагувати чернетку наступної сторінки"
-                  >
-                    <span
-                      aria-hidden
-                      className={`pointer-events-none absolute inset-y-0 -left-1/2 w-1/2 skew-x-[-20deg] opacity-0 group-hover:opacity-100 group-hover:translate-x-[260%] transition-all duration-[900ms] ease-out ${
-                        dark ? 'bg-amber-300/20' : 'bg-amber-300/30'
-                      }`}
-                    />
-                    <span aria-hidden className="relative text-[10px]">{'🕒'}</span>
-                    <span className="relative">Редагувати</span>
-                  </Link>
                   <button
                     type="button"
                     onClick={() => setPagePreviewSource({ kind: 'next' })}
                     title="Превʼю чернетки наступної сторінки"
-                    className={`inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full text-[11.5px] font-medium border transition-colors ${
+                    aria-label="Превʼю"
+                    className={`flex-shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-full border transition-colors ${
                       dark
-                        ? 'bg-white/[0.04] text-amber-200 border-white/[0.10] hover:bg-white/[0.10]'
-                        : 'bg-white/70 text-amber-900 border-amber-700/40 hover:bg-white'
+                        ? 'bg-white/[0.04] border-white/[0.10] text-slate-300 hover:bg-white/[0.10] hover:text-slate-100'
+                        : 'bg-white/70 border-stone-300/60 text-stone-700 hover:bg-white hover:text-stone-900'
                     }`}
                   >
-                    <span aria-hidden>👁</span>
-                    <span>Превʼю</span>
+                    <span aria-hidden className="text-[13px]">👁</span>
                   </button>
+                </div>
+
+                {/* Actions row — 4 pill-кнопки в одну строку (date picker shrink-абельний). */}
+                <div className={`px-3 py-2 border-t flex items-center gap-2 flex-nowrap ${
+                  dark ? 'border-white/[0.06] bg-white/[0.015]' : 'border-amber-500/15 bg-white/40'
+                }`}>
+                  <div className="flex-1 min-w-0 flex items-center gap-1">
+                    <button
+                      type="button"
+                      ref={dateTriggerRef}
+                      onClick={() => setDatePickerOpen(o => !o)}
+                      className={`flex-1 min-w-0 inline-flex items-center justify-between gap-2 px-3 h-8 text-[11.5px] rounded-full border transition-colors ${
+                        dark
+                          ? 'bg-white/[0.06] text-amber-100 border-amber-300/30 hover:border-amber-300/60'
+                          : 'bg-white text-amber-900 border-amber-500/40 hover:border-amber-700'
+                      }`}
+                    >
+                      <span className="inline-flex items-center gap-1.5 min-w-0">
+                        <span aria-hidden className="text-[11px]">📅</span>
+                        <span className="font-medium truncate">
+                          {scheduleInput ? formatDateChip(scheduleInput) : 'Обрати дату'}
+                        </span>
+                      </span>
+                      <FaChevronDown className={`text-[9px] flex-shrink-0 transition-transform ${datePickerOpen ? 'rotate-180' : ''}`} />
+                    </button>
+                    {scheduleInput && (
+                      <button
+                        type="button"
+                        onClick={() => { setScheduleInput(''); setDatePickerOpen(false); }}
+                        title="Прибрати дату"
+                        aria-label="Прибрати дату"
+                        className={`flex-shrink-0 inline-flex items-center justify-center w-6 h-6 rounded-full border transition-colors text-[10px] ${
+                          dark
+                            ? 'bg-white/[0.04] text-amber-200 border-white/[0.10] hover:bg-white/[0.10]'
+                            : 'bg-white/70 text-amber-800 border-stone-300/60 hover:bg-white'
+                        }`}
+                      >✕</button>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setStagedConfirm('publishNow')}
+                    disabled={stagedActionPending !== null}
+                    title="Опублікувати чернетку негайно"
+                    className={`flex-shrink-0 inline-flex items-center justify-center gap-1.5 px-3 h-8 text-[11.5px] font-medium rounded-full border transition-colors whitespace-nowrap disabled:opacity-50 ${
+                      dark
+                        ? 'bg-emerald-400/90 text-stone-900 border-transparent hover:bg-emerald-300'
+                        : 'bg-emerald-600 text-white border-transparent hover:bg-emerald-700'
+                    }`}
+                  >
+                    <span aria-hidden className="text-[11px]">⚡</span>
+                    <span>{stagedActionPending === 'publishNow' ? '...' : 'Опублікувати'}</span>
+                  </button>
+                  <Link
+                    href="/dashboard/admin/news/page-builder/next"
+                    title="Редагувати чернетку наступної сторінки"
+                    className={`flex-shrink-0 inline-flex items-center justify-center gap-1.5 px-3 h-8 text-[11.5px] font-medium rounded-full border transition-colors whitespace-nowrap ${
+                      dark
+                        ? 'bg-transparent border-amber-300/40 text-amber-200 hover:border-amber-300/70 hover:bg-amber-300/10'
+                        : 'bg-white/60 border-amber-700/40 text-amber-800 hover:border-amber-700/70 hover:bg-amber-50'
+                    }`}
+                  >
+                    <FaPlus className="text-[10px]" />
+                    <span>Редагувати</span>
+                  </Link>
                   <button
                     type="button"
                     onClick={() => setStagedConfirm('discard')}
                     disabled={stagedActionPending !== null}
-                    title="Видалити чернетку: контент і дату публікації буде стерто"
-                    className={`inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full text-[11.5px] font-medium border transition-colors disabled:opacity-50 ${
+                    title="Видалити чернетку"
+                    aria-label="Очистити чернетку"
+                    className={`flex-shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-full border transition-colors disabled:opacity-50 ${
                       dark
                         ? 'bg-rose-500/10 text-rose-200 border-rose-400/30 hover:bg-rose-500/20'
                         : 'bg-rose-100/60 text-rose-800 border-rose-300/60 hover:bg-rose-100'
                     }`}
-                  >{stagedActionPending === 'discard' ? '...' : 'Очистити'}</button>
+                  >
+                    <span aria-hidden className="text-[12px]">{stagedActionPending === 'discard' ? '…' : '🗑'}</span>
+                  </button>
                 </div>
+
+                {datePickerOpen && datePickerPos && typeof document !== 'undefined' && createPortal(
+                  <div
+                    id="news-date-popover"
+                    style={{
+                      position: 'fixed',
+                      top: datePickerPos.top,
+                      left: datePickerPos.left,
+                      width: 240,
+                      zIndex: 70,
+                    }}
+                    className={`rounded-lg shadow-xl overflow-hidden ${
+                      dark ? 'bg-[#1a1d26]' : 'bg-white'
+                    }`}
+                  >
+                    <InlineDatePicker
+                      value={scheduleInput}
+                      onChange={(v) => { setScheduleInput(v); setDatePickerOpen(false); }}
+                      theme={theme}
+                      min={minDate}
+                    />
+                    <p className={`px-2.5 pb-2 -mt-1 text-[10px] leading-snug ${dark ? 'text-amber-200/55' : 'text-amber-800/65'}`}>
+                      Заміна вранці обраного дня (06:00 Київ).
+                    </p>
+                  </div>,
+                  document.body,
+                )}
               </div>
             ) : (
               // Без чернетки: пояснювальний текст + standalone pill "Створити наступну".
@@ -1640,9 +1627,10 @@ export default function AdminNewsPage() {
         {/* ╰─ кінець блоку «Шаблони + список новин» ─────────────────────╯ */}
       </div>
 
-      {/* Fullscreen-превʼю «Поточної сторінки». Рендериться 1-в-1 публічний
-          /news через NewsPagePreview (auto-scale до доступної ширини). Esc /
-          клік по бекдропу / X — закривають. */}
+      {/* Fullscreen-превʼю «Поточної сторінки». Iframe → /uk/news/preview
+          з повним layout (Navbar + Hero + Content + Footer + CookieBanner)
+          з [locale]/layout.tsx — 1-в-1 публічний вигляд. Esc / клік по
+          бекдропу / X — закривають. */}
       {pagePreviewSource !== null && (
         <div
           className="fixed inset-0 z-[60] flex flex-col bg-stone-900/85 backdrop-blur-md"
@@ -1686,16 +1674,23 @@ export default function AdminNewsPage() {
             </button>
           </div>
           <div
-            className="flex-1 overflow-auto p-6"
+            className="flex-1 overflow-hidden p-6"
             onClick={e => e.stopPropagation()}
           >
             <div
-              className="mx-auto rounded-lg overflow-hidden shadow-2xl"
-              style={{ maxWidth: '1280px', background: '#FFFFFF' }}
+              className="mx-auto h-full rounded-lg overflow-hidden shadow-2xl bg-white"
+              style={{ maxWidth: '1440px' }}
             >
-              <NewsPagePreview
-                source={pagePreviewSource.kind}
-                archiveId={pagePreviewSource.kind === "archive" ? pagePreviewSource.id : undefined}
+              <iframe
+                key={`page-preview:${pagePreviewSource.kind}:${pagePreviewSource.kind === "archive" ? pagePreviewSource.id : ""}`}
+                src={(() => {
+                  const base = "/uk/news/preview";
+                  if (pagePreviewSource.kind === "next") return `${base}?source=next`;
+                  if (pagePreviewSource.kind === "archive") return `${base}?source=archive&id=${encodeURIComponent(pagePreviewSource.id)}`;
+                  return `${base}?source=live`;
+                })()}
+                title="Превʼю /news"
+                className="w-full h-full border-0"
               />
             </div>
           </div>
