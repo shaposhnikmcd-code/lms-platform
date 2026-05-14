@@ -82,6 +82,16 @@ export default function CourseRow({
   const [saving, setSaving] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
+  // Короткочасний success-стан після Save щоб уникнути мерехтіння
+  // («активна → ... → активна → disabled» поки router.refresh підвантажить
+  // оновлений row prop). Кнопка показує зелене "✓ Збережено" 1.6с, потім
+  // природним чином іде в disabled (бо dirty=false).
+  const [justSaved, setJustSaved] = useState(false);
+  useEffect(() => {
+    if (!justSaved) return;
+    const t = setTimeout(() => setJustSaved(false), 1600);
+    return () => clearTimeout(t);
+  }, [justSaved]);
 
   // Draft persistence — щоб незбережені зміни не зникали при перезавантаженні сторінки.
   const draftKey = `lms-admin-course-draft-${row.slug}`;
@@ -217,6 +227,7 @@ export default function CourseRow({
         alert(data?.error || 'Не вдалося зберегти');
         return;
       }
+      setJustSaved(true);
       router.refresh();
     } catch (err) {
       alert(`Помилка: ${err}`);
@@ -487,6 +498,11 @@ export default function CourseRow({
       ? 'bg-amber-400/90 text-stone-900 hover:bg-amber-300 shadow-[0_0_18px_-4px_rgba(251,191,36,0.5)] disabled:shadow-none disabled:bg-white/[0.06] disabled:text-slate-500'
       : 'bg-stone-900 text-amber-100 hover:bg-stone-800 shadow-sm disabled:shadow-none disabled:bg-stone-200 disabled:text-stone-400'
   }`;
+  const justSavedBtnCls = `inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-[12px] font-medium rounded-lg cursor-default ${
+    dark
+      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+      : 'bg-emerald-100 text-emerald-800 border border-emerald-500/40'
+  }`;
   const resetBtnCls = `inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-[12px] font-medium rounded-lg border transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
     dark
       ? 'bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.08] hover:text-white'
@@ -495,10 +511,17 @@ export default function CourseRow({
 
   const actionsCell = (
     <div className="flex flex-row gap-1.5 items-center justify-center">
-      <button type="button" onClick={handleSave} disabled={!dirty || saving} className={saveBtnCls}>
-        <FaCheck className="text-[10px]" />
-        {saving ? '...' : 'Зберегти'}
-      </button>
+      {justSaved ? (
+        <span className={justSavedBtnCls}>
+          <FaCheck className="text-[10px]" />
+          Збережено
+        </span>
+      ) : (
+        <button type="button" onClick={handleSave} disabled={!dirty || saving} className={saveBtnCls}>
+          <FaCheck className="text-[10px]" />
+          {saving ? '...' : 'Зберегти'}
+        </button>
+      )}
       <button
         type="button"
         onClick={() => setShowResetModal(true)}
