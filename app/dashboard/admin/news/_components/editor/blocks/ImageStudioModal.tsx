@@ -350,6 +350,7 @@ export default function ImageStudioModal({
 
   return createPortal(
     <div
+      data-fullscreen-editor="image"
       onWheel={(e) => e.stopPropagation()}
       style={{
         position: "fixed", inset: 0, zIndex: 1000,

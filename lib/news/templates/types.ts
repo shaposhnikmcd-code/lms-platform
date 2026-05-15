@@ -41,12 +41,39 @@ export interface ArticleImage {
   previewScale?: number;
   /** Масштаб на повній сторінці, 0.5..1.5. Default 1. */
   pageScale?: number;
-  /** Точка фокусу X у відсотках 0..100. CSS object-position. Default 50 (центр). */
+  /** Точка фокусу X у відсотках 0..100. CSS object-position. Default 50 (центр).
+   *  LEGACY: спільна focal для обох контекстів. Залишена для backward-compat
+   *  старих записів. Нова логіка читає preview/pageFocal окремо; якщо їх нема —
+   *  fallback на цю. */
   focalX?: number;
   /** Точка фокусу Y у відсотках 0..100. Default 50 (центр). */
   focalY?: number;
-  /** Якщо true — зміни у preview-контролах синхронізуються на page-контроли. */
+  /** Focal-point для preview-картки (`role="preview"`). Якщо undefined — fallback
+   *  на legacy `focalX/Y`, далі на center (50,50). */
+  previewFocalX?: number;
+  previewFocalY?: number;
+  /** Focal-point для повної сторінки (`role="page"`). Аналогічно з fallback. */
+  pageFocalX?: number;
+  pageFocalY?: number;
+  /** Якщо true — зміни у preview-контролах (fit/scale/focal) синхронізуються
+   *  на page-контроли (і навпаки). */
   linkScale?: boolean;
+  /** Border-radius у px (0..50, або 999 для pill). Застосовується до фото на
+   *  preview і public render. Керується з ImageEditor sidebar. */
+  imgRadius?: number;
+  /** Які кути заокруглювати: "TRBL" з 0/1 — top-left, top-right, bottom-right,
+   *  bottom-left. Default "1111" — всі кути. */
+  imgRadiusCorners?: string;
+  /** Overlays — JSON-масив текстових напісів на фото. Зберігається як stringified
+   *  JSON для сумісності з ImageEditor (block.data — Record<string, string>).
+   *  Public render парсить і відображає кожен overlay як абсолютно позиціонований
+   *  текст з власним стилем. */
+  overlays?: string;
+  /** Naturalний aspect ratio фото (W/H) — використовується ImageEditor для
+   *  paper-canvas у ImageStudioModal. */
+  aspectRatio?: number;
+  /** Tolerance для chroma-key (видалення білого фону). 0 = вимкнено. */
+  bgRemoveTolerance?: number;
 }
 
 /** Clamp helper для числових полів (fit/scale). */
@@ -70,7 +97,16 @@ export function sanitizeArticleImage(input: unknown): ArticleImage {
     pageScale: clampNum(src.pageScale, 0.5, 1.5, 1),
     focalX: clampNum(src.focalX, 0, 100, 50),
     focalY: clampNum(src.focalY, 0, 100, 50),
+    previewFocalX: typeof src.previewFocalX === "number" ? clampNum(src.previewFocalX, 0, 100, 50) : undefined,
+    previewFocalY: typeof src.previewFocalY === "number" ? clampNum(src.previewFocalY, 0, 100, 50) : undefined,
+    pageFocalX: typeof src.pageFocalX === "number" ? clampNum(src.pageFocalX, 0, 100, 50) : undefined,
+    pageFocalY: typeof src.pageFocalY === "number" ? clampNum(src.pageFocalY, 0, 100, 50) : undefined,
     linkScale: src.linkScale === true,
+    imgRadius: typeof src.imgRadius === "number" ? clampNum(src.imgRadius, 0, 999, 0) : undefined,
+    imgRadiusCorners: typeof src.imgRadiusCorners === "string" ? src.imgRadiusCorners : undefined,
+    overlays: typeof src.overlays === "string" ? src.overlays : undefined,
+    aspectRatio: typeof src.aspectRatio === "number" ? src.aspectRatio : undefined,
+    bgRemoveTolerance: typeof src.bgRemoveTolerance === "number" ? clampNum(src.bgRemoveTolerance, 0, 100, 0) : undefined,
   };
 }
 
@@ -198,6 +234,12 @@ export const EVENT_CARD_WIDTH_DEFAULT = 600;
 export const EVENT_CARD_HEIGHT_MIN = 320;
 export const EVENT_CARD_HEIGHT_MAX = 900;
 export const EVENT_CARD_HEIGHT_DEFAULT = 400;
+// Heading-блок (заголовок над карткою) — окремі межі. Width успадковує дефолти
+// картки. Height — min 40 (одна строка) до 400 (велика декор-плашка).
+export const EVENT_TITLE_WIDTH_MIN = 200;
+export const EVENT_TITLE_WIDTH_MAX = 1400;
+export const EVENT_TITLE_HEIGHT_MIN = 40;
+export const EVENT_TITLE_HEIGHT_MAX = 400;
 
 /** Пресети для UI. Числа підібрано під /news layout:
  *  - 600  → 2 картки в ряд на feed-сторінці (компакт)
@@ -219,8 +261,15 @@ export const EVENT_CARD_WIDTH_PRESETS: EventCardWidthPreset[] = [
 export interface EventData {
   /** Фото фахівця — вертикальний crop 3:4. object-fit:cover у фіксований слот. */
   photo: ArticleImage;
-  /** Назва події (overlay на фото зверху або підпис). */
+  /** Назва події. Plain-text дзеркало `titleHtml` (без розмітки) — використовується
+   *  як fallback для старих записів і як значення по-замовчуванню. Sync-иться з
+   *  News.title через TemplateEditor (meta.title). */
   title: string;
+  /** Заголовок-блок над карткою — rich HTML з HeadingEditor (TipTap). Може
+   *  містити inline-форматування: шрифт, розмір, колір, B/I/U, listing. Рендериться
+   *  через sanitizeHtml + dangerouslySetInnerHTML. Backward-compat: якщо
+   *  порожній — береться plain `title` обгорнутий в `<p>`. */
+  titleHtml?: string;
   /** Підпис над вартістю на overlay. Default — «ВАРТІСТЬ». Менеджер може
    *  змінити (наприклад «ЦІНА», «ВНЕСОК», «AT THE DOOR» тощо) або зробити
    *  порожнім — тоді label не рендериться, лишається тільки значення. */
@@ -264,6 +313,13 @@ export interface EventData {
    *  рендериться з auto-висотою (контент диктує), тому це поле впливає лише
    *  на feed/preview-режим. Default — EVENT_CARD_HEIGHT_DEFAULT (400). */
   cardHeight: number;
+  /** Native-ширина заголовкового блоку. Незалежна від cardWidth — менеджер
+   *  може зробити заголовок вужчим/ширшим за картку. Default — таке ж як
+   *  cardWidth (heading рівний по ширині картці). */
+  titleWidth?: number;
+  /** Native-висота заголовкового блоку. Default — undefined (auto, по контенту).
+   *  Якщо менеджер тягне resize-handle — фіксується. */
+  titleHeight?: number;
 }
 
 export const EVENT_DEFAULTS: EventData = {
@@ -382,6 +438,7 @@ function mergeDefaults(kind: TemplateKind, src: Record<string, unknown>): Articl
   return {
     photo: sanitizeArticleImage({ ...d.photo, ...(s.photo || {}) }),
     title: s.title ?? d.title,
+    titleHtml: typeof s.titleHtml === "string" ? s.titleHtml : undefined,
     priceLabel: typeof s.priceLabel === "string" ? s.priceLabel : d.priceLabel,
     price: s.price ?? d.price,
     durationLabel: typeof s.durationLabel === "string" ? s.durationLabel : d.durationLabel,
@@ -409,6 +466,12 @@ function mergeDefaults(kind: TemplateKind, src: Record<string, unknown>): Articl
     })(),
     cardWidth: clampNum(s.cardWidth, EVENT_CARD_WIDTH_MIN, EVENT_CARD_WIDTH_MAX, EVENT_CARD_WIDTH_DEFAULT),
     cardHeight: clampNum(s.cardHeight, EVENT_CARD_HEIGHT_MIN, EVENT_CARD_HEIGHT_MAX, EVENT_CARD_HEIGHT_DEFAULT),
+    titleWidth: typeof s.titleWidth === "number"
+      ? clampNum(s.titleWidth, EVENT_TITLE_WIDTH_MIN, EVENT_TITLE_WIDTH_MAX, EVENT_CARD_WIDTH_DEFAULT)
+      : undefined,
+    titleHeight: typeof s.titleHeight === "number"
+      ? clampNum(s.titleHeight, EVENT_TITLE_HEIGHT_MIN, EVENT_TITLE_HEIGHT_MAX, 90)
+      : undefined,
   };
 }
 

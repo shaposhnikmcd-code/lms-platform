@@ -135,7 +135,7 @@ export default function ArticleTemplate({ data, showHero = true, highlight, onCo
       >
         <CoverImageBox image={data.cover} role="page" />
         {onCoverFocalClick && (
-          <FocalDot x={data.cover.focalX ?? 50} y={data.cover.focalY ?? 50} />
+          <FocalDot x={data.cover.pageFocalX ?? data.cover.focalX ?? 50} y={data.cover.pageFocalY ?? data.cover.focalY ?? 50} />
         )}
       </figure>
     );

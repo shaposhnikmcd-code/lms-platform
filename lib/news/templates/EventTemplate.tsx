@@ -77,6 +77,25 @@ interface Props {
   /** Якщо задано — клік по фото викликає колбек з focal-координатами 0..100.
    *  Активує crosshair cursor + дот-маркер у точці фокусу. Лише для editor. */
   onPhotoFocalClick?: (x: number, y: number) => void;
+  /** Editor-mode slot для заголовку-блоку. Якщо передано — рендериться замість
+   *  default-рендеру (data.titleHtml/title). Використовується TemplateEditor щоб
+   *  підставити HeadingEditor inline. Public-render слот не передає. */
+  titleSlot?: React.ReactNode;
+  /** Editor-mode slot для фото-блоку. Якщо передано — рендериться замість фото.
+   *  Використовується TemplateEditor щоб підставити ImageEditor inline. */
+  photoSlot?: React.ReactNode;
+  /** Click-handler на заголовок-блок (для selection-state у редакторі). */
+  onTitleClick?: () => void;
+  /** Click-handler на фото-блок (для selection-state у редакторі). */
+  onPhotoClick?: () => void;
+  /** Чи виділений заголовок (показуємо amber-ring коли true). */
+  titleSelected?: boolean;
+  /** Чи виділена фото-секція. */
+  photoSelected?: boolean;
+  /** Якщо true — heading-блок взагалі не рендериться (повертається лише
+   *  article). Використовується редактором, який рендерить heading зовні
+   *  у власному resizable-wrapper-і. */
+  skipHeading?: boolean;
 }
 
 /** Стиль region-обводки коли активний. Не міняє layout (outline + box-shadow). */
@@ -91,7 +110,22 @@ function regionStyle(active: boolean): React.CSSProperties {
   };
 }
 
-export default function EventTemplate({ data, fixedHeight, disableLinks, highlight, maxWidth, photoRole = "page", onPhotoFocalClick }: Props) {
+export default function EventTemplate({
+  data,
+  fixedHeight,
+  disableLinks,
+  highlight,
+  maxWidth,
+  photoRole = "page",
+  onPhotoFocalClick,
+  titleSlot,
+  photoSlot,
+  onTitleClick,
+  onPhotoClick,
+  titleSelected,
+  photoSelected,
+  skipHeading,
+}: Props) {
   const h = (region: EventRegion) => regionStyle(highlight === region);
   const hidden = data.hidden || {};
   const isHidden = (r: EventRegion) => hidden[r] === true;
@@ -116,10 +150,14 @@ export default function EventTemplate({ data, fixedHeight, disableLinks, highlig
     containerType: "inline-size",
   };
 
-  // Title-блок НАД карткою — використовує спільне поле `data.title` (= News.title,
-   // тобто та сама «Заголовок» з мета-форми). Toggle через hidden.title.
-   // Рендериться лише якщо менеджер увімкнув цю опцію і title непорожній.
-  const showCardHeading = !isHidden("title") && !!data.title && data.title.trim() !== "";
+  // Title-блок НАД карткою — використовує `data.titleHtml` (rich HTML з
+   // HeadingEditor) з fallback на plain `data.title` обгорнутий у <p>.
+   // Toggle через hidden.title. Рендериться лише якщо є непорожній контент
+   // АБО передано editor-slot. titleSlot завжди має пріоритет.
+  const effectiveTitleHtml = (data.titleHtml && data.titleHtml.trim() !== "")
+    ? data.titleHtml
+    : (data.title && data.title.trim() !== "" ? `<p>${data.title.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</p>` : "");
+  const showCardHeading = !skipHeading && (!!titleSlot || (!isHidden("title") && effectiveTitleHtml !== ""));
 
   const wrapperStyle: React.CSSProperties = maxWidth
     ? { width: "100%", maxWidth: `${maxWidth}px`, marginLeft: "auto", marginRight: "auto" }
@@ -132,108 +170,124 @@ export default function EventTemplate({ data, fixedHeight, disableLinks, highlig
       {!photoHidden && (
       <div
         onClick={
-          onPhotoFocalClick && data.photo.url
-            ? (e) => {
-                const rect = e.currentTarget.getBoundingClientRect();
-                const x = ((e.clientX - rect.left) / rect.width) * 100;
-                const y = ((e.clientY - rect.top) / rect.height) * 100;
-                onPhotoFocalClick(Math.max(0, Math.min(100, x)), Math.max(0, Math.min(100, y)));
-              }
-            : undefined
+          // Якщо фото ще НЕ виділене, перший клік — selection (для editor-mode
+          // з `onPhotoClick`). Якщо вже виділене АБО onPhotoClick відсутній —
+          // клік працює як focal-point picker (старий механізм).
+          (onPhotoClick && !photoSelected)
+            ? () => onPhotoClick()
+            : (onPhotoFocalClick && data.photo.url
+              ? (e) => {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const x = ((e.clientX - rect.left) / rect.width) * 100;
+                  const y = ((e.clientY - rect.top) / rect.height) * 100;
+                  onPhotoFocalClick(Math.max(0, Math.min(100, x)), Math.max(0, Math.min(100, y)));
+                }
+              : undefined)
         }
         style={{
           position: "relative",
           background: "#1C3A2E",
           minHeight: 360,
           overflow: "hidden",
-          cursor: onPhotoFocalClick && data.photo.url ? "crosshair" : undefined,
+          cursor: (onPhotoClick && !photoSelected)
+            ? "pointer"
+            : (onPhotoFocalClick && data.photo.url ? "crosshair" : undefined),
           ...h("photo"),
+          ...(photoSelected ? {
+            outline: "2px solid #D4A843",
+            outlineOffset: -2,
+            boxShadow: "inset 0 0 0 4px rgba(212,168,67,0.20)",
+          } : {}),
         }}
       >
-        {data.photo.url ? (
-          <>
-            <CoverImageBox image={data.photo} role={photoRole} />
-            {onPhotoFocalClick && (
-              <span
-                aria-hidden
+        {/* Editor-mode: photoSlot повністю замінює default-рендер фото. */}
+        {photoSlot ? photoSlot : (<>
+          {data.photo.url ? (
+            <>
+              <CoverImageBox image={data.photo} role={photoRole} />
+              {onPhotoFocalClick && (
+                <span
+                  aria-hidden
+                  style={{
+                    position: "absolute",
+                    left: `${(photoRole === "preview" ? data.photo.previewFocalX : data.photo.pageFocalX) ?? data.photo.focalX ?? 50}%`,
+                    top: `${(photoRole === "preview" ? data.photo.previewFocalY : data.photo.pageFocalY) ?? data.photo.focalY ?? 50}%`,
+                    width: 14,
+                    height: 14,
+                    marginLeft: -7,
+                    marginTop: -7,
+                    borderRadius: "50%",
+                    background: "#D4A843",
+                    border: "2px solid #FFFFFF",
+                    boxShadow: "0 0 0 1px rgba(28,58,46,0.5), 0 2px 6px rgba(0,0,0,0.35)",
+                    pointerEvents: "none",
+                    transition: "left 0.12s, top 0.12s",
+                    zIndex: 5,
+                  }}
+                />
+              )}
+            </>
+          ) : (
+            // Soft "no photo yet" стан — diagonal pinstripe + центрований icon.
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                backgroundImage:
+                  "repeating-linear-gradient(135deg, rgba(212,168,67,0.05) 0 12px, rgba(212,168,67,0) 12px 24px)",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 8,
+              }}
+              aria-hidden
+            >
+              <div
                 style={{
-                  position: "absolute",
-                  left: `${data.photo.focalX ?? 50}%`,
-                  top: `${data.photo.focalY ?? 50}%`,
-                  width: 14,
-                  height: 14,
-                  marginLeft: -7,
-                  marginTop: -7,
+                  width: 56,
+                  height: 56,
                   borderRadius: "50%",
-                  background: "#D4A843",
-                  border: "2px solid #FFFFFF",
-                  boxShadow: "0 0 0 1px rgba(28,58,46,0.5), 0 2px 6px rgba(0,0,0,0.35)",
-                  pointerEvents: "none",
-                  transition: "left 0.12s, top 0.12s",
-                  zIndex: 5,
+                  border: "1.5px dashed rgba(245,225,164,0.45)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "rgba(245,225,164,0.6)",
+                  fontSize: 24,
                 }}
-              />
-            )}
-          </>
-        ) : (
-          // Soft "no photo yet" стан — diagonal pinstripe + центрований icon.
-          // Не різкий емоджі на пустому темному фоні, а делікатний placeholder.
+              >
+                👤
+              </div>
+              <div
+                style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  letterSpacing: "0.14em",
+                  textTransform: "uppercase",
+                  color: "rgba(245,225,164,0.55)",
+                }}
+              >
+                Фото фахівця
+              </div>
+            </div>
+          )}
+
+          {/* Gradient overlay для читабельності тексту в нижній частині */}
           <div
+            aria-hidden
             style={{
               position: "absolute",
               inset: 0,
-              backgroundImage:
-                "repeating-linear-gradient(135deg, rgba(212,168,67,0.05) 0 12px, rgba(212,168,67,0) 12px 24px)",
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 8,
+              background:
+                "linear-gradient(180deg, rgba(28,58,46,0) 35%, rgba(28,58,46,0.55) 70%, rgba(28,58,46,0.92) 100%)",
+              pointerEvents: "none",
             }}
-            aria-hidden
-          >
-            <div
-              style={{
-                width: 56,
-                height: 56,
-                borderRadius: "50%",
-                border: "1.5px dashed rgba(245,225,164,0.45)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                color: "rgba(245,225,164,0.6)",
-                fontSize: 24,
-              }}
-            >
-              👤
-            </div>
-            <div
-              style={{
-                fontSize: 10,
-                fontWeight: 700,
-                letterSpacing: "0.14em",
-                textTransform: "uppercase",
-                color: "rgba(245,225,164,0.55)",
-              }}
-            >
-              Фото фахівця
-            </div>
-          </div>
-        )}
+          />
+        </>)}
 
-        {/* Gradient overlay для читабельності тексту в нижній частині */}
-        <div
-          aria-hidden
-          style={{
-            position: "absolute",
-            inset: 0,
-            background:
-              "linear-gradient(180deg, rgba(28,58,46,0) 35%, rgba(28,58,46,0.55) 70%, rgba(28,58,46,0.92) 100%)",
-            pointerEvents: "none",
-          }}
-        />
-
-        {/* Knee block: name+role+tagline ~60% з низу */}
+        {/* Knee block: name+role+tagline ~60% з низу. У editor-mode (photoSlot
+            заданий) обʼявляємо `pointer-events: none` — клік проходить крізь
+            на ImageEditor (інакше overlay перекривав би drag-handles фото). */}
         <div
           style={{
             position: "absolute",
@@ -245,6 +299,8 @@ export default function EventTemplate({ data, fixedHeight, disableLinks, highlig
             display: "flex",
             flexDirection: "column",
             gap: 2,
+            pointerEvents: photoSlot ? "none" : undefined,
+            zIndex: photoSlot ? 1 : undefined,
           }}
         >
           {/* Specialist block (name + role + tagline) — region "specialist" */}
@@ -506,12 +562,23 @@ export default function EventTemplate({ data, fixedHeight, disableLinks, highlig
     </article>
   );
 
-  if (!showCardHeading) return cardEl;
+  // Без heading — обгортаємо article у `wrapperStyle` div щоб maxWidth+центрування
+  // спрацювали (article inline-style override-ує cardStyle.maxWidth/margin).
+  if (!showCardHeading) return <div style={wrapperStyle}>{cardEl}</div>;
+
+  // Editor-selection ring (amber) для title-блоку. Має пріоритет над region-highlight
+  // (вони ніколи не співіснують у тій самій сесії редагування).
+  const titleSelectionStyle: React.CSSProperties = titleSelected ? {
+    outline: "2px solid #D4A843",
+    outlineOffset: 3,
+    boxShadow: "0 0 0 6px rgba(212,168,67,0.20), 0 8px 24px -4px rgba(212,168,67,0.45)",
+  } : {};
 
   return (
     <div style={wrapperStyle}>
       <div
         className="event-tpl-card-heading"
+        onClick={onTitleClick}
         style={{
           padding: "26px 28px 24px",
           marginBottom: 12,
@@ -524,10 +591,14 @@ export default function EventTemplate({ data, fixedHeight, disableLinks, highlig
           fontSize: 20,
           fontWeight: 700,
           lineHeight: 1.35,
+          cursor: onTitleClick ? "pointer" : undefined,
           ...h("title"),
+          ...titleSelectionStyle,
         }}
       >
-        {data.title}
+        {titleSlot
+          ? titleSlot
+          : <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(effectiveTitleHtml) }} />}
       </div>
       {cardEl}
     </div>

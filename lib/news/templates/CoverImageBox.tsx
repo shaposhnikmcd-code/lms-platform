@@ -29,8 +29,12 @@ interface Props {
 export default function CoverImageBox({ image, role }: Props) {
   const fit = (role === "preview" ? image.previewFit : image.pageFit) ?? "contain";
   const scale = (role === "preview" ? image.previewScale : image.pageScale) ?? 1;
-  const fx = image.focalX ?? 50;
-  const fy = image.focalY ?? 50;
+  // Role-specific focal з fallback на legacy `focalX/Y` для backward-compat
+  // старих записів (preview/pageFocal-полів ще нема).
+  const fxRole = role === "preview" ? image.previewFocalX : image.pageFocalX;
+  const fyRole = role === "preview" ? image.previewFocalY : image.pageFocalY;
+  const fx = fxRole ?? image.focalX ?? 50;
+  const fy = fyRole ?? image.focalY ?? 50;
 
   // Дві базові моделі вписування + загальний zoom-scale:
   //   • fit="contain" (Розгорнути) — фото повністю видно, можлива letterbox.

@@ -145,7 +145,7 @@ export default function TextStudioModal({
   };
 
   const node = (
-    <div style={{
+    <div data-fullscreen-editor="text" style={{
       position: "fixed", inset: 0, zIndex: 1000,
       background: "rgba(15, 30, 25, 0.65)",
       backdropFilter: "blur(4px)",

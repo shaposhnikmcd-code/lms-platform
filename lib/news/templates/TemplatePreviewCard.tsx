@@ -52,9 +52,26 @@ interface Props {
   onCoverFocalClick?: (x: number, y: number) => void;
   /** EVENT-only: клік по фото фахівця для focal-point picker у редакторі. */
   onPhotoFocalClick?: (x: number, y: number) => void;
+  /** EVENT-only editor-slot: inline-редактор заголовка (HeadingEditor). */
+  titleSlot?: React.ReactNode;
+  /** EVENT-only editor-slot: inline-редактор фото (ImageEditor). */
+  photoSlot?: React.ReactNode;
+  /** Клік на title-блок (для selection-state у редакторі). */
+  onTitleClick?: () => void;
+  /** Клік на photo-блок (для selection-state у редакторі). */
+  onPhotoClick?: () => void;
+  titleSelected?: boolean;
+  photoSelected?: boolean;
+  /** EVENT-only: пропустити рендер heading-блоку (редактор рендерить його зовні). */
+  skipHeading?: boolean;
 }
 
-export default function TemplatePreviewCard({ kind, data, href, width, height, disableLinks, highlight, onCoverFocalClick, onPhotoFocalClick }: Props) {
+export default function TemplatePreviewCard({
+  kind, data, href, width, height, disableLinks, highlight,
+  onCoverFocalClick, onPhotoFocalClick,
+  titleSlot, photoSlot, onTitleClick, onPhotoClick, titleSelected, photoSelected,
+  skipHeading,
+}: Props) {
   // EVENT: native width читаємо з data.cardWidth (якщо props.width не override).
   // ARTICLE: фіксовані dims з TEMPLATE_PREVIEW_DIMS — портретна 360×400.
   const dims = kind === "EVENT" ? getEventPreviewDims(data as EventData) : TEMPLATE_PREVIEW_DIMS[kind];
@@ -64,8 +81,11 @@ export default function TemplatePreviewCard({ kind, data, href, width, height, d
   const noInnerLinks = disableLinks ?? !!href;
 
   if (kind === "EVENT") {
+    // Висота не фіксується на обгортці — `EventTemplate` сам застосовує
+    // `fixedHeight` до `article`. Якщо ввімкнено heading-блок над карткою,
+    // обгортка має рости, інакше heading «викидає» картку з канвасу.
     const inner = (
-      <div style={{ width: w, height: h, display: "flex" }}>
+      <div style={{ width: w, display: "flex", flexDirection: "column" }}>
         <EventTemplate
           data={data as EventData}
           fixedHeight={h}
@@ -73,6 +93,13 @@ export default function TemplatePreviewCard({ kind, data, href, width, height, d
           highlight={highlight}
           photoRole="preview"
           onPhotoFocalClick={onPhotoFocalClick}
+          titleSlot={titleSlot}
+          photoSlot={photoSlot}
+          onTitleClick={onTitleClick}
+          onPhotoClick={onPhotoClick}
+          titleSelected={titleSelected}
+          photoSelected={photoSelected}
+          skipHeading={skipHeading}
         />
       </div>
     );
@@ -141,8 +168,8 @@ function ArticlePreviewCard({ data, href, width, height, onCoverFocalClick }: { 
                 aria-hidden
                 style={{
                   position: "absolute",
-                  left: `${cover.focalX ?? 50}%`,
-                  top: `${cover.focalY ?? 50}%`,
+                  left: `${cover.previewFocalX ?? cover.focalX ?? 50}%`,
+                  top: `${cover.previewFocalY ?? cover.focalY ?? 50}%`,
                   width: 12,
                   height: 12,
                   marginLeft: -6,
