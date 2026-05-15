@@ -270,7 +270,7 @@ export interface NewsListItemForBlock {
   templateData?: string | null;
 }
 
-interface OverlayShape {
+export interface OverlayShape {
   id: string;
   text: string;
   x: number;
@@ -291,6 +291,96 @@ interface OverlayShape {
   letterSpacing?: number;
   lineHeight?: number;
   href?: string;
+}
+
+// Парсимо raw JSON-рядок overlays із block.data.overlays / photo.overlays.
+// Викидаємо невалідні елементи, ловимо JSON помилки → []. Безпечно для server
+// та client render (без залежностей).
+export function parseImageOverlays(raw: string | undefined | null): OverlayShape[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((o): o is OverlayShape =>
+      o && typeof o.id === "string" && typeof o.text === "string"
+    );
+  } catch {
+    return [];
+  }
+}
+
+// Reusable render одного overlay-напису. Використовується в:
+//   1) BlockInner case "image" (звичайний блок-image у білдері Новин)
+//   2) EventTemplate (overlay-text над фото фахівця у шаблоні Event)
+// Логіка стилю/позиції/посилання ідентична — інакше WYSIWYG між контекстами
+// розходитиметься. Якщо потрібен tweak — міняйте тут.
+export function renderImageOverlay(ov: OverlayShape): React.ReactNode {
+  const r = ov.radius ?? (ov.bgColor ? 4 : 0);
+  const radiusCss = r >= 999 ? "9999px" : `${r}px`;
+  const padX = ov.bgColor ? Math.max(10, Math.round(ov.fontSize * 0.5)) : 6;
+  const padY = ov.bgColor ? Math.max(4, Math.round(ov.fontSize * 0.2)) : 2;
+  const hasSize = typeof ov.w === "number" && typeof ov.h === "number";
+  const safeHref =
+    ov.href && /^(https?:\/\/|\/|mailto:|tel:)/i.test(ov.href) ? ov.href : "";
+  const external = /^https?:\/\//i.test(safeHref);
+  const commonStyle: React.CSSProperties = {
+    position: "absolute",
+    left: `${ov.x}%`,
+    top: `${ov.y}%`,
+    width: hasSize ? `${ov.w}%` : "auto",
+    height: hasSize ? `${ov.h}%` : "auto",
+    color: ov.color,
+    background: ov.bgColor || "transparent",
+    fontSize: `${ov.fontSize}px`,
+    fontWeight: ov.weight,
+    fontFamily: ov.fontFamily || undefined,
+    fontStyle: ov.italic ? "italic" : "normal",
+    textDecoration: ov.underline ? "underline" : "none",
+    letterSpacing: ov.letterSpacing ? `${ov.letterSpacing}px` : "normal",
+    lineHeight: ov.lineHeight || 1.2,
+    textAlign: ov.align || "center",
+    textShadow: ov.bgColor ? "none" : "0 2px 8px rgba(0,0,0,0.5)",
+    whiteSpace: "pre-wrap",
+    padding: `${padY}px ${padX}px`,
+    borderRadius: radiusCss,
+    boxShadow: ov.shadow ? "0 4px 16px rgba(0,0,0,0.35)" : "none",
+    display: hasSize ? "flex" : "inline-block",
+    alignItems: hasSize
+      ? ov.vAlign === "top"
+        ? "flex-start"
+        : ov.vAlign === "bottom"
+          ? "flex-end"
+          : "center"
+      : undefined,
+    justifyContent: hasSize
+      ? ov.align === "left"
+        ? "flex-start"
+        : ov.align === "right"
+          ? "flex-end"
+          : "center"
+      : undefined,
+    boxSizing: "border-box",
+    overflow: "hidden",
+    pointerEvents: safeHref ? "auto" : "none",
+    cursor: safeHref ? "pointer" : "default",
+  };
+  if (safeHref) {
+    return (
+      <a
+        key={ov.id}
+        href={safeHref}
+        {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+        style={commonStyle}
+      >
+        {ov.text}
+      </a>
+    );
+  }
+  return (
+    <span key={ov.id} style={commonStyle}>
+      {ov.text}
+    </span>
+  );
 }
 
 // Рендер ВНУТРІШНОСТІ блока (без обгортки з padding/border). Викликається з
@@ -371,13 +461,7 @@ export function BlockInner({
 
     case "image": {
       if (!block.data.url) return null;
-      let overlays: OverlayShape[] = [];
-      try {
-        const parsed = JSON.parse(block.data.overlays || "[]");
-        if (Array.isArray(parsed)) overlays = parsed as OverlayShape[];
-      } catch {
-        /* ignore */
-      }
+      const overlays = parseImageOverlays(block.data.overlays);
       const imgRadius = Number(block.data.imgRadius) || 0;
       // Per-corner radius: "TRBL" 4-char string of 0/1, default "1111".
       // Якщо undefined (старі блоки) — поведінка "all corners".
@@ -406,89 +490,7 @@ export function BlockInner({
               display: "block",
             }}
           />
-          {overlays.map((ov) => {
-            const r = ov.radius ?? (ov.bgColor ? 4 : 0);
-            const radiusCss = r >= 999 ? "9999px" : `${r}px`;
-            const padX = ov.bgColor
-              ? Math.max(10, Math.round(ov.fontSize * 0.5))
-              : 6;
-            const padY = ov.bgColor
-              ? Math.max(4, Math.round(ov.fontSize * 0.2))
-              : 2;
-            const hasSize =
-              typeof ov.w === "number" && typeof ov.h === "number";
-            const safeHref =
-              ov.href && /^(https?:\/\/|\/|mailto:|tel:)/i.test(ov.href)
-                ? ov.href
-                : "";
-            const external = /^https?:\/\//i.test(safeHref);
-            const commonStyle: React.CSSProperties = {
-              position: "absolute",
-              left: `${ov.x}%`,
-              top: `${ov.y}%`,
-              width: hasSize ? `${ov.w}%` : "auto",
-              height: hasSize ? `${ov.h}%` : "auto",
-              color: ov.color,
-              background: ov.bgColor || "transparent",
-              fontSize: `${ov.fontSize}px`,
-              fontWeight: ov.weight,
-              fontFamily: ov.fontFamily || undefined,
-              fontStyle: ov.italic ? "italic" : "normal",
-              textDecoration: ov.underline ? "underline" : "none",
-              letterSpacing: ov.letterSpacing
-                ? `${ov.letterSpacing}px`
-                : "normal",
-              lineHeight: ov.lineHeight || 1.2,
-              textAlign: ov.align || "center",
-              textShadow: ov.bgColor
-                ? "none"
-                : "0 2px 8px rgba(0,0,0,0.5)",
-              whiteSpace: "pre-wrap",
-              padding: `${padY}px ${padX}px`,
-              borderRadius: radiusCss,
-              boxShadow: ov.shadow
-                ? "0 4px 16px rgba(0,0,0,0.35)"
-                : "none",
-              display: hasSize ? "flex" : "inline-block",
-              alignItems: hasSize
-                ? ov.vAlign === "top"
-                  ? "flex-start"
-                  : ov.vAlign === "bottom"
-                    ? "flex-end"
-                    : "center"
-                : undefined,
-              justifyContent: hasSize
-                ? ov.align === "left"
-                  ? "flex-start"
-                  : ov.align === "right"
-                    ? "flex-end"
-                    : "center"
-                : undefined,
-              boxSizing: "border-box",
-              overflow: "hidden",
-              pointerEvents: safeHref ? "auto" : "none",
-              cursor: safeHref ? "pointer" : "default",
-            };
-            if (safeHref) {
-              return (
-                <a
-                  key={ov.id}
-                  href={safeHref}
-                  {...(external
-                    ? { target: "_blank", rel: "noopener noreferrer" }
-                    : {})}
-                  style={commonStyle}
-                >
-                  {ov.text}
-                </a>
-              );
-            }
-            return (
-              <span key={ov.id} style={commonStyle}>
-                {ov.text}
-              </span>
-            );
-          })}
+          {overlays.map(renderImageOverlay)}
         </div>
       );
     }
@@ -950,6 +952,13 @@ export function AbsoluteBlockRender({
   const isNewsCardPreview =
     block.type === "newsCard" &&
     (block.data.displayMode || "preview") === "preview";
+  // borderRadius: явний `block.borderRadius` (з RadiusControl) має пріоритет;
+  // інакше fallback на 8px при bgColor, 0 без bgColor (історична поведінка).
+  // 999 → 9999 (pill).
+  const resolvedRadius =
+    typeof block.borderRadius === "number"
+      ? (block.borderRadius >= 999 ? 9999 : block.borderRadius)
+      : (block.bgColor ? 8 : 0);
   return (
     <div
       data-news-block
@@ -965,7 +974,7 @@ export function AbsoluteBlockRender({
         height: isNewsCardPreview ? "auto" : (h ? `${h}px` : "auto"),
         aspectRatio: isNewsCardPreview ? "360 / 400" : undefined,
         background: block.bgColor || "transparent",
-        borderRadius: block.bgColor ? "8px" : 0,
+        borderRadius: resolvedRadius,
         padding: isNewsCardPreview ? "0" : "0 16px",
         boxSizing: "border-box",
         // newsCard у будь-якому режимі може мати динамічний контент (expanded — повне тіло;
@@ -990,12 +999,16 @@ export function SequentialBlockRender({
   newsItems?: NewsListItemForBlock[];
   locale?: string;
 }) {
+  const resolvedRadius =
+    typeof block.borderRadius === "number"
+      ? (block.borderRadius >= 999 ? 9999 : block.borderRadius)
+      : (block.bgColor ? 8 : 0);
   return (
     <div
       style={{
         margin: "0.8em 0",
         background: block.bgColor || "transparent",
-        borderRadius: block.bgColor ? "8px" : 0,
+        borderRadius: resolvedRadius,
         padding: block.bgColor ? "10px 14px" : 0,
       }}
     >

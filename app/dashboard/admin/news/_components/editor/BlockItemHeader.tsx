@@ -6,7 +6,7 @@ import { requestCrop } from "./blocks/ImageEditor";
 // Section / SectionLabel — ті самі що в OverlayToolbar (Текст на фото).
 // Раніше тут були локальні версії з amber-кольором і малим padding-ом — це
 // створювало неконсистентність між двома редакторами.
-import { Section, SectionLabel } from "./blocks/_settingsPrimitives";
+import { Section, SectionLabel, RadiusControl } from "./blocks/_settingsPrimitives";
 
 const ff = "-apple-system, BlinkMacSystemFont, sans-serif";
 
@@ -16,6 +16,8 @@ interface Props {
   blockAlign: BlockAlign;
   blockVAlign: BlockVAlign;
   blockBgColor: string;
+  /** Радіус підкладки блока (undefined = default 8 при bgColor / 0 без). */
+  blockBorderRadius?: number;
   displayPct: number;
   hov: boolean;
   canMoveUp: boolean;
@@ -25,6 +27,7 @@ interface Props {
   onSetAlign: (id: string, a: BlockAlign) => void;
   onSetVAlign: (id: string, v: BlockVAlign) => void;
   onSetBg: (id: string, c: string) => void;
+  onSetBorderRadius: (id: string, v: number | undefined) => void;
   onMoveUp: (id: string) => void;
   onMoveDown: (id: string) => void;
   onDuplicate: (id: string) => void;
@@ -116,8 +119,8 @@ function ActionBtn({ title, onClick, children }: { title: string; onClick: () =>
 }
 
 export default function BlockItemHeader({
-  blockId, blockType, blockAlign, blockVAlign, blockBgColor, displayPct,
-  onSetAlign, onSetVAlign, onSetBg, onDuplicate,
+  blockId, blockType, blockAlign, blockVAlign, blockBgColor, blockBorderRadius, displayPct,
+  onSetAlign, onSetVAlign, onSetBg, onSetBorderRadius, onDuplicate,
   blockSubtitle,
 }: Props) {
   // "Розміщення блока" прибрано з шапки (рішення 2026-05-14) — дублювало
@@ -240,6 +243,16 @@ export default function BlockItemHeader({
               );
             })}
           </div>
+        </Section>
+      )}
+
+      {showBg && (
+        <Section padTop={0}>
+          <SectionLabel>Форма підкладки</SectionLabel>
+          <RadiusControl
+            current={blockBorderRadius ?? (blockBgColor ? 8 : 0)}
+            onChange={(v) => onSetBorderRadius(blockId, v)}
+          />
         </Section>
       )}
     </div>

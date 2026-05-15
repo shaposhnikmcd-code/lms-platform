@@ -43,6 +43,7 @@ import { TextInput } from "./Inputs";
 import { slugifyNewsTitle } from "@/lib/news/slug";
 import HeadingEditor from "../editor/blocks/HeadingEditor";
 import ImageEditor from "../editor/blocks/ImageEditor";
+import { BlockPanelHeader } from "../editor/blocks/_settingsPrimitives";
 import { NewsEditorActionsContext } from "../editor/NewsEditor";
 import { buildGoogleFontsHref } from "../editor/blocks/editorFonts";
 import type { Block } from "../editor/types";
@@ -124,7 +125,10 @@ export default function TemplateEditor({ newsId }: Props) {
       // Клік на сам блок (heading або body) — НЕ деселект. Інакше деселектимо.
       // Це дає UX «клік на cream background навколо блоків деселектить».
       if (target.closest("[data-block-region]")) return;
-      if (target.closest("#news-block-settings-slot")) return;
+      // Settings-картка цілком (info-strip + Фон блока + slot) — кліки всередині
+      // не деселектять. Раніше тут був тільки `#news-block-settings-slot`, тому
+      // клік на BlockPanelHeader (info-strip / палітра фону) скидав вибір.
+      if (target.closest(".template-settings-wrapper")) return;
       if (target.closest("[data-fullscreen-editor]")) return;
       setSelectedBlock(null);
     };
@@ -903,43 +907,66 @@ export default function TemplateEditor({ newsId }: Props) {
             overflowY: "auto",
           }}
         >
-          {/* Settings-slot для активного preview-блоку. Той самий пайплайн, що в
-              білдері новин: HeadingEditor/ImageEditor портал-ять свої панелі
-              сюди через document.getElementById("news-block-settings-slot").
-              Видимий тільки коли є виділений блок (CSS :empty). */}
+          {/* Settings-card для активного preview-блоку. BlockPanelHeader
+              (info-strip + Фон блока) + #news-block-settings-slot куди HeadingEditor/
+              ImageEditor портал-ять свій toolbar. Slot ЗАВЖДИ у DOM — інакше
+              React-portal target null при першому кліку (DOM commit
+              відбувається після рендеру дочірнього HeadingEditor). Картка
+              ховається через CSS коли slot порожній і нічого не вибрано. */}
           <div
             className="template-settings-wrapper"
-            style={{ marginBottom: 16 }}
+            style={{
+              marginBottom: 16,
+              background: "#FAF6F0",
+              border: "1px solid #E8D5B7",
+              borderRadius: 10,
+              overflow: "hidden",
+            }}
           >
-            <div
-              style={{
-                fontSize: 10,
-                fontWeight: 700,
-                color: "#9B7C45",
-                letterSpacing: "0.12em",
-                textTransform: "uppercase",
-                marginBottom: 8,
-              }}
-            >
-              {selectedBlock === "title" ? "🅣 Заголовок · налаштування" :
-               selectedBlock === "photo" ? "🖼 Фото · налаштування" :
-               "Налаштування блока"}
-            </div>
+            {selectedBlock === "title" && data && kind === "EVENT" && (() => {
+              const ev = data as EventData;
+              // Subtitle = перші 30 символів plain-тексту заголовка (як у звичайному
+              // білдері BlockItemHeader.blockSubtitle). Якщо порожньо — "(порожньо)".
+              const plain = ((ev.titleHtml || "").replace(/<[^>]+>/g, "").replace(/&nbsp;/g, " ")
+                .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").trim()) || meta.title;
+              const subtitle = plain ? (plain.length > 30 ? plain.slice(0, 30) + "…" : plain) : "(порожньо)";
+              return (
+                <BlockPanelHeader
+                  icon="H"
+                  label="Заголовок"
+                  subtitle={subtitle}
+                  bgColor={ev.titleBgColor || ""}
+                  onSetBg={(c) => editData({ ...ev, titleBgColor: c || undefined })}
+                  radius={ev.titleBorderRadius ?? 14}
+                  onSetRadius={(v) => editData({ ...ev, titleBorderRadius: v })}
+                />
+              );
+            })()}
+            {selectedBlock === "photo" && data && kind === "EVENT" && (() => {
+              const ev = data as EventData;
+              const subtitle = ev.photo.alt?.trim() || "(без alt)";
+              return (
+                <BlockPanelHeader
+                  icon="🖼"
+                  label="Фото"
+                  subtitle={subtitle}
+                />
+              );
+            })()}
             <div
               id="news-block-settings-slot"
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                background: "#FAF6F0",
-                border: "1px solid #E8D5B7",
-                borderRadius: 10,
-                overflow: "hidden",
-              }}
+              style={{ display: "flex", flexDirection: "column" }}
             />
           </div>
           <style>{`
             #news-block-settings-slot > * + * { border-top: 1px solid #EEEAE2; }
-            .template-settings-wrapper:has(#news-block-settings-slot:empty) { display: none; }
+            /* Wrapper ховаємо тільки коли нічого не вибрано: slot порожній І
+               перед ним немає BlockPanelHeader-а. Якщо BlockPanelHeader активний
+               (для photo, де slot порожній бо ImageEditor портал-ить лише в
+               selected стані), картка лишається видимою. */
+            .template-settings-wrapper:has(#news-block-settings-slot:empty):not(:has(> *:not(#news-block-settings-slot):not(style))) {
+              display: none;
+            }
           `}</style>
           {/* ── META block (зверху): Заголовок + Slug + Excerpt разом ──────
               Логіка: усе що не на картці (адмінка + SEO + URL) згруповано
@@ -1183,22 +1210,7 @@ export default function TemplateEditor({ newsId }: Props) {
                   onPhotoClick={() => setSelectedBlock("photo")}
                   titleSelected={selectedBlock === "title"}
                   photoSelected={selectedBlock === "photo"}
-                />
-                {/* Off-screen ImageEditor — рендериться завжди, щоб його sidebar
-                    портал-ився у #news-block-settings-slot коли фото виділене.
-                    Photo візуально рендериться через CoverImageBox у photo-секції
-                    EventTemplate (cover + focal-point, без розтяжки). ImageEditor
-                    тут лише для sidebar-функціоналу: alt + radius/crop/chroma +
-                    ImageStudioModal на повний екран. */}
-                {photoBlock && (
-                  <div aria-hidden style={{
-                    position: "absolute",
-                    left: -99999,
-                    top: -99999,
-                    width: Math.round(((data as EventData).cardWidth || EVENT_CARD_WIDTH_DEFAULT) * 0.46),
-                    height: (data as EventData).cardHeight || EVENT_CARD_HEIGHT_DEFAULT,
-                    pointerEvents: "none",
-                  }}>
+                  photoSlot={photoBlock ? (
                     <ImageEditor
                       block={photoBlock}
                       onChange={onPhotoBlockChange}
@@ -1208,8 +1220,8 @@ export default function TemplateEditor({ newsId }: Props) {
                       containerWidthPx={Math.round(((data as EventData).cardWidth || EVENT_CARD_WIDTH_DEFAULT) * 0.46)}
                       previewHeight={(data as EventData).cardHeight || EVENT_CARD_HEIGHT_DEFAULT}
                     />
-                  </div>
-                )}
+                  ) : undefined}
+                />
               </PreviewSection>
               {/* EVENT-шаблон рендерить ОДНАКОВУ картку у feed і на повній
                   сторінці. Дублікат-блоку «Повна сторінка» прибрано — налаштування
@@ -1528,46 +1540,58 @@ function ResizableEventPreview({
       }}
     >
       <div style={{ padding: "32px 24px", display: "flex", flexDirection: "column", alignItems: "center", gap: 12, minWidth: "min-content" }}>
-        {/* HEADING block — own resizable wrapper. Якщо hidden.title — нічого. */}
-        {titleSlot && !data.hidden?.title && (
-          <ResizableBox
-            width={titleWidth}
-            height={titleHeight ?? undefined}
-            minWidth={EVENT_TITLE_WIDTH_MIN}
-            maxWidth={EVENT_TITLE_WIDTH_MAX}
-            minHeight={EVENT_TITLE_HEIGHT_MIN}
-            maxHeight={EVENT_TITLE_HEIGHT_MAX}
-            selected={!!titleSelected}
-            onResize={(w, h) => onChange({ ...data, titleWidth: w, titleHeight: h })}
-            label="Заголовок"
-          >
-            <div
-              onClick={onTitleClick}
-              style={{
-                padding: "26px 28px 24px",
-                background: "#FFFFFF",
-                borderRadius: 18,
-                boxShadow: "0 6px 20px -10px rgba(28,58,46,0.15)",
-                textAlign: "center",
-                fontFamily: "Inter, system-ui, -apple-system, sans-serif",
-                color: "#1C3A2E",
-                fontSize: 20,
-                fontWeight: 700,
-                lineHeight: 1.35,
-                width: "100%",
-                height: "100%",
-                cursor: onTitleClick ? "pointer" : undefined,
-                ...(titleSelected ? {
-                  outline: "2px solid #D4A843",
-                  outlineOffset: 3,
-                  boxShadow: "0 0 0 6px rgba(212,168,67,0.20), 0 8px 24px -4px rgba(212,168,67,0.45)",
-                } : {}),
-              }}
+        {/* HEADING block — own resizable wrapper. Якщо hidden.title — нічого.
+            Background / text-color дзеркалить EventTemplate public render (та сама
+            auto-contrast логіка) — WYSIWYG між preview і живою сторінкою. */}
+        {titleSlot && !data.hidden?.title && (() => {
+          const titleBg = data.titleBgColor || "#FFFFFF";
+          const titleAutoColor =
+            titleBg === "#1C3A2E" || titleBg === "#1a1a1a" || titleBg === "#000000"
+              ? "#FAF6F0"
+              : "#1C3A2E";
+          const titleRadiusRaw = data.titleBorderRadius ?? 14;
+          const titleBorderRadius = titleRadiusRaw >= 999 ? 9999 : titleRadiusRaw;
+          return (
+            <ResizableBox
+              width={titleWidth}
+              height={titleHeight ?? undefined}
+              minWidth={EVENT_TITLE_WIDTH_MIN}
+              maxWidth={EVENT_TITLE_WIDTH_MAX}
+              minHeight={EVENT_TITLE_HEIGHT_MIN}
+              maxHeight={EVENT_TITLE_HEIGHT_MAX}
+              selected={!!titleSelected}
+              onResize={(w, h) => onChange({ ...data, titleWidth: w, titleHeight: h })}
+              label="Заголовок"
             >
-              {titleSlot}
-            </div>
-          </ResizableBox>
-        )}
+              <div
+                onClick={onTitleClick}
+                style={{
+                  padding: "26px 28px 24px",
+                  background: titleBg,
+                  borderRadius: titleBorderRadius,
+                  transition: "border-radius 0.15s ease, background 0.15s ease",
+                  boxShadow: "0 6px 20px -10px rgba(28,58,46,0.15)",
+                  textAlign: "center",
+                  fontFamily: "Inter, system-ui, -apple-system, sans-serif",
+                  color: titleAutoColor,
+                  fontSize: 20,
+                  fontWeight: 700,
+                  lineHeight: 1.35,
+                  width: "100%",
+                  height: "100%",
+                  cursor: onTitleClick ? "pointer" : undefined,
+                  ...(titleSelected ? {
+                    outline: "2px solid #D4A843",
+                    outlineOffset: 3,
+                    boxShadow: "0 0 0 6px rgba(212,168,67,0.20), 0 8px 24px -4px rgba(212,168,67,0.45)",
+                  } : {}),
+                }}
+              >
+                {titleSlot}
+              </div>
+            </ResizableBox>
+          );
+        })()}
 
         {/* BODY card — own resizable wrapper. EventTemplate з skipHeading=true. */}
         <ResizableBox

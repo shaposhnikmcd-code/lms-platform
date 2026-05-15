@@ -868,8 +868,6 @@ export default function AdminNewsPage() {
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-10">
             {defaultTemplates.map((tpl) => {
               const kind = (tpl.templateKind || 'ARTICLE') as TemplateKind;
-              const data = parseTemplateData(kind, tpl.templateData);
-              const cleanTitle = tpl.title.replace(/^\[Шаблон\]\s*/i, '');
               const customs = customByParent.get(tpl.id) || [];
               const customIds = new Set(customs.map(c => c.id));
               // Новини під цим деревом:
@@ -883,24 +881,18 @@ export default function AdminNewsPage() {
               );
               const childrenPub = children.filter(c => c.published).length;
               const isEvent = kind === 'EVENT';
-              // Розмір preview blueprint-а у вузькій колонці: компактніше, ніж було.
-              // ARTICLE — портрет 180×200, EVENT — горизонтал 240×160.
-              const bpPreviewW = isEvent ? 240 : 180;
-              const bpPreviewH = isEvent
-                ? Math.round(bpPreviewW * (400 / 600))
-                : Math.round(bpPreviewW * (PREVIEW_CARD_HEIGHT / PREVIEW_CARD_WIDTH));
               return (
                 <div key={tpl.id} className="flex flex-col">
-                  {/* ── BLUEPRINT card (full width, key visual для родини) ── */}
+                  {/* ── BLUEPRINT card — компактна горизонтальна смужка ── */}
                   <article
-                    className={`rounded-2xl border transition-all ${
+                    className={`rounded-xl border transition-all ${
                       dark
                         ? 'bg-sky-400/[0.04] border-sky-300/20 hover:border-sky-300/40'
                         : 'bg-sky-50/65 border-sky-300/45 hover:border-sky-500/55'
                     }`}
                   >
-                    <header className="flex items-center gap-2.5 px-4 pt-3 pb-2.5 min-w-0">
-                      <span className={`inline-flex items-center justify-center w-7 h-7 rounded-lg text-[14px] flex-shrink-0 ${
+                    <header className="flex items-center gap-3 px-3 py-2.5 min-w-0 flex-wrap sm:flex-nowrap">
+                      <span className={`inline-flex items-center justify-center w-9 h-9 rounded-lg text-[16px] flex-shrink-0 ${
                         dark
                           ? 'bg-sky-400/15 border border-sky-300/25'
                           : 'bg-sky-100/80 border border-sky-600/25'
@@ -908,148 +900,99 @@ export default function AdminNewsPage() {
                         {isEvent ? '🎟' : '📰'}
                       </span>
                       <div className="min-w-0 flex-1">
-                        <div className={`text-[10px] font-bold tracking-[0.16em] uppercase ${
+                        <div className={`text-[9px] font-bold tracking-[0.16em] uppercase ${
                           dark ? 'text-sky-300/85' : 'text-sky-700/80'
                         }`}>
                           Шаблон · Blueprint
                         </div>
-                        <div className={`text-[15px] font-semibold leading-tight mt-0.5 ${
+                        <div className={`text-[13.5px] font-semibold leading-tight mt-0.5 truncate ${
                           dark ? 'text-slate-100' : 'text-stone-900'
                         }`}>
                           {templateKindLabel(kind)}
                         </div>
                       </div>
-                      <span className={`flex-shrink-0 inline-flex items-center gap-1.5 px-2.5 h-[24px] rounded-full text-[10px] font-semibold ${
-                        dark
-                          ? 'bg-sky-400/10 text-sky-200/90 border border-sky-300/20'
-                          : 'bg-white/80 text-sky-800/85 border border-sky-600/20'
-                      }`}>
-                        <span aria-hidden>📂</span>
-                        <span>{children.length} створено{children.length > 0 ? ` · ${childrenPub} на /news` : ''}</span>
-                      </span>
-                    </header>
-
-                    <div className="flex gap-4 px-4 pb-4 items-stretch flex-wrap md:flex-nowrap">
-                      {/* Preview blueprint-а — kind-aware (portrait/horizontal) */}
-                      <div
-                        className={`group/preview relative flex-shrink-0 rounded-xl overflow-hidden border ${
-                          dark ? 'border-sky-300/20' : 'border-sky-300/40'
-                        }`}
-                        style={{
-                          width: bpPreviewW,
-                          height: bpPreviewH,
-                          background: '#FFFFFF',
-                        }}
-                      >
-                        <div className="w-full h-full" style={{ pointerEvents: 'none' }} aria-hidden>
-                          <PreviewCardScale
-                            baseWidth={isEvent ? 600 : PREVIEW_CARD_WIDTH}
-                            baseHeight={isEvent ? 400 : PREVIEW_CARD_HEIGHT}
-                            initialScale={1}
-                          >
-                            <TemplatePreviewCard kind={kind} data={data} />
-                          </PreviewCardScale>
-                        </div>
-                      </div>
-
-                      {/* Meta + actions */}
-                      <div
-                        className={`flex-1 min-w-0 rounded-xl border backdrop-blur-sm flex flex-col p-4 ${
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        <span className={`inline-flex items-center gap-1.5 px-2 h-[24px] rounded-full text-[10px] font-semibold ${
                           dark
-                            ? 'bg-white/[0.04] border-white/[0.08]'
-                            : 'bg-white/85 border-stone-300/50'
-                        }`}
-                      >
-                        <div className="flex-1 min-w-0">
-                          <h3 className={`text-[15px] font-semibold leading-snug ${
-                            dark ? 'text-slate-100' : 'text-stone-900'
-                          }`}>
-                            {cleanTitle}
-                          </h3>
-                          {tpl.excerpt && (
-                            <p className={`mt-2 text-[12.5px] leading-relaxed line-clamp-3 ${
-                              dark ? 'text-slate-400' : 'text-stone-500'
-                            }`}>
-                              {tpl.excerpt}
-                            </p>
-                          )}
-                        </div>
-                        <div className="flex flex-col sm:flex-row flex-wrap gap-2 mt-4">
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              try {
-                                const res = await fetch('/api/admin/news/from-template', {
-                                  method: 'POST',
-                                  headers: { 'Content-Type': 'application/json' },
-                                  body: JSON.stringify({ blueprintId: tpl.id }),
-                                });
-                                if (!res.ok) {
-                                  const j = await res.json().catch(() => ({}));
-                                  setToast({ message: j?.error || 'Не вдалось створити з шаблону', type: 'error' });
-                                  return;
-                                }
-                                const j = await res.json();
-                                window.location.href = `/dashboard/admin/news/${j.id}/template`;
-                              } catch (e) {
-                                setToast({ message: e instanceof Error ? e.message : 'Помилка мережі', type: 'error' });
+                            ? 'bg-sky-400/10 text-sky-200/90 border border-sky-300/20'
+                            : 'bg-white/80 text-sky-800/85 border border-sky-600/20'
+                        }`}>
+                          <span aria-hidden>📂</span>
+                          <span>{children.length}{children.length > 0 ? ` · ${childrenPub} на /news` : ''}</span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            try {
+                              const res = await fetch('/api/admin/news/from-template', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ blueprintId: tpl.id }),
+                              });
+                              if (!res.ok) {
+                                const j = await res.json().catch(() => ({}));
+                                setToast({ message: j?.error || 'Не вдалось створити з шаблону', type: 'error' });
+                                return;
                               }
-                            }}
-                            className={`flex-1 min-w-[180px] inline-flex items-center justify-center gap-1.5 px-4 h-10 text-[13px] font-semibold rounded-lg transition-all ${
-                              dark
-                                ? 'bg-sky-400/90 text-stone-900 hover:bg-sky-300 shadow-[0_0_16px_-4px_rgba(56,189,248,0.45)]'
-                                : 'bg-sky-700 text-white hover:bg-sky-800 shadow-[0_2px_8px_-2px_rgba(2,132,199,0.35)]'
-                            }`}
-                            title="Створити нову новину з цього шаблону (буде наповнена контентом і опублікована на /news)"
-                          >
-                            <FaPlus className="text-[11px]" />
-                            Створити з шаблону
-                          </button>
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              try {
-                                const res = await fetch('/api/admin/news/from-template', {
-                                  method: 'POST',
-                                  headers: { 'Content-Type': 'application/json' },
-                                  body: JSON.stringify({ blueprintId: tpl.id, asBlueprint: true }),
-                                });
-                                if (!res.ok) {
-                                  const j = await res.json().catch(() => ({}));
-                                  setToast({ message: j?.error || 'Не вдалось створити свій шаблон', type: 'error' });
-                                  return;
-                                }
-                                const j = await res.json();
-                                window.location.href = `/dashboard/admin/news/${j.id}/template`;
-                              } catch (e) {
-                                setToast({ message: e instanceof Error ? e.message : 'Помилка мережі', type: 'error' });
+                              const j = await res.json();
+                              window.location.href = `/dashboard/admin/news/${j.id}/template`;
+                            } catch (e) {
+                              setToast({ message: e instanceof Error ? e.message : 'Помилка мережі', type: 'error' });
+                            }
+                          }}
+                          className={`inline-flex items-center justify-center gap-1.5 px-3 h-8 text-[12px] font-semibold rounded-lg transition-all ${
+                            dark
+                              ? 'bg-sky-400/90 text-stone-900 hover:bg-sky-300 shadow-[0_0_14px_-4px_rgba(56,189,248,0.45)]'
+                              : 'bg-sky-700 text-white hover:bg-sky-800 shadow-[0_2px_6px_-2px_rgba(2,132,199,0.35)]'
+                          }`}
+                          title="Створити нову новину з цього шаблону"
+                        >
+                          <FaPlus className="text-[10px]" />
+                          Створити
+                        </button>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            try {
+                              const res = await fetch('/api/admin/news/from-template', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ blueprintId: tpl.id, asBlueprint: true }),
+                              });
+                              if (!res.ok) {
+                                const j = await res.json().catch(() => ({}));
+                                setToast({ message: j?.error || 'Не вдалось створити свій шаблон', type: 'error' });
+                                return;
                               }
-                            }}
-                            className={`inline-flex items-center justify-center gap-1.5 px-4 h-10 text-[12px] font-medium rounded-lg border transition-colors ${
-                              dark
-                                ? 'bg-amber-400/15 border-amber-300/30 text-amber-100 hover:bg-amber-400/25 hover:border-amber-300/45'
-                                : 'bg-amber-50/85 border-amber-500/35 text-amber-800 hover:bg-amber-100 hover:border-amber-600/55'
-                            }`}
-                            title="Створити власний шаблон на основі дефолтного. У редакторі задаси назву і дефолти — потім зможеш створювати новини вже з нього"
-                          >
-                            <span aria-hidden className="text-[12px]">⊕</span>
-                            Свій шаблон
-                          </button>
-                          <Link
-                            href={`/dashboard/admin/news/${tpl.id}/template`}
-                            className={`inline-flex items-center justify-center gap-1.5 px-4 h-10 text-[12px] font-medium rounded-lg border transition-colors ${
-                              dark
-                                ? 'bg-white/[0.04] border-white/[0.10] text-slate-300 hover:bg-white/[0.10] hover:text-slate-100'
-                                : 'bg-white/80 border-stone-300/60 text-stone-700 hover:bg-white hover:text-stone-900'
-                            }`}
-                            title="Редагувати дефолтні значення цього шаблону. Існуючі новини це не зачіпає"
-                          >
-                            <FaEdit className="text-[10px]" />
-                            Дефолти
-                          </Link>
-                        </div>
+                              const j = await res.json();
+                              window.location.href = `/dashboard/admin/news/${j.id}/template`;
+                            } catch (e) {
+                              setToast({ message: e instanceof Error ? e.message : 'Помилка мережі', type: 'error' });
+                            }
+                          }}
+                          className={`inline-flex items-center justify-center gap-1 px-3 h-8 text-[11.5px] font-medium rounded-lg border transition-colors ${
+                            dark
+                              ? 'bg-amber-400/15 border-amber-300/30 text-amber-100 hover:bg-amber-400/25 hover:border-amber-300/45'
+                              : 'bg-amber-50/85 border-amber-500/35 text-amber-800 hover:bg-amber-100 hover:border-amber-600/55'
+                          }`}
+                          title="Створити власний шаблон на основі дефолтного"
+                        >
+                          <span aria-hidden className="text-[11px]">⊕</span>
+                          Свій шаблон
+                        </button>
+                        <Link
+                          href={`/dashboard/admin/news/${tpl.id}/template`}
+                          className={`inline-flex items-center justify-center w-8 h-8 rounded-lg border transition-colors ${
+                            dark
+                              ? 'bg-white/[0.04] border-white/[0.10] text-slate-300 hover:bg-white/[0.10] hover:text-slate-100'
+                              : 'bg-white/80 border-stone-300/60 text-stone-700 hover:bg-white hover:text-stone-900'
+                          }`}
+                          title="Редагувати дефолти шаблону"
+                        >
+                          <FaEdit className="text-[11px]" />
+                        </Link>
                       </div>
-                    </div>
+                    </header>
                   </article>
 
                   {/* ── МОЇ ШАБЛОНИ — кастомні blueprint-и менеджера на основі цього дефолтного ──
@@ -1216,33 +1159,32 @@ export default function AdminNewsPage() {
                           ? 'border-white/[0.08] text-slate-500 bg-white/[0.02]'
                           : 'border-stone-300/60 text-stone-500 bg-white/40'
                       }`}>
-                        Поки що нічого не створено. Натисни <strong>«+ Створити з шаблону»</strong> вище — заповнюй поля, і нова новина зʼявиться тут.
+                        Поки що нічого не створено. Натисни <strong>«+ Створити»</strong> вище — заповнюй поля, і нова новина зʼявиться тут.
                       </div>
                     ) : (
-                      <div className="grid grid-cols-1 gap-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         {children.map((tn) => {
                           const tnData = parseTemplateData(kind, tn.templateData);
                           const created = new Date(tn.createdAt);
                           const dateStr = created.toLocaleDateString('uk-UA', { day: '2-digit', month: 'short' });
                           const isPublished = !!tn.published;
-                          // Дитяча preview-картка: kind-aware aspect, ширина адаптивна
                           const previewBaseW = isEvent ? 600 : PREVIEW_CARD_WIDTH;
                           const previewBaseH = isEvent ? 400 : PREVIEW_CARD_HEIGHT;
                           return (
-                            <article
+                            <Link
                               key={tn.id}
-                              className={`group/tn rounded-xl border overflow-hidden flex flex-col transition-all ${
+                              href={`/dashboard/admin/news/${tn.id}/template`}
+                              className={`group/tn relative rounded-xl border overflow-hidden flex flex-col transition-all ${
                                 dark
                                   ? 'bg-white/[0.025] border-white/[0.08] hover:border-sky-400/35 hover:bg-white/[0.04]'
                                   : 'bg-white/85 border-stone-300/55 hover:border-sky-500/45 hover:bg-white'
                               }`}
+                              aria-label={`Редагувати «${tn.title}»`}
                             >
-                              {/* Preview thumbnail — натуральне співвідношення kind-у */}
-                              <Link
-                                href={`/dashboard/admin/news/${tn.id}/template`}
-                                className="block relative w-full"
+                              {/* Thumb — natural aspect-ratio */}
+                              <div
+                                className="relative w-full"
                                 style={{ aspectRatio: `${previewBaseW} / ${previewBaseH}`, background: tn.pageBgColor || '#FFFFFF' }}
-                                aria-label={`Редагувати «${tn.title}»`}
                               >
                                 <div className="absolute inset-0" style={{ pointerEvents: 'none' }} aria-hidden>
                                   <PreviewCardScale
@@ -1253,7 +1195,7 @@ export default function AdminNewsPage() {
                                     <TemplatePreviewCard kind={kind} data={tnData} disableLinks />
                                   </PreviewCardScale>
                                 </div>
-                                {/* Status overlay — top-right */}
+                                {/* Status pill — top-right */}
                                 <span className={`absolute top-2 right-2 z-[1] inline-flex items-center gap-1 px-2 h-[20px] rounded-full text-[9px] font-bold uppercase tracking-[0.08em] backdrop-blur-md ${
                                   isPublished
                                     ? dark
@@ -1266,53 +1208,41 @@ export default function AdminNewsPage() {
                                   <span className={`inline-block w-1 h-1 rounded-full ${isPublished ? 'bg-emerald-300' : 'bg-amber-100'}`} />
                                   <span>{isPublished ? 'На /news' : 'Чернетка'}</span>
                                 </span>
-                              </Link>
+                                {/* Delete — top-left, на hover */}
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    setDeleteTarget({ id: tn.id, title: tn.title });
+                                  }}
+                                  title="Видалити"
+                                  aria-label="Видалити"
+                                  className={`absolute top-2 left-2 z-[2] inline-flex items-center justify-center w-7 h-7 rounded-full backdrop-blur-md border opacity-0 group-hover/tn:opacity-100 transition-all duration-200 hover:scale-110 ${
+                                    dark
+                                      ? 'bg-rose-500/30 border-rose-400/40 text-rose-100 hover:bg-rose-500/50'
+                                      : 'bg-white/85 border-rose-400/50 text-rose-600 hover:bg-rose-50 shadow-sm'
+                                  }`}
+                                >
+                                  <FaTrash className="text-[10px]" />
+                                </button>
+                              </div>
 
                               {/* Body */}
-                              <div className="flex flex-col gap-1.5 p-3 flex-1 min-h-0">
-                                <h3 className={`text-[13.5px] font-semibold leading-snug line-clamp-2 ${
+                              <div className="flex flex-col gap-1 p-2.5">
+                                <h3 className={`text-[12.5px] font-semibold leading-snug line-clamp-1 ${
                                   dark ? 'text-slate-100' : 'text-stone-900'
                                 }`} title={tn.title}>
                                   {tn.title}
                                 </h3>
-                                <div className={`text-[10.5px] inline-flex items-center gap-1.5 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+                                <div className={`text-[10px] inline-flex items-center gap-1.5 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
                                   <FaCalendar className="text-[9px] opacity-70" />
                                   <span>{dateStr}</span>
                                   <span className="opacity-40">·</span>
                                   <span className="font-mono opacity-70 truncate">{tn.slug}</span>
                                 </div>
                               </div>
-
-                              {/* Footer-actions */}
-                              <div className={`flex items-center gap-1.5 px-3 py-2 border-t ${
-                                dark ? 'border-white/[0.06]' : 'border-stone-300/40'
-                              }`}>
-                                <Link
-                                  href={`/dashboard/admin/news/${tn.id}/template`}
-                                  className={`flex-1 inline-flex items-center justify-center gap-1.5 px-2 h-8 text-[12px] font-semibold rounded-md transition-all ${
-                                    dark
-                                      ? 'bg-amber-400/90 text-stone-900 hover:bg-amber-300'
-                                      : 'bg-stone-900 text-amber-100 hover:bg-stone-800'
-                                  }`}
-                                >
-                                  <FaEdit className="text-[10px]" />
-                                  Редагувати
-                                </Link>
-                                <button
-                                  type="button"
-                                  onClick={() => setDeleteTarget({ id: tn.id, title: tn.title })}
-                                  title="Видалити"
-                                  aria-label="Видалити"
-                                  className={`inline-flex items-center justify-center w-8 h-8 rounded-md border transition-colors ${
-                                    dark
-                                      ? 'bg-rose-500/[0.08] border-rose-400/20 text-rose-300 hover:bg-rose-500/20'
-                                      : 'bg-rose-50/60 border-rose-300/50 text-rose-700 hover:bg-rose-100'
-                                  }`}
-                                >
-                                  <FaTrash className="text-[10px]" />
-                                </button>
-                              </div>
-                            </article>
+                            </Link>
                           );
                         })}
                       </div>

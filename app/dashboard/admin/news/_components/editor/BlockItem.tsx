@@ -40,6 +40,7 @@ interface Props {
   onSetAlign: (id: string, a: BlockAlign) => void;
   onSetVAlign: (id: string, v: BlockVAlign) => void;
   onSetBg: (id: string, c: string) => void;
+  onSetBorderRadius: (id: string, v: number | undefined) => void;
   onUpload: (file: File) => Promise<string>;
   containerWidthPx: number;
   onPreviewWidth: (id: string, pct: number) => void;
@@ -70,7 +71,7 @@ export default function BlockItem({
   block, index, selected = false, canMoveUp, canMoveDown,
   dragAttributes, dragListeners,
   onChange, onMoveUp, onMoveDown, onDuplicate,
-  onSetWidth, onSetWidthAndData, onSetAlign, onSetVAlign, onSetBg,
+  onSetWidth, onSetWidthAndData, onSetAlign, onSetVAlign, onSetBg, onSetBorderRadius,
   onUpload, containerWidthPx, onPreviewWidth, onClearPreview,
   onPreviewHeight, onClearPreviewHeight, previewHeight,
   onReportHeight, getEdgeSnapTargets, snapThreshold,
@@ -359,6 +360,7 @@ export default function BlockItem({
           blockAlign={block.align}
           blockVAlign={block.vAlign || "top"}
           blockBgColor={block.bgColor}
+          blockBorderRadius={block.borderRadius}
           displayPct={displayPct}
           hov={false}
           canMoveUp={canMoveUp}
@@ -368,6 +370,7 @@ export default function BlockItem({
           onSetAlign={onSetAlign}
           onSetVAlign={onSetVAlign}
           onSetBg={onSetBg}
+          onSetBorderRadius={onSetBorderRadius}
           onMoveUp={onMoveUp}
           onMoveDown={onMoveDown}
           onDuplicate={onDuplicate}
@@ -405,7 +408,14 @@ export default function BlockItem({
             : block.align,
           outline: `1.5px solid ${outlineColor}`,
           outlineOffset: "0px",
-          borderRadius: "8px",
+          // Радіус підкладки: явний `block.borderRadius` (через BlockItemHeader →
+          // RadiusControl) має пріоритет; інакше fallback на 8px (історична поведінка).
+          // 999 → 9999 (pill). Transition робить drag-зміни плавними.
+          borderRadius:
+            typeof block.borderRadius === "number"
+              ? (block.borderRadius >= 999 ? 9999 : block.borderRadius)
+              : 8,
+          transition: "border-radius 0.15s ease",
           minHeight: minHeight > 0 ? `${minHeight}px` : undefined,
           height: "100%", // заповнює AbsoluteBlock — щоб візуальні межі блока = block.height
           // newsCard preview зберігає aspect 360:400 на outer AbsoluteBlock через

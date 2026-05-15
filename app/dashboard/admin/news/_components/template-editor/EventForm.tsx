@@ -4,7 +4,7 @@
 // фото фахівця + overlay-info + 2-секції про спеціаліста та освіту).
 
 import React from "react";
-import type { EventData, EventEducationItem, EventRegionKey } from "@/lib/news/templates/types";
+import { EVENT_DEFAULTS, type EventData, type EventEducationItem, type EventRegionKey } from "@/lib/news/templates/types";
 import type { EventRegion } from "@/lib/news/templates/EventTemplate";
 import { TextInput, RichTextInput, RichTextField, ImageInput, SectionHeader } from "./Inputs";
 
@@ -54,9 +54,44 @@ export default function EventForm({ data, onChange, onFocusRegion }: Props) {
   const isHidden = (region: EventRegionKey) => data.hidden?.[region] === true;
   const toggleHidden = (region: EventRegionKey) => {
     const next = { ...(data.hidden || {}) };
-    if (next[region]) delete next[region];
+    const wasHidden = !!next[region];
+    if (wasHidden) delete next[region];
     else next[region] = true;
-    onChange({ ...data, hidden: next });
+    // Backfill дефолтами при включенні видимості, коли всі релевантні поля
+    // порожні. Інакше toggle візуально не дає ефекту (render bail-аутить
+    // на empty data) і менеджер думає що toggle зламаний.
+    let extra: Partial<EventData> = {};
+    if (wasHidden) {
+      if (region === "metrics") {
+        if (!data.price && !data.duration && !data.priceLabel && !data.durationLabel) {
+          extra = {
+            priceLabel: EVENT_DEFAULTS.priceLabel,
+            price: EVENT_DEFAULTS.price,
+            durationLabel: EVENT_DEFAULTS.durationLabel,
+            duration: EVENT_DEFAULTS.duration,
+          };
+        }
+      } else if (region === "cta") {
+        if (!data.ctaLabel) extra = { ctaLabel: EVENT_DEFAULTS.ctaLabel };
+      } else if (region === "about") {
+        if (!data.aboutHeading && !data.about) {
+          extra = { aboutHeading: EVENT_DEFAULTS.aboutHeading, about: EVENT_DEFAULTS.about };
+        }
+      } else if (region === "education") {
+        if (!data.educationHeading && data.education.length === 0) {
+          extra = { educationHeading: EVENT_DEFAULTS.educationHeading, education: EVENT_DEFAULTS.education };
+        }
+      } else if (region === "specialist") {
+        if (!data.specialistName && !data.specialistRole && !data.specialistTagline) {
+          extra = {
+            specialistName: EVENT_DEFAULTS.specialistName,
+            specialistRole: EVENT_DEFAULTS.specialistRole,
+            specialistTagline: EVENT_DEFAULTS.specialistTagline,
+          };
+        }
+      }
+    }
+    onChange({ ...data, ...extra, hidden: next });
   };
 
   const updateEducation = (idx: number, patch: Partial<EventEducationItem>) => {

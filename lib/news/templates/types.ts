@@ -320,6 +320,14 @@ export interface EventData {
   /** Native-висота заголовкового блоку. Default — undefined (auto, по контенту).
    *  Якщо менеджер тягне resize-handle — фіксується. */
   titleHeight?: number;
+  /** Фон title-блоку над карткою. Рендериться як `background` обгортки title;
+   *  колір тексту автоматично контрастний (на темних UIMP-фонах — крем, інакше
+   *  лісовий зелений). Default `undefined` = білий фон (історична поведінка). */
+  titleBgColor?: string;
+  /** Радіус кутів title-обгортки в px. Пресети `BLOCK_RADIUS_PRESETS`
+   *  (0/6/14/24/999=pill). Default `undefined` = 14 (мʼякі, дзеркалить історичне
+   *  візуальне відчуття `borderRadius: 18` без розриву з preset-палітрою). */
+  titleBorderRadius?: number;
 }
 
 export const EVENT_DEFAULTS: EventData = {
@@ -471,6 +479,10 @@ function mergeDefaults(kind: TemplateKind, src: Record<string, unknown>): Articl
       : undefined,
     titleHeight: typeof s.titleHeight === "number"
       ? clampNum(s.titleHeight, EVENT_TITLE_HEIGHT_MIN, EVENT_TITLE_HEIGHT_MAX, 90)
+      : undefined,
+    titleBgColor: typeof s.titleBgColor === "string" ? s.titleBgColor : undefined,
+    titleBorderRadius: typeof s.titleBorderRadius === "number"
+      ? clampNum(s.titleBorderRadius, 0, 999, 14)
       : undefined,
   };
 }

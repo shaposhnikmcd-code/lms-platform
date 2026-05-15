@@ -201,7 +201,7 @@ export default function EditorCanvas({
   const {
     previewWidths, previewWidthsRef, previewXs, previewYs, previewHeights, blockHeights,
     updateBlock, deleteBlock, moveBlock, duplicateBlock,
-    setWidth, setWidthAndData, setAlign, setVAlign, setBg,
+    setWidth, setWidthAndData, setAlign, setVAlign, setBg, setBorderRadius,
     setPreview, clearPreview, setPreviewX, clearPreviewX,
     setPreviewY, clearPreviewY,
     setPreviewHeight, clearPreviewHeight, reportHeight,
@@ -1559,6 +1559,7 @@ export default function EditorCanvas({
                       onSetAlign={setAlign}
                       onSetVAlign={setVAlign}
                       onSetBg={setBg}
+                      onSetBorderRadius={setBorderRadius}
                       onUpload={onUpload}
                       onPreviewWidth={handlePreviewWidth}
                       onClearPreview={handleClearPreview}
@@ -1855,6 +1856,7 @@ function AbsoluteBlock(props: {
   onSetAlign: (id: string, a: "left" | "center" | "right") => void;
   onSetVAlign: (id: string, v: "top" | "center" | "bottom") => void;
   onSetBg: (id: string, c: string) => void;
+  onSetBorderRadius: (id: string, v: number | undefined) => void;
   onUpload: (file: File) => Promise<string>;
   onPreviewWidth: (id: string, pct: number) => void;
   onClearPreview: (id: string) => void;
@@ -2004,6 +2006,7 @@ function AbsoluteBlock(props: {
         onSetAlign={props.onSetAlign}
         onSetVAlign={props.onSetVAlign}
         onSetBg={props.onSetBg}
+        onSetBorderRadius={props.onSetBorderRadius}
         onUpload={props.onUpload}
         containerWidthPx={canvasWidthPx}
         onPreviewWidth={props.onPreviewWidth}

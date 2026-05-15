@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { Block, UIMP_COLORS } from "../types";
 import ImageStudioModal, { buildCornerRadiusCss } from "./ImageStudioModal";
 import { NewsEditorActionsContext } from "../NewsEditor";
+import { RadiusControl } from "./_settingsPrimitives";
 
 const ff = "-apple-system, BlinkMacSystemFont, sans-serif";
 
@@ -36,6 +37,11 @@ interface Props {
    *  для ImageStudioModal — фото у фуллскрін-редакторі рендериться у тих самих
    *  px-розмірах, що в блоці на канвасі. */
   containerWidthPx?: number;
+  /** DOM id sidebar-слоту куди портал-ються Overlay toolbar / ImageBlockSettings.
+   *  Default — "news-block-settings-slot" (звичайний білдер Новин + TemplateEditor).
+   *  Override-иться у photo-overlay-модалці шаблону, щоб налаштування слалися
+   *  у локальний slot модалки, а не за неї. */
+  sidebarSlotId?: string;
 }
 
 // Overlay = текст поверх фото. x/y у відсотках (0..100) щоб резистити resize.
@@ -83,14 +89,6 @@ export function requestCrop(blockId: string) {
 
 type ResizeMode = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
 
-const RADIUS_PRESETS: { label: string; value: number }[] = [
-  { label: "▢", value: 0 },     // прямі
-  { label: "▢", value: 6 },     // легкі
-  { label: "▢", value: 14 },    // м'які
-  { label: "▢", value: 24 },    // дуже округлі
-  { label: "⬭", value: 999 },   // pill
-];
-
 
 function parseOverlays(raw: string | undefined): ImageOverlay[] {
   if (!raw) return [];
@@ -106,7 +104,7 @@ function serializeOverlays(arr: ImageOverlay[]): string {
   return JSON.stringify(arr);
 }
 
-export default function ImageEditor({ block, onChange, onUpload, previewHeight, selected = false, onSelectBlock, onOverlayActiveChange, containerWidthPx = 0 }: Props) {
+export default function ImageEditor({ block, onChange, onUpload, previewHeight, selected = false, onSelectBlock, onOverlayActiveChange, containerWidthPx = 0, sidebarSlotId = "news-block-settings-slot" }: Props) {
   const ref = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   // Студія тепер єдина точка входу для crop/radius/chroma. cropOpen ліквідовано.
@@ -425,6 +423,39 @@ export default function ImageEditor({ block, onChange, onUpload, previewHeight, 
                     pointerEvents: "none",
                   }}
                 />
+                {/* Floating «+ Текст» button — створює новий overlay у центрі.
+                    Показується лише коли блок вибраний (інакше кнопки усіх
+                    image-блоків на канвасі робили б шум). */}
+                {selected && (
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); addOverlay(); }}
+                    title="Додати текстовий напис поверх фото"
+                    style={{
+                      position: "absolute",
+                      top: 10, right: 10,
+                      zIndex: 5,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                      padding: "6px 12px",
+                      borderRadius: 999,
+                      border: "1px solid #D4A843",
+                      background: "rgba(28,58,46,0.92)",
+                      color: "#D4A843",
+                      fontSize: 12,
+                      fontWeight: 700,
+                      fontFamily: ff,
+                      cursor: "pointer",
+                      backdropFilter: "blur(4px)",
+                      boxShadow: "0 2px 10px rgba(0,0,0,0.25)",
+                      letterSpacing: "0.02em",
+                    }}
+                  >
+                    <span aria-hidden style={{ fontSize: 14, lineHeight: 1 }}>＋</span>
+                    <span>Текст</span>
+                  </button>
+                )}
                 {overlays.map(ov => {
                   const isSelected = selectedOverlayId === ov.id;
                   const isEditing = editingOverlayId === ov.id;
@@ -634,7 +665,7 @@ export default function ImageEditor({ block, onChange, onUpload, previewHeight, 
         const ov = overlays.find(o => o.id === selectedOverlayId);
         if (!ov) return null;
         const slot = typeof document !== "undefined"
-          ? document.getElementById("news-block-settings-slot")
+          ? document.getElementById(sidebarSlotId)
           : null;
         if (!slot) return null;
         const toolbarNode = <OverlayToolbar ov={ov} updateOverlay={updateOverlay} setEditingOverlayId={setEditingOverlayId} removeOverlay={removeOverlay} />;
@@ -648,7 +679,7 @@ export default function ImageEditor({ block, onChange, onUpload, previewHeight, 
         if (selectedOverlayId !== null) return null;
         if (!block.data.url) return null;
         const slot = typeof document !== "undefined"
-          ? document.getElementById("news-block-settings-slot")
+          ? document.getElementById(sidebarSlotId)
           : null;
         if (!slot) return null;
         return createPortal(
@@ -1061,31 +1092,10 @@ function OverlayToolbar({
 
       <Section padTop={0}>
         <SectionLabel>Форма підкладки</SectionLabel>
-        <div style={{ display: "flex", gap: "5px" }}>
-          {RADIUS_PRESETS.map((p, i) => {
-            const cur = ov.radius ?? (ov.bgColor ? 4 : 0);
-            const active = cur === p.value;
-            const previewRadius = p.value >= 999 ? "9999px" : `${Math.min(p.value, 12)}px`;
-            return (
-              <button
-                key={i}
-                type="button"
-                title={p.value >= 999 ? "Pill" : `Радіус ${p.value}px`}
-                onClick={() => updateOverlay(ov.id, { radius: p.value })}
-                style={{
-                  flex: 1, height: "26px",
-                  border: `1px solid ${active ? "#D4A843" : "#E8D5B7"}`,
-                  background: active ? "#1C3A2E" : "#FFFFFF",
-                  borderRadius: previewRadius,
-                  cursor: "pointer", padding: 0,
-                  display: "inline-flex", alignItems: "center", justifyContent: "center",
-                  fontSize: "11px", color: active ? "#D4A843" : "#1C3A2E",
-                  transition: "all 0.12s",
-                }}
-              >{p.label}</button>
-            );
-          })}
-        </div>
+        <RadiusControl
+          current={ov.radius ?? (ov.bgColor ? 4 : 0)}
+          onChange={(v) => updateOverlay(ov.id, { radius: v })}
+        />
       </Section>
 
       <Section padTop={0}>

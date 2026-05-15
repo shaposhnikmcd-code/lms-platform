@@ -74,6 +74,9 @@ export function useBlockManager(initial: Block[], onChange: (blocks: Block[]) =>
   const setBg = useCallback((id: string, c: string) =>
     onChange(initial.map(b => b.id === id ? { ...b, bgColor: c } : b)), [initial, onChange]);
 
+  const setBorderRadius = useCallback((id: string, v: number | undefined) =>
+    onChange(initial.map(b => b.id === id ? { ...b, borderRadius: v } : b)), [initial, onChange]);
+
   const setPreview = useCallback((id: string, pct: number) => {
     previewWidthsRef.current[id] = pct;
     setPreviewWidths(prev => ({ ...prev, [id]: pct }));
@@ -108,7 +111,7 @@ export function useBlockManager(initial: Block[], onChange: (blocks: Block[]) =>
   return {
     previewWidths, previewWidthsRef, previewXs, previewYs, previewHeights, blockHeights,
     updateBlock, deleteBlock, moveBlock, duplicateBlock,
-    setWidth, setWidthAndData, setAlign, setVAlign, setBg,
+    setWidth, setWidthAndData, setAlign, setVAlign, setBg, setBorderRadius,
     setPreview, clearPreview, setPreviewX, clearPreviewX,
     setPreviewY, clearPreviewY,
     setPreviewHeight, clearPreviewHeight, reportHeight,

@@ -18,6 +18,7 @@ import React from "react";
 import type { EventData } from "./types";
 import { sanitizeHtml } from "@/lib/sanitizeHtml";
 import CoverImageBox from "./CoverImageBox";
+import { parseImageOverlays, renderImageOverlay } from "@/lib/news/render";
 
 function paragraphs(text: string): string[] {
   if (!text) return [];
@@ -285,6 +286,12 @@ export default function EventTemplate({
           />
         </>)}
 
+        {/* Text overlays («Текст на фото») — render поверх photo з photo.overlays.
+            ВАЖЛИВО: тільки на public render (photoSlot=undefined). В editor-mode
+            photoSlot це ImageEditor, який сам рендерить overlays інтерактивно
+            (drag/resize/edit-in-place). Інакше overlays дублювалися б. */}
+        {!photoSlot && data.photo.overlays && parseImageOverlays(data.photo.overlays).map(renderImageOverlay)}
+
         {/* Knee block: name+role+tagline ~60% з низу. У editor-mode (photoSlot
             заданий) обʼявляємо `pointer-events: none` — клік проходить крізь
             на ImageEditor (інакше overlay перекривав би drag-handles фото). */}
@@ -328,8 +335,12 @@ export default function EventTemplate({
             </div>
           )}
 
-          {/* Price + duration row — region "metrics" */}
-          {!isHidden("metrics") && (data.price || data.duration) && (
+          {/* Price + duration row — region "metrics". Раніше bail-аутили коли
+              `data.price` і `data.duration` обидва порожні — тоді включення
+              видимості через 👁 у формі не давало візуальних змін (label-only
+              випадок не покривали). Тепер показуємо row якщо хоч одне з чотирьох
+              полів непорожнє: дає менеджеру feedback одразу після toggle. */}
+          {!isHidden("metrics") && (data.price || data.duration || data.priceLabel || data.durationLabel) && (
             <div
               style={{
                 display: "flex",
@@ -340,20 +351,24 @@ export default function EventTemplate({
                 ...h("metrics"),
               }}
             >
-              {data.price && (
+              {(data.price || data.priceLabel) && (
                 <div>
                   {data.priceLabel && (
                     <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.16em", color: "rgba(245,225,164,0.85)" }}>{data.priceLabel}</div>
                   )}
-                  <Inline as="div" value={data.price} style={{ fontSize: 18, fontWeight: 700, marginTop: data.priceLabel ? 2 : 0 }} />
+                  {data.price && (
+                    <Inline as="div" value={data.price} style={{ fontSize: 18, fontWeight: 700, marginTop: data.priceLabel ? 2 : 0 }} />
+                  )}
                 </div>
               )}
-              {data.duration && (
+              {(data.duration || data.durationLabel) && (
                 <div>
                   {data.durationLabel && (
                     <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.16em", color: "rgba(245,225,164,0.85)" }}>{data.durationLabel}</div>
                   )}
-                  <Inline as="div" value={data.duration} style={{ fontSize: 18, fontWeight: 700, marginTop: data.durationLabel ? 2 : 0 }} />
+                  {data.duration && (
+                    <Inline as="div" value={data.duration} style={{ fontSize: 18, fontWeight: 700, marginTop: data.durationLabel ? 2 : 0 }} />
+                  )}
                 </div>
               )}
             </div>
@@ -574,6 +589,19 @@ export default function EventTemplate({
     boxShadow: "0 0 0 6px rgba(212,168,67,0.20), 0 8px 24px -4px rgba(212,168,67,0.45)",
   } : {};
 
+  // Auto-contrast: на темних UIMP-фонах (#1C3A2E лісовий, #1a1a1a/#000000 темний)
+  // текст має бути кремовим, інакше — лісовим зеленим. Inline-color з TipTap
+  // (TextStyle mark на span/p) перекриває цей default — як і має бути.
+  const titleBg = data.titleBgColor || "#FFFFFF";
+  const titleAutoColor =
+    titleBg === "#1C3A2E" || titleBg === "#1a1a1a" || titleBg === "#000000"
+      ? "#FAF6F0"
+      : "#1C3A2E";
+  // Радіус title-обгортки. Default 14 матчить preset «мʼякі» (BLOCK_RADIUS_PRESETS).
+  // 999 трактується як pill → 9999px.
+  const titleRadiusRaw = data.titleBorderRadius ?? 14;
+  const titleBorderRadius = titleRadiusRaw >= 999 ? 9999 : titleRadiusRaw;
+
   return (
     <div style={wrapperStyle}>
       <div
@@ -582,12 +610,15 @@ export default function EventTemplate({
         style={{
           padding: "26px 28px 24px",
           marginBottom: 12,
-          background: "#FFFFFF",
-          borderRadius: 18,
+          background: titleBg,
+          borderRadius: titleBorderRadius,
+          // Плавне оновлення при drag-у слайдера у редакторі. Не впливає на
+          // public render (тут лише один state — без переходу між значеннями).
+          transition: "border-radius 0.15s ease, background 0.15s ease",
           boxShadow: "0 6px 20px -10px rgba(28,58,46,0.15)",
           textAlign: "center",
           fontFamily: "Inter, system-ui, -apple-system, sans-serif",
-          color: "#1C3A2E",
+          color: titleAutoColor,
           fontSize: 20,
           fontWeight: 700,
           lineHeight: 1.35,

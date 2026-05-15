@@ -16,6 +16,10 @@ export interface Block {
   x?: number;                 // % від лівого краю канваса (0..100-width)
   y?: number;                 // px від верху канваса
   height?: number;            // px (опційно — для image/youtube/фіксованих блоків)
+  /** Радіус кутів підкладки блока. Пресети `BLOCK_RADIUS_PRESETS`
+   *  (0/6/14/24/999=pill). Default `undefined` = 8 px при наявності bgColor,
+   *  0 без bgColor (історична поведінка). Керується BlockItemHeader → RadiusControl. */
+  borderRadius?: number;
 }
 
 // CANVAS_WIDTH і LEGACY_HEIGHT тепер живуть у lib/news/render — єдиному джерелі

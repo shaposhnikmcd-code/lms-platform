@@ -91,6 +91,223 @@ export const ToolbarHeader: React.FC<{
   </div>
 );
 
+// Пресети border-radius для «Форма підкладки». Дзеркало з ImageEditor (overlays),
+// щоб поведінка була єдиною між Текст-на-фото і Заголовком шаблону.
+export const BLOCK_RADIUS_PRESETS: { label: string; value: number; tooltip: string }[] = [
+  { label: "▢", value: 0,   tooltip: "Прямі кути" },
+  { label: "▢", value: 6,   tooltip: "Радіус 6 px — легкі" },
+  { label: "▢", value: 14,  tooltip: "Радіус 14 px — мʼякі" },
+  { label: "▢", value: 24,  tooltip: "Радіус 24 px — дуже округлі" },
+  { label: "⬭", value: 999, tooltip: "Pill — повністю округлі краї" },
+];
+
+// Composite-контрол для «Форма підкладки»: ряд пресетів (швидкий вибір)
+// + плавний слайдер 0..50 px з step 0.5 (тонке налаштування). Pill (999) —
+// окремий стан поза діапазоном слайдера; при перетягуванні pill знімається.
+//
+// Slider clamps value до [0, SLIDER_MAX]; якщо value=pill (999) — стоїть на
+// максимумі. Active-preset матчиться рівністю value, тому slider-зміна
+// знімає підсвітку з усіх пресетів окрім випадків коли користувач
+// "потрапить" точно на preset-значення (0/6/14/24).
+//
+// UI: gradient-fill зліва до thumb (золотий→крем), thumb 16px з амбер
+// фоном і темно-зеленим обідком, soft shadow, hover/active scaling.
+// Cross-browser стилізація через class-scope <style> блок.
+export function RadiusControl({
+  current,
+  onChange,
+}: {
+  current: number;
+  onChange: (v: number) => void;
+}) {
+  const SLIDER_MAX = 50;
+  const SLIDER_STEP = 0.5;
+  const isPill = current >= 999;
+  const sliderValue = isPill ? SLIDER_MAX : Math.min(Math.max(current, 0), SLIDER_MAX);
+  // Gradient stop у відсотках — щоб fill-частина візуально співпадала з thumb.
+  const fillPct = (sliderValue / SLIDER_MAX) * 100;
+  return (
+    <div>
+      <div style={{ display: "flex", gap: "5px" }}>
+        {BLOCK_RADIUS_PRESETS.map((p, i) => {
+          const active = current === p.value;
+          const previewRadius = p.value >= 999 ? "9999px" : `${Math.min(p.value, 12)}px`;
+          return (
+            <button
+              key={i}
+              type="button"
+              title={p.tooltip}
+              onClick={() => onChange(p.value)}
+              style={{
+                flex: 1, height: "26px",
+                border: `1px solid ${active ? "#D4A843" : "#E8D5B7"}`,
+                background: active ? "#1C3A2E" : "#FFFFFF",
+                borderRadius: previewRadius,
+                cursor: "pointer", padding: 0,
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
+                fontSize: "11px", color: active ? "#D4A843" : "#1C3A2E",
+                transition: "all 0.12s",
+                fontFamily: ff,
+              }}
+            >{p.label}</button>
+          );
+        })}
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: "10px", marginTop: "10px" }}>
+        <input
+          className="uimp-radius-slider"
+          type="range"
+          min={0}
+          max={SLIDER_MAX}
+          step={SLIDER_STEP}
+          value={sliderValue}
+          onChange={(e) => onChange(Number(e.target.value))}
+          title="Радіус кутів (0..50 px)"
+          style={{
+            flex: 1,
+            cursor: "pointer",
+            // Inline-CSS-var керує gradient-fill зліва. Сам gradient заданий
+            // у <style>-блоку нижче (cross-browser ::-webkit-/::-moz-).
+            ["--fill" as string]: `${fillPct}%`,
+          }}
+        />
+        <span style={{
+          fontSize: "11px", fontWeight: 700, color: "#1C3A2E",
+          minWidth: "38px", textAlign: "right", fontFamily: ff,
+          letterSpacing: "0.02em",
+          fontVariantNumeric: "tabular-nums",
+        }}>{isPill ? "Pill" : `${sliderValue % 1 === 0 ? sliderValue : sliderValue.toFixed(1)} px`}</span>
+      </div>
+      <style>{`
+        /* UIMP-стилізований range. Native input[type=range] не дає достатнього
+           контролю через accent-color — тут повністю кастомний trek + thumb.
+           Розділяємо ::-webkit- (Chrome/Edge/Safari) і ::-moz- (Firefox) —
+           синтаксис різний, спільного селектора нема. */
+        input.uimp-radius-slider {
+          appearance: none;
+          -webkit-appearance: none;
+          width: 100%;
+          height: 18px;
+          background: transparent;
+          outline: none;
+          padding: 0;
+          margin: 0;
+        }
+        /* Track — Chrome/Safari/Edge. linear-gradient від золотого до крему
+           з cut-off на --fill (% позиції thumb). Це і є "fill"-індикатор. */
+        input.uimp-radius-slider::-webkit-slider-runnable-track {
+          height: 4px;
+          border-radius: 999px;
+          background: linear-gradient(to right,
+            #D4A843 0%, #D4A843 var(--fill),
+            #EFE3CC var(--fill), #EFE3CC 100%);
+          border: none;
+        }
+        /* Thumb — Chrome/Safari/Edge. Кругла амбер кнопка з темно-зеленим
+           ring-ом і soft shadow. transform на hover/active даєить плавне
+           "відчуття" взаємодії. */
+        input.uimp-radius-slider::-webkit-slider-thumb {
+          -webkit-appearance: none;
+          appearance: none;
+          width: 16px;
+          height: 16px;
+          border-radius: 50%;
+          background: #D4A843;
+          border: 2px solid #1C3A2E;
+          /* margin-top центрує thumb вертикально відносно track-у (16px thumb
+             на 4px track-у → ((4-16)/2) = -6px). */
+          margin-top: -6px;
+          cursor: grab;
+          box-shadow: 0 2px 6px rgba(28,58,46,0.25), 0 0 0 0 rgba(212,168,67,0);
+          transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+        input.uimp-radius-slider:hover::-webkit-slider-thumb {
+          transform: scale(1.12);
+          box-shadow: 0 3px 10px rgba(28,58,46,0.3), 0 0 0 5px rgba(212,168,67,0.18);
+        }
+        input.uimp-radius-slider:active::-webkit-slider-thumb {
+          cursor: grabbing;
+          transform: scale(1.18);
+          box-shadow: 0 3px 12px rgba(28,58,46,0.35), 0 0 0 7px rgba(212,168,67,0.22);
+        }
+        /* Track — Firefox. Той самий gradient через --fill. */
+        input.uimp-radius-slider::-moz-range-track {
+          height: 4px;
+          border-radius: 999px;
+          background: linear-gradient(to right,
+            #D4A843 0%, #D4A843 var(--fill),
+            #EFE3CC var(--fill), #EFE3CC 100%);
+          border: none;
+        }
+        /* Firefox підтримує ::-moz-range-progress — використаємо як backup,
+           але gradient уже дає fill-effect, тому ховаємо щоб не дублювало. */
+        input.uimp-radius-slider::-moz-range-progress {
+          background: transparent;
+          height: 4px;
+        }
+        input.uimp-radius-slider::-moz-range-thumb {
+          width: 16px;
+          height: 16px;
+          border-radius: 50%;
+          background: #D4A843;
+          border: 2px solid #1C3A2E;
+          cursor: grab;
+          box-shadow: 0 2px 6px rgba(28,58,46,0.25);
+          transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+        input.uimp-radius-slider:hover::-moz-range-thumb {
+          transform: scale(1.12);
+          box-shadow: 0 3px 10px rgba(28,58,46,0.3), 0 0 0 5px rgba(212,168,67,0.18);
+        }
+        input.uimp-radius-slider:active::-moz-range-thumb {
+          cursor: grabbing;
+          transform: scale(1.18);
+          box-shadow: 0 3px 12px rgba(28,58,46,0.35), 0 0 0 7px rgba(212,168,67,0.22);
+        }
+        /* Keyboard focus — golden glow */
+        input.uimp-radius-slider:focus-visible::-webkit-slider-thumb {
+          box-shadow: 0 2px 8px rgba(28,58,46,0.3), 0 0 0 4px rgba(212,168,67,0.35);
+        }
+        input.uimp-radius-slider:focus-visible::-moz-range-thumb {
+          box-shadow: 0 2px 8px rgba(28,58,46,0.3), 0 0 0 4px rgba(212,168,67,0.35);
+        }
+      `}</style>
+    </div>
+  );
+}
+
+// Reusable «шапка» панелі налаштувань блока: info-strip + опційні секції
+// «Фон блока» та «Форма підкладки». Викликається з контекстів, де нема
+// BlockItem-обгортки навколо редактора (TemplateEditor sidebar). Якщо
+// `onSetBg`/`onSetRadius` не передано — відповідна секція не рендериться.
+export const BlockPanelHeader: React.FC<{
+  icon: React.ReactNode;
+  label: string;
+  subtitle?: string;
+  bgColor?: string;
+  onSetBg?: (c: string) => void;
+  /** Поточне значення радіусу. Передавай уже з resolved-defaults (без `??`)
+   *  щоб UI підсвічував активний preset одразу при відкритті. */
+  radius?: number;
+  onSetRadius?: (v: number) => void;
+}> = ({ icon, label, subtitle, bgColor, onSetBg, radius, onSetRadius }) => (
+  <div style={{ background: "#FFFFFF", fontFamily: ff }}>
+    <ToolbarHeader icon={icon} label={label} hint={subtitle} />
+    {onSetBg && (
+      <Section padTop={0}>
+        <SectionLabel>Фон блока</SectionLabel>
+        <ColorSwatchRow current={bgColor || ""} onChange={onSetBg} includeTransparent />
+      </Section>
+    )}
+    {onSetRadius && (
+      <Section padTop={0}>
+        <SectionLabel>Форма підкладки</SectionLabel>
+        <RadiusControl current={radius ?? 0} onChange={onSetRadius} />
+      </Section>
+    )}
+  </div>
+);
+
 export const inputBase: React.CSSProperties = {
   height: "26px",
   borderRadius: "6px",
