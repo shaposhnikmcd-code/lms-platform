@@ -33,6 +33,10 @@ export interface Block {
   align?: "left" | "center" | "right";
   vAlign?: "top" | "center" | "bottom";
   bgColor?: string;
+  /** Радіус кутів підкладки в px. Дзеркалить поле з editor/types.ts Block.
+   *  Default `undefined` = 8 при наявності bgColor / 0 без bgColor.
+   *  999 → 9999 (pill). */
+  borderRadius?: number;
 }
 
 // Ширина канваса в пікселях. Це ЄДИНЕ джерело правди — editor і public імпортують
