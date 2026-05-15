@@ -410,12 +410,11 @@ export default function BlockItem({
           outlineOffset: "0px",
           // Радіус підкладки: явний `block.borderRadius` (через BlockItemHeader →
           // RadiusControl) має пріоритет; інакше fallback на 8px (історична поведінка).
-          // 999 → 9999 (pill). Transition робить drag-зміни плавними.
+          // 999 → 9999 (pill). Transition нижче робить drag-зміни плавними.
           borderRadius:
             typeof block.borderRadius === "number"
               ? (block.borderRadius >= 999 ? 9999 : block.borderRadius)
               : 8,
-          transition: "border-radius 0.15s ease",
           minHeight: minHeight > 0 ? `${minHeight}px` : undefined,
           height: "100%", // заповнює AbsoluteBlock — щоб візуальні межі блока = block.height
           // newsCard preview зберігає aspect 360:400 на outer AbsoluteBlock через
@@ -433,7 +432,7 @@ export default function BlockItem({
           // щоб користувач бачив весь контент одразу.
           overflow: (block.type === "newsCard" && (block.data.displayMode === "expanded" || block.data.displayMode === "preview")) ? "visible" : "hidden",
           position: "relative",
-          transition: resizingW || resizingH || resizingD ? "none" : "outline-color 0.15s",
+          transition: resizingW || resizingH || resizingD ? "none" : "outline-color 0.15s, border-radius 0.15s ease",
         }}
       >
         {isSnapping && snapGuideH !== null && (
