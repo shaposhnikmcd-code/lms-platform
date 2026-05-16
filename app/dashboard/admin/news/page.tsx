@@ -24,7 +24,7 @@ import {
 } from '@/lib/news/render';
 import PreviewCardScale from '@/lib/news/PreviewCardScale';
 import TemplatePreviewCard from '@/lib/news/templates/TemplatePreviewCard';
-import { parseTemplateData, templateKindLabel, type TemplateKind } from '@/lib/news/templates/types';
+import { parseTemplateData, type TemplateKind } from '@/lib/news/templates/types';
 
 interface NewsItem {
   id: string;
@@ -48,6 +48,11 @@ interface NewsItem {
    *  В цьому разі `previewContent` ігнорується, превʼю автогенерується. */
   templateKind?: 'ARTICLE' | 'EVENT' | null;
   templateData?: string | null;
+  /** Новий block-based формат шаблонів (Session 3+). Якщо є — рендеримо превʼю
+   *  через AbsoluteBlockRender 1-в-1 з TemplateConstructor; інакше fallback
+   *  на legacy TemplatePreviewCard з templateData. */
+  templateBlocks?: string | null;
+  templateCanvas?: string | null;
   suspendedAt: string | null;
   resumeAt: string | null;
   createdAt: string;
@@ -417,17 +422,17 @@ export default function AdminNewsPage() {
         </div>
       )}
 
-      {/* Single-column layout: блок «Сторінка /news» зверху в горизонтальному ряду
-          (Поточна + Наступна + опційно Архів), нижче — Шаблони + список новин. */}
-      <div className="space-y-8">
-        {/* ╭─ БЛОК: операції зі сторінкою /news (горизонтально) ─────────╮ */}
-        <div className="min-w-0">
+      {/* 2-col layout: ліворуч — операції зі сторінкою /news 1/4 (Поточна+Наступна
+          вертикально, опційно Архів знизу), праворуч — Шаблони 3/4. */}
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 lg:items-start">
+        {/* ╭─ БЛОК: операції зі сторінкою /news (вертикально, 1/4) ──────╮ */}
+        <div className="min-w-0 lg:col-span-1">
           <div className={`flex items-center gap-2 mb-4 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
             <span className="text-[10px] font-bold tracking-[0.18em] uppercase">Сторінка /news</span>
             <span className={`flex-1 h-px ${dark ? 'bg-white/[0.06]' : 'bg-stone-300/60'}`} />
           </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 items-start">
+        <div className="flex flex-col gap-4">
           {/* ─── Колонка 1: ПОТОЧНА (live) ─── */}
           <div className="min-w-0">
           {/* ─── Підсекція 1: ПОТОЧНА (live) ─── */}
@@ -574,7 +579,7 @@ export default function AdminNewsPage() {
                     : 'bg-amber-500 shadow-[0_0_6px_rgba(251,191,36,0.6)]'
                   : 'bg-stone-400'
               }`} />
-              <span className="text-[11px] font-bold tracking-[0.12em] uppercase">Наступна сторінка Новин</span>
+              <span className="text-[11px] font-bold tracking-[0.12em] uppercase">Наступна сторінка новин</span>
               <span className={`text-[10px] font-normal opacity-70 normal-case tracking-normal`}>
                 {hasStaged ? '· чернетка готова' : '· немає чернетки'}
               </span>
@@ -828,13 +833,13 @@ export default function AdminNewsPage() {
           )}
           {/* ╰─ кінець колонки 3 ─╯ */}
         </div>
-        {/* ╰─ кінець горизонтального ряду ───────────────────────────────╯ */}
+        {/* ╰─ кінець вертикального стеку ───────────────────────────────╯ */}
 
         </div>
         {/* ╰─ кінець блоку «Сторінка /news» ─────────────────────────────╯ */}
 
-        {/* ╭─ БЛОК: Шаблони + список новин (повна ширина) ──────────────╮ */}
-        <section className="min-w-0">
+        {/* ╭─ БЛОК: Шаблони + список новин (3/4 ширини) ────────────────╮ */}
+        <section className="min-w-0 lg:col-span-3">
           {/* ─── Секція ШАБЛОНИ ─── */}
           {/* Шаблони — зверстані заготовки «Превʼю + Новина», які менеджер
               наповнює інформацією. Структура попередньо професійно дизайнерська
@@ -857,7 +862,8 @@ export default function AdminNewsPage() {
           {(() => {
             // Сплітимо blueprint-и: дефолтні (parentTemplateId=null) показуємо як
             // основні картки; кастомні групуємо під своїм parent-ом нижче.
-            const defaultTemplates = templates.filter(t => !t.parentTemplateId);
+            // ARTICLE blueprint приховано з адмінки — менеджер працює лише з EVENT.
+            const defaultTemplates = templates.filter(t => !t.parentTemplateId && (t.templateKind || 'ARTICLE') !== 'ARTICLE');
             const customByParent = new Map<string, NewsItem[]>();
             templates.filter(t => !!t.parentTemplateId).forEach(t => {
               const arr = customByParent.get(t.parentTemplateId!) || [];
@@ -865,7 +871,7 @@ export default function AdminNewsPage() {
               customByParent.set(t.parentTemplateId!, arr);
             });
             return (
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-10">
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-10 items-start">
             {defaultTemplates.map((tpl) => {
               const kind = (tpl.templateKind || 'ARTICLE') as TemplateKind;
               const customs = customByParent.get(tpl.id) || [];
@@ -908,7 +914,7 @@ export default function AdminNewsPage() {
                         <div className={`text-[13.5px] font-semibold leading-tight mt-0.5 truncate ${
                           dark ? 'text-slate-100' : 'text-stone-900'
                         }`}>
-                          {templateKindLabel(kind)}
+                          Головний Шаблон Картка
                         </div>
                       </div>
                       <div className="flex items-center gap-1.5 flex-shrink-0">
@@ -995,12 +1001,30 @@ export default function AdminNewsPage() {
                           · {customs.length}
                         </span>
                       </div>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                      <div className="grid grid-cols-1 gap-2.5">
                         {customs.map((cust) => {
                           const custData = parseTemplateData(kind, cust.templateData);
                           const custTitle = cust.title.replace(/^\[Шаблон\]\s*/i, '');
-                          const custBaseW = isEvent ? 600 : PREVIEW_CARD_WIDTH;
-                          const custBaseH = isEvent ? 400 : PREVIEW_CARD_HEIGHT;
+                          // Розміри канвасу. Block-based templateCanvas (формат "WxH")
+                          // має пріоритет — це те, що менеджер ресайзив у TemplateConstructor.
+                          let custBaseW = isEvent ? 600 : PREVIEW_CARD_WIDTH;
+                          let custBaseH = isEvent ? 400 : PREVIEW_CARD_HEIGHT;
+                          if (cust.templateCanvas) {
+                            const m = cust.templateCanvas.match(/^(\d+)x(\d+)$/);
+                            if (m) {
+                              const w = Number(m[1]);
+                              const h = Number(m[2]);
+                              if (Number.isFinite(w) && Number.isFinite(h) && w >= 60 && h >= 60) {
+                                custBaseW = w;
+                                custBaseH = h;
+                              }
+                            }
+                          }
+                          // Block-based render (Session 3+) — якщо є templateBlocks,
+                          // рендеримо 1-в-1 з конструктором через AbsoluteBlockRender.
+                          // Інакше fallback на legacy TemplatePreviewCard з templateData.
+                          const tplBlocks = cust.templateBlocks ? parseBlocks(cust.templateBlocks) : null;
+                          const hasBlocks = !!(tplBlocks && tplBlocks.isJson && tplBlocks.blocks.length > 0);
                           return (
                             <article
                               key={cust.id}
@@ -1022,7 +1046,28 @@ export default function AdminNewsPage() {
                                     baseHeight={custBaseH}
                                     initialScale={1}
                                   >
-                                    <TemplatePreviewCard kind={kind} data={custData} disableLinks />
+                                    {hasBlocks ? (
+                                      <div
+                                        style={{
+                                          position: 'relative',
+                                          width: custBaseW,
+                                          height: custBaseH,
+                                          overflow: 'hidden',
+                                          background: cust.pageBgColor || '#FFFFFF',
+                                        }}
+                                      >
+                                        {tplBlocks!.blocks.map(b => (
+                                          <AbsoluteBlockRender
+                                            key={b.id}
+                                            block={b}
+                                            newsItems={[]}
+                                            locale="uk"
+                                          />
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <TemplatePreviewCard kind={kind} data={custData} disableLinks />
+                                    )}
                                   </PreviewCardScale>
                                 </div>
                                 <span className={`absolute top-1.5 left-1.5 z-[1] inline-flex items-center gap-1 px-1.5 h-[18px] rounded-full text-[8.5px] font-bold uppercase tracking-[0.08em] backdrop-blur-md ${
@@ -1040,21 +1085,9 @@ export default function AdminNewsPage() {
                                 }`} title={custTitle}>
                                   {custTitle}
                                 </h4>
-                                <div className="flex items-center gap-1.5 mt-auto">
-                                  {/* «Створити» прибрано 2026-05-15: новини з шаблону
-                                      додаються на /news через білдер сторінки. */}
-                                  <Link
-                                    href={`/dashboard/admin/news/${cust.id}/template`}
-                                    className={`flex-1 inline-flex items-center justify-center gap-1.5 px-2 h-[28px] text-[11px] font-semibold rounded-md border transition-colors ${
-                                      dark
-                                        ? 'bg-white/[0.04] border-white/[0.10] text-slate-300 hover:bg-white/[0.10]'
-                                        : 'bg-white/85 border-stone-300/60 text-stone-700 hover:bg-white'
-                                    }`}
-                                    title="Редагувати шаблон"
-                                  >
-                                    <FaEdit className="text-[10px]" />
-                                    Редагувати
-                                  </Link>
+                                <div className="flex items-center justify-end gap-1.5 mt-auto">
+                                  {/* «Створити» і «Редагувати» прибрано: шаблон
+                                      редагується кліком по його прев'ю. */}
                                   <button
                                     type="button"
                                     onClick={() => setDeleteTarget({ id: cust.id, title: custTitle })}
@@ -1076,131 +1109,46 @@ export default function AdminNewsPage() {
                     </div>
                   )}
 
-                  {/* ── CHILDREN — створені з цього blueprint-у ── */}
-                  {/* Indent + ліва акцентна смужка → візуально читається як children
-                      tree. Empty state ненав'язливий. */}
-                  <div
-                    className={`relative ml-6 mt-3 pl-6 ${
-                      dark ? 'border-l-2 border-sky-400/15' : 'border-l-2 border-sky-300/40'
-                    }`}
-                  >
-                    {/* Connector "tee" — маленька горизонтальна риска від смужки до header-а */}
-                    <span
-                      aria-hidden
-                      className={`absolute left-0 top-3 w-4 h-px ${
-                        dark ? 'bg-sky-400/15' : 'bg-sky-300/40'
-                      }`}
-                    />
-                    <div className={`flex items-center gap-2 mb-3 text-[10px] font-bold uppercase tracking-[0.14em] ${
-                      dark ? 'text-slate-500' : 'text-stone-500'
-                    }`}>
-                      <span>Створені з цього шаблону</span>
-                      <span className={`font-normal opacity-70 normal-case tracking-normal text-[11px]`}>
-                        · {children.length}
-                      </span>
-                    </div>
-
-                    {children.length === 0 ? (
-                      <div className={`rounded-xl border border-dashed px-4 py-5 text-[12px] ${
-                        dark
-                          ? 'border-white/[0.08] text-slate-500 bg-white/[0.02]'
-                          : 'border-stone-300/60 text-stone-500 bg-white/40'
-                      }`}>
-                        Поки що нічого не створено. Відкрий <strong>білдер сторінки /news</strong> (кнопка <strong>«Редагувати»</strong> вгорі), перетягни цей шаблон на canvas і заповни поля — новина зʼявиться тут.
-                      </div>
-                    ) : (
-                      <div className={children.length === 1 ? "flex justify-center" : "grid grid-cols-1 sm:grid-cols-2 gap-3"}>
-                        {children.map((tn) => {
-                          const tnData = parseTemplateData(kind, tn.templateData);
-                          const created = new Date(tn.createdAt);
-                          const dateStr = created.toLocaleDateString('uk-UA', { day: '2-digit', month: 'short' });
-                          const isPublished = !!tn.published;
-                          const previewBaseW = isEvent ? 600 : PREVIEW_CARD_WIDTH;
-                          const previewBaseH = isEvent ? 400 : PREVIEW_CARD_HEIGHT;
-                          const isSolo = children.length === 1;
-                          return (
-                            <Link
-                              key={tn.id}
-                              href={`/dashboard/admin/news/${tn.id}/template`}
-                              className={`group/tn relative rounded-xl border overflow-hidden flex flex-col transition-all ${
-                                isSolo ? 'w-full sm:w-[calc(50%-6px)]' : ''
-                              } ${
-                                dark
-                                  ? 'bg-white/[0.025] border-white/[0.08] hover:border-sky-400/35 hover:bg-white/[0.04]'
-                                  : 'bg-white/85 border-stone-300/55 hover:border-sky-500/45 hover:bg-white'
-                              }`}
-                              aria-label={`Редагувати «${tn.title}»`}
-                            >
-                              {/* Thumb — natural aspect-ratio */}
-                              <div
-                                className="relative w-full"
-                                style={{ aspectRatio: `${previewBaseW} / ${previewBaseH}`, background: tn.pageBgColor || '#FFFFFF' }}
-                              >
-                                <div className="absolute inset-0" style={{ pointerEvents: 'none' }} aria-hidden>
-                                  <PreviewCardScale
-                                    baseWidth={previewBaseW}
-                                    baseHeight={previewBaseH}
-                                    initialScale={1}
-                                  >
-                                    <TemplatePreviewCard kind={kind} data={tnData} disableLinks />
-                                  </PreviewCardScale>
-                                </div>
-                                {/* Status pill — top-right */}
-                                <span className={`absolute top-2 right-2 z-[1] inline-flex items-center gap-1 px-2 h-[20px] rounded-full text-[9px] font-bold uppercase tracking-[0.08em] backdrop-blur-md ${
-                                  isPublished
-                                    ? dark
-                                      ? 'bg-emerald-500/30 text-emerald-100 border border-emerald-400/40'
-                                      : 'bg-emerald-500/85 text-white border border-emerald-600/40'
-                                    : dark
-                                      ? 'bg-amber-500/30 text-amber-100 border border-amber-400/40'
-                                      : 'bg-amber-500/85 text-white border border-amber-600/40'
-                                }`}>
-                                  <span className={`inline-block w-1 h-1 rounded-full ${isPublished ? 'bg-emerald-300' : 'bg-amber-100'}`} />
-                                  <span>{isPublished ? 'На /news' : 'Чернетка'}</span>
-                                </span>
-                                {/* Delete — top-left, на hover */}
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    setDeleteTarget({ id: tn.id, title: tn.title });
-                                  }}
-                                  title="Видалити"
-                                  aria-label="Видалити"
-                                  className={`absolute top-2 left-2 z-[2] inline-flex items-center justify-center w-7 h-7 rounded-full backdrop-blur-md border opacity-0 group-hover/tn:opacity-100 transition-all duration-200 hover:scale-110 ${
-                                    dark
-                                      ? 'bg-rose-500/30 border-rose-400/40 text-rose-100 hover:bg-rose-500/50'
-                                      : 'bg-white/85 border-rose-400/50 text-rose-600 hover:bg-rose-50 shadow-sm'
-                                  }`}
-                                >
-                                  <FaTrash className="text-[10px]" />
-                                </button>
-                              </div>
-
-                              {/* Body */}
-                              <div className="flex flex-col gap-1 p-2.5">
-                                <h3 className={`text-[12.5px] font-semibold leading-snug line-clamp-1 ${
-                                  dark ? 'text-slate-100' : 'text-stone-900'
-                                }`} title={tn.title}>
-                                  {tn.title}
-                                </h3>
-                                <div className={`text-[10px] inline-flex items-center gap-1.5 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
-                                  <FaCalendar className="text-[9px] opacity-70" />
-                                  <span>{dateStr}</span>
-                                  <span className="opacity-40">·</span>
-                                  <span className="font-mono opacity-70 truncate">{tn.slug}</span>
-                                </div>
-                              </div>
-                            </Link>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
+                  {/* «Створені з цього шаблону» прибрано 2026-05-16: з цієї
+                      сторінки новини не створюються — лише шаблони. Новини
+                      додаються через білдер сторінки /news. */}
                 </div>
               );
             })}
+
+            {/* Placeholder-блок «Шаблон Превʼю + Новина» — структура поки порожня,
+                контент додається пізніше. Візуально матчиться з основним blueprint-блоком. */}
+            <div className="flex flex-col">
+              <article
+                className={`rounded-xl border transition-all ${
+                  dark
+                    ? 'bg-sky-400/[0.04] border-sky-300/20 hover:border-sky-300/40'
+                    : 'bg-sky-50/65 border-sky-300/45 hover:border-sky-500/55'
+                }`}
+              >
+                <header className="flex items-center gap-3 px-3 py-2.5 min-w-0 flex-wrap sm:flex-nowrap">
+                  <span className={`inline-flex items-center justify-center w-9 h-9 rounded-lg text-[16px] flex-shrink-0 ${
+                    dark
+                      ? 'bg-sky-400/15 border border-sky-300/25'
+                      : 'bg-sky-100/80 border border-sky-600/25'
+                  }`} aria-hidden>
+                    📰
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className={`text-[9px] font-bold tracking-[0.16em] uppercase ${
+                      dark ? 'text-sky-300/85' : 'text-sky-700/80'
+                    }`}>
+                      Шаблон · Blueprint
+                    </div>
+                    <div className={`text-[13.5px] font-semibold leading-tight mt-0.5 truncate ${
+                      dark ? 'text-slate-100' : 'text-stone-900'
+                    }`}>
+                      Шаблон Превʼю + Новина
+                    </div>
+                  </div>
+                </header>
+              </article>
+            </div>
           </div>
             );
           })()}

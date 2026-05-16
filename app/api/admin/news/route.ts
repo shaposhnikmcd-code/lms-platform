@@ -49,6 +49,11 @@ export async function GET(req: NextRequest) {
       createdAt: true,
       previewContent: true,
       pageBgColor: true,
+      // Block-based template content (Session 3+). Потрібно щоб адмін-список
+      // міг рендерити шаблонні картки 1-в-1 з тим, що менеджер бачить у
+      // TemplateConstructor (а не fallback на legacy templateData).
+      templateBlocks: true,
+      templateCanvas: true,
       author: { select: { name: true } },
     },
   });

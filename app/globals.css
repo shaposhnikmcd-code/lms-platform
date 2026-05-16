@@ -119,7 +119,8 @@ nav {
   50%  { background-position: 100%  50%; }
   100% { background-position:   0%  50%; }
 }
-.back-btn:hover {
+.back-btn:hover,
+.save-btn:hover {
   animation-play-state: running !important;
 }
 

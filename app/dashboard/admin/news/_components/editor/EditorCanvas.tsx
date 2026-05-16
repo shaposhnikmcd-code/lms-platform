@@ -18,6 +18,14 @@ const PAGE_PAD_Y = 32;
 const SNAP = 8;         // px — вертикальний і горизонтальний grid
 const DEFAULT_MIN_CANVAS_H = 500;
 
+// Спецблоки шаблону — semantic-слоти, що мають сенс ТІЛЬКИ поверх блока Фото.
+// Drop з палітри і drag існуючого блока перевіряють перекриття з image, інакше
+// move/drop скасовується. Module-scope щоб обидва шляхи (handleDragEnd для
+// palette-drop і для existing-drag) використовували один список без дублювання.
+const SPEC_BLOCK_TYPES_SET = new Set<BlockType>([
+  "speakerName", "speakerRole", "tagline", "price", "duration", "ctaButton", "educationItem",
+]);
+
 // (TYPE_HEIGHT тепер імпортується з @/lib/news/render — див. шапку файла.)
 
 // Мінімально-корисна висота блоку при auto-fit у fixedHeight-режимі.
@@ -67,8 +75,10 @@ interface Props {
    *  даємо менше (480) щоб порожня картка виглядала card-shaped. */
   minCanvasHeight?: number;
   /** Кастомні підписи на chrome-смужці канвасу (зверху). Default — текст для
-   *  сторінкового режиму. Для card-builder-а передаємо «🃏 Превʼю-картка». */
-  canvasLabel?: { left: string; right: string };
+   *  сторінкового режиму. Для card-builder-а передаємо «🃏 Превʼю-картка».
+   *  Приймає React.ReactNode (а не лише string) — щоб TemplateConstructor міг
+   *  винести туди інпути для зміни розміру канвасу. */
+  canvasLabel?: { left: React.ReactNode; right: React.ReactNode };
   /** Запас вільного місця під останнім блоком (drop-zone). Default 240px для
    *  full-page; для маленького card-canvas достатньо 80px (інакше canvas
    *  візуально витягнутий значно більше за реальний контент). */
@@ -77,6 +87,24 @@ interface Props {
    *  Використовується для card-builder-а — картка має фіксовані розміри.
    *  Контент, що виходить за межі, обрізається через overflow:hidden. */
   fixedHeight?: boolean;
+  /** Template-mode: блоки — плейсхолдери, без settings/редакторів усередині. */
+  templateMode?: boolean;
+  /** Live-callback при ресайзі канвасу (corner drag-handle). Викликається з
+   *  кінцевими розмірами (snapped, clamped) під час руху. Якщо не задано —
+   *  handle не рендериться. Використовується TemplateConstructor-ом. */
+  onCanvasResize?: (width: number, height: number) => void;
+  /** Межі для ресайзу канвасу. Дефолт min 240×200, max 1200×1600. */
+  canvasMinWidth?: number;
+  canvasMaxWidth?: number;
+  canvasMinHeight?: number;
+  canvasMaxHeight?: number;
+  /** Toolbar над канвасом (між label-стрічкою і самим канвасом). Використовується
+   *  TemplateConstructor-ом для горизонтальної панелі пресет-форм. */
+  canvasTopToolbar?: React.ReactNode;
+  /** Slot над лівою палітрою (наприклад, «Назва Шаблону» інпут у template-режимі). */
+  abovePaletteSlot?: React.ReactNode;
+  /** Slot ліворуч від канвасу (вертикальна колонка пресет-форм у template-режимі). */
+  canvasLeftToolbar?: React.ReactNode;
 }
 
 export default function EditorCanvas({
@@ -94,6 +122,15 @@ export default function EditorCanvas({
   canvasLabel,
   bottomSlack,
   fixedHeight,
+  templateMode,
+  onCanvasResize,
+  canvasMinWidth = 240,
+  canvasMaxWidth = 1200,
+  canvasMinHeight = 200,
+  canvasMaxHeight = 1600,
+  canvasTopToolbar,
+  abovePaletteSlot,
+  canvasLeftToolbar,
 }: Props) {
   // Локальні константи (були module-scope) тепер залежать від props.
   const PAGE_WIDTH = canvasWidth ?? CANVAS_WIDTH;
@@ -346,7 +383,8 @@ export default function EditorCanvas({
     const oldW = Number(b.width) || 100;
     const delta = newW - oldW;
 
-    if (delta > 0) {
+    // У template-режимі пропускаємо neighbor-логіку: блоки вільно перекриваються.
+    if (!templateMode && delta > 0) {
       const neighbor = findRightNeighbor(id);
       if (neighbor) {
         const result = computeGrowthWithNeighbor(
@@ -368,11 +406,11 @@ export default function EditorCanvas({
         return;
       }
     }
-    // Немає сусіда ПРАВОРУЧ — звичайний setWidth, але clamp'емо щоб не вилізти за канвас.
+    // Немає сусіда ПРАВОРУЧ (або template-режим) — звичайний setWidth, clamp до канвасу.
     const bx = b.x ?? 0;
     const clampedW = Math.max(MIN_NEIGHBOR_WIDTH, Math.min(100 - bx, newW));
     setWidth(id, String(roundW(clampedW)));
-  }, [blocks, onBlocksChange, setWidth, clearPreview, clearPreviewX]);
+  }, [blocks, onBlocksChange, setWidth, clearPreview, clearPreviewX, templateMode]);
 
   const handleSetWidthAndData = useCallback((id: string, w: BlockWidth, data: Record<string, string>, height?: number) => {
     // Image/diagonal resize: new height приходить як 4-й параметр `height` від
@@ -395,11 +433,12 @@ export default function EditorCanvas({
       return updated;
     };
 
-    // Крок 1: будуємо новий стан з neighbor-shrink (якщо сусід є і блок росте)
+    // Крок 1: будуємо новий стан з neighbor-shrink (якщо сусід є і блок росте).
+    // У template-режимі — пропускаємо: блоки вільно перекриваються.
     let appliedW = newW;
     let next: Block[];
     let neighborId: string | null = null;
-    if (delta > 0) {
+    if (!templateMode && delta > 0) {
       const neighbor = findRightNeighbor(id);
       if (neighbor) {
         neighborId = neighbor.id;
@@ -422,22 +461,23 @@ export default function EditorCanvas({
       next = blocks.map(o => o.id === id ? applyUpdate(o, appliedW) : o);
     }
 
-    // Крок 2: displacement — якщо нові межі блока (x, y, appliedW, newH) перетинаються з іншими
-    // блоками (крім уже адаптованого neighbor) → пересуваємо їх.
-    const rect = { x: bx, y: by, width: appliedW, height: newH };
-    const needsDisplace = next.some(o => {
-      if (o.id === id) return false;
-      if (neighborId && o.id === neighborId) return false;
-      const ox = o.x ?? 0;
-      const oy = o.y ?? 0;
-      const ow = Number(o.width) || 100;
-      const oh = measureBlockHeight(o);
-      const overlapX = ox + ow > rect.x + 0.5 && ox < rect.x + rect.width - 0.5;
-      const overlapY = oy + oh > rect.y + 4 && oy < rect.y + rect.height - 4;
-      return overlapX && overlapY;
-    });
-    if (needsDisplace) {
-      next = displaceBlocksAround(rect, next, id);
+    // Крок 2: displacement — лише поза template-режимом.
+    if (!templateMode) {
+      const rect = { x: bx, y: by, width: appliedW, height: newH };
+      const needsDisplace = next.some(o => {
+        if (o.id === id) return false;
+        if (neighborId && o.id === neighborId) return false;
+        const ox = o.x ?? 0;
+        const oy = o.y ?? 0;
+        const ow = Number(o.width) || 100;
+        const oh = measureBlockHeight(o);
+        const overlapX = ox + ow > rect.x + 0.5 && ox < rect.x + rect.width - 0.5;
+        const overlapY = oy + oh > rect.y + 4 && oy < rect.y + rect.height - 4;
+        return overlapX && overlapY;
+      });
+      if (needsDisplace) {
+        next = displaceBlocksAround(rect, next, id);
+      }
     }
 
     // Крок 3: commit + очистка previews
@@ -447,7 +487,7 @@ export default function EditorCanvas({
       clearPreviewX(neighborId);
     }
     onBlocksChange(next);
-  }, [blocks, onBlocksChange, setWidthAndData, clearPreview, clearPreviewX]);
+  }, [blocks, onBlocksChange, setWidthAndData, clearPreview, clearPreviewX, templateMode]);
 
   // Детектор alignment-guides — викликається з drag-move І resize (preview width/height).
   // Перевіряє всі alignments (left-left, right-right, top-top, bottom-bottom, center-center)
@@ -553,7 +593,14 @@ export default function EditorCanvas({
     const delta = pct - oldW;
 
     let appliedW = pct;
-    if (delta > 0) {
+    // У template-режимі НЕ пушимо сусідів — блоки вільно перекриваються,
+    // користувач сам керує позиціями. Це консистентно з drop-логікою
+    // (skip-фітa в handleDragEnd).
+    if (templateMode) {
+      const bx = b.x ?? 0;
+      appliedW = Math.max(MIN_NEIGHBOR_WIDTH, Math.min(100 - bx, pct));
+      setPreview(id, appliedW);
+    } else if (delta > 0) {
       const neighbor = findRightNeighbor(id);
       if (neighbor) {
         const result = computeGrowthWithNeighbor(
@@ -591,7 +638,7 @@ export default function EditorCanvas({
       bh = measureBlockHeight(b);
     }
     detectAlignmentsAt(id, bx, by, appliedW, bh);
-  }, [blocks, setPreview, setPreviewX, detectAlignmentsAt]);
+  }, [blocks, setPreview, setPreviewX, detectAlignmentsAt, templateMode]);
 
   const handleClearPreview = useCallback((id: string) => {
     setResizingBlockId(prev => prev === id ? null : prev);
@@ -635,8 +682,8 @@ export default function EditorCanvas({
     if (!b) { updateBlock(id, data); return; }
     const oldH = Number(b.data.minHeight) || measureBlockHeight(b);
     const newH = Number(data.minHeight) || oldH;
-    // Тільки якщо висота зросла — робимо displacement
-    if (newH > oldH + 0.5) {
+    // Тільки якщо висота зросла — робимо displacement. У template-режимі — пропускаємо.
+    if (!templateMode && newH > oldH + 0.5) {
       const bx = b.x ?? 0;
       const by = b.y ?? 0;
       const bw = Number(b.width) || 100;
@@ -658,7 +705,7 @@ export default function EditorCanvas({
       }
     }
     updateBlock(id, data);
-  }, [blocks, onBlocksChange, updateBlock]);
+  }, [blocks, onBlocksChange, updateBlock, templateMode]);
 
   function snapPx(v: number): number { return Math.round(v / SNAP) * SNAP; }
   function snapPct(pct: number): number {
@@ -1016,6 +1063,11 @@ export default function EditorCanvas({
         // Live displacement preview: симулюємо displaceBlocksAround для поточної drop-
         // позиції. Виконується через requestAnimationFrame — інакше mousemove (60+ Hz)
         // спамить сим (до 30 iterations × кількість блоків) і весь drag лагає.
+        // У template-режимі — пропускаємо: блоки вільно перекриваються, displacement
+        // не потрібний.
+        if (templateMode) {
+          return;
+        }
         liveSimPendingRef.current = { x, y, wPct, bh, bId: b.id };
         if (liveSimRafRef.current === null) {
           liveSimRafRef.current = requestAnimationFrame(() => {
@@ -1060,7 +1112,7 @@ export default function EditorCanvas({
         }
       }
     }
-  }, [blocks, canvasWidthPx, setPreview, setPreviewX, setPreviewY, clearPreview, clearPreviewX, clearPreviewY, detectAlignmentsAt]);
+  }, [blocks, canvasWidthPx, setPreview, setPreviewX, setPreviewY, clearPreview, clearPreviewX, clearPreviewY, detectAlignmentsAt, templateMode]);
 
   // Перевіряє чи позиція x/y/width+height перекриває якийсь блок (крім excludeId).
   function hasCollision(x: number, y: number, width: number, height: number, excludeId: string | null): boolean {
@@ -1207,6 +1259,22 @@ export default function EditorCanvas({
       }
 
       const type: BlockType = isNewsCard ? "newsCard" : (idStr.replace("palette:", "") as BlockType);
+
+      // У template-режимі спецблоки (semantic slots) можна класти ТІЛЬКИ на
+      // блок-host: Фото або Пустий блок (cardBody). Drop на порожнє місце
+      // або інший блок — скасовується.
+      let specImageHost: Block | null = null;
+      if (templateMode && SPEC_BLOCK_TYPES_SET.has(type)) {
+        const hostUnderCursor = blocks.find(b => {
+          if (b.type !== "image" && b.type !== "cardBody") return false;
+          const el = canvasRef.current?.querySelector<HTMLElement>(`[data-block-id="${b.id}"]`);
+          if (!el) return false;
+          const r = el.getBoundingClientRect();
+          return cursorX >= r.left && cursorX <= r.right && cursorY >= r.top && cursorY <= r.bottom;
+        });
+        if (!hostUnderCursor) return; // нема host під курсором — drop відхилено
+        specImageHost = hostUnderCursor;
+      }
       // news-card id формат: `news-card:<mode>:<newsId>` (mode = preview|expanded).
       // Backward compat: старий формат `news-card:<newsId>` без mode → дефолт preview.
       let droppedNewsId = "";
@@ -1236,6 +1304,14 @@ export default function EditorCanvas({
       let x: number, y: number, width: number;
       if (type === "divider") {
         x = 0; y = snapPx(cursorY - rect.top); width = 100;
+      } else if (specImageHost) {
+        // Спецблок дропнутий на host (Фото або Пустий блок) — успадковуємо
+        // x і width host-а (блок сідає точно поверх нього), Y = позиція курсора
+        // в межах host-а. Так Імʼя фахівця / CTA / Tagline візуально лягають
+        // «на хост», а не повномасштабно на канвас.
+        x = specImageHost.x ?? 0;
+        width = Number(specImageHost.width) || 100;
+        y = snapPx(cursorY - rect.top);
       } else {
         x = preview?.x ?? 0; y = preview?.y ?? 0; width = preview?.width ?? 100;
       }
@@ -1251,12 +1327,16 @@ export default function EditorCanvas({
       let finalY = clampedY;
       let finalH = estH;
       let finalBlocks = blocks;
-      if (fixedHeight) {
+      if (fixedHeight && !templateMode) {
         const minH = MIN_H_BY_TYPE[type] ?? 24;
         const fit = findAvailableFitInColumn(clamped.x, width, clamped.y, estH, minH);
         if (!fit) return; // канвас повний у цьому X-діапазоні
         finalY = fit.y;
         finalH = fit.h;
+      } else if (templateMode) {
+        // У template-режимі дозволяємо вільний overlap: спецблоки можна класти
+        // поверх фото, заголовка тощо. Без collision-check, без fit-у — блок
+        // сідає рівно туди, куди користувач кинув.
       } else if (hasCollision(clamped.x, clampedY, width, estH, null)) {
         // Free-canvas (page-builder): displaceBlocksAround стискає/опускає сусідів.
         finalBlocks = displaceBlocksAround(
@@ -1314,10 +1394,28 @@ export default function EditorCanvas({
     // safety net на випадок коли preview не пройшов через clampYBottom.
     const finalY = clampYBottom(resolvedPreview.y, bh);
 
+    // У template-режимі спецблок можна перемістити ТІЛЬКИ якщо його нова
+    // позиція перекриває host-блок (Фото або Пустий блок). Інакше — скасовуємо
+    // move (block лишається на старому місці).
+    if (templateMode && SPEC_BLOCK_TYPES_SET.has(b.type)) {
+      const hosts = blocks.filter(o => (o.type === "image" || o.type === "cardBody") && o.id !== b.id);
+      const overlapsHost = hosts.some(host => {
+        const ix = host.x ?? 0;
+        const iy = host.y ?? 0;
+        const iw = Number(host.width) || 100;
+        const ih = measureBlockHeight(host);
+        const overlapX = resolvedPreview.x + resolvedPreview.width > ix + 0.5 && resolvedPreview.x < ix + iw - 0.5;
+        const overlapY = finalY + bh > iy + 4 && finalY < iy + ih - 4;
+        return overlapX && overlapY;
+      });
+      if (!overlapsHost) return;
+    }
+
     let next = blocks.slice();
     next[idx] = { ...next[idx], x: resolvedPreview.x, y: finalY };
 
-    if (hasCollision(resolvedPreview.x, finalY, resolvedPreview.width, bh, b.id)) {
+    // У template-режимі — пропускаємо collision/displacement: вільне перекриття.
+    if (!templateMode && hasCollision(resolvedPreview.x, finalY, resolvedPreview.width, bh, b.id)) {
       next = displaceBlocksAround(
         { x: resolvedPreview.x, y: finalY, width: resolvedPreview.width, height: bh },
         next,
@@ -1383,9 +1481,12 @@ export default function EditorCanvas({
         }}
       >
         <div style={{ display: "flex", gap: "20px", alignItems: "stretch" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12, alignSelf: "flex-start" }}>
+            {abovePaletteSlot}
           <BlockPalette
             extraBlocks={extraPaletteBlocks}
             extraBlocksTitle={extraPaletteBlocksTitle}
+            compact={templateMode}
             selectedBlockY={(() => {
               if (!selectedBlockId) return null;
               const sel = blocks.find(b => b.id === selectedBlockId);
@@ -1405,37 +1506,75 @@ export default function EditorCanvas({
             arr.push({ id, text: "", x: 0, y: 44, w: 100, h: 12, fontSize: 32, color: "#FFFFFF", weight: 700, bgColor: "#1C3A2E" });
             onBlocksChange(blocks.map(b => b.id === target.id ? { ...b, data: { ...b.data, overlays: JSON.stringify(arr) } } : b));
           }} />
+          </div>
 
-          <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", alignItems: "center" }}>
-            <div style={{
-              width: "100%",
-              maxWidth: `${PAGE_WIDTH + PAGE_PAD_X * 2}px`,
+          <div
+            style={{
+              flex: 1,
+              minWidth: 0,
               display: "flex",
+              flexDirection: "column",
               alignItems: "center",
-              justifyContent: "space-between",
-              padding: "0 4px 10px",
-              fontSize: "10px",
-              fontWeight: 700,
-              color: "#9CA3AF",
-              letterSpacing: "0.12em",
-              textTransform: "uppercase",
-              fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
-            }}>
-              <span>{canvasLabel?.left ?? "📄 Сторінка новини"}</span>
-              <span style={{ color: "#D4A843" }}>
-                {canvasLabel?.right ?? `${PAGE_WIDTH}px — така ширина на сайті`}
-              </span>
-            </div>
+            }}
+            onClick={(e) => { if (e.target === e.currentTarget) setSelectedBlockId(null); }}
+          >
+            {/* Canvas-label row — лише коли caller дав canvasLabel або немає
+                canvasTopToolbar (тобто не template-режим з уніфікованим toolbar-ом). */}
+            {(canvasLabel || !canvasTopToolbar) && (
+              <div style={{
+                width: "100%",
+                maxWidth: `${PAGE_WIDTH + PAGE_PAD_X * 2}px`,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "0 4px 10px",
+                fontSize: "10px",
+                fontWeight: 700,
+                color: "#9CA3AF",
+                letterSpacing: "0.12em",
+                textTransform: "uppercase",
+                fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
+              }}>
+                <span>{canvasLabel?.left ?? "📄 Сторінка новини"}</span>
+                <span style={{ color: "#D4A843" }}>
+                  {canvasLabel?.right ?? `${PAGE_WIDTH}px — така ширина на сайті`}
+                </span>
+              </div>
+            )}
 
+            {canvasTopToolbar && (
+              <div style={{
+                width: "100%",
+                maxWidth: `${PAGE_WIDTH + PAGE_PAD_X * 2}px`,
+                marginBottom: 12,
+              }}>
+                {canvasTopToolbar}
+              </div>
+            )}
+
+            {/* Якщо є canvasLeftToolbar — рендеримо ліворуч від канвасу у flex-row */}
+            <div style={{ display: "flex", gap: 12, alignItems: "flex-start", width: "100%", maxWidth: canvasLeftToolbar ? "none" : `${PAGE_WIDTH + PAGE_PAD_X * 2}px` }}>
+              {canvasLeftToolbar && (
+                <div style={{ flexShrink: 0 }}>{canvasLeftToolbar}</div>
+              )}
             <div
+              onClick={(e) => { if (e.target === e.currentTarget) setSelectedBlockId(null); }}
               style={{
                 width: "100%",
                 maxWidth: `${PAGE_WIDTH + PAGE_PAD_X * 2}px`,
                 background: pageBgColor || "#FFFFFF",
-                borderRadius: "14px",
-                border: "1px solid #E5E7EB",
-                boxShadow: "0 1px 2px rgba(0,0,0,0.04), 0 12px 40px rgba(15,32,25,0.08)",
-                padding: `${PAGE_PAD_Y}px ${PAGE_PAD_X}px`,
+                borderRadius: templateMode ? 12 : 14,
+                // У template-режимі — субтильний амбер-accent border (когезія з палітрою)
+                // + легша тінь. У звичайному — як було.
+                border: templateMode ? "1px solid rgba(212,168,67,0.18)" : "1px solid #E5E7EB",
+                boxShadow: templateMode
+                  ? "0 1px 2px rgba(0,0,0,0.03), 0 6px 24px rgba(15,32,25,0.06)"
+                  : "0 1px 2px rgba(0,0,0,0.04), 0 12px 40px rgba(15,32,25,0.08)",
+                // У template-режимі — менший padding, щоб канвас не "плавав" у
+                // зайвій білій зоні. Право-низ лишаємо більше, бо там corner-handle.
+                padding: templateMode
+                  ? `16px 16px 22px 16px`
+                  : `${PAGE_PAD_Y}px ${PAGE_PAD_X}px`,
                 position: "relative",
               }}
             >
@@ -1616,22 +1755,44 @@ export default function EditorCanvas({
                       scrollCompensation={activeId === block.id ? scrollCompensation : 0}
                       maxBlockHeight={fixedHeight ? Math.max(60, canvasHeight - y) : undefined}
                       fixedHeight={fixedHeight}
+                      templateMode={templateMode}
                     />
                   );
                 })}
               </div>
+
+              {/* Corner resize handle ВИНЕСЕНИЙ за межі canvas-grid — у білу
+                  padding-зону page-wrapper-а. Так блоки всередині канвасу не
+                  візуально конкурують з ним. Активний лише коли parent дає
+                  onCanvasResize (TemplateConstructor). */}
+              {onCanvasResize && (
+                <CanvasResizeHandle
+                  width={PAGE_WIDTH}
+                  height={canvasHeight}
+                  minWidth={canvasMinWidth}
+                  maxWidth={canvasMaxWidth}
+                  minHeight={canvasMinHeight}
+                  maxHeight={canvasMaxHeight}
+                  onResize={onCanvasResize}
+                />
+              )}
+            </div>
             </div>
 
-            <div style={{
-              marginTop: "10px",
-              fontSize: "11px",
-              color: "#9CA3AF",
-              fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
-              textAlign: "center",
-              maxWidth: `${PAGE_WIDTH + PAGE_PAD_X * 2}px`,
-            }}>
-              {"Тягніть блоки за хедер куди завгодно на сторінці. Край → resize. Snap 8px."}
-            </div>
+            {/* Hint-текст під канвасом — лише поза template-режимом
+                (у білдері шаблону зайвий шум). */}
+            {!templateMode && (
+              <div style={{
+                marginTop: "10px",
+                fontSize: "11px",
+                color: "#9CA3AF",
+                fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
+                textAlign: "center",
+                maxWidth: `${PAGE_WIDTH + PAGE_PAD_X * 2}px`,
+              }}>
+                {"Тягніть блоки за хедер куди завгодно на сторінці. Край → resize. Snap 8px."}
+              </div>
+            )}
           </div>
 
           {/* Правий сайдбар. ВСЕРЕДИНІ DndContext щоб draggable у ньому (картки новин з
@@ -1890,8 +2051,10 @@ function AbsoluteBlock(props: {
    *  При true — відключаємо CSS width/left/top transition, інакше блок
    *  «їде» за курсором з 120ms лагом і відчувається як «відірваний». */
   isResizing?: boolean;
+  /** Template-mode: блок — плейсхолдер без settings/редакторів. */
+  templateMode?: boolean;
 }) {
-  const { block, x, y, widthPct, lastAddedId, previewHeight, isActive, canvasWidthPx, selected, scrollCompensation = 0, maxBlockHeight, fixedHeight, isResizing = false } = props;
+  const { block, x, y, widthPct, lastAddedId, previewHeight, isActive, canvasWidthPx, selected, scrollCompensation = 0, maxBlockHeight, fixedHeight, isResizing = false, templateMode = false } = props;
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: block.id });
 
   const tx = transform?.x ?? 0;
@@ -2029,7 +2192,102 @@ function AbsoluteBlock(props: {
         maxBlockHeight={maxBlockHeight}
         blockX={x}
         blockY={y}
+        templateMode={templateMode}
       />
+    </div>
+  );
+}
+
+// CanvasResizeHandle — corner-handle у bottom-right канвасу шаблону. Тягнеш —
+// канвас живе ресайзиться (через onResize callback у TemplateConstructor),
+// snap-иться до 8px, клампиться у заданих межах. Логіка дзеркальна BlockItem
+// resize handle (capture pointer, deltas від startCursor + startSize, snap).
+function CanvasResizeHandle({
+  width, height,
+  minWidth, maxWidth, minHeight, maxHeight,
+  onResize,
+}: {
+  width: number;
+  height: number;
+  minWidth: number; maxWidth: number;
+  minHeight: number; maxHeight: number;
+  onResize: (w: number, h: number) => void;
+}) {
+  const SNAP = 8;
+  const [resizing, setResizing] = React.useState(false);
+  const stateRef = React.useRef<{ cx: number; cy: number; w: number; h: number } | null>(null);
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    stateRef.current = { cx: e.clientX, cy: e.clientY, w: width, h: height };
+    setResizing(true);
+  };
+
+  const onPointerMove = (e: React.PointerEvent) => {
+    if (!stateRef.current) return;
+    const { cx, cy, w, h } = stateRef.current;
+    const dx = e.clientX - cx;
+    const dy = e.clientY - cy;
+    const rawW = w + dx;
+    const rawH = h + dy;
+    const snappedW = Math.round(rawW / SNAP) * SNAP;
+    const snappedH = Math.round(rawH / SNAP) * SNAP;
+    const clampedW = Math.max(minWidth, Math.min(maxWidth, snappedW));
+    const clampedH = Math.max(minHeight, Math.min(maxHeight, snappedH));
+    if (clampedW !== width || clampedH !== height) {
+      onResize(clampedW, clampedH);
+    }
+  };
+
+  const onPointerUp = (e: React.PointerEvent) => {
+    if ((e.currentTarget as HTMLElement).hasPointerCapture(e.pointerId)) {
+      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+    }
+    stateRef.current = null;
+    setResizing(false);
+  };
+
+  return (
+    <div
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
+      title="Перетягніть, щоб змінити розмір канвасу"
+      style={{
+        position: "absolute",
+        right: 8,
+        bottom: 8,
+        width: 24,
+        height: 24,
+        cursor: "nwse-resize",
+        zIndex: 60,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        borderRadius: 6,
+        background: resizing ? "rgba(212,168,67,0.18)" : "transparent",
+        transition: "background 0.15s",
+        touchAction: "none",
+      }}
+    >
+      <svg
+        width="14"
+        height="14"
+        viewBox="0 0 14 14"
+        style={{
+          filter: resizing
+            ? "drop-shadow(0 1px 4px rgba(212,168,67,0.6))"
+            : "drop-shadow(0 1px 2px rgba(0,0,0,0.18))",
+          transition: "filter 0.15s",
+        }}
+      >
+        <path d="M13 1 L13 13 L1 13 Z" fill={resizing ? "#D4A843" : "#1C3A2E"} />
+        <line x1="13" y1="5" x2="5" y2="13" stroke="#fff" strokeWidth="1.2" />
+        <line x1="13" y1="9" x2="9" y2="13" stroke="#fff" strokeWidth="1.2" />
+      </svg>
     </div>
   );
 }

@@ -74,6 +74,9 @@ interface Props {
    *  передається `canvasHeight - block.y` — щоб image auto-aspect не виставив
    *  block.height більше за вільне місце і блок не вилазив за нижній край. */
   maxBlockHeight?: number;
+  /** Template-mode: блоки рендеряться як прості плейсхолдери з міткою типу,
+   *  без settings та внутрішніх редакторів. cardBody — виняток (зберігає settings). */
+  templateMode?: boolean;
 }
 
 export default function BlockItem({
@@ -86,7 +89,11 @@ export default function BlockItem({
   onReportHeight, getEdgeSnapTargets, snapThreshold,
   blockX, blockY,
   onSelectBlock, maxBlockHeight,
+  templateMode = false,
 }: Props) {
+  // У шаблон-режимі ВСІ блоки — плейсхолдери (без editors/settings всередині).
+  // cardBody (тепер «Пустий блок» у палітрі) рендериться як звичайний host-плейсхолдер.
+  const isPlaceholder = templateMode;
   // Чи активний зараз вкладений overlay (для image-блоків з тестом-на-фото).
   // Коли true — приховуємо BlockItemHeader, у slot видно лише overlay-toolbar.
   const [overlayActive, setOverlayActive] = React.useState(false);
@@ -299,7 +306,10 @@ export default function BlockItem({
   // пропорції фото, debug-рамка тільки створювала візуальний шум поверх блока.
   const outlineColor = (isSnapping || resizingW || resizingH || resizingD)
     ? "#D4A843"
-    : hov ? "#D4A843" : "rgba(232,213,183,0.6)";
+    : hov ? "#D4A843" : (isPlaceholder ? "rgba(28,58,46,0.4)" : "rgba(232,213,183,0.6)");
+  // У template-режимі плейсхолдери мають видимий ПУНКТИРНИЙ outline (краща
+  // affordance «це порожній шаблонний блок»). У звичайному режимі — solid (як було).
+  const outlineStyle: "dashed" | "solid" = isPlaceholder ? "dashed" : "solid";
 
   // Принципово: контент тепер ЗАЙМАЄ всю площу wrapper-а. Жодних border/padding у потоці —
   // тільки outline (поза розмірами) та плаваючий header (absolute поверх wrapper-а зі від'ємним top).
@@ -383,6 +393,7 @@ export default function BlockItem({
           onMoveUp={onMoveUp}
           onMoveDown={onMoveDown}
           onDuplicate={onDuplicate}
+          templateMode={templateMode}
           blockSubtitle={(() => {
             // Для text-bearing блоків — snippet тексту (перші ~36 знаків).
             // Дзеркало OverlayToolbar.subtitle (де показується ov.text).
@@ -415,8 +426,12 @@ export default function BlockItem({
           textAlign: (block.type === "text" || block.type === "heading" || block.type === "quote")
             ? undefined
             : block.align,
-          outline: `1.5px solid ${outlineColor}`,
-          outlineOffset: "0px",
+          // У template-режимі (fixedHeight) AbsoluteBlock-парент має overflow:hidden,
+          // який обрізає CSS outline (outline рендериться ЗОВНІ box-а). Тому
+          // використовуємо BORDER — він всередині box-а (з box-sizing: border-box)
+          // і завжди видимий. У звичайному режимі border теж ОК — box-sizing вже
+          // border-box, тож зовнішні розміри блока не змінюються.
+          border: `1.5px ${outlineStyle} ${outlineColor}`,
           // Радіус підкладки: явний `block.borderRadius` (через BlockItemHeader →
           // RadiusControl) має пріоритет; інакше fallback на 8px (історична поведінка).
           // 999 → 9999 (pill). Transition нижче робить drag-зміни плавними.
@@ -429,7 +444,11 @@ export default function BlockItem({
           // newsCard preview зберігає aspect 360:400 на outer AbsoluteBlock через
           // aspect-ratio. Знімаємо 16px горизонтальний padding, щоб card-контент
           // (рендериться через PreviewCardScale 360-wide) точно займав весь outer.
-          padding: (block.type === "newsCard" && (block.data.displayMode || "preview") === "preview") ? "0" : "0 16px",
+          // Плейсхолдер у template-режимі заповнює ВЕСЬ блок — його пунктирна рамка
+          // має співпадати з реальними межами блока, без 16px інсету.
+          padding: isPlaceholder
+            ? "0"
+            : (block.type === "newsCard" && (block.data.displayMode || "preview") === "preview") ? "0" : "0 16px",
           boxSizing: "border-box",
           // overflow:hidden — щоб контент і toolbar-и НЕ вилазили на сусідні блоки.
           // Контекстні toolbar-и (overlay тексту-на-фото, alt-input) винесені у портал
@@ -448,23 +467,29 @@ export default function BlockItem({
           <BlockItemSnapGuide snapGuideH={snapGuideH} />
         )}
 
-        {block.type === "text"    && <TextEditor    block={block} onChange={d => onChange(block.id, d)} selected={selected} onSetVAlign={v => onSetVAlign(block.id, v)} containerWidthPx={containerWidthPx} />}
-        {block.type === "heading" && <HeadingEditor block={block} onChange={d => onChange(block.id, d)} selected={selected} onSetVAlign={v => onSetVAlign(block.id, v)} containerWidthPx={containerWidthPx} />}
-        {block.type === "image"   && <ImageEditor   block={block} onChange={d => onChange(block.id, d)} onUpload={onUpload} previewHeight={previewHeight} selected={selected} onSelectBlock={onSelectBlock} onOverlayActiveChange={setOverlayActive} containerWidthPx={containerWidthPx} />}
-        {block.type === "youtube" && <YoutubeEditor block={block} onChange={d => onChange(block.id, d)} selected={selected} />}
-        {block.type === "quote"   && <QuoteEditor   block={block} onChange={d => onChange(block.id, d)} selected={selected} onSetVAlign={v => onSetVAlign(block.id, v)} containerWidthPx={containerWidthPx} />}
-        {block.type === "card"    && <CardEditor    block={block} onChange={d => onChange(block.id, d)} onUpload={onUpload} />}
-        {block.type === "newsCard"&& <NewsCardEditor block={block} onChange={d => onChange(block.id, d)} selected={selected} />}
-        {block.type === "divider" && <hr style={{ border: "none", borderTopWidth: "2px", borderTopStyle: "solid", borderTopColor: "#D4A843", margin: "8px 0" }} />}
-        {/* Структуровані блоки шаблонів (Session 2). Інлайн-редагування
-            через contentEditable; стиль зберігається у block.data. */}
-        {block.type === "speakerName"   && <SpeakerNameEditor   block={block} onChange={d => onChange(block.id, d)} selected={selected} />}
-        {block.type === "speakerRole"   && <SpeakerRoleEditor   block={block} onChange={d => onChange(block.id, d)} selected={selected} />}
-        {block.type === "tagline"       && <TaglineEditor       block={block} onChange={d => onChange(block.id, d)} selected={selected} />}
-        {block.type === "price"         && <PriceEditor         block={block} onChange={d => onChange(block.id, d)} selected={selected} />}
-        {block.type === "duration"      && <DurationEditor      block={block} onChange={d => onChange(block.id, d)} selected={selected} />}
-        {block.type === "ctaButton"     && <CtaButtonEditor     block={block} onChange={d => onChange(block.id, d)} selected={selected} />}
-        {block.type === "educationItem" && <EducationItemEditor block={block} onChange={d => onChange(block.id, d)} selected={selected} />}
+        {isPlaceholder ? (
+          <TemplatePlaceholder type={block.type} />
+        ) : (
+          <>
+            {block.type === "text"    && <TextEditor    block={block} onChange={d => onChange(block.id, d)} selected={selected} onSetVAlign={v => onSetVAlign(block.id, v)} containerWidthPx={containerWidthPx} />}
+            {block.type === "heading" && <HeadingEditor block={block} onChange={d => onChange(block.id, d)} selected={selected} onSetVAlign={v => onSetVAlign(block.id, v)} containerWidthPx={containerWidthPx} />}
+            {block.type === "image"   && <ImageEditor   block={block} onChange={d => onChange(block.id, d)} onUpload={onUpload} previewHeight={previewHeight} selected={selected} onSelectBlock={onSelectBlock} onOverlayActiveChange={setOverlayActive} containerWidthPx={containerWidthPx} />}
+            {block.type === "youtube" && <YoutubeEditor block={block} onChange={d => onChange(block.id, d)} selected={selected} />}
+            {block.type === "quote"   && <QuoteEditor   block={block} onChange={d => onChange(block.id, d)} selected={selected} onSetVAlign={v => onSetVAlign(block.id, v)} containerWidthPx={containerWidthPx} />}
+            {block.type === "card"    && <CardEditor    block={block} onChange={d => onChange(block.id, d)} onUpload={onUpload} />}
+            {block.type === "newsCard"&& <NewsCardEditor block={block} onChange={d => onChange(block.id, d)} selected={selected} />}
+            {block.type === "divider" && <hr style={{ border: "none", borderTopWidth: "2px", borderTopStyle: "solid", borderTopColor: "#D4A843", margin: "8px 0" }} />}
+            {/* Структуровані блоки шаблонів (Session 2). Інлайн-редагування
+                через contentEditable; стиль зберігається у block.data. */}
+            {block.type === "speakerName"   && <SpeakerNameEditor   block={block} onChange={d => onChange(block.id, d)} selected={selected} />}
+            {block.type === "speakerRole"   && <SpeakerRoleEditor   block={block} onChange={d => onChange(block.id, d)} selected={selected} />}
+            {block.type === "tagline"       && <TaglineEditor       block={block} onChange={d => onChange(block.id, d)} selected={selected} />}
+            {block.type === "price"         && <PriceEditor         block={block} onChange={d => onChange(block.id, d)} selected={selected} />}
+            {block.type === "duration"      && <DurationEditor      block={block} onChange={d => onChange(block.id, d)} selected={selected} />}
+            {block.type === "ctaButton"     && <CtaButtonEditor     block={block} onChange={d => onChange(block.id, d)} selected={selected} />}
+            {block.type === "educationItem" && <EducationItemEditor block={block} onChange={d => onChange(block.id, d)} selected={selected} />}
+          </>
+        )}
       </div>
 
       {/* Resize handles доступні для всіх блоків включно з newsCard preview —
@@ -528,6 +553,60 @@ export default function BlockItem({
       </div>
       </>
       )}
+    </div>
+  );
+}
+
+// Підпис типу блока для плейсхолдера у шаблон-режимі.
+const TEMPLATE_PLACEHOLDER_LABELS: Record<string, { icon: string; label: string }> = {
+  heading:        { icon: "H",  label: "Заголовок" },
+  text:           { icon: "¶",  label: "Текст" },
+  image:          { icon: "🖼", label: "Фото" },
+  youtube:        { icon: "▶",  label: "YouTube" },
+  quote:          { icon: "❝",  label: "Цитата" },
+  divider:        { icon: "—",  label: "Лінія" },
+  card:           { icon: "▢",  label: "Картка" },
+  newsCard:       { icon: "📰", label: "Новина" },
+  cardBody:       { icon: "▢",  label: "Пустий блок" },
+  speakerName:    { icon: "👤", label: "Імʼя фахівця" },
+  speakerRole:    { icon: "🎓", label: "Посада" },
+  tagline:        { icon: "✍",  label: "Tagline" },
+  price:          { icon: "₴",  label: "Вартість" },
+  duration:       { icon: "⏱",  label: "Тривалість" },
+  ctaButton:      { icon: "▶",  label: "Кнопка CTA" },
+  educationItem:  { icon: "📜", label: "Пункт освіти" },
+};
+
+function TemplatePlaceholder({ type }: { type: string }) {
+  const info = TEMPLATE_PLACEHOLDER_LABELS[type] || { icon: "■", label: type };
+  return (
+    <div
+      style={{
+        width: "100%",
+        height: "100%",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 10,
+        background: "rgba(28,58,46,0.04)",
+        // Без власної рамки і radius — батьківський wrapper (BlockItem inner div)
+        // вже задає межі блока через outline + overflow:hidden, і саме він
+        // повинен бути "візуальною рамкою" блока. Інакше з'являлась подвійна
+        // рамка (зовнішня тонка solid + внутрішня пунктирна) з gap-ом між ними.
+        boxSizing: "border-box",
+        color: "rgba(28,58,46,0.7)",
+        fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
+        fontSize: 13,
+        fontWeight: 600,
+        letterSpacing: "0.02em",
+        userSelect: "none",
+        padding: "8px 14px",
+        textAlign: "center",
+        lineHeight: 1.2,
+      }}
+    >
+      <span style={{ fontSize: 16 }}>{info.icon}</span>
+      <span>{info.label}</span>
     </div>
   );
 }

@@ -35,6 +35,9 @@ interface Props {
    *  BlockItem-а (наприклад, для heading/text/quote — перші 30 символів тексту;
    *  для image — alt; для youtube — URL). Якщо не задано — fallback на ширину%. */
   blockSubtitle?: string;
+  /** Template-mode: ховаємо контент-стайлинг (Фон блока / Форма підкладки),
+   *  бо ці властивості задаються при створенні новини з шаблону, а не у шаблоні. */
+  templateMode?: boolean;
 }
 
 const LABELS: Record<string, string> = { text: "Текст", heading: "Заголовок", image: "Фото", youtube: "YouTube", quote: "Цитата", divider: "Роздільник", card: "Картка" };
@@ -121,14 +124,16 @@ function ActionBtn({ title, onClick, children }: { title: string; onClick: () =>
 export default function BlockItemHeader({
   blockId, blockType, blockAlign, blockVAlign, blockBgColor, blockBorderRadius, displayPct,
   onSetAlign, onSetVAlign, onSetBg, onSetBorderRadius, onDuplicate,
-  blockSubtitle,
+  blockSubtitle, templateMode = false,
 }: Props) {
   // "Розміщення блока" прибрано з шапки (рішення 2026-05-14) — дублювало
   // text-align з панелі. onSetAlign залишається в props (caller-cascade), просто
   // не викликається тут.
   void onSetAlign;
   const showVAlign = false;
-  const showBg = blockType !== "divider";
+  // У template-режимі ховаємо стайлинг (Фон / Форма підкладки) — це не шаблонні
+  // властивості, а контент-styling, який задається у конкретній новині.
+  const showBg = !templateMode && blockType !== "divider";
 
   // Subtitle для другого рядка info-strip-а: контент-snippet (з blockSubtitle)
   // або ширина% як fallback. Для порожнього text-block-а — "(порожньо)".

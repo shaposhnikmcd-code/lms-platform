@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef, useMemo, createContext } from "react";
-import { HiOutlineCheckCircle } from "react-icons/hi2";
+import { FaRegSave } from "react-icons/fa";
 import { Block, NewsMeta, blocksToJson, jsonToBlocks } from "./types";
 import EditorCanvas from "./EditorCanvas";
 import MetaSidebar from "./MetaSidebar";
@@ -102,7 +102,7 @@ interface BaseProps {
   /** Мінімальна висота канвасу. Default 500 (full-page). */
   minCanvasHeight?: number;
   /** Кастомні підписи на chrome-смужці канвасу. */
-  canvasLabel?: { left: string; right: string };
+  canvasLabel?: { left: React.ReactNode; right: React.ReactNode };
   /** Запас вільного місця під останнім блоком. Default 240. */
   bottomSlack?: number;
   /** Заблокувати висоту канвасу на minCanvasHeight (не росте під контент).
@@ -121,6 +121,29 @@ interface BaseProps {
   /** Сховати MetaSidebar повністю (для template-конструктора, де slug/title
    *  не редагуються — це шаблон, не новина). */
   hideMetaSidebar?: boolean;
+  /** Template-mode: блоки рендеряться як прості плейсхолдери з міткою типу,
+   *  без settings-панелі і без внутрішніх редакторів. Виняток — cardBody,
+   *  він зберігає settings (фон/радіус/паддінг — це властивості каркасу шаблону).
+   *  Менеджер у цьому режимі тільки розставляє і ресайзить блоки; контент
+   *  вводиться пізніше при створенні новини з шаблону. */
+  templateMode?: boolean;
+  /** Live-callback при ресайзі канвасу через corner-handle. Якщо задано —
+   *  EditorCanvas рендерить bottom-right handle. Використовується TemplateConstructor-ом
+   *  для зберігання нового розміру в `News.templateCanvas`. */
+  onCanvasResize?: (width: number, height: number) => void;
+  canvasMinWidth?: number;
+  canvasMaxWidth?: number;
+  canvasMinHeight?: number;
+  canvasMaxHeight?: number;
+  /** Кастомний правий сайдбар (overrides авто-derived MetaSidebar/NewsLibrarySidebar).
+   *  Використовується TemplateConstructor-ом, щоб вставити «📐 Форма» пресет-панель. */
+  customRightSidebar?: React.ReactNode;
+  /** Toolbar над канвасом (горизонтальна смужка між label і канвасом). */
+  canvasTopToolbar?: React.ReactNode;
+  /** Slot над лівою палітрою (наприклад «Назва Шаблону» інпут). */
+  abovePaletteSlot?: React.ReactNode;
+  /** Slot ліворуч від канвасу (вертикальна колонка пресет-форм). */
+  canvasLeftToolbar?: React.ReactNode;
 }
 
 interface SingleProps extends BaseProps {
@@ -272,6 +295,9 @@ export default function NewsEditor(props: Props) {
   const [activeTab, setActiveTab] = useState<string>(effectiveTabs[0].key);
 
   const [message, setMessage] = useState("");
+  // Короткий flash після успішного save — користувач бачить що зберігання прошло.
+  const [savedFlash, setSavedFlash] = useState(false);
+  const savedFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [uploading, setUploading] = useState(false);
 
   // ── Page zoom (Ctrl+wheel) ───────────────────────────────────────────────
@@ -534,6 +560,10 @@ export default function NewsEditor(props: Props) {
         await props.onSave({ ...effectiveMeta, published }, contents[k], imageUrl);
       }
       clearDraft(newsId, mode);
+      // Показуємо короткий "✓ Збережено" toast — користувачу видно що save пройшов.
+      if (savedFlashTimerRef.current) clearTimeout(savedFlashTimerRef.current);
+      setSavedFlash(true);
+      savedFlashTimerRef.current = setTimeout(() => setSavedFlash(false), 1800);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Невідома помилка збереження";
       setMessage(msg);
@@ -561,9 +591,9 @@ export default function NewsEditor(props: Props) {
       <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
       <link rel="stylesheet" href={buildGoogleFontsHref()} />
       <style>{NEWS_BLOCK_CSS}</style>
-      <div className="max-w-[1520px] mx-auto px-6 py-10">
+      <div className={`${props.templateMode ? "max-w-none pl-5 pr-6 py-4" : "max-w-[1520px] mx-auto px-6 py-10"}`}>
         {/* Header */}
-        <div className="mb-6">
+        <div className={props.templateMode ? "mb-3" : "mb-6"}>
           <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-violet-600 mb-1.5">
             Admin · Новини
           </p>
@@ -632,7 +662,17 @@ export default function NewsEditor(props: Props) {
                 fixedHeight={props.fixedHeight}
                 extraPaletteBlocks={props.extraPaletteBlocks}
                 extraPaletteBlocksTitle={props.extraPaletteBlocksTitle}
+                templateMode={props.templateMode}
+                onCanvasResize={props.onCanvasResize}
+                canvasMinWidth={props.canvasMinWidth}
+                canvasMaxWidth={props.canvasMaxWidth}
+                canvasMinHeight={props.canvasMinHeight}
+                canvasMaxHeight={props.canvasMaxHeight}
+                canvasTopToolbar={props.canvasTopToolbar}
+                abovePaletteSlot={props.abovePaletteSlot}
+                canvasLeftToolbar={props.canvasLeftToolbar}
                 rightSidebar={
+                  props.customRightSidebar !== undefined ? props.customRightSidebar :
                   props.hideMetaSidebar ? null :
                   mode === "page" ? (
                     <NewsLibrarySidebar
@@ -656,29 +696,108 @@ export default function NewsEditor(props: Props) {
         })}
       </div>
 
-      {/* Floating Save */}
+      {/* Floating Save — кругла кнопка зліва від DashboardBackButton (top-20).
+          Преміальний AMBER-gradient (UIMP gold) щоб явно зчитувалось як «primary
+          action / save», окремо від back-button (мix-gradient). Іконка — класична
+          floppy disk на темно-зеленому фоні rim для контрасту. Hover — золота
+          корона + scale, saving — pulse. */}
       <button
         type="button"
         onClick={() => handleSave(true)}
         disabled={saving}
         title={saving ? "Збереження…" : "Зберегти"}
         aria-label="Зберегти"
-        className="fixed top-20 right-[88px] z-40 group flex items-center justify-center gap-2 h-14 px-6 rounded-full text-[14px] font-semibold text-white shadow-lg transition-all duration-300 ease-out hover:scale-[1.04] active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:scale-100"
+        className="group save-btn fixed top-20 right-[88px] z-40 flex h-14 w-14 items-center justify-center rounded-full transition-all duration-500 ease-out hover:scale-[1.06] active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
         style={{
           backgroundImage:
-            "linear-gradient(135deg, #6D28D9 0%, #7C3AED 40%, #D4A017 100%)",
+            "linear-gradient(135deg, #F4C75A 0%, #E6BB55 30%, #D4A017 55%, #B88512 80%, #8E660D 100%)",
           backgroundSize: "200% 200%",
+          color: "#1C3A2E",
           boxShadow: [
-            "0 6px 20px rgba(109, 40, 217, 0.35)",
-            "0 2px 6px rgba(0, 0, 0, 0.12)",
-            "0 0 0 1px rgba(255, 255, 255, 0.18)",
-            "inset 0 1px 0 rgba(255, 255, 255, 0.22)",
+            "0 6px 22px -2px rgba(212,160,23,0.55)",
+            "0 2px 8px rgba(184,133,18,0.35)",
+            "0 0 0 1px rgba(255,255,255,0.25)",
+            "inset 0 1px 0 rgba(255,255,255,0.55)",
+            "inset 0 -2px 4px rgba(0,0,0,0.10)",
           ].join(", "),
         }}
       >
-        <HiOutlineCheckCircle className="text-[20px]" />
-        <span>{saving ? "Збереження…" : "Зберегти"}</span>
+        {/* Hover-halo (золоте сяйво) */}
+        <span
+          className="pointer-events-none absolute inset-0 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-500"
+          style={{
+            boxShadow:
+              "0 0 0 1px rgba(28,58,46,0.30), 0 0 28px -2px rgba(212,160,23,0.75)",
+          }}
+        />
+        {/* Внутрішнє кільце з фірмового зеленого UIMP — створює "медальйон":
+            золотий external rim + темно-зелений inner disc, на якому floppy-disk
+            горить золотом. Це робить «зберегти» миттєво зчитуваним. */}
+        <span
+          className="relative inline-flex h-10 w-10 items-center justify-center rounded-full transition-transform duration-500 group-hover:rotate-[6deg]"
+          style={{
+            background: "linear-gradient(180deg, #1F4032 0%, #15291F 100%)",
+            boxShadow: [
+              "inset 0 1px 0 rgba(255,255,255,0.08)",
+              "inset 0 -1px 0 rgba(0,0,0,0.30)",
+              "0 0 0 1px rgba(212,160,23,0.45)",
+            ].join(", "),
+          }}
+        >
+          <FaRegSave
+            className={`text-[18px] ${saving ? "animate-pulse" : ""}`}
+            style={{
+              color: "#E6BB55",
+              filter: "drop-shadow(0 1px 1px rgba(0,0,0,0.4))",
+            }}
+          />
+        </span>
       </button>
+
+      {/* Saved-flash — короткий "✓ Збережено" badge під кнопкою Save (1.8s).
+          Дає чіткий фідбек що save пройшов (без нього кнопка просто "блимала"). */}
+      {savedFlash && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed top-[152px] right-[60px] z-40 pointer-events-none animate-[savedFadeIn_0.18s_ease-out]"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 8,
+            padding: "8px 14px 8px 10px",
+            borderRadius: 10,
+            background: "linear-gradient(180deg, #1F4032 0%, #15291F 100%)",
+            color: "#FAF6F0",
+            border: "1px solid rgba(212,168,67,0.35)",
+            boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06), 0 8px 24px -8px rgba(20,40,30,0.45)",
+            fontSize: 12,
+            fontWeight: 600,
+            letterSpacing: "0.02em",
+            fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
+          }}
+        >
+          <span style={{
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: 18,
+            height: 18,
+            borderRadius: 999,
+            background: "#D4A843",
+            color: "#1C3A2E",
+            fontSize: 11,
+            fontWeight: 900,
+          }}>✓</span>
+          Збережено
+        </div>
+      )}
+      <style>{`
+        @keyframes savedFadeIn {
+          from { opacity: 0; transform: translateY(-4px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+      `}</style>
 
       {/* Toast відновлення чорновика — bottom-center (стандарт для undo/restore
           у Notion/Linear/Gmail). Не перекриває контент і одразу видимий. */}
