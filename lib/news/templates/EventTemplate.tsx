@@ -290,7 +290,7 @@ export default function EventTemplate({
             ВАЖЛИВО: тільки на public render (photoSlot=undefined). В editor-mode
             photoSlot це ImageEditor, який сам рендерить overlays інтерактивно
             (drag/resize/edit-in-place). Інакше overlays дублювалися б. */}
-        {!photoSlot && data.photo.overlays && parseImageOverlays(data.photo.overlays).map(renderImageOverlay)}
+        {!photoSlot && data.photo.overlays && parseImageOverlays(data.photo.overlays).map(ov => renderImageOverlay(ov, { linkable: !disableLinks }))}
 
         {/* Knee block: name+role+tagline ~60% з низу. У editor-mode (photoSlot
             заданий) обʼявляємо `pointer-events: none` — клік проходить крізь

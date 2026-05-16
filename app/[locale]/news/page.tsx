@@ -72,6 +72,11 @@ export default async function NewsPage({ params }: { params: Promise<{ locale: s
     // lib/news/templates замість блокового renderer-а.
     templateKind: n.templateKind,
     templateData: n.templateData,
+    // Block-based template render (Session 4): якщо templateBlocks непустий,
+    // картка рендериться через AbsoluteBlockRender у рамках templateCanvas;
+    // інакше fallback на legacy templateData → TemplatePreviewCard.
+    templateBlocks: n.templateBlocks,
+    templateCanvas: n.templateCanvas,
   }));
 
   // Сторінка публікується тільки якщо адмін активував її через toggle на /dashboard/admin/news.

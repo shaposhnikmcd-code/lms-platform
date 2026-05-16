@@ -87,6 +87,14 @@ export function requestCrop(blockId: string) {
   cropHandlers.get(blockId)?.();
 }
 
+// Реєстр обробників «додати текстовий overlay» — той самий патерн, що cropHandlers.
+// Зовнішні toolbar-и (TemplateEditor → CoverImageToolbar) викликають
+// requestAddOverlay(blockId) щоб додати overlay без власної кнопки на фото.
+const addOverlayHandlers = new Map<string, () => void>();
+export function requestAddOverlay(blockId: string) {
+  addOverlayHandlers.get(blockId)?.();
+}
+
 type ResizeMode = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
 
 
@@ -288,6 +296,14 @@ export default function ImageEditor({ block, onChange, onUpload, previewHeight, 
     return () => { cropHandlers.delete(block.id); };
   }, [block.id, block.data.url]);
 
+  // Реєструємо «додати overlay» — щоб CoverImageToolbar у TemplateEditor міг
+  // викликати addOverlay() ззовні (кнопка «Текст на фото» в toolbar над сторінкою).
+  useEffect(() => {
+    if (!block.data.url) return;
+    addOverlayHandlers.set(block.id, () => addOverlay());
+    return () => { addOverlayHandlers.delete(block.id); };
+  });
+
   // Escape / Delete / Backspace: якщо є вибраний overlay (і не в режимі редагування) — видалити його.
   // Якщо в editing режимі — Escape вже обробляється onKeyDown в input (вихід з editing).
   useEffect(() => {
@@ -423,39 +439,6 @@ export default function ImageEditor({ block, onChange, onUpload, previewHeight, 
                     pointerEvents: "none",
                   }}
                 />
-                {/* Floating «+ Текст» button — створює новий overlay у центрі.
-                    Показується лише коли блок вибраний (інакше кнопки усіх
-                    image-блоків на канвасі робили б шум). */}
-                {selected && (
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); addOverlay(); }}
-                    title="Додати текстовий напис поверх фото"
-                    style={{
-                      position: "absolute",
-                      top: 10, right: 10,
-                      zIndex: 5,
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 6,
-                      padding: "6px 12px",
-                      borderRadius: 999,
-                      border: "1px solid #D4A843",
-                      background: "rgba(28,58,46,0.92)",
-                      color: "#D4A843",
-                      fontSize: 12,
-                      fontWeight: 700,
-                      fontFamily: ff,
-                      cursor: "pointer",
-                      backdropFilter: "blur(4px)",
-                      boxShadow: "0 2px 10px rgba(0,0,0,0.25)",
-                      letterSpacing: "0.02em",
-                    }}
-                  >
-                    <span aria-hidden style={{ fontSize: 14, lineHeight: 1 }}>＋</span>
-                    <span>Текст</span>
-                  </button>
-                )}
                 {overlays.map(ov => {
                   const isSelected = selectedOverlayId === ov.id;
                   const isEditing = editingOverlayId === ov.id;
@@ -849,6 +832,9 @@ function OverlayLinkRow({
 }) {
   const [draft, setDraft] = useState(href);
   useEffect(() => { setDraft(href); }, [href]);
+  const trimmed = draft.trim();
+  const isSaved = !!href;            // link збережено — інпут locked
+  const canSave = !isSaved && !!trimmed; // ✓ активна лише в режимі редагування
   return (
     <Section padTop={0}>
       <SectionLabel>Посилання</SectionLabel>
@@ -856,33 +842,43 @@ function OverlayLinkRow({
         <input
           type="text"
           value={draft}
+          readOnly={isSaved}
           onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); onApply(draft.trim()); } }}
+          onKeyDown={(e) => {
+            if (isSaved) return;
+            if (e.key === "Enter") { e.preventDefault(); if (canSave) onApply(trimmed); }
+          }}
           placeholder="https://..."
-          style={{ ...inputBase, flex: 1, padding: "0 8px" }}
+          style={{
+            ...inputBase,
+            flex: 1,
+            padding: "0 8px",
+            background: isSaved ? "#F5F1E8" : "#FFFFFF",
+            color: isSaved ? "#9B7C45" : "#1C3A2E",
+            cursor: isSaved ? "default" : "text",
+          }}
         />
-        {draft.trim() && draft.trim() !== href && (
+        <button
+          type="button"
+          onMouseDown={(e) => { e.preventDefault(); if (canSave) onApply(trimmed); }}
+          title={canSave ? "Зберегти посилання" : (isSaved ? "Збережено" : "Введіть URL")}
+          style={{
+            ...inputBase, width: "32px",
+            cursor: canSave ? "pointer" : "default",
+            color: canSave ? "#FFFFFF" : "#A8956C",
+            background: canSave ? "#059669" : "#FAF6F0",
+            borderColor: canSave ? "#059669" : "#E8D5B7",
+            fontWeight: 700,
+            opacity: canSave ? 1 : 0.55,
+          }}
+        >✓</button>
+        {isSaved && (
           <button
             type="button"
-            onClick={() => onApply(draft.trim())}
-            title="Зберегти посилання"
-            style={{
-              ...inputBase, width: "32px",
-              cursor: "pointer",
-              color: "#FFFFFF",
-              background: "#059669",
-              borderColor: "#059669",
-              fontWeight: 700,
-            }}
-          >✓</button>
-        )}
-        {href && (
-          <button
-            type="button"
-            onClick={onClear}
+            onMouseDown={(e) => { e.preventDefault(); onClear(); }}
             title="Прибрати посилання"
-            style={{ ...inputBase, width: "32px", color: "#B91C1C", cursor: "pointer" }}
-          >✕</button>
+            style={{ ...inputBase, width: "32px", color: "#B91C1C", cursor: "pointer", fontWeight: 700 }}
+          >🗑</button>
         )}
       </div>
     </Section>

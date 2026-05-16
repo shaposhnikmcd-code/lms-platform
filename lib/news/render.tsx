@@ -13,6 +13,7 @@ import PreviewCardScale from "./PreviewCardScale";
 // Це зроблено навмисно. НЕ роздуплюй render-код назад по сторінках.
 
 export type BlockType =
+  // Універсальні блоки — спільні для білдера сторінки /news і конструктора шаблонів.
   | "text"
   | "heading"
   | "image"
@@ -20,7 +21,21 @@ export type BlockType =
   | "quote"
   | "divider"
   | "card"
-  | "newsCard";
+  | "newsCard"
+  // ── Структуровані блоки конструктора шаблонів (Session 1 foundation) ──
+  // Семантичні слоти EVENT/ARTICLE-картки. Зберігаються як звичайні блоки
+  // (з x/y/width), але мають типізований data-payload. Рендеряться через
+  // BlockInner-switch нижче, редагуються через окремі editor-компоненти
+  // (додаються у Session 2). Не використовуються у поточних новинах — це
+  // фундамент для block-based шаблонів (без міграції живих даних).
+  | "cardBody"         // Тіло картки: візуальна рамка-контейнер з bg + border-radius
+  | "speakerName"      // Імʼя фахівця: data.text + (опц.) fontFamily/Size/color/weight
+  | "speakerRole"      // Посада/спеціалізація: data.text + стиль
+  | "tagline"          // Підпис 1 рядком («досвід або фокус»): data.text + стиль
+  | "price"            // Вартість: data.value, data.currency
+  | "duration"         // Тривалість: data.value, data.unit
+  | "ctaButton"        // Кнопка дії: data.label, data.href, data.bgColor, data.fgColor
+  | "educationItem";   // Пункт освіти: data.title, data.subtitle
 
 export interface Block {
   id: string;
@@ -171,6 +186,17 @@ export const LEGACY_H: Record<BlockType, number> = {
   divider: 40,
   card: 280,
   newsCard: 380, // одна картка (image 16:9 + texts), висота природно ~370px при 32% width
+  // Структуровані блоки шаблонів: компактні fallback-висоти. Точніші розміри
+  // визначає менеджер у constructor-режимі (drag resize) — це лише дефолти при
+  // drop-у блока без явної висоти.
+  cardBody: 400,        // тіло картки — рамка-контейнер, дефолт під ARTICLE-формат
+  speakerName: 36,
+  speakerRole: 28,
+  tagline: 28,
+  price: 70,
+  duration: 70,
+  ctaButton: 56,
+  educationItem: 52,
 };
 
 // Конвертує будь-який вживаний YouTube URL у embed-URL для <iframe>.
@@ -272,6 +298,11 @@ export interface NewsListItemForBlock {
   /** Якщо задано — render-имо preview через TemplatePreviewCard замість блокового. */
   templateKind?: "ARTICLE" | "EVENT" | null;
   templateData?: string | null;
+  /** Block-based template content (Session 3+). Якщо задано — рендериться
+   *  через AbsoluteBlockRender у рамках templateCanvas, інакше fallback на
+   *  legacy TemplatePreviewCard (structured EventData/ArticleData). */
+  templateBlocks?: string | null;
+  templateCanvas?: string | null;
 }
 
 export interface OverlayShape {
@@ -318,7 +349,10 @@ export function parseImageOverlays(raw: string | undefined | null): OverlayShape
 //   2) EventTemplate (overlay-text над фото фахівця у шаблоні Event)
 // Логіка стилю/позиції/посилання ідентична — інакше WYSIWYG між контекстами
 // розходитиметься. Якщо потрібен tweak — міняйте тут.
-export function renderImageOverlay(ov: OverlayShape): React.ReactNode {
+// `linkable=false` рендерить overlay-text як <span> навіть якщо в нього є href —
+// потрібно коли картка-обгортка вже є <a> (адмінка /news, де превʼю обгорнуте
+// в Link на сторінку редагування). Без цього HTML hydration падає на <a> в <a>.
+export function renderImageOverlay(ov: OverlayShape, opts?: { linkable?: boolean }): React.ReactNode {
   const r = ov.radius ?? (ov.bgColor ? 4 : 0);
   const radiusCss = r >= 999 ? "9999px" : `${r}px`;
   const padX = ov.bgColor ? Math.max(10, Math.round(ov.fontSize * 0.5)) : 6;
@@ -368,7 +402,8 @@ export function renderImageOverlay(ov: OverlayShape): React.ReactNode {
     pointerEvents: safeHref ? "auto" : "none",
     cursor: safeHref ? "pointer" : "default",
   };
-  if (safeHref) {
+  const linkable = opts?.linkable !== false;
+  if (safeHref && linkable) {
     return (
       <a
         key={ov.id}
@@ -494,7 +529,7 @@ export function BlockInner({
               display: "block",
             }}
           />
-          {overlays.map(renderImageOverlay)}
+          {overlays.map(ov => renderImageOverlay(ov))}
         </div>
       );
     }
@@ -797,7 +832,81 @@ export function BlockInner({
         );
       }
 
-      // ── PREVIEW (template-based) ──
+      // ── PREVIEW (block-based template, Session 4) ──
+      // Новий формат шаблонів: blocks JSON у item.templateBlocks + canvas
+      // dimensions у item.templateCanvas. Рендериться через AbsoluteBlockRender
+      // у рамках canvas-у — той самий двіжок що в білдері, тож точний WYSIWYG.
+      if (item.templateKind && item.templateBlocks) {
+        const tplBlocks = parseBlocks(item.templateBlocks);
+        if (tplBlocks.isJson && tplBlocks.blocks.length > 0) {
+          // Розбираємо "WxH" з item.templateCanvas; fallback на дефолти за kind.
+          const defaultDims = item.templateKind === "EVENT"
+            ? { width: 600, height: 400 }
+            : { width: PREVIEW_CARD_WIDTH, height: PREVIEW_CARD_HEIGHT };
+          let canvasW = defaultDims.width;
+          let canvasH = defaultDims.height;
+          if (item.templateCanvas) {
+            const m = item.templateCanvas.match(/^(\d+)x(\d+)$/);
+            if (m) {
+              const w = Number(m[1]);
+              const h = Number(m[2]);
+              if (Number.isFinite(w) && Number.isFinite(h) && w >= 60 && h >= 60) {
+                canvasW = w;
+                canvasH = h;
+              }
+            }
+          }
+          // EVENT — self-contained картка, рендеримо у нативному розмірі
+          // (без обгортки в <a>, інакше отримаємо <a> в <a>).
+          // ARTICLE — портретний preview, веде на /news/[slug].
+          const isSelfContained = item.templateKind === "EVENT";
+          const cardEl = (
+            <div
+              style={{
+                position: "relative",
+                width: canvasW,
+                height: canvasH,
+                margin: "0 auto",
+                overflow: "hidden",
+                background: item.pageBgColor || "#FFFFFF",
+              }}
+            >
+              {tplBlocks.blocks.map(b => (
+                <AbsoluteBlockRender
+                  key={b.id}
+                  block={b}
+                  newsItems={newsItems}
+                  locale={lc}
+                />
+              ))}
+            </div>
+          );
+          if (isSelfContained) {
+            return (
+              <div style={{ display: "flex", justifyContent: "center", width: "100%" }}>
+                {cardEl}
+              </div>
+            );
+          }
+          return (
+            <a
+              href={`/${lc}/news/${item.slug}`}
+              style={{
+                display: "flex",
+                justifyContent: "center",
+                width: "100%",
+                background: "transparent",
+                textDecoration: "none",
+                color: "inherit",
+              }}
+            >
+              {cardEl}
+            </a>
+          );
+        }
+      }
+
+      // ── PREVIEW (template-based, legacy structured) ──
       // Якщо новина базується на шаблоні (templateKind), рендеримо preview через
       // TemplatePreviewCard (auto з templateData). Жодних блоків — фіксована форма.
       // Розміри картки: ARTICLE — портретна 360×400, EVENT — `data.cardWidth`×400
@@ -816,6 +925,50 @@ export function BlockInner({
         const blockWPct = Number(block.width) || 100;
         const initialActualWidth = Math.max(60, (CANVAS_WIDTH * blockWPct) / 100);
         const initialScale = initialActualWidth / dims.width;
+        // EVENT — самостійна картка-новина: текст+фото вже на ній, окремої
+        // сторінки нема. Не обгортаємо в <a> щоб клік не відкривав /news/[slug]
+        // з дублюючим контентом. Внутрішні CTA-/overlay-лінки лишаються активні
+        // (disableLinks=false). ARTICLE — портретна превʼюшка, веде на повну
+        // сторінку статті.
+        const isSelfContained = item.templateKind === "EVENT";
+
+        // EVENT: рендеримо картку у НАТИВНОМУ розмірі (cardWidth × cardHeight),
+        // центруємо в межах block-у. block.width НЕ скейлить картку, бо EVENT —
+        // самостійна композиція з фіксованими пропорціями (інакше у редакторі
+        // менеджер бачить 920px картку, а на /news вона зʼїжджається до 30% —
+        // повна розбіжність WYSIWYG). ARTICLE-превʼю — портретна картка, скейл
+        // PreviewCardScale-ом до block.width зберігається.
+        if (isSelfContained) {
+          return (
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "center",
+                width: "100%",
+              }}
+            >
+              <TemplatePreviewCard
+                kind={item.templateKind}
+                data={data}
+                disableLinks={false}
+              />
+            </div>
+          );
+        }
+
+        const scaled = (
+          <PreviewCardScale
+            baseWidth={dims.width}
+            baseHeight={dims.height}
+            initialScale={initialScale}
+          >
+            <TemplatePreviewCard
+              kind={item.templateKind}
+              data={data}
+              disableLinks
+            />
+          </PreviewCardScale>
+        );
         return (
           <a
             href={`/${lc}/news/${item.slug}`}
@@ -828,13 +981,7 @@ export function BlockInner({
               color: "inherit",
             }}
           >
-            <PreviewCardScale
-              baseWidth={dims.width}
-              baseHeight={dims.height}
-              initialScale={initialScale}
-            >
-              <TemplatePreviewCard kind={item.templateKind} data={data} disableLinks />
-            </PreviewCardScale>
+            {scaled}
           </a>
         );
       }
@@ -926,6 +1073,213 @@ export function BlockInner({
             </div>
           </div>
         </a>
+      );
+    }
+
+    // ─── Структуровані блоки шаблонів (Session 1 stubs) ────────────────
+    // Мінімальні рендерери: показують значення data-поля з дефолтним стилем.
+    // Повне editor + styling-API — у Session 2. На /news public ці блоки
+    // поки що не зустрічаються (старі шаблони рендеряться через EventTemplate/
+    // ArticleTemplate). Stubs тут — щоб TS-switch був exhaustive і щоб у
+    // constructor-режимі можна було побачити блок на canvas-і.
+
+    case "cardBody": {
+      // Тіло картки: візуальна рамка, всередині якої менеджер компонує
+      // інші блоки. У білдері — outline видимий (border), щоб менеджер
+      // бачив межі. У data.outlineOnly === "false" — звичайна суцільна рамка
+      // з bg-color. На public — bg + radius без outline-у.
+      const bg = block.bgColor || block.data.bg || "#FFFFFF";
+      const radiusVal = typeof block.borderRadius === "number"
+        ? (block.borderRadius >= 999 ? 9999 : block.borderRadius)
+        : 14;
+      // Outline-only мод (default true для editor-mode візуалізації) — рамка
+      // прозора з border. У не-outline-mode — суцільний bg-color як card-frame.
+      const outlineOnly = block.data.outlineOnly !== "false";
+      return (
+        <div
+          data-news-block-type="cardBody"
+          style={{
+            width: "100%",
+            height: "100%",
+            background: outlineOnly ? "transparent" : bg,
+            border: outlineOnly ? "2px dashed #D4A843" : "1px solid rgba(0,0,0,0.06)",
+            borderRadius: `${radiusVal}px`,
+            boxSizing: "border-box",
+            // pointer-events: none щоб клік "пройшов крізь" на блоки які
+            // лежать поверх (z-index у білдері природньо упорядкований за
+            // порядком блоків у масиві).
+            pointerEvents: "none",
+          }}
+        />
+      );
+    }
+
+    case "speakerName": {
+      return (
+        <div
+          data-news-block-type="speakerName"
+          style={{
+            textAlign: align,
+            color: block.data.color || textColor,
+            fontFamily: block.data.fontFamily || NEWS_BLOCK_FF,
+            fontSize: Number(block.data.fontSize) || 22,
+            fontWeight: Number(block.data.weight) || 700,
+            lineHeight: 1.2,
+          }}
+        >
+          {block.data.text || "[Імʼя Прізвище]"}
+        </div>
+      );
+    }
+
+    case "speakerRole": {
+      return (
+        <div
+          data-news-block-type="speakerRole"
+          style={{
+            textAlign: align,
+            color: block.data.color || textColor,
+            fontFamily: block.data.fontFamily || NEWS_BLOCK_FF,
+            fontSize: Number(block.data.fontSize) || 14,
+            fontWeight: Number(block.data.weight) || 500,
+            opacity: 0.85,
+            lineHeight: 1.3,
+          }}
+        >
+          {block.data.text || "[Посада / спеціалізація]"}
+        </div>
+      );
+    }
+
+    case "tagline": {
+      return (
+        <div
+          data-news-block-type="tagline"
+          style={{
+            textAlign: align,
+            color: block.data.color || textColor,
+            fontFamily: block.data.fontFamily || NEWS_BLOCK_FF,
+            fontSize: Number(block.data.fontSize) || 13,
+            fontStyle: block.data.italic === "true" ? "italic" : "normal",
+            lineHeight: 1.35,
+            opacity: 0.9,
+          }}
+        >
+          {block.data.text || "[Tagline — досвід або фокус, 1 рядок]"}
+        </div>
+      );
+    }
+
+    case "price": {
+      const value = block.data.value || "[X]";
+      const currency = block.data.currency || "грн";
+      return (
+        <div
+          data-news-block-type="price"
+          style={{
+            textAlign: align,
+            color: block.data.color || textColor,
+            fontFamily: block.data.fontFamily || NEWS_BLOCK_FF,
+          }}
+        >
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", opacity: 0.7, marginBottom: 4 }}>
+            {block.data.label || "Вартість"}
+          </div>
+          <div style={{ fontSize: Number(block.data.fontSize) || 22, fontWeight: 700, lineHeight: 1 }}>
+            {value} {currency}
+          </div>
+        </div>
+      );
+    }
+
+    case "duration": {
+      const value = block.data.value || "[N]";
+      const unit = block.data.unit || "хв";
+      return (
+        <div
+          data-news-block-type="duration"
+          style={{
+            textAlign: align,
+            color: block.data.color || textColor,
+            fontFamily: block.data.fontFamily || NEWS_BLOCK_FF,
+          }}
+        >
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", opacity: 0.7, marginBottom: 4 }}>
+            {block.data.label || "Тривалість"}
+          </div>
+          <div style={{ fontSize: Number(block.data.fontSize) || 22, fontWeight: 700, lineHeight: 1 }}>
+            {value} {unit}
+          </div>
+        </div>
+      );
+    }
+
+    case "ctaButton": {
+      const label = block.data.label || "Записатися на консультацію";
+      const href = block.data.href || "";
+      const bg = block.data.bgColor || "#D4A843";
+      const fg = block.data.fgColor || "#1C3A2E";
+      const radiusVal = Number(block.data.radius);
+      const radius = Number.isFinite(radiusVal) ? radiusVal : 8;
+      const radiusCss = radius >= 999 ? "9999px" : `${radius}px`;
+      const button = (
+        <span
+          data-news-block-type="ctaButton"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: bg,
+            color: fg,
+            fontFamily: block.data.fontFamily || NEWS_BLOCK_FF,
+            fontSize: Number(block.data.fontSize) || 14,
+            fontWeight: 700,
+            padding: "10px 18px",
+            borderRadius: radiusCss,
+            textDecoration: "none",
+            letterSpacing: "0.02em",
+          }}
+        >
+          {label}
+        </span>
+      );
+      const wrapStyle: React.CSSProperties = { textAlign: align, width: "100%" };
+      if (href && /^(https?:\/\/|\/|mailto:|tel:)/i.test(href)) {
+        const external = /^https?:\/\//i.test(href);
+        return (
+          <div style={wrapStyle}>
+            <a href={href} {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}>{button}</a>
+          </div>
+        );
+      }
+      return <div style={wrapStyle}>{button}</div>;
+    }
+
+    case "educationItem": {
+      return (
+        <div
+          data-news-block-type="educationItem"
+          style={{
+            textAlign: align,
+            color: block.data.color || textColor,
+            fontFamily: block.data.fontFamily || NEWS_BLOCK_FF,
+            display: "flex",
+            gap: 8,
+            alignItems: "flex-start",
+          }}
+        >
+          <span aria-hidden style={{ flexShrink: 0, marginTop: 6 }}>▪</span>
+          <div>
+            <div style={{ fontSize: Number(block.data.fontSize) || 14, fontWeight: 700, lineHeight: 1.35 }}>
+              {block.data.title || "[Назва освіти]"}
+            </div>
+            {block.data.subtitle !== "" && (
+              <div style={{ fontSize: Math.max(11, (Number(block.data.fontSize) || 14) - 2), fontWeight: 400, opacity: 0.75, lineHeight: 1.4, marginTop: 2 }}>
+                {block.data.subtitle || "[Тип / диплом · роки]"}
+              </div>
+            )}
+          </div>
+        </div>
       );
     }
 

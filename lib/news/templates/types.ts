@@ -229,7 +229,11 @@ export const EVENT_ALL_REGIONS: EventRegionKey[] = [
  *  блок-розмір на канвасі масштабує її до своєї ширини). Висота лишається auto
  *  (контент диктує) на single-page; у preview-режимі — fixed 400px aspect. */
 export const EVENT_CARD_WIDTH_MIN = 600;
-export const EVENT_CARD_WIDTH_MAX = 1200;
+// MAX = 920 — реальна ширина canvas-а /news (CANVAS_WIDTH у lib/news/render).
+// Картка не може бути ширшою за саму сторінку, інакше у редакторі менеджер
+// бачить більший розмір ніж на живій /news. Існуючі ширші cardWidth-и
+// автоматично клампляться при parseTemplateData (там використовується clampNum).
+export const EVENT_CARD_WIDTH_MAX = 920;
 export const EVENT_CARD_WIDTH_DEFAULT = 600;
 export const EVENT_CARD_HEIGHT_MIN = 320;
 export const EVENT_CARD_HEIGHT_MAX = 900;

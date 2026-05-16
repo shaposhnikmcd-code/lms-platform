@@ -34,6 +34,14 @@ const MIN_H_BY_TYPE: Record<BlockType, number> = {
   divider: 8,
   card: 80,
   newsCard: 200,
+  cardBody: 100,
+  speakerName: 24,
+  speakerRole: 20,
+  tagline: 20,
+  price: 50,
+  duration: 50,
+  ctaButton: 40,
+  educationItem: 36,
 };
 
 interface Props {

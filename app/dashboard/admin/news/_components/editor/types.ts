@@ -1,4 +1,24 @@
-export type BlockType = "text" | "heading" | "image" | "youtube" | "quote" | "divider" | "card" | "newsCard";
+// Залишається синхронізованим з BlockType у lib/news/render.tsx — обидва типи
+// рендеряться одним switch у BlockInner. Структуровані типи (speakerName/tagline/...)
+// — фундамент Session 1 для block-based шаблонів; full editors і palette-entries
+// додаються у Session 2.
+export type BlockType =
+  | "text"
+  | "heading"
+  | "image"
+  | "youtube"
+  | "quote"
+  | "divider"
+  | "card"
+  | "newsCard"
+  | "cardBody"
+  | "speakerName"
+  | "speakerRole"
+  | "tagline"
+  | "price"
+  | "duration"
+  | "ctaButton"
+  | "educationItem";
 // BlockWidth — рядок з числом відсотків (1..100). Тримаємо як string для сумісності
 // зі старими записами та з JSON-серіалізацією. Крок resize — 1%.
 export type BlockWidth = string;

@@ -49,6 +49,102 @@ export function TextInput({ label, value, onChange, placeholder, hint, maxLength
   );
 }
 
+// ── Link input (URL з зеленою галкою-confirm) ──────────────────────────────
+// Той самий UX, що в news-builder Текст-на-фото (OverlayLinkRow): draft state,
+// ✓ для коміту, lock-стан після збереження, 🗑 для скидання.
+
+interface LinkInputProps {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  hint?: string;
+}
+
+export function LinkInput({ label, value, onChange, placeholder, hint }: LinkInputProps) {
+  const [draft, setDraft] = useState(value);
+  React.useEffect(() => { setDraft(value); }, [value]);
+  const trimmed = draft.trim();
+  const isSaved = !!value;
+  const canSave = !isSaved && !!trimmed;
+  const baseInputStyle: React.CSSProperties = {
+    flex: 1,
+    minWidth: 0,
+    padding: "7px 10px",
+    fontSize: 13,
+    fontFamily: ff,
+    color: isSaved ? "#9B7C45" : "#1C1917",
+    background: isSaved ? "#F5F1E8" : "#FFFFFF",
+    border: "1.5px solid #E8D5B7",
+    borderRadius: 7,
+    outline: "none",
+    cursor: isSaved ? "default" : "text",
+    transition: "border-color 0.15s",
+  };
+  return (
+    <label style={{ display: "block", fontFamily: ff }}>
+      <FieldHeader label={label} hint={hint} value={value} />
+      <div style={{ display: "flex", gap: 5 }}>
+        <input
+          type="text"
+          value={draft}
+          readOnly={isSaved}
+          onChange={e => setDraft(e.target.value)}
+          onKeyDown={e => {
+            if (isSaved) return;
+            if (e.key === "Enter") {
+              e.preventDefault();
+              if (canSave) onChange(trimmed);
+            }
+          }}
+          placeholder={placeholder}
+          style={baseInputStyle}
+          onFocus={e => { if (!isSaved) e.currentTarget.style.borderColor = "#D4A843"; }}
+          onBlur={e => (e.currentTarget.style.borderColor = "#E8D5B7")}
+        />
+        <button
+          type="button"
+          onMouseDown={e => { e.preventDefault(); if (canSave) onChange(trimmed); }}
+          title={canSave ? "Зберегти посилання" : (isSaved ? "Збережено" : "Введіть URL")}
+          style={{
+            width: 34,
+            height: 34,
+            border: `1.5px solid ${canSave ? "#059669" : "#E8D5B7"}`,
+            borderRadius: 7,
+            background: canSave ? "#059669" : "#FAF6F0",
+            color: canSave ? "#FFFFFF" : "#A8956C",
+            cursor: canSave ? "pointer" : "default",
+            fontWeight: 700,
+            fontSize: 14,
+            opacity: canSave ? 1 : 0.55,
+            fontFamily: ff,
+            flexShrink: 0,
+          }}
+        >✓</button>
+        {isSaved && (
+          <button
+            type="button"
+            onMouseDown={e => { e.preventDefault(); onChange(""); }}
+            title="Прибрати посилання"
+            style={{
+              width: 34,
+              height: 34,
+              border: "1.5px solid #E8D5B7",
+              borderRadius: 7,
+              background: "#FFFFFF",
+              color: "#B91C1C",
+              cursor: "pointer",
+              fontWeight: 700,
+              fontSize: 14,
+              flexShrink: 0,
+            }}
+          >🗑</button>
+        )}
+      </div>
+    </label>
+  );
+}
+
 // ── Textarea ────────────────────────────────────────────────────────────────
 
 interface TextAreaProps {

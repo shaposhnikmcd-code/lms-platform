@@ -6,7 +6,7 @@
 import React from "react";
 import { EVENT_DEFAULTS, type EventData, type EventEducationItem, type EventRegionKey } from "@/lib/news/templates/types";
 import type { EventRegion } from "@/lib/news/templates/EventTemplate";
-import { TextInput, RichTextInput, RichTextField, ImageInput, SectionHeader } from "./Inputs";
+import { TextInput, RichTextInput, RichTextField, ImageInput, SectionHeader, LinkInput } from "./Inputs";
 
 interface Props {
   data: EventData;
@@ -245,7 +245,7 @@ export default function EventForm({ data, onChange, onFocusRegion }: Props) {
               placeholder="Записатися на консультацію"
               maxLength={48}
             />
-            <TextInput
+            <LinkInput
               label="URL посилання"
               value={data.ctaHref}
               onChange={v => update("ctaHref", v)}

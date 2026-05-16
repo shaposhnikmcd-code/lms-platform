@@ -24,6 +24,26 @@ export const PALETTE_BLOCKS: {
   // card-блоками все ще рендеряться через BlockInner.case "card" у render.tsx.
 ];
 
+// Окрема палітра для конструктора ШАБЛОНІВ — структуровані семантичні слоти
+// EVENT/ARTICLE-картки. Не змішується з PALETTE_BLOCKS (palette на /news
+// page builder), щоб менеджер сторінки /news НЕ міг випадково кинути
+// "Імʼя фахівця" на сторінку, де воно не має сенсу. Перемикається режимом
+// у NewsEditor (palette={...}) — у Session 3 додаємо ці блоки до палітри
+// тільки коли editor завантажений для template-новини.
+export const TEMPLATE_PALETTE_BLOCKS: typeof PALETTE_BLOCKS = [
+  // Тіло картки — контейнер-рамка. ПЕРШИЙ блок який менеджер кидає на canvas;
+  // потім всередину нього компонує всі решта (heading, photo, speakerName etc).
+  // У білдері рамка пунктирна #D4A843, на public — без border, з bg-color.
+  { type: "cardBody",      label: "Тіло картки",    icon: "🪟", desc: "Рамка-контейнер",       color: "#1C3A2E", colorDim: "rgba(28,58,46,0.18)",   bg: "rgba(28,58,46,0.06)" },
+  { type: "speakerName",   label: "Імʼя фахівця",   icon: "👤", desc: "Імʼя та прізвище",      color: "#D4A843", colorDim: "rgba(212,168,67,0.18)", bg: "rgba(212,168,67,0.08)" },
+  { type: "speakerRole",   label: "Посада",         icon: "🎓", desc: "Спеціалізація",         color: "#A8956C", colorDim: "rgba(168,149,108,0.18)", bg: "rgba(168,149,108,0.08)" },
+  { type: "tagline",       label: "Tagline",        icon: "✍",  desc: "Підпис 1 рядком",        color: "#7EB8A4", colorDim: "rgba(126,184,164,0.18)", bg: "rgba(126,184,164,0.07)" },
+  { type: "price",         label: "Вартість",       icon: "₴",  desc: "Ціна + валюта",          color: "#C4919A", colorDim: "rgba(196,145,154,0.18)", bg: "rgba(196,145,154,0.07)" },
+  { type: "duration",      label: "Тривалість",     icon: "⏱",  desc: "Час + одиниця",          color: "#8B9EB0", colorDim: "rgba(139,158,176,0.18)", bg: "rgba(139,158,176,0.07)" },
+  { type: "ctaButton",     label: "Кнопка CTA",     icon: "▶",  desc: "Записатись / Купити",   color: "#E07B6A", colorDim: "rgba(224,123,106,0.18)", bg: "rgba(224,123,106,0.07)" },
+  { type: "educationItem", label: "Пункт освіти",   icon: "📜", desc: "Назва + диплом",         color: "#A8C97A", colorDim: "rgba(168,201,122,0.18)", bg: "rgba(168,201,122,0.07)" },
+];
+
 function PaletteItem({ type, label, icon, desc, color, colorDim, bg }: typeof PALETTE_BLOCKS[0]) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `palette:${type}`,

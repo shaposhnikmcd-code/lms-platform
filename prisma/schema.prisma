@@ -609,6 +609,16 @@ model News {
   /// у lib/news/templates/types.ts (ArticleData / EventData). Якщо null —
   /// fallback на дефолти з blueprint-у того ж kind.
   templateData  String?
+  /// Block-based template content (Session 3+ refactor). JSON-масив Block[]
+  /// (типи у editor/types.ts + render.tsx). Заповнено у нових шаблонах-
+  /// конструкторах; null = legacy form-based templateData.
+  /// Public render: якщо є — рендериться через AbsoluteBlockRender в
+  /// рамках canvas-у шаблону (600×400 EVENT / 360×400 ARTICLE).
+  templateBlocks String?
+  /// Розміри canvas-у шаблону (ширина × висота у px), зберігаються разом з
+  /// templateBlocks щоб public render відтворював таку ж рамку як редактор.
+  /// Формат: "WxH" (наприклад "600x400"). null = дефолт за templateKind.
+  templateCanvas String?
   /// Коли задано — новина схована з вітрини. Використовується і для "паузи", і для відкладеної публікації (coupled з resumeAt).
   suspendedAt DateTime?
   /// Коли задано разом з suspendedAt — новина автоматично повертається на вітрину з цієї дати.

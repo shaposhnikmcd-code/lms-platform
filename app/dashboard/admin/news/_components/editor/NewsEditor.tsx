@@ -112,6 +112,15 @@ interface BaseProps {
    *  автоматично деривуються з канвасу при збереженні
    *  (перший heading-блок → title, перший image-блок → imageUrl). */
   slugOnlyMeta?: boolean;
+  /** Додаткові blocks у палітрі (структуровані шаблонні блоки). Пробрасується
+   *  до EditorCanvas → BlockPalette. Використовується для template-constructor
+   *  режиму, щоб менеджер міг кидати speakerName/tagline/price тощо на canvas. */
+  extraPaletteBlocks?: typeof import("./BlockPalette").PALETTE_BLOCKS;
+  /** Заголовок секції під додатковими блоками палітри. */
+  extraPaletteBlocksTitle?: string;
+  /** Сховати MetaSidebar повністю (для template-конструктора, де slug/title
+   *  не редагуються — це шаблон, не новина). */
+  hideMetaSidebar?: boolean;
 }
 
 interface SingleProps extends BaseProps {
@@ -621,7 +630,10 @@ export default function NewsEditor(props: Props) {
                 canvasLabel={props.canvasLabel}
                 bottomSlack={props.bottomSlack}
                 fixedHeight={props.fixedHeight}
+                extraPaletteBlocks={props.extraPaletteBlocks}
+                extraPaletteBlocksTitle={props.extraPaletteBlocksTitle}
                 rightSidebar={
+                  props.hideMetaSidebar ? null :
                   mode === "page" ? (
                     <NewsLibrarySidebar
                       meta={meta}

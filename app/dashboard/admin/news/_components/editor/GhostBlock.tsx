@@ -15,6 +15,15 @@ export const BLOCK_PREVIEW_HEIGHTS: Record<BlockType, number> = {
   youtube: 40 + 28 + 52,
   card:    40 + 28 + 200,
   newsCard: 40 + 28 + 320,
+  // Структуровані блоки шаблонів — компактні ghost-висоти.
+  cardBody:      40 + 28 + 280, // тіло картки — найбільший ghost (контейнер під весь зміст)
+  speakerName:   40 + 28 + 32,
+  speakerRole:   40 + 28 + 26,
+  tagline:       40 + 28 + 26,
+  price:         40 + 28 + 60,
+  duration:      40 + 28 + 60,
+  ctaButton:     40 + 28 + 46,
+  educationItem: 40 + 28 + 44,
 };
 
 export const BLOCK_ICONS: Record<BlockType, string> = {
@@ -26,6 +35,14 @@ export const BLOCK_ICONS: Record<BlockType, string> = {
   youtube: "▶",
   card:    "▭",
   newsCard: "📰",
+  cardBody:      "🪟",
+  speakerName:   "👤",
+  speakerRole:   "🎓",
+  tagline:       "✍",
+  price:         "₴",
+  duration:      "⏱",
+  ctaButton:     "▶",
+  educationItem: "📜",
 };
 
 export const BLOCK_LABELS: Record<BlockType, string> = {
@@ -37,6 +54,14 @@ export const BLOCK_LABELS: Record<BlockType, string> = {
   youtube: "YouTube",
   card:    "Картка",
   newsCard: "Новина",
+  cardBody:      "Тіло картки",
+  speakerName:   "Імʼя фахівця",
+  speakerRole:   "Посада / спеціалізація",
+  tagline:       "Tagline",
+  price:         "Вартість",
+  duration:      "Тривалість",
+  ctaButton:     "Кнопка CTA",
+  educationItem: "Пункт освіти",
 };
 
 interface Props {

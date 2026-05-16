@@ -10,6 +10,15 @@ import YoutubeEditor from "./blocks/YoutubeEditor";
 import QuoteEditor from "./blocks/QuoteEditor";
 import CardEditor from "./blocks/CardEditor";
 import NewsCardEditor from "./blocks/NewsCardEditor";
+import {
+  SpeakerNameEditor,
+  SpeakerRoleEditor,
+  TaglineEditor,
+  PriceEditor,
+  DurationEditor,
+  CtaButtonEditor,
+  EducationItemEditor,
+} from "./blocks/StructuredBlocksEditor";
 import BlockItemHeader from "./BlockItemHeader";
 import BlockItemSnapGuide from "./BlockItemSnapGuide";
 import { useBlockResize } from "./hooks/useBlockResize";
@@ -447,6 +456,15 @@ export default function BlockItem({
         {block.type === "card"    && <CardEditor    block={block} onChange={d => onChange(block.id, d)} onUpload={onUpload} />}
         {block.type === "newsCard"&& <NewsCardEditor block={block} onChange={d => onChange(block.id, d)} selected={selected} />}
         {block.type === "divider" && <hr style={{ border: "none", borderTopWidth: "2px", borderTopStyle: "solid", borderTopColor: "#D4A843", margin: "8px 0" }} />}
+        {/* Структуровані блоки шаблонів (Session 2). Інлайн-редагування
+            через contentEditable; стиль зберігається у block.data. */}
+        {block.type === "speakerName"   && <SpeakerNameEditor   block={block} onChange={d => onChange(block.id, d)} selected={selected} />}
+        {block.type === "speakerRole"   && <SpeakerRoleEditor   block={block} onChange={d => onChange(block.id, d)} selected={selected} />}
+        {block.type === "tagline"       && <TaglineEditor       block={block} onChange={d => onChange(block.id, d)} selected={selected} />}
+        {block.type === "price"         && <PriceEditor         block={block} onChange={d => onChange(block.id, d)} selected={selected} />}
+        {block.type === "duration"      && <DurationEditor      block={block} onChange={d => onChange(block.id, d)} selected={selected} />}
+        {block.type === "ctaButton"     && <CtaButtonEditor     block={block} onChange={d => onChange(block.id, d)} selected={selected} />}
+        {block.type === "educationItem" && <EducationItemEditor block={block} onChange={d => onChange(block.id, d)} selected={selected} />}
       </div>
 
       {/* Resize handles доступні для всіх блоків включно з newsCard preview —

@@ -42,7 +42,8 @@ import EventForm from "./EventForm";
 import { TextInput } from "./Inputs";
 import { slugifyNewsTitle } from "@/lib/news/slug";
 import HeadingEditor from "../editor/blocks/HeadingEditor";
-import ImageEditor from "../editor/blocks/ImageEditor";
+import ImageEditor, { requestAddOverlay } from "../editor/blocks/ImageEditor";
+import { CANVAS_WIDTH as NEWS_CANVAS_WIDTH } from "@/lib/news/render";
 import { BlockPanelHeader } from "../editor/blocks/_settingsPrimitives";
 import { NewsEditorActionsContext } from "../editor/NewsEditor";
 import { buildGoogleFontsHref } from "../editor/blocks/editorFonts";
@@ -106,6 +107,12 @@ export default function TemplateEditor({ newsId }: Props) {
   // портал-ить свої налаштування в #news-block-settings-slot — як у білдері
   // новин. `null` — нічого не вибрано, slot пустий.
   const [selectedBlock, setSelectedBlock] = useState<"title" | "photo" | null>(null);
+  // sitePreviewMode — toggle «Переглянути як на сторінці»: палітра розширюється
+  // до ширини реальної /news (NEWS_CANVAS_WIDTH=920) з боковими полями сторінки
+  // (max-w-5xl=1024 контейнер). Картка лишається того ж cardWidth, тож менеджер
+  // одразу бачить її пропорції відносно живої сторінки і вирішує — збільшити
+  // (тягнути кут) чи зменшити. Default OFF — комфортний режим редагування.
+  const [sitePreviewMode, setSitePreviewMode] = useState(false);
   // Escape — деселект блока (виходимо з режиму редагування title/photo).
   // Click outside — також деселект (клік поза preview-канвасом і поза
   // settings-slot-ом у sidebar-і).
@@ -885,11 +892,18 @@ export default function TemplateEditor({ newsId }: Props) {
         </div>
       )}
 
-      {/* Body: 2-column layout */}
+      {/* Body: 2-column layout.
+       *
+       *  - Не blueprint (звичайна новина): класична схема — ліва форма 440-540px
+       *    з полями (title/slug/Tagline/Вартість тощо), праворуч превʼю.
+       *  - Blueprint (шаблон): «конструктор» — лівої форми НЕМАЄ, canvas на всю
+       *    ширину. Aside рендериться позиційно (fixed, top-right) і показує лише
+       *    settings-card slot, коли менеджер обрав блок на canvas-і. Без блока —
+       *    aside візуально порожній (settings-card CSS-rule сховає wrapper). */}
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "minmax(440px, 540px) 1fr",
+          gridTemplateColumns: isBlueprint ? "1fr" : "minmax(440px, 540px) 1fr",
           gap: 0,
           alignItems: "start",
           minHeight: "calc(100vh - 60px)",
@@ -897,15 +911,33 @@ export default function TemplateEditor({ newsId }: Props) {
       >
         {/* ── LEFT: form ────────────────────────────────────────────────────── */}
         <aside
-          style={{
-            padding: "18px 22px 32px",
-            borderRight: "1px solid #E8D5B7",
-            background: "#FFFFFF",
-            position: "sticky",
-            top: 60,
-            maxHeight: "calc(100vh - 60px)",
-            overflowY: "auto",
-          }}
+          style={
+            isBlueprint
+              ? {
+                  // Floating settings-панель: фіксована у правому верхньому
+                  // куті viewport-у, видима лише коли є вміст slot-а.
+                  position: "fixed",
+                  top: 78,
+                  right: 24,
+                  width: 320,
+                  maxHeight: "calc(100vh - 96px)",
+                  overflowY: "auto",
+                  background: "transparent",
+                  zIndex: 20,
+                  pointerEvents: "auto",
+                  // border/padding керуються template-settings-wrapper всередині;
+                  // зовнішня aside-обгортка прозора.
+                }
+              : {
+                  padding: "18px 22px 32px",
+                  borderRight: "1px solid #E8D5B7",
+                  background: "#FFFFFF",
+                  position: "sticky",
+                  top: 60,
+                  maxHeight: "calc(100vh - 60px)",
+                  overflowY: "auto",
+                }
+          }
         >
           {/* Settings-card для активного preview-блоку. BlockPanelHeader
               (info-strip + Фон блока) + #news-block-settings-slot куди HeadingEditor/
@@ -968,6 +1000,10 @@ export default function TemplateEditor({ newsId }: Props) {
               display: none;
             }
           `}</style>
+          {/* META + ArticleForm/EventForm рендеримо ТІЛЬКИ для звичайної новини.
+              Для blueprint (шаблон) — повний canvas-конструктор: всі тексти і
+              медіа редагуються інлайн на canvas-і, форма не потрібна. */}
+          {!isBlueprint && <>
           {/* ── META block (зверху): Заголовок + Slug + Excerpt разом ──────
               Логіка: усе що не на картці (адмінка + SEO + URL) згруповано
               нагорі. Менеджер бачить мета-частину один раз і далі редагує
@@ -1096,6 +1132,7 @@ export default function TemplateEditor({ newsId }: Props) {
               onFocusRegion={setFocusedRegion}
             />
           )}
+          </>}
         </aside>
 
         {/* ── RIGHT: live preview ───────────────────────────────────────────── */}
@@ -1191,11 +1228,18 @@ export default function TemplateEditor({ newsId }: Props) {
                     selectedBlock === "photo" ? "Стандартний розмір картки" :
                     "Стандартний розмір"
                   }
+                  onAddTextOverlay={photoBlock ? () => {
+                    setSelectedBlock("photo");
+                    requestAddOverlay(photoBlock.id);
+                  } : undefined}
+                  sitePreviewMode={sitePreviewMode}
+                  onToggleSitePreview={() => setSitePreviewMode(v => !v)}
                 />
                 <ResizableEventPreview
                   data={dataForRender as EventData}
                   onChange={d => editData(d)}
                   highlight={focusedRegion}
+                  sitePreviewMode={sitePreviewMode}
                   onPhotoFocalClick={(x, y) => data && editData(applyEventPhotoPatch(data as EventData, { previewFocalX: x, previewFocalY: y }))}
                   titleSlot={titleBlock && !(data as EventData).hidden?.title && (
                     <HeadingEditor
@@ -1330,6 +1374,9 @@ function CoverImageToolbar({
   onResetCardSize,
   cardSizeIsDefault,
   resetLabel,
+  onAddTextOverlay,
+  sitePreviewMode,
+  onToggleSitePreview,
 }: {
   scope: "preview" | "page";
   cover: ArticleImage;
@@ -1337,6 +1384,9 @@ function CoverImageToolbar({
   onResetCardSize?: () => void;
   cardSizeIsDefault?: boolean;
   resetLabel?: string;
+  onAddTextOverlay?: () => void;
+  sitePreviewMode?: boolean;
+  onToggleSitePreview?: () => void;
 }) {
   const scale = scope === "preview" ? (cover.previewScale ?? 1) : (cover.pageScale ?? 1);
   const linked = cover.linkScale === true;
@@ -1459,6 +1509,58 @@ function CoverImageToolbar({
         </button>
       )}
 
+      {onAddTextOverlay && (
+        <button
+          type="button"
+          onClick={onAddTextOverlay}
+          title="Додати текстовий напис поверх фото"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "5px 10px",
+            fontSize: 11,
+            fontWeight: 600,
+            fontFamily: ff,
+            color: "#1C3A2E",
+            background: "#FFFFFF",
+            border: "1px solid #D4A843",
+            borderRadius: 6,
+            cursor: "pointer",
+          }}
+        >
+          <span aria-hidden style={{ fontSize: 12, lineHeight: 1 }}>＋</span>
+          <span>Текст на фото</span>
+        </button>
+      )}
+
+      {onToggleSitePreview && (
+        <button
+          type="button"
+          onClick={onToggleSitePreview}
+          title={sitePreviewMode
+            ? "Повернутись у комфортний режим редагування"
+            : "Показати картку у пропорціях сторінки /news"}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "5px 10px",
+            fontSize: 11,
+            fontWeight: 600,
+            fontFamily: ff,
+            color: sitePreviewMode ? "#FFFFFF" : "#1C3A2E",
+            background: sitePreviewMode ? "#1C3A2E" : "#FFFFFF",
+            border: `1px solid ${sitePreviewMode ? "#1C3A2E" : "#D4A843"}`,
+            borderRadius: 6,
+            cursor: "pointer",
+          }}
+        >
+          <span aria-hidden style={{ fontSize: 12, lineHeight: 1 }}>{sitePreviewMode ? "🔍" : "👁"}</span>
+          <span>{sitePreviewMode ? "Режим редагування" : "Переглянути як на сторінці"}</span>
+        </button>
+      )}
+
       <span style={{ flex: 1 }} />
 
       {/* Lock — лише на page-toolbar, бо preview — provider */}
@@ -1509,6 +1611,7 @@ function ResizableEventPreview({
   onPhotoClick,
   titleSelected,
   photoSelected,
+  sitePreviewMode,
 }: {
   data: EventData;
   onChange: (next: EventData) => void;
@@ -1520,6 +1623,10 @@ function ResizableEventPreview({
   onPhotoClick?: () => void;
   titleSelected?: boolean;
   photoSelected?: boolean;
+  /** ON — палітра 920px (точна ширина canvas /news), картка лишається cardWidth.
+   *  OFF — палітра підлаштовується під cardWidth (комфортне редагування без зайвих
+   *  полів). Перемикається тоглом «Переглянути як на сторінці». */
+  sitePreviewMode?: boolean;
 }) {
   const cardWidth = data.cardWidth || EVENT_CARD_WIDTH_DEFAULT;
   const cardHeight = data.cardHeight || EVENT_CARD_HEIGHT_DEFAULT;
@@ -1527,6 +1634,20 @@ function ResizableEventPreview({
   // (по контенту). Якщо менеджер ресайзив — використовуємо збережене значення.
   const titleWidth = data.titleWidth ?? cardWidth;
   const titleHeight = data.titleHeight ?? null;
+
+  // site-preview: симулюємо як картка виглядатиме на /news у типовому
+  // newsCard-блоці шириною ~460px (50% canvas-а). Якщо cardWidth більший —
+  // показуємо scale-фактор < 1, картка візуально зменшується. Менеджер
+  // одразу бачить читабельність і вирішує, чи збільшувати cardWidth.
+  const SITE_PREVIEW_BLOCK_WIDTH = 460; // 50% × 920px (типовий розмір картки у стрічці /news)
+  const previewScale = sitePreviewMode
+    ? Math.min(1, SITE_PREVIEW_BLOCK_WIDTH / cardWidth)
+    : 1;
+  // Висота зменшеного контенту — для коректного резервування місця у потоці
+  // (transform не змінює layout-метрики, тому ставимо вручну).
+  const scaledContentHeight = sitePreviewMode
+    ? Math.round((cardHeight + (titleHeight ?? 80) + 12) * previewScale) // card + title + gap
+    : undefined;
 
   return (
     <div
@@ -1539,7 +1660,82 @@ function ResizableEventPreview({
         position: "relative",
       }}
     >
-      <div style={{ padding: "32px 24px", display: "flex", flexDirection: "column", alignItems: "center", gap: 12, minWidth: "min-content" }}>
+      {sitePreviewMode && (
+        <div
+          style={{
+            padding: "10px 16px",
+            background: "rgba(28,58,46,0.06)",
+            borderBottom: "1px solid #E8D5B7",
+            fontFamily: ff,
+            fontSize: 11,
+            fontWeight: 700,
+            color: "#1C3A2E",
+            letterSpacing: "0.04em",
+            textAlign: "center",
+          }}
+        >
+          🔍 Симуляція: картка у стрічці /news, типовий блок 460px ({Math.round(previewScale * 100)}% від поточної)
+        </div>
+      )}
+      {/* Внутрішня «сторінка». У site-preview режимі — палітра 920px (реальна
+          ширина canvas /news), контент масштабується до ~460px-блоку, щоб ти
+          бачив реальний візуальний розмір картки у стрічці. У режимі
+          редагування — auto-width, нативний розмір без скейлу. */}
+      <div
+        style={{
+          width: sitePreviewMode ? NEWS_CANVAS_WIDTH : undefined,
+          maxWidth: "100%",
+          margin: "0 auto",
+          padding: "32px 24px",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: 12,
+          ...(sitePreviewMode && scaledContentHeight ? { minHeight: scaledContentHeight + 64 } : {}),
+        }}
+      >
+        {/* Scale-wrapper для site-preview режиму: трансформує одразу і
+            заголовок, і картку, лишаючи їх у тому самому flex-стеку. У режимі
+            редагування — pass-through, без transform-у (1:1 нативний розмір).
+            ВАЖЛИВО: transform: scale НЕ змінює layout-метрики, тож зовнішній
+            div отримує scaled-розміри явно (width/height), щоб довкола картки
+            не лишалось «фантомного» вільного місця від нативних розмірів. */}
+        <div
+          style={
+            sitePreviewMode
+              ? {
+                  width: cardWidth * previewScale,
+                  height: ((titleSlot && !data.hidden?.title ? (titleHeight ?? 80) + 12 : 0) + cardHeight) * previewScale,
+                  position: "relative",
+                  overflow: "visible",
+                }
+              : {
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: 12,
+                }
+          }
+        >
+        <div
+          style={
+            sitePreviewMode
+              ? {
+                  transform: `scale(${previewScale})`,
+                  transformOrigin: "top left",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: 12,
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  width: cardWidth,
+                  pointerEvents: "none", // у preview-режимі без редагування
+                }
+              : { display: "contents" }
+          }
+        >
         {/* HEADING block — own resizable wrapper. Якщо hidden.title — нічого.
             Background / text-color дзеркалить EventTemplate public render (та сама
             auto-contrast логіка) — WYSIWYG між preview і живою сторінкою. */}
@@ -1618,6 +1814,8 @@ function ResizableEventPreview({
             skipHeading={true}
           />
         </ResizableBox>
+        </div>
+        </div>
       </div>
     </div>
   );
@@ -1826,20 +2024,37 @@ function ResizableBox({
   );
 }
 
-function PreviewCanvas({ children }: { children: React.ReactNode }) {
+/** Canvas-обгортка превʼю.
+ *  `pageWidth` = ширина імітованої сторінки /news (за замовчуванням
+ *  CANVAS_WIDTH=920px з lib/news/render). Якщо задано — внутрішній «папір»
+ *  має саме цю ширину з паддінгом і центрується, щоб менеджер бачив картку
+ *  у реальних пропорціях /news. Якщо canvas вужчий за наявне місце — fit
+ *  без скейлу. */
+function PreviewCanvas({ children, pageWidth }: { children: React.ReactNode; pageWidth?: number }) {
+  const w = pageWidth ?? NEWS_CANVAS_WIDTH;
   return (
     <div
       style={{
         background: "#F5F1E8",
         borderRadius: 16,
         border: "1px solid #E8D5B7",
-        overflow: "hidden",
+        overflow: "auto",
         display: "flex",
-        alignItems: "center",
         justifyContent: "center",
+        padding: "32px 24px",
       }}
     >
-      {children}
+      <div
+        style={{
+          width: w,
+          maxWidth: "100%",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+        }}
+      >
+        {children}
+      </div>
     </div>
   );
 }

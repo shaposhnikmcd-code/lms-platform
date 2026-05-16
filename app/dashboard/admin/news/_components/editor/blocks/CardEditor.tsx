@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Block, UIMP_COLORS } from "../types";
 
 const ff = "-apple-system, BlinkMacSystemFont, sans-serif";
@@ -126,7 +126,12 @@ export default function CardEditor({ block, onChange, onUpload }: Props) {
         <input style={inputStyle} placeholder="Заголовок" value={title} onChange={(e) => set({ title: e.target.value })} />
         <input style={inputStyle} placeholder="Підзаголовок" value={subtitle} onChange={(e) => set({ subtitle: e.target.value })} />
         <input style={inputStyle} placeholder="Текст кнопки (напр. Дізнатись більше)" value={buttonLabel} onChange={(e) => set({ buttonLabel: e.target.value })} />
-        <input style={inputStyle} placeholder="URL кнопки (https://...)" value={buttonHref} onChange={(e) => set({ buttonHref: e.target.value })} />
+        <LinkInputInline
+          value={buttonHref}
+          onChange={v => set({ buttonHref: v })}
+          placeholder="URL кнопки (https://...)"
+          inputStyle={inputStyle}
+        />
       </div>
 
       {/* Style controls */}
@@ -209,6 +214,86 @@ export default function CardEditor({ block, onChange, onUpload }: Props) {
           <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleBgUpload} />
         </div>
       </div>
+    </div>
+  );
+}
+
+// Inline URL-input з зеленою галкою (як у Текст-на-фото). Lock-стан після збереження,
+// 🗑 для скидання. Використовує переданий inputStyle щоб візуально вписатись у grid.
+function LinkInputInline({
+  value, onChange, placeholder, inputStyle,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  inputStyle: React.CSSProperties;
+}) {
+  const [draft, setDraft] = useState(value);
+  useEffect(() => { setDraft(value); }, [value]);
+  const trimmed = draft.trim();
+  const isSaved = !!value;
+  const canSave = !isSaved && !!trimmed;
+  return (
+    <div style={{ display: "flex", gap: "5px" }}>
+      <input
+        type="text"
+        value={draft}
+        readOnly={isSaved}
+        onChange={e => setDraft(e.target.value)}
+        onKeyDown={e => {
+          if (isSaved) return;
+          if (e.key === "Enter") { e.preventDefault(); if (canSave) onChange(trimmed); }
+        }}
+        placeholder={placeholder}
+        style={{
+          ...inputStyle,
+          flex: 1,
+          background: isSaved ? "#F5F1E8" : inputStyle.background,
+          color: isSaved ? "#9B7C45" : inputStyle.color,
+          cursor: isSaved ? "default" : "text",
+        }}
+      />
+      <button
+        type="button"
+        onMouseDown={e => { e.preventDefault(); if (canSave) onChange(trimmed); }}
+        title={canSave ? "Зберегти посилання" : (isSaved ? "Збережено" : "Введіть URL")}
+        style={{
+          width: "32px",
+          padding: 0,
+          borderRadius: "6px",
+          borderWidth: "1.5px",
+          borderStyle: "solid",
+          borderColor: canSave ? "#059669" : "#E8D5B7",
+          background: canSave ? "#059669" : "#FAF6F0",
+          color: canSave ? "#FFFFFF" : "#A8956C",
+          cursor: canSave ? "pointer" : "default",
+          fontWeight: 700,
+          fontSize: "14px",
+          opacity: canSave ? 1 : 0.55,
+          flexShrink: 0,
+        }}
+      >✓</button>
+      {isSaved && (
+        <button
+          type="button"
+          onMouseDown={e => { e.preventDefault(); onChange(""); }}
+          title="Прибрати посилання"
+          style={{
+            width: "32px",
+            padding: 0,
+            borderRadius: "6px",
+            borderWidth: "1.5px",
+            borderStyle: "solid",
+            borderColor: "#E8D5B7",
+            background: "#FFFFFF",
+            color: "#B91C1C",
+            cursor: "pointer",
+            fontWeight: 700,
+            fontSize: "14px",
+            flexShrink: 0,
+          }}
+        >🗑</button>
+      )}
     </div>
   );
 }

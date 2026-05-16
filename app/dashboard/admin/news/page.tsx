@@ -920,36 +920,10 @@ export default function AdminNewsPage() {
                           <span aria-hidden>📂</span>
                           <span>{children.length}{children.length > 0 ? ` · ${childrenPub} на /news` : ''}</span>
                         </span>
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            try {
-                              const res = await fetch('/api/admin/news/from-template', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ blueprintId: tpl.id }),
-                              });
-                              if (!res.ok) {
-                                const j = await res.json().catch(() => ({}));
-                                setToast({ message: j?.error || 'Не вдалось створити з шаблону', type: 'error' });
-                                return;
-                              }
-                              const j = await res.json();
-                              window.location.href = `/dashboard/admin/news/${j.id}/template`;
-                            } catch (e) {
-                              setToast({ message: e instanceof Error ? e.message : 'Помилка мережі', type: 'error' });
-                            }
-                          }}
-                          className={`inline-flex items-center justify-center gap-1.5 px-3 h-8 text-[12px] font-semibold rounded-lg transition-all ${
-                            dark
-                              ? 'bg-sky-400/90 text-stone-900 hover:bg-sky-300 shadow-[0_0_14px_-4px_rgba(56,189,248,0.45)]'
-                              : 'bg-sky-700 text-white hover:bg-sky-800 shadow-[0_2px_6px_-2px_rgba(2,132,199,0.35)]'
-                          }`}
-                          title="Створити нову новину з цього шаблону"
-                        >
-                          <FaPlus className="text-[10px]" />
-                          Створити
-                        </button>
+                        {/* «Створити Новину» прибрано 2026-05-15: з головного
+                            шаблону менеджер створює тільки СВІЙ шаблон. Самі
+                            новини добавляються на /news через білдер сторінки
+                            (drag-and-drop блока з потрібного власного шаблону). */}
                         <button
                           type="button"
                           onClick={async () => {
@@ -978,7 +952,7 @@ export default function AdminNewsPage() {
                           title="Створити власний шаблон на основі дефолтного"
                         >
                           <span aria-hidden className="text-[11px]">⊕</span>
-                          Свій шаблон
+                          Створити власний шаблон
                         </button>
                         <Link
                           href={`/dashboard/admin/news/${tpl.id}/template`}
@@ -1067,39 +1041,11 @@ export default function AdminNewsPage() {
                                   {custTitle}
                                 </h4>
                                 <div className="flex items-center gap-1.5 mt-auto">
-                                  <button
-                                    type="button"
-                                    onClick={async () => {
-                                      try {
-                                        const res = await fetch('/api/admin/news/from-template', {
-                                          method: 'POST',
-                                          headers: { 'Content-Type': 'application/json' },
-                                          body: JSON.stringify({ blueprintId: cust.id }),
-                                        });
-                                        if (!res.ok) {
-                                          const j = await res.json().catch(() => ({}));
-                                          setToast({ message: j?.error || 'Не вдалось створити з шаблону', type: 'error' });
-                                          return;
-                                        }
-                                        const j = await res.json();
-                                        window.location.href = `/dashboard/admin/news/${j.id}/template`;
-                                      } catch (e) {
-                                        setToast({ message: e instanceof Error ? e.message : 'Помилка мережі', type: 'error' });
-                                      }
-                                    }}
-                                    className={`flex-1 inline-flex items-center justify-center gap-1 px-2 h-[28px] text-[11px] font-semibold rounded-md transition-all ${
-                                      dark
-                                        ? 'bg-amber-400/85 text-stone-900 hover:bg-amber-300'
-                                        : 'bg-amber-600 text-white hover:bg-amber-700'
-                                    }`}
-                                    title="Створити новину з цього шаблону"
-                                  >
-                                    <FaPlus className="text-[9px]" />
-                                    Створити
-                                  </button>
+                                  {/* «Створити» прибрано 2026-05-15: новини з шаблону
+                                      додаються на /news через білдер сторінки. */}
                                   <Link
                                     href={`/dashboard/admin/news/${cust.id}/template`}
-                                    className={`inline-flex items-center justify-center w-[28px] h-[28px] rounded-md border transition-colors ${
+                                    className={`flex-1 inline-flex items-center justify-center gap-1.5 px-2 h-[28px] text-[11px] font-semibold rounded-md border transition-colors ${
                                       dark
                                         ? 'bg-white/[0.04] border-white/[0.10] text-slate-300 hover:bg-white/[0.10]'
                                         : 'bg-white/85 border-stone-300/60 text-stone-700 hover:bg-white'
@@ -1107,6 +1053,7 @@ export default function AdminNewsPage() {
                                     title="Редагувати шаблон"
                                   >
                                     <FaEdit className="text-[10px]" />
+                                    Редагувати
                                   </Link>
                                   <button
                                     type="button"
@@ -1159,10 +1106,10 @@ export default function AdminNewsPage() {
                           ? 'border-white/[0.08] text-slate-500 bg-white/[0.02]'
                           : 'border-stone-300/60 text-stone-500 bg-white/40'
                       }`}>
-                        Поки що нічого не створено. Натисни <strong>«+ Створити»</strong> вище — заповнюй поля, і нова новина зʼявиться тут.
+                        Поки що нічого не створено. Відкрий <strong>білдер сторінки /news</strong> (кнопка <strong>«Редагувати»</strong> вгорі), перетягни цей шаблон на canvas і заповни поля — новина зʼявиться тут.
                       </div>
                     ) : (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className={children.length === 1 ? "flex justify-center" : "grid grid-cols-1 sm:grid-cols-2 gap-3"}>
                         {children.map((tn) => {
                           const tnData = parseTemplateData(kind, tn.templateData);
                           const created = new Date(tn.createdAt);
@@ -1170,11 +1117,14 @@ export default function AdminNewsPage() {
                           const isPublished = !!tn.published;
                           const previewBaseW = isEvent ? 600 : PREVIEW_CARD_WIDTH;
                           const previewBaseH = isEvent ? 400 : PREVIEW_CARD_HEIGHT;
+                          const isSolo = children.length === 1;
                           return (
                             <Link
                               key={tn.id}
                               href={`/dashboard/admin/news/${tn.id}/template`}
                               className={`group/tn relative rounded-xl border overflow-hidden flex flex-col transition-all ${
+                                isSolo ? 'w-full sm:w-[calc(50%-6px)]' : ''
+                              } ${
                                 dark
                                   ? 'bg-white/[0.025] border-white/[0.08] hover:border-sky-400/35 hover:bg-white/[0.04]'
                                   : 'bg-white/85 border-stone-300/55 hover:border-sky-500/45 hover:bg-white'
@@ -1255,304 +1205,10 @@ export default function AdminNewsPage() {
             );
           })()}
 
-          {/* ─── Секція НОВИНИ ─── */}
-          {/* Section header: лейбл + лічильник + primary CTA «Створити новину». */}
-          <div className={`flex items-center gap-3 mb-4 h-[36px] ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
-            <span className="text-[10px] font-bold tracking-[0.18em] uppercase whitespace-nowrap">
-              Новини <span className={`font-normal opacity-70`}>· {news.length}</span>
-            </span>
-            <span className={`flex-1 h-px ${dark ? 'bg-white/[0.06]' : 'bg-stone-300/60'}`} />
-            <Link
-              href="/dashboard/admin/news/new"
-              className={`group relative inline-flex items-center gap-2 px-4 py-2 rounded-full text-[12px] font-medium transition-all duration-300 overflow-hidden ${
-                dark
-                  ? 'bg-amber-400/90 text-stone-900 shadow-[0_0_20px_-4px_rgba(251,191,36,0.5)] hover:bg-amber-300 hover:shadow-[0_0_28px_-2px_rgba(251,191,36,0.65)]'
-                  : 'bg-stone-900 text-amber-100 shadow-sm hover:bg-stone-800 hover:shadow-[0_6px_18px_-6px_rgba(41,37,36,0.35)]'
-              }`}
-            >
-              <span
-                aria-hidden
-                className={`pointer-events-none absolute inset-y-0 -left-1/2 w-1/2 skew-x-[-20deg] opacity-0 group-hover:opacity-100 group-hover:translate-x-[260%] transition-all duration-[900ms] ease-out ${
-                  dark ? 'bg-white/30' : 'bg-amber-200/30'
-                }`}
-              />
-              <FaPlus className="relative text-[11px]" />
-              <span className="relative">Створити новину</span>
-            </Link>
-          </div>
+          {/* Секція «Новини» (вільні, без шаблону) — прибрана 2026-05-15.
+              За домовленістю з користувачем: всі новини UIMP створюються
+              виключно з шаблонів. Free-form формат більше не потрібен. */}
 
-          {loading ? (
-            <div className="flex items-center justify-center py-20">
-              <div
-                className={`w-10 h-10 border-2 rounded-full animate-spin ${
-                  dark ? 'border-white/[0.1] border-t-amber-300' : 'border-stone-200 border-t-amber-600'
-                }`}
-              />
-            </div>
-          ) : filtered.length === 0 ? (
-            <AdminPanel theme={theme} className="py-16 text-center">
-              <p className={`mb-5 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>Новин ще немає</p>
-              <Link
-                href="/dashboard/admin/news/new"
-                className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-[13px] font-medium transition-all ${
-                  dark
-                    ? 'bg-amber-400/90 text-stone-900 shadow-[0_0_20px_-4px_rgba(251,191,36,0.4)] hover:bg-amber-300'
-                    : 'bg-stone-900 text-amber-100 hover:bg-stone-800'
-                }`}
-              >
-                <FaPlus /> Створити першу новину
-              </Link>
-            </AdminPanel>
-          ) : (
-            <>
-              {/* NEWS_BLOCK_CSS injectиться раз — забезпечує типографічну парність
-                  превʼю-картки в адмінці та публічного `/news`. */}
-              <style>{NEWS_BLOCK_CSS}</style>
-              {/* Grid пар: на xl — 2 пари в ряду. Великий gap (8/7) між парами —
-                  щоб око одразу читало їх як окремі групи. Всередині пари — інша
-                  візуальна логіка: outer frame з фоном, маленький gap між sub-cards. */}
-              <div className="grid grid-cols-1 xl:grid-cols-2 gap-x-7 gap-y-6">
-                {filtered.map((item, idx) => {
-                  const date = new Date(item.createdAt);
-                  const dateStr = date.toLocaleDateString('uk-UA');
-                  const timeStr = date.toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' });
-                  const excerptText = item.excerpt && item.excerpt.trim();
-                  const parsed = parseBlocks(item.previewContent || '');
-                  const hasPreview = parsed.isJson && parsed.blocks.length > 0;
-                  const cardBg = item.pageBgColor || '#FFFFFF';
-                  // Двозначний номер ("01", "02") — читається як артикул/ID, навіть
-                  // коли новин > 9. Допомагає менеджеру referencing-ом усно.
-                  const pairNum = String(idx + 1).padStart(2, '0');
-
-                  // Template-based новина: рендер preview автоматично з templateData,
-                  // edit-кнопка веде на form-based template editor.
-                  const isTemplateNews = !!item.templateKind;
-                  const tplKind = item.templateKind as TemplateKind | null;
-                  const tplData = isTemplateNews && tplKind
-                    ? parseTemplateData(tplKind, item.templateData)
-                    : null;
-                  const editHref = isTemplateNews
-                    ? `/dashboard/admin/news/${item.id}/template`
-                    : `/dashboard/admin/news/${item.id}/edit`;
-                  const previewEditHref = isTemplateNews
-                    ? `/dashboard/admin/news/${item.id}/template`
-                    : `/dashboard/admin/news/${item.id}/preview`;
-
-                  // Висота sub-cards. 220 дає preview візуальну вагу, та чітку
-                  // ритмічну сітку рядків з 2 пар.
-                  const PAIR_H = 220;
-
-                  return (
-                    <article
-                      key={item.id}
-                      className={`group/pair rounded-2xl border transition-all ${
-                        dark
-                          ? 'bg-white/[0.025] border-white/[0.06] hover:border-amber-400/35 hover:bg-white/[0.04]'
-                          : 'bg-stone-100/55 border-stone-300/55 hover:border-amber-500/40 hover:bg-stone-50/80'
-                      }`}
-                    >
-                      {/* ── HEADER пари: номер + назва + pill «Картка» справа ── */}
-                      {/* Pair-header читається як "обкладинка" групи: "Новина №01 ·
-                          День міста". Звідси одразу зрозуміло, ЩО за пара під ним.
-                          Пілл «Картка» — в правому-верхньому куті блока, як акцент-метка. */}
-                      <header className="flex items-center gap-2.5 px-3.5 pt-2.5 pb-2 min-w-0">
-                        <span className={`inline-flex items-center justify-center px-2 h-[22px] rounded-md text-[10px] font-bold tracking-[0.06em] flex-shrink-0 ${
-                          dark
-                            ? 'bg-amber-400/15 text-amber-300 border border-amber-400/25'
-                            : 'bg-amber-100/80 text-amber-800 border border-amber-600/25'
-                        }`}>
-                          № {pairNum}
-                        </span>
-                        <span className={`flex-shrink-0 text-[9px] font-bold uppercase tracking-[0.16em] ${
-                          dark ? 'text-slate-500' : 'text-stone-400'
-                        }`}>
-                          Новина
-                        </span>
-                        <span className={`flex-1 truncate text-[12px] font-medium ${
-                          dark ? 'text-slate-300' : 'text-stone-700'
-                        }`} title={item.title}>
-                          {item.title}
-                        </span>
-                        {isTemplateNews && tplKind && (
-                          <span className={`flex-shrink-0 inline-flex items-center gap-1 px-2 h-[22px] rounded-md text-[9px] font-bold uppercase tracking-[0.1em] ${
-                            dark
-                              ? 'bg-sky-400/15 text-sky-200 border border-sky-300/25'
-                              : 'bg-sky-50/80 text-sky-800 border border-sky-600/25'
-                          }`}>
-                            <span aria-hidden>{tplKind === 'ARTICLE' ? '📰' : '🎟'}</span>
-                            <span>{templateKindLabel(tplKind)}</span>
-                          </span>
-                        )}
-                        <span className={`flex-shrink-0 inline-flex items-center gap-1 px-2 h-[22px] rounded-md text-[9px] font-bold uppercase tracking-[0.1em] ${
-                          dark
-                            ? 'bg-stone-900/40 text-amber-200 border border-amber-300/25'
-                            : 'bg-amber-50/80 text-amber-800 border border-amber-600/25'
-                        }`}>
-                          <span aria-hidden>🃏</span>
-                          <span>Картка</span>
-                        </span>
-                      </header>
-
-                      {/* ── BODY пари: preview + news ── */}
-                      {/* gap-2.5 (10px) — мала «щілина» між sub-cards, щоб видно
-                          було що це 2 елементи, але вони «під одним дахом». */}
-                      <div className="flex gap-2.5 px-2.5 pb-2.5" style={{ minHeight: PAIR_H }}>
-                        {/* ── ПРЕВ'Ю sub-card ── */}
-                        <div
-                          className={`group/preview relative flex-shrink-0 rounded-xl overflow-hidden border transition-all ${
-                            dark
-                              ? 'border-white/[0.08] hover:border-amber-400/55 hover:shadow-[0_10px_28px_-12px_rgba(251,191,36,0.30)]'
-                              : 'border-stone-300/55 hover:border-amber-500/55 hover:shadow-[0_10px_28px_-12px_rgba(180,83,9,0.25)]'
-                          }`}
-                          style={{
-                            height: PAIR_H,
-                            aspectRatio: `${PREVIEW_CARD_WIDTH} / ${PREVIEW_CARD_HEIGHT}`,
-                            background: cardBg,
-                          }}
-                        >
-                          {isTemplateNews && tplKind && tplData ? (
-                            <div className="w-full h-full" style={{ pointerEvents: 'none' }} aria-hidden>
-                              <PreviewCardScale
-                                baseWidth={PREVIEW_CARD_WIDTH}
-                                baseHeight={PREVIEW_CARD_HEIGHT}
-                                initialScale={1}
-                              >
-                                <TemplatePreviewCard kind={tplKind} data={tplData} disableLinks />
-                              </PreviewCardScale>
-                            </div>
-                          ) : hasPreview ? (
-                            <div className="w-full h-full" style={{ pointerEvents: 'none' }} aria-hidden>
-                              <PreviewCardScale
-                                baseWidth={PREVIEW_CARD_WIDTH}
-                                baseHeight={PREVIEW_CARD_HEIGHT}
-                                initialScale={1}
-                              >
-                                {parsed.blocks.map((b) => (
-                                  <AbsoluteBlockRender key={b.id} block={b} locale="uk" />
-                                ))}
-                              </PreviewCardScale>
-                            </div>
-                          ) : (
-                            <div className={`w-full h-full flex flex-col items-center justify-center gap-1.5 text-center px-3 ${
-                              dark ? 'bg-amber-500/[0.04]' : 'bg-amber-50/50'
-                            }`}>
-                              <span aria-hidden className="text-[28px] leading-none">🃏</span>
-                              <p className={`text-[11px] font-semibold leading-snug ${dark ? 'text-amber-200' : 'text-amber-900'}`}>
-                                Превʼю не зверстано
-                              </p>
-                              <span className={`text-[10px] font-semibold uppercase tracking-[0.08em] ${
-                                dark ? 'text-amber-300' : 'text-amber-700'
-                              }`}>
-                                Відкрити білдер →
-                              </span>
-                            </div>
-                          )}
-
-                          {/* Invisible Link — клік по всій картці → відповідний редактор. */}
-                          <Link
-                            href={previewEditHref}
-                            aria-label={`Редагувати «${item.title}»`}
-                            title={isTemplateNews ? 'Відкрити шаблонний редактор' : 'Редагувати превʼю-картку'}
-                            className="absolute inset-0 z-[1] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-amber-400 rounded-xl"
-                          />
-
-                          {/* Floating fullscreen-кнопка — top-right preview canvas-у
-                              (підпис «Картка» тепер в header-і пари, не дублюємо). */}
-                          <button
-                            type="button"
-                            onClick={() => setItemPreview({ kind: 'card', slug: item.slug, title: item.title })}
-                            title="Переглянути картку у контексті /news"
-                            aria-label="Превʼю у /news"
-                            className={`absolute top-2 right-2 z-[2] inline-flex items-center justify-center w-7 h-7 rounded-lg border backdrop-blur-md transition-all opacity-0 group-hover/preview:opacity-100 focus:opacity-100 ${
-                              dark
-                                ? 'bg-stone-900/70 border-white/15 text-white/90 hover:bg-stone-900/90 hover:border-amber-300/50 hover:text-amber-200'
-                                : 'bg-white/85 border-stone-900/15 text-stone-800 hover:bg-white hover:border-amber-600/45 hover:text-amber-800'
-                            }`}
-                          >
-                            <FaExpand className="text-[10px]" />
-                          </button>
-                        </div>
-
-                        {/* ── НОВИНА sub-card ── */}
-                        <div
-                          className={`flex-1 min-w-0 rounded-xl border backdrop-blur-sm transition-all flex flex-col ${
-                            dark
-                              ? 'bg-white/[0.04] border-white/[0.08] hover:bg-white/[0.06] hover:border-white/[0.14]'
-                              : 'bg-white/85 border-stone-300/50 hover:bg-white hover:border-stone-300/80'
-                          }`}
-                          style={{ height: PAIR_H }}
-                        >
-                          <div className="flex-1 min-w-0 px-4 pt-3.5 pb-2 flex flex-col">
-                            <h3
-                              className={`text-[15px] font-semibold leading-snug line-clamp-2 ${
-                                dark ? 'text-slate-100' : 'text-stone-900'
-                              }`}
-                            >
-                              {item.title}
-                            </h3>
-                            {excerptText && (
-                              <p className={`mt-1.5 text-[12px] leading-snug line-clamp-2 ${
-                                dark ? 'text-slate-400' : 'text-stone-500'
-                              }`}>
-                                {excerptText}
-                              </p>
-                            )}
-                            <div className={`mt-auto inline-flex items-center gap-1.5 text-[11px] ${
-                              dark ? 'text-slate-500' : 'text-stone-400'
-                            }`}>
-                              <FaCalendar className="text-[9px] opacity-70" />
-                              {dateStr} · {timeStr}
-                            </div>
-                          </div>
-                          <div className={`flex items-center gap-1.5 px-3 py-2.5 border-t ${
-                            dark ? 'border-white/[0.06]' : 'border-stone-300/40'
-                          }`}>
-                            <Link
-                              href={editHref}
-                              className={`flex-1 inline-flex items-center justify-center gap-1.5 px-3 h-9 text-[12.5px] font-semibold rounded-lg transition-all ${
-                                dark
-                                  ? 'bg-amber-400/90 text-stone-900 hover:bg-amber-300 shadow-[0_0_16px_-4px_rgba(251,191,36,0.50)]'
-                                  : 'bg-stone-900 text-amber-100 hover:bg-stone-800 shadow-[0_2px_8px_-2px_rgba(28,37,38,0.30)]'
-                              }`}
-                            >
-                              <FaEdit className="text-[11px]" />
-                              Редагувати
-                            </Link>
-                            <button
-                              type="button"
-                              onClick={() => setItemPreview({ kind: 'article', slug: item.slug, title: item.title })}
-                              title="Переглянути сторінку статті /news/{slug}"
-                              aria-label="Превʼю статті"
-                              className={`inline-flex items-center justify-center w-9 h-9 rounded-lg border transition-colors ${
-                                dark
-                                  ? 'bg-white/[0.04] border-white/[0.10] text-slate-300 hover:bg-white/[0.10] hover:text-slate-100'
-                                  : 'bg-white/80 border-stone-300/60 text-stone-700 hover:bg-white hover:text-stone-900'
-                              }`}
-                            >
-                              <FaExpand className="text-[11px]" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setDeleteTarget({ id: item.id, title: item.title })}
-                              title="Видалити новину"
-                              aria-label="Видалити новину"
-                              className={`inline-flex items-center justify-center w-9 h-9 rounded-lg border transition-colors ${
-                                dark
-                                  ? 'bg-rose-500/[0.08] border-rose-400/20 text-rose-300 hover:bg-rose-500/20 hover:text-rose-200'
-                                  : 'bg-rose-50/60 border-rose-300/50 text-rose-700 hover:bg-rose-100 hover:text-rose-900'
-                              }`}
-                            >
-                              <FaTrash className="text-[11px]" />
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
-            </>
-          )}
         </section>
         {/* ╰─ кінець блоку «Шаблони + список новин» ─────────────────────╯ */}
       </div>

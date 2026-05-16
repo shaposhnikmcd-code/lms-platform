@@ -73,6 +73,12 @@ export async function POST(req: NextRequest) {
       parentTemplateId,
       templateKind: blueprint.templateKind,
       templateData: blueprint.templateData,
+      // Block-based template (Session 3+): копіюємо разом з legacy templateData,
+      // щоб новий запис мав і structured (для backward-compat рендеру), і
+      // block-based (для constructor-режиму) контент. Один з двох буде використано
+      // залежно від наявності templateBlocks при public render-у.
+      templateBlocks: blueprint.templateBlocks,
+      templateCanvas: blueprint.templateCanvas,
       content: "",
       previewContent: null,
       imageUrl: blueprint.imageUrl,
