@@ -1,8 +1,10 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useDraggable } from "@dnd-kit/core";
 import { NewsMeta, UIMP_COLORS } from "./types";
+import { parseBlocks } from "@/lib/news/render";
+import TemplateBlocksPreview from "@/lib/news/templates/TemplateBlocksPreview";
 
 const ff = "-apple-system, BlinkMacSystemFont, sans-serif";
 
@@ -101,11 +103,27 @@ function NewsLibraryCard({
   });
   const [hov, setHov] = useState(false);
 
+  // Розпарсений шаблонний каркас для міні-preview всередині картки.
+  // Тільки для шаблонів (isTpl=true) — щоб менеджер відразу бачив layout без drop-у.
+  const tplBlocks = useMemo(() => {
+    if (!isTpl || !item.templateBlocks) return [] as ReturnType<typeof parseBlocks>["blocks"];
+    const p = parseBlocks(item.templateBlocks);
+    return p.isJson ? p.blocks : [];
+  }, [isTpl, item.templateBlocks]);
+  const tplCanvas = useMemo(() => {
+    let w = 600, h = 400;
+    if (item.templateCanvas) {
+      const m = item.templateCanvas.match(/^(\d+)x(\d+)$/);
+      if (m) { w = Number(m[1]) || w; h = Number(m[2]) || h; }
+    }
+    return { w, h };
+  }, [item.templateCanvas]);
+
   return (
     <div style={{ position: "relative" }}>
       {isDragging ? (
         <div style={{
-          height: 84,
+          height: isTpl ? 132 : 84,
           borderRadius: 10,
           borderWidth: 1.5,
           borderStyle: "dashed",
@@ -117,14 +135,18 @@ function NewsLibraryCard({
         }}>
           <div style={{ width: 6, height: 6, borderRadius: "50%", background: "rgba(212,168,67,0.5)" }} />
         </div>
-      ) : (
+      ) : isTpl ? (
+        // Шаблони — вертикальна картка з міні-preview шаблонного лейауту зверху.
+        // Менеджер бачить «що всередині» (Фото, Текст, Заголовки, спецблоки)
+        // без необхідності drop-у на канвас.
         <div
           onMouseEnter={() => setHov(true)}
           onMouseLeave={() => setHov(false)}
           style={{
             display: "flex",
-            gap: 10,
-            padding: 8,
+            flexDirection: "column",
+            padding: 7,
+            gap: 6,
             borderRadius: 10,
             border: `1px solid ${hov ? "rgba(212,168,67,0.4)" : "#E8D5B7"}`,
             background: hov ? "rgba(212,168,67,0.04)" : "#fff",
@@ -135,28 +157,127 @@ function NewsLibraryCard({
           }}
           title={isPlaced ? "Вже на канвасі (можна додати ще раз)" : "Перетягніть на канвас"}
         >
-          {/* Thumbnail 16:9 */}
-          <div style={{ width: 60, height: 34, borderRadius: 6, overflow: "hidden", background: "#F3F0E8", flexShrink: 0 }}>
-            {item.imageUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={item.imageUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-            ) : (
-              <div style={{ width: "100%", height: "100%", background: "linear-gradient(135deg,#1C3A2E,#2a4f3f)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 14 }}>📰</div>
-            )}
-          </div>
+          {/* Міні-preview шаблонного каркасу — scale до ширини картки.
+              ~168 = 200 (sidebar) − 14 (card padding) − 14 (item padding) − 4 (luft). */}
+          {(() => {
+            const previewW = 168;
+            const scale = previewW / tplCanvas.w;
+            const previewH = Math.max(60, Math.round(tplCanvas.h * scale));
+            return (
+              <div style={{
+                width: previewW,
+                height: previewH,
+                borderRadius: 6,
+                overflow: "hidden",
+                background: "#F3F0E8",
+                position: "relative",
+              }}>
+                {tplBlocks.length > 0 ? (
+                  <div style={{ width: tplCanvas.w, height: tplCanvas.h, transformOrigin: "top left", transform: `scale(${scale})` }}>
+                    <TemplateBlocksPreview blocks={tplBlocks} width={tplCanvas.w} height={tplCanvas.h} background="#FFFFFF" />
+                  </div>
+                ) : (
+                  <div style={{ width: "100%", height: "100%", background: "linear-gradient(135deg,#1C3A2E,#2a4f3f)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 14 }}>📰</div>
+                )}
+              </div>
+            );
+          })()}
           {/* Title + drag-mode label (Превʼю / Новина) — щоб одразу зрозуміло
               що саме перетягуємо. Категорія новини (NEWS) тут не показується, бо
               менеджеру вже зрозуміло з заголовку секції в сайдбарі. */}
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 3 }}>
+            {/* Для шаблонів НЕ дублюємо «ШАБЛОН» — це вже зрозуміло з заголовку секції
+                «Мої шаблони». Залишаємо лейбл лише для звичайних новин (Превʼю/Новина),
+                де він допомагає відрізнити mode. Для шаблонів — більше місця для назви. */}
+            {(!isTpl || (!isTpl && item.published === false)) && (
+              <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 2 }}>
+                {!isTpl && (
+                  <span style={{
+                    fontSize: 9,
+                    fontWeight: 700,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.06em",
+                    color: "#9B7C45",
+                  }}>{mode === "preview" ? "Превʼю" : "Новина"}</span>
+                )}
+                {!isTpl && item.published === false && (
+                  <span style={{
+                    fontSize: 8,
+                    fontWeight: 800,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.06em",
+                    color: "#92400E",
+                    background: "#FEF3C7",
+                    border: "1px solid #FCD34D",
+                    borderRadius: 4,
+                    padding: "1px 5px",
+                    lineHeight: 1.2,
+                  }}>Чернетка</span>
+                )}
+              </div>
+            )}
+            <div style={{
+              fontSize: 11.5,
+              fontWeight: 600,
+              color: "#1C3A2E",
+              lineHeight: 1.3,
+              fontFamily: ff,
+              display: "-webkit-box",
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: "vertical",
+              overflow: "hidden",
+              wordBreak: "break-word",
+            }}>{item.title}</div>
+            {isPlaced && !isTpl && (
+              <div style={{
+                marginTop: 4,
+                fontSize: 9,
+                fontWeight: 700,
+                color: "#10B981",
+                letterSpacing: "0.06em",
+                textTransform: "uppercase",
+              }}>✓ На сторінці</div>
+            )}
+          </div>
+        </div>
+      ) : (
+        // Звичайні новини (kind="news") — горизонтальна компактна картка з міні-thumbnail.
+        <div
+          onMouseEnter={() => setHov(true)}
+          onMouseLeave={() => setHov(false)}
+          style={{
+            display: "flex",
+            gap: 8,
+            padding: 7,
+            alignItems: "center",
+            borderRadius: 10,
+            border: `1px solid ${hov ? "rgba(212,168,67,0.4)" : "#E8D5B7"}`,
+            background: hov ? "rgba(212,168,67,0.04)" : "#fff",
+            cursor: "grab",
+            userSelect: "none",
+            transition: "all 0.15s",
+            opacity: isPlaced ? 0.55 : 1,
+          }}
+          title={isPlaced ? "Вже на канвасі (можна додати ще раз)" : "Перетягніть на канвас"}
+        >
+          <div style={{ width: 36, height: 22, borderRadius: 5, overflow: "hidden", background: "#F3F0E8", flexShrink: 0 }}>
+            {item.imageUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={item.imageUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+            ) : (
+              <div style={{ width: "100%", height: "100%", background: "linear-gradient(135deg,#1C3A2E,#2a4f3f)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 11 }}>📰</div>
+            )}
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 2 }}>
               <span style={{
                 fontSize: 9,
                 fontWeight: 700,
                 textTransform: "uppercase",
                 letterSpacing: "0.06em",
                 color: "#9B7C45",
-              }}>{isTpl ? "Шаблон" : mode === "preview" ? "Превʼю" : "Новина"}</span>
-              {!isTpl && item.published === false && (
+              }}>{mode === "preview" ? "Превʼю" : "Новина"}</span>
+              {item.published === false && (
                 <span style={{
                   fontSize: 8,
                   fontWeight: 800,
@@ -172,17 +293,18 @@ function NewsLibraryCard({
               )}
             </div>
             <div style={{
-              fontSize: 12,
+              fontSize: 11.5,
               fontWeight: 600,
               color: "#1C3A2E",
-              lineHeight: 1.25,
+              lineHeight: 1.3,
               fontFamily: ff,
               display: "-webkit-box",
               WebkitLineClamp: 2,
               WebkitBoxOrient: "vertical",
               overflow: "hidden",
+              wordBreak: "break-word",
             }}>{item.title}</div>
-            {isPlaced && !isTpl && (
+            {isPlaced && (
               <div style={{
                 marginTop: 4,
                 fontSize: 9,
@@ -236,7 +358,7 @@ export default function NewsLibrarySidebar({ meta, onChange, placedNewsIds }: Pr
   }, []);
 
   return (
-    <div style={{ width: "240px", minWidth: "240px", display: "flex", flexDirection: "column", gap: "10px" }}>
+    <div style={{ width: "200px", minWidth: "200px", display: "flex", flexDirection: "column", gap: "10px" }}>
       {/* ─── Секція «Мої шаблони» ─── (custom blueprint-и менеджера) */}
       {/* Перетягуються як newsCard preview на канвас сторінки /news. Менеджер
           далі заповнює блоки шаблону контентом просто на сторінці. */}

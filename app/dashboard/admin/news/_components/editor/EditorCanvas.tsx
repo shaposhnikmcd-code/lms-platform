@@ -151,6 +151,7 @@ export default function EditorCanvas({
   };
   const canvasRef = useRef<HTMLDivElement>(null);
   const canvasRectRef = useRef<DOMRect | null>(null);
+  const canvasColumnRef = useRef<HTMLDivElement>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [isOverCanvas, setIsOverCanvas] = useState(false);
   // dropPreview: позиція та слот, де новий блок з палітри сяде. У fixedHeight-режимі
@@ -1762,7 +1763,7 @@ export default function EditorCanvas({
           acceleration: 25,
         }}
       >
-        <div style={{ display: "flex", gap: "20px", alignItems: "stretch" }}>
+        <div style={{ display: "flex", gap: "20px", alignItems: "flex-start" }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 12, alignSelf: "flex-start" }}>
             {abovePaletteSlot}
           <BlockPalette
@@ -1792,21 +1793,35 @@ export default function EditorCanvas({
           </div>
 
           <div
+            ref={canvasColumnRef}
             style={{
               flex: 1,
               minWidth: 0,
               display: "flex",
               flexDirection: "column",
-              alignItems: "center",
+              // alignItems заборонений — використовуємо `marginInline: auto` на дітях
+              // (canvas-label / canvas wrapper). Так канвас центрується якщо вміщається,
+              // і притискається до лівого краю (з horizontal scroll) якщо ширший за колонку.
+              alignItems: "stretch",
+              // Канвас завжди рендериться у логічній ширині (PAGE_WIDTH + paddings).
+              // Якщо колонка вужча — скрол відбувається ВСЕРЕДИНІ колонки, а палітра
+              // і right-sidebar лишаються на місці. Це стандартний паттерн design-tool-ів
+              // (Webflow): точні пропорції без CSS-масштабування й без ризику math-багів
+              // у dnd-kit при scale<1.
+              overflowX: "auto",
+              overflowY: "visible",
             }}
             onClick={(e) => { if (e.target === e.currentTarget) setSelectedBlockId(null); }}
           >
             {/* Canvas-label row — лише коли caller дав canvasLabel або немає
-                canvasTopToolbar (тобто не template-режим з уніфікованим toolbar-ом). */}
+                canvasTopToolbar (тобто не template-режим з уніфікованим toolbar-ом).
+                marginInline:auto — центрує label коли він вужчий за колонку,
+                і притискає до лівого краю коли ширший (синхронно з канвасом). */}
             {(canvasLabel || !canvasTopToolbar) && (
               <div style={{
-                width: "100%",
-                maxWidth: `${PAGE_WIDTH + PAGE_PAD_X * 2}px`,
+                width: `${PAGE_WIDTH + PAGE_PAD_X * 2}px`,
+                marginInline: "auto",
+                flexShrink: 0,
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "space-between",
@@ -1830,7 +1845,7 @@ export default function EditorCanvas({
                 (template-режим: вертикальні пресети «вздовж лівого краю»).
                 canvasTopToolbar інлайнимо у колонку поруч з канвасом — щоб
                 його лівий край збігався з лівим краєм canvas-у. */}
-            <div style={{ display: "flex", gap: 8, alignItems: "stretch", width: "100%", maxWidth: canvasLeftToolbar ? "none" : `${PAGE_WIDTH + PAGE_PAD_X * 2}px` }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "stretch", width: canvasLeftToolbar ? "100%" : `${PAGE_WIDTH + PAGE_PAD_X * 2}px`, marginInline: "auto", flexShrink: 0 }}>
               {canvasLeftToolbar && (
                 <div style={{ flexShrink: 0, display: "flex" }}>{canvasLeftToolbar}</div>
               )}
@@ -1846,8 +1861,12 @@ export default function EditorCanvas({
             <div
               onClick={(e) => { if (e.target === e.currentTarget) setSelectedBlockId(null); }}
               style={{
-                width: "100%",
-                maxWidth: `${PAGE_WIDTH + PAGE_PAD_X * 2}px`,
+                // Канвас рендериться у логічній ширині (PAGE_WIDTH + бокові паддінги)
+                // і НЕ стискається до ширини колонки. Коли колонка вужча — канвас-колонка
+                // через `overflowX: auto` отримує горизонтальний скрол (рішення Webflow:
+                // точні пропорції без CSS-масштабування й без compensation у dnd-kit math).
+                width: `${PAGE_WIDTH + PAGE_PAD_X * 2}px`,
+                flexShrink: 0,
                 background: pageBgColor || "#FFFFFF",
                 borderRadius: templateMode ? 12 : 14,
                 // У template-режимі — субтильний амбер-accent border (когезія з палітрою)
@@ -2444,9 +2463,23 @@ function AbsoluteBlock(props: {
         // overflow:hidden — defense in depth.
         overflow: fixedHeight ? "hidden" : undefined,
         transform: translate,
-        // Selected — підіймаємо над іншими (zIndex 20), щоб коли блоки накладаються,
-        // користувач міг схопити саме виділений (а не той, що візуально зверху).
-        zIndex: isActive || isDragging ? 30 : (selected ? 20 : 1),
+        // zIndex стратегія:
+        //   - Спецблоки (label-оверлеї: Імʼя/Посада/Tagline/Вартість/Тривалість/
+        //     CTA/освіта) — завжди ПОВЕРХ generic-блоків (Фото/Текст/Заголовок).
+        //     Менеджер свідомо ставить їх на Фото у шаблоні; у content-mode
+        //     опакове Фото інакше їх закриває. Тому spec baseline = 50.
+        //   - Generic-блок baseline = 1.
+        //   - Selected — підіймається відносно своєї категорії (+30) — щоб
+        //     виділений блок було легко зчепити (resize-handles доступні), при
+        //     цьому spec все одно над generic навіть коли generic виділений.
+        //   - Active/dragging — найвище (100), щоб під час drag блок видно
+        //     зверху всіх інших.
+        zIndex: (() => {
+          const isSpec = ["speakerName", "speakerRole", "tagline", "price", "duration", "ctaButton", "educationItem"].includes(block.type);
+          if (isActive || isDragging) return 100;
+          const baseline = isSpec ? 50 : 1;
+          return selected ? baseline + 30 : baseline;
+        })(),
         opacity: isDragging ? 0.65 : 1,
         transition: (isDragging || isResizing) ? "none" : "left 0.12s, top 0.12s, width 0.12s",
         outline: selected ? "2px solid #D4A843" : "none",

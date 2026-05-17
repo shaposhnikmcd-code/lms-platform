@@ -19,6 +19,10 @@ const NewsEditor = dynamic(() => import("../_components/editor/NewsEditor"), {
   ),
 });
 
+const DEFAULT_PAGE_WIDTH = 920;
+const MIN_PAGE_WIDTH = 850;
+const MAX_PAGE_WIDTH = 1450;
+
 export default function NewsPageBuilder() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -26,6 +30,8 @@ export default function NewsPageBuilder() {
   const [error, setError] = useState("");
   const [initialMeta, setInitialMeta] = useState<Partial<NewsMeta>>({});
   const [initialContent, setInitialContent] = useState("");
+  // Поточна ширина «папера» сторінки /news. Менеджер редагує інлайн у canvasLabel-у.
+  const [pageWidth, setPageWidth] = useState<number>(DEFAULT_PAGE_WIDTH);
 
   useEffect(() => {
     fetch("/api/admin/news/page-content")
@@ -54,6 +60,9 @@ export default function NewsPageBuilder() {
             /* not JSON — лишаємо як є */
           }
           setInitialContent(cleaned);
+          if (typeof d.pageWidth === "number" && d.pageWidth > 0) {
+            setPageWidth(Math.max(MIN_PAGE_WIDTH, Math.min(MAX_PAGE_WIDTH, d.pageWidth)));
+          }
         } else {
           // Дефолт: пуста сторінка. Користувач починає з drag-карток з правого бару.
           setInitialMeta({ title: "", slug: "", excerpt: "", category: "NEWS", imageUrl: "", pageBgColor: "", published: true });
@@ -70,12 +79,9 @@ export default function NewsPageBuilder() {
       const res = await fetch("/api/admin/news/page-content", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content, pageBgColor: meta.pageBgColor || null }),
+        body: JSON.stringify({ content, pageBgColor: meta.pageBgColor || null, pageWidth }),
       });
-      if (res.ok) {
-        router.push("/dashboard/admin/news");
-        return;
-      }
+      if (res.ok) return;
       const body = await res.json().catch(() => ({}));
       throw new Error(body?.error || `Помилка збереження (HTTP ${res.status})`);
     } finally {
@@ -95,6 +101,39 @@ export default function NewsPageBuilder() {
     </div>
   );
 
+  // Кастомний canvasLabel.right — інлайн input для ширини сторінки (850..1450).
+  const widthLabel = (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 8, color: "#D4A843" }}>
+      <input
+        type="number"
+        min={MIN_PAGE_WIDTH}
+        max={MAX_PAGE_WIDTH}
+        step={10}
+        value={pageWidth}
+        onChange={e => {
+          const v = Number(e.target.value);
+          if (Number.isFinite(v)) setPageWidth(v);
+        }}
+        onBlur={() => setPageWidth(w => Math.max(MIN_PAGE_WIDTH, Math.min(MAX_PAGE_WIDTH, Math.round(w))))}
+        title={`Ширина сторінки /news у px (${MIN_PAGE_WIDTH}..${MAX_PAGE_WIDTH})`}
+        style={{
+          width: 64,
+          padding: "3px 6px",
+          fontSize: 11,
+          fontWeight: 700,
+          fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
+          color: "#1C3A2E",
+          background: "#FFFFFF",
+          border: "1px solid #D4A843",
+          borderRadius: 6,
+          textAlign: "center",
+          letterSpacing: "0.06em",
+        }}
+      />
+      <span>px — ширина сторінки на сайті</span>
+    </span>
+  );
+
   return (
     <NewsEditor
       pageTitle={"Білдер сторінки /news"}
@@ -107,6 +146,8 @@ export default function NewsPageBuilder() {
       saving={saving}
       extraPaletteBlocks={TEMPLATE_PALETTE_BLOCKS}
       extraPaletteBlocksTitle="Спецблоки"
+      canvasWidth={pageWidth}
+      canvasLabel={{ left: "📄 Сторінка новини", right: widthLabel }}
     />
   );
 }

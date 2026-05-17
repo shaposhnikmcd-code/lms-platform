@@ -113,7 +113,7 @@ function PaletteItem({ type, label, icon, desc, color, colorDim, bg, compact = f
 
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{
-              fontSize: compact ? "13px" : "13px",
+              fontSize: compact ? "11px" : "11px",
               fontWeight: 600,
               color: hov ? "#FAF6F0" : "rgba(255,255,255,0.78)",
               fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
@@ -241,7 +241,7 @@ function ImageOverlayPaletteItem({ onAddImageOverlay, compact = false }: { onAdd
 
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{
-              fontSize: compact ? "14px" : "13px",
+              fontSize: compact ? "11px" : "11px",
               fontWeight: 600,
               color: hov ? "#FAF6F0" : "rgba(255,255,255,0.78)",
               fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
@@ -295,7 +295,7 @@ export default function BlockPalette({ onAddImageOverlay, selectedBlockY, extraB
   // У compact (template) режимі — ширша палітра, бо 2 колонки блоків поряд.
   // У wide-режимі (page-builder /news) — теж 520, але 1-col layout зберігається.
   // У template-режимі (compact) — вужче (440px) щоб не «з'їдати» простір канвасу.
-  const paletteWidth = compact ? 440 : wide ? 520 : 304;
+  const paletteWidth = compact || wide ? 320 : 304;
 
   return (
     <div className="news-palette-scroll" style={{
@@ -371,12 +371,12 @@ export default function BlockPalette({ onAddImageOverlay, selectedBlockY, extraB
         <style>{`.news-palette-scroll::-webkit-scrollbar { display: none; }`}</style>
       )}
 
-      {compact && extraBlocks && extraBlocks.length > 0 ? (
+      {(compact || wide) && extraBlocks && extraBlocks.length > 0 ? (
         // 2-col layout: ліворуч Блоки, праворуч Спецблоки (з ImageOverlay усередині).
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <div>
             <div style={{
-              fontSize: "14px",
+              fontSize: "11px",
               fontWeight: 800,
               color: "#D4A843",
               letterSpacing: "0.14em",
@@ -392,7 +392,7 @@ export default function BlockPalette({ onAddImageOverlay, selectedBlockY, extraB
 
           <div>
             <div style={{
-              fontSize: "14px",
+              fontSize: "11px",
               fontWeight: 800,
               color: "#D4A843",
               letterSpacing: "0.14em",

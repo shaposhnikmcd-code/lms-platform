@@ -514,6 +514,9 @@ model NewsPage {
   contentPl   String?
   /// Колір фону сторінки (за замовчуванням — поточний gray-50).
   pageBgColor String?
+  /// Ширина «папера» (контентної колонки) сторінки /news у px. null = дефолт 920.
+  /// Менеджер міняє з білдера; діапазон 850..1450.
+  pageWidth   Int?
   /// Чи опублікована сторінка на /news. false (default) → /news показує empty state,
   /// незалежно від наявності блоків. Адмін активує через кнопку на /dashboard/admin/news.
   published   Boolean  @default(false)

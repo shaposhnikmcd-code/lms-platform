@@ -300,35 +300,6 @@ export default function NewsEditor(props: Props) {
   const savedFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [uploading, setUploading] = useState(false);
 
-  // ── Page zoom (Ctrl+wheel) ───────────────────────────────────────────────
-  const [zoom, setZoom] = useState(1);
-  const editorRootRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const el = editorRootRef.current;
-    if (!el) return;
-    const onWheel = (e: WheelEvent) => {
-      if (!e.ctrlKey && !e.metaKey) return;
-      e.preventDefault();
-      const step = e.deltaY > 0 ? -0.1 : 0.1;
-      setZoom(z => Math.max(0.5, Math.min(2, +(z + step).toFixed(2))));
-    };
-    el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel);
-  }, []);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey)) return;
-      if (e.key === "0") {
-        const t = e.target as HTMLElement | null;
-        if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
-        e.preventDefault();
-        setZoom(1);
-      }
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, []);
-
   // ── Undo/Redo per tab ────────────────────────────────────────────────────
   // Map<tabKey, {history, pointer}>. Тригер ре-рендеру disabled-стану — historyTick.
   const histRef = useRef<Map<string, { history: HistorySnap[]; pointer: number }>>(new Map());
@@ -583,7 +554,7 @@ export default function NewsEditor(props: Props) {
 
   return (
     <NewsEditorActionsContext.Provider value={editorActions}>
-    <div ref={editorRootRef} className="min-h-screen bg-slate-100" style={{ zoom }}>
+    <div className="min-h-screen bg-slate-100">
       {/* Google Fonts CSS-bundle для редактора. Один request з усіма family
           (Google API оптимізує payload). display=swap → текст видно одразу,
           без FOIT. Лінк лише в admin-edit-page, не зачіпає public render. */}

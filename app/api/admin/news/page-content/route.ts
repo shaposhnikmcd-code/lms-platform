@@ -50,6 +50,11 @@ export async function PATCH(req: NextRequest) {
 
   const content = typeof body.content === "string" ? body.content : "";
   const pageBgColor = typeof body.pageBgColor === "string" ? body.pageBgColor : null;
+  // pageWidth: clamp у [850..1450], null = дефолт (920).
+  let pageWidth: number | null = null;
+  if (typeof body.pageWidth === "number" && Number.isFinite(body.pageWidth)) {
+    pageWidth = Math.max(850, Math.min(1450, Math.round(body.pageWidth)));
+  }
   // Якщо клієнт явно передав contentEn/contentPl — поважаємо їх (manual override).
   // Інакше прокачуємо через DeepL — щоб /en/news і /pl/news показували перекладені блоки
   // замість оригіналу. Помилки swallow-имо, fallback на UA-оригінал у render-логіці.
@@ -70,11 +75,11 @@ export async function PATCH(req: NextRequest) {
   const updated = await prisma.newsPage.upsert({
     where: { key: KEY },
     update: {
-      content, pageBgColor, contentEn, contentPl,
+      content, pageBgColor, contentEn, contentPl, pageWidth,
       ...(published !== undefined ? { published } : {}),
     },
     create: {
-      key: KEY, content, pageBgColor, contentEn, contentPl,
+      key: KEY, content, pageBgColor, contentEn, contentPl, pageWidth,
       published: published ?? false,
     },
   });

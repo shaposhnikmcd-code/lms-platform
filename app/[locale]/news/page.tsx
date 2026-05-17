@@ -135,7 +135,7 @@ export default async function NewsPage({ params }: { params: Promise<{ locale: s
             {/* Desktop — абсолютний canvas; Mobile — sequential stack. */}
             <div
               className="hidden md:block relative mx-auto"
-              style={{ width: CANVAS_WIDTH, height: canvasH }}
+              style={{ width: pageRow?.pageWidth ?? CANVAS_WIDTH, height: canvasH }}
             >
               {visibleBlocks.map(b => (
                 <AbsoluteBlockRender
