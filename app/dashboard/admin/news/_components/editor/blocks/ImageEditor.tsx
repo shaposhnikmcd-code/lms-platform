@@ -445,17 +445,41 @@ export default function ImageEditor({ block, onChange, onUpload, previewHeight, 
                   overflow: "hidden",
                 }}
               >
-                <img
-                  src={block.data.url}
-                  alt={block.data.alt || ""}
-                  style={{
-                    width: "100%",
-                    height: "100%",
-                    objectFit: "fill",
-                    display: "block",
-                    pointerEvents: "none",
-                  }}
-                />
+                {(() => {
+                  const fxImg = Number(block.data.focalX) || 50;
+                  const fyImg = Number(block.data.focalY) || 50;
+                  const scaleImg = Math.max(100, Math.min(300, Number(block.data.scale) || 100)) / 100;
+                  return (
+                    <img
+                      src={block.data.url}
+                      alt={block.data.alt || ""}
+                      style={{
+                        width: "100%",
+                        height: "100%",
+                        // objectFit:
+                        //   "cover"   — Заповнити (всі краї впритул, можливий crop)
+                        //   "contain" — Розгорнути (фото ціле, можливі поля)
+                        //   "fill"    — legacy stretch (default для старих блоків)
+                        objectFit: (block.data.objectFit as "cover" | "contain" | "fill") || "fill",
+                        objectPosition: `${fxImg}% ${fyImg}%`,
+                        // Zoom: scale + origin = focal point (фото росте у напрямку
+                        // крапки, а не центру). Smooth transition.
+                        transform: scaleImg === 1 ? undefined : `scale(${scaleImg})`,
+                        transformOrigin: `${fxImg}% ${fyImg}%`,
+                        transition: "transform 0.25s ease-out, object-position 0.18s ease-out",
+                        display: "block",
+                        pointerEvents: "none",
+                      }}
+                    />
+                  );
+                })()}
+                {selected && (
+                  <PhotoFitControls
+                    data={block.data}
+                    onChange={onChange}
+                    wrapRef={imgWrapRef}
+                  />
+                )}
                 {overlays.map(ov => {
                   const isSelected = selectedOverlayId === ov.id;
                   const isEditing = editingOverlayId === ov.id;
@@ -1138,6 +1162,185 @@ function OverlayToolbar({
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// PhotoFitControls — overlay прямо на image-блоці.
+//   • верхня плашка з кнопками «⤢ Розгорнути» / «⛶ Заповнити» (objectFit)
+//   • drag-крапка по фото — focal point (objectPosition X/Y у %)
+// Видно лише коли блок selected. Координати рахуються відносно imgWrapRef
+// (того ж елемента, всередині якого рендериться <img>) — так перетягування
+// 1-в-1 співпадає з реальною областю фото.
+// ────────────────────────────────────────────────────────────────────────────
+
+function PhotoFitControls({
+  data,
+  onChange,
+  wrapRef,
+}: {
+  data: Record<string, string>;
+  onChange: (next: Record<string, string>) => void;
+  wrapRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  const fit = (data.objectFit as "cover" | "contain" | "fill") || "fill";
+  const fx = Number(data.focalX) || 50;
+  const fy = Number(data.focalY) || 50;
+  const scale = Math.max(100, Math.min(300, Number(data.scale) || 100));
+
+  // Focal-drag відносно imgWrapRef.
+  const draggingRef = useRef(false);
+  const moveFromEvent = (clientX: number, clientY: number) => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0) return;
+    const x = Math.max(0, Math.min(100, Math.round(((clientX - r.left) / r.width) * 100)));
+    const y = Math.max(0, Math.min(100, Math.round(((clientY - r.top) / r.height) * 100)));
+    onChange({ ...data, focalX: String(x), focalY: String(y) });
+  };
+  useEffect(() => {
+    const onMove = (e: PointerEvent) => { if (draggingRef.current) moveFromEvent(e.clientX, e.clientY); };
+    const onUp = () => { draggingRef.current = false; };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
+  // Portal toolbar у глобальний слот над канвасом (EditorCanvas рендерить
+  // `<div id="news-canvas-context-toolbar-slot" />` між canvasTopToolbar і
+  // самим канвасом). Слот існує тільки коли editor у dom — для безпеки
+  // підстраховуємо null-check.
+  const [toolbarSlot, setToolbarSlot] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    setToolbarSlot(document.getElementById("news-canvas-context-toolbar-slot"));
+  }, []);
+
+  const fitBtn = (label: string, icon: string, value: "contain" | "cover", title: string) => {
+    const active = fit === value;
+    return (
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); onChange({ ...data, objectFit: value }); }}
+        title={title}
+        style={{
+          display: "inline-flex", alignItems: "center", gap: 7,
+          height: 32, padding: "0 14px",
+          borderRadius: 999,
+          border: `1px solid ${active ? "#D4A843" : "rgba(15,23,42,0.12)"}`,
+          background: active ? "#FEF3C7" : "#FFFFFF",
+          color: active ? "#78350F" : "#334155",
+          fontSize: 12.5, fontWeight: 600, fontFamily: ff,
+          cursor: "pointer",
+          boxShadow: active ? "0 1px 3px rgba(212,168,67,0.25)" : "0 1px 2px rgba(15,23,42,0.04)",
+          transition: "background 0.15s, border-color 0.15s, color 0.15s",
+        }}
+      >
+        <span aria-hidden style={{ fontSize: 13, lineHeight: 1 }}>{icon}</span>{label}
+      </button>
+    );
+  };
+
+  const toolbar = (
+    <div
+      onClick={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 12,
+        height: 44,
+        padding: "0 12px",
+        borderRadius: 14,
+        background: "#F8FAFC",
+        border: "1px solid rgba(15,23,42,0.08)",
+        fontFamily: ff,
+      }}
+    >
+      <span style={{
+        fontSize: 11, fontWeight: 600,
+        color: "#475569",
+        letterSpacing: "0.01em",
+        paddingLeft: 4,
+      }}>🖼 Фото</span>
+      <div style={{ display: "inline-flex", gap: 6 }}>
+        {fitBtn("Розгорнути", "⤢", "contain", "Фото у реальних пропорціях, по довшій стороні впритул до краю слоту")}
+        {fitBtn("Заповнити", "⛶", "cover", "Фото на весь слот, всі краї впритул (можливий crop)")}
+      </div>
+      <div style={{ width: 1, height: 22, background: "rgba(15,23,42,0.08)" }} />
+      {/* Zoom 100..300%. transform: scale(N) у <img>, origin = focal point.
+          transition робить зум плавним (250ms ease-out). */}
+      <label style={{ display: "inline-flex", alignItems: "center", gap: 8, color: "#475569" }}>
+        <span style={{ fontSize: 12, fontWeight: 600 }}>🔍 Розмір</span>
+        <input
+          type="range"
+          min={100}
+          max={300}
+          step={1}
+          value={scale}
+          onChange={(e) => onChange({ ...data, scale: String(Number(e.target.value)) })}
+          style={{ width: 160, accentColor: "#D4A843", cursor: "pointer" }}
+        />
+        <span style={{
+          fontSize: 12, fontWeight: 600,
+          color: "#78350F",
+          fontVariantNumeric: "tabular-nums",
+          minWidth: 38, textAlign: "right",
+        }}>{scale}%</span>
+        {scale !== 100 && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onChange({ ...data, scale: "100" }); }}
+            title="Скинути до 100%"
+            style={{
+              height: 22, padding: "0 8px",
+              borderRadius: 6,
+              border: "1px solid rgba(15,23,42,0.12)",
+              background: "#FFFFFF",
+              color: "#64748B",
+              fontSize: 11, fontWeight: 600, fontFamily: ff,
+              cursor: "pointer",
+            }}
+          >↺</button>
+        )}
+      </label>
+    </div>
+  );
+
+  return (
+    <>
+      {/* Фокус-крапка — overlay прямо на фото, drag змінює objectPosition. */}
+      <div
+        onPointerDown={(e) => {
+          e.stopPropagation();
+          draggingRef.current = true;
+          (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+          moveFromEvent(e.clientX, e.clientY);
+        }}
+        title={`Фокус: ${Math.round(fx)} · ${Math.round(fy)}`}
+        style={{
+          position: "absolute",
+          left: `${fx}%`,
+          top: `${fy}%`,
+          width: 22,
+          height: 22,
+          borderRadius: 999,
+          background: "#D4A843",
+          border: "3px solid #FFFFFF",
+          boxShadow: "0 2px 8px rgba(0,0,0,0.45), 0 0 0 1px rgba(0,0,0,0.15)",
+          transform: "translate(-50%, -50%)",
+          cursor: "grab",
+          zIndex: 6,
+          touchAction: "none",
+        }}
+      />
+      {toolbarSlot && createPortal(toolbar, toolbarSlot)}
+    </>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // ImageBlockSettings — image-specific панель (заокруглення кутів + chroma-key).
 // Портал-иться у #news-block-settings-slot ПІСЛЯ BlockItemHeader.
 // ────────────────────────────────────────────────────────────────────────────
@@ -1151,8 +1354,9 @@ function ImageBlockSettings({
   data: Record<string, string>;
   onChangeData: (next: Record<string, string>) => void;
 }) {
-  // Per-corner toggle і radius керуються через «Форма підкладки» у BlockItemHeader —
-  // одна точка істини для всіх блоків. ImageBlockSettings тут лишає тільки кадрування.
+  // Контроли «Розгорнути / Заповнити» + focal-крапка винесені прямо на канвас
+  // (FitToolbar + FocalDotOverlay у самому image-блоці), а не в sidebar —
+  // щоб менеджер бачив зміну одразу. Тут лишається лише «Кадрувати».
   void data; void onChangeData;
   return (
     <div style={{ background: "#FFFFFF", fontFamily: ff, borderTop: "1px solid #F0E6D2" }}>

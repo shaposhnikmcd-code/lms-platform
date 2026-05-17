@@ -1848,7 +1848,7 @@ export default function EditorCanvas({
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "space-between",
-                padding: "0 4px 10px",
+                padding: "18px 4px 10px",
                 fontSize: "10px",
                 fontWeight: 700,
                 color: "#9CA3AF",
@@ -1881,6 +1881,19 @@ export default function EditorCanvas({
                 {canvasTopToolbar}
               </div>
             )}
+            {/* Слот для контекстного toolbar-а виділеного блока (наприклад,
+                контролі fit/scale у image-блоку). Блок-редактор портал-ить сюди
+                свій toolbar — він зʼявляється над канвасом, по його ширині. */}
+            <div
+              id="news-canvas-context-toolbar-slot"
+              style={{
+                width: `${VISIBLE_WRAPPER_W}px`,
+                minHeight: 0,
+                display: "flex",
+                justifyContent: "center",
+                marginBottom: 8,
+              }}
+            />
             <div
               onClick={(e) => { if (e.target === e.currentTarget) setSelectedBlockId(null); }}
               style={{

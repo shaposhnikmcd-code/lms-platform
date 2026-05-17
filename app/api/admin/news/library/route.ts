@@ -29,6 +29,8 @@ export async function GET(req: NextRequest) {
       published: true,  // для бейджа «чернетка» у sidebar
       templateKind: true, // template-based render у newsCard preview/expanded
       templateData: true,
+      templateBlocks: true, // block-based template (Session 3+) — render через AbsoluteBlockRender
+      templateCanvas: true,
       imageUrl: true,
       category: true,
       createdAt: true,

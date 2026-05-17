@@ -9,6 +9,7 @@
 
 import React from "react";
 import type { Block } from "../render";
+import { AbsoluteBlockRender } from "../render";
 
 // Кольори синхронізовані 1-в-1 з білдером (BlockItem.tsx → TEMPLATE_PLACEHOLDER_LABELS).
 // generic-блоки — кожен має свій акцент; спецблоки — всі один muted-violet.
@@ -43,9 +44,31 @@ interface Props {
   width: number;
   height: number;
   background?: string;
+  /** "blueprint" (default): рендеримо плейсхолдери (іконка+мітка типу) — для
+   *  шаблонів-каркасів, де data порожня. "content": рендеримо РЕАЛЬНИЙ
+   *  контент блоків через AbsoluteBlockRender — для новин, наповнених
+   *  менеджером (фото, текст, заголовки тощо). */
+  mode?: "blueprint" | "content";
 }
 
-export default function TemplateBlocksPreview({ blocks, width, height, background }: Props) {
+export default function TemplateBlocksPreview({ blocks, width, height, background, mode = "blueprint" }: Props) {
+  if (mode === "content") {
+    return (
+      <div
+        style={{
+          position: "relative",
+          width,
+          height,
+          overflow: "hidden",
+          background: background || "#FFFFFF",
+        }}
+      >
+        {blocks.map(b => (
+          <AbsoluteBlockRender key={b.id} block={b} locale="uk" />
+        ))}
+      </div>
+    );
+  }
   return (
     <div
       style={{

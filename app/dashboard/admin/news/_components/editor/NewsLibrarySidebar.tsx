@@ -69,34 +69,21 @@ const cardBodyStyle: React.CSSProperties = {
 // displayMode. preview = клікабельна картка-превʼю → /news/{slug}; expanded =
 // інлайн повний контент новини.
 //
-// `kind="template"` — це власний шаблон менеджера: ярлики «Шаблон» замість
-// «Превʼю/Новина», без бейджа «Чернетка» (шаблон — не публікація).
+// `kind="news-preview"` — новина, створена з шаблону: вертикальна картка з
+// preview-канвасом, що рендериться mode="content" (реальний заповнений
+// контент). Drag працює як news-card:preview — на канвас лягає клікабельна
+// preview-картка зі стандартним посиланням на /news/{slug}.
 function NewsLibraryCard({
   item, isPlaced, mode, kind = "news",
 }: {
   item: LibraryNewsItem;
   isPlaced: boolean;
   mode: "preview" | "expanded";
-  kind?: "news" | "template";
+  kind?: "news" | "news-preview";
 }) {
-  const isTpl = kind === "template";
-  // Для шаблону — окремий drag id, що несе templateBlocks JSON у data. У
-  // handleDragEnd EditorCanvas-а ловимо префікс `template-expand:` і РОЗГОРТАЄМО
-  // блоки шаблону на канвас як окремі редаговані блоки (з новими id). Для
-  // звичайної новини — стара поведінка: news-card блок з newsId.
-  const dragId = isTpl
-    ? `template-expand:${item.id}`
-    : `news-card:${mode}:${item.id}`;
-  const dragData = isTpl
-    ? {
-        fromPalette: true,
-        kind: "template-expand",
-        templateId: item.id,
-        templateKind: item.templateKind || "EVENT",
-        templateBlocks: item.templateBlocks || "",
-        templateCanvas: item.templateCanvas || "",
-      }
-    : { fromPalette: true, kind: "news-card", newsId: item.id, mode };
+  const isTpl = kind === "news-preview";
+  const dragId = `news-card:${mode}:${item.id}`;
+  const dragData = { fromPalette: true, kind: "news-card", newsId: item.id, mode };
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: dragId,
     data: dragData,
@@ -174,7 +161,7 @@ function NewsLibraryCard({
               }}>
                 {tplBlocks.length > 0 ? (
                   <div style={{ width: tplCanvas.w, height: tplCanvas.h, transformOrigin: "top left", transform: `scale(${scale})` }}>
-                    <TemplateBlocksPreview blocks={tplBlocks} width={tplCanvas.w} height={tplCanvas.h} background="#FFFFFF" />
+                    <TemplateBlocksPreview blocks={tplBlocks} width={tplCanvas.w} height={tplCanvas.h} background={item.pageBgColor || "#FFFFFF"} mode="content" />
                   </div>
                 ) : (
                   <div style={{ width: "100%", height: "100%", background: "linear-gradient(135deg,#1C3A2E,#2a4f3f)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 14 }}>📰</div>
@@ -338,56 +325,52 @@ interface Props {
 }
 
 export default function NewsLibrarySidebar({ meta, onChange, placedNewsIds }: Props) {
-  // Кастомні шаблони менеджера (isTemplate=true, parentTemplateId != null) —
-  // перетягуються на канвас як newsCard preview-картки. Дефолтні blueprint-и
-  // (parentTemplateId=null) у сайдбарі не показуємо — це лише взірці для створення
-  // власних шаблонів на /dashboard/admin/news.
-  const [templates, setTemplates] = useState<LibraryNewsItem[] | null>(null);
+  // Новини, створені з шаблонів (isTemplate=false + templateKind!=null).
+  // Перетягуються на канвас як newsCard preview-картки. У preview рендеримо
+  // реальний заповнений контент (mode="content") — менеджер бачить, що саме
+  // буде розміщене на /news.
+  const [newsItems, setNewsItems] = useState<LibraryNewsItem[] | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    fetch("/api/admin/news?type=templates")
+    fetch("/api/admin/news?type=template-news")
       .then(r => r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status)))
-      .then((data: Array<LibraryNewsItem & { parentTemplateId?: string | null }>) => {
-        const customs = Array.isArray(data)
-          ? data.filter(t => !!t.parentTemplateId)
-          : [];
-        setTemplates(customs);
+      .then((data: LibraryNewsItem[]) => {
+        setNewsItems(Array.isArray(data) ? data : []);
       })
       .catch(e => setError("Помилка: " + e.message));
   }, []);
 
   return (
     <div style={{ width: "180px", minWidth: "180px", display: "flex", flexDirection: "column", gap: "10px" }}>
-      {/* ─── Секція «Мої шаблони» ─── (custom blueprint-и менеджера) */}
-      {/* Перетягуються як newsCard preview на канвас сторінки /news. Менеджер
-          далі заповнює блоки шаблону контентом просто на сторінці. */}
+      {/* ─── Секція «Новини» ─── (новини, створені з шаблонів) */}
+      {/* Перетягуються як newsCard preview на канвас сторінки /news. */}
       <div style={cardStyle}>
-        <div style={cardHeaderStyle}>{"Мої шаблони"}</div>
+        <div style={cardHeaderStyle}>{"Новини"}</div>
         <div style={{ ...cardBodyStyle, gap: 8 }}>
           <div style={{ fontSize: 11, color: "#6B7280", lineHeight: 1.5 }}>
-            Перетягніть шаблон на канвас — на сторінці <strong>/news</strong> зʼявиться
-            картка з його лейаутом. Заповніть блоки контентом просто на сторінці.
+            Перетягніть новину на канвас — на сторінці <strong>/news</strong> зʼявиться
+            її preview-картка.
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 4, maxHeight: 480, overflowY: "auto" }}>
             {error && (
               <div style={{ fontSize: 11, color: "#DC2626", padding: 6 }}>{error}</div>
             )}
-            {!templates && !error && (
+            {!newsItems && !error && (
               <div style={{ fontSize: 11, color: "#9CA3AF", padding: 6 }}>Завантаження...</div>
             )}
-            {templates && templates.length === 0 && !error && (
+            {newsItems && newsItems.length === 0 && !error && (
               <div style={{ fontSize: 11, color: "#9CA3AF", padding: 6, textAlign: "center" }}>
-                Поки немає створених шаблонів. Створіть у адмінці /news → «Створити власний шаблон».
+                Поки немає створених новин. Створіть у адмінці /news → «+ Створити новину».
               </div>
             )}
-            {templates && templates.map(item => (
+            {newsItems && newsItems.map(item => (
               <NewsLibraryCard
                 key={item.id}
                 item={item}
                 isPlaced={placedNewsIds.has(item.id)}
                 mode="preview"
-                kind="template"
+                kind="news-preview"
               />
             ))}
           </div>

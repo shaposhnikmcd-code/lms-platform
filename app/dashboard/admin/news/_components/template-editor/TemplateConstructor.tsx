@@ -229,7 +229,7 @@ export default function TemplateConstructor({
         </div>
       )}
       <NewsEditor
-        pageTitle={isContentMode ? "Новина" : "Шаблон"}
+        pageTitle={isContentMode ? "Білдер Новин" : "Білдер Шаблону"}
         newsId={newsId}
         onBack={onBack}
         saving={saving}
@@ -251,25 +251,33 @@ export default function TemplateConstructor({
         // У content-mode layout заморожений: drag і resize вимкнено, менеджер
         // тільки наповнює існуючі блоки контентом.
         lockLayout={isContentMode}
-        onCanvasResize={isContentMode ? undefined : handleCanvasResize}
+        onCanvasResize={handleCanvasResize}
         canvasMinWidth={CANVAS_MIN_W}
         canvasMaxWidth={CANVAS_MAX_W}
         canvasMinHeight={CANVAS_MIN_H}
         canvasMaxHeight={CANVAS_MAX_H}
+        // Пресет-форми (Горизонтальні/Вертикальні + W×H інпути) доступні лише
+        // у blueprint-режимі. У content-mode (Білдер Новин) розмір канвасу
+        // успадковується з шаблону і не редагується тут — менеджер наповнює
+        // контентом, а не перерозмірює.
         canvasTopToolbar={
-          <CanvasHorizontalPresetsBar
-            width={canvasSize.width}
-            height={canvasSize.height}
-            onPick={handleCanvasResize}
-            onChangeSize={handleCanvasResize}
-          />
+          isContentMode ? null : (
+            <CanvasHorizontalPresetsBar
+              width={canvasSize.width}
+              height={canvasSize.height}
+              onPick={handleCanvasResize}
+              onChangeSize={handleCanvasResize}
+            />
+          )
         }
         canvasLeftToolbar={
-          <CanvasVerticalPresetsColumn
-            width={canvasSize.width}
-            height={canvasSize.height}
-            onPick={handleCanvasResize}
-          />
+          isContentMode ? null : (
+            <CanvasVerticalPresetsColumn
+              width={canvasSize.width}
+              height={canvasSize.height}
+              onPick={handleCanvasResize}
+            />
+          )
         }
         abovePaletteSlot={
           <TemplateNameInput value={title} onChange={handleTitleChange} />
@@ -393,14 +401,9 @@ function CanvasHorizontalPresetsBar({
   return (
     <div
       style={{
-        background: "#F8FAFC",
-        borderRadius: 14,
-        padding: "8px 12px",
-        height: 52,
         display: "inline-flex",
         alignItems: "center",
-        gap: 14,
-        border: "1px solid rgba(15,23,42,0.08)",
+        gap: 10,
         fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
       }}
     >
@@ -414,9 +417,8 @@ function CanvasHorizontalPresetsBar({
 
       <div style={{
         width: 1,
-        alignSelf: "stretch",
-        background: "rgba(15,23,42,0.08)",
-        margin: "6px 0",
+        height: 18,
+        background: "rgba(15,23,42,0.10)",
       }} />
 
       <div style={{ flexShrink: 0 }}>
@@ -439,16 +441,12 @@ function CanvasVerticalPresetsColumn({
   return (
     <div
       style={{
-        background: "#F8FAFC",
-        borderRadius: 14,
-        padding: "12px 8px",
         display: "flex",
         flexDirection: "column",
-        alignItems: "stretch",
+        alignItems: "center",
         gap: 8,
-        border: "1px solid rgba(15,23,42,0.08)",
         fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
-        width: 52,
+        width: 36,
         height: "100%",
       }}
     >
@@ -457,22 +455,13 @@ function CanvasVerticalPresetsColumn({
         fontSize: 11,
         fontWeight: 600,
         color: "#475569",
-        letterSpacing: "0.02em",
+        letterSpacing: "0.01em",
         writingMode: "vertical-rl",
         transform: "rotate(180deg)",
-        textAlign: "center",
-        alignSelf: "center",
         lineHeight: 1,
-        paddingBottom: 6,
       }}>Вертикальні</div>
-      <div style={{
-        height: 1,
-        alignSelf: "stretch",
-        background: "rgba(15,23,42,0.08)",
-      }} />
-      {/* Картки заповнюють лишок висоти рівномірно (flex:1). Текст dims у кожній —
-          вертикальний, як і header. */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 4, flex: 1, minHeight: 0 }}>
+      {/* Картки заповнюють лишок висоти рівномірно (flex:1). */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1, minHeight: 0, alignItems: "center" }}>
         {CANVAS_PRESETS.vertical.map(p => (
           <VerticalPresetCard
             key={p.key}
@@ -496,10 +485,9 @@ function VerticalPresetCard({
   onPick: (w: number, h: number) => void;
 }) {
   const [hov, setHov] = useState(false);
-  const BBOX_W = 22;
-  const BBOX_H = 28;
+  const BBOX_H = 22;
   const aspect = preset.w / preset.h;
-  const thumbW = Math.round(BBOX_H * aspect);
+  const thumbW = Math.max(8, Math.round(BBOX_H * aspect));
   const thumbH = BBOX_H;
   return (
     <button
@@ -514,40 +502,32 @@ function VerticalPresetCard({
         flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
-        gap: 6,
-        padding: "8px 4px",
-        background: active ? "#FEF3C7" : hov ? "#FFFFFF" : "#FFFFFF",
-        border: `1px solid ${active ? "#D4A843" : hov ? "rgba(15,23,42,0.18)" : "rgba(15,23,42,0.10)"}`,
-        borderRadius: 10,
+        gap: 5,
+        padding: "5px 3px",
+        background: active ? "rgba(212,168,67,0.14)" : hov ? "rgba(15,23,42,0.04)" : "transparent",
+        border: `1px solid ${active ? "rgba(212,168,67,0.55)" : "transparent"}`,
+        borderRadius: 6,
         cursor: "pointer",
-        transition: "all 0.15s",
+        transition: "background 0.12s, border-color 0.12s",
         fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
         flex: 1,
         minHeight: 0,
-        boxShadow: active ? "0 1px 3px rgba(212,168,67,0.18)" : "0 1px 2px rgba(15,23,42,0.04)",
+        boxShadow: "none",
       }}
     >
       <div style={{
-        width: BBOX_W,
-        height: BBOX_H,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
+        width: thumbW,
+        height: thumbH,
+        border: `1.25px solid ${active ? "#A47A28" : "#94A3B8"}`,
+        borderRadius: 2,
+        background: "transparent",
         flexShrink: 0,
-      }}>
-        <div style={{
-          width: thumbW,
-          height: thumbH,
-          border: `1.5px solid ${active ? "#A47A28" : "#94A3B8"}`,
-          borderRadius: 3,
-          background: active ? "#D4A843" : "#CBD5E1",
-          transition: "all 0.15s",
-        }} />
-      </div>
+        transition: "border-color 0.12s",
+      }} />
       <div style={{
-        fontSize: 10.5,
-        fontWeight: 600,
-        color: active ? "#78350F" : "#334155",
+        fontSize: 10,
+        fontWeight: 500,
+        color: active ? "#78350F" : "#475569",
         letterSpacing: "0.01em",
         lineHeight: 1,
         fontVariantNumeric: "tabular-nums",
@@ -669,8 +649,7 @@ function PresetCard({
   stretch?: boolean;
 }) {
   const [hov, setHov] = useState(false);
-  // Компактна мініатюра: BBOX 22×22, thumb малюється по аспекту.
-  const BBOX = 22;
+  const BBOX = 18;
   const ratio = preset.w / preset.h;
   const thumbW = ratio >= 1 ? BBOX : Math.round(BBOX * ratio);
   const thumbH = ratio >= 1 ? Math.round(BBOX / ratio) : BBOX;
@@ -683,19 +662,19 @@ function PresetCard({
       title={`${preset.label} · ${preset.w}×${preset.h}`}
       aria-label={`${preset.label}, ${preset.w} на ${preset.h} пікселів`}
       style={{
-        display: "flex",
+        display: "inline-flex",
         alignItems: "center",
-        gap: 8,
-        padding: "6px 12px 6px 10px",
-        background: active ? "#FEF3C7" : "#FFFFFF",
-        border: `1px solid ${active ? "#D4A843" : hov ? "rgba(15,23,42,0.18)" : "rgba(15,23,42,0.10)"}`,
-        borderRadius: 999,
+        gap: 6,
+        padding: "3px 8px 3px 6px",
+        background: active ? "rgba(212,168,67,0.14)" : hov ? "rgba(15,23,42,0.04)" : "transparent",
+        border: `1px solid ${active ? "rgba(212,168,67,0.55)" : "transparent"}`,
+        borderRadius: 6,
         cursor: "pointer",
-        transition: "all 0.15s",
+        transition: "background 0.12s, border-color 0.12s",
         fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
-        flex: stretch ? "1 1 0" : "0 0 auto",
+        flex: stretch ? "0 0 auto" : "0 0 auto",
         minWidth: 0,
-        boxShadow: active ? "0 1px 3px rgba(212,168,67,0.18)" : "0 1px 2px rgba(15,23,42,0.04)",
+        boxShadow: "none",
       }}
     >
       <div style={{
@@ -709,16 +688,16 @@ function PresetCard({
         <div style={{
           width: thumbW,
           height: thumbH,
-          border: `1.5px solid ${active ? "#A47A28" : "#94A3B8"}`,
-          borderRadius: 3,
-          background: active ? "#D4A843" : "#CBD5E1",
-          transition: "all 0.15s",
+          border: `1.25px solid ${active ? "#A47A28" : "#94A3B8"}`,
+          borderRadius: 2,
+          background: "transparent",
+          transition: "border-color 0.12s",
         }} />
       </div>
       <div style={{
-        fontSize: 12,
-        fontWeight: 600,
-        color: active ? "#78350F" : "#334155",
+        fontSize: 11.5,
+        fontWeight: 500,
+        color: active ? "#78350F" : "#475569",
         letterSpacing: "0.01em",
         lineHeight: 1.1,
         whiteSpace: "nowrap",

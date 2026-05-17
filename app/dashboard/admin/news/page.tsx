@@ -67,17 +67,15 @@ interface NewsItem {
 function PagePreviewIframeThumb({
   source,
   title,
-  onClickFullscreen,
   dark,
   variant,
 }: {
   source: 'live' | 'next';
   title: string;
-  onClickFullscreen: () => void;
   dark: boolean;
   variant: 'emerald' | 'amber';
 }) {
-  const ref = useRef<HTMLButtonElement>(null);
+  const ref = useRef<HTMLDivElement>(null);
   const NATURAL_W = 1280;
   const NATURAL_H = 720;
   const [scale, setScale] = useState(0.25);
@@ -100,18 +98,13 @@ function PagePreviewIframeThumb({
     : (dark ? 'rgba(245,158,11,0.20)' : 'rgba(217,119,6,0.25)');
 
   return (
-    <button
-      type="button"
-      onClick={onClickFullscreen}
-      title="Превʼю на повний екран"
-      aria-label="Превʼю на повний екран"
+    <div
       ref={ref}
-      className="relative w-full block overflow-hidden border-b group"
+      className="relative w-full block overflow-hidden border-b"
       style={{
         aspectRatio: `${NATURAL_W} / ${NATURAL_H}`,
         background: dark ? '#0F1414' : '#FFFFFF',
         borderBottomColor: borderColor,
-        cursor: 'zoom-in',
       }}
     >
       <iframe
@@ -127,28 +120,68 @@ function PagePreviewIframeThumb({
           pointerEvents: 'none',
         }}
       />
-      {/* Hover-overlay — на фокусі/hover показує підказку «розгорнути» */}
-      <span
-        aria-hidden
-        className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+    </div>
+  );
+}
+
+// Масштабує дитячий канвас baseWidth×baseHeight у фіксований батьківський бокс,
+// зберігаючи aspect: scale = min(W/baseW, H/baseH), центрується. Використовується
+// для preview новинного тайла, що сидить у row-боксі фіксованих розмірів — щоб
+// preview не клипався і не тягнувся непропорційно при будь-якій кількості тайлів.
+function FitInBox({
+  baseWidth,
+  baseHeight,
+  children,
+}: {
+  baseWidth: number;
+  baseHeight: number;
+  children: React.ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(0.25);
+  useLayoutEffect(() => {
+    if (!ref.current) return;
+    const el = ref.current;
+    const update = () => {
+      const r = el.getBoundingClientRect();
+      if (r.width <= 0 || r.height <= 0) return;
+      setScale(Math.min(r.width / baseWidth, r.height / baseHeight));
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [baseWidth, baseHeight]);
+  return (
+    <div ref={ref} style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
+      <div
         style={{
-          background: 'linear-gradient(180deg, rgba(28,58,46,0) 0%, rgba(28,58,46,0.35) 100%)',
+          position: 'absolute',
+          top: '50%',
+          left: '50%',
+          width: `${baseWidth}px`,
+          height: `${baseHeight}px`,
+          transform: `translate(-50%, -50%) scale(${scale})`,
+          transformOrigin: 'center center',
         }}
       >
-        <span
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold backdrop-blur-md"
-          style={{
-            background: 'rgba(255,255,255,0.92)',
-            color: '#1C3A2E',
-            border: '1px solid rgba(212,168,67,0.55)',
-          }}
-        >
-          <span aria-hidden>👁</span>
-          <span>На повний екран</span>
-        </span>
-      </span>
-    </button>
+        {children}
+      </div>
+    </div>
   );
+}
+
+// Підбирає cols×rows для N тайлів так, щоб вони компактно лягали в бокс
+// без надмірно вузьких смуг. Емпірика: до 2 — в один ряд, 3-4 — 2×2,
+// 5-6 — 3×2, 7-9 — 3×3, 10-12 — 4×3, далі — 4 колонки і ріст рядків.
+function tileGridFor(n: number): { cols: number; rows: number } {
+  if (n <= 1) return { cols: 1, rows: 1 };
+  if (n <= 2) return { cols: 2, rows: 1 };
+  if (n <= 4) return { cols: 2, rows: 2 };
+  if (n <= 6) return { cols: 3, rows: 2 };
+  if (n <= 9) return { cols: 3, rows: 3 };
+  if (n <= 12) return { cols: 4, rows: 3 };
+  return { cols: 4, rows: Math.ceil(n / 4) };
 }
 
 export default function AdminNewsPage() {
@@ -565,7 +598,6 @@ export default function AdminNewsPage() {
             <PagePreviewIframeThumb
               source="live"
               title="Превʼю поточної сторінки /news"
-              onClickFullscreen={() => setPagePreviewOpen(true)}
               dark={dark}
               variant={pagePublished ? 'emerald' : 'amber'}
             />
@@ -706,7 +738,6 @@ export default function AdminNewsPage() {
                 <PagePreviewIframeThumb
                   source="next"
                   title="Превʼю чернетки наступної сторінки /news"
-                  onClickFullscreen={() => setPagePreviewSource({ kind: 'next' })}
                   dark={dark}
                   variant="amber"
                 />
@@ -1037,15 +1068,10 @@ export default function AdminNewsPage() {
                         {isEvent ? '🎟' : '📰'}
                       </span>
                       <div className="min-w-0 flex-1">
-                        <div className={`text-[9px] font-bold tracking-[0.16em] uppercase ${
-                          dark ? 'text-sky-300/85' : 'text-sky-700/80'
-                        }`}>
-                          Шаблон · Blueprint
-                        </div>
-                        <div className={`text-[13.5px] font-semibold leading-tight mt-0.5 truncate ${
+                        <div className={`text-[15px] font-semibold leading-tight truncate ${
                           dark ? 'text-slate-100' : 'text-stone-900'
                         }`}>
-                          Головний Шаблон Картка
+                          Білдер Шаблонів
                         </div>
                       </div>
                       <div className="flex items-center gap-1.5 flex-shrink-0">
@@ -1086,10 +1112,10 @@ export default function AdminNewsPage() {
                               ? 'bg-amber-400/15 border-amber-300/30 text-amber-100 hover:bg-amber-400/25 hover:border-amber-300/45'
                               : 'bg-amber-50/85 border-amber-500/35 text-amber-800 hover:bg-amber-100 hover:border-amber-600/55'
                           }`}
-                          title="Створити власний шаблон на основі дефолтного"
+                          title="Створити новий шаблон на основі дефолтного"
                         >
                           <span aria-hidden className="text-[11px]">⊕</span>
-                          Створити власний шаблон
+                          Створити Новий Шаблон
                         </button>
                       </div>
                     </header>
@@ -1279,66 +1305,158 @@ export default function AdminNewsPage() {
                           }
                         }
                         const custTitle = cust.title.replace(/^\[Шаблон\]\s*/i, '');
+                        // Новини, створені з цього кастомного шаблону. Рендеримо
+                        // як sibling-карточки після «+» тайла — менеджер одразу
+                        // бачить що вже створено.
+                        const custNews = templateNews.filter(tn => tn.parentTemplateId === cust.id);
+                        const tileCount = 1 + custNews.length;
+                        const grid = tileGridFor(tileCount);
                         return (
-                          <article
+                          <div
                             key={cust.id}
-                            className={`rounded-lg border overflow-hidden transition-all ${
-                              dark
-                                ? 'bg-sky-400/[0.04] border-sky-300/20 hover:border-sky-300/40'
-                                : 'bg-sky-50/40 border-sky-400/40 hover:border-sky-500/55'
-                            }`}
+                            className="grid gap-2 w-full"
+                            style={{
+                              aspectRatio: `${tileW} / ${tileH}`,
+                              gridTemplateColumns: `repeat(${grid.cols}, minmax(0, 1fr))`,
+                              gridTemplateRows: `repeat(${grid.rows}, minmax(0, 1fr))`,
+                            }}
                           >
-                            <div className="relative" style={{ aspectRatio: `${tileW} / ${tileH}` }}>
-                              <button
-                                type="button"
-                                disabled={creatingFromTpl}
-                                onClick={async () => {
-                                  setCreatingFromTpl(true);
-                                  try {
-                                    const res = await fetch('/api/admin/news/from-template', {
-                                      method: 'POST',
-                                      headers: { 'Content-Type': 'application/json' },
-                                      body: JSON.stringify({ blueprintId: cust.id, asBlueprint: false }),
-                                    });
-                                    if (!res.ok) {
-                                      const j = await res.json().catch(() => ({}));
-                                      setToast({ message: j?.error || 'Не вдалось створити новину', type: 'error' });
+                            <article
+                              className={`min-w-0 min-h-0 rounded-lg border overflow-hidden transition-all ${
+                                dark
+                                  ? 'bg-sky-400/[0.04] border-sky-300/20 hover:border-sky-300/40'
+                                  : 'bg-sky-50/40 border-sky-400/40 hover:border-sky-500/55'
+                              }`}
+                            >
+                              <div className="relative w-full h-full">
+                                <button
+                                  type="button"
+                                  disabled={creatingFromTpl}
+                                  onClick={async () => {
+                                    setCreatingFromTpl(true);
+                                    try {
+                                      const res = await fetch('/api/admin/news/from-template', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ blueprintId: cust.id, asBlueprint: false }),
+                                      });
+                                      if (!res.ok) {
+                                        const j = await res.json().catch(() => ({}));
+                                        setToast({ message: j?.error || 'Не вдалось створити новину', type: 'error' });
+                                        setCreatingFromTpl(false);
+                                        return;
+                                      }
+                                      const j = await res.json();
+                                      window.location.href = `/dashboard/admin/news/${j.id}/template`;
+                                    } catch (e) {
+                                      setToast({ message: e instanceof Error ? e.message : 'Помилка мережі', type: 'error' });
                                       setCreatingFromTpl(false);
-                                      return;
                                     }
-                                    const j = await res.json();
-                                    window.location.href = `/dashboard/admin/news/${j.id}/template`;
-                                  } catch (e) {
-                                    setToast({ message: e instanceof Error ? e.message : 'Помилка мережі', type: 'error' });
-                                    setCreatingFromTpl(false);
-                                  }
-                                }}
-                                className={`group absolute inset-0 flex flex-col items-center justify-center gap-3 transition-all ${
-                                  dark
-                                    ? 'hover:bg-sky-400/[0.06]'
-                                    : 'hover:bg-sky-50/55'
-                                } ${creatingFromTpl ? 'opacity-60 cursor-wait' : 'cursor-pointer'}`}
-                                title={`Створити новину з шаблону «${custTitle}»`}
-                              >
-                                <span
-                                  className={`inline-flex items-center justify-center w-14 h-14 rounded-full text-[28px] font-light transition-transform group-hover:scale-110 ${
+                                  }}
+                                  className={`group absolute inset-0 flex flex-col items-center justify-center gap-3 transition-all ${
                                     dark
-                                      ? 'bg-sky-400/15 text-sky-200 border border-sky-300/30'
-                                      : 'bg-white text-sky-700 border border-sky-400/50 shadow-sm'
-                                  }`}
-                                  aria-hidden
+                                      ? 'hover:bg-sky-400/[0.06]'
+                                      : 'hover:bg-sky-50/55'
+                                  } ${creatingFromTpl ? 'opacity-60 cursor-wait' : 'cursor-pointer'}`}
+                                  title={`Створити новину з шаблону «${custTitle}»`}
                                 >
-                                  +
-                                </span>
-                                <span className={`text-[12.5px] font-semibold ${dark ? 'text-sky-200/90' : 'text-sky-800/85'}`}>
-                                  Створити новину
-                                </span>
-                                <span className={`text-[11px] truncate max-w-[80%] ${dark ? 'text-slate-400/80' : 'text-stone-500'}`}>
-                                  з: {custTitle}
-                                </span>
-                              </button>
-                            </div>
-                          </article>
+                                  <span
+                                    className={`inline-flex items-center justify-center w-14 h-14 rounded-full text-[28px] font-light transition-transform group-hover:scale-110 ${
+                                      dark
+                                        ? 'bg-sky-400/15 text-sky-200 border border-sky-300/30'
+                                        : 'bg-white text-sky-700 border border-sky-400/50 shadow-sm'
+                                    }`}
+                                    aria-hidden
+                                  >
+                                    +
+                                  </span>
+                                  <span className={`text-[12.5px] font-semibold ${dark ? 'text-sky-200/90' : 'text-sky-800/85'}`}>
+                                    Створити новину
+                                  </span>
+                                  <span className={`text-[11px] truncate max-w-[80%] ${dark ? 'text-slate-400/80' : 'text-stone-500'}`}>
+                                    з: {custTitle}
+                                  </span>
+                                </button>
+                              </div>
+                            </article>
+                            {custNews.map(n => {
+                              const nTitle = n.title.replace(/^\[Шаблон\]\s*/i, '');
+                              const nBlocks = n.templateBlocks ? parseBlocks(n.templateBlocks) : null;
+                              const hasBlocks = !!(nBlocks && nBlocks.isJson && nBlocks.blocks.length > 0);
+                              const nData = !hasBlocks && n.templateData ? parseTemplateData(n.templateData) : null;
+                              return (
+                                <article
+                                  key={n.id}
+                                  className={`group/news relative min-w-0 min-h-0 rounded-lg border overflow-hidden transition-all ${
+                                    dark
+                                      ? 'bg-sky-500/[0.10] border-sky-400/35 hover:border-sky-300/60'
+                                      : 'bg-sky-50/70 border-sky-500/50 hover:border-sky-600/70'
+                                  }`}
+                                >
+                                  <Link
+                                    href={`/dashboard/admin/news/${n.id}/template`}
+                                    className="block relative w-full h-full"
+                                    style={{ background: n.pageBgColor || '#FFFFFF' }}
+                                    aria-label={`Редагувати новину «${nTitle}»`}
+                                  >
+                                    <div className="absolute inset-0" style={{ pointerEvents: 'none' }} aria-hidden>
+                                      <FitInBox baseWidth={tileW} baseHeight={tileH}>
+                                        {hasBlocks ? (
+                                          <TemplateBlocksPreview
+                                            blocks={nBlocks!.blocks}
+                                            width={tileW}
+                                            height={tileH}
+                                            background={n.pageBgColor || '#FFFFFF'}
+                                            mode="content"
+                                          />
+                                        ) : nData ? (
+                                          <TemplatePreviewCard kind={(n.templateKind || 'ARTICLE') as TemplateKind} data={nData} disableLinks />
+                                        ) : null}
+                                      </FitInBox>
+                                    </div>
+                                    <span
+                                      className={`absolute top-1.5 left-1.5 z-[1] inline-flex items-center gap-1.5 pl-1.5 pr-2 py-1 rounded-md text-[11px] font-semibold leading-snug backdrop-blur-md max-w-[calc(100%-1rem)] ${
+                                        dark
+                                          ? 'bg-slate-700/70 text-slate-100 border border-slate-500/40'
+                                          : 'bg-white/85 text-stone-800 border border-stone-400/45'
+                                      }`}
+                                      title={nTitle}
+                                    >
+                                      <span aria-hidden className="text-[10px]">📰</span>
+                                      <span className="line-clamp-2 break-words">{nTitle}</span>
+                                    </span>
+                                    {n.published && (
+                                      <span
+                                        className={`absolute bottom-1.5 left-1.5 z-[1] inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider backdrop-blur-md ${
+                                          dark
+                                            ? 'bg-emerald-500/30 text-emerald-100 border border-emerald-400/40'
+                                            : 'bg-emerald-500/85 text-white border border-emerald-600/40'
+                                        }`}
+                                      >
+                                        <span aria-hidden>●</span> На /news
+                                      </span>
+                                    )}
+                                  </Link>
+                                  <button
+                                    type="button"
+                                    onClick={e => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      setDeleteTarget({ id: n.id, title: nTitle });
+                                    }}
+                                    className={`absolute top-1.5 right-1.5 z-[5] inline-flex items-center justify-center w-[26px] h-[26px] rounded-md border backdrop-blur-md transition-colors ${
+                                      dark
+                                        ? 'bg-red-500/25 border-red-400/40 text-red-100 hover:bg-red-500/45 hover:border-red-400/65'
+                                        : 'bg-red-50/85 border-red-400/55 text-red-700 hover:bg-red-100 hover:border-red-500/70'
+                                    }`}
+                                    title="Видалити цю новину"
+                                  >
+                                    ✕
+                                  </button>
+                                </article>
+                              );
+                            })}
+                          </div>
                         );
                       })}
                     </div>

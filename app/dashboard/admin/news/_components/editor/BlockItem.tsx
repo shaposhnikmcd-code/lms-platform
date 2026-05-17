@@ -126,14 +126,21 @@ export default function BlockItem({
 
   // Для newsCard preview: коли користувач сам ресайзить блок — позначаємо
   // manualSize="1" у data, щоб auto-snap effect (нижче) більше не повертав
-  // блок до дефолтної ширини. Висоту автоматично перераховуємо за aspect
-  // PREVIEW_CARD_WIDTH:PREVIEW_CARD_HEIGHT (360:400), бо контент картки —
-  // фіксований канвас, який PreviewCardScale тримає у пропорціях.
+  // блок до дефолтної ширини. Aspect беремо з поточних block.width/height —
+  // вони щойно виставлені auto-resize ефектом за нативними розмірами картки
+  // шаблону (EVENT 600:400, ARTICLE 360:400, custom — як зберегла адмінка).
+  // Fallback на 360:400 — для старих preview-блоків без templateBlocks.
   const computeNewsCardPreviewHeight = React.useCallback((widthPct: string): number => {
     const pct = Number(widthPct) || 100;
     const blockPxW = (pct / 100) * containerWidthPx;
-    return Math.max(60, Math.round(blockPxW * (PREVIEW_CARD_HEIGHT / PREVIEW_CARD_WIDTH)));
-  }, [containerWidthPx]);
+    const currentPctW = Number(block.width) || PREVIEW_CARD_WIDTH;
+    const currentPxW = (currentPctW / 100) * containerWidthPx;
+    const currentH = block.height || PREVIEW_CARD_HEIGHT;
+    const aspect = currentPxW > 0 && currentH > 0
+      ? currentH / currentPxW
+      : PREVIEW_CARD_HEIGHT / PREVIEW_CARD_WIDTH;
+    return Math.max(60, Math.round(blockPxW * aspect));
+  }, [containerWidthPx, block.width, block.height]);
 
   const isNewsCardPreview = block.type === "newsCard" && (block.data.displayMode || "preview") === "preview";
 
@@ -182,11 +189,19 @@ export default function BlockItem({
     minBlockHeight: MIN_BLOCK_HEIGHT_BY_TYPE[block.type],
     blockX,
     blockY,
-    // newsCard preview має CSS aspect-ratio 360:400 — useBlockResize використає
-    // цей factor щоб проєктувати нову висоту з нової ширини під час width-resize
-    // (потрібно для bottom-edge snap до сусідніх блоків).
+    // newsCard preview: aspect беремо з фактичних розмірів блока (виставлені
+    // auto-resize за нативним templateCanvas новини). Для старих preview-блоків
+    // без templateBlocks — fallback 360:400.
     widthAspectFactor: isNewsCardPreview
-      ? (containerWidthPx / 100) * (PREVIEW_CARD_HEIGHT / PREVIEW_CARD_WIDTH)
+      ? (() => {
+          const currentPctW = Number(block.width) || PREVIEW_CARD_WIDTH;
+          const currentPxW = (currentPctW / 100) * containerWidthPx;
+          const currentH = block.height || PREVIEW_CARD_HEIGHT;
+          const aspect = currentPxW > 0 && currentH > 0
+            ? currentH / currentPxW
+            : PREVIEW_CARD_HEIGHT / PREVIEW_CARD_WIDTH;
+          return (containerWidthPx / 100) * aspect;
+        })()
       : 0,
   });
 
@@ -261,7 +276,13 @@ export default function BlockItem({
       try {
         const r = await fetch("/api/admin/news/library");
         if (!r.ok) return;
-        const list = await r.json() as { id: string; content?: string | null; previewContent?: string | null; templateKind?: string | null }[];
+        const list = await r.json() as {
+          id: string;
+          content?: string | null;
+          previewContent?: string | null;
+          templateKind?: string | null;
+          templateCanvas?: string | null;
+        }[];
         if (!Array.isArray(list)) return;
         const it = list.find(x => x.id === newsId);
         if (!it) return;
@@ -288,14 +309,28 @@ export default function BlockItem({
           // 100% canvas-у). Force-set один раз при переключенні в expanded.
           targetWidth = "100";
         } else {
-          // mode === "preview" — нормалізуємо ВСІ preview-блоки до однакового
-          // block.width % (відповідає 360 px на канвасі 920 = PREVIEW_CARD_WIDTH/CANVAS_WIDTH).
-          // CSS aspect-ratio 360:400 (див. AbsoluteBlock/AbsoluteBlockRender)
-          // тримає пропорції автоматично — block.height теж проставляємо для
-          // canvasHeight() та коли aspect-ratio не активний.
+          // mode === "preview" — фіксуємо block.width = PREVIEW_CARD_WIDTH/920
+          // (≈39.1%, thumbnail-розмір як історично), але ВИСОТУ беремо з
+          // нативного aspect шаблону новини (templateCanvas). Так блок на канвасі
+          // компактний preview-thumbnail, а PreviewCardScale всередині масштабує
+          // нативний 600×400/etc контент до цього розміру без overflow.
+          let nativeW = PREVIEW_CARD_WIDTH;
+          let nativeH = PREVIEW_CARD_HEIGHT;
+          if (it.templateCanvas) {
+            const m = it.templateCanvas.match(/^(\d+)x(\d+)$/);
+            if (m) {
+              const w = Number(m[1]);
+              const h = Number(m[2]);
+              if (Number.isFinite(w) && Number.isFinite(h) && w >= 60 && h >= 60) {
+                nativeW = w;
+                nativeH = h;
+              }
+            }
+          }
           const widthPct = Math.round((PREVIEW_CARD_WIDTH / 920) * 1000) / 10; // 39.1
           targetWidth = String(widthPct);
-          total = Math.round(PREVIEW_CARD_HEIGHT * (widthPct / 100) * (920 / PREVIEW_CARD_WIDTH)); // ≈400
+          const blockPxW = (widthPct / 100) * 920;
+          total = Math.max(60, Math.round(blockPxW * (nativeH / nativeW)));
         }
         if (total === 0) return;
 
@@ -477,6 +512,10 @@ export default function BlockItem({
             ? "0"
             : (block.type === "newsCard" && (block.data.displayMode || "preview") === "preview") ? "0"
             : block.type === "templateInstance" ? "0"
+            // image-блок: «Заповнити» / «Розгорнути» працюють відносно МЕЖ
+            // самого блока — внутрішній 16px padding робив би гарантовану
+            // білу смужку зліва/справа фото. Знімаємо.
+            : block.type === "image" ? "0"
             : "0 16px",
           boxSizing: "border-box",
           // overflow:hidden — щоб контент і toolbar-и НЕ вилазили на сусідні блоки.

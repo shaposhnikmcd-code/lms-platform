@@ -109,7 +109,22 @@ export async function DELETE(
 
   const { id } = await params;
 
-  await prisma.news.delete({ where: { id } });
-
-  return NextResponse.json({ ok: true });
+  try {
+    await prisma.news.delete({ where: { id } });
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError) {
+      if (e.code === "P2025") {
+        return NextResponse.json({ error: "Новину не знайдено (можливо, вже видалена)" }, { status: 404 });
+      }
+      if (e.code === "P2003") {
+        return NextResponse.json({ error: "Не можу видалити — на новину посилається інший запис" }, { status: 409 });
+      }
+    }
+    console.error("[DELETE /api/admin/news/" + id + "] failed:", e);
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : "Помилка видалення" },
+      { status: 500 }
+    );
+  }
 }

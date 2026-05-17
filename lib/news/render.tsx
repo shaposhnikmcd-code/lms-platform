@@ -523,17 +523,32 @@ export function BlockInner({
             overflow: "hidden",
           }}
         >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={block.data.url}
-            alt={block.data.alt || ""}
-            style={{
-              width: "100%",
-              height: "100%",
-              objectFit: "fill",
-              display: "block",
-            }}
-          />
+          {(() => {
+            const fxImg = Number(block.data.focalX) || 50;
+            const fyImg = Number(block.data.focalY) || 50;
+            const scaleImg = Math.max(100, Math.min(300, Number(block.data.scale) || 100)) / 100;
+            return (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={block.data.url}
+                alt={block.data.alt || ""}
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  // objectFit:
+                  //   "cover"   — Заповнити (всі краї впритул, можливий crop)
+                  //   "contain" — Розгорнути (фото ціле, можливі поля)
+                  //   "fill"    — legacy stretch (default для старих блоків)
+                  objectFit: (block.data.objectFit as "cover" | "contain" | "fill") || "fill",
+                  objectPosition: `${fxImg}% ${fyImg}%`,
+                  // Zoom (scale 100..300%) — растягує фото від focal point.
+                  transform: scaleImg === 1 ? undefined : `scale(${scaleImg})`,
+                  transformOrigin: `${fxImg}% ${fyImg}%`,
+                  display: "block",
+                }}
+              />
+            );
+          })()}
           {overlays.map(ov => renderImageOverlay(ov))}
         </div>
       );
@@ -865,30 +880,36 @@ export function BlockInner({
           // (без обгортки в <a>, інакше отримаємо <a> в <a>).
           // ARTICLE — портретний preview, веде на /news/[slug].
           const isSelfContained = item.templateKind === "EVENT";
+          // Масштабована обгортка: PreviewCardScale рендерить контент у нативних
+          // пікселях canvasW×canvasH і CSS-scale-ить його під фактичну ширину
+          // батька. Висота через padding-bottom = (canvasH/canvasW)*100% — точно
+          // збігається з aspect-ratio wrapper-а блока (newsCardAspect), тож
+          // картка щільно заповнює свій бокс без overflow і порожнечі.
           const cardEl = (
-            <div
-              style={{
-                position: "relative",
-                width: canvasW,
-                height: canvasH,
-                margin: "0 auto",
-                overflow: "hidden",
-                background: item.pageBgColor || "#FFFFFF",
-              }}
-            >
-              {tplBlocks.blocks.map(b => (
-                <AbsoluteBlockRender
-                  key={b.id}
-                  block={b}
-                  newsItems={newsItems}
-                  locale={lc}
-                />
-              ))}
-            </div>
+            <PreviewCardScale baseWidth={canvasW} baseHeight={canvasH} initialScale={1}>
+              <div
+                style={{
+                  position: "relative",
+                  width: canvasW,
+                  height: canvasH,
+                  background: item.pageBgColor || "#FFFFFF",
+                  overflow: "hidden",
+                }}
+              >
+                {tplBlocks.blocks.map(b => (
+                  <AbsoluteBlockRender
+                    key={b.id}
+                    block={b}
+                    newsItems={newsItems}
+                    locale={lc}
+                  />
+                ))}
+              </div>
+            </PreviewCardScale>
           );
           if (isSelfContained) {
             return (
-              <div style={{ display: "flex", justifyContent: "center", width: "100%" }}>
+              <div style={{ width: "100%" }}>
                 {cardEl}
               </div>
             );
@@ -897,8 +918,7 @@ export function BlockInner({
             <a
               href={`/${lc}/news/${item.slug}`}
               style={{
-                display: "flex",
-                justifyContent: "center",
+                display: "block",
                 width: "100%",
                 background: "transparent",
                 textDecoration: "none",
@@ -1349,12 +1369,23 @@ export function AbsoluteBlockRender({
   const x = block.x ?? 0;
   const y = block.y ?? 0;
   const h = block.height;
-  // newsCard preview: висота auto через aspect-ratio (392:400, з урахуванням
-  // padding 0 16px на цьому ж div-і). Гарантує, що картка завжди має пропорції
-  // 360×400 незалежно від block.height у БД (яка може застаріти).
+  // newsCard preview: висота auto через aspect-ratio картки шаблону новини.
+  // Якщо новина створена з блочного шаблону — беремо її templateCanvas, інакше
+  // fallback 360:400. Гарантує, що wrapper на канвасі точно відповідає
+  // пропорціям контенту → preview не клипається і не лишає порожнечу.
   const isNewsCardPreview =
     block.type === "newsCard" &&
     (block.data.displayMode || "preview") === "preview";
+  let newsCardAspect: string | undefined;
+  if (isNewsCardPreview) {
+    const nid = block.data.newsId || "";
+    const it = newsItems?.find(n => n.id === nid);
+    if (it?.templateCanvas) {
+      const mm = it.templateCanvas.match(/^(\d+)x(\d+)$/);
+      if (mm) newsCardAspect = `${Number(mm[1])} / ${Number(mm[2])}`;
+    }
+    if (!newsCardAspect) newsCardAspect = "360 / 400";
+  }
   // templateInstance — self-contained картка-шаблон, рендериться 1-в-1 у своїх
   // межах через PreviewCardScale. Padding/overflow адмінського wrapper-а тут
   // зайвий — він би відрізав content і додавав «зайвий простір» поза карткою.
@@ -1380,7 +1411,7 @@ export function AbsoluteBlockRender({
         // однаковий розмір.
         height: (isNewsCardPreview || isTemplateInstance) ? "auto" : (h ? `${h}px` : "auto"),
         aspectRatio: isNewsCardPreview
-          ? "360 / 400"
+          ? newsCardAspect
           : isTemplateInstance
             ? (() => {
                 const tc = (block.data?.templateCanvas as string) || "";
@@ -1391,7 +1422,9 @@ export function AbsoluteBlockRender({
             : undefined,
         background: block.bgColor || "transparent",
         borderRadius: resolvedRadius,
-        padding: (isNewsCardPreview || isTemplateInstance) ? "0" : "0 16px",
+        // image-блок: без 16px інсету, щоб «Заповнити» / «Розгорнути»
+        // працювали відносно меж самого блока (1-в-1 з білдером).
+        padding: (isNewsCardPreview || isTemplateInstance || block.type === "image") ? "0" : "0 16px",
         boxSizing: "border-box",
         // newsCard у будь-якому режимі може мати динамічний контент (expanded — повне тіло;
         // preview — кастомний layout з білдера превʼю). Дозволяємо overflow:visible щоб

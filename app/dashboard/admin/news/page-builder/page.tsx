@@ -138,7 +138,7 @@ export default function NewsPageBuilder() {
 
   return (
     <NewsEditor
-      pageTitle={"Білдер сторінки /news"}
+      pageTitle={"Білдер Сторінки Події та Новини"}
       initialMeta={initialMeta}
       initialContent={initialContent}
       newsId="__news_page__"

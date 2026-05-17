@@ -54,6 +54,8 @@ function toNewsListItem(it: LibraryNewsItem): NewsListItemForBlock {
     // редакторі.
     templateKind: it.templateKind ?? null,
     templateData: it.templateData ?? null,
+    templateBlocks: it.templateBlocks ?? null,
+    templateCanvas: it.templateCanvas ?? null,
   };
 }
 

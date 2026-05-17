@@ -69,6 +69,17 @@ function EditableText({
       aria-label={ariaLabel}
       contentEditable
       suppressContentEditableWarning
+      // Комітимо state на КОЖНИЙ ввід (а не лише на blur). Інакше, коли
+      // користувач набрав текст і клікнув Save без попереднього blur, click
+      // handler читав стару blocksByTab із замикання раніше ніж blur встиг
+      // зашедулити setState — у PATCH летів placeholder, а DOM «обнулявся»
+      // на наступному render-і. useEffect нижче захищає від курсор-стрибків:
+      // якщо el.innerText вже = value (щойно ми ж і закомітили), DOM не
+      // переписується.
+      onInput={e => {
+        const next = e.currentTarget.innerText || "";
+        if (next !== value) onCommit(next);
+      }}
       onBlur={e => {
         const next = (e.currentTarget.innerText || "").trim();
         if (next !== value) onCommit(next);
