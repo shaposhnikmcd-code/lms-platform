@@ -591,7 +591,17 @@ export default function NewsEditor(props: Props) {
       <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
       <link rel="stylesheet" href={buildGoogleFontsHref()} />
       <style>{NEWS_BLOCK_CSS}</style>
-      <div className={`${props.templateMode ? "max-w-none pl-5 pr-6 py-4" : "max-w-[1520px] mx-auto px-6 py-10"}`}>
+      <div className={`${
+        props.templateMode
+          // Template builder центрується на сторінці (max-w + mx-auto). 1820px
+          // вистачає під 440px палітру + canvas до 1200px + floating buttons.
+          ? "max-w-[1820px] mx-auto px-5 py-4"
+          : mode === "page"
+            // У page-builder ліва палітра ширша (520px) — потрібна більша
+            // макс-ширина контейнера, щоб канвас 920+padding не стискався.
+            ? "max-w-[1820px] mx-auto px-6 py-10"
+            : "max-w-[1520px] mx-auto px-6 py-10"
+      }`}>
         {/* Header */}
         <div className={props.templateMode ? "mb-3" : "mb-6"}>
           <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-violet-600 mb-1.5">
@@ -655,6 +665,7 @@ export default function NewsEditor(props: Props) {
                 pageBgColor={meta.pageBgColor || ""}
                 selectedBlockId={selectedByTab[t.key]}
                 onSelectBlock={setSelectedFor(t.key)}
+                paletteWide={mode === "page"}
                 canvasWidth={props.canvasWidth}
                 minCanvasHeight={props.minCanvasHeight}
                 canvasLabel={props.canvasLabel}

@@ -35,7 +35,9 @@ export type BlockType =
   | "price"            // Вартість: data.value, data.currency
   | "duration"         // Тривалість: data.value, data.unit
   | "ctaButton"        // Кнопка дії: data.label, data.href, data.bgColor, data.fgColor
-  | "educationItem";   // Пункт освіти: data.title, data.subtitle
+  | "educationItem"    // Пункт освіти: data.title, data.subtitle
+  | "templateInstance"; // Інстанс шаблону на сторінці /news. data: templateId,
+                        // templateKind, templateBlocks, templateCanvas, templateData (JSON).
 
 export interface Block {
   id: string;
@@ -1283,6 +1285,46 @@ export function BlockInner({
       );
     }
 
+    case "templateInstance": {
+      // Public render інстансу шаблону: рендеримо TemplatePreviewCard з templateData
+      // (якщо заповнено), інакше — placeholder з блоків шаблону. PreviewCardScale
+      // масштабує природні tplW×tplH до фактичної ширини блока на сторінці.
+      const tplKind = (block.data.templateKind as "ARTICLE" | "EVENT") || "EVENT";
+      const tplDataRaw = block.data.templateData || "";
+      const tplBlocksRaw = block.data.templateBlocks || "";
+      const tplCanvas = block.data.templateCanvas || "";
+      let tplW = 600;
+      let tplH = 400;
+      if (tplCanvas) {
+        const m = tplCanvas.match(/^(\d+)x(\d+)$/);
+        if (m) { tplW = Number(m[1]) || tplW; tplH = Number(m[2]) || tplH; }
+      }
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const PreviewCardScale = require("./PreviewCardScale").default;
+      let inner: React.ReactNode = null;
+      if (tplDataRaw) {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { parseTemplateData } = require("./templates/types");
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const TemplatePreviewCard = require("./templates/TemplatePreviewCard").default;
+        const data = parseTemplateData(tplKind, tplDataRaw);
+        inner = <TemplatePreviewCard kind={tplKind} data={data} width={tplW} height={tplH} disableLinks />;
+      } else if (tplBlocksRaw) {
+        const parsed = parseBlocks(tplBlocksRaw);
+        if (parsed.isJson && parsed.blocks.length > 0) {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const TemplateBlocksPreview = require("./templates/TemplateBlocksPreview").default;
+          inner = <TemplateBlocksPreview blocks={parsed.blocks} width={tplW} height={tplH} background="#FFFFFF" />;
+        }
+      }
+      if (!inner) return null;
+      return (
+        <PreviewCardScale baseWidth={tplW} baseHeight={tplH} initialScale={1}>
+          {inner}
+        </PreviewCardScale>
+      );
+    }
+
     default:
       return null;
   }
@@ -1310,6 +1352,10 @@ export function AbsoluteBlockRender({
   const isNewsCardPreview =
     block.type === "newsCard" &&
     (block.data.displayMode || "preview") === "preview";
+  // templateInstance — self-contained картка-шаблон, рендериться 1-в-1 у своїх
+  // межах через PreviewCardScale. Padding/overflow адмінського wrapper-а тут
+  // зайвий — він би відрізав content і додавав «зайвий простір» поза карткою.
+  const isTemplateInstance = block.type === "templateInstance";
   // borderRadius: явний `block.borderRadius` (з RadiusControl) має пріоритет;
   // інакше fallback на 8px при bgColor, 0 без bgColor (історична поведінка).
   // 999 → 9999 (pill).
@@ -1329,11 +1375,20 @@ export function AbsoluteBlockRender({
         // мала однакові пропорції незалежно від canvas-ширини. Усі preview-блоки
         // мусять мати однаковий block.width % (auto-fit нормалізує) → візуально
         // однаковий розмір.
-        height: isNewsCardPreview ? "auto" : (h ? `${h}px` : "auto"),
-        aspectRatio: isNewsCardPreview ? "360 / 400" : undefined,
+        height: (isNewsCardPreview || isTemplateInstance) ? "auto" : (h ? `${h}px` : "auto"),
+        aspectRatio: isNewsCardPreview
+          ? "360 / 400"
+          : isTemplateInstance
+            ? (() => {
+                const tc = (block.data?.templateCanvas as string) || "";
+                const m = tc.match(/^(\d+)x(\d+)$/);
+                if (m) return `${Number(m[1])} / ${Number(m[2])}`;
+                return undefined;
+              })()
+            : undefined,
         background: block.bgColor || "transparent",
         borderRadius: resolvedRadius,
-        padding: isNewsCardPreview ? "0" : "0 16px",
+        padding: (isNewsCardPreview || isTemplateInstance) ? "0" : "0 16px",
         boxSizing: "border-box",
         // newsCard у будь-якому режимі може мати динамічний контент (expanded — повне тіло;
         // preview — кастомний layout з білдера превʼю). Дозволяємо overflow:visible щоб

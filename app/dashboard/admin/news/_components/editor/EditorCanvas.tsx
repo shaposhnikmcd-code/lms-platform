@@ -42,7 +42,7 @@ const MIN_H_BY_TYPE: Record<BlockType, number> = {
   divider: 8,
   card: 80,
   newsCard: 200,
-  cardBody: 100,
+  cardBody: 40,
   speakerName: 24,
   speakerRole: 20,
   tagline: 20,
@@ -50,6 +50,7 @@ const MIN_H_BY_TYPE: Record<BlockType, number> = {
   duration: 50,
   ctaButton: 40,
   educationItem: 36,
+  templateInstance: 200,
 };
 
 interface Props {
@@ -105,6 +106,8 @@ interface Props {
   abovePaletteSlot?: React.ReactNode;
   /** Slot ліворуч від канвасу (вертикальна колонка пресет-форм у template-режимі). */
   canvasLeftToolbar?: React.ReactNode;
+  /** Розширена ліва палітра (520px замість 304) — для page-builder /news. */
+  paletteWide?: boolean;
 }
 
 export default function EditorCanvas({
@@ -131,6 +134,7 @@ export default function EditorCanvas({
   canvasTopToolbar,
   abovePaletteSlot,
   canvasLeftToolbar,
+  paletteWide,
 }: Props) {
   // Локальні константи (були module-scope) тепер залежать від props.
   const PAGE_WIDTH = canvasWidth ?? CANVAS_WIDTH;
@@ -899,6 +903,19 @@ export default function EditorCanvas({
         colorDim: "rgba(212,168,67,0.18)",
         bg: "rgba(212,168,67,0.08)",
       };
+    } else if (idStr.startsWith("template-expand:")) {
+      // Drag шаблону з NewsLibrarySidebar — розгортається на канвас як набір
+      // блоків. Ghost — узагальнений «Шаблон» бейдж (preview-grid для multi-block
+      // drag поки не показуємо).
+      activePaletteRef.current = {
+        type: "cardBody" as const,
+        label: "Шаблон",
+        icon: "📐",
+        desc: "Розгорнеться як набір блоків",
+        color: "#D4A843",
+        colorDim: "rgba(212,168,67,0.18)",
+        bg: "rgba(212,168,67,0.08)",
+      };
     }
   }, [updateCanvasRect]);
 
@@ -912,15 +929,99 @@ export default function EditorCanvas({
     setIsOverCanvas(over);
 
     const idStr = String(event.active.id);
-    const isFromPalette = idStr.startsWith("palette:") || idStr.startsWith("news-card:");
+    const isFromPalette = idStr.startsWith("palette:") || idStr.startsWith("news-card:") || idStr.startsWith("template-expand:");
+
+    // image-overlay (Текст на фото) — ghost показуємо ТІЛЬКИ коли курсор над
+    // image-блоком з url. Інакше drop буде silently відхилений у handleDragEnd,
+    // не вводимо менеджера в оману.
+    if (isFromPalette && idStr === "palette:image-overlay") {
+      const candidates = blocks.filter(b => b.type === "image" && b.data.url);
+      const over = candidates.some(b => {
+        const el = canvasRef.current?.querySelector<HTMLElement>(`[data-block-id="${b.id}"]`);
+        if (!el) return false;
+        const r = el.getBoundingClientRect();
+        return cursorX >= r.left && cursorX <= r.right && cursorY >= r.top && cursorY <= r.bottom;
+      });
+      if (!over) {
+        dropPreviewRef.current = null;
+        setDropPreview(null);
+        setAlignGuides([]);
+        setSizeMatches([]);
+        return;
+      }
+    }
+
+    // Спецблок (Імʼя/Tagline/CTA…) у template-режимі: ghost показуємо ТІЛЬКИ
+    // коли курсор над host-ом (Фото / Пустий блок). Інакше — drop буде відхилений
+    // у handleDragEnd, не вводимо менеджера в оману «✓ Відпустіть щоб додати».
+    // КРИТИЧНО: ghost має ВІДОБРАЖАТИ реальну позицію drop-у — x/width успадковані
+    // від host-а, Y clamped у його вертикальний діапазон. Інакше менеджер бачить
+    // ghost на іншому місці ніж дійсний drop position.
+    if (isFromPalette && templateMode && idStr.startsWith("palette:")) {
+      const t = idStr.replace("palette:", "") as BlockType;
+      if (SPEC_BLOCK_TYPES_SET.has(t)) {
+        const host = blocks.find(b => {
+          if (b.type !== "image" && b.type !== "cardBody") return false;
+          const el = canvasRef.current?.querySelector<HTMLElement>(`[data-block-id="${b.id}"]`);
+          if (!el) return false;
+          const r = el.getBoundingClientRect();
+          return cursorX >= r.left && cursorX <= r.right && cursorY >= r.top && cursorY <= r.bottom;
+        });
+        if (!host) {
+          dropPreviewRef.current = null;
+          setDropPreview(null);
+          setAlignGuides([]);
+          setSizeMatches([]);
+          return;
+        }
+        // Host знайдено — ghost preview = x/width host-а, Y у вільному gap-і
+        // у межах host-а. Інші spec-блоки на тому ж host-і займають місце:
+        // новий spec лягає поруч, а не поверх. findAvailableFitInColumn з
+        // ignoreIds={host.id} рахує тільки інші блоки як занятий простір.
+        const estH = TYPE_HEIGHT[t] ?? 40;
+        const minH = MIN_H_BY_TYPE[t] ?? 20;
+        const hostX = host.x ?? 0;
+        const hostW = Number(host.width) || 100;
+        const hostY = host.y ?? 0;
+        const hostH = measureBlockHeight(host);
+        const rawY = snapPx(cursorY - rect.top);
+        const fit = findAvailableFitInColumn(hostX, hostW, rawY, estH, minH, {
+          ignoreIds: new Set([host.id]),
+          minY: hostY,
+          maxY: hostY + hostH,
+        });
+        if (!fit) {
+          // host повний — ghost ховаємо, drop буде відхилений
+          dropPreviewRef.current = null;
+          setDropPreview(null);
+          setAlignGuides([]);
+          setSizeMatches([]);
+          return;
+        }
+        const final = { x: hostX, y: fit.y, width: hostW, height: fit.h };
+        dropPreviewRef.current = final;
+        setDropPreview(final);
+        setAlignGuides([]);
+        setSizeMatches([]);
+        return;
+      }
+    }
+
     if (isFromPalette && over) {
       // Ghost показує реальний slot: Y = cursor Y, width підганяється під вільну
-      // горизонтальну прорізку (100% якщо порожньо, менше якщо поруч сусіди).
-      // Дефолтна ширина: newsCard preview — 33% (картка-тизер у ряду по 3),
-      // newsCard expanded — 100% (повний інлайн-контент новини), решта — 100%.
+      // горизонтальну прорізку (defaultW якщо порожньо, менше якщо поруч сусіди).
+      // Дефолтна ширина:
+      //  - newsCard preview — 33% (картка-тизер у ряду по 3),
+      //  - newsCard expanded — 100% (повний інлайн-контент новини),
+      //  - template-режим — 40% (≈ розмір картки палітри): блок сідає компактним,
+      //    менеджер потім розтягує мишкою. Divider — 100% (він і так full-row).
+      //  - звичайний news builder — 100%.
+      const paletteTypeForW = activePaletteRef.current?.type;
       const defaultW =
         idStr.startsWith("news-card:preview:") ? 33 :
-        idStr.startsWith("news-card:") ? 100 : 100;
+        idStr.startsWith("news-card:") ? 100 :
+        (templateMode && paletteTypeForW !== "divider") ? 40 :
+        100;
       const xPx = cursorX - rect.left;
       const yPx = cursorY - rect.top;
       const cursorXPct = (xPx / rect.width) * 100;
@@ -943,6 +1044,15 @@ export default function EditorCanvas({
         if (fit) {
           ghostY = fit.y;
           ghostH = fit.h;
+        } else if (templateMode) {
+          // У template-режимі немає куди класти (column повний) → ховаємо ghost.
+          // Drop і так буде відхилений у handleDragEnd; не показуємо misleading
+          // preview на позиції курсора (наприклад, поверх Фото).
+          dropPreviewRef.current = null;
+          setDropPreview(null);
+          setAlignGuides([]);
+          setSizeMatches([]);
+          return;
         }
       }
       const final = { x: clamped.x, y: ghostY, width: slot.width, height: ghostH };
@@ -1055,6 +1165,50 @@ export default function EditorCanvas({
         // У fixedHeight-режимі — фінальний clamp Y по нижньому краю канвасу.
         y = clampYBottom(y, bh);
 
+        // У template-режимі спецблок ОБМЕЖЕНИЙ рамками host-а (image/cardBody):
+        // ghost має відображати реальну посадку (fit-within-host), а не сире
+        // cursor+snap. Без цього ghost показує overlap на іншому spec-блоці,
+        // але handleDragEnd зміщує блок у сусідній gap — менеджер плутається.
+        if (templateMode && SPEC_BLOCK_TYPES_SET.has(b.type)) {
+          const hosts = blocks.filter(o => (o.type === "image" || o.type === "cardBody") && o.id !== b.id);
+          const host = hosts.find(h => {
+            const ix = h.x ?? 0;
+            const iy = h.y ?? 0;
+            const iw = Number(h.width) || 100;
+            const ih = measureBlockHeight(h);
+            const overlapX = x + wPct > ix + 0.5 && x < ix + iw - 0.5;
+            const overlapY = y + bh > iy + 4 && y < iy + ih - 4;
+            return overlapX && overlapY;
+          });
+          if (!host) {
+            dropPreviewRef.current = null;
+            setDropPreview(null);
+            setAlignGuides([]);
+            setSizeMatches([]);
+            return;
+          }
+          const hostY = host.y ?? 0;
+          const hostH = measureBlockHeight(host);
+          const minH = MIN_H_BY_TYPE[b.type] ?? 20;
+          const fit = findAvailableFitInColumn(x, wPct, y, bh, minH, {
+            ignoreIds: new Set([host.id, b.id]),
+            minY: hostY,
+            maxY: hostY + hostH,
+          });
+          if (!fit) {
+            dropPreviewRef.current = null;
+            setDropPreview(null);
+            setAlignGuides([]);
+            setSizeMatches([]);
+            return;
+          }
+          dropPreviewRef.current = { x, y: fit.y, width: wPct };
+          setDropPreview({ x, y: fit.y, width: wPct });
+          setAlignGuides([]);
+          setSizeMatches([]);
+          return;
+        }
+
         // 3) Після снапу — детектимо ВСІ alignments через спільний helper.
         detectAlignmentsAt(b.id, x, y, wPct, bh);
         dropPreviewRef.current = { x, y, width: wPct };
@@ -1160,25 +1314,41 @@ export default function EditorCanvas({
     prefY: number,
     defaultH: number,
     minH: number,
+    opts?: { ignoreIds?: Set<string>; minY?: number; maxY?: number },
   ): { y: number; h: number } | null {
+    // Опційний скоуп: діапазон Y (для spec-on-host — у межах host-а) +
+    // ignoreIds (виключити сам host з occupants, щоб spec міг лягти на нього).
+    const rangeStart = opts?.minY ?? 0;
+    const rangeEnd = opts?.maxY ?? canvasHeight;
+    const ignore = opts?.ignoreIds;
     // Усі блоки, що мають горизонтальне перекриття з потрібним X-діапазоном.
+    // occupants підрізаємо до [rangeStart, rangeEnd] — частини блоків поза скоупом
+    // не блокують gaps.
     const occupants = blocks
+      .filter(b => !ignore?.has(b.id))
       .filter(b => {
         const bx = b.x ?? 0;
         const bw = Number(b.width) || 100;
         return bx < x + width - 0.5 && bx + bw > x + 0.5;
       })
-      .map(b => ({ y: b.y ?? 0, h: measureBlockHeight(b) }))
+      .map(b => {
+        const oy = b.y ?? 0;
+        const oh = measureBlockHeight(b);
+        const start = Math.max(oy, rangeStart);
+        const end = Math.min(oy + oh, rangeEnd);
+        return { y: start, h: end - start };
+      })
+      .filter(o => o.h > 0)
       .sort((a, b) => a.y - b.y);
 
-    // Збираємо вільні інтервали [start, end].
+    // Збираємо вільні інтервали [start, end] у межах [rangeStart, rangeEnd].
     const gaps: Array<{ start: number; end: number }> = [];
-    let cursor = 0;
+    let cursor = rangeStart;
     for (const occ of occupants) {
       if (occ.y > cursor + 0.5) gaps.push({ start: cursor, end: occ.y });
       cursor = Math.max(cursor, occ.y + occ.h);
     }
-    if (cursor < canvasHeight - 0.5) gaps.push({ start: cursor, end: canvasHeight });
+    if (cursor < rangeEnd - 0.5) gaps.push({ start: cursor, end: rangeEnd });
 
     const usable = gaps.filter(g => g.end - g.start >= minH);
     if (usable.length === 0) return null;
@@ -1205,7 +1375,8 @@ export default function EditorCanvas({
     const idStr = String(event.active.id);
     const isPalette = idStr.startsWith("palette:");
     const isNewsCard = idStr.startsWith("news-card:");
-    const isFromPalette = isPalette || isNewsCard;
+    const isTemplateExpand = idStr.startsWith("template-expand:");
+    const isFromPalette = isPalette || isNewsCard || isTemplateExpand;
     const preview = dropPreviewRef.current;
     const rect = canvasRectRef.current;
 
@@ -1228,7 +1399,84 @@ export default function EditorCanvas({
       const cursorY = ev.clientY + (event.delta?.y || 0);
       if (cursorX < rect.left || cursorX > rect.right || cursorY < rect.top) return;
 
-      // Спецкейс: image-overlay → drop у конкретний image-блок під курсором
+      // Спецкейс: template-expand → створюємо ОДИН блок-шаблон (templateInstance)
+      // який рендерить весь лейаут шаблону всередині своїх меж. Менеджер клікає
+      // на блок → відкривається загальний редактор-форма (ArticleForm/EventForm),
+      // а не редактори окремих блоків. Так шаблон поводиться як єдиний "віджет".
+      if (isTemplateExpand) {
+        const data = event.active.data?.current as
+          | { templateId?: string; templateBlocks?: string; templateCanvas?: string; templateKind?: "ARTICLE" | "EVENT" }
+          | undefined;
+        const templateId = data?.templateId || "";
+        if (!templateId) return;
+
+        // Природний розмір canvas-у шаблону (наприклад "800x448").
+        let tplW = 600;
+        let tplH = 400;
+        if (data?.templateCanvas) {
+          const m = data.templateCanvas.match(/^(\d+)x(\d+)$/);
+          if (m) { tplW = Number(m[1]) || tplW; tplH = Number(m[2]) || tplH; }
+        }
+
+        // Обчислюємо РЕАЛЬНУ bounding-box контенту шаблону (а не повний canvas),
+        // щоб блок не мав зайвого порожнього простору. Якщо менеджер залишив
+        // canvas з відступами навколо блоків, обрізаємо до фактичних меж.
+        let contentW = tplW;
+        let contentH = tplH;
+        try {
+          const parsed = JSON.parse(data?.templateBlocks || "[]");
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            let maxRightPct = 0;
+            let maxBottomPx = 0;
+            for (const b of parsed as Array<{ x?: number; y?: number; width?: string | number; height?: number; type?: string }>) {
+              const bx = Number(b.x ?? 0);
+              const by = Number(b.y ?? 0);
+              const bw = Number(b.width ?? 100);
+              const bh = Number(b.height ?? 80);
+              maxRightPct = Math.max(maxRightPct, bx + bw);
+              maxBottomPx = Math.max(maxBottomPx, by + bh);
+            }
+            if (maxRightPct > 0) contentW = Math.round(tplW * Math.min(maxRightPct, 100) / 100);
+            if (maxBottomPx > 0) contentH = Math.min(tplH, maxBottomPx);
+          }
+        } catch {
+          /* fallback на повний canvas */
+        }
+
+        // Стискаємо до CANVAS_WIDTH сторінки (920), якщо ширше.
+        const widthPct = Math.min(100, Math.round((contentW / CANVAS_WIDTH) * 100));
+        const scaledH = Math.round(contentH * (widthPct * CANVAS_WIDTH / 100) / contentW);
+
+        const newId = uid();
+        const x = preview?.x ?? 0;
+        const y = preview?.y ?? snapPx(cursorY - rect.top);
+        const newBlock: Block = {
+          id: newId,
+          type: "templateInstance",
+          data: {
+            templateId,
+            templateKind: data?.templateKind || "EVENT",
+            templateBlocks: data?.templateBlocks || "",
+            // Зберігаємо ОБРІЗАНІ розміри canvas для render-у — placeholder-блоки
+            // позиціонуються відносно цього canvas-у.
+            templateCanvas: `${contentW}x${contentH}`,
+            // templateData — JSON ArticleData/EventData, наповнюється у формі-редакторі.
+            templateData: "",
+          },
+          width: String(widthPct),
+          align: "left",
+          bgColor: "",
+          x: Math.max(0, Math.min(100 - widthPct, x)),
+          y: Math.max(0, y),
+          height: scaledH,
+        };
+        onBlocksChange([...blocks, newBlock]);
+        setLastAddedId(newId);
+        return;
+      }
+
+      // Спецкейс: image-overlay → drop ТІЛЬКИ у image-блок з url під курсором.
+      // Якщо курсор не над таким блоком — drop тихо відхиляється (без alert).
       if (idStr === "palette:image-overlay") {
         const candidates = blocks.filter(b => b.type === "image" && b.data.url);
         let target: Block | null = null;
@@ -1244,11 +1492,7 @@ export default function EditorCanvas({
             break;
           }
         }
-        if (!target) {
-          // fallback — у останнє фото в дефолтну позицію
-          target = candidates[candidates.length - 1] || null;
-          if (!target) { alert("Спершу додайте блок Фото з картинкою"); return; }
-        }
+        if (!target) return; // не на image-з-url → skip silently
         let arr: Array<Record<string, unknown>> = [];
         try { const p = JSON.parse(target.data.overlays || "[]"); if (Array.isArray(p)) arr = p; } catch { /* ignore */ }
         const newId = (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID() : `ov_${Date.now()}_${Math.random().toString(36).slice(2)}`;
@@ -1302,16 +1546,32 @@ export default function EditorCanvas({
       // Новий блок сідає ТУДИ, куди ти його кинув (preview) — а існуючі адаптуються.
       // Divider: завжди 100% ширини; решта: використовуємо preview (smart slot).
       let x: number, y: number, width: number;
+      // Для spec-on-host фіксуємо вже підраховану висоту (з findAvailableFitInColumn),
+      // щоб уникнути повторного fit-у нижче. null = звичайний flow.
+      let specFitH: number | null = null;
       if (type === "divider") {
         x = 0; y = snapPx(cursorY - rect.top); width = 100;
       } else if (specImageHost) {
         // Спецблок дропнутий на host (Фото або Пустий блок) — успадковуємо
-        // x і width host-а (блок сідає точно поверх нього), Y = позиція курсора
-        // в межах host-а. Так Імʼя фахівця / CTA / Tagline візуально лягають
-        // «на хост», а не повномасштабно на канвас.
+        // x і width host-а. Y знаходимо у вільному gap-і всередині host-а
+        // через findAvailableFitInColumn(ignoreIds={host}). Це гарантує:
+        //  - блок повністю всередині host-а вертикально,
+        //  - інші spec-блоки на цьому ж host-і трактуються як занятий простір
+        //    (нові spec лягають ПОРУЧ, не поверх один одного).
         x = specImageHost.x ?? 0;
         width = Number(specImageHost.width) || 100;
-        y = snapPx(cursorY - rect.top);
+        const hostY = specImageHost.y ?? 0;
+        const hostH = measureBlockHeight(specImageHost);
+        const rawY = snapPx(cursorY - rect.top);
+        const minH = MIN_H_BY_TYPE[type] ?? 20;
+        const fit = findAvailableFitInColumn(x, width, rawY, estH, minH, {
+          ignoreIds: new Set([specImageHost.id]),
+          minY: hostY,
+          maxY: hostY + hostH,
+        });
+        if (!fit) return; // host повний spec-блоками — drop відхиляємо
+        y = fit.y;
+        specFitH = fit.h;
       } else {
         x = preview?.x ?? 0; y = preview?.y ?? 0; width = preview?.width ?? 100;
       }
@@ -1325,18 +1585,22 @@ export default function EditorCanvas({
       // на 360px знизу лишив тільки 40px). Тільки якщо взагалі немає gap-а
       // >= MIN_H_BY_TYPE — drop скасовується. Уникає silent-failure-у displacement-у.
       let finalY = clampedY;
-      let finalH = estH;
+      let finalH = specFitH ?? estH;
       let finalBlocks = blocks;
-      if (fixedHeight && !templateMode) {
+      // У template-режимі ТІЛЬКИ спецблоки (Імʼя/Tagline/CTA…) лягають поверх
+      // host-а (Фото / Пустий блок) — це їх задача-слотів. Generic-блоки
+      // (Заголовок/Текст/Фото/YouTube/Цитата/Лінія) поводяться як у звичайному
+      // page-builder-і: auto-fit у вільний gap, без overlap.
+      const isSpecOnHost = templateMode && SPEC_BLOCK_TYPES_SET.has(type);
+      if (fixedHeight && !isSpecOnHost) {
         const minH = MIN_H_BY_TYPE[type] ?? 24;
         const fit = findAvailableFitInColumn(clamped.x, width, clamped.y, estH, minH);
         if (!fit) return; // канвас повний у цьому X-діапазоні
         finalY = fit.y;
         finalH = fit.h;
-      } else if (templateMode) {
-        // У template-режимі дозволяємо вільний overlap: спецблоки можна класти
-        // поверх фото, заголовка тощо. Без collision-check, без fit-у — блок
-        // сідає рівно туди, куди користувач кинув.
+      } else if (isSpecOnHost) {
+        // Спецблок поверх host: x/width успадковані від host-а вище (специальний
+        // блок ВЖЕ позиційно лежить на ньому). Без collision-check, без fit-у.
       } else if (hasCollision(clamped.x, clampedY, width, estH, null)) {
         // Free-canvas (page-builder): displaceBlocksAround стискає/опускає сусідів.
         finalBlocks = displaceBlocksAround(
@@ -1392,30 +1656,48 @@ export default function EditorCanvas({
 
     // У fixedHeight-режимі ще раз клампимо Y по нижньому краю canvas-у —
     // safety net на випадок коли preview не пройшов через clampYBottom.
-    const finalY = clampYBottom(resolvedPreview.y, bh);
+    let finalY = clampYBottom(resolvedPreview.y, bh);
 
-    // У template-режимі спецблок можна перемістити ТІЛЬКИ якщо його нова
-    // позиція перекриває host-блок (Фото або Пустий блок). Інакше — скасовуємо
-    // move (block лишається на старому місці).
+    // У template-режимі спецблок переміщується ТІЛЬКИ всередині host-а
+    // (Фото або Пустий блок), і НЕ повинен перекривати інші spec/generic
+    // блоки на цьому ж host-і. Логіка ідентична drop-у з палітри (див.
+    // SECTION «specImageHost» вище):
+    //   1. знаходимо host, з яким target rect перекривається;
+    //   2. через findAvailableFitInColumn(ignoreIds={host, self}) шукаємо
+    //      вільне місце у вертикальному діапазоні host-а;
+    //   3. якщо host не знайдено АБО fit не існує — move скасовується.
     if (templateMode && SPEC_BLOCK_TYPES_SET.has(b.type)) {
       const hosts = blocks.filter(o => (o.type === "image" || o.type === "cardBody") && o.id !== b.id);
-      const overlapsHost = hosts.some(host => {
-        const ix = host.x ?? 0;
-        const iy = host.y ?? 0;
-        const iw = Number(host.width) || 100;
-        const ih = measureBlockHeight(host);
+      const host = hosts.find(h => {
+        const ix = h.x ?? 0;
+        const iy = h.y ?? 0;
+        const iw = Number(h.width) || 100;
+        const ih = measureBlockHeight(h);
         const overlapX = resolvedPreview.x + resolvedPreview.width > ix + 0.5 && resolvedPreview.x < ix + iw - 0.5;
         const overlapY = finalY + bh > iy + 4 && finalY < iy + ih - 4;
         return overlapX && overlapY;
       });
-      if (!overlapsHost) return;
+      if (!host) return; // не на host — скасовуємо move (повертається на місце)
+      const hostY = host.y ?? 0;
+      const hostH = measureBlockHeight(host);
+      const minH = MIN_H_BY_TYPE[b.type] ?? 20;
+      const fit = findAvailableFitInColumn(
+        resolvedPreview.x, resolvedPreview.width, finalY, bh, minH,
+        { ignoreIds: new Set([host.id, b.id]), minY: hostY, maxY: hostY + hostH },
+      );
+      if (!fit) return; // host повний (інші spec блоки) — скасовуємо
+      finalY = fit.y;
     }
 
     let next = blocks.slice();
     next[idx] = { ...next[idx], x: resolvedPreview.x, y: finalY };
 
-    // У template-режимі — пропускаємо collision/displacement: вільне перекриття.
-    if (!templateMode && hasCollision(resolvedPreview.x, finalY, resolvedPreview.width, bh, b.id)) {
+    // У template-режимі спецблоки (Імʼя/Tagline/CTA…) вільно перекривають host
+    // (image/cardBody) — це їх задача. Generic-блоки (Заголовок/Текст/Фото…)
+    // поводяться як у звичайному page-builder-і: displaceBlocksAround стискає
+    // або опускає сусідів, щоб уникнути overlap-у.
+    const isSpecBlockMove = templateMode && SPEC_BLOCK_TYPES_SET.has(b.type);
+    if (!isSpecBlockMove && hasCollision(resolvedPreview.x, finalY, resolvedPreview.width, bh, b.id)) {
       next = displaceBlocksAround(
         { x: resolvedPreview.x, y: finalY, width: resolvedPreview.width, height: bh },
         next,
@@ -1437,7 +1719,7 @@ export default function EditorCanvas({
     }
   }, [blocks, onBlocksChange, clearPreview, clearPreviewX, clearPreviewY, canvasHeight]);
 
-  const paletteBlock = (activeId?.startsWith("palette:") || activeId?.startsWith("news-card:"))
+  const paletteBlock = (activeId?.startsWith("palette:") || activeId?.startsWith("news-card:") || activeId?.startsWith("template-expand:"))
     ? activePaletteRef.current
     : null;
 
@@ -1487,6 +1769,7 @@ export default function EditorCanvas({
             extraBlocks={extraPaletteBlocks}
             extraBlocksTitle={extraPaletteBlocksTitle}
             compact={templateMode}
+            wide={paletteWide}
             selectedBlockY={(() => {
               if (!selectedBlockId) return null;
               const sel = blocks.find(b => b.id === selectedBlockId);
@@ -1542,21 +1825,24 @@ export default function EditorCanvas({
               </div>
             )}
 
+            {/* Якщо є canvasLeftToolbar — рендеримо ліворуч від канвасу у flex-row.
+                alignItems: stretch — щоб toolbar тягнувся на висоту канвасу
+                (template-режим: вертикальні пресети «вздовж лівого краю»).
+                canvasTopToolbar інлайнимо у колонку поруч з канвасом — щоб
+                його лівий край збігався з лівим краєм canvas-у. */}
+            <div style={{ display: "flex", gap: 8, alignItems: "stretch", width: "100%", maxWidth: canvasLeftToolbar ? "none" : `${PAGE_WIDTH + PAGE_PAD_X * 2}px` }}>
+              {canvasLeftToolbar && (
+                <div style={{ flexShrink: 0, display: "flex" }}>{canvasLeftToolbar}</div>
+              )}
+            <div style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0, alignItems: "flex-start" }}>
             {canvasTopToolbar && (
               <div style={{
-                width: "100%",
                 maxWidth: `${PAGE_WIDTH + PAGE_PAD_X * 2}px`,
                 marginBottom: 12,
               }}>
                 {canvasTopToolbar}
               </div>
             )}
-
-            {/* Якщо є canvasLeftToolbar — рендеримо ліворуч від канвасу у flex-row */}
-            <div style={{ display: "flex", gap: 12, alignItems: "flex-start", width: "100%", maxWidth: canvasLeftToolbar ? "none" : `${PAGE_WIDTH + PAGE_PAD_X * 2}px` }}>
-              {canvasLeftToolbar && (
-                <div style={{ flexShrink: 0 }}>{canvasLeftToolbar}</div>
-              )}
             <div
               onClick={(e) => { if (e.target === e.currentTarget) setSelectedBlockId(null); }}
               style={{
@@ -1776,6 +2062,7 @@ export default function EditorCanvas({
                   onResize={onCanvasResize}
                 />
               )}
+            </div>
             </div>
             </div>
 
@@ -2125,14 +2412,25 @@ function AbsoluteBlock(props: {
         // має власний контент-розмір, а block.height (1700/680) — лише грубий
         // дефолт для canvasHeight() кешу і snap-логіки. Без auto wrapper обрізає
         // довшу статтю → content виглядає як overflow в сусідні блоки.
-        height: block.type === "newsCard"
+        height: (block.type === "newsCard" || block.type === "templateInstance")
           ? "auto"
           : ((previewHeight && previewHeight > 0)
               ? `${previewHeight}px`
               : (block.height ? `${block.height}px` : undefined)),
         aspectRatio: (block.type === "newsCard" && (block.data.displayMode || "preview") === "preview")
           ? "360 / 400"
-          : undefined,
+          : block.type === "templateInstance"
+            ? (() => {
+                // Aspect-ratio з templateCanvas (наприклад "800x448"). Висота
+                // блока завжди йде за шириною з пропорціями шаблону, незалежно
+                // від block.height — це гарантує що блок не "виростає" вище
+                // за реальний контент шаблону.
+                const tc = block.data?.templateCanvas || "";
+                const m = tc.match(/^(\d+)x(\d+)$/);
+                if (m) return `${Number(m[1])} / ${Number(m[2])}`;
+                return undefined;
+              })()
+            : undefined,
         // У card-builder-і — обмежуємо візуальну висоту блока вільним місцем
         // (canvasHeight - y). Це safety net на випадок коли block.height у БД
         // більший за canvas (напр., високе фото з auto-aspect зі старих даних).

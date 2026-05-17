@@ -10,6 +10,7 @@ import YoutubeEditor from "./blocks/YoutubeEditor";
 import QuoteEditor from "./blocks/QuoteEditor";
 import CardEditor from "./blocks/CardEditor";
 import NewsCardEditor from "./blocks/NewsCardEditor";
+import TemplateInstanceEditor from "./blocks/TemplateInstanceEditor";
 import {
   SpeakerNameEditor,
   SpeakerRoleEditor,
@@ -30,6 +31,12 @@ import { canvasHeight as innerCanvasHeight, parseBlocks as parseInnerBlocks, PRE
 const MIN_BLOCK_HEIGHT_BY_TYPE: Record<string, number> = {
   heading: 24, text: 30, image: 40, youtube: 80,
   quote: 30, divider: 8, card: 80, newsCard: 200,
+  // Spec-блоки і cardBody — однорядкові/компактні слоти; без явного floor
+  // useBlockResize брав глобальні 60px, через що менеджер не міг стиснути
+  // Tagline/Вартість/Ім'я фахівця нижче за ~60px.
+  cardBody: 24,
+  speakerName: 18, speakerRole: 16, tagline: 16,
+  price: 20, duration: 20, ctaButton: 24, educationItem: 20,
 };
 
 interface Props {
@@ -448,7 +455,9 @@ export default function BlockItem({
           // має співпадати з реальними межами блока, без 16px інсету.
           padding: isPlaceholder
             ? "0"
-            : (block.type === "newsCard" && (block.data.displayMode || "preview") === "preview") ? "0" : "0 16px",
+            : (block.type === "newsCard" && (block.data.displayMode || "preview") === "preview") ? "0"
+            : block.type === "templateInstance" ? "0"
+            : "0 16px",
           boxSizing: "border-box",
           // overflow:hidden — щоб контент і toolbar-и НЕ вилазили на сусідні блоки.
           // Контекстні toolbar-и (overlay тексту-на-фото, alt-input) винесені у портал
@@ -478,6 +487,7 @@ export default function BlockItem({
             {block.type === "quote"   && <QuoteEditor   block={block} onChange={d => onChange(block.id, d)} selected={selected} onSetVAlign={v => onSetVAlign(block.id, v)} containerWidthPx={containerWidthPx} />}
             {block.type === "card"    && <CardEditor    block={block} onChange={d => onChange(block.id, d)} onUpload={onUpload} />}
             {block.type === "newsCard"&& <NewsCardEditor block={block} onChange={d => onChange(block.id, d)} selected={selected} />}
+            {block.type === "templateInstance" && <TemplateInstanceEditor block={block} onChange={d => onChange(block.id, d)} selected={selected} />}
             {block.type === "divider" && <hr style={{ border: "none", borderTopWidth: "2px", borderTopStyle: "solid", borderTopColor: "#D4A843", margin: "8px 0" }} />}
             {/* Структуровані блоки шаблонів (Session 2). Інлайн-редагування
                 через contentEditable; стиль зберігається у block.data. */}
@@ -558,27 +568,64 @@ export default function BlockItem({
 }
 
 // Підпис типу блока для плейсхолдера у шаблон-режимі.
-const TEMPLATE_PLACEHOLDER_LABELS: Record<string, { icon: string; label: string }> = {
-  heading:        { icon: "H",  label: "Заголовок" },
-  text:           { icon: "¶",  label: "Текст" },
-  image:          { icon: "🖼", label: "Фото" },
-  youtube:        { icon: "▶",  label: "YouTube" },
-  quote:          { icon: "❝",  label: "Цитата" },
-  divider:        { icon: "—",  label: "Лінія" },
-  card:           { icon: "▢",  label: "Картка" },
-  newsCard:       { icon: "📰", label: "Новина" },
-  cardBody:       { icon: "▢",  label: "Пустий блок" },
-  speakerName:    { icon: "👤", label: "Імʼя фахівця" },
-  speakerRole:    { icon: "🎓", label: "Посада" },
-  tagline:        { icon: "✍",  label: "Tagline" },
-  price:          { icon: "₴",  label: "Вартість" },
-  duration:       { icon: "⏱",  label: "Тривалість" },
-  ctaButton:      { icon: "▶",  label: "Кнопка CTA" },
-  educationItem:  { icon: "📜", label: "Пункт освіти" },
+// color/bg беруться зі стилю палітри (PALETTE_BLOCKS / TEMPLATE_PALETTE_BLOCKS),
+// щоб блок на канвасі візуально відповідав картці з палітри.
+//   - generic-блоки — кожен має свій акцент,
+//   - спецблоки — усі один колір (muted violet) як «семантичні слоти».
+const SPEC_TINT = "#8B7AB8";
+const SPEC_BG = "rgba(139,122,184,0.35)";
+const TEMPLATE_PLACEHOLDER_LABELS: Record<string, { icon: string; label: string; color: string; bg: string }> = {
+  heading:        { icon: "H",  label: "Заголовок",    color: "#D4A843", bg: "rgba(212,168,67,0.35)" },
+  text:           { icon: "¶",  label: "Текст",        color: "#7EB8A4", bg: "rgba(126,184,164,0.35)" },
+  image:          { icon: "🖼", label: "Фото",         color: "#A8C97A", bg: "rgba(168,201,122,0.35)" },
+  youtube:        { icon: "▶",  label: "YouTube",      color: "#E07B6A", bg: "rgba(224,123,106,0.35)" },
+  quote:          { icon: "❝",  label: "Цитата",       color: "#C4919A", bg: "rgba(196,145,154,0.35)" },
+  divider:        { icon: "—",  label: "Лінія",        color: "#8B9EB0", bg: "rgba(139,158,176,0.35)" },
+  card:           { icon: "▢",  label: "Картка",       color: "#A8956C", bg: "rgba(168,149,108,0.35)" },
+  newsCard:       { icon: "📰", label: "Новина",       color: "#A8956C", bg: "rgba(168,149,108,0.35)" },
+  cardBody:       { icon: "▢",  label: "Пустий блок",  color: "#A8956C", bg: "rgba(168,149,108,0.35)" },
+  speakerName:    { icon: "👤", label: "Імʼя фахівця", color: SPEC_TINT, bg: SPEC_BG },
+  speakerRole:    { icon: "🎓", label: "Посада",       color: SPEC_TINT, bg: SPEC_BG },
+  tagline:        { icon: "✍",  label: "Tagline",      color: SPEC_TINT, bg: SPEC_BG },
+  price:          { icon: "₴",  label: "Вартість",     color: SPEC_TINT, bg: SPEC_BG },
+  duration:       { icon: "⏱",  label: "Тривалість",   color: SPEC_TINT, bg: SPEC_BG },
+  ctaButton:      { icon: "▶",  label: "Кнопка CTA",   color: SPEC_TINT, bg: SPEC_BG },
+  educationItem:  { icon: "📜", label: "Пункт освіти", color: SPEC_TINT, bg: SPEC_BG },
 };
 
 function TemplatePlaceholder({ type }: { type: string }) {
-  const info = TEMPLATE_PLACEHOLDER_LABELS[type] || { icon: "■", label: type };
+  const info = TEMPLATE_PLACEHOLDER_LABELS[type] || { icon: "■", label: type, color: "#1C3A2E", bg: "rgba(28,58,46,0.04)" };
+  // cardBody — порожній контейнер-host. Показуємо ЛИШЕ маленьку мітку-іконку
+  // у верхньому-лівому куті (▢ корнер-маркер), без центрального лейблу.
+  // Заливка subtle-sand, щоб блок не виглядав абсолютно порожнім.
+  if (type === "cardBody") {
+    return (
+      <div
+        style={{
+          width: "100%",
+          height: "100%",
+          background: info.bg,
+          boxSizing: "border-box",
+          userSelect: "none",
+          position: "relative",
+        }}
+      >
+        <div style={{
+          position: "absolute",
+          top: 6,
+          left: 8,
+          fontSize: 11,
+          fontWeight: 700,
+          color: info.color,
+          opacity: 0.6,
+          fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
+          letterSpacing: "0.04em",
+          lineHeight: 1,
+          pointerEvents: "none",
+        }}>▢</div>
+      </div>
+    );
+  }
   return (
     <div
       style={{
@@ -588,13 +635,13 @@ function TemplatePlaceholder({ type }: { type: string }) {
         alignItems: "center",
         justifyContent: "center",
         gap: 10,
-        background: "rgba(28,58,46,0.04)",
+        background: info.bg,
         // Без власної рамки і radius — батьківський wrapper (BlockItem inner div)
         // вже задає межі блока через outline + overflow:hidden, і саме він
         // повинен бути "візуальною рамкою" блока. Інакше з'являлась подвійна
         // рамка (зовнішня тонка solid + внутрішня пунктирна) з gap-ом між ними.
         boxSizing: "border-box",
-        color: "rgba(28,58,46,0.7)",
+        color: info.color,
         fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
         fontSize: 13,
         fontWeight: 600,

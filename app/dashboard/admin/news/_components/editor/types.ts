@@ -18,7 +18,10 @@ export type BlockType =
   | "price"
   | "duration"
   | "ctaButton"
-  | "educationItem";
+  | "educationItem"
+  | "templateInstance";  // ← block-обгортка для шаблону на сторінці /news. Рендерить
+                         // лейаут шаблону (templateBlocks) як цілісну картку;
+                         // клік відкриває form-editor (ArticleForm/EventForm).
 // BlockWidth — рядок з числом відсотків (1..100). Тримаємо як string для сумісності
 // зі старими записами та з JSON-серіалізацією. Крок resize — 1%.
 export type BlockWidth = string;

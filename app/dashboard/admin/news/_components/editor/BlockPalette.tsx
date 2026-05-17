@@ -33,14 +33,22 @@ export const PALETTE_BLOCKS: {
 // "Імʼя фахівця" на сторінку, де воно не має сенсу. Перемикається режимом
 // у NewsEditor (palette={...}) — у Session 3 додаємо ці блоки до палітри
 // тільки коли editor завантажений для template-новини.
+// Усі спецблоки уніфіковано одним кольором (muted violet), щоб візуально
+// відрізнятись від звичайних блоків (кожен має свій акцент) і трактуватись
+// як одна група «семантичних слотів». Колір підібраний так, щоб не конфліктувати
+// з amber-палітрою template-режиму, але читатись як «спеціальний клас».
+const SPEC_COLOR = "#8B7AB8";
+const SPEC_COLOR_DIM = "rgba(139,122,184,0.18)";
+const SPEC_BG = "rgba(139,122,184,0.07)";
+
 export const TEMPLATE_PALETTE_BLOCKS: typeof PALETTE_BLOCKS = [
-  { type: "speakerName",   label: "Імʼя фахівця",   icon: "👤", desc: "Імʼя та прізвище",      color: "#D4A843", colorDim: "rgba(212,168,67,0.18)", bg: "rgba(212,168,67,0.08)" },
-  { type: "speakerRole",   label: "Посада",         icon: "🎓", desc: "Спеціалізація",         color: "#A8956C", colorDim: "rgba(168,149,108,0.18)", bg: "rgba(168,149,108,0.08)" },
-  { type: "tagline",       label: "Tagline",        icon: "✍",  desc: "Підпис 1 рядком",        color: "#7EB8A4", colorDim: "rgba(126,184,164,0.18)", bg: "rgba(126,184,164,0.07)" },
-  { type: "price",         label: "Вартість",       icon: "₴",  desc: "Ціна + валюта",          color: "#C4919A", colorDim: "rgba(196,145,154,0.18)", bg: "rgba(196,145,154,0.07)" },
-  { type: "duration",      label: "Тривалість",     icon: "⏱",  desc: "Час + одиниця",          color: "#8B9EB0", colorDim: "rgba(139,158,176,0.18)", bg: "rgba(139,158,176,0.07)" },
-  { type: "ctaButton",     label: "Кнопка CTA",     icon: "▶",  desc: "Записатись / Купити",   color: "#E07B6A", colorDim: "rgba(224,123,106,0.18)", bg: "rgba(224,123,106,0.07)" },
-  { type: "educationItem", label: "Пункт освіти",   icon: "📜", desc: "Назва + диплом",         color: "#A8C97A", colorDim: "rgba(168,201,122,0.18)", bg: "rgba(168,201,122,0.07)" },
+  { type: "speakerName",   label: "Імʼя фахівця",   icon: "👤", desc: "Імʼя та прізвище",      color: SPEC_COLOR, colorDim: SPEC_COLOR_DIM, bg: SPEC_BG },
+  { type: "speakerRole",   label: "Посада",         icon: "🎓", desc: "Спеціалізація",         color: SPEC_COLOR, colorDim: SPEC_COLOR_DIM, bg: SPEC_BG },
+  { type: "tagline",       label: "Tagline",        icon: "✍",  desc: "Підпис 1 рядком",        color: SPEC_COLOR, colorDim: SPEC_COLOR_DIM, bg: SPEC_BG },
+  { type: "price",         label: "Вартість",       icon: "₴",  desc: "Ціна + валюта",          color: SPEC_COLOR, colorDim: SPEC_COLOR_DIM, bg: SPEC_BG },
+  { type: "duration",      label: "Тривалість",     icon: "⏱",  desc: "Час + одиниця",          color: SPEC_COLOR, colorDim: SPEC_COLOR_DIM, bg: SPEC_BG },
+  { type: "ctaButton",     label: "Кнопка CTA",     icon: "▶",  desc: "Записатись / Купити",   color: SPEC_COLOR, colorDim: SPEC_COLOR_DIM, bg: SPEC_BG },
+  { type: "educationItem", label: "Пункт освіти",   icon: "📜", desc: "Назва + диплом",         color: SPEC_COLOR, colorDim: SPEC_COLOR_DIM, bg: SPEC_BG },
 ];
 
 function PaletteItem({ type, label, icon, desc, color, colorDim, bg, compact = false }: typeof PALETTE_BLOCKS[0] & { compact?: boolean }) {
@@ -54,7 +62,7 @@ function PaletteItem({ type, label, icon, desc, color, colorDim, bg, compact = f
     <div style={{ position: "relative" }}>
       {isDragging && (
         <div style={{
-          height: compact ? "44px" : "58px",
+          height: compact ? "52px" : "58px",
           borderRadius: "10px",
           borderWidth: "1.5px",
           borderStyle: "dashed",
@@ -75,8 +83,8 @@ function PaletteItem({ type, label, icon, desc, color, colorDim, bg, compact = f
           style={{
             display: "flex",
             alignItems: "center",
-            gap: compact ? "12px" : "12px",
-            padding: compact ? "17px 13px" : "10px 12px",
+            gap: compact ? "10px" : "12px",
+            padding: compact ? "10px 11px" : "10px 12px",
             borderRadius: "10px",
             borderWidth: "1px",
             borderStyle: "solid",
@@ -88,14 +96,14 @@ function PaletteItem({ type, label, icon, desc, color, colorDim, bg, compact = f
           }}
         >
           <div style={{
-            width: compact ? "36px" : "34px",
-            height: compact ? "36px" : "34px",
-            borderRadius: compact ? "9px" : "9px",
+            width: compact ? "32px" : "34px",
+            height: compact ? "32px" : "34px",
+            borderRadius: "9px",
             background: hov ? color : colorDim,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            fontSize: type === "image" ? (compact ? "17px" : "16px") : (compact ? "16px" : "15px"),
+            fontSize: type === "image" ? (compact ? "16px" : "16px") : (compact ? "15px" : "15px"),
             fontWeight: 700,
             color: hov ? "#1C3A2E" : color,
             flexShrink: 0,
@@ -105,7 +113,7 @@ function PaletteItem({ type, label, icon, desc, color, colorDim, bg, compact = f
 
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{
-              fontSize: compact ? "14px" : "13px",
+              fontSize: compact ? "13px" : "13px",
               fontWeight: 600,
               color: hov ? "#FAF6F0" : "rgba(255,255,255,0.78)",
               fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
@@ -160,6 +168,9 @@ interface PaletteProps {
   extraBlocksTitle?: string;
   /** Compact 2-col layout: Блоки + Спецблоки поряд (template-режим). */
   compact?: boolean;
+  /** Розширена палітра (520px) у 1-col layout — для page-builder /news,
+   *  де settings-картка містить багато контролів і вузький 304px тісно. */
+  wide?: boolean;
 }
 
 // Draggable handle для overlay-tool — drop на image-блок створює overlay у точці drop.
@@ -178,7 +189,7 @@ function ImageOverlayPaletteItem({ onAddImageOverlay, compact = false }: { onAdd
     <div style={{ position: "relative" }}>
       {isDragging && (
         <div style={{
-          height: compact ? "44px" : "58px",
+          height: compact ? "52px" : "58px",
           borderRadius: "10px",
           borderWidth: "1.5px",
           borderStyle: "dashed",
@@ -275,14 +286,16 @@ function ImageOverlayPaletteItem({ onAddImageOverlay, compact = false }: { onAdd
   );
 }
 
-export default function BlockPalette({ onAddImageOverlay, selectedBlockY, extraBlocks, extraBlocksTitle, compact = false }: PaletteProps = {}) {
+export default function BlockPalette({ onAddImageOverlay, selectedBlockY, extraBlocks, extraBlocksTitle, compact = false, wide = false }: PaletteProps = {}) {
   // selectedBlockY більше не потрібний для геометрії — settings завжди на верху palette
   // (стандартний Figma/Webflow паттерн). Зберігаємо параметр для майбутньої сумісності.
   void selectedBlockY;
   const isSelected = selectedBlockY !== null && selectedBlockY !== undefined;
 
   // У compact (template) режимі — ширша палітра, бо 2 колонки блоків поряд.
-  const paletteWidth = compact ? 520 : 304;
+  // У wide-режимі (page-builder /news) — теж 520, але 1-col layout зберігається.
+  // У template-режимі (compact) — вужче (440px) щоб не «з'їдати» простір канвасу.
+  const paletteWidth = compact ? 440 : wide ? 520 : 304;
 
   return (
     <div className="news-palette-scroll" style={{
@@ -313,43 +326,50 @@ export default function BlockPalette({ onAddImageOverlay, selectedBlockY, extraB
           Стає vertically напроти блока на канвасі. Коли блок вибраний, цей секція
           "штовхає" статичні блоки нижче (вони flexible слайдять вниз).
           BlockItem/TextEditor/ImageEditor portal-ять контролі через createPortal
-          у #news-block-settings-slot. */}
-      <div className="news-settings-wrapper" style={{ marginBottom: "20px" }}>
-        <div className="news-settings-title" style={{
-          fontSize: "9px",
-          fontWeight: 800,
-          color: "#D4A843",
-          letterSpacing: "0.2em",
-          textTransform: "uppercase",
-          fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
-          paddingLeft: "4px",
-          marginBottom: "8px",
-        }}>{"Налаштування блока"}</div>
-        <div
-          id="news-block-settings-slot"
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            background: "#FFFFFF",
-            borderRadius: "10px",
-            boxShadow: "inset 0 0 0 1px rgba(212,168,67,0.18), 0 4px 14px rgba(0,0,0,0.08)",
-            overflow: "hidden",
-          }}
-        />
-        {/* Видимість керується через :empty: коли slot не має портал-дітей,
-            ховаємо весь wrapper. Так overlay-toolbar (без selected парент-блока)
-            теж стане видимим, бо ImageEditor портал-ить туди свою панель і :empty
-            перестає матчитись. */}
-        <style>{`
-          .news-palette-scroll::-webkit-scrollbar { display: none; }
-          #news-block-settings-slot > * + * {
-            border-top: 1px solid #EEEAE2;
-          }
-          .news-settings-wrapper:has(#news-block-settings-slot:empty) {
-            display: none;
-          }
-        `}</style>
-      </div>
+          у #news-block-settings-slot.
+          У template-режимі (compact) ховаємо повністю — менеджер редагує тільки
+          геометрію/позицію блоків, content-нолаштування у шаблоні не потрібні. */}
+      {!compact && (
+        <div className="news-settings-wrapper" style={{ marginBottom: "20px" }}>
+          <div className="news-settings-title" style={{
+            fontSize: "9px",
+            fontWeight: 800,
+            color: "#D4A843",
+            letterSpacing: "0.2em",
+            textTransform: "uppercase",
+            fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
+            paddingLeft: "4px",
+            marginBottom: "8px",
+          }}>{"Налаштування блока"}</div>
+          <div
+            id="news-block-settings-slot"
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              background: "#FFFFFF",
+              borderRadius: "10px",
+              boxShadow: "inset 0 0 0 1px rgba(212,168,67,0.18), 0 4px 14px rgba(0,0,0,0.08)",
+              overflow: "hidden",
+            }}
+          />
+          {/* Видимість керується через :empty: коли slot не має портал-дітей,
+              ховаємо весь wrapper. Так overlay-toolbar (без selected парент-блока)
+              теж стане видимим, бо ImageEditor портал-ить туди свою панель і :empty
+              перестає матчитись. */}
+          <style>{`
+            .news-palette-scroll::-webkit-scrollbar { display: none; }
+            #news-block-settings-slot > * + * {
+              border-top: 1px solid #EEEAE2;
+            }
+            .news-settings-wrapper:has(#news-block-settings-slot:empty) {
+              display: none;
+            }
+          `}</style>
+        </div>
+      )}
+      {compact && (
+        <style>{`.news-palette-scroll::-webkit-scrollbar { display: none; }`}</style>
+      )}
 
       {compact && extraBlocks && extraBlocks.length > 0 ? (
         // 2-col layout: ліворуч Блоки, праворуч Спецблоки (з ImageOverlay усередині).

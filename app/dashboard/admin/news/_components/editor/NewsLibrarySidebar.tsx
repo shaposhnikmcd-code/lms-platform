@@ -26,6 +26,10 @@ export interface LibraryNewsItem {
   /** Якщо задано — це шаблонна новина: рендер через TemplatePreviewCard з auto-derive. */
   templateKind?: "ARTICLE" | "EVENT" | null;
   templateData?: string | null;
+  /** Block-based template (Session 3+). Каркас блоків з порожніми data — при
+   *  drop розгортається на канвас як окремі редаговані блоки. */
+  templateBlocks?: string | null;
+  templateCanvas?: string | null;
   /** Опубліковано? Якщо false — у sidebar показуємо бейдж «Чернетка». */
   published?: boolean;
 }
@@ -62,16 +66,38 @@ const cardBodyStyle: React.CSSProperties = {
 // префікс, читає mode (preview|expanded) і створює newsCard блок з відповідним
 // displayMode. preview = клікабельна картка-превʼю → /news/{slug}; expanded =
 // інлайн повний контент новини.
+//
+// `kind="template"` — це власний шаблон менеджера: ярлики «Шаблон» замість
+// «Превʼю/Новина», без бейджа «Чернетка» (шаблон — не публікація).
 function NewsLibraryCard({
-  item, isPlaced, mode,
+  item, isPlaced, mode, kind = "news",
 }: {
   item: LibraryNewsItem;
   isPlaced: boolean;
   mode: "preview" | "expanded";
+  kind?: "news" | "template";
 }) {
+  const isTpl = kind === "template";
+  // Для шаблону — окремий drag id, що несе templateBlocks JSON у data. У
+  // handleDragEnd EditorCanvas-а ловимо префікс `template-expand:` і РОЗГОРТАЄМО
+  // блоки шаблону на канвас як окремі редаговані блоки (з новими id). Для
+  // звичайної новини — стара поведінка: news-card блок з newsId.
+  const dragId = isTpl
+    ? `template-expand:${item.id}`
+    : `news-card:${mode}:${item.id}`;
+  const dragData = isTpl
+    ? {
+        fromPalette: true,
+        kind: "template-expand",
+        templateId: item.id,
+        templateKind: item.templateKind || "EVENT",
+        templateBlocks: item.templateBlocks || "",
+        templateCanvas: item.templateCanvas || "",
+      }
+    : { fromPalette: true, kind: "news-card", newsId: item.id, mode };
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
-    id: `news-card:${mode}:${item.id}`,
-    data: { fromPalette: true, kind: "news-card", newsId: item.id, mode },
+    id: dragId,
+    data: dragData,
   });
   const [hov, setHov] = useState(false);
 
@@ -129,8 +155,8 @@ function NewsLibraryCard({
                 textTransform: "uppercase",
                 letterSpacing: "0.06em",
                 color: "#9B7C45",
-              }}>{mode === "preview" ? "Превʼю" : "Новина"}</span>
-              {item.published === false && (
+              }}>{isTpl ? "Шаблон" : mode === "preview" ? "Превʼю" : "Новина"}</span>
+              {!isTpl && item.published === false && (
                 <span style={{
                   fontSize: 8,
                   fontWeight: 800,
@@ -156,7 +182,7 @@ function NewsLibraryCard({
               WebkitBoxOrient: "vertical",
               overflow: "hidden",
             }}>{item.title}</div>
-            {isPlaced && (
+            {isPlaced && !isTpl && (
               <div style={{
                 marginTop: 4,
                 fontSize: 9,
@@ -190,103 +216,59 @@ interface Props {
 }
 
 export default function NewsLibrarySidebar({ meta, onChange, placedNewsIds }: Props) {
-  const [items, setItems] = useState<LibraryNewsItem[] | null>(null);
+  // Кастомні шаблони менеджера (isTemplate=true, parentTemplateId != null) —
+  // перетягуються на канвас як newsCard preview-картки. Дефолтні blueprint-и
+  // (parentTemplateId=null) у сайдбарі не показуємо — це лише взірці для створення
+  // власних шаблонів на /dashboard/admin/news.
+  const [templates, setTemplates] = useState<LibraryNewsItem[] | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    // Опубліковані новини для секцій «Шаблонні новини», «Превʼю», «Новини без Превʼю».
-    // Створення нових з blueprint-у живе на /dashboard/admin/news — у білдері-сторінки
-    // ми лише розкладаємо вже створені картки.
-    fetch("/api/admin/news/library")
+    fetch("/api/admin/news?type=templates")
       .then(r => r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status)))
-      .then(libData => setItems(Array.isArray(libData) ? libData : []))
+      .then((data: Array<LibraryNewsItem & { parentTemplateId?: string | null }>) => {
+        const customs = Array.isArray(data)
+          ? data.filter(t => !!t.parentTemplateId)
+          : [];
+        setTemplates(customs);
+      })
       .catch(e => setError("Помилка: " + e.message));
   }, []);
 
-  // Розділяємо опубліковані новини: template-based (з templateKind) → секція
-  // «Шаблонні новини» вгорі. Free-form → секції «Превʼю» і «Новини без Превʼю».
-  const templateNewsItems = (items ?? []).filter(it => !!it.templateKind);
-  const freeFormItems = (items ?? []).filter(it => !it.templateKind);
-
-  // Render-list для free-form (Превʼю / Новини). Шаблонні відображаються
-  // окремо у власній секції з тим самим NewsLibraryCard.
-  const renderFreeForm = (mode: "preview" | "expanded") => (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 4, maxHeight: 320, overflowY: "auto" }}>
-      {error && (
-        <div style={{ fontSize: 11, color: "#DC2626", padding: 6 }}>{error}</div>
-      )}
-      {!items && !error && (
-        <div style={{ fontSize: 11, color: "#9CA3AF", padding: 6 }}>Завантаження...</div>
-      )}
-      {items && freeFormItems.length === 0 && !error && (
-        <div style={{ fontSize: 11, color: "#9CA3AF", padding: 6, textAlign: "center" }}>
-          Немає free-form новин
-        </div>
-      )}
-      {freeFormItems.map(item => (
-        <NewsLibraryCard
-          key={item.id}
-          item={item}
-          isPlaced={placedNewsIds.has(item.id)}
-          mode={mode}
-        />
-      ))}
-    </div>
-  );
-
   return (
     <div style={{ width: "240px", minWidth: "240px", display: "flex", flexDirection: "column", gap: "10px" }}>
-      {/* ─── Секція «Шаблонні новини» ─── (готові, опубліковані з blueprint-ів) */}
-      {/* Перетягуються як preview-картки на /news. Внизу — кнопки «+ Створити
-          нову» з кожного blueprint-у (швидкий шлях створення без переходу на
-          /dashboard/admin/news). */}
+      {/* ─── Секція «Мої шаблони» ─── (custom blueprint-и менеджера) */}
+      {/* Перетягуються як newsCard preview на канвас сторінки /news. Менеджер
+          далі заповнює блоки шаблону контентом просто на сторінці. */}
       <div style={cardStyle}>
-        <div style={cardHeaderStyle}>{"Шаблонні новини"}</div>
+        <div style={cardHeaderStyle}>{"Мої шаблони"}</div>
         <div style={{ ...cardBodyStyle, gap: 8 }}>
           <div style={{ fontSize: 11, color: "#6B7280", lineHeight: 1.5 }}>
-            Готові новини з шаблонів (📰 Стаття, 🎟 Подія). Перетягніть на сторінку — зʼявиться
-            картка з фірмовим лейаутом.
+            Перетягніть шаблон на канвас — на сторінці <strong>/news</strong> зʼявиться
+            картка з його лейаутом. Заповніть блоки контентом просто на сторінці.
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 4, maxHeight: 320, overflowY: "auto" }}>
-            {templateNewsItems.length === 0 && !error && items && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 4, maxHeight: 480, overflowY: "auto" }}>
+            {error && (
+              <div style={{ fontSize: 11, color: "#DC2626", padding: 6 }}>{error}</div>
+            )}
+            {!templates && !error && (
+              <div style={{ fontSize: 11, color: "#9CA3AF", padding: 6 }}>Завантаження...</div>
+            )}
+            {templates && templates.length === 0 && !error && (
               <div style={{ fontSize: 11, color: "#9CA3AF", padding: 6, textAlign: "center" }}>
-                Поки немає створених шаблонних новин
+                Поки немає створених шаблонів. Створіть у адмінці /news → «Створити власний шаблон».
               </div>
             )}
-            {templateNewsItems.map(item => (
+            {templates && templates.map(item => (
               <NewsLibraryCard
                 key={item.id}
                 item={item}
                 isPlaced={placedNewsIds.has(item.id)}
                 mode="preview"
+                kind="template"
               />
             ))}
           </div>
-
-        </div>
-      </div>
-
-      {/* ─── Секція «Превʼю» ─── (free-form newsCard preview-mode) */}
-      <div style={cardStyle}>
-        <div style={cardHeaderStyle}>{"Превʼю (з новиною всередині)"}</div>
-        <div style={{ ...cardBodyStyle, gap: 8 }}>
-          <div style={{ fontSize: 11, color: "#6B7280", lineHeight: 1.5 }}>
-            Перетягніть превʼю — на сторінці <strong>/news</strong>{" "}
-            зʼявиться картка-превʼю. Клік по ній → перехід на саму новину.
-          </div>
-          {renderFreeForm("preview")}
-        </div>
-      </div>
-
-      {/* ─── Секція «Новини без Превʼю» ─── (free-form newsCard expanded-mode) */}
-      <div style={cardStyle}>
-        <div style={cardHeaderStyle}>{"Новини (без Превʼю)"}</div>
-        <div style={{ ...cardBodyStyle, gap: 8 }}>
-          <div style={{ fontSize: 11, color: "#6B7280", lineHeight: 1.5 }}>
-            Перетягніть новину — на сторінці <strong>/news</strong>{" "}
-            рендериться повний контент статті інлайн (без посилання).
-          </div>
-          {renderFreeForm("expanded")}
         </div>
       </div>
 

@@ -34,14 +34,17 @@ const CANVAS_SNAP = 8;
 type CanvasPreset = { key: string; label: string; w: number; h: number };
 const CANVAS_PRESETS: { vertical: CanvasPreset[]; horizontal: CanvasPreset[] } = {
   vertical: [
-    { key: "v-3-4",  label: "3:4 mobile",  w: 360, h: 480 },
-    { key: "v-2-3",  label: "2:3 стандарт", w: 400, h: 600 },
-    { key: "v-9-16", label: "9:16 story",  w: 360, h: 640 },
+    { key: "v-3-4",     label: "3:4 mobile",   w: 360, h: 480 },
+    { key: "v-2-3",     label: "2:3 стандарт", w: 400, h: 600 },
+    { key: "v-9-16",    label: "9:16 story",   w: 360, h: 640 },
+    { key: "v-9-16-xl", label: "9:16 hero",    w: 540, h: 960 },
   ],
   horizontal: [
-    { key: "h-3-2-s", label: "3:2 компакт",   w: 480, h: 320 },
-    { key: "h-3-2-m", label: "3:2 стандарт",  w: 600, h: 400 },
-    { key: "h-16-9",  label: "16:9 banner",   w: 800, h: 450 },
+    { key: "h-3-2-s",  label: "3:2 компакт",  w: 480,  h: 320 },
+    { key: "h-3-2-m",  label: "3:2 стандарт", w: 600,  h: 400 },
+    { key: "h-16-9",   label: "16:9 banner",  w: 800,  h: 450 },
+    { key: "h-16-9-l", label: "16:9 large",   w: 960,  h: 540 },
+    { key: "h-16-9-xl",label: "16:9 hero",    w: 1200, h: 675 },
   ],
 };
 
@@ -104,6 +107,10 @@ export default function TemplateConstructor({
   // Live-стан розмірів канвасу. Змінюється і через corner drag-handle (EditorCanvas),
   // і через інпути W/H у верхньому label-у. Зберігається debounce-нуто 600ms.
   const [canvasSize, setCanvasSize] = useState(initialCanvas);
+  // Назва шаблону. Відображається в інпуті над палітрою. Шлеться окремим PATCH
+  // debounce-нуто 600ms. Final Save переписує тим, що тут у стейті (а не
+  // initialMeta.title, бо meta-сайдбар прихований).
+  const [title, setTitle] = useState(initialTitle);
 
   const onBack = useCallback(() => router.push("/dashboard/admin/news"), [router]);
 
@@ -123,8 +130,31 @@ export default function TemplateConstructor({
     }, 600);
   }, [newsId]);
 
+  // Debounced persist назви шаблону — окремий PATCH тільки `title`. Без 600ms
+  // тиші кожна літера б давала запит. Лишається трекати окремо від canvas-у,
+  // щоб два дебаунси не перебивали один одного.
+  const titleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const persistTitle = useCallback((next: string) => {
+    if (titleTimerRef.current) clearTimeout(titleTimerRef.current);
+    titleTimerRef.current = setTimeout(() => {
+      fetch(`/api/admin/news/${newsId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: next }),
+      }).catch(e => {
+        setError(e instanceof Error ? e.message : "Помилка збереження назви");
+      });
+    }, 600);
+  }, [newsId]);
+
+  const handleTitleChange = useCallback((next: string) => {
+    setTitle(next);
+    persistTitle(next);
+  }, [persistTitle]);
+
   useEffect(() => () => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    if (titleTimerRef.current) clearTimeout(titleTimerRef.current);
   }, []);
 
   // Ховаємо глобальний "UIMP Dashboard" header у білдері шаблону — він займає
@@ -145,19 +175,22 @@ export default function TemplateConstructor({
   }, [persistCanvasSize]);
 
   const handleSave = useCallback(
-    async (meta: NewsMeta, content: string, imageUrl: string) => {
+    async (_meta: NewsMeta, content: string, imageUrl: string) => {
       setSaving(true);
       setError("");
+      // Скасовуємо pending debounced title PATCH — final Save все одно його перепише.
+      if (titleTimerRef.current) clearTimeout(titleTimerRef.current);
       try {
         const res = await fetch(`/api/admin/news/${newsId}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            // Шаблон: title зберігаємо (для listing-у на /dashboard/admin/news),
-            // але slug/excerpt/published — не торкаємо (це не публікаційні поля
+            // Шаблон: title беремо з нашого окремого input-у над палітрою
+            // (meta-сайдбар прихований, тож meta.title — застаріле initialTitle).
+            // slug/excerpt/published — не торкаємо (це не публікаційні поля
             // для blueprint-ів). templateBlocks — нове block-based body.
             // templateCanvas — розмір canvas-у "WxH" з поточного state.
-            title: meta.title,
+            title,
             imageUrl,
             templateBlocks: content,
             templateCanvas: `${canvasSize.width}x${canvasSize.height}`,
@@ -174,7 +207,7 @@ export default function TemplateConstructor({
         setSaving(false);
       }
     },
-    [newsId, canvasSize]
+    [newsId, canvasSize, title]
   );
 
   return (
@@ -236,6 +269,9 @@ export default function TemplateConstructor({
             onPick={handleCanvasResize}
           />
         }
+        abovePaletteSlot={
+          <TemplateNameInput value={title} onChange={handleTitleChange} />
+        }
         initialMeta={{
           title: initialTitle,
           slug: initialSlug,
@@ -284,16 +320,16 @@ function CanvasSizeInputs({
   };
 
   const inputStyle: React.CSSProperties = {
-    width: 56,
+    width: 50,
     background: "rgba(212,168,67,0.08)",
     border: "1px solid rgba(212,168,67,0.25)",
-    borderRadius: 6,
+    borderRadius: 5,
     color: "#D4A843",
-    fontSize: 11,
+    fontSize: 9.5,
     fontWeight: 700,
     letterSpacing: "0.04em",
     textAlign: "center",
-    padding: "4px 6px",
+    padding: "2px 4px",
     fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
     outline: "none",
   };
@@ -331,7 +367,7 @@ function CanvasSizeInputs({
         aria-label="Висота канвасу, px"
         style={inputStyle}
       />
-      <span style={{ opacity: 0.6, fontSize: 10 }}>PX</span>
+      <span style={{ opacity: 0.6, fontSize: 8.5 }}>PX</span>
     </span>
   );
 }
@@ -350,11 +386,12 @@ function CanvasHorizontalPresetsBar({
     <div
       style={{
         background: "linear-gradient(180deg, #162C25 0%, #0F2019 100%)",
-        borderRadius: 10,
-        padding: "8px 12px",
+        borderRadius: 8,
+        padding: "0 8px",
+        height: 34,
         display: "inline-flex",
         alignItems: "center",
-        gap: 14,
+        gap: 10,
         boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.06), 0 4px 16px rgba(0,0,0,0.12)",
         fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
       }}
@@ -381,7 +418,9 @@ function CanvasHorizontalPresetsBar({
   );
 }
 
-// Вертикальна колонка пресет-форм — ліворуч від канвасу. Стак з 3 карточок.
+// Вертикальна колонка пресет-форм — тонка смужка ВЗДОВЖ ЛІВОГО КРАЮ канвасу.
+// Висота розтягується на висоту канвасу (через alignItems: stretch у обгортці).
+// Усі тексти всередині — вертикальні (writingMode), щоб смужка лишалась тонкою.
 function CanvasVerticalPresetsColumn({
   width, height, onPick,
 }: {
@@ -393,36 +432,123 @@ function CanvasVerticalPresetsColumn({
     <div
       style={{
         background: "linear-gradient(180deg, #162C25 0%, #0F2019 100%)",
-        borderRadius: 10,
-        padding: "10px 8px",
+        borderRadius: 8,
+        padding: "8px 4px",
         display: "flex",
         flexDirection: "column",
         alignItems: "stretch",
-        gap: 8,
+        gap: 6,
         boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.06), 0 4px 16px rgba(0,0,0,0.12)",
         fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
-        width: 92,
+        width: 34,
+        height: "100%",
       }}
     >
+      {/* Лейбл «ВЕРТИК.» — вертикальний (читання знизу-вгору). */}
       <div style={{
-        fontSize: 8.5,
+        fontSize: 8,
         fontWeight: 700,
         color: "rgba(212,168,67,0.55)",
         letterSpacing: "0.16em",
         textTransform: "uppercase",
+        writingMode: "vertical-rl",
+        transform: "rotate(180deg)",
         textAlign: "center",
+        alignSelf: "center",
         lineHeight: 1,
-        marginBottom: 2,
-      }}>{"Вертик."}</div>
-      {CANVAS_PRESETS.vertical.map(p => (
-        <PresetCard
-          key={p.key}
-          preset={p}
-          active={width === p.w && height === p.h}
-          onPick={onPick}
-        />
-      ))}
+        paddingBottom: 4,
+      }}>Вертик.</div>
+      <div style={{
+        height: 1,
+        alignSelf: "stretch",
+        background: "rgba(255,255,255,0.10)",
+      }} />
+      {/* Картки заповнюють лишок висоти рівномірно (flex:1). Текст dims у кожній —
+          вертикальний, як і header. */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 4, flex: 1, minHeight: 0 }}>
+        {CANVAS_PRESETS.vertical.map(p => (
+          <VerticalPresetCard
+            key={p.key}
+            preset={p}
+            active={width === p.w && height === p.h}
+            onPick={onPick}
+          />
+        ))}
+      </div>
     </div>
+  );
+}
+
+// Card для тонкої вертикальної смужки: thumb-портрет зверху, dims обернені
+// на 90° знизу. Сама картка flex:1 — три картки рівномірно ділять висоту.
+function VerticalPresetCard({
+  preset, active, onPick,
+}: {
+  preset: CanvasPreset;
+  active: boolean;
+  onPick: (w: number, h: number) => void;
+}) {
+  const [hov, setHov] = useState(false);
+  const BBOX_W = 16;
+  const BBOX_H = 22;
+  const aspect = preset.w / preset.h;
+  const thumbW = Math.round(BBOX_H * aspect);
+  const thumbH = BBOX_H;
+  return (
+    <button
+      type="button"
+      onClick={() => onPick(preset.w, preset.h)}
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => setHov(false)}
+      title={`${preset.label} · ${preset.w}×${preset.h}`}
+      aria-label={`${preset.label}, ${preset.w} на ${preset.h} пікселів`}
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 4,
+        padding: "6px 2px",
+        background: active ? "rgba(212,168,67,0.13)" : hov ? "rgba(255,255,255,0.04)" : "transparent",
+        border: `1px solid ${active ? "#D4A843" : hov ? "rgba(212,168,67,0.28)" : "rgba(255,255,255,0.06)"}`,
+        borderRadius: 5,
+        cursor: "pointer",
+        transition: "all 0.15s",
+        fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
+        flex: 1,
+        minHeight: 0,
+        boxShadow: active ? "0 0 0 1px rgba(212,168,67,0.25), 0 2px 6px rgba(212,168,67,0.08)" : "none",
+      }}
+    >
+      <div style={{
+        width: BBOX_W,
+        height: BBOX_H,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flexShrink: 0,
+      }}>
+        <div style={{
+          width: thumbW,
+          height: thumbH,
+          border: `1.5px ${active ? "solid" : "dashed"} ${active ? "#D4A843" : "rgba(212,168,67,0.55)"}`,
+          borderRadius: 2,
+          background: active ? "rgba(212,168,67,0.10)" : "transparent",
+          transition: "all 0.15s",
+        }} />
+      </div>
+      <div style={{
+        fontSize: 8.5,
+        fontWeight: 700,
+        color: active ? "#D4A843" : hov ? "#E8C97A" : "rgba(255,255,255,0.65)",
+        letterSpacing: "0.04em",
+        lineHeight: 1,
+        fontVariantNumeric: "tabular-nums",
+        writingMode: "vertical-rl",
+        transform: "rotate(180deg)",
+        whiteSpace: "nowrap",
+      }}>{preset.w}×{preset.h}</div>
+    </button>
   );
 }
 
@@ -436,23 +562,24 @@ function PresetGroupHorizontal({
   onPick: (w: number, h: number) => void;
 }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0 }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1, minWidth: 0 }}>
       <div style={{
-        fontSize: 8.5,
+        fontSize: 7.5,
         fontWeight: 700,
         color: "rgba(212,168,67,0.55)",
-        letterSpacing: "0.16em",
+        letterSpacing: "0.14em",
         textTransform: "uppercase",
         flexShrink: 0,
         writingMode: "horizontal-tb",
       }}>{title}</div>
-      <div style={{ display: "flex", gap: 5, flex: 1, minWidth: 0 }}>
+      <div style={{ display: "flex", gap: 3, flex: 1, minWidth: 0 }}>
         {presets.map(p => (
           <PresetCard
             key={p.key}
             preset={p}
             active={width === p.w && height === p.h}
             onPick={onPick}
+            stretch
           />
         ))}
       </div>
@@ -460,18 +587,84 @@ function PresetGroupHorizontal({
   );
 }
 
+// Інпут «Назва шаблону» над лівою палітрою. Source of truth для title шаблону:
+// meta-сайдбар прихований у template-режимі, тож звичайний title-input недоступний.
+// Зміни одразу оновлюють локальний state у TemplateConstructor; реальний PATCH
+// летить debounce-нуто 600ms (керує TemplateConstructor).
+function TemplateNameInput({
+  value, onChange,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+}) {
+  const [focused, setFocused] = useState(false);
+  return (
+    <div
+      style={{
+        background: "linear-gradient(180deg, #162C25 0%, #0F2019 100%)",
+        borderRadius: 10,
+        padding: "10px 12px",
+        display: "flex",
+        flexDirection: "column",
+        gap: 6,
+        boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.06), 0 4px 16px rgba(0,0,0,0.12)",
+        fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
+      }}
+    >
+      <label
+        htmlFor="template-name-input"
+        style={{
+          fontSize: 8.5,
+          fontWeight: 700,
+          color: "rgba(212,168,67,0.55)",
+          letterSpacing: "0.16em",
+          textTransform: "uppercase",
+          lineHeight: 1,
+        }}
+      >
+        Назва шаблону
+      </label>
+      <input
+        id="template-name-input"
+        type="text"
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        placeholder="Подія / Фахівець"
+        style={{
+          background: "rgba(0,0,0,0.25)",
+          border: `1px solid ${focused ? "#D4A843" : "rgba(212,168,67,0.25)"}`,
+          borderRadius: 7,
+          color: "#F4E7C7",
+          fontSize: 13,
+          fontWeight: 600,
+          padding: "8px 10px",
+          outline: "none",
+          fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
+          transition: "border-color 0.15s",
+          width: "100%",
+          boxSizing: "border-box",
+        }}
+      />
+    </div>
+  );
+}
+
 function PresetCard({
-  preset, active, onPick,
+  preset, active, onPick, stretch = false,
 }: {
   preset: CanvasPreset;
   active: boolean;
   onPick: (w: number, h: number) => void;
+  /** Чи розтягувати картку по доступному простору батьківського ряду
+   *  (true у горизонтальному барі — 3 карти ділять width рівномірно).
+   *  У вертикальному стаку — false, картки auto-sized по контенту. */
+  stretch?: boolean;
 }) {
   const [hov, setHov] = useState(false);
-  // Розрахунок мініатюри: фіксований bounding-box. Більша сторона = BBOX,
-  // менша — пропорційно. Так горизонтальні пресети не виглядають тонкими,
-  // а вертикальні не вибиваються по висоті.
-  const BBOX = 30;
+  // Компактна мініатюра: BBOX 18×18, thumb малюється по аспекту.
+  const BBOX = 18;
   const ratio = preset.w / preset.h;
   const thumbW = ratio >= 1 ? BBOX : Math.round(BBOX * ratio);
   const thumbH = ratio >= 1 ? Math.round(BBOX / ratio) : BBOX;
@@ -486,15 +679,15 @@ function PresetCard({
       style={{
         display: "flex",
         alignItems: "center",
-        gap: 8,
-        padding: "5px 9px 5px 7px",
+        gap: 5,
+        padding: "3px 6px 3px 5px",
         background: active ? "rgba(212,168,67,0.14)" : hov ? "rgba(255,255,255,0.04)" : "transparent",
         border: `1px solid ${active ? "#D4A843" : hov ? "rgba(212,168,67,0.25)" : "rgba(255,255,255,0.05)"}`,
-        borderRadius: 7,
+        borderRadius: 6,
         cursor: "pointer",
         transition: "all 0.15s",
         fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
-        flex: "1 1 0",
+        flex: stretch ? "1 1 0" : "0 0 auto",
         minWidth: 0,
       }}
     >
@@ -516,12 +709,13 @@ function PresetCard({
         }} />
       </div>
       <div style={{
-        fontSize: 9.5,
+        fontSize: 8.5,
         fontWeight: 700,
         color: active ? "#D4A843" : "rgba(255,255,255,0.6)",
         letterSpacing: "0.02em",
         lineHeight: 1.1,
         whiteSpace: "nowrap",
+        fontVariantNumeric: "tabular-nums",
       }}>{preset.w}×{preset.h}</div>
     </button>
   );

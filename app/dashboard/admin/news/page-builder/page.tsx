@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { NewsMeta } from "../_components/editor/types";
+import { TEMPLATE_PALETTE_BLOCKS } from "../_components/editor/BlockPalette";
 
 // Білдер сторінки /news. Reuses NewsEditor у режимі mode="page":
 //  - права колонка — NewsLibrarySidebar (драг-картки опублікованих новин)
@@ -104,6 +105,8 @@ export default function NewsPageBuilder() {
       onSave={handleSave}
       onBack={() => router.push("/dashboard/admin/news")}
       saving={saving}
+      extraPaletteBlocks={TEMPLATE_PALETTE_BLOCKS}
+      extraPaletteBlocksTitle="Спецблоки"
     />
   );
 }

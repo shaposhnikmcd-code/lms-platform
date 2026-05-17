@@ -16,7 +16,6 @@ import { useAdminTheme } from '../_components/adminTheme';
 import { AdminShell, AdminPanel } from '../_components/AdminShell';
 import InlineDatePicker, { formatDateChip } from '../_components/InlineDatePicker';
 import {
-  AbsoluteBlockRender,
   NEWS_BLOCK_CSS,
   PREVIEW_CARD_HEIGHT,
   PREVIEW_CARD_WIDTH,
@@ -24,6 +23,7 @@ import {
 } from '@/lib/news/render';
 import PreviewCardScale from '@/lib/news/PreviewCardScale';
 import TemplatePreviewCard from '@/lib/news/templates/TemplatePreviewCard';
+import TemplateBlocksPreview from '@/lib/news/templates/TemplateBlocksPreview';
 import { parseTemplateData, type TemplateKind } from '@/lib/news/templates/types';
 
 interface NewsItem {
@@ -59,6 +59,97 @@ interface NewsItem {
   author?: { name: string | null };
 }
 
+
+// Thumb-превʼю сторінки /news через iframe з /uk/news/preview?source=live|next.
+// CSS-scale (transform) масштабує "натуральний" 1280×720 iframe до фактичної
+// ширини контейнера, зберігаючи aspect-ratio. ResizeObserver — щоб scale
+// підлаштовувався при ресайзі вікна / sidebar-у.
+function PagePreviewIframeThumb({
+  source,
+  title,
+  onClickFullscreen,
+  dark,
+  variant,
+}: {
+  source: 'live' | 'next';
+  title: string;
+  onClickFullscreen: () => void;
+  dark: boolean;
+  variant: 'emerald' | 'amber';
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const NATURAL_W = 1280;
+  const NATURAL_H = 720;
+  const [scale, setScale] = useState(0.25);
+
+  useLayoutEffect(() => {
+    if (!ref.current) return;
+    const el = ref.current;
+    const update = () => {
+      const w = el.getBoundingClientRect().width;
+      if (w > 0) setScale(w / NATURAL_W);
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const borderColor = variant === 'emerald'
+    ? (dark ? 'rgba(16,185,129,0.20)' : 'rgba(5,150,105,0.25)')
+    : (dark ? 'rgba(245,158,11,0.20)' : 'rgba(217,119,6,0.25)');
+
+  return (
+    <button
+      type="button"
+      onClick={onClickFullscreen}
+      title="Превʼю на повний екран"
+      aria-label="Превʼю на повний екран"
+      ref={ref}
+      className="relative w-full block overflow-hidden border-b group"
+      style={{
+        aspectRatio: `${NATURAL_W} / ${NATURAL_H}`,
+        background: dark ? '#0F1414' : '#FFFFFF',
+        borderBottomColor: borderColor,
+        cursor: 'zoom-in',
+      }}
+    >
+      <iframe
+        src={`/uk/news/preview?source=${source}`}
+        title={title}
+        loading="lazy"
+        style={{
+          width: `${NATURAL_W}px`,
+          height: `${NATURAL_H}px`,
+          border: 0,
+          transform: `scale(${scale})`,
+          transformOrigin: 'top left',
+          pointerEvents: 'none',
+        }}
+      />
+      {/* Hover-overlay — на фокусі/hover показує підказку «розгорнути» */}
+      <span
+        aria-hidden
+        className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+        style={{
+          background: 'linear-gradient(180deg, rgba(28,58,46,0) 0%, rgba(28,58,46,0.35) 100%)',
+        }}
+      >
+        <span
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold backdrop-blur-md"
+          style={{
+            background: 'rgba(255,255,255,0.92)',
+            color: '#1C3A2E',
+            border: '1px solid rgba(212,168,67,0.55)',
+          }}
+        >
+          <span aria-hidden>👁</span>
+          <span>На повний екран</span>
+        </span>
+      </span>
+    </button>
+  );
+}
 
 export default function AdminNewsPage() {
   const { theme, setTheme } = useAdminTheme();
@@ -466,6 +557,16 @@ export default function AdminNewsPage() {
                 : 'bg-gradient-to-r from-amber-500/0 via-amber-500/70 to-amber-500/0'
             }`} />
 
+            {/* Thumb-превʼю поточного контенту /news — щоб менеджер відразу бачив
+                що показано відвідувачам. Клік → fullscreen-превʼю. */}
+            <PagePreviewIframeThumb
+              source="live"
+              title="Превʼю поточної сторінки /news"
+              onClickFullscreen={() => setPagePreviewOpen(true)}
+              dark={dark}
+              variant={pagePublished ? 'emerald' : 'amber'}
+            />
+
             {/* Header — інфо про стан + icon-only Прев'ю (👁). Симетрично з НАСТУПНА. */}
             <div className="flex items-center justify-between gap-3 px-4 py-2.5">
               <div className="flex items-center gap-2.5 min-w-0">
@@ -597,6 +698,15 @@ export default function AdminNewsPage() {
                     ? 'bg-gradient-to-r from-rose-500/0 via-rose-500/70 to-rose-500/0'
                     : 'bg-gradient-to-r from-amber-500/0 via-amber-500/70 to-amber-500/0'
                 }`} />
+
+                {/* Thumb-превʼю наступної сторінки — клік відкриває fullscreen. */}
+                <PagePreviewIframeThumb
+                  source="next"
+                  title="Превʼю чернетки наступної сторінки /news"
+                  onClickFullscreen={() => setPagePreviewSource({ kind: 'next' })}
+                  dark={dark}
+                  variant="amber"
+                />
 
                 {/* Header — status + countdown + Превʼю icon-button (симетрично з Поточна). */}
                 <div className="flex items-center justify-between gap-3 px-4 py-2.5">
@@ -960,17 +1070,6 @@ export default function AdminNewsPage() {
                           <span aria-hidden className="text-[11px]">⊕</span>
                           Створити власний шаблон
                         </button>
-                        <Link
-                          href={`/dashboard/admin/news/${tpl.id}/template`}
-                          className={`inline-flex items-center justify-center w-8 h-8 rounded-lg border transition-colors ${
-                            dark
-                              ? 'bg-white/[0.04] border-white/[0.10] text-slate-300 hover:bg-white/[0.10] hover:text-slate-100'
-                              : 'bg-white/80 border-stone-300/60 text-stone-700 hover:bg-white hover:text-stone-900'
-                          }`}
-                          title="Редагувати дефолти шаблону"
-                        >
-                          <FaEdit className="text-[11px]" />
-                        </Link>
                       </div>
                     </header>
                   </article>
@@ -1047,24 +1146,12 @@ export default function AdminNewsPage() {
                                     initialScale={1}
                                   >
                                     {hasBlocks ? (
-                                      <div
-                                        style={{
-                                          position: 'relative',
-                                          width: custBaseW,
-                                          height: custBaseH,
-                                          overflow: 'hidden',
-                                          background: cust.pageBgColor || '#FFFFFF',
-                                        }}
-                                      >
-                                        {tplBlocks!.blocks.map(b => (
-                                          <AbsoluteBlockRender
-                                            key={b.id}
-                                            block={b}
-                                            newsItems={[]}
-                                            locale="uk"
-                                          />
-                                        ))}
-                                      </div>
+                                      <TemplateBlocksPreview
+                                        blocks={tplBlocks!.blocks}
+                                        width={custBaseW}
+                                        height={custBaseH}
+                                        background={cust.pageBgColor || '#FFFFFF'}
+                                      />
                                     ) : (
                                       <TemplatePreviewCard kind={kind} data={custData} disableLinks />
                                     )}
