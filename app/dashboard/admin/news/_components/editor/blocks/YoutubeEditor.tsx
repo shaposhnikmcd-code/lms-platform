@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Block } from "../types";
 // Один парсер YouTube URL для білдера і public — підтримує playlist, shorts,
@@ -25,12 +26,26 @@ interface Props {
 }
 
 export default function YoutubeEditor({ block, onChange, selected = false }: Props) {
-  const embed = getEmbedUrl(block.data.url || "");
+  const appliedUrl = block.data.url || "";
+  const embed = getEmbedUrl(appliedUrl);
+
+  // Draft-state інпуту URL. Як у Heading/Text — поки draft != applied показується
+  // зелена ✓; після коміту draft вирівнюється з applied і ✓ зникає.
+  const [urlDraft, setUrlDraft] = useState(appliedUrl);
+  useEffect(() => { setUrlDraft(appliedUrl); }, [appliedUrl]);
+
+  const trimmedDraft = urlDraft.trim();
+  const hasPendingChange = trimmedDraft !== appliedUrl;
+
+  const commitUrl = () => {
+    onChange({ ...block.data, url: trimmedDraft });
+  };
+  const clearUrl = () => {
+    setUrlDraft("");
+    onChange({ ...block.data, url: "" });
+  };
 
   // Портал-target — slot у лівому sidebar. Рендеримо туди ТІЛЬКИ коли selected.
-  // BlockItem обгортка має overflow:hidden, тому інпут не може жити "під" блоком
-  // як absolute; top:100% — обрізається. Портал у sidebar — стандартний паттерн
-  // для контекстних toolbar-ів цього редактора.
   const settingsSlot = typeof document !== "undefined" && selected
     ? document.getElementById("news-block-settings-slot")
     : null;
@@ -41,12 +56,45 @@ export default function YoutubeEditor({ block, onChange, selected = false }: Pro
         fontSize: "11px", fontWeight: 600, color: "#1C3A2E",
         marginBottom: "6px", fontFamily: ff,
       }}>{"URL відео або плейлиста YouTube"}</div>
-      <input
-        style={inputStyle}
-        placeholder="https://youtube.com/watch?v=… або /playlist?list=…"
-        value={block.data.url || ""}
-        onChange={e => onChange({ ...block.data, url: e.target.value })}
-      />
+      <div style={{ display: "flex", gap: "5px" }}>
+        <input
+          style={{ ...inputStyle, flex: 1 }}
+          placeholder="https://youtube.com/watch?v=… або /playlist?list=…"
+          value={urlDraft}
+          onChange={e => setUrlDraft(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              commitUrl();
+              (e.currentTarget as HTMLInputElement).blur();
+            }
+          }}
+        />
+        {/* ✓ — показуємо тільки коли draft має зміни щодо applied. Після коміту зникає. */}
+        {trimmedDraft && hasPendingChange && (
+          <button
+            type="button"
+            onClick={commitUrl}
+            title="Зберегти URL"
+            style={{
+              ...inputStyle, width: "38px", padding: 0,
+              cursor: "pointer",
+              color: "#FFFFFF",
+              background: "#059669",
+              borderColor: "#059669",
+              fontWeight: 700,
+            }}
+          >✓</button>
+        )}
+        {appliedUrl && (
+          <button
+            type="button"
+            onClick={clearUrl}
+            title="Прибрати URL"
+            style={{ ...inputStyle, width: "38px", padding: 0, color: "#B91C1C", cursor: "pointer" }}
+          >✕</button>
+        )}
+      </div>
     </div>
   );
 

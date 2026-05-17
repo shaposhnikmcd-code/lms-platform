@@ -229,9 +229,7 @@ export default function TemplateConstructor({
         </div>
       )}
       <NewsEditor
-        pageTitle={isContentMode
-          ? `Новина · ${templateKind === "EVENT" ? "Подія / Фахівець" : "Стаття / Огляд"}`
-          : `Шаблон · ${templateKind === "EVENT" ? "Подія / Фахівець" : "Стаття / Огляд"}`}
+        pageTitle={isContentMode ? "Новина" : "Шаблон"}
         newsId={newsId}
         onBack={onBack}
         saving={saving}
@@ -324,25 +322,28 @@ function CanvasSizeInputs({
   };
 
   const inputStyle: React.CSSProperties = {
-    width: 56,
+    width: 62,
     background: "#FFFFFF",
     border: "1px solid rgba(15,23,42,0.14)",
-    borderRadius: 6,
+    borderRadius: 8,
     color: "#0F172A",
-    fontSize: 11,
+    fontSize: 12.5,
     fontWeight: 600,
     letterSpacing: "0.01em",
     textAlign: "center",
-    padding: "4px 6px",
+    padding: "6px 8px",
     fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
     outline: "none",
     fontVariantNumeric: "tabular-nums",
+    boxShadow: "0 1px 2px rgba(15,23,42,0.04)",
   };
 
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "rgba(15,23,42,0.5)", fontSize: 11 }}>
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 7, color: "#94A3B8", fontSize: 12 }}>
       <input
-        type="number"
+        type="text"
+        inputMode="numeric"
+        pattern="[0-9]*"
         value={draftW}
         onChange={e => setDraftW(e.target.value)}
         onBlur={e => commit("w", e.target.value)}
@@ -358,7 +359,9 @@ function CanvasSizeInputs({
       />
       <span style={{ opacity: 0.6 }}>×</span>
       <input
-        type="number"
+        type="text"
+        inputMode="numeric"
+        pattern="[0-9]*"
         value={draftH}
         onChange={e => setDraftH(e.target.value)}
         onBlur={e => commit("h", e.target.value)}
@@ -372,7 +375,7 @@ function CanvasSizeInputs({
         aria-label="Висота канвасу, px"
         style={inputStyle}
       />
-      <span style={{ opacity: 0.55, fontSize: 10, fontWeight: 500, letterSpacing: "0.04em" }}>px</span>
+      <span style={{ color: "#94A3B8", fontSize: 11, fontWeight: 500, letterSpacing: "0.04em" }}>px</span>
     </span>
   );
 }
@@ -390,15 +393,14 @@ function CanvasHorizontalPresetsBar({
   return (
     <div
       style={{
-        background: "#FFFFFF",
-        borderRadius: 10,
-        padding: "0 10px",
-        height: 38,
+        background: "#F8FAFC",
+        borderRadius: 14,
+        padding: "8px 12px",
+        height: 52,
         display: "inline-flex",
         alignItems: "center",
-        gap: 12,
+        gap: 14,
         border: "1px solid rgba(15,23,42,0.08)",
-        boxShadow: "0 1px 2px rgba(15,23,42,0.04)",
         fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
       }}
     >
@@ -413,8 +415,8 @@ function CanvasHorizontalPresetsBar({
       <div style={{
         width: 1,
         alignSelf: "stretch",
-        background: "rgba(15,23,42,0.06)",
-        margin: "4px 0",
+        background: "rgba(15,23,42,0.08)",
+        margin: "6px 0",
       }} />
 
       <div style={{ flexShrink: 0 }}>
@@ -437,37 +439,36 @@ function CanvasVerticalPresetsColumn({
   return (
     <div
       style={{
-        background: "#FFFFFF",
-        borderRadius: 10,
-        padding: "10px 5px",
+        background: "#F8FAFC",
+        borderRadius: 14,
+        padding: "12px 8px",
         display: "flex",
         flexDirection: "column",
         alignItems: "stretch",
-        gap: 6,
+        gap: 8,
         border: "1px solid rgba(15,23,42,0.08)",
-        boxShadow: "0 1px 2px rgba(15,23,42,0.04)",
         fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
-        width: 36,
+        width: 52,
         height: "100%",
       }}
     >
       {/* Лейбл «Вертикальні» — вертикальний (читання знизу-вгору). */}
       <div style={{
-        fontSize: 9,
+        fontSize: 11,
         fontWeight: 600,
-        color: "rgba(15,23,42,0.45)",
-        letterSpacing: "0.08em",
+        color: "#475569",
+        letterSpacing: "0.02em",
         writingMode: "vertical-rl",
         transform: "rotate(180deg)",
         textAlign: "center",
         alignSelf: "center",
         lineHeight: 1,
-        paddingBottom: 4,
+        paddingBottom: 6,
       }}>Вертикальні</div>
       <div style={{
         height: 1,
         alignSelf: "stretch",
-        background: "rgba(15,23,42,0.06)",
+        background: "rgba(15,23,42,0.08)",
       }} />
       {/* Картки заповнюють лишок висоти рівномірно (flex:1). Текст dims у кожній —
           вертикальний, як і header. */}
@@ -495,8 +496,8 @@ function VerticalPresetCard({
   onPick: (w: number, h: number) => void;
 }) {
   const [hov, setHov] = useState(false);
-  const BBOX_W = 16;
-  const BBOX_H = 22;
+  const BBOX_W = 22;
+  const BBOX_H = 28;
   const aspect = preset.w / preset.h;
   const thumbW = Math.round(BBOX_H * aspect);
   const thumbH = BBOX_H;
@@ -513,16 +514,17 @@ function VerticalPresetCard({
         flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
-        gap: 4,
-        padding: "6px 2px",
-        background: active ? "rgba(212,168,67,0.10)" : hov ? "rgba(15,23,42,0.04)" : "transparent",
-        border: `1px solid ${active ? "#D4A843" : hov ? "rgba(15,23,42,0.12)" : "transparent"}`,
-        borderRadius: 7,
+        gap: 6,
+        padding: "8px 4px",
+        background: active ? "#FEF3C7" : hov ? "#FFFFFF" : "#FFFFFF",
+        border: `1px solid ${active ? "#D4A843" : hov ? "rgba(15,23,42,0.18)" : "rgba(15,23,42,0.10)"}`,
+        borderRadius: 10,
         cursor: "pointer",
         transition: "all 0.15s",
         fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
         flex: 1,
         minHeight: 0,
+        boxShadow: active ? "0 1px 3px rgba(212,168,67,0.18)" : "0 1px 2px rgba(15,23,42,0.04)",
       }}
     >
       <div style={{
@@ -536,17 +538,17 @@ function VerticalPresetCard({
         <div style={{
           width: thumbW,
           height: thumbH,
-          border: `1.5px solid ${active ? "#D4A843" : "rgba(15,23,42,0.28)"}`,
-          borderRadius: 2,
-          background: active ? "rgba(212,168,67,0.14)" : "transparent",
+          border: `1.5px solid ${active ? "#A47A28" : "#94A3B8"}`,
+          borderRadius: 3,
+          background: active ? "#D4A843" : "#CBD5E1",
           transition: "all 0.15s",
         }} />
       </div>
       <div style={{
-        fontSize: 9,
+        fontSize: 10.5,
         fontWeight: 600,
-        color: active ? "#A47A28" : "rgba(15,23,42,0.55)",
-        letterSpacing: "0.02em",
+        color: active ? "#78350F" : "#334155",
+        letterSpacing: "0.01em",
         lineHeight: 1,
         fontVariantNumeric: "tabular-nums",
         writingMode: "vertical-rl",
@@ -567,16 +569,16 @@ function PresetGroupHorizontal({
   onPick: (w: number, h: number) => void;
 }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1, minWidth: 0 }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 12, flex: 1, minWidth: 0 }}>
       <div style={{
-        fontSize: 11,
+        fontSize: 13,
         fontWeight: 600,
-        color: "rgba(15,23,42,0.45)",
+        color: "#475569",
         letterSpacing: "0.01em",
         flexShrink: 0,
         writingMode: "horizontal-tb",
       }}>{title}</div>
-      <div style={{ display: "flex", gap: 4, flex: 1, minWidth: 0 }}>
+      <div style={{ display: "flex", gap: 6, flex: 1, minWidth: 0 }}>
         {presets.map(p => (
           <PresetCard
             key={p.key}
@@ -667,8 +669,8 @@ function PresetCard({
   stretch?: boolean;
 }) {
   const [hov, setHov] = useState(false);
-  // Компактна мініатюра: BBOX 18×18, thumb малюється по аспекту.
-  const BBOX = 18;
+  // Компактна мініатюра: BBOX 22×22, thumb малюється по аспекту.
+  const BBOX = 22;
   const ratio = preset.w / preset.h;
   const thumbW = ratio >= 1 ? BBOX : Math.round(BBOX * ratio);
   const thumbH = ratio >= 1 ? Math.round(BBOX / ratio) : BBOX;
@@ -683,16 +685,17 @@ function PresetCard({
       style={{
         display: "flex",
         alignItems: "center",
-        gap: 6,
-        padding: "4px 8px 4px 6px",
-        background: active ? "rgba(212,168,67,0.10)" : hov ? "rgba(15,23,42,0.04)" : "transparent",
-        border: `1px solid ${active ? "#D4A843" : hov ? "rgba(15,23,42,0.12)" : "transparent"}`,
-        borderRadius: 7,
+        gap: 8,
+        padding: "6px 12px 6px 10px",
+        background: active ? "#FEF3C7" : "#FFFFFF",
+        border: `1px solid ${active ? "#D4A843" : hov ? "rgba(15,23,42,0.18)" : "rgba(15,23,42,0.10)"}`,
+        borderRadius: 999,
         cursor: "pointer",
         transition: "all 0.15s",
         fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
         flex: stretch ? "1 1 0" : "0 0 auto",
         minWidth: 0,
+        boxShadow: active ? "0 1px 3px rgba(212,168,67,0.18)" : "0 1px 2px rgba(15,23,42,0.04)",
       }}
     >
       <div style={{
@@ -706,16 +709,16 @@ function PresetCard({
         <div style={{
           width: thumbW,
           height: thumbH,
-          border: `1.5px solid ${active ? "#D4A843" : "rgba(15,23,42,0.28)"}`,
-          borderRadius: 2,
-          background: active ? "rgba(212,168,67,0.14)" : "transparent",
+          border: `1.5px solid ${active ? "#A47A28" : "#94A3B8"}`,
+          borderRadius: 3,
+          background: active ? "#D4A843" : "#CBD5E1",
           transition: "all 0.15s",
         }} />
       </div>
       <div style={{
-        fontSize: 10.5,
+        fontSize: 12,
         fontWeight: 600,
-        color: active ? "#A47A28" : "rgba(15,23,42,0.6)",
+        color: active ? "#78350F" : "#334155",
         letterSpacing: "0.01em",
         lineHeight: 1.1,
         whiteSpace: "nowrap",

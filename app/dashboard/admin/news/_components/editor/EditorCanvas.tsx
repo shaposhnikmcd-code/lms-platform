@@ -1876,7 +1876,6 @@ export default function EditorCanvas({
             {canvasTopToolbar && (
               <div style={{
                 maxWidth: `${VISIBLE_WRAPPER_W}px`,
-                marginTop: -18,
                 marginBottom: 12,
               }}>
                 {canvasTopToolbar}

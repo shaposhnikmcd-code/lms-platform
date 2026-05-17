@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef, useMemo, createContext } from "react";
-import { FaRegSave } from "react-icons/fa";
+import { FaRegSave, FaEye, FaTimes } from "react-icons/fa";
 import { Block, NewsMeta, blocksToJson, jsonToBlocks } from "./types";
 import EditorCanvas from "./EditorCanvas";
 import MetaSidebar from "./MetaSidebar";
@@ -177,6 +177,19 @@ export default function NewsEditor(props: Props) {
   const showMetaSidebar = props.metaSidebar ?? (mode === "post" || mode === "preview");
   void props.onBack;
 
+  // Ховаємо глобальний "UIMP Dashboard" header у всіх news-білдерах — він займає
+  // 64px зверху і не потрібен у full-screen editor-режимі. Робимо це централізовано
+  // в NewsEditor, щоб усі точки входу (page-builder / template-constructor /
+  // news-edit / news-preview) поводились однаково. Відновлюємо при unmount.
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const header = document.querySelector<HTMLElement>("header.sticky.z-30");
+    if (!header) return;
+    const prevDisplay = header.style.display;
+    header.style.display = "none";
+    return () => { header.style.display = prevDisplay; };
+  }, []);
+
   // Persist scroll position у sessionStorage. Browser native scroll restoration
   // ламається коли контент-висота змінюється після hydration (canvas росте під
   // блоки) — тому зберігаємо вручну і повертаємо після першого рендера.
@@ -266,10 +279,16 @@ export default function NewsEditor(props: Props) {
     draftCheckedRef.current = true;
     const d = loadDraft(newsId, mode);
     if (!d) return;
-    // Порівняння: серіалізуємо обидва і дивимось чи різні.
-    const serverBlocks: Record<string, Block[]> = {};
-    for (const t of effectiveTabs) serverBlocks[t.key] = jsonToBlocks(t.initialContent || "");
-    const sameBlocks = JSON.stringify(d.blocksByTab) === JSON.stringify(serverBlocks);
+    // Порівняння — через канонічну серіалізацію (blocksToJson) обох сторін.
+    // JSON.stringify напряму ламається через різний порядок полів/дефолти між
+    // server-roundtrip-ом і live-state-ом: ті самі блоки серіалізуються по-різному
+    // і banner «Незбережений чорновик» показувався помилково після кожного Save.
+    let sameBlocks = true;
+    for (const t of effectiveTabs) {
+      const serverJson = blocksToJson(jsonToBlocks(t.initialContent || ""));
+      const draftJson = blocksToJson(d.blocksByTab[t.key] ?? []);
+      if (serverJson !== draftJson) { sameBlocks = false; break; }
+    }
     const sameMeta = JSON.stringify(d.meta) === JSON.stringify({ ...def, ...initialMeta });
     if (sameBlocks && sameMeta) {
       // Draft = server → нічого не пропонуємо, прибираємо застарілий ключ.
@@ -308,6 +327,16 @@ export default function NewsEditor(props: Props) {
   const [savedFlash, setSavedFlash] = useState(false);
   const savedFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [uploading, setUploading] = useState(false);
+  // Fullscreen-превʼю /news — тільки у mode="page". iframe-вікно з реальним
+  // публічним layout-ом (/uk/news/preview?source=live). Esc / клік по бекдропу /
+  // ✕ закривають.
+  const [pagePreviewOpen, setPagePreviewOpen] = useState(false);
+  useEffect(() => {
+    if (!pagePreviewOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setPagePreviewOpen(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [pagePreviewOpen]);
 
   // ── Undo/Redo per tab ────────────────────────────────────────────────────
   // Map<tabKey, {history, pointer}>. Тригер ре-рендеру disabled-стану — historyTick.
@@ -572,21 +601,18 @@ export default function NewsEditor(props: Props) {
       <link rel="stylesheet" href={buildGoogleFontsHref()} />
       <style>{NEWS_BLOCK_CSS}</style>
       <div className={`${
-        props.templateMode
-          // Template builder центрується на сторінці (max-w + mx-auto). 1820px
-          // вистачає під 440px палітру + canvas до 1200px + floating buttons.
-          ? "max-w-[1820px] mx-auto px-5 py-4"
-          : mode === "page"
-            // У page-builder ліва палітра ширша (520px) — потрібна більша
-            // макс-ширина контейнера, щоб канвас 920+padding не стискався.
-            ? "max-w-[1820px] mx-auto px-6 py-10"
-            : "max-w-[1520px] mx-auto px-6 py-10"
+        // Уніфікований outer padding для всіх news-білдерів: pt-7 pb-10 px-6.
+        // max-w відрізняється тільки для post-mode (без широкої лівої палітри
+        // потрібна вужча колонка, щоб картка-редактор не «плавала»).
+        props.templateMode || mode === "page"
+          ? "max-w-[1820px] mx-auto px-6 pt-7 pb-10"
+          : "max-w-[1520px] mx-auto px-6 pt-7 pb-10"
       }`}>
         {/* Header — однаковий у всіх білдерах: breadcrumb-пілюля ліворуч,
-            заголовок по центру (на одній горизонтальній лінії). У page/preview-режимах
-            тримаємо вузький bottom-margin, щоб canvas-label не «плавав» у пустому
-            просторі під заголовком. */}
-        <div className={`${props.templateMode ? "mb-2" : mode === "page" ? "mb-2" : "mb-6"} relative flex items-center min-h-[44px]`}>
+            заголовок по центру (на одній горизонтальній лінії). Уніфікований
+            bottom-margin (mb-4 = 16px) скрізь, щоб toolbar/label-row під заголовком
+            стояли на однаковій відстані. */}
+        <div className="mb-4 relative flex items-center min-h-[44px]">
           <div className="inline-flex items-center gap-2.5 px-3.5 py-1.5 rounded-full bg-gradient-to-r from-violet-50 to-violet-100/40 border border-violet-200/60 shadow-[0_1px_2px_rgba(124,58,237,0.06)]">
             <span className="inline-block w-1.5 h-1.5 rounded-full bg-violet-500 shadow-[0_0_6px_rgba(124,58,237,0.5)]" />
             <span className="text-[13px] font-bold tracking-wider uppercase text-violet-700">Admin</span>
@@ -694,6 +720,86 @@ export default function NewsEditor(props: Props) {
           );
         })}
       </div>
+
+      {/* Floating Preview — тільки у page-mode. Кругла кнопка зліва від Save.
+          Відкриває fullscreen iframe з реальним /uk/news/preview?source=live —
+          той самий механізм, що в /dashboard/admin/news. */}
+      {mode === "page" && (
+        <button
+          type="button"
+          onClick={() => setPagePreviewOpen(true)}
+          title="Превʼю на повний екран"
+          aria-label="Превʼю /news"
+          className="group fixed top-20 right-[156px] z-40 flex h-14 w-14 items-center justify-center rounded-full transition-all duration-500 ease-out hover:scale-[1.06] active:scale-95"
+          style={{
+            backgroundImage: "linear-gradient(135deg, #2A4F3F 0%, #1F4032 40%, #15291F 100%)",
+            color: "#D4A843",
+            boxShadow: [
+              "0 6px 22px -2px rgba(20,40,30,0.55)",
+              "0 2px 8px rgba(15,32,25,0.35)",
+              "0 0 0 1px rgba(212,168,67,0.30)",
+              "inset 0 1px 0 rgba(255,255,255,0.10)",
+            ].join(", "),
+          }}
+        >
+          <span
+            className="pointer-events-none absolute inset-0 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-500"
+            style={{
+              boxShadow: "0 0 0 1px rgba(212,168,67,0.55), 0 0 24px -2px rgba(212,168,67,0.55)",
+            }}
+          />
+          <span
+            className="relative inline-flex h-10 w-10 items-center justify-center rounded-full transition-transform duration-500 group-hover:rotate-[6deg]"
+            style={{
+              background: "linear-gradient(180deg, #FAF6F0 0%, #E8D5B7 100%)",
+              boxShadow: [
+                "inset 0 1px 0 rgba(255,255,255,0.55)",
+                "inset 0 -1px 0 rgba(0,0,0,0.10)",
+                "0 0 0 1px rgba(212,168,67,0.55)",
+              ].join(", "),
+            }}
+          >
+            <FaEye
+              className="text-[16px]"
+              style={{
+                color: "#1C3A2E",
+                filter: "drop-shadow(0 1px 1px rgba(0,0,0,0.2))",
+              }}
+            />
+          </span>
+        </button>
+      )}
+
+      {/* Fullscreen page-превʼю модалка. Як у /dashboard/admin/news. */}
+      {mode === "page" && pagePreviewOpen && (
+        <div
+          className="fixed inset-0 z-[60] flex flex-col bg-stone-900/85 backdrop-blur-md"
+          onClick={() => setPagePreviewOpen(false)}
+        >
+          <div className="flex items-center justify-between px-5 py-3 border-b border-white/10">
+            <span className="text-[11px] font-bold tracking-[0.18em] uppercase text-white/90">
+              Превʼю · /news
+            </span>
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); setPagePreviewOpen(false); }}
+              title="Закрити (Esc)"
+              className="inline-flex items-center justify-center w-9 h-9 rounded-lg bg-white/[0.06] border border-white/10 text-white/80 hover:bg-white/[0.12] hover:text-white transition-colors"
+            >
+              <FaTimes />
+            </button>
+          </div>
+          <div className="flex-1 overflow-hidden p-6" onClick={e => e.stopPropagation()}>
+            <div className="mx-auto h-full rounded-lg overflow-hidden shadow-2xl bg-white" style={{ maxWidth: "1440px" }}>
+              <iframe
+                src="/uk/news/preview?source=live"
+                title="Превʼю /news"
+                className="w-full h-full border-0"
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Floating Save — кругла кнопка зліва від DashboardBackButton (top-20).
           Преміальний AMBER-gradient (UIMP gold) щоб явно зчитувалось як «primary

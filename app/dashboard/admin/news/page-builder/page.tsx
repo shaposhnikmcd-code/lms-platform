@@ -33,6 +33,8 @@ export default function NewsPageBuilder() {
   // Поточна ширина «папера» сторінки /news. Менеджер редагує інлайн у canvasLabel-у.
   const [pageWidth, setPageWidth] = useState<number>(DEFAULT_PAGE_WIDTH);
 
+  // Header-hide логіка перенесена у NewsEditor (централізовано для всіх білдерів).
+
   useEffect(() => {
     fetch("/api/admin/news/page-content")
       .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
