@@ -687,7 +687,6 @@ export default function ImageEditor({ block, onChange, onUpload, previewHeight, 
             onOpenStudio={() => { setStudioInitialCropMode(true); setStudioOpen(true); }}
             data={block.data}
             onChangeData={onChange}
-            onUpload={onUpload}
           />,
           slot,
         );

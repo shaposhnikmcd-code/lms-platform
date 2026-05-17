@@ -162,16 +162,7 @@ export default function TemplateConstructor({
     if (titleTimerRef.current) clearTimeout(titleTimerRef.current);
   }, []);
 
-  // Ховаємо глобальний "UIMP Dashboard" header у білдері шаблону — він займає
-  // 64px зверху і не потрібен у full-screen editor-режимі. Відновлюємо при
-  // unmount, щоб інші /dashboard/* сторінки бачили хедер як зазвичай.
-  useEffect(() => {
-    const header = document.querySelector<HTMLElement>("header.sticky.z-30");
-    if (!header) return;
-    const prevDisplay = header.style.display;
-    header.style.display = "none";
-    return () => { header.style.display = prevDisplay; };
-  }, []);
+  // Header-hide логіка перенесена у NewsEditor (централізовано для всіх білдерів).
 
   const handleCanvasResize = useCallback((w: number, h: number) => {
     const c = clampCanvas(w, h);
@@ -333,22 +324,23 @@ function CanvasSizeInputs({
   };
 
   const inputStyle: React.CSSProperties = {
-    width: 50,
-    background: "rgba(212,168,67,0.08)",
-    border: "1px solid rgba(212,168,67,0.25)",
-    borderRadius: 5,
-    color: "#D4A843",
-    fontSize: 9.5,
-    fontWeight: 700,
-    letterSpacing: "0.04em",
+    width: 56,
+    background: "#FFFFFF",
+    border: "1px solid rgba(15,23,42,0.14)",
+    borderRadius: 6,
+    color: "#0F172A",
+    fontSize: 11,
+    fontWeight: 600,
+    letterSpacing: "0.01em",
     textAlign: "center",
-    padding: "2px 4px",
+    padding: "4px 6px",
     fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
     outline: "none",
+    fontVariantNumeric: "tabular-nums",
   };
 
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "#D4A843" }}>
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "rgba(15,23,42,0.5)", fontSize: 11 }}>
       <input
         type="number"
         value={draftW}
@@ -380,7 +372,7 @@ function CanvasSizeInputs({
         aria-label="Висота канвасу, px"
         style={inputStyle}
       />
-      <span style={{ opacity: 0.6, fontSize: 8.5 }}>PX</span>
+      <span style={{ opacity: 0.55, fontSize: 10, fontWeight: 500, letterSpacing: "0.04em" }}>px</span>
     </span>
   );
 }
@@ -398,19 +390,20 @@ function CanvasHorizontalPresetsBar({
   return (
     <div
       style={{
-        background: "linear-gradient(180deg, #162C25 0%, #0F2019 100%)",
-        borderRadius: 8,
-        padding: "0 8px",
-        height: 34,
+        background: "#FFFFFF",
+        borderRadius: 10,
+        padding: "0 10px",
+        height: 38,
         display: "inline-flex",
         alignItems: "center",
-        gap: 10,
-        boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.06), 0 4px 16px rgba(0,0,0,0.12)",
+        gap: 12,
+        border: "1px solid rgba(15,23,42,0.08)",
+        boxShadow: "0 1px 2px rgba(15,23,42,0.04)",
         fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
       }}
     >
       <PresetGroupHorizontal
-        title="Горизонт."
+        title="Горизонтальні"
         presets={CANVAS_PRESETS.horizontal}
         width={width}
         height={height}
@@ -420,8 +413,8 @@ function CanvasHorizontalPresetsBar({
       <div style={{
         width: 1,
         alignSelf: "stretch",
-        background: "rgba(255,255,255,0.08)",
-        margin: "2px 0",
+        background: "rgba(15,23,42,0.06)",
+        margin: "4px 0",
       }} />
 
       <div style={{ flexShrink: 0 }}>
@@ -444,37 +437,37 @@ function CanvasVerticalPresetsColumn({
   return (
     <div
       style={{
-        background: "linear-gradient(180deg, #162C25 0%, #0F2019 100%)",
-        borderRadius: 8,
-        padding: "8px 4px",
+        background: "#FFFFFF",
+        borderRadius: 10,
+        padding: "10px 5px",
         display: "flex",
         flexDirection: "column",
         alignItems: "stretch",
         gap: 6,
-        boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.06), 0 4px 16px rgba(0,0,0,0.12)",
+        border: "1px solid rgba(15,23,42,0.08)",
+        boxShadow: "0 1px 2px rgba(15,23,42,0.04)",
         fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
-        width: 34,
+        width: 36,
         height: "100%",
       }}
     >
-      {/* Лейбл «ВЕРТИК.» — вертикальний (читання знизу-вгору). */}
+      {/* Лейбл «Вертикальні» — вертикальний (читання знизу-вгору). */}
       <div style={{
-        fontSize: 8,
-        fontWeight: 700,
-        color: "rgba(212,168,67,0.55)",
-        letterSpacing: "0.16em",
-        textTransform: "uppercase",
+        fontSize: 9,
+        fontWeight: 600,
+        color: "rgba(15,23,42,0.45)",
+        letterSpacing: "0.08em",
         writingMode: "vertical-rl",
         transform: "rotate(180deg)",
         textAlign: "center",
         alignSelf: "center",
         lineHeight: 1,
         paddingBottom: 4,
-      }}>Вертик.</div>
+      }}>Вертикальні</div>
       <div style={{
         height: 1,
         alignSelf: "stretch",
-        background: "rgba(255,255,255,0.10)",
+        background: "rgba(15,23,42,0.06)",
       }} />
       {/* Картки заповнюють лишок висоти рівномірно (flex:1). Текст dims у кожній —
           вертикальний, як і header. */}
@@ -522,15 +515,14 @@ function VerticalPresetCard({
         justifyContent: "center",
         gap: 4,
         padding: "6px 2px",
-        background: active ? "rgba(212,168,67,0.13)" : hov ? "rgba(255,255,255,0.04)" : "transparent",
-        border: `1px solid ${active ? "#D4A843" : hov ? "rgba(212,168,67,0.28)" : "rgba(255,255,255,0.06)"}`,
-        borderRadius: 5,
+        background: active ? "rgba(212,168,67,0.10)" : hov ? "rgba(15,23,42,0.04)" : "transparent",
+        border: `1px solid ${active ? "#D4A843" : hov ? "rgba(15,23,42,0.12)" : "transparent"}`,
+        borderRadius: 7,
         cursor: "pointer",
         transition: "all 0.15s",
         fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
         flex: 1,
         minHeight: 0,
-        boxShadow: active ? "0 0 0 1px rgba(212,168,67,0.25), 0 2px 6px rgba(212,168,67,0.08)" : "none",
       }}
     >
       <div style={{
@@ -544,17 +536,17 @@ function VerticalPresetCard({
         <div style={{
           width: thumbW,
           height: thumbH,
-          border: `1.5px ${active ? "solid" : "dashed"} ${active ? "#D4A843" : "rgba(212,168,67,0.55)"}`,
+          border: `1.5px solid ${active ? "#D4A843" : "rgba(15,23,42,0.28)"}`,
           borderRadius: 2,
-          background: active ? "rgba(212,168,67,0.10)" : "transparent",
+          background: active ? "rgba(212,168,67,0.14)" : "transparent",
           transition: "all 0.15s",
         }} />
       </div>
       <div style={{
-        fontSize: 8.5,
-        fontWeight: 700,
-        color: active ? "#D4A843" : hov ? "#E8C97A" : "rgba(255,255,255,0.65)",
-        letterSpacing: "0.04em",
+        fontSize: 9,
+        fontWeight: 600,
+        color: active ? "#A47A28" : "rgba(15,23,42,0.55)",
+        letterSpacing: "0.02em",
         lineHeight: 1,
         fontVariantNumeric: "tabular-nums",
         writingMode: "vertical-rl",
@@ -575,17 +567,16 @@ function PresetGroupHorizontal({
   onPick: (w: number, h: number) => void;
 }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1, minWidth: 0 }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1, minWidth: 0 }}>
       <div style={{
-        fontSize: 7.5,
-        fontWeight: 700,
-        color: "rgba(212,168,67,0.55)",
-        letterSpacing: "0.14em",
-        textTransform: "uppercase",
+        fontSize: 11,
+        fontWeight: 600,
+        color: "rgba(15,23,42,0.45)",
+        letterSpacing: "0.01em",
         flexShrink: 0,
         writingMode: "horizontal-tb",
       }}>{title}</div>
-      <div style={{ display: "flex", gap: 3, flex: 1, minWidth: 0 }}>
+      <div style={{ display: "flex", gap: 4, flex: 1, minWidth: 0 }}>
         {presets.map(p => (
           <PresetCard
             key={p.key}
@@ -692,11 +683,11 @@ function PresetCard({
       style={{
         display: "flex",
         alignItems: "center",
-        gap: 5,
-        padding: "3px 6px 3px 5px",
-        background: active ? "rgba(212,168,67,0.14)" : hov ? "rgba(255,255,255,0.04)" : "transparent",
-        border: `1px solid ${active ? "#D4A843" : hov ? "rgba(212,168,67,0.25)" : "rgba(255,255,255,0.05)"}`,
-        borderRadius: 6,
+        gap: 6,
+        padding: "4px 8px 4px 6px",
+        background: active ? "rgba(212,168,67,0.10)" : hov ? "rgba(15,23,42,0.04)" : "transparent",
+        border: `1px solid ${active ? "#D4A843" : hov ? "rgba(15,23,42,0.12)" : "transparent"}`,
+        borderRadius: 7,
         cursor: "pointer",
         transition: "all 0.15s",
         fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
@@ -715,17 +706,17 @@ function PresetCard({
         <div style={{
           width: thumbW,
           height: thumbH,
-          border: `1.5px ${active ? "solid" : "dashed"} ${active ? "#D4A843" : "rgba(212,168,67,0.55)"}`,
+          border: `1.5px solid ${active ? "#D4A843" : "rgba(15,23,42,0.28)"}`,
           borderRadius: 2,
-          background: active ? "rgba(212,168,67,0.10)" : "transparent",
+          background: active ? "rgba(212,168,67,0.14)" : "transparent",
           transition: "all 0.15s",
         }} />
       </div>
       <div style={{
-        fontSize: 8.5,
-        fontWeight: 700,
-        color: active ? "#D4A843" : "rgba(255,255,255,0.6)",
-        letterSpacing: "0.02em",
+        fontSize: 10.5,
+        fontWeight: 600,
+        color: active ? "#A47A28" : "rgba(15,23,42,0.6)",
+        letterSpacing: "0.01em",
         lineHeight: 1.1,
         whiteSpace: "nowrap",
         fontVariantNumeric: "tabular-nums",
