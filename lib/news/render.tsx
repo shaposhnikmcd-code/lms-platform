@@ -199,6 +199,9 @@ export const LEGACY_H: Record<BlockType, number> = {
   duration: 70,
   ctaButton: 56,
   educationItem: 52,
+  // Інстанс шаблону на сторінці /news — fallback розмір картки. Реальна висота
+  // зазвичай береться з CSS aspect-ratio через AbsoluteBlockRender.
+  templateInstance: 400,
 };
 
 // Конвертує будь-який вживаний YouTube URL у embed-URL для <iframe>.

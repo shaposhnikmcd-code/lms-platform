@@ -24,6 +24,7 @@ export const BLOCK_PREVIEW_HEIGHTS: Record<BlockType, number> = {
   duration:      40 + 28 + 60,
   ctaButton:     40 + 28 + 46,
   educationItem: 40 + 28 + 44,
+  templateInstance: 40 + 28 + 280, // інстанс шаблону — рендериться як цілісна картка
 };
 
 export const BLOCK_ICONS: Record<BlockType, string> = {
@@ -43,6 +44,7 @@ export const BLOCK_ICONS: Record<BlockType, string> = {
   duration:      "⏱",
   ctaButton:     "▶",
   educationItem: "📜",
+  templateInstance: "📐",
 };
 
 export const BLOCK_LABELS: Record<BlockType, string> = {
@@ -62,6 +64,7 @@ export const BLOCK_LABELS: Record<BlockType, string> = {
   duration:      "Тривалість",
   ctaButton:     "Кнопка CTA",
   educationItem: "Пункт освіти",
+  templateInstance: "Шаблон",
 };
 
 interface Props {

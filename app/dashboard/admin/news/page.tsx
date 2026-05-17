@@ -77,7 +77,7 @@ function PagePreviewIframeThumb({
   dark: boolean;
   variant: 'emerald' | 'amber';
 }) {
-  const ref = useRef<HTMLDivElement>(null);
+  const ref = useRef<HTMLButtonElement>(null);
   const NATURAL_W = 1280;
   const NATURAL_H = 720;
   const [scale, setScale] = useState(0.25);
