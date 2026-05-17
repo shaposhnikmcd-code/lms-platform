@@ -1383,7 +1383,7 @@ export default function AdminNewsPage() {
                               const nTitle = n.title.replace(/^\[Шаблон\]\s*/i, '');
                               const nBlocks = n.templateBlocks ? parseBlocks(n.templateBlocks) : null;
                               const hasBlocks = !!(nBlocks && nBlocks.isJson && nBlocks.blocks.length > 0);
-                              const nData = !hasBlocks && n.templateData ? parseTemplateData(n.templateData) : null;
+                              const nData = !hasBlocks && n.templateData ? parseTemplateData((n.templateKind || 'ARTICLE') as TemplateKind, n.templateData) : null;
                               return (
                                 <article
                                   key={n.id}
