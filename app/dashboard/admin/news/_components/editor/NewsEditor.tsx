@@ -99,6 +99,10 @@ interface BaseProps {
   /** Ширина канвасу — пробрасується до EditorCanvas. Default — full-page (920).
    *  Для білдера превʼю-картки: PREVIEW_CARD_WIDTH (360). */
   canvasWidth?: number;
+  /** Базова видима ширина канвасу у білдері. Якщо задано — каркас канвасу не
+   *  розтягується при зміні canvasWidth; вміст усередині масштабується (CSS zoom).
+   *  Використовується page-builder /news для логічної ширини «сторінки на сайті». */
+  displayBaseWidth?: number;
   /** Мінімальна висота канвасу. Default 500 (full-page). */
   minCanvasHeight?: number;
   /** Кастомні підписи на chrome-смужці канвасу. */
@@ -127,6 +131,11 @@ interface BaseProps {
    *  Менеджер у цьому режимі тільки розставляє і ресайзить блоки; контент
    *  вводиться пізніше при створенні новини з шаблону. */
   templateMode?: boolean;
+  /** Layout lock (content-fill mode): блоки заморожені — drag і resize вимкнено.
+   *  Менеджер тільки наповнює блоки контентом (текст/фото), не змінює layout
+   *  заданий шаблоном. Включається у TemplateConstructor для News з блочного
+   *  шаблону (isContentMode=true). */
+  lockLayout?: boolean;
   /** Live-callback при ресайзі канвасу через corner-handle. Якщо задано —
    *  EditorCanvas рендерить bottom-right handle. Використовується TemplateConstructor-ом
    *  для зберігання нового розміру в `News.templateCanvas`. */
@@ -573,12 +582,18 @@ export default function NewsEditor(props: Props) {
             ? "max-w-[1820px] mx-auto px-6 py-10"
             : "max-w-[1520px] mx-auto px-6 py-10"
       }`}>
-        {/* Header */}
-        <div className={props.templateMode ? "mb-3" : "mb-6"}>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-violet-600 mb-1.5">
-            Admin · Новини
-          </p>
-          <h1 className="text-3xl font-bold text-slate-900 tracking-tight flex items-center gap-3 min-w-0">
+        {/* Header — однаковий у всіх білдерах: breadcrumb-пілюля ліворуч,
+            заголовок по центру (на одній горизонтальній лінії). У page/preview-режимах
+            тримаємо вузький bottom-margin, щоб canvas-label не «плавав» у пустому
+            просторі під заголовком. */}
+        <div className={`${props.templateMode ? "mb-2" : mode === "page" ? "mb-2" : "mb-6"} relative flex items-center min-h-[44px]`}>
+          <div className="inline-flex items-center gap-2.5 px-3.5 py-1.5 rounded-full bg-gradient-to-r from-violet-50 to-violet-100/40 border border-violet-200/60 shadow-[0_1px_2px_rgba(124,58,237,0.06)]">
+            <span className="inline-block w-1.5 h-1.5 rounded-full bg-violet-500 shadow-[0_0_6px_rgba(124,58,237,0.5)]" />
+            <span className="text-[13px] font-bold tracking-wider uppercase text-violet-700">Admin</span>
+            <span className="text-violet-300 text-[13px] -mx-0.5">·</span>
+            <span className="text-[13px] font-semibold tracking-wide uppercase text-slate-600">Новини</span>
+          </div>
+          <h1 className="absolute left-1/2 -translate-x-1/2 text-3xl font-bold text-slate-900 tracking-tight flex items-center gap-3 min-w-0 whitespace-nowrap">
             <span
               className={`inline-block w-2.5 h-2.5 rounded-full flex-shrink-0 ${
                 meta.published
@@ -586,10 +601,10 @@ export default function NewsEditor(props: Props) {
                   : "bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.5)]"
               }`}
             />
-            <span className="truncate">{pageTitle}</span>
+            <span>{pageTitle}</span>
           </h1>
           {uploading && (
-            <p className="mt-2 text-[12px] font-medium">
+            <p className="absolute right-0 text-[12px] font-medium">
               <span className="text-amber-600">Завантаження…</span>
             </p>
           )}
@@ -638,6 +653,7 @@ export default function NewsEditor(props: Props) {
                 onSelectBlock={setSelectedFor(t.key)}
                 paletteWide={mode === "page"}
                 canvasWidth={props.canvasWidth}
+                displayBaseWidth={props.displayBaseWidth}
                 minCanvasHeight={props.minCanvasHeight}
                 canvasLabel={props.canvasLabel}
                 bottomSlack={props.bottomSlack}
@@ -645,6 +661,7 @@ export default function NewsEditor(props: Props) {
                 extraPaletteBlocks={props.extraPaletteBlocks}
                 extraPaletteBlocksTitle={props.extraPaletteBlocksTitle}
                 templateMode={props.templateMode}
+                lockLayout={props.lockLayout}
                 onCanvasResize={props.onCanvasResize}
                 canvasMinWidth={props.canvasMinWidth}
                 canvasMaxWidth={props.canvasMaxWidth}

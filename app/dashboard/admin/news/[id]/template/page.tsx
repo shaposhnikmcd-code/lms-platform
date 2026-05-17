@@ -105,8 +105,14 @@ export default function TemplateEditorPage() {
     );
   }
 
-  // Dispatch: blueprint → constructor, news → legacy form-editor.
-  if (row.isTemplate && row.templateKind) {
+  // Dispatch:
+  //   - blueprint (isTemplate=true) → TemplateConstructor у design-режимі
+  //     (templateMode=true, плейсхолдери блоків).
+  //   - новина з block-based шаблону (isTemplate=false, templateBlocks!=null)
+  //     → той самий TemplateConstructor, але isContentMode=true: тi самi
+  //     блоки/розмір з шаблону, inline-редактори для наповнення контентом.
+  //   - legacy новина без templateBlocks → старий form-editor.
+  if (row.templateKind && (row.isTemplate || row.templateBlocks)) {
     const canvas = parseCanvas(row.templateCanvas, row.templateKind);
     return (
       <TemplateConstructor
@@ -117,6 +123,7 @@ export default function TemplateEditorPage() {
         initialBlocks={row.templateBlocks || ""}
         initialCanvas={canvas}
         pageBgColor={row.pageBgColor || ""}
+        isContentMode={!row.isTemplate}
       />
     );
   }

@@ -358,7 +358,7 @@ export default function NewsLibrarySidebar({ meta, onChange, placedNewsIds }: Pr
   }, []);
 
   return (
-    <div style={{ width: "200px", minWidth: "200px", display: "flex", flexDirection: "column", gap: "10px" }}>
+    <div style={{ width: "180px", minWidth: "180px", display: "flex", flexDirection: "column", gap: "10px" }}>
       {/* ─── Секція «Мої шаблони» ─── (custom blueprint-и менеджера) */}
       {/* Перетягуються як newsCard preview на канвас сторінки /news. Менеджер
           далі заповнює блоки шаблону контентом просто на сторінці. */}

@@ -6,6 +6,7 @@ import { Block, BlockAlign, BlockVAlign, BlockWidth } from "./types";
 import TextEditor from "./blocks/TextEditor";
 import HeadingEditor from "./blocks/HeadingEditor";
 import ImageEditor from "./blocks/ImageEditor";
+import { buildCornerRadiusCss } from "./blocks/ImageStudioModal";
 import YoutubeEditor from "./blocks/YoutubeEditor";
 import QuoteEditor from "./blocks/QuoteEditor";
 import CardEditor from "./blocks/CardEditor";
@@ -84,6 +85,8 @@ interface Props {
   /** Template-mode: блоки рендеряться як прості плейсхолдери з міткою типу,
    *  без settings та внутрішніх редакторів. cardBody — виняток (зберігає settings). */
   templateMode?: boolean;
+  /** Layout lock: resize handles прибрані; блок заморожений у розмірах шаблону. */
+  lockLayout?: boolean;
 }
 
 export default function BlockItem({
@@ -97,6 +100,7 @@ export default function BlockItem({
   blockX, blockY,
   onSelectBlock, maxBlockHeight,
   templateMode = false,
+  lockLayout = false,
 }: Props) {
   // У шаблон-режимі ВСІ блоки — плейсхолдери (без editors/settings всередині).
   // cardBody (тепер «Пустий блок» у палітрі) рендериться як звичайний host-плейсхолдер.
@@ -200,9 +204,15 @@ export default function BlockItem({
   // Авто-висота для нового фото: коли aspectRatio змінився (новий upload),
   // синхронізуємо block.height з ratio × поточна block.width — щоб фото з самого старту
   // виглядало пропорційно (на public objectFit:fill розтягує під block розмір).
+  //
+  // ВИНЯТОК: card-builder / template-content режим (maxBlockHeight задано).
+  // Там розміри блоків зафіксовані шаблоном — auto-aspect зсуває інші блоки
+  // вниз, ламаючи layout. У такому режимі фото просто вписується в існуючі
+  // межі блоку через objectFit, без зміни висоти block-у.
   const lastAspectRef = React.useRef<string>("");
   React.useEffect(() => {
     if (block.type !== "image") return;
+    if (typeof maxBlockHeight === "number" && maxBlockHeight > 0) return;
     const aspectStr = block.data.aspectRatio || "";
     if (!aspectStr || aspectStr === lastAspectRef.current) return;
     const aspect = parseFloat(aspectStr);
@@ -401,6 +411,9 @@ export default function BlockItem({
           onMoveDown={onMoveDown}
           onDuplicate={onDuplicate}
           templateMode={templateMode}
+          lockLayout={lockLayout}
+          borderRadiusCorners={block.data.borderRadiusCorners}
+          onSetBorderRadiusCorners={(corners) => onChange(block.id, { ...block.data, borderRadiusCorners: corners })}
           blockSubtitle={(() => {
             // Для text-bearing блоків — snippet тексту (перші ~36 знаків).
             // Дзеркало OverlayToolbar.subtitle (де показується ov.text).
@@ -441,11 +454,18 @@ export default function BlockItem({
           border: `1.5px ${outlineStyle} ${outlineColor}`,
           // Радіус підкладки: явний `block.borderRadius` (через BlockItemHeader →
           // RadiusControl) має пріоритет; інакше fallback на 8px (історична поведінка).
-          // 999 → 9999 (pill). Transition нижче робить drag-зміни плавними.
-          borderRadius:
-            typeof block.borderRadius === "number"
+          // 999 → 9999 (pill). block.data.borderRadiusCorners ("TLTRBRBL" 1/0) дозволяє
+          // обмежити радіус на окремі кути — застосовуємо через buildCornerRadiusCss.
+          borderRadius: (() => {
+            const r = typeof block.borderRadius === "number"
               ? (block.borderRadius >= 999 ? 9999 : block.borderRadius)
-              : 8,
+              : 8;
+            const corners = block.data?.borderRadiusCorners;
+            if (corners && corners.length === 4 && corners !== "1111") {
+              return buildCornerRadiusCss(r, corners);
+            }
+            return r;
+          })(),
           minHeight: minHeight > 0 ? `${minHeight}px` : undefined,
           height: "100%", // заповнює AbsoluteBlock — щоб візуальні межі блока = block.height
           // newsCard preview зберігає aspect 360:400 на outer AbsoluteBlock через
@@ -503,8 +523,10 @@ export default function BlockItem({
       </div>
 
       {/* Resize handles доступні для всіх блоків включно з newsCard preview —
-          aspect-ratio 360:400 тримається через CSS, висота auto-підлаштовується. */}
-      {true && (
+          aspect-ratio 360:400 тримається через CSS, висота auto-підлаштовується.
+          У lockLayout-режимі (content-fill з шаблону) handles прибрані —
+          блок заморожений. */}
+      {!lockLayout && (
       <>
       {/* Right resize handle */}
       <div

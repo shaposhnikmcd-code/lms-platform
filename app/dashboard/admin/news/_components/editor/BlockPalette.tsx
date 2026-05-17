@@ -83,8 +83,8 @@ function PaletteItem({ type, label, icon, desc, color, colorDim, bg, compact = f
           style={{
             display: "flex",
             alignItems: "center",
-            gap: compact ? "10px" : "12px",
-            padding: compact ? "10px 11px" : "10px 12px",
+            gap: compact ? "8px" : "12px",
+            padding: compact ? "8px 9px" : "10px 12px",
             borderRadius: "10px",
             borderWidth: "1px",
             borderStyle: "solid",
@@ -96,14 +96,14 @@ function PaletteItem({ type, label, icon, desc, color, colorDim, bg, compact = f
           }}
         >
           <div style={{
-            width: compact ? "32px" : "34px",
-            height: compact ? "32px" : "34px",
+            width: compact ? "28px" : "34px",
+            height: compact ? "28px" : "34px",
             borderRadius: "9px",
             background: hov ? color : colorDim,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            fontSize: type === "image" ? (compact ? "16px" : "16px") : (compact ? "15px" : "15px"),
+            fontSize: type === "image" ? (compact ? "14px" : "16px") : (compact ? "13px" : "15px"),
             fontWeight: 700,
             color: hov ? "#1C3A2E" : color,
             flexShrink: 0,
@@ -113,14 +113,21 @@ function PaletteItem({ type, label, icon, desc, color, colorDim, bg, compact = f
 
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{
-              fontSize: compact ? "11px" : "11px",
+              fontSize: compact ? "10px" : "11px",
               fontWeight: 600,
               color: hov ? "#FAF6F0" : "rgba(255,255,255,0.78)",
               fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
               lineHeight: 1.15,
-              whiteSpace: compact ? "nowrap" : undefined,
+              // У compact-режимі дозволяємо wrap до 2 рядків (по пробілу).
+              // overflowWrap: break-word — break лише як last resort (одне дуже довге
+              // слово без пробілів). wordBreak: normal — НЕ розриваємо слова посередині.
+              whiteSpace: "normal",
+              wordBreak: "normal",
+              overflowWrap: "break-word",
               overflow: compact ? "hidden" : undefined,
-              textOverflow: compact ? "ellipsis" : undefined,
+              display: compact ? "-webkit-box" : undefined,
+              WebkitLineClamp: compact ? 2 : undefined,
+              WebkitBoxOrient: compact ? "vertical" : undefined,
             }}>{label}</div>
             {!compact && (
               <div style={{
@@ -171,6 +178,10 @@ interface PaletteProps {
   /** Розширена палітра (520px) у 1-col layout — для page-builder /news,
    *  де settings-картка містить багато контролів і вузький 304px тісно. */
   wide?: boolean;
+  /** Layout lock (content-fill режим): використовуємо 2-col layout Блоки+Спецблоки
+   *  (як у constructor compact), АЛЕ settings-панель залишаємо видимою — менеджер
+   *  редагує контент блоків через стандартні inline-редактори. */
+  lockLayout?: boolean;
 }
 
 // Draggable handle для overlay-tool — drop на image-блок створює overlay у точці drop.
@@ -211,8 +222,8 @@ function ImageOverlayPaletteItem({ onAddImageOverlay, compact = false }: { onAdd
           style={{
             display: "flex",
             alignItems: "center",
-            gap: compact ? "12px" : "12px",
-            padding: compact ? "17px 13px" : "10px 12px",
+            gap: compact ? "8px" : "12px",
+            padding: compact ? "8px 9px" : "10px 12px",
             borderRadius: "10px",
             borderWidth: "1px",
             borderStyle: "solid",
@@ -224,14 +235,14 @@ function ImageOverlayPaletteItem({ onAddImageOverlay, compact = false }: { onAdd
           }}
         >
           <div style={{
-            width: compact ? "36px" : "34px",
-            height: compact ? "36px" : "34px",
+            width: compact ? "28px" : "34px",
+            height: compact ? "28px" : "34px",
             borderRadius: "9px",
             background: hov ? color : colorDim,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            fontSize: compact ? "16px" : "15px",
+            fontSize: compact ? "14px" : "15px",
             fontWeight: 700,
             color: hov ? "#1C3A2E" : color,
             flexShrink: 0,
@@ -241,14 +252,18 @@ function ImageOverlayPaletteItem({ onAddImageOverlay, compact = false }: { onAdd
 
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{
-              fontSize: compact ? "11px" : "11px",
+              fontSize: compact ? "10px" : "11px",
               fontWeight: 600,
               color: hov ? "#FAF6F0" : "rgba(255,255,255,0.78)",
               fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
               lineHeight: 1.15,
-              whiteSpace: compact ? "nowrap" : undefined,
+              whiteSpace: "normal",
+              wordBreak: "normal",
+              overflowWrap: "break-word",
               overflow: compact ? "hidden" : undefined,
-              textOverflow: compact ? "ellipsis" : undefined,
+              display: compact ? "-webkit-box" : undefined,
+              WebkitLineClamp: compact ? 2 : undefined,
+              WebkitBoxOrient: compact ? "vertical" : undefined,
             }}>{"Текст на фото"}</div>
             {!compact && (
               <div style={{
@@ -286,16 +301,16 @@ function ImageOverlayPaletteItem({ onAddImageOverlay, compact = false }: { onAdd
   );
 }
 
-export default function BlockPalette({ onAddImageOverlay, selectedBlockY, extraBlocks, extraBlocksTitle, compact = false, wide = false }: PaletteProps = {}) {
+export default function BlockPalette({ onAddImageOverlay, selectedBlockY, extraBlocks, extraBlocksTitle, compact = false, wide = false, lockLayout = false }: PaletteProps = {}) {
   // selectedBlockY більше не потрібний для геометрії — settings завжди на верху palette
   // (стандартний Figma/Webflow паттерн). Зберігаємо параметр для майбутньої сумісності.
   void selectedBlockY;
   const isSelected = selectedBlockY !== null && selectedBlockY !== undefined;
 
   // У compact (template) режимі — ширша палітра, бо 2 колонки блоків поряд.
-  // У wide-режимі (page-builder /news) — теж 520, але 1-col layout зберігається.
-  // У template-режимі (compact) — вужче (440px) щоб не «з'їдати» простір канвасу.
-  const paletteWidth = compact || wide ? 320 : 304;
+  // У wide-режимі (page-builder /news) — трохи вужче (288), щоб не з'їдати простір
+  // канвасу; layout 2-col зберігається.
+  const paletteWidth = wide ? 264 : (compact || lockLayout ? 320 : 304);
 
   return (
     <div className="news-palette-scroll" style={{
@@ -371,12 +386,12 @@ export default function BlockPalette({ onAddImageOverlay, selectedBlockY, extraB
         <style>{`.news-palette-scroll::-webkit-scrollbar { display: none; }`}</style>
       )}
 
-      {(compact || wide) && extraBlocks && extraBlocks.length > 0 ? (
+      {(compact || wide || lockLayout) && extraBlocks && extraBlocks.length > 0 ? (
         // 2-col layout: ліворуч Блоки, праворуч Спецблоки (з ImageOverlay усередині).
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <div>
             <div style={{
-              fontSize: "11px",
+              fontSize: "10px",
               fontWeight: 800,
               color: "#D4A843",
               letterSpacing: "0.14em",
@@ -392,7 +407,7 @@ export default function BlockPalette({ onAddImageOverlay, selectedBlockY, extraB
 
           <div>
             <div style={{
-              fontSize: "11px",
+              fontSize: "10px",
               fontWeight: 800,
               color: "#D4A843",
               letterSpacing: "0.14em",

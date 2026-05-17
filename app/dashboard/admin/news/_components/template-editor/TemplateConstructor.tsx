@@ -92,6 +92,10 @@ export default function TemplateConstructor({
   initialBlocks,
   initialCanvas,
   pageBgColor,
+  // Content mode (isContentMode=true): новина створена з шаблону, менеджер
+  // НАПОВНЮЄ блоки контентом (inline editors замість placeholder-ів). Canvas
+  // не змінюється (успадковує розмір шаблону). Default=false (blueprint design).
+  isContentMode = false,
 }: {
   newsId: string;
   templateKind: "ARTICLE" | "EVENT";
@@ -100,6 +104,7 @@ export default function TemplateConstructor({
   initialBlocks: string;
   initialCanvas: { width: number; height: number };
   pageBgColor: string;
+  isContentMode?: boolean;
 }) {
   const router = useRouter();
   const [saving, setSaving] = useState(false);
@@ -233,7 +238,9 @@ export default function TemplateConstructor({
         </div>
       )}
       <NewsEditor
-        pageTitle={`Шаблон · ${templateKind === "EVENT" ? "Подія / Фахівець" : "Стаття / Огляд"}`}
+        pageTitle={isContentMode
+          ? `Новина · ${templateKind === "EVENT" ? "Подія / Фахівець" : "Стаття / Огляд"}`
+          : `Шаблон · ${templateKind === "EVENT" ? "Подія / Фахівець" : "Стаття / Огляд"}`}
         newsId={newsId}
         onBack={onBack}
         saving={saving}
@@ -248,8 +255,14 @@ export default function TemplateConstructor({
         bottomSlack={0}
         extraPaletteBlocks={TEMPLATE_PALETTE_BLOCKS}
         extraPaletteBlocksTitle="Спецблоки"
-        templateMode
-        onCanvasResize={handleCanvasResize}
+        // У content-mode templateMode=false: блоки рендеряться з inline-редакторами
+        // (текст, фото, цитати — можна правити прямо на canvas-і). У blueprint-mode
+        // templateMode=true: лише плейсхолдери-мітки (дизайн структури).
+        templateMode={!isContentMode}
+        // У content-mode layout заморожений: drag і resize вимкнено, менеджер
+        // тільки наповнює існуючі блоки контентом.
+        lockLayout={isContentMode}
+        onCanvasResize={isContentMode ? undefined : handleCanvasResize}
         canvasMinWidth={CANVAS_MIN_W}
         canvasMaxWidth={CANVAS_MAX_W}
         canvasMinHeight={CANVAS_MIN_H}

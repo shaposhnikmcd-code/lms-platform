@@ -12,11 +12,10 @@ import Link from "@tiptap/extension-link";
 import FontFamily from "@tiptap/extension-font-family";
 import { BackgroundFill } from "./backgroundFillMark";
 import { FontWeight } from "./fontWeightExtension";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { createPortal } from "react-dom";
 import { Block, BlockVAlign } from "../types";
-import { ff, Section, SectionLabel } from "./_settingsPrimitives";
-import TextStudioModal from "./TextStudioModal";
+import { ff } from "./_settingsPrimitives";
 import SectionedTextToolbar from "./TextToolbar";
 
 // Інлайн-редактор Заголовок: TipTap для базового набору без панелі форматування.
@@ -46,7 +45,7 @@ function headingInitialHtml(data: Record<string, string>): string {
 }
 
 export default function HeadingEditor({ block, onChange, selected = false, onSetVAlign, containerWidthPx = 0 }: Props) {
-  const [studioOpen, setStudioOpen] = useState(false);
+  void containerWidthPx;
   const level = (block.data.level || "2") as "1" | "2" | "3";
 
   const editor = useEditor({
@@ -99,27 +98,6 @@ export default function HeadingEditor({ block, onChange, selected = false, onSet
         vAlign={block.vAlign || "top"}
         onSetVAlign={onSetVAlign}
       />
-
-      <Section padTop={6}>
-        <SectionLabel>Повноцінний редактор</SectionLabel>
-        <button
-          type="button"
-          onClick={() => setStudioOpen(true)}
-          style={{
-            width: "100%", height: "34px",
-            borderRadius: "6px",
-            border: "1px solid #D4A843",
-            background: "#1C3A2E",
-            color: "#D4A843",
-            fontSize: "12px",
-            fontWeight: 700,
-            cursor: "pointer",
-            fontFamily: ff,
-            display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "8px",
-            letterSpacing: "0.04em",
-          }}
-        >✎ Відкрити на весь екран</button>
-      </Section>
     </div>
   );
 
@@ -166,32 +144,6 @@ export default function HeadingEditor({ block, onChange, selected = false, onSet
       >
         <EditorContent editor={editor} />
       </div>
-      {studioOpen && (
-        <TextStudioModal
-          title="Редактор заголовка"
-          icon="H"
-          blockType="heading"
-          initialHtml={headingInitialHtml(block.data)}
-          headingLevel={level}
-          onHeadingLevelChange={(l) => onChange({ ...block.data, level: l })}
-          vAlign={block.vAlign || "top"}
-          onVAlignChange={onSetVAlign}
-          onCancel={() => setStudioOpen(false)}
-          onSave={(html) => {
-            onChange({ ...block.data, html });
-            setStudioOpen(false);
-          }}
-          paperWidthPx={
-            containerWidthPx > 0
-              ? Math.max(60, ((Number(block.width) || 100) * containerWidthPx) / 100)
-              : undefined
-          }
-          paperHeightPx={block.height}
-          paperBgColor={block.bgColor || ""}
-          paperVAlign={block.vAlign || "top"}
-          paperAlign={block.align}
-        />
-      )}
       <style>{`
         /* color: inherit — щоб inline-style на wrapper-і (з data.color або
            auto-контрасту) розповсюджувався на ProseMirror. Раніше hardcoded

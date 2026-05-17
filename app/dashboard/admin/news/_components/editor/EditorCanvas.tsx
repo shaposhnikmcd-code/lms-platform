@@ -90,6 +90,9 @@ interface Props {
   fixedHeight?: boolean;
   /** Template-mode: блоки — плейсхолдери, без settings/редакторів усередині. */
   templateMode?: boolean;
+  /** Layout lock: drag-and-resize вимкнено. Блоки заморожені у позиціях/розмірах
+   *  заданих шаблоном; менеджер тільки наповнює контентом (текст/фото). */
+  lockLayout?: boolean;
   /** Live-callback при ресайзі канвасу (corner drag-handle). Викликається з
    *  кінцевими розмірами (snapped, clamped) під час руху. Якщо не задано —
    *  handle не рендериться. Використовується TemplateConstructor-ом. */
@@ -108,6 +111,12 @@ interface Props {
   canvasLeftToolbar?: React.ReactNode;
   /** Розширена ліва палітра (520px замість 304) — для page-builder /news. */
   paletteWide?: boolean;
+  /** «Базова» візуальна ширина канвасу у білдері. Якщо задано — канвас на екрані
+   *  тримає фіксований розмір (= displayBaseWidth + padding), а вміст усередині
+   *  масштабується через CSS `zoom` до displayBaseWidth / canvasWidth. Логіка
+   *  блоків (стор у %) залишається у логічних координатах PAGE_WIDTH, тож на
+   *  публічному рендері /news блоки виглядають у натуральному розмірі pageWidth. */
+  displayBaseWidth?: number;
 }
 
 export default function EditorCanvas({
@@ -126,6 +135,7 @@ export default function EditorCanvas({
   bottomSlack,
   fixedHeight,
   templateMode,
+  lockLayout,
   onCanvasResize,
   canvasMinWidth = 240,
   canvasMaxWidth = 1200,
@@ -135,9 +145,18 @@ export default function EditorCanvas({
   abovePaletteSlot,
   canvasLeftToolbar,
   paletteWide,
+  displayBaseWidth,
 }: Props) {
   // Локальні константи (були module-scope) тепер залежать від props.
   const PAGE_WIDTH = canvasWidth ?? CANVAS_WIDTH;
+  // Базова видима ширина «паперу» в білдері. Якщо caller не передав — рендеримо
+  // у логічній ширині (легасі-поведінка). Якщо передав — канвас тримає фіксовану
+  // ширину DISPLAY_BASE_W, а вміст масштабується через CSS zoom (≤1, тобто
+  // при більшій логічній ширині блоки візуально стискаються).
+  const DISPLAY_BASE_W = displayBaseWidth ?? PAGE_WIDTH;
+  const displayScale = PAGE_WIDTH > 0 ? Math.min(1, DISPLAY_BASE_W / PAGE_WIDTH) : 1;
+  const VISIBLE_INNER_W = Math.round(PAGE_WIDTH * displayScale);
+  const VISIBLE_WRAPPER_W = VISIBLE_INNER_W + PAGE_PAD_X * 2;
   const MIN_CANVAS_H = minCanvasHeight ?? DEFAULT_MIN_CANVAS_H;
   // У fixedHeight-режимі drop-zone під контентом не потрібен — канвас не росте.
   const BOTTOM_SLACK_PX = fixedHeight ? 0 : (bottomSlack ?? 240);
@@ -233,7 +252,10 @@ export default function EditorCanvas({
 
   // Delete / Backspace: видалити вибраний блок. Не чіпаємо коли фокус у input/textarea/contentEditable.
   // Якщо вибраний overlay (Текст на фото) — пропускаємо, щоб не видалити фото; ImageEditor сам обробить.
+  // У lockLayout-режимі (content-fill з шаблону) видалення блоків заборонене —
+  // layout заморожений, менеджер тільки наповнює блоки контентом.
   useEffect(() => {
+    if (lockLayout) return;
     const handler = (e: KeyboardEvent) => {
       if (!selectedBlockId) return;
       if (e.key !== "Delete" && e.key !== "Backspace") return;
@@ -246,7 +268,7 @@ export default function EditorCanvas({
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [selectedBlockId]);
+  }, [selectedBlockId, lockLayout]);
 
   const {
     previewWidths, previewWidthsRef, previewXs, previewYs, previewHeights, blockHeights,
@@ -1771,6 +1793,7 @@ export default function EditorCanvas({
             extraBlocksTitle={extraPaletteBlocksTitle}
             compact={templateMode}
             wide={paletteWide}
+            lockLayout={lockLayout}
             selectedBlockY={(() => {
               if (!selectedBlockId) return null;
               const sel = blocks.find(b => b.id === selectedBlockId);
@@ -1819,7 +1842,7 @@ export default function EditorCanvas({
                 і притискає до лівого краю коли ширший (синхронно з канвасом). */}
             {(canvasLabel || !canvasTopToolbar) && (
               <div style={{
-                width: `${PAGE_WIDTH + PAGE_PAD_X * 2}px`,
+                width: `${VISIBLE_WRAPPER_W}px`,
                 marginInline: "auto",
                 flexShrink: 0,
                 display: "flex",
@@ -1845,14 +1868,15 @@ export default function EditorCanvas({
                 (template-режим: вертикальні пресети «вздовж лівого краю»).
                 canvasTopToolbar інлайнимо у колонку поруч з канвасом — щоб
                 його лівий край збігався з лівим краєм canvas-у. */}
-            <div style={{ display: "flex", gap: 8, alignItems: "stretch", width: canvasLeftToolbar ? "100%" : `${PAGE_WIDTH + PAGE_PAD_X * 2}px`, marginInline: "auto", flexShrink: 0 }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "stretch", width: canvasLeftToolbar ? "100%" : `${VISIBLE_WRAPPER_W}px`, marginInline: "auto", flexShrink: 0 }}>
               {canvasLeftToolbar && (
                 <div style={{ flexShrink: 0, display: "flex" }}>{canvasLeftToolbar}</div>
               )}
             <div style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0, alignItems: "flex-start" }}>
             {canvasTopToolbar && (
               <div style={{
-                maxWidth: `${PAGE_WIDTH + PAGE_PAD_X * 2}px`,
+                maxWidth: `${VISIBLE_WRAPPER_W}px`,
+                marginTop: -18,
                 marginBottom: 12,
               }}>
                 {canvasTopToolbar}
@@ -1861,11 +1885,12 @@ export default function EditorCanvas({
             <div
               onClick={(e) => { if (e.target === e.currentTarget) setSelectedBlockId(null); }}
               style={{
-                // Канвас рендериться у логічній ширині (PAGE_WIDTH + бокові паддінги)
-                // і НЕ стискається до ширини колонки. Коли колонка вужча — канвас-колонка
-                // через `overflowX: auto` отримує горизонтальний скрол (рішення Webflow:
-                // точні пропорції без CSS-масштабування й без compensation у dnd-kit math).
-                width: `${PAGE_WIDTH + PAGE_PAD_X * 2}px`,
+                // Канвас тримає фіксовану видиму ширину (VISIBLE_WRAPPER_W). У режимі
+                // displayBaseWidth каркас «папера» не змінюється коли менеджер збільшує
+                // pageWidth — натомість вміст всередині (canvas-grid) масштабується
+                // через CSS zoom, тож блоки візуально стискаються. У легасі-режимі
+                // (без displayBaseWidth) VISIBLE_WRAPPER_W === PAGE_WIDTH + PAD*2.
+                width: `${VISIBLE_WRAPPER_W}px`,
                 flexShrink: 0,
                 background: pageBgColor || "#FFFFFF",
                 borderRadius: templateMode ? 12 : 14,
@@ -1904,28 +1929,53 @@ export default function EditorCanvas({
                   liveW = dropPreview.width;
                 }
                 const mode: "active" | "selected" = activeId_ ? "active" : "selected";
+                // Висота блока — live (preview) або з committed state. Для render-у
+                // вертикальної лінійки.
+                const liveY = activeId_ ? (previewYs[targetId] ?? b.y ?? 0) : (b.y ?? 0);
+                const liveH = activeId_ ? (previewHeights[targetId] ?? measureBlockHeight(b)) : measureBlockHeight(b);
                 return (
-                  <div
-                    style={{
-                      position: "absolute",
-                      // На рівні canvas-grid top edge (PAGE_PAD_Y); ResizeRuler сам
-                      // зсувається на top:-22 всередині, тобто візуально малюється
-                      // на 22px вище canvas-grid у padding-зоні page-wrapper.
-                      top: PAGE_PAD_Y,
-                      left: PAGE_PAD_X,
-                      right: PAGE_PAD_X,
-                      height: 0,
-                      pointerEvents: "none",
-                      zIndex: 50,
-                    }}
-                  >
-                    <ResizeRuler
-                      blockX={liveX}
-                      blockWidthPct={liveW}
-                      pxPerPct={canvasWidthPx / 100}
-                      mode={mode}
-                    />
-                  </div>
+                  <>
+                    <div
+                      style={{
+                        position: "absolute",
+                        // На рівні canvas-grid top edge (PAGE_PAD_Y); ResizeRuler сам
+                        // зсувається на top:-22 всередині, тобто візуально малюється
+                        // на 22px вище canvas-grid у padding-зоні page-wrapper.
+                        top: PAGE_PAD_Y,
+                        left: PAGE_PAD_X,
+                        right: PAGE_PAD_X,
+                        height: 0,
+                        pointerEvents: "none",
+                        zIndex: 50,
+                      }}
+                    >
+                      <ResizeRuler
+                        blockX={liveX}
+                        blockWidthPct={liveW}
+                        pxPerPct={canvasWidthPx / 100}
+                        mode={mode}
+                      />
+                    </div>
+                    {/* Вертикальна лінійка вздовж лівого краю — показує висоту блока. */}
+                    <div
+                      style={{
+                        position: "absolute",
+                        top: PAGE_PAD_Y,
+                        left: PAGE_PAD_X,
+                        width: 0,
+                        height: canvasHeight,
+                        pointerEvents: "none",
+                        zIndex: 50,
+                      }}
+                    >
+                      <VResizeRuler
+                        blockY={liveY}
+                        blockHeightPx={liveH}
+                        canvasHeightPx={canvasHeight}
+                        mode={mode}
+                      />
+                    </div>
+                  </>
                 );
               })()}
 
@@ -1934,7 +1984,10 @@ export default function EditorCanvas({
                 className="canvas-grid"
                 style={{
                   position: "relative",
-                  width: "100%",
+                  // У логічній ширині PAGE_WIDTH; візуально стискається через CSS zoom
+                  // коли displayBaseWidth < PAGE_WIDTH. Без zoom — рендер як раніше.
+                  width: `${PAGE_WIDTH}px`,
+                  zoom: displayScale !== 1 ? displayScale : undefined,
                   minHeight: `${canvasHeight}px`,
                   height: `${canvasHeight}px`,
                   // Канвас — субтильна рамка (це область сторінки, не блок).
@@ -2061,6 +2114,7 @@ export default function EditorCanvas({
                       maxBlockHeight={fixedHeight ? Math.max(60, canvasHeight - y) : undefined}
                       fixedHeight={fixedHeight}
                       templateMode={templateMode}
+                      lockLayout={lockLayout}
                     />
                   );
                 })}
@@ -2094,7 +2148,7 @@ export default function EditorCanvas({
                 color: "#9CA3AF",
                 fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
                 textAlign: "center",
-                maxWidth: `${PAGE_WIDTH + PAGE_PAD_X * 2}px`,
+                maxWidth: `${VISIBLE_WRAPPER_W}px`,
               }}>
                 {"Тягніть блоки за хедер куди завгодно на сторінці. Край → resize. Snap 8px."}
               </div>
@@ -2359,8 +2413,10 @@ function AbsoluteBlock(props: {
   isResizing?: boolean;
   /** Template-mode: блок — плейсхолдер без settings/редакторів. */
   templateMode?: boolean;
+  /** Layout lock: drag і resize вимкнено; блок заморожений. */
+  lockLayout?: boolean;
 }) {
-  const { block, x, y, widthPct, lastAddedId, previewHeight, isActive, canvasWidthPx, selected, scrollCompensation = 0, maxBlockHeight, fixedHeight, isResizing = false, templateMode = false } = props;
+  const { block, x, y, widthPct, lastAddedId, previewHeight, isActive, canvasWidthPx, selected, scrollCompensation = 0, maxBlockHeight, fixedHeight, isResizing = false, templateMode = false, lockLayout = false } = props;
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: block.id });
 
   const tx = transform?.x ?? 0;
@@ -2373,7 +2429,9 @@ function AbsoluteBlock(props: {
   // "порожніх" зонах блока, не заважаючи редагуванню тексту чи resize-у.
   const NO_DRAG_SELECTOR =
     "[contenteditable=\"true\"], input, textarea, select, button, a, [data-no-block-drag]";
-  const wrapperListeners: React.HTMLAttributes<HTMLElement> = listeners ? {
+  // У lockLayout-режимі drag-listeners НЕ підключаємо взагалі: блок заморожений
+  // у позиції шаблону, менеджер тільки наповнює його контентом.
+  const wrapperListeners: React.HTMLAttributes<HTMLElement> = !lockLayout && listeners ? {
     ...listeners,
     onPointerDown: (e: React.PointerEvent) => {
       const target = e.target as HTMLElement;
@@ -2487,7 +2545,8 @@ function AbsoluteBlock(props: {
         borderRadius: selected ? "12px" : 0,
         // Cursor "grab" як affordance що блок можна тягати з будь-якого місця.
         // Дочірні contenteditable/input/button мають свої cursors → не перекривається.
-        cursor: isDragging ? "grabbing" : "grab",
+        // У lockLayout-режимі grab cursor НЕ показуємо — drag вимкнено.
+        cursor: lockLayout ? "default" : (isDragging ? "grabbing" : "grab"),
         touchAction: "none",
       }}
     >
@@ -2524,6 +2583,7 @@ function AbsoluteBlock(props: {
         blockX={x}
         blockY={y}
         templateMode={templateMode}
+        lockLayout={lockLayout}
       />
     </div>
   );
@@ -2619,6 +2679,115 @@ function CanvasResizeHandle({
         <line x1="13" y1="5" x2="5" y2="13" stroke="#fff" strokeWidth="1.2" />
         <line x1="13" y1="9" x2="9" y2="13" stroke="#fff" strokeWidth="1.2" />
       </svg>
+    </div>
+  );
+}
+
+// VResizeRuler — вертикальний аналог ResizeRuler. Малюється у padding-зоні
+// page-wrapper-а (ліворуч від canvas-grid). Показує висоту вибраного блока у px.
+function VResizeRuler({
+  blockY, blockHeightPx, canvasHeightPx, mode,
+}: {
+  blockY: number;
+  blockHeightPx: number;
+  canvasHeightPx: number;
+  mode: "active" | "selected";
+}) {
+  const ff = "-apple-system, BlinkMacSystemFont, sans-serif";
+  const isActive = mode === "active";
+  const accent = isActive ? "rgba(212,168,67,0.95)" : "rgba(212,168,67,0.55)";
+  const trackColor = "rgba(28,58,46,0.08)";
+  const tickColor = isActive ? "rgba(28,58,46,0.55)" : "rgba(28,58,46,0.35)";
+  const safeCanvasH = Math.max(1, canvasHeightPx);
+  const topPct = (blockY / safeCanvasH) * 100;
+  const heightPct = (blockHeightPx / safeCanvasH) * 100;
+  const centerPct = topPct + heightPct / 2;
+  const bottomPct = topPct + heightPct;
+  // Chip — фіксуємо у видимих межах [4%..96%] щоб не вилазив за canvas.
+  const chipOffsetPct = Math.max(4, Math.min(96, centerPct));
+
+  return (
+    <div
+      style={{
+        position: "absolute",
+        top: 0,
+        bottom: 0,
+        left: -22,
+        width: 16,
+        pointerEvents: "none",
+        zIndex: 50,
+        animation: "ruler-fade-in 120ms ease",
+      }}
+    >
+      {/* Hairline track — 1px на всю висоту канвасу */}
+      <div style={{
+        position: "absolute",
+        left: 11,
+        top: 0,
+        bottom: 0,
+        width: 1,
+        background: trackColor,
+      }} />
+
+      {/* Highlighted span — accent на висоту блока */}
+      <div style={{
+        position: "absolute",
+        left: 11,
+        top: `${topPct}%`,
+        height: `${heightPct}%`,
+        width: isActive ? 2 : 1.5,
+        background: accent,
+        transform: isActive ? "translateX(-0.5px)" : "translateX(-0.25px)",
+        transition: "background 120ms ease, width 120ms ease",
+      }} />
+
+      {/* Endpoints — короткі горизонтальні tick-и на top і bottom блока */}
+      <div style={{
+        position: "absolute",
+        left: 7,
+        top: `${topPct}%`,
+        transform: "translateY(-0.5px)",
+        height: 1,
+        width: 9,
+        background: tickColor,
+      }} />
+      <div style={{
+        position: "absolute",
+        left: 7,
+        top: `${bottomPct}%`,
+        transform: "translateY(-0.5px)",
+        height: 1,
+        width: 9,
+        background: tickColor,
+      }} />
+
+      {/* Compact chip — повернутий на 90° проти годинникової. Зменшений у розмірі
+          (менший padding/font), щоб після rotate він поміщався у padding-зоні
+          ліворуч від canvas-grid і не заїздив на блоки. */}
+      <div style={{
+        position: "absolute",
+        left: -14,
+        top: `${chipOffsetPct}%`,
+        transform: "translateY(-50%) rotate(-90deg)",
+        transformOrigin: "center",
+        background: isActive ? "#D4A843" : "#FFFFFF",
+        color: isActive ? "#1C3A2E" : "#5C4A1F",
+        padding: "2px 7px",
+        borderRadius: 999,
+        fontSize: 9.5,
+        fontWeight: 700,
+        letterSpacing: "0.02em",
+        fontFamily: ff,
+        fontVariantNumeric: "tabular-nums",
+        border: `1px solid ${isActive ? "rgba(28,58,46,0.18)" : "rgba(212,168,67,0.50)"}`,
+        boxShadow: isActive
+          ? "0 2px 8px rgba(212,168,67,0.40)"
+          : "0 1px 3px rgba(28,58,46,0.10)",
+        whiteSpace: "nowrap",
+        transition: "background 120ms ease, color 120ms ease, box-shadow 120ms ease",
+      }}>
+        <span>{Math.round(blockHeightPx)}<span style={{ opacity: 0.55, marginLeft: 1 }}>px</span></span>
+      </div>
     </div>
   );
 }

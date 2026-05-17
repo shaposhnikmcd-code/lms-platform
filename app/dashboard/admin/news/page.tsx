@@ -163,6 +163,9 @@ export default function AdminNewsPage() {
   const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
+  // «Створити новину» — клік по «+» тайлу справа від шаблону створює News
+  // (asBlueprint=false) на основі того шаблону і веде в редактор.
+  const [creatingFromTpl, setCreatingFromTpl] = useState(false);
 
   // Стан публікації сторінки /news (NewsPage.published) + локальний toggle.
   const [pagePublished, setPagePublished] = useState<boolean | null>(null);
@@ -980,6 +983,24 @@ export default function AdminNewsPage() {
               arr.push(t);
               customByParent.set(t.parentTemplateId!, arr);
             });
+            // Аспект для тайла «Новини» — беремо canvas першого кастомного
+            // шаблону (або дефолтного), щоб тайл був тієї ж висоти/пропорції,
+            // що й прев'ю шаблону зліва.
+            const refTplForAspect =
+              templates.find(t => !!t.parentTemplateId) || defaultTemplates[0] || null;
+            let newsAspectW = 800;
+            let newsAspectH = 448;
+            if (refTplForAspect?.templateCanvas) {
+              const m = refTplForAspect.templateCanvas.match(/^(\d+)x(\d+)$/);
+              if (m) {
+                const w = Number(m[1]);
+                const h = Number(m[2]);
+                if (Number.isFinite(w) && Number.isFinite(h) && w >= 60 && h >= 60) {
+                  newsAspectW = w;
+                  newsAspectH = h;
+                }
+              }
+            }
             return (
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-10 items-start">
             {defaultTemplates.map((tpl) => {
@@ -1127,7 +1148,7 @@ export default function AdminNewsPage() {
                           return (
                             <article
                               key={cust.id}
-                              className={`group/cust rounded-lg border overflow-hidden flex flex-col transition-all ${
+                              className={`group/cust relative rounded-lg border overflow-hidden flex flex-col transition-all ${
                                 dark
                                   ? 'bg-amber-400/[0.04] border-amber-300/15 hover:border-amber-300/35'
                                   : 'bg-amber-50/55 border-amber-400/40 hover:border-amber-500/65'
@@ -1157,38 +1178,33 @@ export default function AdminNewsPage() {
                                     )}
                                   </PreviewCardScale>
                                 </div>
-                                <span className={`absolute top-1.5 left-1.5 z-[1] inline-flex items-center gap-1 px-1.5 h-[18px] rounded-full text-[8.5px] font-bold uppercase tracking-[0.08em] backdrop-blur-md ${
-                                  dark
-                                    ? 'bg-amber-500/35 text-amber-50 border border-amber-300/40'
-                                    : 'bg-amber-500/85 text-white border border-amber-600/40'
-                                }`}>
-                                  <span aria-hidden>📑</span>
-                                  <span>Шаблон</span>
+                                <span
+                                  className={`absolute top-1.5 left-1.5 z-[1] inline-flex items-center gap-1.5 pl-1.5 pr-2 py-1 rounded-md text-[11px] font-semibold leading-snug backdrop-blur-md max-w-[calc(100%-1rem)] ${
+                                    dark
+                                      ? 'bg-amber-500/35 text-amber-50 border border-amber-300/40'
+                                      : 'bg-amber-500/85 text-white border border-amber-600/40'
+                                  }`}
+                                  title={custTitle}
+                                >
+                                  <span aria-hidden className="text-[10px]">📑</span>
+                                  <span className="line-clamp-2 break-words">{custTitle}</span>
                                 </span>
                               </Link>
-                              <div className="px-2.5 py-2 flex flex-col gap-2 flex-1">
-                                <h4 className={`text-[12px] font-semibold leading-snug line-clamp-2 ${
-                                  dark ? 'text-amber-50/95' : 'text-amber-900'
-                                }`} title={custTitle}>
-                                  {custTitle}
-                                </h4>
-                                <div className="flex items-center justify-end gap-1.5 mt-auto">
-                                  {/* «Створити» і «Редагувати» прибрано: шаблон
-                                      редагується кліком по його прев'ю. */}
-                                  <button
-                                    type="button"
-                                    onClick={() => setDeleteTarget({ id: cust.id, title: custTitle })}
-                                    className={`inline-flex items-center justify-center w-[28px] h-[28px] rounded-md border transition-colors ${
-                                      dark
-                                        ? 'bg-red-500/10 border-red-400/25 text-red-300 hover:bg-red-500/20 hover:border-red-400/45'
-                                        : 'bg-red-50/80 border-red-400/40 text-red-700 hover:bg-red-100 hover:border-red-500/55'
-                                    }`}
-                                    title="Видалити цей шаблон (новини, створені з нього, лишаться)"
-                                  >
-                                    ✕
-                                  </button>
-                                </div>
-                              </div>
+                              {/* Кнопка видалення — у верхньому правому куті прев'ю,
+                                  поверх Link (sibling з position:absolute щоб не вкладатись
+                                  в interactive parent). */}
+                              <button
+                                type="button"
+                                onClick={() => setDeleteTarget({ id: cust.id, title: custTitle })}
+                                className={`absolute top-1.5 right-1.5 z-[2] inline-flex items-center justify-center w-[26px] h-[26px] rounded-md border backdrop-blur-md transition-colors ${
+                                  dark
+                                    ? 'bg-red-500/25 border-red-400/40 text-red-100 hover:bg-red-500/45 hover:border-red-400/65'
+                                    : 'bg-red-50/85 border-red-400/55 text-red-700 hover:bg-red-100 hover:border-red-500/70'
+                                }`}
+                                title="Видалити цей шаблон (новини, створені з нього, лишаться)"
+                              >
+                                ✕
+                              </button>
                             </article>
                           );
                         })}
@@ -1203,8 +1219,10 @@ export default function AdminNewsPage() {
               );
             })}
 
-            {/* Placeholder-блок «Шаблон Превʼю + Новина» — структура поки порожня,
-                контент додається пізніше. Візуально матчиться з основним blueprint-блоком. */}
+            {/* Контейнер «Новини» — сюди менеджер створює новини на основі
+                шаблонів зліва. Висота секції зі списком = ширина шаблону
+                (1:1 з template-канвасом колонки), щоб новини візуально були
+                в одному розмірному ряді з прев'ю шаблонів. */}
             <div className="flex flex-col">
               <article
                 className={`rounded-xl border transition-all ${
@@ -1222,19 +1240,111 @@ export default function AdminNewsPage() {
                     📰
                   </span>
                   <div className="min-w-0 flex-1">
-                    <div className={`text-[9px] font-bold tracking-[0.16em] uppercase ${
-                      dark ? 'text-sky-300/85' : 'text-sky-700/80'
-                    }`}>
-                      Шаблон · Blueprint
-                    </div>
-                    <div className={`text-[13.5px] font-semibold leading-tight mt-0.5 truncate ${
+                    <div className={`text-[13.5px] font-semibold leading-tight truncate ${
                       dark ? 'text-slate-100' : 'text-stone-900'
                     }`}>
-                      Шаблон Превʼю + Новина
+                      Новини
                     </div>
                   </div>
                 </header>
               </article>
+              {/* Колонка «+» тайлів — по одному на КОЖЕН custom-шаблон зліва.
+                  Структура ДЗЕРКАЛЬНА до «Мої шаблони» зліва (ml-6+pl-6 wrapper,
+                  spacer-label, grid-cols-1 gap-2.5, articles з aspect-ratio
+                  preview), щоб кожен «+» опинявся рівно навпроти свого
+                  шаблону по висоті. Жодного пікера — клік одразу створює
+                  News з відповідного шаблону. */}
+              {(() => {
+                const visibleCustoms = defaultTemplates.flatMap(tpl => customByParent.get(tpl.id) || []);
+                if (visibleCustoms.length === 0) return null;
+                return (
+                  <div className="relative ml-6 mt-3 pl-6">
+                    <div className="flex items-center gap-2 mb-3 text-[10px] font-bold uppercase tracking-[0.14em] opacity-0 select-none" aria-hidden>
+                      <span>📰</span>
+                      <span>Новини</span>
+                    </div>
+                    <div className="grid grid-cols-1 gap-2.5">
+                      {visibleCustoms.map(cust => {
+                        let tileW = newsAspectW;
+                        let tileH = newsAspectH;
+                        if (cust.templateCanvas) {
+                          const m = cust.templateCanvas.match(/^(\d+)x(\d+)$/);
+                          if (m) {
+                            const w = Number(m[1]);
+                            const h = Number(m[2]);
+                            if (Number.isFinite(w) && Number.isFinite(h) && w >= 60 && h >= 60) {
+                              tileW = w;
+                              tileH = h;
+                            }
+                          }
+                        }
+                        const custTitle = cust.title.replace(/^\[Шаблон\]\s*/i, '');
+                        return (
+                          <article
+                            key={cust.id}
+                            className={`rounded-lg border overflow-hidden transition-all ${
+                              dark
+                                ? 'bg-sky-400/[0.04] border-sky-300/20 hover:border-sky-300/40'
+                                : 'bg-sky-50/40 border-sky-400/40 hover:border-sky-500/55'
+                            }`}
+                          >
+                            <div className="relative" style={{ aspectRatio: `${tileW} / ${tileH}` }}>
+                              <button
+                                type="button"
+                                disabled={creatingFromTpl}
+                                onClick={async () => {
+                                  setCreatingFromTpl(true);
+                                  try {
+                                    const res = await fetch('/api/admin/news/from-template', {
+                                      method: 'POST',
+                                      headers: { 'Content-Type': 'application/json' },
+                                      body: JSON.stringify({ blueprintId: cust.id, asBlueprint: false }),
+                                    });
+                                    if (!res.ok) {
+                                      const j = await res.json().catch(() => ({}));
+                                      setToast({ message: j?.error || 'Не вдалось створити новину', type: 'error' });
+                                      setCreatingFromTpl(false);
+                                      return;
+                                    }
+                                    const j = await res.json();
+                                    window.location.href = `/dashboard/admin/news/${j.id}/template`;
+                                  } catch (e) {
+                                    setToast({ message: e instanceof Error ? e.message : 'Помилка мережі', type: 'error' });
+                                    setCreatingFromTpl(false);
+                                  }
+                                }}
+                                className={`group absolute inset-0 flex flex-col items-center justify-center gap-3 transition-all ${
+                                  dark
+                                    ? 'hover:bg-sky-400/[0.06]'
+                                    : 'hover:bg-sky-50/55'
+                                } ${creatingFromTpl ? 'opacity-60 cursor-wait' : 'cursor-pointer'}`}
+                                title={`Створити новину з шаблону «${custTitle}»`}
+                              >
+                                <span
+                                  className={`inline-flex items-center justify-center w-14 h-14 rounded-full text-[28px] font-light transition-transform group-hover:scale-110 ${
+                                    dark
+                                      ? 'bg-sky-400/15 text-sky-200 border border-sky-300/30'
+                                      : 'bg-white text-sky-700 border border-sky-400/50 shadow-sm'
+                                  }`}
+                                  aria-hidden
+                                >
+                                  +
+                                </span>
+                                <span className={`text-[12.5px] font-semibold ${dark ? 'text-sky-200/90' : 'text-sky-800/85'}`}>
+                                  Створити новину
+                                </span>
+                                <span className={`text-[11px] truncate max-w-[80%] ${dark ? 'text-slate-400/80' : 'text-stone-500'}`}>
+                                  з: {custTitle}
+                                </span>
+                              </button>
+                            </div>
+                          </article>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           </div>
             );

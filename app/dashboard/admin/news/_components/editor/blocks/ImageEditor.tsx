@@ -87,6 +87,13 @@ export function requestCrop(blockId: string) {
   cropHandlers.get(blockId)?.();
 }
 
+// Реєстр обробників «замінити фото» — клік відкриває file-picker для нової картинки.
+// BlockItemHeader викликає requestReplacePhoto(blockId) з кнопки 🔄 у лівому барі.
+const replaceHandlers = new Map<string, () => void>();
+export function requestReplacePhoto(blockId: string) {
+  replaceHandlers.get(blockId)?.();
+}
+
 // Реєстр обробників «додати текстовий overlay» — той самий патерн, що cropHandlers.
 // Зовнішні toolbar-и (TemplateEditor → CoverImageToolbar) викликають
 // requestAddOverlay(blockId) щоб додати overlay без власної кнопки на фото.
@@ -295,6 +302,16 @@ export default function ImageEditor({ block, onChange, onUpload, previewHeight, 
     });
     return () => { cropHandlers.delete(block.id); };
   }, [block.id, block.data.url]);
+
+  // Replace photo: клік на 🔄 у BlockItemHeader → відкриває file-picker. Працює
+  // навіть коли фото вже завантажене (на відміну від «З диска» який видно тільки
+  // у empty-state).
+  useEffect(() => {
+    replaceHandlers.set(block.id, () => {
+      ref.current?.click();
+    });
+    return () => { replaceHandlers.delete(block.id); };
+  }, [block.id]);
 
   // Реєструємо «додати overlay» — щоб CoverImageToolbar у TemplateEditor міг
   // викликати addOverlay() ззовні (кнопка «Текст на фото» в toolbar над сторінкою).
@@ -666,7 +683,12 @@ export default function ImageEditor({ block, onChange, onUpload, previewHeight, 
           : null;
         if (!slot) return null;
         return createPortal(
-          <ImageBlockSettings onOpenStudio={() => { setStudioInitialCropMode(false); setStudioOpen(true); }} />,
+          <ImageBlockSettings
+            onOpenStudio={() => { setStudioInitialCropMode(true); setStudioOpen(true); }}
+            data={block.data}
+            onChangeData={onChange}
+            onUpload={onUpload}
+          />,
           slot,
         );
       })()}
@@ -1123,13 +1145,20 @@ function OverlayToolbar({
 
 function ImageBlockSettings({
   onOpenStudio,
+  data,
+  onChangeData,
 }: {
   onOpenStudio: () => void;
+  data: Record<string, string>;
+  onChangeData: (next: Record<string, string>) => void;
 }) {
+  // Per-corner toggle і radius керуються через «Форма підкладки» у BlockItemHeader —
+  // одна точка істини для всіх блоків. ImageBlockSettings тут лишає тільки кадрування.
+  void data; void onChangeData;
   return (
     <div style={{ background: "#FFFFFF", fontFamily: ff, borderTop: "1px solid #F0E6D2" }}>
       <Section>
-        <SectionLabel>Редактор фото</SectionLabel>
+        <SectionLabel>Кадрувати</SectionLabel>
         <button
           type="button"
           onClick={onOpenStudio}
@@ -1146,9 +1175,9 @@ function ImageBlockSettings({
             display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "8px",
             letterSpacing: "0.04em",
           }}
-        >🖼 Відкрити на весь екран</button>
+        >✂ Відкрити кадрування</button>
         <div style={{ fontSize: "10px", color: "#9CA3AF", lineHeight: 1.5, marginTop: "6px" }}>
-          Заокруглення кутів фото та видалення білого фону — у повноекранному редакторі з live-превью.
+          Інтерактивне обрізання фото з live-превʼю — у повноекранному вікні.
         </div>
       </Section>
     </div>

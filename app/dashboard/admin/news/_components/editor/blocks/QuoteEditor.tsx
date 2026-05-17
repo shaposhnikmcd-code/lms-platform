@@ -10,13 +10,12 @@ import Color from "@tiptap/extension-color";
 import Highlight from "@tiptap/extension-highlight";
 import Link from "@tiptap/extension-link";
 import FontFamily from "@tiptap/extension-font-family";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { createPortal } from "react-dom";
 import { Block, BlockVAlign } from "../types";
-import { ff, Section, SectionLabel } from "./_settingsPrimitives";
+import { ff } from "./_settingsPrimitives";
 import { BackgroundFill } from "./backgroundFillMark";
 import { FontWeight } from "./fontWeightExtension";
-import TextStudioModal from "./TextStudioModal";
 import SectionedTextToolbar from "./TextToolbar";
 
 // Інлайн-редактор Цитата: TipTap для базового набору без панелі форматування.
@@ -51,8 +50,7 @@ function escapeHtml(s: string): string {
 }
 
 export default function QuoteEditor({ block, onChange, selected = false, onSetVAlign, containerWidthPx = 0 }: Props) {
-  const [studioOpen, setStudioOpen] = useState(false);
-
+  void containerWidthPx;
   const editor = useEditor({
     immediatelyRender: false,
     extensions: [
@@ -101,27 +99,6 @@ export default function QuoteEditor({ block, onChange, selected = false, onSetVA
         vAlign={block.vAlign || "top"}
         onSetVAlign={onSetVAlign}
       />
-
-      <Section padTop={6}>
-        <SectionLabel>Повноцінний редактор</SectionLabel>
-        <button
-          type="button"
-          onClick={() => setStudioOpen(true)}
-          style={{
-            width: "100%", height: "34px",
-            borderRadius: "6px",
-            border: "1px solid #D4A843",
-            background: "#1C3A2E",
-            color: "#D4A843",
-            fontSize: "12px",
-            fontWeight: 700,
-            cursor: "pointer",
-            fontFamily: ff,
-            display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "8px",
-            letterSpacing: "0.04em",
-          }}
-        >✎ Відкрити на весь екран</button>
-      </Section>
     </div>
   );
 
@@ -145,28 +122,6 @@ export default function QuoteEditor({ block, onChange, selected = false, onSetVA
       >
         <EditorContent editor={editor} />
       </div>
-      {studioOpen && (
-        <TextStudioModal
-          title="Редактор цитати"
-          icon="❝"
-          blockType="quote"
-          initialHtml={quoteInitialHtml(block.data)}
-          onCancel={() => setStudioOpen(false)}
-          onSave={(html) => {
-            onChange({ ...block.data, html });
-            setStudioOpen(false);
-          }}
-          paperWidthPx={
-            containerWidthPx > 0
-              ? Math.max(60, ((Number(block.width) || 100) * containerWidthPx) / 100)
-              : undefined
-          }
-          paperHeightPx={block.height}
-          paperBgColor={block.bgColor || ""}
-          paperVAlign={block.vAlign}
-          paperAlign={block.align}
-        />
-      )}
       <style>{`
         [data-news-block-type="quote"] .ProseMirror{outline:none;min-height:60px;color:#1C3A2E;font-family:var(--font-inter), Inter, system-ui, sans-serif}
         /* Selection-bg = 28% currentColor — підлаштовується під фон блока і
