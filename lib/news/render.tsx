@@ -90,7 +90,12 @@ export const PREVIEW_CARD_HEIGHT = 400;
 //
 // ВАЖЛИВО: не задавати font-size на .ProseMirror в builder-editor'ах — нехай
 // успадковується через cascade. Інакше переоб'являти доведеться у двох місцях.
-export const NEWS_BLOCK_FF = "-apple-system, BlinkMacSystemFont, sans-serif";
+// Inter — той же шрифт, що використовують ProseMirror-редактори (TextEditor/
+// HeadingEditor/QuoteEditor), тож текст у білдері й у public/page-builder-рендерах
+// wrap-иться у тих же точках. Раніше public використовував системні шрифти —
+// це давало розбіжність метрик (тонкі зсуви рядків) між тим, що менеджер бачить
+// у білдері новини, і тим, що з'являється у Білдері Сторінки /news.
+export const NEWS_BLOCK_FF = "var(--font-inter), Inter, -apple-system, BlinkMacSystemFont, sans-serif";
 
 // ВАЖЛИВО для consistency builder ↔ public:
 // Tailwind preflight у проєкті скидає margin для p/ul/ol/h*/blockquote до 0.

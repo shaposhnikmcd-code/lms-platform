@@ -149,7 +149,9 @@ interface BaseProps {
   customRightSidebar?: React.ReactNode;
   /** Toolbar над канвасом (горизонтальна смужка між label і канвасом). */
   canvasTopToolbar?: React.ReactNode;
-  /** Slot над лівою палітрою (наприклад «Назва Шаблону» інпут). */
+  /** Slot для «Назва Шаблону» інпуту. Рендериться у header-рядку поруч з
+   *  breadcrumb-пілюлею (на одній лінії з «Admin · Новини»), а не над палітрою —
+   *  щоб не з'їдати вертикаль лівого бару. */
   abovePaletteSlot?: React.ReactNode;
   /** Slot ліворуч від канвасу (вертикальна колонка пресет-форм). */
   canvasLeftToolbar?: React.ReactNode;
@@ -188,6 +190,18 @@ export default function NewsEditor(props: Props) {
     const prevDisplay = header.style.display;
     header.style.display = "none";
     return () => { header.style.display = prevDisplay; };
+  }, []);
+
+  // Глобальний DashboardBackButton (top-20 = 80px) опускає back-btn нижче, ніж
+  // floating Save/Preview у білдерах (тепер top-3 = 12px). Тримаємо їх на одному
+  // рядку — override-имо top через inline-style поки NewsEditor змонтований.
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const back = document.querySelector<HTMLElement>(".back-btn");
+    if (!back) return;
+    const prevTop = back.style.top;
+    back.style.top = "12px";
+    return () => { back.style.top = prevTop; };
   }, []);
 
   // Persist scroll position у sessionStorage. Browser native scroll restoration
@@ -270,6 +284,14 @@ export default function NewsEditor(props: Props) {
     return out;
   });
 
+  // userDirtyRef — true ТІЛЬКИ після реальної редагуючої дії юзера. Auto-save
+  // зберігає draft у localStorage лише коли він true; banner «Незбережений
+  // чорновик» більше не показується автоматично через side-effects на mount
+  // (newsCard silent auto-resize, який міняє width/height/data асинхронно).
+  // Скидається після Save / Discard. У Restore лишається true.
+  const isUserDirtyRef = useRef(false);
+  const markDirty = useCallback(() => { isUserDirtyRef.current = true; }, []);
+
   // pendingDraft — знайдений локальний чорновик, якщо відрізняється від
   // server-стану. Showd у banner при mount. Після Restore/Discard — null.
   const [pendingDraft, setPendingDraft] = useState<DraftPayload | null>(null);
@@ -307,10 +329,14 @@ export default function NewsEditor(props: Props) {
     }
     setBlocksByTab(out);
     setPendingDraft(null);
+    // Відновлений draft уже відображає user-зміни — лишаємо dirty=true, щоб
+    // auto-save знову персистив будь-які подальші редагування.
+    isUserDirtyRef.current = true;
   }, [pendingDraft, effectiveTabs]);
   const discardDraft = useCallback(() => {
     clearDraft(newsId, mode);
     setPendingDraft(null);
+    isUserDirtyRef.current = false;
   }, [newsId, mode]);
 
   // Selection per tab — щоб перемикання табів не "переносило" виділення між канвасами.
@@ -423,6 +449,7 @@ export default function NewsEditor(props: Props) {
     setMeta(snap.meta);
     setBlocksByTab(prev => ({ ...prev, [tab]: snap.blocks }));
     setHistoryTick(t => t + 1);
+    isUserDirtyRef.current = true;
   }, [activeTab, meta, blocksByTab]);
 
   const redo = useCallback(() => {
@@ -435,6 +462,7 @@ export default function NewsEditor(props: Props) {
     setMeta(snap.meta);
     setBlocksByTab(prev => ({ ...prev, [tab]: snap.blocks }));
     setHistoryTick(t => t + 1);
+    isUserDirtyRef.current = true;
   }, [activeTab]);
 
   useEffect(() => {
@@ -459,7 +487,13 @@ export default function NewsEditor(props: Props) {
   }, [undo, redo]);
 
   // ── Auto-save draft (300ms debounce + flush on hide/unload) ──────────────
+  // ВАЖЛИВО: зберігаємо ТІЛЬКИ якщо є реальна dirty-зміна від юзера
+  // (isUserDirtyRef.current === true). Без цього guard-у newsCard auto-resize
+  // (silentUpdate з BlockItem після фетча library) на mount записував би
+  // updated-state у draft, і при наступному відкритті banner «Незбережений
+  // чорновик» показувався б навіть якщо юзер нічого не редагував.
   useEffect(() => {
+    if (!isUserDirtyRef.current) return;
     const t = setTimeout(() => saveDraft(meta, blocksByTab, newsId, mode), 300);
     return () => clearTimeout(t);
   }, [meta, blocksByTab, newsId, mode]);
@@ -468,6 +502,7 @@ export default function NewsEditor(props: Props) {
   useEffect(() => { flushRef.current = { meta, blocksByTab, newsId, mode }; }, [meta, blocksByTab, newsId, mode]);
   useEffect(() => {
     const flush = () => {
+      if (!isUserDirtyRef.current) return;
       const s = flushRef.current;
       saveDraft(s.meta, s.blocksByTab, s.newsId, s.mode);
     };
@@ -572,6 +607,9 @@ export default function NewsEditor(props: Props) {
       // Ховаємо banner «Незбережений чорновик» — після успішного save він не
       // відображає актуальний стан (server тепер дорівнює серіалізованим блокам).
       setPendingDraft(null);
+      // Після Save state == server → знімаємо dirty-flag. Подальші зміни знов
+      // встановлять його true (через markDirty у setBlocksFor/handleMetaChange).
+      isUserDirtyRef.current = false;
       // Показуємо короткий "✓ Збережено" toast — користувачу видно що save пройшов.
       if (savedFlashTimerRef.current) clearTimeout(savedFlashTimerRef.current);
       setSavedFlash(true);
@@ -583,11 +621,13 @@ export default function NewsEditor(props: Props) {
   };
 
   // Обмежуємо setMeta-через MetaSidebar до one-shot (інакше TS infers any).
-  const handleMetaChange = (m: NewsMeta) => setMeta(m);
+  const handleMetaChange = (m: NewsMeta) => { markDirty(); setMeta(m); };
 
   // Helpers per tab.
-  const setBlocksFor = (tabKey: string) => (next: Block[]) =>
+  const setBlocksFor = (tabKey: string) => (next: Block[]) => {
+    markDirty();
     setBlocksByTab(prev => ({ ...prev, [tabKey]: next }));
+  };
   const setSelectedFor = (tabKey: string) => (id: string | null) =>
     setSelectedByTab(prev => ({ ...prev, [tabKey]: id }));
   // Silent in-place updater для одного блока — використовує функціональний
@@ -788,7 +828,7 @@ export default function NewsEditor(props: Props) {
       {/* Fullscreen page-превʼю модалка. Як у /dashboard/admin/news. */}
       {mode === "page" && pagePreviewOpen && (
         <div
-          className="fixed inset-0 z-[60] flex flex-col bg-stone-900/85 backdrop-blur-md"
+          className="fixed inset-0 z-[100] flex flex-col bg-stone-900/85 backdrop-blur-md"
           onClick={() => setPagePreviewOpen(false)}
         >
           <div className="flex items-center justify-between px-5 py-3 border-b border-white/10">

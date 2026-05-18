@@ -55,7 +55,11 @@ export default function TemplateInstanceEditor({ block, onChange, selected }: Pr
   const isFilled = !!templateDataRaw;
 
   return (
-    <div style={{ position: "relative", width: "100%", height: "100%", overflow: "hidden" }}>
+    // data-no-block-drag — body шаблонного блока виключений з whole-block drag.
+    // Drag доступний через виділений ⋮⋮ handle у top-left. Без цього клік по
+    // вмісту інколи активував dnd-kit (5+px зсув) і «з'їдав» click → selection
+    // не спрацьовував через раз.
+    <div data-no-block-drag style={{ position: "relative", width: "100%", height: "100%", overflow: "hidden" }}>
       <PreviewCardScale baseWidth={tplW} baseHeight={tplH} initialScale={1}>
         {isFilled ? (
           <TemplatePreviewCard

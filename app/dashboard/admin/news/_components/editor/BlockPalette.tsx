@@ -186,6 +186,10 @@ interface PaletteProps {
    *  вибраний — передається його screen-top, щоб бар «слідував» за блоком на
    *  екрані. Null/undefined → default top:80/96 (sticky-поведінка як раніше). */
   anchorTopPx?: number | null;
+  /** Опціональна картка, що рендериться у тому ж fixed-контейнері ПРЯМО НАД
+   *  основною палітрою (gap 4px). Та сама ширина, скролить разом. Використовується
+   *  TemplateConstructor-ом для інпуту «Назва шаблону». */
+  topCard?: React.ReactNode;
 }
 
 // Draggable handle для overlay-tool — drop на image-блок створює overlay у точці drop.
@@ -305,7 +309,7 @@ function ImageOverlayPaletteItem({ onAddImageOverlay, compact = false }: { onAdd
   );
 }
 
-export default function BlockPalette({ onAddImageOverlay, selectedBlockY, extraBlocks, extraBlocksTitle, compact = false, wide = false, lockLayout = false, anchorTopPx = null }: PaletteProps = {}) {
+export default function BlockPalette({ onAddImageOverlay, selectedBlockY, extraBlocks, extraBlocksTitle, compact = false, wide = false, lockLayout = false, anchorTopPx = null, topCard = null }: PaletteProps = {}) {
   void selectedBlockY;
 
   // У compact (template) режимі — ширша палітра, бо 2 колонки блоків поряд.
@@ -313,14 +317,34 @@ export default function BlockPalette({ onAddImageOverlay, selectedBlockY, extraB
   // канвасу; layout 2-col зберігається.
   const paletteWidth = wide ? 264 : (compact || lockLayout ? 320 : 304);
 
-  const defaultTop = compact ? 96 : 80;
-  // Палітра ЗАВЖДИ position:fixed з тим самим left:20 і фіксованою шириною —
-  // не змінюється горизонтально при будь-якому стані. Top:
-  //   • Блок вибраний (anchorTopPx число) → top = top-edge блока (клампиться).
-  //   • Інакше → defaultTop (80/96).
-  // Щоб канвас не зсувався вліво (палітра ж out of flex flow) — рендеримо
-  // spacer-div тих самих розмірів у потоці. Так макет «резервує» місце.
-  const topPx = typeof anchorTopPx === "number" ? anchorTopPx : defaultTop;
+  // Палітра ЗАВЖДИ position:fixed. Анкоринг до вибраного блока (anchorTopPx)
+  // свідомо ігноруємо — палітра не «їздить» при кліку на блок (баг).
+  // Top реактивно зменшується зі скролом: при scrollY=0 палітра на 152px (симетрично
+  // з канвасом і правим баром), при скролі вниз — наближається до верхнього краю
+  // (мінімум 20px). Дає UX: «висить разом зі сторінкою» згори, а далі прилипає.
+  void anchorTopPx;
+  const baseTop = compact ? 96 : 152;
+  const minTop = 20;
+  const [scrollY, setScrollY] = React.useState(0);
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+    let raf = 0;
+    const onScroll = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        setScrollY(window.scrollY);
+      });
+    };
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, []);
+  const topPx = Math.max(minTop, baseTop - scrollY);
+  const bottomReservePx = compact ? 24 : 20;
 
   return (
     <>
@@ -335,30 +359,42 @@ export default function BlockPalette({ onAddImageOverlay, selectedBlockY, extraB
           alignSelf: "stretch",
         }}
       />
-      <div className="news-palette-scroll" style={{
-      width: `${paletteWidth}px`,
-      minWidth: `${paletteWidth}px`,
+      {/* Wrapper без overflow — щоб topCard, абсолютно позиціонований ВИЩЕ
+          верхнього краю палітри (bottom: calc(100% + 4px)), не клипався
+          overflow:auto з основної палітри. */}
+      <div style={{
+        position: "fixed",
+        top: `${topPx}px`,
+        left: "20px",
+        width: `${paletteWidth}px`,
+        zIndex: 95,
+        marginTop: compact ? 16 : 0,
+      }}>
+        {topCard && (
+          <div style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            bottom: "calc(100% + 4px)",
+          }}>
+            {topCard}
+          </div>
+        )}
+        <div className="news-palette-scroll" style={{
+      width: "100%",
       background: "linear-gradient(180deg, #162C25 0%, #0F2019 100%)",
       borderRadius: "16px",
       padding: "20px 14px",
-      // У template-режимі — невелика верхня відбивка від хедера сторінки.
-      marginTop: compact ? 16 : 0,
       display: "flex",
       flexDirection: "column",
-      // ✅ Завжди fixed: палітра ніколи не з'їжджає горизонтально, тільки top
-      // змінюється (плавно слідуючи за вибраним блоком).
-      position: "fixed",
-      top: `${topPx}px`,
-      left: "20px",
-      zIndex: 95,
-      maxHeight: `calc(100vh - ${topPx + 24}px)`,
+      maxHeight: `calc(100vh - ${topPx + bottomReservePx}px)`,
       overflowY: "auto",
       // scrollbarWidth/-ms-overflow-style/-webkit-scrollbar — приховуємо візуальну
       // смугу прокрутки, але scroll-функція залишається (на колесі / трекпаді).
       scrollbarWidth: "none",
       msOverflowStyle: "none",
       boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.06), 0 8px 40px rgba(0,0,0,0.2)",
-      transition: "top 0.18s cubic-bezier(0.2, 0.8, 0.2, 1)",
+      boxSizing: "border-box",
     }}>
       {/* Налаштування вибраного блока — порожній слот, який BlockItem та
           editor-и заповнюють через createPortal у #news-block-settings-slot.
@@ -507,6 +543,7 @@ export default function BlockPalette({ onAddImageOverlay, selectedBlockY, extraB
           </div>
         </>
       )}
+        </div>
       </div>
     </>
   );

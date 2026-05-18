@@ -503,6 +503,12 @@ export default function BlockItem({
             (на public ТАКИЙ САМИЙ padding — тоді content area однакова)
           - position relative для абсолютних дітей */}
       <div
+        // data-no-block-drag для newsCard / templateInstance — щоб клік на
+        // BLOCK-БОРДЕР (1.5px frame) не активував dnd-kit drag-listener.
+        // У heading/text/quote це не потрібно, бо contenteditable у NO_DRAG_SELECTOR.
+        // Без цього клік ПО САМІЙ РАМЦІ картки інколи спрацьовував як drag-start →
+        // click consumed → selection не оновлювався.
+        {...((block.type === "newsCard" || block.type === "templateInstance") ? { "data-no-block-drag": "" } : {})}
         style={{
           background: block.bgColor || "transparent",
           color: textColor,

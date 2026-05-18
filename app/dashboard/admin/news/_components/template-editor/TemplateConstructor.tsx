@@ -351,10 +351,12 @@ export default function TemplateConstructor({
 function CanvasSizeInputs({
   width, height,
   onChange,
+  fontSize = 15,
 }: {
   width: number;
   height: number;
   onChange: (w: number, h: number) => void;
+  fontSize?: number;
 }) {
   const [draftW, setDraftW] = useState(String(width));
   const [draftH, setDraftH] = useState(String(height));
@@ -375,14 +377,17 @@ function CanvasSizeInputs({
     else onChange(width, n);
   };
 
+  const xSize = Math.max(8, fontSize * 0.78);
+  const pxSize = Math.max(8, fontSize * 0.7);
+
   const inputStyle: React.CSSProperties = {
-    width: 48,
+    width: Math.max(36, fontSize * 3.2),
     background: "transparent",
     border: "none",
     borderBottom: "1px solid rgba(143,102,28,0.45)",
     borderRadius: 0,
     color: "rgba(110,76,22,1)",
-    fontSize: 15,
+    fontSize,
     fontWeight: 500,
     fontStyle: "italic",
     letterSpacing: "0.10em",
@@ -403,7 +408,7 @@ function CanvasSizeInputs({
       color: "rgba(143,102,28,0.55)",
       fontFamily: "'Cormorant Garamond', 'Playfair Display', 'Times New Roman', serif",
       fontStyle: "italic",
-      fontSize: 13,
+      fontSize: Math.max(9, fontSize - 2),
     }}>
       <input
         type="text"
@@ -422,7 +427,7 @@ function CanvasSizeInputs({
         aria-label="Ширина канвасу, px"
         style={inputStyle}
       />
-      <span style={{ opacity: 0.5, fontSize: 12, fontStyle: "normal", fontWeight: 300, margin: "0 1px" }}>×</span>
+      <span style={{ opacity: 0.5, fontSize: xSize, fontStyle: "normal", fontWeight: 300, margin: "0 1px" }}>×</span>
       <input
         type="text"
         inputMode="numeric"
@@ -442,7 +447,7 @@ function CanvasSizeInputs({
       />
       <span style={{
         opacity: 0.62,
-        fontSize: 10,
+        fontSize: pxSize,
         letterSpacing: "0.28em",
         fontStyle: "normal",
         marginLeft: 4,
@@ -635,12 +640,17 @@ function CanvasHorizontalPresetsBar({
   onPick: (w: number, h: number) => void;
   onChangeSize: (w: number, h: number) => void;
 }) {
+  // Auto-fit шрифт під поточну ширину канвасу — 5 preset-карток мають
+  // вміщатися у ширину канвасу, інакше при 480px рядок вилазив за межі.
+  // Формула: fontSize = clamp(9, width / 75, 14.5).
+  const fontSize = Math.max(9, Math.min(14.5, width / 75));
+  const gap = Math.max(8, Math.min(18, width / 60));
   return (
     <div
       style={{
         display: "inline-flex",
         alignItems: "baseline",
-        gap: 18,
+        gap,
       }}
     >
       <PresetGroupHorizontal
@@ -649,6 +659,8 @@ function CanvasHorizontalPresetsBar({
         width={width}
         height={height}
         onPick={onPick}
+        fontSize={fontSize}
+        gap={gap}
       />
 
       <span
@@ -663,7 +675,7 @@ function CanvasHorizontalPresetsBar({
       />
 
       <div style={{ flexShrink: 0 }}>
-        <CanvasSizeInputs width={width} height={height} onChange={onChangeSize} />
+        <CanvasSizeInputs width={width} height={height} onChange={onChangeSize} fontSize={fontSize + 0.5} />
       </div>
     </div>
   );
@@ -679,6 +691,10 @@ function CanvasVerticalPresetsColumn({
   height: number;
   onPick: (w: number, h: number) => void;
 }) {
+  // Незалежний від горизонтального шрифт — масштабується за висотою канвасу,
+  // бо вертикальні preset-картки розкладені вертикально (5 шт на повну висоту).
+  // У вузькому канвасі (height=320) текст 14px з'їдає смужку, тому зменшуємо.
+  const fontSize = Math.max(9, Math.min(14, height / 55));
   return (
     <div
       style={{
@@ -697,6 +713,7 @@ function CanvasVerticalPresetsColumn({
             preset={p}
             active={width === p.w && height === p.h}
             onPick={onPick}
+            fontSize={fontSize}
           />
         ))}
       </div>
@@ -707,11 +724,12 @@ function CanvasVerticalPresetsColumn({
 // Card для тонкої вертикальної смужки: thumb-портрет зверху, dims обернені
 // на 90° знизу. Сама картка flex:1 — три картки рівномірно ділять висоту.
 function VerticalPresetCard({
-  preset, active, onPick,
+  preset, active, onPick, fontSize = 14,
 }: {
   preset: CanvasPreset;
   active: boolean;
   onPick: (w: number, h: number) => void;
+  fontSize?: number;
 }) {
   const [hov, setHov] = useState(false);
   const color = active
@@ -719,6 +737,7 @@ function VerticalPresetCard({
     : hov
       ? "rgba(143,102,28,0.92)"
       : "rgba(143,102,28,0.45)";
+  const xSize = Math.max(8, fontSize * 0.78);
   return (
     <button
       type="button"
@@ -736,7 +755,7 @@ function VerticalPresetCard({
         background: "transparent",
         border: "none",
         cursor: "pointer",
-        transition: "color 0.18s ease",
+        transition: "color 0.18s ease, font-size 0.15s ease",
         flex: 1,
         minHeight: 0,
       }}
@@ -746,7 +765,7 @@ function VerticalPresetCard({
           fontFamily: "'Cormorant Garamond', 'Playfair Display', 'Times New Roman', serif",
           fontStyle: "italic",
           fontWeight: active ? 500 : 400,
-          fontSize: 14,
+          fontSize,
           letterSpacing: "0.10em",
           color,
           fontVariantNumeric: "tabular-nums",
@@ -757,7 +776,7 @@ function VerticalPresetCard({
           textShadow: "0 1px 0 rgba(255,255,255,0.6)",
         }}
       >
-        {preset.w}<span style={{ opacity: 0.5, fontSize: 11, margin: "0 2px", fontStyle: "normal", fontWeight: 300 }}>×</span>{preset.h}
+        {preset.w}<span style={{ opacity: 0.5, fontSize: xSize, margin: "0 2px", fontStyle: "normal", fontWeight: 300 }}>×</span>{preset.h}
       </span>
       {active && (
         <span
@@ -778,22 +797,25 @@ function VerticalPresetCard({
 }
 
 function PresetGroupHorizontal({
-  title: _title, presets, width, height, onPick,
+  title: _title, presets, width, height, onPick, fontSize, gap,
 }: {
   title: string;
   presets: CanvasPreset[];
   width: number;
   height: number;
   onPick: (w: number, h: number) => void;
+  fontSize: number;
+  gap: number;
 }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 18, flexShrink: 0 }}>
+    <div style={{ display: "flex", alignItems: "center", gap, flexShrink: 0 }}>
       {presets.map(p => (
         <PresetCard
           key={p.key}
           preset={p}
           active={width === p.w && height === p.h}
           onPick={onPick}
+          fontSize={fontSize}
         />
       ))}
     </div>
@@ -811,44 +833,58 @@ function TemplateNameInput({
   onChange: (next: string) => void;
 }) {
   const [focused, setFocused] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  // Auto-resize textarea під вміст: висота тягнеться до scrollHeight. Дає
+  // multiline-wrap при довгій назві без горизонтального скролу.
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [value]);
   return (
     <div
       style={{
         background: "linear-gradient(180deg, #162C25 0%, #0F2019 100%)",
-        borderRadius: 10,
-        padding: "10px 12px",
+        borderRadius: 16,
+        padding: "14px 14px 12px",
         display: "flex",
         flexDirection: "column",
-        gap: 6,
-        boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.06), 0 4px 16px rgba(0,0,0,0.12)",
+        gap: 8,
+        boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.06), 0 8px 40px rgba(0,0,0,0.2)",
         fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
+        width: "100%",
+        boxSizing: "border-box",
       }}
     >
       <label
         htmlFor="template-name-input"
         style={{
-          fontSize: 8.5,
-          fontWeight: 700,
-          color: "rgba(212,168,67,0.55)",
-          letterSpacing: "0.16em",
+          fontSize: 10,
+          fontWeight: 800,
+          color: "#D4A843",
+          letterSpacing: "0.14em",
           textTransform: "uppercase",
           lineHeight: 1,
+          paddingLeft: 4,
         }}
       >
         Назва шаблону
       </label>
-      <input
+      <textarea
         id="template-name-input"
-        type="text"
+        ref={textareaRef}
         value={value}
         onChange={e => onChange(e.target.value)}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
+        onKeyDown={e => { if (e.key === "Enter") e.preventDefault(); }}
         placeholder="Подія / Фахівець"
+        rows={1}
         style={{
           background: "rgba(0,0,0,0.25)",
           border: `1px solid ${focused ? "#D4A843" : "rgba(212,168,67,0.25)"}`,
-          borderRadius: 7,
+          borderRadius: 8,
           color: "#F4E7C7",
           fontSize: 13,
           fontWeight: 600,
@@ -858,6 +894,12 @@ function TemplateNameInput({
           transition: "border-color 0.15s",
           width: "100%",
           boxSizing: "border-box",
+          resize: "none",
+          minHeight: 36,
+          lineHeight: 1.35,
+          overflowWrap: "anywhere",
+          whiteSpace: "pre-wrap",
+          overflow: "hidden",
         }}
       />
     </div>
@@ -865,12 +907,13 @@ function TemplateNameInput({
 }
 
 function PresetCard({
-  preset, active, onPick,
+  preset, active, onPick, fontSize = 14.5,
 }: {
   preset: CanvasPreset;
   active: boolean;
   onPick: (w: number, h: number) => void;
   stretch?: boolean;
+  fontSize?: number;
 }) {
   const [hov, setHov] = useState(false);
   const color = active
@@ -878,6 +921,7 @@ function PresetCard({
     : hov
       ? "rgba(143,102,28,0.92)"
       : "rgba(143,102,28,0.45)";
+  const xSize = Math.max(8, fontSize * 0.78);
   return (
     <button
       type="button"
@@ -895,11 +939,11 @@ function PresetCard({
         background: "transparent",
         border: "none",
         cursor: "pointer",
-        transition: "color 0.18s ease",
+        transition: "color 0.18s ease, font-size 0.15s ease",
         fontFamily: "'Cormorant Garamond', 'Playfair Display', 'Times New Roman', serif",
         fontStyle: "italic",
         fontWeight: active ? 500 : 400,
-        fontSize: 14.5,
+        fontSize,
         letterSpacing: "0.10em",
         color,
         fontVariantNumeric: "tabular-nums",
@@ -909,7 +953,7 @@ function PresetCard({
       }}
     >
       <span>{preset.w}</span>
-      <span style={{ opacity: 0.5, fontSize: 11, margin: "0 2px", fontStyle: "normal", fontWeight: 300 }}>×</span>
+      <span style={{ opacity: 0.5, fontSize: xSize, margin: "0 2px", fontStyle: "normal", fontWeight: 300 }}>×</span>
       <span>{preset.h}</span>
       {active && (
         <span

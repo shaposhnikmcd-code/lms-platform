@@ -1205,7 +1205,7 @@ export default function AdminNewsPage() {
                                   </PreviewCardScale>
                                 </div>
                                 <span
-                                  className={`absolute top-1.5 left-1.5 z-[1] inline-flex items-center gap-1.5 pl-1.5 pr-2 py-1 rounded-md text-[11px] font-semibold leading-snug backdrop-blur-md max-w-[calc(100%-1rem)] ${
+                                  className={`absolute top-1.5 left-1.5 z-[1] inline-flex items-center gap-1.5 pl-1.5 pr-2 py-1 rounded-md text-[11px] font-semibold leading-snug backdrop-blur-md max-w-[calc(100%-3rem)] ${
                                     dark
                                       ? 'bg-amber-500/35 text-amber-50 border border-amber-300/40'
                                       : 'bg-amber-500/85 text-white border border-amber-600/40'
@@ -1214,6 +1214,21 @@ export default function AdminNewsPage() {
                                 >
                                   <span aria-hidden className="text-[10px]">📑</span>
                                   <span className="line-clamp-2 break-words">{custTitle}</span>
+                                </span>
+                                {/* Розмір канвасу шаблону — окремий блок ПІД title-pill-ом,
+                                    зліва. Допомагає менеджеру одразу побачити, на який
+                                    aspect шаблон розрахований, без переходу в редактор. */}
+                                <span
+                                  className={`absolute left-1.5 z-[1] inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10.5px] font-semibold leading-snug backdrop-blur-md tabular-nums whitespace-nowrap shadow-sm ${
+                                    dark
+                                      ? 'bg-slate-900/55 text-amber-100/95 border border-amber-300/30'
+                                      : 'bg-white/85 text-stone-800 border border-amber-500/45'
+                                  }`}
+                                  style={{ top: 38 }}
+                                  title={`Розмір шаблону: ${custBaseW}×${custBaseH} px`}
+                                >
+                                  <span className="opacity-70 font-medium">Розмір:</span>
+                                  <span>{custBaseW}<span className="opacity-60 mx-0.5 font-normal">×</span>{custBaseH}</span>
                                 </span>
                               </Link>
                               {/* Кнопка видалення — у верхньому правому куті прев'ю,

@@ -1877,13 +1877,13 @@ export default function EditorCanvas({
       >
         <div style={{ display: "flex", gap: "20px", alignItems: "flex-start" }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 12, alignSelf: "flex-start" }}>
-            {abovePaletteSlot}
           <BlockPalette
             extraBlocks={extraPaletteBlocks}
             extraBlocksTitle={extraPaletteBlocksTitle}
             compact={templateMode}
             wide={paletteWide}
             lockLayout={lockLayout}
+            topCard={abovePaletteSlot}
             selectedBlockY={(() => {
               if (!selectedBlockId) return null;
               const sel = blocks.find(b => b.id === selectedBlockId);
@@ -2114,10 +2114,13 @@ export default function EditorCanvas({
                   <EmptyHint />
                 )}
 
-                {/* Ghost — показуємо ТІЛЬКИ при drag з палітри (для existing-block drag достатньо самого блока + snap-glow).
-                    Виняток: palette:image-overlay не створює самостійний блок (drop йде оверлеєм на image),
-                    тому "вільний" ghost-слот у канвасі для нього не малюємо. */}
-                {activeId && activeId.startsWith("palette:") && activeId !== "palette:image-overlay" && dropPreview && isOverCanvas && (
+                {/* Ghost — показуємо при drag з палітри АБО з sidebar-новин
+                    (`news-card:`), щоб менеджер бачив пунктирне місце куди
+                    впаде newsCard. Раніше ghost рендерився ТІЛЬКИ для `palette:`,
+                    і drag новини не давав візуального індикатора drop-зони.
+                    Виняток: palette:image-overlay не створює самостійний блок
+                    (drop йде оверлеєм на image), тому ghost для нього не малюємо. */}
+                {activeId && (activeId.startsWith("palette:") || activeId.startsWith("news-card:")) && activeId !== "palette:image-overlay" && dropPreview && isOverCanvas && (
                   <DropGhost
                     x={dropPreview.x}
                     y={dropPreview.y}
