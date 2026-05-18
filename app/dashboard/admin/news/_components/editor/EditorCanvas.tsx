@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useRef, useState, useEffect, useCallback } from "react";
+import React, { useRef, useState, useEffect, useCallback, useContext } from "react";
+import { NewsEditorUIContext } from "./NewsEditor";
 import { DndContext, DragOverlay, useDraggable } from "@dnd-kit/core";
 import { PointerSensor, useSensor, useSensors, DragStartEvent, DragEndEvent, DragMoveEvent } from "@dnd-kit/core";
 import { Block, BlockType, BlockWidth, CANVAS_WIDTH, uid } from "./types";
@@ -153,6 +154,7 @@ export default function EditorCanvas({
   paletteWide,
   displayBaseWidth,
 }: Props) {
+  const { hideFrames } = useContext(NewsEditorUIContext);
   // Локальні константи (були module-scope) тепер залежать від props.
   const PAGE_WIDTH = canvasWidth ?? CANVAS_WIDTH;
   // Базова видима ширина «паперу» в білдері. Якщо caller не передав — рендеримо
@@ -227,29 +229,8 @@ export default function EditorCanvas({
   // щоб панель завжди була в viewport-і; left ставимо ліворуч від канвасу (де
   // раніше була палітра). Без цього налаштування «застрягали» вгорі сторінки,
   // і щоб виправити блок на низу канвасу — треба було скролити назад угору.
-  // ScrollY-реактивний top для правого сайдбару — поведінка ідентична лівій
-  // палітрі (BlockPalette робить те ж саме всередині). При scrollY=0 бар на
-  // top:152px (рівень канвасу і лівої палітри), при скролі вниз — піднімається
-  // до minTop=20px.
-  const [paletteScrollY, setPaletteScrollY] = useState(0);
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    let raf = 0;
-    const onScroll = () => {
-      if (raf) return;
-      raf = requestAnimationFrame(() => {
-        raf = 0;
-        setPaletteScrollY(window.scrollY);
-      });
-    };
-    onScroll();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => {
-      window.removeEventListener("scroll", onScroll);
-      if (raf) cancelAnimationFrame(raf);
-    };
-  }, []);
-  const rightBarTopPx = Math.max(20, 152 - paletteScrollY);
+  // Правий сайдбар — position:sticky у нормальному flex-потоці (див. рендер
+  // нижче), scroll-tracking не потрібен.
 
   const [floatingSettingsPos, setFloatingSettingsPos] = useState<{ top: number; left: number } | null>(null);
   useEffect(() => {
@@ -1899,8 +1880,17 @@ export default function EditorCanvas({
           acceleration: 25,
         }}
       >
-        <div style={{ display: "flex", gap: paletteWide ? "8px" : "20px", alignItems: "flex-start" }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 12, alignSelf: "flex-start" }}>
+        <div style={{
+          display: "flex",
+          // У page-mode (paletteWide) — `space-evenly` дає 4 рівні відстані
+          // (від лівого краю до палітри, між палітрою-канвасом, канвасом-правим
+          // баром, від правого бару до правого краю). Виглядає симетрично без
+          // ручних розрахунків padding-у. У content/template-режимах лишаємо
+          // стандартний gap:20 з flex:1 канвасом.
+          gap: paletteWide ? undefined : "20px",
+          justifyContent: paletteWide ? "space-evenly" : undefined,
+          alignItems: "flex-start",
+        }}>
           <BlockPalette
             extraBlocks={extraPaletteBlocks}
             extraBlocksTitle={extraPaletteBlocksTitle}
@@ -1931,13 +1921,18 @@ export default function EditorCanvas({
             arr.push({ id, text: "", x: 0, y: 44, w: 100, h: 12, fontSize: 32, color: "#FFFFFF", weight: 700, bgColor: "#1C3A2E" });
             onBlocksChange(blocks.map(b => b.id === target.id ? { ...b, data: { ...b.data, overlays: JSON.stringify(arr) } } : b));
           }} />
-          </div>
 
           <div
             ref={canvasColumnRef}
             style={{
-              flex: 1,
-              minWidth: 0,
+              // У page-mode (paletteWide) — фіксована ширина = VISIBLE_WRAPPER_W,
+              // щоб justify-content: space-between на головному flex рівномірно
+              // розподілив відстані між палітрою / канвасом / правим баром.
+              // У content/template-режимах — стандартний flex:1 (канвас займає
+              // вільний простір, центрує вміст через marginInline:auto).
+              ...(paletteWide
+                ? { width: `${VISIBLE_WRAPPER_W}px`, flexShrink: 0 }
+                : { flex: 1, minWidth: 0 }),
               display: "flex",
               flexDirection: "column",
               // alignItems заборонений — використовуємо `marginInline: auto` на дітях
@@ -2023,11 +2018,15 @@ export default function EditorCanvas({
                 width: `${VISIBLE_WRAPPER_W}px`,
                 flexShrink: 0,
                 background: pageBgColor || "#FFFFFF",
-                borderRadius: templateMode ? 12 : 14,
+                borderRadius: 0,
                 // У template-режимі — субтильний амбер-accent border (когезія з палітрою)
-                // + легша тінь. У звичайному — як було.
-                border: templateMode ? "1px solid rgba(212,168,67,0.18)" : "1px solid #E5E7EB",
-                boxShadow: templateMode
+                // + легша тінь. У звичайному — як було. hideFrames-режим прибирає
+                // і border, і тінь — щоб канвас зливався з фоном сторінки.
+                border: hideFrames
+                  ? "1px solid transparent"
+                  : templateMode ? "1px solid rgba(212,168,67,0.18)" : "1px solid #E5E7EB",
+                boxShadow: hideFrames ? "none"
+                  : templateMode
                   ? "0 1px 2px rgba(0,0,0,0.03), 0 6px 24px rgba(15,32,25,0.06)"
                   : "0 1px 2px rgba(0,0,0,0.04), 0 12px 40px rgba(15,32,25,0.08)",
                 // У template-режимі — асиметричний padding: top тримаємо
@@ -2123,9 +2122,12 @@ export default function EditorCanvas({
                   minHeight: `${canvasHeight}px`,
                   height: `${canvasHeight}px`,
                   // Канвас — субтильна рамка (це область сторінки, не блок).
-                  outline: "1px dashed rgba(28,58,46,0.18)",
+                  // У hideFrames-режимі прибираємо і outline, і grid-pattern background
+                  // (через клас canvas-grid-no-frame нижче), щоб канвас виглядав чисто.
+                  outline: hideFrames ? "none" : "1px dashed rgba(28,58,46,0.18)",
                   outlineOffset: "0px",
-                  borderRadius: "4px",
+                  borderRadius: "0",
+                  ...(hideFrames ? { backgroundImage: "none" } : {}),
                   // У fixedHeight-режимі обрізаємо контент, що вийшов за межі
                   // канвасу — менеджер бачить «не вмістилось» і пересуває блоки.
                   overflow: fixedHeight ? "hidden" : "visible",
@@ -2308,31 +2310,33 @@ export default function EditorCanvas({
           </div>
 
           {/* Правий сайдбар. ВСЕРЕДИНІ DndContext щоб draggable у ньому (картки новин з
-              NewsLibrarySidebar) поділяли той самий контекст з канвасом. Тепер
-              position:fixed з scroll-реактивним top (як ліва палітра) — щоб обидва
-              бари стояли на одному рівні з канвасом при scrollY=0 і однаково
-              підіймались до верху при скролі вниз. Spacer резервує 180px у потоці. */}
+              NewsLibrarySidebar) поділяли той самий контекст з канвасом. position:sticky
+              з alignSelf:flex-start — бар у нормальному потоці (рівні гепи з канвасом
+              і палітрою через flex `gap`), а при скролі прилипає до top:20. */}
           {rightSidebar && (
-            <>
-              <div aria-hidden style={{ width: 180, minWidth: 180, flexShrink: 0 }} />
-              <div
-                className="news-palette-scroll"
-                style={{
-                  position: "fixed",
-                  top: `${rightBarTopPx}px`,
-                  right: paletteWide ? "8px" : "20px",
-                  width: 180,
-                  maxHeight: `calc(100vh - ${rightBarTopPx + 20}px)`,
-                  overflowY: "auto",
-                  overflowX: "hidden",
-                  scrollbarWidth: "none",
-                  msOverflowStyle: "none",
-                  zIndex: 90,
-                }}
-              >
-                {rightSidebar}
-              </div>
-            </>
+            <div
+              className="news-palette-scroll"
+              style={{
+                position: "sticky",
+                top: "20px",
+                alignSelf: "flex-start",
+                width: paletteWide ? 220 : 180,
+                minWidth: paletteWide ? 220 : 180,
+                flexShrink: 0,
+                // У page-mode (paletteWide) — опускаємо правий бар нижче на
+                // висоту canvas-label рядка (≈44px), щоб його верх збігався з
+                // верхом канвасу-папера, а не з рядком «📄 Сторінка новини».
+                marginTop: paletteWide ? 44 : 0,
+                maxHeight: "calc(100vh - 40px)",
+                overflowY: "auto",
+                overflowX: "hidden",
+                scrollbarWidth: "none",
+                msOverflowStyle: "none",
+                zIndex: 90,
+              }}
+            >
+              {rightSidebar}
+            </div>
           )}
         </div>
 
@@ -2713,9 +2717,12 @@ function AbsoluteBlock(props: {
         })(),
         opacity: isDragging ? 0.65 : 1,
         transition: (isDragging || isResizing) ? "none" : "left 0.12s, top 0.12s, width 0.12s",
-        outline: selected ? "2px solid #D4A843" : "none",
-        outlineOffset: "2px",
-        borderRadius: selected ? "12px" : 0,
+        // Selection-індикатор — кутові L-маркери (рендеряться в JSX нижче як
+        // абсолютні діви). Outline + borderRadius прибрані, бо рамка з власним
+        // радіусом 12px заважала зчитати фактичну форму блока (наприклад, коли
+        // у блока заокруглені лише ліві кути — рамка лишалася круглою з усіх).
+        outline: "none",
+        borderRadius: 0,
         // Cursor "grab" як affordance що блок можна тягати з будь-якого місця.
         // Дочірні contenteditable/input/button мають свої cursors → не перекривається.
         // У lockLayout-режимі grab cursor НЕ показуємо — drag вимкнено.
@@ -2759,7 +2766,32 @@ function AbsoluteBlock(props: {
         templateMode={templateMode}
         lockLayout={lockLayout}
       />
+      {selected && <SelectionCornerMarks />}
     </div>
+  );
+}
+
+// 4 кутові L-маркери — індикатор виділеного блока, що НЕ натякає на форму
+// (не накладає прямокутну/закруглену рамку поверх блока). Стоять одразу за
+// межами bounding-box-а блока (offset 4px) у золотому кольорі.
+function SelectionCornerMarks() {
+  const SIZE = 12;
+  const THICK = 2;
+  const OFFSET = -4;
+  const COLOR = "#D4A843";
+  const common: React.CSSProperties = {
+    position: "absolute",
+    width: SIZE,
+    height: SIZE,
+    pointerEvents: "none",
+  };
+  return (
+    <>
+      <div style={{ ...common, top: OFFSET, left: OFFSET, borderTop: `${THICK}px solid ${COLOR}`, borderLeft: `${THICK}px solid ${COLOR}` }} />
+      <div style={{ ...common, top: OFFSET, right: OFFSET, borderTop: `${THICK}px solid ${COLOR}`, borderRight: `${THICK}px solid ${COLOR}` }} />
+      <div style={{ ...common, bottom: OFFSET, left: OFFSET, borderBottom: `${THICK}px solid ${COLOR}`, borderLeft: `${THICK}px solid ${COLOR}` }} />
+      <div style={{ ...common, bottom: OFFSET, right: OFFSET, borderBottom: `${THICK}px solid ${COLOR}`, borderRight: `${THICK}px solid ${COLOR}` }} />
+    </>
   );
 }
 

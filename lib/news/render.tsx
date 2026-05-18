@@ -51,8 +51,7 @@ export interface Block {
   vAlign?: "top" | "center" | "bottom";
   bgColor?: string;
   /** Радіус кутів підкладки в px. Дзеркалить поле з editor/types.ts Block.
-   *  Default `undefined` = 8 при наявності bgColor / 0 без bgColor.
-   *  999 → 9999 (pill). */
+   *  Default `undefined` = 0 (квадратні краї). 999 → 9999 (pill). */
   borderRadius?: number;
 }
 
@@ -1121,7 +1120,7 @@ export function BlockInner({
       const bg = block.bgColor || block.data.bg || "#FFFFFF";
       const radiusVal = typeof block.borderRadius === "number"
         ? (block.borderRadius >= 999 ? 9999 : block.borderRadius)
-        : 14;
+        : 0;
       // Outline-only мод (default true для editor-mode візуалізації) — рамка
       // прозора з border. У не-outline-mode — суцільний bg-color як card-frame.
       const outlineOnly = block.data.outlineOnly !== "false";
@@ -1396,12 +1395,19 @@ export function AbsoluteBlockRender({
   // зайвий — він би відрізав content і додавав «зайвий простір» поза карткою.
   const isTemplateInstance = block.type === "templateInstance";
   // borderRadius: явний `block.borderRadius` (з RadiusControl) має пріоритет;
-  // інакше fallback на 8px при bgColor, 0 без bgColor (історична поведінка).
-  // 999 → 9999 (pill).
-  const resolvedRadius =
+  // інакше 8 (як у BlockItem-редакторі, WYSIWYG — публічний рендер 1-в-1 з білдером).
+  // 999 → 9999 (pill). borderRadiusCorners (4-char "TLTRBRBL", 0/1) — per-corner
+  // shorthand: дзеркало логіки BlockItem.tsx, інакше per-corner налаштування
+  // менеджера у білдері не зʼявлялось на сайті.
+  const resolvedRadiusBase =
     typeof block.borderRadius === "number"
       ? (block.borderRadius >= 999 ? 9999 : block.borderRadius)
-      : (block.bgColor ? 8 : 0);
+      : 8;
+  const cornersStr = block.data?.borderRadiusCorners;
+  const resolvedRadius: string | number =
+    cornersStr && cornersStr.length === 4 && cornersStr !== "1111"
+      ? [0, 1, 2, 3].map(i => `${cornersStr[i] === "1" ? resolvedRadiusBase : 0}px`).join(" ")
+      : resolvedRadiusBase;
   return (
     <div
       data-news-block
@@ -1453,10 +1459,16 @@ export function SequentialBlockRender({
   newsItems?: NewsListItemForBlock[];
   locale?: string;
 }) {
-  const resolvedRadius =
+  // Дзеркало WYSIWYG-логіки з AbsoluteBlockRender вище: default 8 + per-corner.
+  const seqRadiusBase =
     typeof block.borderRadius === "number"
       ? (block.borderRadius >= 999 ? 9999 : block.borderRadius)
-      : (block.bgColor ? 8 : 0);
+      : 8;
+  const seqCornersStr = block.data?.borderRadiusCorners;
+  const resolvedRadius: string | number =
+    seqCornersStr && seqCornersStr.length === 4 && seqCornersStr !== "1111"
+      ? [0, 1, 2, 3].map(i => `${seqCornersStr[i] === "1" ? seqRadiusBase : 0}px`).join(" ")
+      : seqRadiusBase;
   return (
     <div
       style={{

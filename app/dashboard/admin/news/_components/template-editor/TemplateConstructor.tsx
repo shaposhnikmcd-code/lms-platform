@@ -118,6 +118,9 @@ export default function TemplateConstructor({
   // Розблокування layout у content-mode: дозволяє менеджеру вільно тягати/
   // ресайзити блоки, як у blueprint-режимі. Default — locked (тільки контент).
   const [layoutUnlocked, setLayoutUnlocked] = useState(false);
+  // Toggle для прозорих рамок блоків — менеджер вмикає коли хоче побачити
+  // реальну форму блоків (з кастомним заокругленням кутів) без візуальних рамок.
+  const [hideFrames, setHideFrames] = useState(false);
   // Назва шаблону. Відображається в інпуті над палітрою. Шлеться окремим PATCH
   // debounce-нуто 600ms. Final Save переписує тим, що тут у стейті (а не
   // initialMeta.title, бо meta-сайдбар прихований).
@@ -200,13 +203,16 @@ export default function TemplateConstructor({
           body: JSON.stringify({
             // Шаблон: title беремо з нашого окремого input-у над палітрою
             // (meta-сайдбар прихований, тож meta.title — застаріле initialTitle).
-            // slug/excerpt/published — не торкаємо (це не публікаційні поля
-            // для blueprint-ів). templateBlocks — нове block-based body.
+            // slug/excerpt — не торкаємо. templateBlocks — нове block-based body.
             // templateCanvas — розмір canvas-у "WxH" з поточного state.
+            // У content-mode (новина з шаблону): Save = одразу publish, щоб
+            // вона зʼявилась у правому барі Білдера Сторінки і у public /news.
+            // Окремого "Опублікувати" немає — менеджер очікує що Save і є публікація.
             title,
             imageUrl,
             templateBlocks: content,
             templateCanvas: `${canvasSize.width}x${canvasSize.height}`,
+            ...(isContentMode ? { published: true } : {}),
           }),
         });
         if (!res.ok) {
@@ -220,7 +226,7 @@ export default function TemplateConstructor({
         setSaving(false);
       }
     },
-    [newsId, canvasSize, title]
+    [newsId, canvasSize, title, isContentMode]
   );
 
   return (
@@ -266,6 +272,7 @@ export default function TemplateConstructor({
         // (текст, фото, цитати — можна правити прямо на canvas-і). У blueprint-mode
         // templateMode=true: лише плейсхолдери-мітки (дизайн структури).
         templateMode={!isContentMode}
+        hideFrames={hideFrames}
         // У content-mode layout заморожений: drag і resize вимкнено, менеджер
         // тільки наповнює існуючі блоки контентом. Кнопка «Розблокувати блоки»
         // знімає блокування тимчасово — менеджер може вільно тягати/ресайзити.
@@ -290,6 +297,8 @@ export default function TemplateConstructor({
                   onResetSize={handleResetSize}
                   layoutUnlocked={layoutUnlocked}
                   onToggleLayoutLock={() => setLayoutUnlocked(v => !v)}
+                  hideFrames={hideFrames}
+                  onToggleHideFrames={() => setHideFrames(v => !v)}
                 />
               }
             />
@@ -465,11 +474,14 @@ function CanvasSizeInputs({
 //     drag/resize блоків. У залоченому стані менеджер тільки наповнює контент.
 function ContentModeToolbar({
   showReset, onResetSize, layoutUnlocked, onToggleLayoutLock,
+  hideFrames, onToggleHideFrames,
 }: {
   showReset: boolean;
   onResetSize: () => void;
   layoutUnlocked: boolean;
   onToggleLayoutLock: () => void;
+  hideFrames: boolean;
+  onToggleHideFrames: () => void;
 }) {
   const baseBtn: React.CSSProperties = {
     display: "inline-flex",
@@ -523,6 +535,22 @@ function ContentModeToolbar({
       >
         <span aria-hidden>{layoutUnlocked ? "🔓" : "🔒"}</span>
         <span>{layoutUnlocked ? "Заблокувати блоки" : "Розблокувати блоки"}</span>
+      </button>
+      <button
+        type="button"
+        onClick={onToggleHideFrames}
+        title={hideFrames
+          ? "Показати рамки — повернути візуальні межі блоків"
+          : "Прибрати рамки — побачити справжню форму блоків"}
+        style={{
+          ...baseBtn,
+          background: hideFrames ? "rgba(99,102,241,0.14)" : "transparent",
+          border: `1px solid ${hideFrames ? "rgba(99,102,241,0.55)" : "rgba(15,23,42,0.18)"}`,
+          color: hideFrames ? "#3730A3" : "#334155",
+        }}
+      >
+        <span aria-hidden>{hideFrames ? "👁" : "▭"}</span>
+        <span>{hideFrames ? "Показати рамки" : "Прибрати рамки"}</span>
       </button>
     </div>
   );

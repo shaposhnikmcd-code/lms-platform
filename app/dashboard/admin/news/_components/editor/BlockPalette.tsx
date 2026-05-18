@@ -317,58 +317,32 @@ export default function BlockPalette({ onAddImageOverlay, selectedBlockY, extraB
   // канвасу; layout 2-col зберігається.
   const paletteWidth = wide ? 264 : (compact || lockLayout ? 320 : 304);
 
-  // Палітра ЗАВЖДИ position:fixed. Анкоринг до вибраного блока (anchorTopPx)
-  // свідомо ігноруємо — палітра не «їздить» при кліку на блок (баг).
-  // Top реактивно зменшується зі скролом: при scrollY=0 палітра на 152px (симетрично
-  // з канвасом і правим баром), при скролі вниз — наближається до верхнього краю
-  // (мінімум 20px). Дає UX: «висить разом зі сторінкою» згори, а далі прилипає.
+  // Палітра у нормальному flex-потоці з position:sticky — на старті вона
+  // розміщена нижче header-а (за рахунок outer pt-7), при скролі вниз прилипає
+  // до top:20. Це дає рівні відстані між палітрою/канвасом/правим баром, бо
+  // елементи не «вилітають» з потоку (як position:fixed).
   void anchorTopPx;
-  const baseTop = compact ? 96 : 152;
-  const minTop = 20;
-  const [scrollY, setScrollY] = React.useState(0);
-  React.useEffect(() => {
-    if (typeof window === "undefined") return;
-    let raf = 0;
-    const onScroll = () => {
-      if (raf) return;
-      raf = requestAnimationFrame(() => {
-        raf = 0;
-        setScrollY(window.scrollY);
-      });
-    };
-    onScroll();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => {
-      window.removeEventListener("scroll", onScroll);
-      if (raf) cancelAnimationFrame(raf);
-    };
-  }, []);
-  const topPx = Math.max(minTop, baseTop - scrollY);
+  const stickyTopPx = 20;
   const bottomReservePx = compact ? 24 : 20;
 
   return (
     <>
-      {/* Spacer у flex-потоці: резервує ширину палітри, щоб канвас залишався
-          на тій самій позиції коли палітра fixed-рендериться поза потоком. */}
-      <div
-        aria-hidden
-        style={{
-          width: `${paletteWidth}px`,
-          minWidth: `${paletteWidth}px`,
-          flexShrink: 0,
-          alignSelf: "stretch",
-        }}
-      />
-      {/* Wrapper без overflow — щоб topCard, абсолютно позиціонований ВИЩЕ
-          верхнього краю палітри (bottom: calc(100% + 4px)), не клипався
-          overflow:auto з основної палітри. */}
+      {/* Wrapper-flex-item з position:sticky. Палітра тримає свою ширину,
+          flexShrink:0 — не стискається. alignSelf:flex-start обовʼязковий для
+          sticky всередині flex з alignItems:stretch (інакше sticky не активується). */}
       <div style={{
-        position: "fixed",
-        top: `${topPx}px`,
-        left: "20px",
+        position: "sticky",
+        top: `${stickyTopPx}px`,
+        alignSelf: "flex-start",
         width: `${paletteWidth}px`,
+        minWidth: `${paletteWidth}px`,
+        flexShrink: 0,
         zIndex: 95,
-        marginTop: compact ? 16 : 0,
+        // У wide (page-builder /news) — опускаємо палітру нижче на висоту
+        // canvas-label рядка (≈44px), щоб її верх збігався з верхом канвасу-папера,
+        // а не з canvas-label («📄 Сторінка новини»).
+        marginTop: wide ? 44 : compact ? 16 : 0,
+        // relative positioning context для absolute topCard.
       }}>
         {topCard && (
           <div style={{
@@ -387,7 +361,7 @@ export default function BlockPalette({ onAddImageOverlay, selectedBlockY, extraB
       padding: "20px 14px",
       display: "flex",
       flexDirection: "column",
-      maxHeight: `calc(100vh - ${topPx + bottomReservePx}px)`,
+      maxHeight: `calc(100vh - ${stickyTopPx + bottomReservePx}px)`,
       overflowY: "auto",
       // scrollbarWidth/-ms-overflow-style/-webkit-scrollbar — приховуємо візуальну
       // смугу прокрутки, але scroll-функція залишається (на колесі / трекпаді).

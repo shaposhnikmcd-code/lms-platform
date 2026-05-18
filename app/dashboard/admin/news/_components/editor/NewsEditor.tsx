@@ -30,6 +30,12 @@ export const NewsEditorActionsContext = createContext<{
   redo: () => void;
 } | null>(null);
 
+// UI-прапори білдера, видимі з усіх дочірніх компонентів (BlockItem,
+// AbsoluteBlock тощо). Дозволяє керувати візуалізацією без пропс-drilling.
+export const NewsEditorUIContext = createContext<{ hideFrames: boolean }>({
+  hideFrames: false,
+});
+
 interface TabConfig {
   key: string;
   label: string;
@@ -155,6 +161,10 @@ interface BaseProps {
   abovePaletteSlot?: React.ReactNode;
   /** Slot ліворуч від канвасу (вертикальна колонка пресет-форм). */
   canvasLeftToolbar?: React.ReactNode;
+  /** Прибрати рамки навколо блоків на канвасі (border-color → transparent).
+   *  Менеджер вмикає кнопкою в toolbar-і, щоб бачити реальну форму блоків
+   *  без візуального шуму. Дефолт false. */
+  hideFrames?: boolean;
 }
 
 interface SingleProps extends BaseProps {
@@ -613,7 +623,7 @@ export default function NewsEditor(props: Props) {
       // Показуємо короткий "✓ Збережено" toast — користувачу видно що save пройшов.
       if (savedFlashTimerRef.current) clearTimeout(savedFlashTimerRef.current);
       setSavedFlash(true);
-      savedFlashTimerRef.current = setTimeout(() => setSavedFlash(false), 1800);
+      savedFlashTimerRef.current = setTimeout(() => setSavedFlash(false), 3500);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Невідома помилка збереження";
       setMessage(msg);
@@ -643,9 +653,11 @@ export default function NewsEditor(props: Props) {
       }));
 
   const editorActions = useMemo(() => ({ undo, redo }), [undo, redo]);
+  const uiContextValue = useMemo(() => ({ hideFrames: !!props.hideFrames }), [props.hideFrames]);
 
   return (
     <NewsEditorActionsContext.Provider value={editorActions}>
+    <NewsEditorUIContext.Provider value={uiContextValue}>
     <div className="min-h-screen bg-slate-100">
       {/* Google Fonts CSS-bundle для редактора. Один request з усіма family
           (Google API оптимізує payload). display=swap → текст видно одразу,
@@ -655,11 +667,13 @@ export default function NewsEditor(props: Props) {
       <link rel="stylesheet" href={buildGoogleFontsHref()} />
       <style>{NEWS_BLOCK_CSS}</style>
       <div className={`${
-        // Уніфікований outer padding для news-білдерів. У mode="page" (Білдер
-        // Сторінки) горизонтальний паддінг зменшений (px-2), щоб правий бар з
-        // картками новин помістився поряд з канвасом без обрізання.
+        // У mode="page" — фіксована «сторінка» 1516px (= 264+984+220 + 4*12)
+        // з mx-auto. justify-content: space-evenly в EditorCanvas дає 4 рівні
+        // відстані по 12px: лівий край сторінки → палітра → канвас → правий бар
+        // → правий край сторінки. На моніторах ширших за 1516px сторінка
+        // центрується з білими полями ззовні.
         mode === "page"
-          ? "max-w-[1820px] mx-auto px-2 pt-7 pb-10"
+          ? "max-w-[1516px] mx-auto pt-7 pb-10"
           : props.templateMode
           ? "max-w-[1820px] mx-auto px-6 pt-7 pb-10"
           : "max-w-[1520px] mx-auto px-6 pt-7 pb-10"
@@ -667,8 +681,10 @@ export default function NewsEditor(props: Props) {
         {/* Header — однаковий у всіх білдерах: breadcrumb-пілюля ліворуч,
             заголовок по центру (на одній горизонтальній лінії). Уніфікований
             bottom-margin (mb-4 = 16px) скрізь, щоб toolbar/label-row під заголовком
-            стояли на однаковій відстані. */}
-        <div className="mb-4 relative flex items-center min-h-[44px]">
+            стояли на однаковій відстані. У page-mode (зовнішній wrapper без
+            горизонтального padding-у) додаємо px-6 локально, щоб breadcrumb
+            не прилипав до краю вʼюпорта. */}
+        <div className={`mb-4 relative flex items-center min-h-[44px] ${mode === "page" ? "px-6" : ""}`}>
           <div className="inline-flex items-center gap-2.5 px-3.5 py-1.5 rounded-full bg-gradient-to-r from-violet-50 to-violet-100/40 border border-violet-200/60 shadow-[0_1px_2px_rgba(124,58,237,0.06)]">
             <span className="inline-block w-1.5 h-1.5 rounded-full bg-violet-500 shadow-[0_0_6px_rgba(124,58,237,0.5)]" />
             <span className="text-[13px] font-bold tracking-wider uppercase text-violet-700">Admin</span>
@@ -922,19 +938,23 @@ export default function NewsEditor(props: Props) {
         <div
           role="status"
           aria-live="polite"
-          className="fixed top-[152px] right-[60px] z-40 pointer-events-none animate-[savedFadeIn_0.18s_ease-out]"
+          className="fixed top-[84px] z-[60] pointer-events-none animate-[savedFadeIn_0.22s_ease-out]"
           style={{
+            // Save кнопка: right:103px, w:56px → центр right:131px. Anchor right:131
+            // + translateX(50%) центрує тост рівно по центру кнопки Save.
+            right: 131,
+            transform: "translateX(50%)",
             display: "inline-flex",
             alignItems: "center",
-            gap: 8,
-            padding: "8px 14px 8px 10px",
-            borderRadius: 10,
+            gap: 10,
+            padding: "11px 18px 11px 13px",
+            borderRadius: 12,
             background: "linear-gradient(180deg, #1F4032 0%, #15291F 100%)",
             color: "#FAF6F0",
-            border: "1px solid rgba(212,168,67,0.35)",
-            boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06), 0 8px 24px -8px rgba(20,40,30,0.45)",
-            fontSize: 12,
-            fontWeight: 600,
+            border: "1px solid rgba(212,168,67,0.45)",
+            boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08), 0 12px 32px -8px rgba(20,40,30,0.55), 0 0 0 4px rgba(212,168,67,0.10)",
+            fontSize: 14,
+            fontWeight: 700,
             letterSpacing: "0.02em",
             fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
           }}
@@ -943,12 +963,12 @@ export default function NewsEditor(props: Props) {
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "center",
-            width: 18,
-            height: 18,
+            width: 22,
+            height: 22,
             borderRadius: 999,
             background: "#D4A843",
             color: "#1C3A2E",
-            fontSize: 11,
+            fontSize: 13,
             fontWeight: 900,
           }}>✓</span>
           Збережено
@@ -956,8 +976,8 @@ export default function NewsEditor(props: Props) {
       )}
       <style>{`
         @keyframes savedFadeIn {
-          from { opacity: 0; transform: translateY(-4px); }
-          to   { opacity: 1; transform: translateY(0); }
+          from { opacity: 0; transform: translateX(50%) translateY(-4px); }
+          to   { opacity: 1; transform: translateX(50%) translateY(0); }
         }
       `}</style>
 
@@ -1023,6 +1043,7 @@ export default function NewsEditor(props: Props) {
         </div>
       )}
     </div>
+    </NewsEditorUIContext.Provider>
     </NewsEditorActionsContext.Provider>
   );
 }

@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useContext } from "react";
 import { createPortal } from "react-dom";
 import { Block, BlockAlign, BlockVAlign, BlockWidth } from "./types";
+import { NewsEditorUIContext } from "./NewsEditor";
 import TextEditor from "./blocks/TextEditor";
 import HeadingEditor from "./blocks/HeadingEditor";
 import ImageEditor from "./blocks/ImageEditor";
@@ -388,7 +389,13 @@ export default function BlockItem({
   const textColor = (block.bgColor === "#1C3A2E" || block.bgColor === "#1a1a1a") ? "#FAF6F0" : "#1C3A2E";
   // Червоний "aspectBroken" індикатор прибрано — auto-aspect resize і так тримає
   // пропорції фото, debug-рамка тільки створювала візуальний шум поверх блока.
-  const outlineColor = (isSnapping || resizingW || resizingH || resizingD)
+  const { hideFrames } = useContext(NewsEditorUIContext);
+  // Якщо менеджер натиснув «Прибрати рамки» — border-color прозорий незалежно
+  // від hover/snap/resize. Сама рамка лишається в layout (1.5px box-sizing),
+  // щоб блок не «дрижав» при toggle.
+  const outlineColor = hideFrames
+    ? "transparent"
+    : (isSnapping || resizingW || resizingH || resizingD)
     ? "#D4A843"
     : hov ? "#D4A843" : (isPlaceholder ? "rgba(28,58,46,0.4)" : "rgba(232,213,183,0.6)");
   // У template-режимі плейсхолдери мають видимий ПУНКТИРНИЙ outline (краща
@@ -526,13 +533,13 @@ export default function BlockItem({
           // border-box, тож зовнішні розміри блока не змінюються.
           border: `1.5px ${outlineStyle} ${outlineColor}`,
           // Радіус підкладки: явний `block.borderRadius` (через BlockItemHeader →
-          // RadiusControl) має пріоритет; інакше fallback на 8px (історична поведінка).
+          // RadiusControl) має пріоритет; інакше — 0 (квадратні краї за замовчуванням).
           // 999 → 9999 (pill). block.data.borderRadiusCorners ("TLTRBRBL" 1/0) дозволяє
           // обмежити радіус на окремі кути — застосовуємо через buildCornerRadiusCss.
           borderRadius: (() => {
             const r = typeof block.borderRadius === "number"
               ? (block.borderRadius >= 999 ? 9999 : block.borderRadius)
-              : 8;
+              : 0;
             const corners = block.data?.borderRadiusCorners;
             if (corners && corners.length === 4 && corners !== "1111") {
               return buildCornerRadiusCss(r, corners);

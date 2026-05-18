@@ -145,9 +145,9 @@ function NewsLibraryCard({
           title={isPlaced ? "Вже на канвасі (можна додати ще раз)" : "Перетягніть на канвас"}
         >
           {/* Міні-preview шаблонного каркасу — scale до ширини картки.
-              ~168 = 200 (sidebar) − 14 (card padding) − 14 (item padding) − 4 (luft). */}
+              ~200 = 220 (sidebar) − 14 (item padding) − 2 (border) − 4 (luft). */}
           {(() => {
-            const previewW = 168;
+            const previewW = 200;
             const scale = previewW / tplCanvas.w;
             const previewH = Math.max(60, Math.round(tplCanvas.h * scale));
             return (
@@ -342,7 +342,7 @@ export default function NewsLibrarySidebar({ meta, onChange, placedNewsIds }: Pr
   }, []);
 
   return (
-    <div style={{ width: "180px", minWidth: "180px", display: "flex", flexDirection: "column", gap: "10px" }}>
+    <div style={{ width: "220px", minWidth: "220px", display: "flex", flexDirection: "column", gap: "10px" }}>
       {/* ─── Секція «Новини» ─── (новини, створені з шаблонів) */}
       {/* Перетягуються як newsCard preview на канвас сторінки /news. */}
       <div style={cardStyle}>
@@ -352,7 +352,7 @@ export default function NewsLibrarySidebar({ meta, onChange, placedNewsIds }: Pr
             Перетягніть новину на канвас — на сторінці <strong>/news</strong> зʼявиться
             її preview-картка.
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 4, maxHeight: 480, overflowY: "auto" }}>
+          <div className="news-palette-scroll" style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 4, maxHeight: 480, overflowY: "auto", overflowX: "hidden", scrollbarWidth: "none", msOverflowStyle: "none" }}>
             {error && (
               <div style={{ fontSize: 11, color: "#DC2626", padding: 6 }}>{error}</div>
             )}
