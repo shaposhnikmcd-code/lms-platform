@@ -20,6 +20,12 @@ interface Props {
   block: Block;
   onChange: (data: Record<string, string>) => void;
   selected?: boolean;
+  /** Передається з BlockItem → AbsoluteBlock щоб клік У БУДЬ-ЯКЕ місце newsCard
+   *  preview (фото / текст / цитата / overlay-и) гарантовано вибирав цей блок.
+   *  Раніше клік на текст/цитату всередині <a>-обгортки превʼю-картки інколи не
+   *  bubble-ив до AbsoluteBlock.onClick (через preventDefault на <a>) — селект
+   *  не спрацьовував. */
+  onSelectBlock?: (id: string) => void;
 }
 
 // Простий cache на рівні модуля — щоб не фетчити library двічі для кожного блока.
@@ -59,7 +65,7 @@ function toNewsListItem(it: LibraryNewsItem): NewsListItemForBlock {
   };
 }
 
-export default function NewsCardEditor({ block, onChange }: Props) {
+export default function NewsCardEditor({ block, onChange, onSelectBlock }: Props) {
   void onChange; // sidebar прибрано — onChange не використовується
   const newsId = block.data.newsId || "";
   const [items, setItems] = useState<LibraryNewsItem[] | null>(null);
@@ -113,7 +119,13 @@ export default function NewsCardEditor({ block, onChange }: Props) {
       style={{ width: "100%", height: "100%" }}
       onClickCapture={(e) => {
         const t = e.target as HTMLElement;
+        // Прибираємо навігацію <a> (preventDefault), АЛЕ паралельно явно
+        // викликаємо onSelectBlock — щоб клік на будь-якому елементі превʼю
+        // (текст/цитата/фото/overlay) виділяв блок. Раніше click bubble інколи
+        // не доходив до AbsoluteBlock.onClick (особливо коли <a> навколо
+        // ARTICLE-превʼю гасило подію), і селект не спрацьовував через раз.
         if (t.closest("a")) e.preventDefault();
+        if (onSelectBlock) onSelectBlock(block.id);
       }}
     >
       {isLoading ? (

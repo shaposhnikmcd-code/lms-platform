@@ -587,7 +587,7 @@ export default function BlockItem({
             {block.type === "youtube" && <YoutubeEditor block={block} onChange={d => onChange(block.id, d)} selected={selected} />}
             {block.type === "quote"   && <QuoteEditor   block={block} onChange={d => onChange(block.id, d)} selected={selected} onSetVAlign={v => onSetVAlign(block.id, v)} containerWidthPx={containerWidthPx} />}
             {block.type === "card"    && <CardEditor    block={block} onChange={d => onChange(block.id, d)} onUpload={onUpload} />}
-            {block.type === "newsCard"&& <NewsCardEditor block={block} onChange={d => onChange(block.id, d)} selected={selected} />}
+            {block.type === "newsCard"&& <NewsCardEditor block={block} onChange={d => onChange(block.id, d)} selected={selected} onSelectBlock={onSelectBlock} />}
             {block.type === "templateInstance" && <TemplateInstanceEditor block={block} onChange={d => onChange(block.id, d)} selected={selected} />}
             {block.type === "divider" && <hr style={{ border: "none", borderTopWidth: "2px", borderTopStyle: "solid", borderTopColor: "#D4A843", margin: "8px 0" }} />}
             {/* Структуровані блоки шаблонів (Session 2). Інлайн-редагування

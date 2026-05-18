@@ -227,6 +227,30 @@ export default function EditorCanvas({
   // щоб панель завжди була в viewport-і; left ставимо ліворуч від канвасу (де
   // раніше була палітра). Без цього налаштування «застрягали» вгорі сторінки,
   // і щоб виправити блок на низу канвасу — треба було скролити назад угору.
+  // ScrollY-реактивний top для правого сайдбару — поведінка ідентична лівій
+  // палітрі (BlockPalette робить те ж саме всередині). При scrollY=0 бар на
+  // top:152px (рівень канвасу і лівої палітри), при скролі вниз — піднімається
+  // до minTop=20px.
+  const [paletteScrollY, setPaletteScrollY] = useState(0);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    let raf = 0;
+    const onScroll = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        setPaletteScrollY(window.scrollY);
+      });
+    };
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, []);
+  const rightBarTopPx = Math.max(20, 152 - paletteScrollY);
+
   const [floatingSettingsPos, setFloatingSettingsPos] = useState<{ top: number; left: number } | null>(null);
   useEffect(() => {
     if (!selectedBlockId || templateMode) {
@@ -1875,7 +1899,7 @@ export default function EditorCanvas({
           acceleration: 25,
         }}
       >
-        <div style={{ display: "flex", gap: "20px", alignItems: "flex-start" }}>
+        <div style={{ display: "flex", gap: paletteWide ? "8px" : "20px", alignItems: "flex-start" }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 12, alignSelf: "flex-start" }}>
           <BlockPalette
             extraBlocks={extraPaletteBlocks}
@@ -2284,26 +2308,31 @@ export default function EditorCanvas({
           </div>
 
           {/* Правий сайдбар. ВСЕРЕДИНІ DndContext щоб draggable у ньому (картки новин з
-              NewsLibrarySidebar) поділяли той самий контекст з канвасом. Sticky — щоб
-              слідував за скролом, як ліва палітра. top: 152 щоб не перекриватись
-              з floating "Зберегти" + back-button (вони на top:80px, висота 56px). */}
+              NewsLibrarySidebar) поділяли той самий контекст з канвасом. Тепер
+              position:fixed з scroll-реактивним top (як ліва палітра) — щоб обидва
+              бари стояли на одному рівні з канвасом при scrollY=0 і однаково
+              підіймались до верху при скролі вниз. Spacer резервує 180px у потоці. */}
           {rightSidebar && (
-            <div
-              className="news-palette-scroll"
-              style={{
-                position: "sticky",
-                top: "152px",
-                alignSelf: "flex-start",
-                maxHeight: "calc(100vh - 172px)",
-                overflowY: "auto",
-                overflowX: "hidden",
-                scrollbarWidth: "none",
-                msOverflowStyle: "none",
-                flexShrink: 0,
-              }}
-            >
-              {rightSidebar}
-            </div>
+            <>
+              <div aria-hidden style={{ width: 180, minWidth: 180, flexShrink: 0 }} />
+              <div
+                className="news-palette-scroll"
+                style={{
+                  position: "fixed",
+                  top: `${rightBarTopPx}px`,
+                  right: paletteWide ? "8px" : "20px",
+                  width: 180,
+                  maxHeight: `calc(100vh - ${rightBarTopPx + 20}px)`,
+                  overflowY: "auto",
+                  overflowX: "hidden",
+                  scrollbarWidth: "none",
+                  msOverflowStyle: "none",
+                  zIndex: 90,
+                }}
+              >
+                {rightSidebar}
+              </div>
+            </>
           )}
         </div>
 

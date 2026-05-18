@@ -200,7 +200,7 @@ export default function NewsEditor(props: Props) {
     const back = document.querySelector<HTMLElement>(".back-btn");
     if (!back) return;
     const prevTop = back.style.top;
-    back.style.top = "12px";
+    back.style.top = "24px";
     return () => { back.style.top = prevTop; };
   }, []);
 
@@ -655,10 +655,12 @@ export default function NewsEditor(props: Props) {
       <link rel="stylesheet" href={buildGoogleFontsHref()} />
       <style>{NEWS_BLOCK_CSS}</style>
       <div className={`${
-        // Уніфікований outer padding для всіх news-білдерів: pt-7 pb-10 px-6.
-        // max-w відрізняється тільки для post-mode (без широкої лівої палітри
-        // потрібна вужча колонка, щоб картка-редактор не «плавала»).
-        props.templateMode || mode === "page"
+        // Уніфікований outer padding для news-білдерів. У mode="page" (Білдер
+        // Сторінки) горизонтальний паддінг зменшений (px-2), щоб правий бар з
+        // картками новин помістився поряд з канвасом без обрізання.
+        mode === "page"
+          ? "max-w-[1820px] mx-auto px-2 pt-7 pb-10"
+          : props.templateMode
           ? "max-w-[1820px] mx-auto px-6 pt-7 pb-10"
           : "max-w-[1520px] mx-auto px-6 pt-7 pb-10"
       }`}>
@@ -785,7 +787,7 @@ export default function NewsEditor(props: Props) {
           onClick={() => setPagePreviewOpen(true)}
           title="Превʼю на повний екран"
           aria-label="Превʼю /news"
-          className="group fixed top-20 right-[156px] z-40 flex h-14 w-14 items-center justify-center rounded-full transition-all duration-500 ease-out hover:scale-[1.06] active:scale-95"
+          className="group fixed top-6 right-[156px] z-40 flex h-14 w-14 items-center justify-center rounded-full transition-all duration-500 ease-out hover:scale-[1.06] active:scale-95"
           style={{
             backgroundImage: "linear-gradient(135deg, #2A4F3F 0%, #1F4032 40%, #15291F 100%)",
             color: "#D4A843",
@@ -867,7 +869,7 @@ export default function NewsEditor(props: Props) {
         disabled={saving}
         title={saving ? "Збереження…" : "Зберегти"}
         aria-label="Зберегти"
-        className="group save-btn fixed top-20 right-[88px] z-40 flex h-14 w-14 items-center justify-center rounded-full transition-all duration-500 ease-out hover:scale-[1.06] active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
+        className="group save-btn fixed top-6 right-[88px] z-40 flex h-14 w-14 items-center justify-center rounded-full transition-all duration-500 ease-out hover:scale-[1.06] active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
         style={{
           backgroundImage:
             "linear-gradient(135deg, #F4C75A 0%, #E6BB55 30%, #D4A017 55%, #B88512 80%, #8E660D 100%)",
