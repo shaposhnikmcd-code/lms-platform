@@ -265,6 +265,49 @@ export default function BlockItemHeader({
                 />
               );
             })}
+            {/* Свій колір — нативний color-picker. Активний коли поточний bg не
+                збігається з жодним preset-ом і не порожній. Клік відкриває
+                системну палітру; зміна — миттєвий setBg. */}
+            {(() => {
+              const v = (blockBgColor || "").toUpperCase();
+              const isCustom = !!v && !UIMP_COLORS.some(c => c.value?.toUpperCase() === v);
+              return (
+                <label
+                  title="Свій колір"
+                  style={{
+                    width: "20px",
+                    height: "20px",
+                    borderRadius: "5px",
+                    border: `2px solid ${isCustom ? "#D4A843" : "#E8D5B7"}`,
+                    background: isCustom
+                      ? blockBgColor
+                      : "conic-gradient(from 180deg, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)",
+                    cursor: "pointer",
+                    padding: 0,
+                    boxShadow: isCustom ? "0 0 0 2px rgba(212,168,67,0.25)" : "none",
+                    position: "relative",
+                    overflow: "hidden",
+                    display: "block",
+                  }}
+                >
+                  <input
+                    type="color"
+                    value={isCustom ? (blockBgColor || "#FFFFFF") : "#FFFFFF"}
+                    onChange={(e) => onSetBg(blockId, e.target.value)}
+                    style={{
+                      position: "absolute",
+                      inset: 0,
+                      width: "100%",
+                      height: "100%",
+                      opacity: 0,
+                      cursor: "pointer",
+                      border: "none",
+                      padding: 0,
+                    }}
+                  />
+                </label>
+              );
+            })()}
           </div>
         </Section>
       )}

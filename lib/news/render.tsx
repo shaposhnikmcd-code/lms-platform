@@ -1401,7 +1401,7 @@ export function AbsoluteBlockRender({
   const resolvedRadiusBase =
     typeof block.borderRadius === "number"
       ? (block.borderRadius >= 999 ? 9999 : block.borderRadius)
-      : 8;
+      : 0;
   const cornersStr = block.data?.borderRadiusCorners;
   const resolvedRadius: string | number =
     cornersStr && cornersStr.length === 4 && cornersStr !== "1111"
@@ -1458,11 +1458,11 @@ export function SequentialBlockRender({
   newsItems?: NewsListItemForBlock[];
   locale?: string;
 }) {
-  // Дзеркало WYSIWYG-логіки з AbsoluteBlockRender вище: default 8 + per-corner.
+  // Дзеркало WYSIWYG-логіки з AbsoluteBlockRender вище: default 0 + per-corner.
   const seqRadiusBase =
     typeof block.borderRadius === "number"
       ? (block.borderRadius >= 999 ? 9999 : block.borderRadius)
-      : 8;
+      : 0;
   const seqCornersStr = block.data?.borderRadiusCorners;
   const resolvedRadius: string | number =
     seqCornersStr && seqCornersStr.length === 4 && seqCornersStr !== "1111"

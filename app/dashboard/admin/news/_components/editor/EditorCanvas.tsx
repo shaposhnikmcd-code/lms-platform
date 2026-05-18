@@ -1075,7 +1075,7 @@ export default function EditorCanvas({
     // КРИТИЧНО: ghost має ВІДОБРАЖАТИ реальну позицію drop-у — x/width успадковані
     // від host-а, Y clamped у його вертикальний діапазон. Інакше менеджер бачить
     // ghost на іншому місці ніж дійсний drop position.
-    if (isFromPalette && templateMode && idStr.startsWith("palette:")) {
+    if (isFromPalette && idStr.startsWith("palette:")) {
       const t = idStr.replace("palette:", "") as BlockType;
       if (SPEC_BLOCK_TYPES_SET.has(t)) {
         const host = blocks.find(b => {
@@ -1283,11 +1283,11 @@ export default function EditorCanvas({
         // У fixedHeight-режимі — фінальний clamp Y по нижньому краю канвасу.
         y = clampYBottom(y, bh);
 
-        // У template-режимі спецблок ОБМЕЖЕНИЙ рамками host-а (image/cardBody):
+        // Спецблок ОБМЕЖЕНИЙ рамками host-а (image/cardBody) у всіх режимах:
         // ghost має відображати реальну посадку (fit-within-host), а не сире
         // cursor+snap. Без цього ghost показує overlap на іншому spec-блоці,
         // але handleDragEnd зміщує блок у сусідній gap — менеджер плутається.
-        if (templateMode && SPEC_BLOCK_TYPES_SET.has(b.type)) {
+        if (SPEC_BLOCK_TYPES_SET.has(b.type)) {
           const hosts = blocks.filter(o => (o.type === "image" || o.type === "cardBody") && o.id !== b.id);
           const host = hosts.find(h => {
             const ix = h.x ?? 0;
@@ -1622,11 +1622,13 @@ export default function EditorCanvas({
 
       const type: BlockType = isNewsCard ? "newsCard" : (idStr.replace("palette:", "") as BlockType);
 
-      // У template-режимі спецблоки (semantic slots) можна класти ТІЛЬКИ на
-      // блок-host: Фото або Пустий блок (cardBody). Drop на порожнє місце
-      // або інший блок — скасовується.
+      // Спецблоки (semantic slots: Імʼя/Посада/Tagline/Вартість/Тривалість/CTA/…)
+      // можна класти ТІЛЬКИ на блок-host: Фото або Пустий блок (cardBody).
+      // Drop на порожнє місце або інший блок — скасовується. Працює у всіх
+      // режимах: template constructor І page-builder /news (спецблоки без host
+      // не мають сенсу — це слоти, що наслідують позицію host-а).
       let specImageHost: Block | null = null;
-      if (templateMode && SPEC_BLOCK_TYPES_SET.has(type)) {
+      if (SPEC_BLOCK_TYPES_SET.has(type)) {
         const hostUnderCursor = blocks.find(b => {
           if (b.type !== "image" && b.type !== "cardBody") return false;
           const el = canvasRef.current?.querySelector<HTMLElement>(`[data-block-id="${b.id}"]`);
@@ -1705,11 +1707,10 @@ export default function EditorCanvas({
       let finalY = clampedY;
       let finalH = specFitH ?? estH;
       let finalBlocks = blocks;
-      // У template-режимі ТІЛЬКИ спецблоки (Імʼя/Tagline/CTA…) лягають поверх
-      // host-а (Фото / Пустий блок) — це їх задача-слотів. Generic-блоки
-      // (Заголовок/Текст/Фото/YouTube/Цитата/Лінія) поводяться як у звичайному
-      // page-builder-і: auto-fit у вільний gap, без overlap.
-      const isSpecOnHost = templateMode && SPEC_BLOCK_TYPES_SET.has(type);
+      // Спецблоки (Імʼя/Tagline/CTA…) лягають поверх host-а (Фото / Пустий блок)
+      // у всіх режимах — це їх задача-слотів. Generic-блоки (Заголовок/Текст/Фото/
+      // YouTube/Цитата/Лінія) поводяться як зазвичай: auto-fit у вільний gap.
+      const isSpecOnHost = SPEC_BLOCK_TYPES_SET.has(type);
       if (fixedHeight && !isSpecOnHost) {
         const minH = MIN_H_BY_TYPE[type] ?? 24;
         const fit = findAvailableFitInColumn(clamped.x, width, clamped.y, estH, minH);
@@ -1784,7 +1785,7 @@ export default function EditorCanvas({
     //   2. через findAvailableFitInColumn(ignoreIds={host, self}) шукаємо
     //      вільне місце у вертикальному діапазоні host-а;
     //   3. якщо host не знайдено АБО fit не існує — move скасовується.
-    if (templateMode && SPEC_BLOCK_TYPES_SET.has(b.type)) {
+    if (SPEC_BLOCK_TYPES_SET.has(b.type)) {
       const hosts = blocks.filter(o => (o.type === "image" || o.type === "cardBody") && o.id !== b.id);
       const host = hosts.find(h => {
         const ix = h.x ?? 0;
@@ -1810,11 +1811,11 @@ export default function EditorCanvas({
     let next = blocks.slice();
     next[idx] = { ...next[idx], x: resolvedPreview.x, y: finalY };
 
-    // У template-режимі спецблоки (Імʼя/Tagline/CTA…) вільно перекривають host
-    // (image/cardBody) — це їх задача. Generic-блоки (Заголовок/Текст/Фото…)
+    // Спецблоки (Імʼя/Tagline/CTA…) вільно перекривають host (image/cardBody) у
+    // всіх режимах — це їх задача. Generic-блоки (Заголовок/Текст/Фото…)
     // поводяться як у звичайному page-builder-і: displaceBlocksAround стискає
     // або опускає сусідів, щоб уникнути overlap-у.
-    const isSpecBlockMove = templateMode && SPEC_BLOCK_TYPES_SET.has(b.type);
+    const isSpecBlockMove = SPEC_BLOCK_TYPES_SET.has(b.type);
     if (!isSpecBlockMove && hasCollision(resolvedPreview.x, finalY, resolvedPreview.width, bh, b.id)) {
       next = displaceBlocksAround(
         { x: resolvedPreview.x, y: finalY, width: resolvedPreview.width, height: bh },
