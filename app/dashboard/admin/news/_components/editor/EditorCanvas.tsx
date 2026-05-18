@@ -201,6 +201,13 @@ export default function EditorCanvas({
   // лагають весь drag через каскад re-render-ів.
   const liveSimRafRef = useRef<number | null>(null);
   const liveSimPendingRef = useRef<{ x: number; y: number; wPct: number; bh: number; bId: string } | null>(null);
+  // Окремий rAF-канал для live-displacement при resize-у висоти. Без нього сусіди
+  // під блоком, який тягнеш униз, лишались на місці і "стрибали" лише на mouseup.
+  // Семантика та сама, що у handleDragMove: симулюємо displaceBlocksAround з
+  // rect = (b.x, b.y, currentPreviewW, newH) і пушимо previewY/previewX/preview
+  // сусідам, яких зачіпає нова геометрія.
+  const resizeSimRafRef = useRef<number | null>(null);
+  const resizeSimPendingRef = useRef<{ x: number; y: number; wPct: number; bh: number; bId: string } | null>(null);
   const [dropPreview, setDropPreview] = useState<{ x: number; y: number; width: number; height?: number } | null>(null);
   // Alignment guides — Figma-style лінії що тягнуться від блока який тягнемо
   // до тих, з ким він вирівнюється (left-left, right-right, top-top, bottom-bottom,
@@ -789,13 +796,69 @@ export default function EditorCanvas({
     const by = b.y ?? 0;
     const w = previewWidthsRef.current[id] ?? (Number(b.width) || 100);
     detectAlignmentsAt(id, bx, by, w, h);
-  }, [blocks, previewWidthsRef, setPreviewHeight, detectAlignmentsAt]);
+
+    // Live displacement preview під час resize-у висоти: сусіди під блоком
+    // одразу зсуваються вниз (через previewY), а не чекають mouseup. rAF-throttle —
+    // mousemove на 60+ Hz інакше спамить displaceBlocksAround (до 30 iter × N блоків)
+    // і весь resize починає лагати. Логіка mirror-ить handleDragMove.
+    if (templateMode) return;
+    resizeSimPendingRef.current = { x: bx, y: by, wPct: w, bh: h, bId: id };
+    if (resizeSimRafRef.current === null) {
+      resizeSimRafRef.current = requestAnimationFrame(() => {
+        resizeSimRafRef.current = null;
+        const pending = resizeSimPendingRef.current;
+        if (!pending) return;
+        const simRect = { x: pending.x, y: pending.y, width: pending.wPct, height: pending.bh };
+        const simulated = displaceBlocksAround(simRect, blocks, pending.bId);
+        const changed = new Set<string>();
+        for (const sim of simulated) {
+          if (sim.id === pending.bId) continue;
+          const orig = blocks.find(o => o.id === sim.id);
+          if (!orig) continue;
+          const origW = Number(orig.width) || 100;
+          const simW = Number(sim.width) || 100;
+          const origX = orig.x ?? 0;
+          const simX = sim.x ?? 0;
+          const origY = orig.y ?? 0;
+          const simY = sim.y ?? 0;
+          if (Math.abs(simW - origW) > 0.5) { setPreview(sim.id, simW); changed.add(sim.id); }
+          if (Math.abs(simX - origX) > 0.5) { setPreviewX(sim.id, simX); changed.add(sim.id); }
+          if (Math.abs(simY - origY) > 1)   { setPreviewY(sim.id, simY); changed.add(sim.id); }
+        }
+        // Очищуємо сусідські previews для блоків, які при поточній геометрії
+        // НЕ зачіпаються — інакше вони "застрягнуть" у попередньому frame-стані.
+        // Сам resizing-блок (pending.bId) пропускаємо — його previewWidth/Height
+        // керують handlePreviewWidth/handlePreviewHeight, не ця sim.
+        for (const o of blocks) {
+          if (o.id === pending.bId || changed.has(o.id)) continue;
+          clearPreview(o.id);
+          clearPreviewX(o.id);
+          clearPreviewY(o.id);
+        }
+      });
+    }
+  }, [blocks, previewWidthsRef, setPreviewHeight, detectAlignmentsAt, templateMode, setPreview, setPreviewX, setPreviewY, clearPreview, clearPreviewX, clearPreviewY]);
 
   const handleClearPreviewHeight = useCallback((id: string) => {
+    // Скасовуємо pending rAF — після cleanup-у sim не повинна знову поставити previews.
+    if (resizeSimRafRef.current !== null) {
+      cancelAnimationFrame(resizeSimRafRef.current);
+      resizeSimRafRef.current = null;
+    }
+    resizeSimPendingRef.current = null;
     setResizingBlockId(prev => prev === id ? null : prev);
     clearPreviewHeight(id);
+    // Чистимо resize-displacement previews з усіх сусідів. До цього моменту
+    // handleSetWidthAndData вже закомітив фінальну геометрію (включно з
+    // displacement-зсувом сусідів), тож previewY на них стає зайвим.
+    for (const o of blocks) {
+      if (o.id === id) continue;
+      clearPreview(o.id);
+      clearPreviewX(o.id);
+      clearPreviewY(o.id);
+    }
     clearAlignmentGuides();
-  }, [clearPreviewHeight, clearAlignmentGuides]);
+  }, [blocks, clearPreviewHeight, clearAlignmentGuides, clearPreview, clearPreviewX, clearPreviewY]);
 
   // Wrapped updateBlock: якщо data.minHeight збільшилось (bottom resize у зображення) —
   // перевіряємо чи нові межі не налазять на нижні блоки і витискаємо їх.
@@ -907,6 +970,13 @@ export default function EditorCanvas({
     newRect: { x: number; y: number; width: number; height: number },
     currentBlocks: Block[],
     ignoreId: string | null = null,
+    // Напрямок витиснення коли стиснути горизонтально не вдалось.
+    // "down" — старий дефолт: блок-сусід їде ВНИЖЕ newRect (для resize-grow вниз
+    // і drop-with-palette зверху). "up" — блок-сусід їде ВИЩЕ newRect (для
+    // drag нижнього блока ВГОРУ: інакше верхній блок «перестрибує» наїзжаючий
+    // блок униз через rawNewY = hit.bottom + 8). При "up" з fallback-ом на
+    // "down" коли вгору фізично нема місця (block би став за canvas top edge).
+    pushDirection: "down" | "up" = "down",
   ): Block[] {
     const MIN_W = 12;
     const result: Block[] = currentBlocks.map(b => ({ ...b }));
@@ -963,15 +1033,29 @@ export default function EditorCanvas({
           changed = true;
           continue;
         }
-        // Варіант 3: не стиснути → опускаємо нижче hit
-        const rawNewY = snapPx(hit.y + hit.h + 8);
+        // Варіант 3: не стиснути → зсуваємо у заданому напрямку
+        // Для "up" пробуємо вгору, fallback на "down" якщо вгору нема місця
+        // (rawNewY < 0). Для "down" — стара поведінка (нижче hit).
+        let rawNewY: number;
+        if (pushDirection === "up") {
+          const upY = snapPx(hit.y - bh - 8);
+          rawNewY = upY >= 0 ? upY : snapPx(hit.y + hit.h + 8);
+        } else {
+          rawNewY = snapPx(hit.y + hit.h + 8);
+        }
         // У fixedHeight-режимі канвас не росте — клампимо до canvasHeight - bh,
         // інакше блок виштовхується за нижній край. Допускаємо overlap (бл. в одну
         // позицію), користувач сам вирішує, як їх розставити.
         const newY = fixedHeight
           ? Math.max(0, Math.min(canvasHeight - bh, rawNewY))
-          : rawNewY;
-        if (newY > by + 0.5) {
+          : Math.max(0, rawNewY);
+        // У "up"-режимі очікуємо newY < by; у "down" — newY > by.
+        // Якщо рух не вдався у заданому напрямку — пропускаємо (інакше блок міг би
+        // нескінченно «дрижати» між down-фолбеком і блок-конфліктом).
+        const moved = pushDirection === "up"
+          ? newY < by - 0.5
+          : newY > by + 0.5;
+        if (moved) {
           result[i] = { ...b, y: newY };
           upsertReserved({ x: bx, y: newY, w: bw, h: bh, id: b.id });
           changed = true;
@@ -1347,7 +1431,14 @@ export default function EditorCanvas({
             const pending = liveSimPendingRef.current;
             if (!pending) return;
             const simRect = { x: pending.x, y: pending.y, width: pending.wPct, height: pending.bh };
-            const simulated = displaceBlocksAround(simRect, blocks, pending.bId);
+            // Напрямок push-у: якщо drag-блок іде ВГОРУ (нова y < origY),
+            // витискаємо конфліктних сусідів ВГОРУ. Інакше — стара поведінка
+            // (вниз). Без цього верхній блок «перестрибує» вниз-під dragged-блок,
+            // коли користувач тягне нижній блок угору на нього.
+            const draggedOrig = blocks.find(o => o.id === pending.bId);
+            const dragDir: "down" | "up" =
+              draggedOrig && pending.y < (draggedOrig.y ?? 0) - 0.5 ? "up" : "down";
+            const simulated = displaceBlocksAround(simRect, blocks, pending.bId, dragDir);
             const changed = new Set<string>();
             for (const sim of simulated) {
               if (sim.id === pending.bId) continue;
@@ -1817,10 +1908,14 @@ export default function EditorCanvas({
     // або опускає сусідів, щоб уникнути overlap-у.
     const isSpecBlockMove = SPEC_BLOCK_TYPES_SET.has(b.type);
     if (!isSpecBlockMove && hasCollision(resolvedPreview.x, finalY, resolvedPreview.width, bh, b.id)) {
+      // Напрямок витиснення симетричний live-preview-у в handleDragMove: якщо
+      // фінальна Y вища за оригінал — push-имо конфліктних сусідів ВГОРУ.
+      const commitDir: "down" | "up" = finalY < (b.y ?? 0) - 0.5 ? "up" : "down";
       next = displaceBlocksAround(
         { x: resolvedPreview.x, y: finalY, width: resolvedPreview.width, height: bh },
         next,
         b.id,
+        commitDir,
       );
       // У card-builder-і — якщо overlap не розв'язано (canvas повний), скасовуємо
       // переміщення: блок повертається на місце.
@@ -2717,7 +2812,14 @@ function AbsoluteBlock(props: {
           return selected ? baseline + 30 : baseline;
         })(),
         opacity: isDragging ? 0.65 : 1,
-        transition: (isDragging || isResizing) ? "none" : "left 0.12s, top 0.12s, width 0.12s",
+        // Easing — `cubic-bezier(0.22, 1, 0.36, 1)` (expo-out): різкий старт,
+        // плавне затухання. У парі з 220ms дає відчуття «фізики», коли сусіди
+        // м'яко пропускають блок під час resize/drag, замість stepped-jump від rAF
+        // (sim спрацьовує 1 раз на frame і previewY стрибає одразу на цільову
+        // позицію — без transition це виглядало б ривками).
+        transition: (isDragging || isResizing)
+          ? "none"
+          : "left 220ms cubic-bezier(0.22, 1, 0.36, 1), top 220ms cubic-bezier(0.22, 1, 0.36, 1), width 220ms cubic-bezier(0.22, 1, 0.36, 1), height 220ms cubic-bezier(0.22, 1, 0.36, 1)",
         // Selection-індикатор — кутові L-маркери (рендеряться в JSX нижче як
         // абсолютні діви). Outline + borderRadius прибрані, бо рамка з власним
         // радіусом 12px заважала зчитати фактичну форму блока (наприклад, коли
