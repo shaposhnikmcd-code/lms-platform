@@ -56,6 +56,11 @@ const MIN_H_BY_TYPE: Record<BlockType, number> = {
 interface Props {
   blocks: Block[];
   onBlocksChange: (blocks: Block[]) => void;
+  /** Silent batched updater — використовує функціональний setState на рівні
+   *  NewsEditor, тож кілька паралельних викликів коректно зливаються. Без
+   *  цього onSilentUpdate-call-и в одному render-cycle перезаписують один
+   *  одного (last-wins) і блоки не отримують auto-resize. */
+  onSilentUpdateBlock?: (id: string, w: string, data: Record<string, string>, h: number) => void;
   onUpload: (file: File) => Promise<string>;
   pageBgColor?: string;
   // Selection піднято в parent (NewsEditor) — щоб floating settings panel могла
@@ -122,6 +127,7 @@ interface Props {
 export default function EditorCanvas({
   blocks,
   onBlocksChange,
+  onSilentUpdateBlock,
   onUpload,
   pageBgColor,
   selectedBlockId,
@@ -170,6 +176,12 @@ export default function EditorCanvas({
   };
   const canvasRef = useRef<HTMLDivElement>(null);
   const canvasRectRef = useRef<DOMRect | null>(null);
+  // blocksRef — завжди має актуальний blocks. Використовується у inline-arrow
+  // callback-ах де `blocks`-closure stale: коли кілька BlockItem-ів швидко
+  // підряд викликають onSilentUpdate, кожен наступний без ref читав би СТАРИЙ
+  // blocks і переписував зміни попереднього (race), що ламало layout.
+  const blocksRef = useRef(blocks);
+  blocksRef.current = blocks;
   const canvasColumnRef = useRef<HTMLDivElement>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [isOverCanvas, setIsOverCanvas] = useState(false);
@@ -2073,6 +2085,18 @@ export default function EditorCanvas({
                       onDuplicate={id => { const newId = duplicateBlock(id); if (newId) setLastAddedId(newId); }}
                       onSetWidth={handleSetWidth}
                       onSetWidthAndData={handleSetWidthAndData}
+                      onSilentUpdate={(id, w, data, h) => {
+                        // Якщо є batched updater від NewsEditor — використовуємо його
+                        // (functional setState, не страждає від race-у при паралельних
+                        // викликах). Інакше fallback: blocksRef + onBlocksChange.
+                        if (onSilentUpdateBlock) {
+                          onSilentUpdateBlock(id, w, data, h);
+                          return;
+                        }
+                        onBlocksChange(blocksRef.current.map(o => o.id === id
+                          ? { ...o, width: String(Math.max(0.1, Math.min(100, Number(w) || 100))), data, height: h }
+                          : o));
+                      }}
                       onSetAlign={setAlign}
                       onSetVAlign={setVAlign}
                       onSetBg={setBg}
@@ -2144,7 +2168,25 @@ export default function EditorCanvas({
                   maxWidth={canvasMaxWidth}
                   minHeight={canvasMinHeight}
                   maxHeight={canvasMaxHeight}
-                  onResize={onCanvasResize}
+                  onResize={(newW, newH) => {
+                    // Масштабуємо всі блоки пропорційно зі зміною канвасу,
+                    // щоб layout розтягувався «як єдине ціле». block.x і block.width
+                    // зберігаються у % — горизонтально вже адаптуються через CSS.
+                    // block.y і block.height у px — множимо на vertical scale.
+                    const oldW = PAGE_WIDTH;
+                    const oldH = canvasHeight;
+                    if (oldH > 0 && newH !== oldH) {
+                      const sy = newH / oldH;
+                      const scaled = blocks.map(b => ({
+                        ...b,
+                        y: typeof b.y === "number" ? Math.round(b.y * sy) : b.y,
+                        height: typeof b.height === "number" ? Math.round(b.height * sy) : b.height,
+                      }));
+                      onBlocksChange(scaled);
+                    }
+                    void oldW;
+                    onCanvasResize(newW, newH);
+                  }}
                 />
               )}
             </div>
@@ -2394,6 +2436,12 @@ function AbsoluteBlock(props: {
   onDuplicate: (id: string) => void;
   onSetWidth: (id: string, w: string) => void;
   onSetWidthAndData: (id: string, w: string, data: Record<string, string>, height?: number) => void;
+  /** Silent update — оновлює width/data/height одного блока БЕЗ neighbor-shrink
+   *  та displaceBlocksAround. Викликається з BlockItem auto-resize-ефекту
+   *  (newsCard preview синхронізує власні розміри з template-aspect-ом на mount),
+   *  де ні neighbor-shrink, ні displacement не потрібні — це системна
+   *  нормалізація розміру, а не user-initiated resize. */
+  onSilentUpdate: (id: string, w: string, data: Record<string, string>, height: number) => void;
   onSetAlign: (id: string, a: "left" | "center" | "right") => void;
   onSetVAlign: (id: string, v: "top" | "center" | "bottom") => void;
   onSetBg: (id: string, c: string) => void;
@@ -2507,7 +2555,16 @@ function AbsoluteBlock(props: {
               ? `${previewHeight}px`
               : (block.height ? `${block.height}px` : undefined)),
         aspectRatio: (block.type === "newsCard" && (block.data.displayMode || "preview") === "preview")
-          ? "360 / 400"
+          ? (() => {
+              // Aspect беремо з нативного templateCanvas новини (BlockItem
+              // auto-resize ефект пише його у block.data на drop/mount).
+              // Fallback 360:400 — для старих preview-блоків без templateBlocks
+              // та поки фетч library ще не повернувся.
+              const tc = block.data?.templateCanvas || "";
+              const m = tc.match(/^(\d+)x(\d+)$/);
+              if (m) return `${Number(m[1])} / ${Number(m[2])}`;
+              return "360 / 400";
+            })()
           : block.type === "templateInstance"
             ? (() => {
                 // Aspect-ratio з templateCanvas (наприклад "800x448"). Висота
@@ -2576,6 +2633,7 @@ function AbsoluteBlock(props: {
         onDuplicate={props.onDuplicate}
         onSetWidth={props.onSetWidth}
         onSetWidthAndData={props.onSetWidthAndData}
+        onSilentUpdate={props.onSilentUpdate}
         onSetAlign={props.onSetAlign}
         onSetVAlign={props.onSetVAlign}
         onSetBg={props.onSetBg}

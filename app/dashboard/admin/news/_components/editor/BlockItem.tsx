@@ -54,6 +54,10 @@ interface Props {
   onDuplicate: (id: string) => void;
   onSetWidth: (id: string, w: BlockWidth) => void;
   onSetWidthAndData: (id: string, w: BlockWidth, data: Record<string, string>, height?: number) => void;
+  /** Silent update — оновлює тільки цей блок без neighbor-shift та displacement.
+   *  Викликається з newsCard auto-resize-ефекту, щоб синхронізація розмірів з
+   *  template-aspect-ом не зсувала сусідні блоки на mount/reload. */
+  onSilentUpdate: (id: string, w: string, data: Record<string, string>, height: number) => void;
   onSetAlign: (id: string, a: BlockAlign) => void;
   onSetVAlign: (id: string, v: BlockVAlign) => void;
   onSetBg: (id: string, c: string) => void;
@@ -93,7 +97,7 @@ export default function BlockItem({
   block, index, selected = false, canMoveUp, canMoveDown,
   dragAttributes, dragListeners,
   onChange, onMoveUp, onMoveDown, onDuplicate,
-  onSetWidth, onSetWidthAndData, onSetAlign, onSetVAlign, onSetBg, onSetBorderRadius,
+  onSetWidth, onSetWidthAndData, onSilentUpdate, onSetAlign, onSetVAlign, onSetBg, onSetBorderRadius,
   onUpload, containerWidthPx, onPreviewWidth, onClearPreview,
   onPreviewHeight, onClearPreviewHeight, previewHeight,
   onReportHeight, getEdgeSnapTargets, snapThreshold,
@@ -261,6 +265,9 @@ export default function BlockItem({
   //   - displayMode="preview" з кастомним previewContent: висота = canvasHeight(previewContent)
   //   - displayMode="preview" без previewContent: лишаємо auto-card (висота керується вручну)
   const lastNewsExpandedKeyRef = React.useRef<string>("");
+  // Ref: маркер що auto-resize вже застосовано для поточної (newsId, mode)
+  // комбінації. Запобігає re-fire effect-у на onSilentUpdate-ref change.
+  const autoResizeAppliedRef = React.useRef<string>("");
   React.useEffect(() => {
     if (block.type !== "newsCard") return;
     const mode = (block.data.displayMode || "preview") as "preview" | "expanded";
@@ -271,7 +278,20 @@ export default function BlockItem({
     // Expanded-mode завжди force-set 100% (контент авторовано на full canvas).
     if (mode === "preview" && block.data.manualSize === "1") return;
 
-    let cancelled = false;
+    // Per-blockId ref-bail: один раз на унікальну комбінацію (newsId|mode).
+    // СИНХРОННО позначаємо ДО async fetch — інакше при кількох effect-re-fires
+    // (через onSilentUpdate inline-arrow ref change) ВСІ fetches стартують
+    // паралельно, бо ref ще не виставлено. Це створювало нескінченний цикл
+    // fetch-update-rerender-fetch і вибивало браузер з ERR_INSUFFICIENT_RESOURCES.
+    const autoKey = `${newsId}|${mode}`;
+    if (autoResizeAppliedRef.current === autoKey) return;
+    autoResizeAppliedRef.current = autoKey;
+
+    // ⚠️ НЕ використовуємо cancelled-cleanup для цього effect-у. autoResizeAppliedRef
+    // вище вже гарантує одноразове виконання per (newsId, mode). Якщо ж позначити
+    // cancelled при re-fire (через onSilentUpdate inline-arrow ref change), то
+    // in-flight fetch першого виклику зробить early-return ПІСЛЯ того як новий
+    // run вже забейлив через ref — і onSilentUpdate ніколи не викликається.
     (async () => {
       try {
         const r = await fetch("/api/admin/news/library");
@@ -334,23 +354,34 @@ export default function BlockItem({
         }
         if (total === 0) return;
 
+        // Зберігаємо templateCanvas новини у block.data — EditorCanvas-у
+        // потрібно знати нативний aspect для CSS aspect-ratio wrapper-а
+        // (інакше fallback 360:400 ламає wide-EVENT шаблони). Дзеркало
+        // того ж поля у templateInstance-блоках.
+        const nextData = mode === "preview" && it.templateCanvas
+          ? { ...block.data, templateCanvas: it.templateCanvas }
+          : block.data;
+
         const widthChanged = targetWidth !== block.width;
         const heightChanged = Math.abs((block.height || 0) - total) > 8;
+        const dataChanged = nextData !== block.data;
         const key = `${newsId}|${mode}|${targetWidth}|${total}`;
         if (lastNewsExpandedKeyRef.current === key) return;
-        if (cancelled) return;
         lastNewsExpandedKeyRef.current = key;
 
-        if (widthChanged || heightChanged) {
-          onSetWidthAndData(block.id, targetWidth, block.data, total);
+        if (widthChanged || heightChanged || dataChanged) {
+          // Silent update — не пускає зміну ширини через neighbor-shrink,
+          // а зміну висоти — через displaceBlocksAround. Інакше при reload
+          // newsCard блоків з default-ширини 33% → нативної 39.1% сусіди
+          // зсуваються/клампляться, ламаючи збережений layout.
+          onSilentUpdate(block.id, targetWidth, nextData, total);
         }
       } catch {
         /* network/parse fail — лишаємо поточну висоту */
       }
     })();
-
-    return () => { cancelled = true; };
-  }, [block.type, block.data.displayMode, block.data.newsId, block.width, block.height, block.id, block.data, containerWidthPx, onSetWidthAndData]);
+    // Cleanup не потрібен — idempotency забезпечує autoResizeAppliedRef + lastNewsExpandedKeyRef.
+  }, [block.type, block.data.displayMode, block.data.newsId, block.width, block.height, block.id, block.data, containerWidthPx, onSilentUpdate]);
 
   const isSnapping = snapGuideH !== null;
   const textColor = (block.bgColor === "#1C3A2E" || block.bgColor === "#1a1a1a") ? "#FAF6F0" : "#1C3A2E";

@@ -569,6 +569,9 @@ export default function NewsEditor(props: Props) {
         await props.onSave({ ...effectiveMeta, published }, contents[k], imageUrl);
       }
       clearDraft(newsId, mode);
+      // Ховаємо banner «Незбережений чорновик» — після успішного save він не
+      // відображає актуальний стан (server тепер дорівнює серіалізованим блокам).
+      setPendingDraft(null);
       // Показуємо короткий "✓ Збережено" toast — користувачу видно що save пройшов.
       if (savedFlashTimerRef.current) clearTimeout(savedFlashTimerRef.current);
       setSavedFlash(true);
@@ -587,6 +590,17 @@ export default function NewsEditor(props: Props) {
     setBlocksByTab(prev => ({ ...prev, [tabKey]: next }));
   const setSelectedFor = (tabKey: string) => (id: string | null) =>
     setSelectedByTab(prev => ({ ...prev, [tabKey]: id }));
+  // Silent in-place updater для одного блока — використовує функціональний
+  // setBlocksByTab, тож кілька паралельних викликів (newsCard auto-resize при
+  // mount/reload одночасно для 3+ блоків) КОРЕКТНО зливаються без race-у.
+  const silentUpdateFor = (tabKey: string) =>
+    (id: string, w: string, data: Record<string, string>, h: number) =>
+      setBlocksByTab(prev => ({
+        ...prev,
+        [tabKey]: (prev[tabKey] || []).map(o => o.id === id
+          ? { ...o, width: String(Math.max(0.1, Math.min(100, Number(w) || 100))), data, height: h }
+          : o),
+      }));
 
   const editorActions = useMemo(() => ({ undo, redo }), [undo, redo]);
 
@@ -673,6 +687,7 @@ export default function NewsEditor(props: Props) {
               <EditorCanvas
                 blocks={blocksByTab[t.key] || []}
                 onBlocksChange={setBlocksFor(t.key)}
+                onSilentUpdateBlock={silentUpdateFor(t.key)}
                 onUpload={uploadFile}
                 pageBgColor={meta.pageBgColor || ""}
                 selectedBlockId={selectedByTab[t.key]}

@@ -112,6 +112,12 @@ export default function TemplateConstructor({
   // Live-стан розмірів канвасу. Змінюється і через corner drag-handle (EditorCanvas),
   // і через інпути W/H у верхньому label-у. Зберігається debounce-нуто 600ms.
   const [canvasSize, setCanvasSize] = useState(initialCanvas);
+  // Reset key — bump-нути щоб пересмонтувати NewsEditor з оригінальними
+  // блоками (повернути layout до заданого шаблоном вигляду).
+  const [resetKey, setResetKey] = useState(0);
+  // Розблокування layout у content-mode: дозволяє менеджеру вільно тягати/
+  // ресайзити блоки, як у blueprint-режимі. Default — locked (тільки контент).
+  const [layoutUnlocked, setLayoutUnlocked] = useState(false);
   // Назва шаблону. Відображається в інпуті над палітрою. Шлеться окремим PATCH
   // debounce-нуто 600ms. Final Save переписує тим, що тут у стейті (а не
   // initialMeta.title, бо meta-сайдбар прихований).
@@ -169,6 +175,17 @@ export default function TemplateConstructor({
     setCanvasSize(c);
     persistCanvasSize(c.width, c.height);
   }, [persistCanvasSize]);
+
+  // Повернення до заданого (initialCanvas) розміру + remount NewsEditor, щоб
+  // блоки повернулись на свої початкові позиції з initialBlocks. Працює тільки
+  // якщо поточний розмір відрізняється від заданого.
+  const isDirtyCanvas = canvasSize.width !== initialCanvas.width
+    || canvasSize.height !== initialCanvas.height;
+  const handleResetSize = useCallback(() => {
+    setCanvasSize(initialCanvas);
+    persistCanvasSize(initialCanvas.width, initialCanvas.height);
+    setResetKey(k => k + 1);
+  }, [initialCanvas, persistCanvasSize]);
 
   const handleSave = useCallback(
     async (_meta: NewsMeta, content: string, imageUrl: string) => {
@@ -229,6 +246,7 @@ export default function TemplateConstructor({
         </div>
       )}
       <NewsEditor
+        key={resetKey}
         pageTitle={isContentMode ? "Білдер Новин" : "Білдер Шаблону"}
         newsId={newsId}
         onBack={onBack}
@@ -249,9 +267,10 @@ export default function TemplateConstructor({
         // templateMode=true: лише плейсхолдери-мітки (дизайн структури).
         templateMode={!isContentMode}
         // У content-mode layout заморожений: drag і resize вимкнено, менеджер
-        // тільки наповнює існуючі блоки контентом.
-        lockLayout={isContentMode}
-        onCanvasResize={handleCanvasResize}
+        // тільки наповнює існуючі блоки контентом. Кнопка «Розблокувати блоки»
+        // знімає блокування тимчасово — менеджер може вільно тягати/ресайзити.
+        lockLayout={isContentMode && !layoutUnlocked}
+        onCanvasResize={(isContentMode && !layoutUnlocked) ? undefined : handleCanvasResize}
         canvasMinWidth={CANVAS_MIN_W}
         canvasMaxWidth={CANVAS_MAX_W}
         canvasMinHeight={CANVAS_MIN_H}
@@ -261,7 +280,14 @@ export default function TemplateConstructor({
         // успадковується з шаблону і не редагується тут — менеджер наповнює
         // контентом, а не перерозмірює.
         canvasTopToolbar={
-          isContentMode ? null : (
+          isContentMode ? (
+            <ContentModeToolbar
+              showReset={isDirtyCanvas}
+              onResetSize={handleResetSize}
+              layoutUnlocked={layoutUnlocked}
+              onToggleLayoutLock={() => setLayoutUnlocked(v => !v)}
+            />
+          ) : (
             <CanvasHorizontalPresetsBar
               width={canvasSize.width}
               height={canvasSize.height}
@@ -385,6 +411,77 @@ function CanvasSizeInputs({
       />
       <span style={{ color: "#94A3B8", fontSize: 11, fontWeight: 500, letterSpacing: "0.04em" }}>px</span>
     </span>
+  );
+}
+
+// Тулбар над канвасом у content-mode (Білдер Новин). Дві кнопки:
+//   • «Повернути до Заданого розміру» — лише коли поточний розмір канвасу
+//     відрізняється від заданого шаблоном. Повертає canvas + remount-ить
+//     editor щоб блоки повернулися на свої початкові позиції.
+//   • «Розблокувати блоки» / «Заблокувати блоки» — toggle для freeze-у
+//     drag/resize блоків. У залоченому стані менеджер тільки наповнює контент.
+function ContentModeToolbar({
+  showReset, onResetSize, layoutUnlocked, onToggleLayoutLock,
+}: {
+  showReset: boolean;
+  onResetSize: () => void;
+  layoutUnlocked: boolean;
+  onToggleLayoutLock: () => void;
+}) {
+  const baseBtn: React.CSSProperties = {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    padding: "6px 12px",
+    borderRadius: 8,
+    fontSize: 12,
+    fontWeight: 600,
+    fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
+    cursor: "pointer",
+    transition: "background 0.12s, border-color 0.12s",
+    whiteSpace: "nowrap",
+    lineHeight: 1.2,
+  };
+  return (
+    <div style={{
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 8,
+      fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
+    }}>
+      {showReset && (
+        <button
+          type="button"
+          onClick={onResetSize}
+          title="Повернути канвас і блоки до розміру, заданого шаблоном"
+          style={{
+            ...baseBtn,
+            background: "rgba(212,168,67,0.14)",
+            border: "1px solid rgba(212,168,67,0.55)",
+            color: "#78350F",
+          }}
+        >
+          <span aria-hidden>↺</span>
+          <span>Повернути до Заданого розміру</span>
+        </button>
+      )}
+      <button
+        type="button"
+        onClick={onToggleLayoutLock}
+        title={layoutUnlocked
+          ? "Заблокувати блоки — повернути content-only режим"
+          : "Розблокувати блоки — дозволити drag і resize"}
+        style={{
+          ...baseBtn,
+          background: layoutUnlocked ? "rgba(16,185,129,0.14)" : "transparent",
+          border: `1px solid ${layoutUnlocked ? "rgba(16,185,129,0.55)" : "rgba(15,23,42,0.18)"}`,
+          color: layoutUnlocked ? "#065F46" : "#334155",
+        }}
+      >
+        <span aria-hidden>{layoutUnlocked ? "🔓" : "🔒"}</span>
+        <span>{layoutUnlocked ? "Заблокувати блоки" : "Розблокувати блоки"}</span>
+      </button>
+    </div>
   );
 }
 
