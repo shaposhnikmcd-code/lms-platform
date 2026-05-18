@@ -178,6 +178,25 @@ export const NEWS_BLOCK_CSS = `
   [data-news-block-type] s { text-decoration: line-through }
   [data-news-block-type] a { color: #0EA5E9; text-decoration: underline }
   [data-news-block-type] mark { padding: 0 2px; border-radius: 2px }
+
+  /* Рамка блока (FrameOverlay) — keyframes для ефектів pulse + marching-ants.
+     Атрибут [data-news-frame-effect] виставляється на overlay-діві у FrameOverlay
+     (нижче); саме оформлення border/box-shadow — інлайн (динамічний колір/товщина). */
+  @keyframes news-frame-pulse {
+    0%, 100% { opacity: 1 }
+    50% { opacity: 0.35 }
+  }
+  @keyframes news-frame-ants {
+    to {
+      background-position: 12px 0, -12px 100%, 0 -12px, 100% 12px;
+    }
+  }
+  [data-news-frame-effect="pulse"] {
+    animation: news-frame-pulse 2.4s ease-in-out infinite;
+  }
+  [data-news-frame-effect="marching-ants"] {
+    animation: news-frame-ants 0.6s linear infinite;
+  }
 `;
 
 // Fallback-висоти для блоків без явної .height і без aspectRatio.
@@ -335,6 +354,128 @@ export interface OverlayShape {
   letterSpacing?: number;
   lineHeight?: number;
   href?: string;
+}
+
+// ── Рамка блока (Frame) ────────────────────────────────────────────────────
+// Per-block рамка: лінія по краях + (опційно) візуальний ефект. Зберігається у
+// `block.data`:
+//   - frameStyle:  "solid" | "dashed" | "dotted" | "double" | "groove" | "ridge"
+//   - frameColor:  hex (#RRGGBB) — колір рамки
+//   - frameWidth:  "1".."20"     — товщина в px
+//   - frameEffect: "none" | "shadow" | "glow" | "inset" | "double-outline"
+//                  | "pulse" | "marching-ants"
+//
+// Рендериться як ABSOLUTE-overlay child всередині wrapper-а блока — щоб не
+// конфліктувати з селекшен-border-ом редактора і працювати ідентично у
+// public+builder. `pointer-events: none`, тож клік проходить крізь.
+export type FrameStyle = "solid" | "dashed" | "dotted" | "double" | "groove" | "ridge";
+export type FrameEffect = "none" | "shadow" | "glow" | "inset" | "double-outline" | "pulse" | "marching-ants";
+
+export const FRAME_STYLES: { value: FrameStyle; label: string }[] = [
+  { value: "solid",  label: "Суцільна" },
+  { value: "dashed", label: "Пунктир" },
+  { value: "dotted", label: "Крапки" },
+  { value: "double", label: "Подвійна" },
+  { value: "groove", label: "Рельєф ↓" },
+  { value: "ridge",  label: "Рельєф ↑" },
+];
+
+export const FRAME_EFFECTS: { value: FrameEffect; label: string; hint: string }[] = [
+  { value: "none",           label: "Без ефекту",  hint: "Звичайна рамка" },
+  { value: "shadow",         label: "Тінь",        hint: "Мʼяка тінь під рамкою" },
+  { value: "glow",           label: "Світіння",    hint: "Сяйво кольором рамки" },
+  { value: "inset",          label: "Внутрішня",   hint: "Тінь усередину блока" },
+  { value: "double-outline", label: "Подвійна",    hint: "Друга тонша рамка-кільце" },
+  { value: "pulse",          label: "Пульсація",   hint: "Повільне мерехтіння (2.4 с)" },
+  { value: "marching-ants",  label: "Бігунчик",    hint: "Анімований рух dashed (як у Photoshop)" },
+];
+
+// Hex (#RRGGBB) + alpha 0..1 → "rgba(...)". Якщо колір не hex — повертаємо як є.
+function hexAlpha(hex: string, alpha: number): string {
+  const m = /^#([0-9a-fA-F]{6})$/.exec(hex || "");
+  if (!m) return hex || "transparent";
+  const r = parseInt(m[1].slice(0, 2), 16);
+  const g = parseInt(m[1].slice(2, 4), 16);
+  const b = parseInt(m[1].slice(4, 6), 16);
+  return `rgba(${r},${g},${b},${Math.max(0, Math.min(1, alpha))})`;
+}
+
+/** Чи задана у блока валідна рамка (style + color + width > 0)? */
+export function hasFrame(data: Record<string, string> | undefined): boolean {
+  if (!data) return false;
+  const w = Number(data.frameWidth) || 0;
+  return !!data.frameStyle && !!data.frameColor && w > 0;
+}
+
+/**
+ * Overlay-компонент рамки. Викликати ВСЕРЕДИНІ wrapper-а блока — рендерить
+ * absolute-позиційований div з border + effect. Якщо рамка не задана — повертає null.
+ *
+ * @param data — `block.data` (frameStyle/frameColor/frameWidth/frameEffect)
+ * @param borderRadius — успадковує радіус кутів wrapper-а (число px або CSS-string per-corner)
+ */
+export function FrameOverlay({
+  data,
+  borderRadius,
+}: {
+  data: Record<string, string> | undefined;
+  borderRadius?: string | number;
+}) {
+  if (!data || !hasFrame(data)) return null;
+  const style = data.frameStyle as FrameStyle;
+  const color = data.frameColor;
+  const width = Math.max(1, Math.min(20, Number(data.frameWidth) || 1));
+  const effect = (data.frameEffect as FrameEffect) || "none";
+
+  // Marching-ants — окремий рендер через 4×background-image stripe-ів, бо
+  // border не можна анімувати по позиції (CSS border-image для цього погано
+  // підходить). Stripe period 12px, animated by `news-frame-ants` keyframes.
+  if (effect === "marching-ants") {
+    return (
+      <div
+        data-news-frame-effect="marching-ants"
+        style={{
+          position: "absolute",
+          inset: 0,
+          pointerEvents: "none",
+          borderRadius,
+          backgroundImage: [
+            `linear-gradient(90deg, ${color} 50%, transparent 50%)`, // top
+            `linear-gradient(90deg, ${color} 50%, transparent 50%)`, // bottom
+            `linear-gradient(0deg, ${color} 50%, transparent 50%)`,  // left
+            `linear-gradient(0deg, ${color} 50%, transparent 50%)`,  // right
+          ].join(", "),
+          backgroundPosition: "0 0, 0 100%, 0 0, 100% 0",
+          backgroundSize: `12px ${width}px, 12px ${width}px, ${width}px 12px, ${width}px 12px`,
+          backgroundRepeat: "repeat-x, repeat-x, repeat-y, repeat-y",
+          zIndex: 3,
+        }}
+      />
+    );
+  }
+
+  // Звичайні ефекти — border + (опційно) box-shadow.
+  const boxShadowParts: string[] = [];
+  if (effect === "shadow") boxShadowParts.push("0 8px 24px rgba(0,0,0,0.18)");
+  if (effect === "glow") boxShadowParts.push(`0 0 18px 2px ${hexAlpha(color, 0.65)}`);
+  if (effect === "inset") boxShadowParts.push(`inset 0 0 20px 2px ${hexAlpha(color, 0.55)}`);
+  if (effect === "double-outline") boxShadowParts.push(`0 0 0 4px ${hexAlpha(color, 0.30)}`);
+
+  return (
+    <div
+      data-news-frame-effect={effect === "pulse" ? "pulse" : undefined}
+      style={{
+        position: "absolute",
+        inset: 0,
+        pointerEvents: "none",
+        borderRadius,
+        border: `${width}px ${style} ${color}`,
+        boxShadow: boxShadowParts.length ? boxShadowParts.join(", ") : undefined,
+        boxSizing: "border-box",
+        zIndex: 3,
+      }}
+    />
+  );
 }
 
 // Парсимо raw JSON-рядок overlays із block.data.overlays / photo.overlays.
@@ -1439,10 +1580,17 @@ export function AbsoluteBlockRender({
         // newsCard у будь-якому режимі може мати динамічний контент (expanded — повне тіло;
         // preview — кастомний layout з білдера превʼю). Дозволяємо overflow:visible щоб
         // блок ріс під природній розмір.
-        overflow: block.type === "newsCard" ? "visible" : "hidden",
+        // АЛЕ: якщо у блока є власний border-radius — overflow МАЄ бути hidden, щоб
+        // округлі кути wrapper-а клипали квадратні дочірні блоки. Інакше у Білдері
+        // Сторінки заокруглений newsCard/templateInstance показує «зуби» у кутах
+        // (квадратні краї внутрішніх блоків стирчать з-під радіуса).
+        overflow: (resolvedRadiusBase > 0)
+          ? "hidden"
+          : (block.type === "newsCard" ? "visible" : "hidden"),
       }}
     >
       <BlockInner block={block} newsItems={newsItems} locale={locale} />
+      <FrameOverlay data={block.data} borderRadius={resolvedRadius} />
     </div>
   );
 }
@@ -1475,9 +1623,11 @@ export function SequentialBlockRender({
         background: block.bgColor || "transparent",
         borderRadius: resolvedRadius,
         padding: block.bgColor ? "10px 14px" : 0,
+        position: "relative",
       }}
     >
       <BlockInner block={block} newsItems={newsItems} locale={locale} />
+      <FrameOverlay data={block.data} borderRadius={resolvedRadius} />
     </div>
   );
 }

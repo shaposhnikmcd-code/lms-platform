@@ -25,7 +25,7 @@ import {
 import BlockItemHeader from "./BlockItemHeader";
 import BlockItemSnapGuide from "./BlockItemSnapGuide";
 import { useBlockResize } from "./hooks/useBlockResize";
-import { canvasHeight as innerCanvasHeight, parseBlocks as parseInnerBlocks, PREVIEW_CARD_WIDTH, PREVIEW_CARD_HEIGHT } from "@/lib/news/render";
+import { canvasHeight as innerCanvasHeight, parseBlocks as parseInnerBlocks, PREVIEW_CARD_WIDTH, PREVIEW_CARD_HEIGHT, FrameOverlay } from "@/lib/news/render";
 
 // Мінімально-корисна висота блока в px по типу. Дзеркало MIN_H_BY_TYPE з
 // EditorCanvas (узгоджено з auto-fit для нових блоків з палітри). Без цього
@@ -488,6 +488,11 @@ export default function BlockItem({
           lockLayout={lockLayout}
           borderRadiusCorners={block.data.borderRadiusCorners}
           onSetBorderRadiusCorners={(corners) => onChange(block.id, { ...block.data, borderRadiusCorners: corners })}
+          frameStyle={block.data.frameStyle}
+          frameColor={block.data.frameColor}
+          frameWidth={Number(block.data.frameWidth) || 0}
+          frameEffect={block.data.frameEffect}
+          onSetFrame={(patch) => onChange(block.id, { ...block.data, ...patch })}
           blockSubtitle={(() => {
             // Для text-bearing блоків — snippet тексту (перші ~36 знаків).
             // Дзеркало OverlayToolbar.subtitle (де показується ov.text).
@@ -571,7 +576,14 @@ export default function BlockItem({
           // кастомним previewContent — там контент може зрости поза block.height,
           // а auto-resize ефект досі не встиг вирівняти — тому дозволяємо visible,
           // щоб користувач бачив весь контент одразу.
-          overflow: (block.type === "newsCard" && (block.data.displayMode === "expanded" || block.data.displayMode === "preview")) ? "visible" : "hidden",
+          // АЛЕ: якщо менеджер задав border-radius на самому блоці — overflow МАЄ
+          // бути hidden, інакше дочірні квадратні блоки (фото, плашки) виглядають
+          // з-під округлих кутів wrapper-а. Заокруглення без clipping = візуальний баг.
+          overflow: (() => {
+            const r = typeof block.borderRadius === "number" ? block.borderRadius : 0;
+            if (r > 0) return "hidden";
+            return (block.type === "newsCard" && (block.data.displayMode === "expanded" || block.data.displayMode === "preview")) ? "visible" : "hidden";
+          })(),
           position: "relative",
           transition: resizingW || resizingH || resizingD ? "none" : "outline-color 0.15s, border-radius 0.15s ease",
         }}
@@ -608,6 +620,21 @@ export default function BlockItem({
             {block.type === "educationItem" && <EducationItemEditor block={block} onChange={d => onChange(block.id, d)} selected={selected} />}
           </>
         )}
+        {/* Frame overlay — рамка блока з ефектами. Працює ідентично у білдері й
+            на public (lib/news/render.tsx → FrameOverlay), бо рендер один. */}
+        <FrameOverlay
+          data={block.data}
+          borderRadius={(() => {
+            const r = typeof block.borderRadius === "number"
+              ? (block.borderRadius >= 999 ? 9999 : block.borderRadius)
+              : 0;
+            const corners = block.data?.borderRadiusCorners;
+            if (corners && corners.length === 4 && corners !== "1111") {
+              return buildCornerRadiusCss(r, corners);
+            }
+            return r;
+          })()}
+        />
       </div>
 
       {/* Resize handles доступні для всіх блоків включно з newsCard preview —

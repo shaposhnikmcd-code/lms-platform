@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { UIMP_COLORS } from "../types";
+import { FRAME_STYLES, FRAME_EFFECTS, type FrameStyle, type FrameEffect } from "@/lib/news/render";
 
 // Спільні UI-примітиви для sectioned-панелей Налаштування блока
 // (TextEditor, HeadingEditor — використовують ці; OverlayToolbar поки має
@@ -272,6 +273,151 @@ export function RadiusControl({
           box-shadow: 0 2px 8px rgba(28,58,46,0.3), 0 0 0 4px rgba(212,168,67,0.35);
         }
       `}</style>
+    </div>
+  );
+}
+
+// ── FrameControl ───────────────────────────────────────────────────────────
+// Контрол секції «Рамка блока». 3 параметри:
+//   1) Стиль (solid/dashed/dotted/double/groove/ridge)
+//   2) Колір (UIMP-палітра + custom-picker)
+//   3) Товщина (1..12 px, слайдер)
+//   4) Ефект (none/shadow/glow/inset/double-outline/pulse/marching-ants)
+//
+// Один callback `onChange(patch)` приймає часткове оновлення (наприклад
+// { frameStyle: "dashed" }). Caller мерджить його у block.data.
+export function FrameControl({
+  style,
+  color,
+  width,
+  effect,
+  onChange,
+}: {
+  style: string;
+  color: string;
+  width: number;
+  effect: string;
+  onChange: (patch: { frameStyle?: string; frameColor?: string; frameWidth?: string; frameEffect?: string }) => void;
+}) {
+  const WIDTH_MAX = 12;
+  const enabled = !!style && !!color && width > 0;
+
+  // Quick-reset: «Без рамки» прибирає всі 4 поля (порожні рядки → hasFrame=false).
+  const clearFrame = () => onChange({ frameStyle: "", frameColor: "", frameWidth: "0", frameEffect: "" });
+  // Quick-enable: якщо menager обирає style / color / збільшує width — і досі
+  // нема одного з ключових полів, автоматично виставляємо розумні defaults.
+  const enableWithDefaults = (patch: { frameStyle?: string; frameColor?: string; frameWidth?: string; frameEffect?: string }) => {
+    const next = {
+      frameStyle: patch.frameStyle !== undefined ? patch.frameStyle : (style || "solid"),
+      frameColor: patch.frameColor !== undefined ? patch.frameColor : (color || "#1C3A2E"),
+      frameWidth: patch.frameWidth !== undefined ? patch.frameWidth : (width > 0 ? String(width) : "2"),
+      frameEffect: patch.frameEffect !== undefined ? patch.frameEffect : (effect || "none"),
+    };
+    onChange(next);
+  };
+
+  return (
+    <div>
+      {/* Style picker — 6 пресетів + «Без рамки» */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 4, marginBottom: 8 }}>
+        <button
+          type="button"
+          title="Без рамки"
+          onClick={clearFrame}
+          style={{
+            height: 26,
+            border: `1px solid ${!enabled ? "#D4A843" : "#E8D5B7"}`,
+            background: !enabled ? "#1C3A2E" : "#FFFFFF",
+            color: !enabled ? "#D4A843" : "#6B7280",
+            borderRadius: 6, cursor: "pointer", padding: 0,
+            fontSize: 10, fontFamily: ff, fontWeight: 700,
+            display: "inline-flex", alignItems: "center", justifyContent: "center",
+          }}
+        >Нема</button>
+        {FRAME_STYLES.map(s => {
+          const active = enabled && (style as FrameStyle) === s.value;
+          // Превʼю-смужка з border тим самим стилем (compact).
+          return (
+            <button
+              key={s.value}
+              type="button"
+              title={s.label}
+              onClick={() => enableWithDefaults({ frameStyle: s.value })}
+              style={{
+                height: 26,
+                border: `1px solid ${active ? "#D4A843" : "#E8D5B7"}`,
+                background: active ? "#1C3A2E" : "#FFFFFF",
+                borderRadius: 6, cursor: "pointer", padding: 0,
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
+              }}
+            >
+              <span style={{
+                display: "inline-block",
+                width: "70%",
+                height: 0,
+                borderTop: `3px ${s.value} ${active ? "#D4A843" : "#1C3A2E"}`,
+              }} />
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Колір рамки — UIMP-палітра + custom */}
+      <div style={{ marginBottom: 8 }}>
+        <ColorSwatchRow
+          current={color}
+          onChange={(c) => enableWithDefaults({ frameColor: c })}
+          includeTransparent={false}
+        />
+      </div>
+
+      {/* Товщина — слайдер 1..12 px */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+        <span style={{ fontSize: 10, color: "#9B7C45", letterSpacing: "0.08em", fontWeight: 700, minWidth: 60, fontFamily: ff }}>Товщина</span>
+        <input
+          type="range"
+          min={0}
+          max={WIDTH_MAX}
+          step={1}
+          value={Math.min(WIDTH_MAX, Math.max(0, width))}
+          onChange={(e) => {
+            const v = Number(e.target.value);
+            if (v === 0) clearFrame();
+            else enableWithDefaults({ frameWidth: String(v) });
+          }}
+          style={{ flex: 1, cursor: "pointer", accentColor: "#D4A843" }}
+        />
+        <span style={{ fontSize: 11, fontWeight: 700, color: "#1C3A2E", minWidth: 30, textAlign: "right", fontFamily: ff, fontVariantNumeric: "tabular-nums" }}>
+          {width > 0 ? `${width} px` : "—"}
+        </span>
+      </div>
+
+      {/* Ефект — pill-кнопки в 2 ряди */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 4 }}>
+        {FRAME_EFFECTS.map(e => {
+          const active = enabled && ((effect as FrameEffect) || "none") === e.value;
+          const disabled = !enabled && e.value !== "none";
+          return (
+            <button
+              key={e.value}
+              type="button"
+              title={e.hint}
+              disabled={disabled}
+              onClick={() => enableWithDefaults({ frameEffect: e.value })}
+              style={{
+                height: 22,
+                border: `1px solid ${active ? "#D4A843" : "#E8D5B7"}`,
+                background: active ? "#1C3A2E" : "#FFFFFF",
+                color: active ? "#D4A843" : (disabled ? "#D1D5DB" : "#1C3A2E"),
+                borderRadius: 5, cursor: disabled ? "not-allowed" : "pointer", padding: "0 6px",
+                fontSize: 10, fontFamily: ff, fontWeight: 600,
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
+                opacity: disabled ? 0.5 : 1,
+              }}
+            >{e.label}</button>
+          );
+        })}
+      </div>
     </div>
   );
 }

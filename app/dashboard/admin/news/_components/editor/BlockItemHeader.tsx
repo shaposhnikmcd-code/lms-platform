@@ -6,7 +6,7 @@ import { requestCrop, requestReplacePhoto } from "./blocks/ImageEditor";
 // Section / SectionLabel — ті самі що в OverlayToolbar (Текст на фото).
 // Раніше тут були локальні версії з amber-кольором і малим padding-ом — це
 // створювало неконсистентність між двома редакторами.
-import { Section, SectionLabel, RadiusControl } from "./blocks/_settingsPrimitives";
+import { Section, SectionLabel, RadiusControl, FrameControl } from "./blocks/_settingsPrimitives";
 
 const ff = "-apple-system, BlinkMacSystemFont, sans-serif";
 
@@ -45,6 +45,13 @@ interface Props {
    *  Зберігається у block.data.borderRadiusCorners. */
   borderRadiusCorners?: string;
   onSetBorderRadiusCorners?: (corners: string) => void;
+  /** Рамка блока — 4 поля з `block.data` (frameStyle/frameColor/frameWidth/frameEffect).
+   *  Якщо `onSetFrame` не передано — секція «Рамка блока» не рендериться. */
+  frameStyle?: string;
+  frameColor?: string;
+  frameWidth?: number;
+  frameEffect?: string;
+  onSetFrame?: (patch: { frameStyle?: string; frameColor?: string; frameWidth?: string; frameEffect?: string }) => void;
 }
 
 const LABELS: Record<string, string> = { text: "Текст", heading: "Заголовок", image: "Фото", youtube: "YouTube", quote: "Цитата", divider: "Роздільник", card: "Картка" };
@@ -133,6 +140,7 @@ export default function BlockItemHeader({
   onSetAlign, onSetVAlign, onSetBg, onSetBorderRadius, onDuplicate,
   blockSubtitle, templateMode = false, lockLayout = false,
   borderRadiusCorners, onSetBorderRadiusCorners,
+  frameStyle, frameColor, frameWidth, frameEffect, onSetFrame,
 }: Props) {
   // "Розміщення блока" прибрано з шапки (рішення 2026-05-14) — дублювало
   // text-align з панелі. onSetAlign залишається в props (caller-cascade), просто
@@ -144,6 +152,9 @@ export default function BlockItemHeader({
   // Для templateInstance (новина з шаблону на сторінці /news) також ховаємо —
   // блок є read-only widget, контент-styling задається в адмінці новин, а не тут.
   const showBg = !templateMode && blockType !== "divider" && blockType !== "templateInstance";
+  // Рамка — той самий скоуп що showBg (контент-styling). Для divider/templateInstance
+  // рамка не має сенсу (divider — лінія, templateInstance — read-only widget).
+  const showFrame = showBg && !!onSetFrame;
 
   // Subtitle для другого рядка info-strip-а: контент-snippet (з blockSubtitle)
   // або ширина% як fallback. Для порожнього text-block-а — "(порожньо)".
@@ -370,6 +381,19 @@ export default function BlockItemHeader({
               </div>
             );
           })()}
+        </Section>
+      )}
+
+      {showFrame && (
+        <Section padTop={0}>
+          <SectionLabel>Рамка блока</SectionLabel>
+          <FrameControl
+            style={frameStyle || ""}
+            color={frameColor || ""}
+            width={frameWidth ?? 0}
+            effect={frameEffect || "none"}
+            onChange={(patch) => onSetFrame?.(patch)}
+          />
         </Section>
       )}
     </div>
