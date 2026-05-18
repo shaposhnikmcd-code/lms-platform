@@ -281,27 +281,47 @@ export default function TemplateConstructor({
         // контентом, а не перерозмірює.
         canvasTopToolbar={
           isContentMode ? (
-            <ContentModeToolbar
-              showReset={isDirtyCanvas}
-              onResetSize={handleResetSize}
-              layoutUnlocked={layoutUnlocked}
-              onToggleLayoutLock={() => setLayoutUnlocked(v => !v)}
+            <CanvasEdgeRuler
+              orientation="horizontal"
+              value={canvasSize.width}
+              trailing={
+                <ContentModeToolbar
+                  showReset={isDirtyCanvas}
+                  onResetSize={handleResetSize}
+                  layoutUnlocked={layoutUnlocked}
+                  onToggleLayoutLock={() => setLayoutUnlocked(v => !v)}
+                />
+              }
             />
           ) : (
-            <CanvasHorizontalPresetsBar
-              width={canvasSize.width}
-              height={canvasSize.height}
-              onPick={handleCanvasResize}
-              onChangeSize={handleCanvasResize}
+            <CanvasEdgeRuler
+              orientation="horizontal"
+              value={canvasSize.width}
+              trailing={
+                <CanvasHorizontalPresetsBar
+                  width={canvasSize.width}
+                  height={canvasSize.height}
+                  onPick={handleCanvasResize}
+                  onChangeSize={handleCanvasResize}
+                />
+              }
             />
           )
         }
         canvasLeftToolbar={
-          isContentMode ? null : (
-            <CanvasVerticalPresetsColumn
-              width={canvasSize.width}
-              height={canvasSize.height}
-              onPick={handleCanvasResize}
+          isContentMode ? (
+            <CanvasEdgeRuler orientation="vertical" value={canvasSize.height} />
+          ) : (
+            <CanvasEdgeRuler
+              orientation="vertical"
+              value={canvasSize.height}
+              trailing={
+                <CanvasVerticalPresetsColumn
+                  width={canvasSize.width}
+                  height={canvasSize.height}
+                  onPick={handleCanvasResize}
+                />
+              }
             />
           )
         }
@@ -356,24 +376,35 @@ function CanvasSizeInputs({
   };
 
   const inputStyle: React.CSSProperties = {
-    width: 62,
-    background: "#FFFFFF",
-    border: "1px solid rgba(15,23,42,0.14)",
-    borderRadius: 8,
-    color: "#0F172A",
-    fontSize: 12.5,
-    fontWeight: 600,
-    letterSpacing: "0.01em",
+    width: 48,
+    background: "transparent",
+    border: "none",
+    borderBottom: "1px solid rgba(143,102,28,0.45)",
+    borderRadius: 0,
+    color: "rgba(110,76,22,1)",
+    fontSize: 15,
+    fontWeight: 500,
+    fontStyle: "italic",
+    letterSpacing: "0.10em",
     textAlign: "center",
-    padding: "6px 8px",
-    fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
+    padding: "2px 2px 3px",
+    fontFamily: "'Cormorant Garamond', 'Playfair Display', 'Times New Roman', serif",
     outline: "none",
     fontVariantNumeric: "tabular-nums",
-    boxShadow: "0 1px 2px rgba(15,23,42,0.04)",
+    boxShadow: "none",
+    textShadow: "0 1px 0 rgba(255,255,255,0.6)",
   };
 
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 7, color: "#94A3B8", fontSize: 12 }}>
+    <span style={{
+      display: "inline-flex",
+      alignItems: "baseline",
+      gap: 4,
+      color: "rgba(143,102,28,0.55)",
+      fontFamily: "'Cormorant Garamond', 'Playfair Display', 'Times New Roman', serif",
+      fontStyle: "italic",
+      fontSize: 13,
+    }}>
       <input
         type="text"
         inputMode="numeric"
@@ -391,7 +422,7 @@ function CanvasSizeInputs({
         aria-label="Ширина канвасу, px"
         style={inputStyle}
       />
-      <span style={{ opacity: 0.6 }}>×</span>
+      <span style={{ opacity: 0.5, fontSize: 12, fontStyle: "normal", fontWeight: 300, margin: "0 1px" }}>×</span>
       <input
         type="text"
         inputMode="numeric"
@@ -409,7 +440,14 @@ function CanvasSizeInputs({
         aria-label="Висота канвасу, px"
         style={inputStyle}
       />
-      <span style={{ color: "#94A3B8", fontSize: 11, fontWeight: 500, letterSpacing: "0.04em" }}>px</span>
+      <span style={{
+        opacity: 0.62,
+        fontSize: 10,
+        letterSpacing: "0.28em",
+        fontStyle: "normal",
+        marginLeft: 4,
+        textTransform: "lowercase",
+      }}>px</span>
     </span>
   );
 }
@@ -485,6 +523,108 @@ function ContentModeToolbar({
   );
 }
 
+// «Лінійка» з розміром канвасу вздовж його краю — світло-золотий тонкий
+// напис на тлі canvas-у. Горизонтально (W px) — над верхнім краєм, з підкреслю-
+// вальною hairline-лінією, що тягнеться через всю ширину канвасу. Вертикально
+// (H px) — рендериться у канвасі canvasLeftToolbar (висота розтягується через
+// alignItems: stretch); число обертається на 90° і центрується по висоті, а
+// hairline-лінія йде вертикально вздовж лівого краю.
+function CanvasEdgeRuler({
+  orientation, value, trailing,
+}: {
+  orientation: "horizontal" | "vertical";
+  value: number;
+  trailing?: React.ReactNode;
+}) {
+  // Глибший, благородніший золотий — як patina на старій рамі.
+  const goldDeep = "rgba(143,102,28,0.78)";
+  const hairline = "rgba(178,128,30,0.32)";
+  const label = (
+    <span
+      style={{
+        fontFamily: "'Cormorant Garamond', 'Playfair Display', 'Times New Roman', serif",
+        fontStyle: "italic",
+        fontWeight: 500,
+        fontSize: 16,
+        letterSpacing: "0.14em",
+        color: goldDeep,
+        fontVariantNumeric: "tabular-nums",
+        whiteSpace: "nowrap",
+        textShadow: "0 1px 0 rgba(255,255,255,0.6)",
+      }}
+    >
+      {value}<span style={{
+        marginLeft: 5,
+        opacity: 0.62,
+        fontSize: 10,
+        letterSpacing: "0.28em",
+        fontStyle: "normal",
+        textTransform: "lowercase",
+      }}>px</span>
+    </span>
+  );
+
+  if (orientation === "horizontal") {
+    return (
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          width: "100%",
+          gap: 16,
+          marginBottom: -10,
+          paddingLeft: 2,
+        }}
+      >
+        {label}
+        <div
+          aria-hidden
+          style={{
+            width: 56,
+            height: 1,
+            background: `linear-gradient(to right, ${hairline} 0%, transparent 100%)`,
+            flexShrink: 0,
+          }}
+        />
+        {trailing && <div style={{ flexShrink: 0, flex: 1, display: "flex", justifyContent: "flex-end" }}>{trailing}</div>}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: trailing ? "flex-start" : "center",
+        width: trailing ? 28 : 22,
+        height: "100%",
+        gap: 12,
+        position: "relative",
+        paddingTop: trailing ? 4 : 0,
+        marginRight: -6,
+      }}
+    >
+      <div
+        aria-hidden
+        style={{
+          position: "absolute",
+          top: 0,
+          bottom: 32,
+          right: 0,
+          width: 1,
+          background: `linear-gradient(to bottom, transparent 0%, ${hairline} 100%)`,
+        }}
+      />
+      <div style={{ transform: "rotate(-90deg)", transformOrigin: "center", margin: trailing ? "32px 0 8px" : 0 }}>
+        {label}
+      </div>
+      {trailing && <div style={{ flex: 1, display: "flex", width: "100%", justifyContent: "center" }}>{trailing}</div>}
+    </div>
+  );
+}
+
 // Горизонтальна смужка над канвасом: горизонтальні пресет-форми + W×H інпути.
 // Вертикальні пресети винесені в окрему ліву колонку (CanvasVerticalPresetsColumn).
 function CanvasHorizontalPresetsBar({
@@ -499,24 +639,28 @@ function CanvasHorizontalPresetsBar({
     <div
       style={{
         display: "inline-flex",
-        alignItems: "center",
-        gap: 10,
-        fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
+        alignItems: "baseline",
+        gap: 18,
       }}
     >
       <PresetGroupHorizontal
-        title="Горизонтальні"
+        title=""
         presets={CANVAS_PRESETS.horizontal}
         width={width}
         height={height}
         onPick={onPick}
       />
 
-      <div style={{
-        width: 1,
-        height: 18,
-        background: "rgba(15,23,42,0.10)",
-      }} />
+      <span
+        aria-hidden
+        style={{
+          alignSelf: "center",
+          width: 3,
+          height: 3,
+          borderRadius: "50%",
+          background: "rgba(143,102,28,0.45)",
+        }}
+      />
 
       <div style={{ flexShrink: 0 }}>
         <CanvasSizeInputs width={width} height={height} onChange={onChangeSize} />
@@ -540,25 +684,13 @@ function CanvasVerticalPresetsColumn({
       style={{
         display: "flex",
         flexDirection: "column",
-        alignItems: "center",
-        gap: 8,
-        fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
-        width: 36,
+        alignItems: "stretch",
+        gap: 0,
+        width: 26,
         height: "100%",
       }}
     >
-      {/* Лейбл «Вертикальні» — вертикальний (читання знизу-вгору). */}
-      <div style={{
-        fontSize: 11,
-        fontWeight: 600,
-        color: "#475569",
-        letterSpacing: "0.01em",
-        writingMode: "vertical-rl",
-        transform: "rotate(180deg)",
-        lineHeight: 1,
-      }}>Вертикальні</div>
-      {/* Картки заповнюють лишок висоти рівномірно (flex:1). */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1, minHeight: 0, alignItems: "center" }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 0, flex: 1, minHeight: 0, alignItems: "stretch" }}>
         {CANVAS_PRESETS.vertical.map(p => (
           <VerticalPresetCard
             key={p.key}
@@ -582,62 +714,71 @@ function VerticalPresetCard({
   onPick: (w: number, h: number) => void;
 }) {
   const [hov, setHov] = useState(false);
-  const BBOX_H = 22;
-  const aspect = preset.w / preset.h;
-  const thumbW = Math.max(8, Math.round(BBOX_H * aspect));
-  const thumbH = BBOX_H;
+  const color = active
+    ? "rgba(110,76,22,1)"
+    : hov
+      ? "rgba(143,102,28,0.92)"
+      : "rgba(143,102,28,0.45)";
   return (
     <button
       type="button"
       onClick={() => onPick(preset.w, preset.h)}
       onMouseEnter={() => setHov(true)}
       onMouseLeave={() => setHov(false)}
-      title={`${preset.label} · ${preset.w}×${preset.h}`}
+      title={preset.label}
       aria-label={`${preset.label}, ${preset.w} на ${preset.h} пікселів`}
       style={{
+        position: "relative",
         display: "flex",
-        flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
-        gap: 5,
-        padding: "5px 3px",
-        background: active ? "rgba(212,168,67,0.14)" : hov ? "rgba(15,23,42,0.04)" : "transparent",
-        border: `1px solid ${active ? "rgba(212,168,67,0.55)" : "transparent"}`,
-        borderRadius: 6,
+        padding: "8px 2px",
+        background: "transparent",
+        border: "none",
         cursor: "pointer",
-        transition: "background 0.12s, border-color 0.12s",
-        fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
+        transition: "color 0.18s ease",
         flex: 1,
         minHeight: 0,
-        boxShadow: "none",
       }}
     >
-      <div style={{
-        width: thumbW,
-        height: thumbH,
-        border: `1.25px solid ${active ? "#A47A28" : "#94A3B8"}`,
-        borderRadius: 2,
-        background: "transparent",
-        flexShrink: 0,
-        transition: "border-color 0.12s",
-      }} />
-      <div style={{
-        fontSize: 10,
-        fontWeight: 500,
-        color: active ? "#78350F" : "#475569",
-        letterSpacing: "0.01em",
-        lineHeight: 1,
-        fontVariantNumeric: "tabular-nums",
-        writingMode: "vertical-rl",
-        transform: "rotate(180deg)",
-        whiteSpace: "nowrap",
-      }}>{preset.w}×{preset.h}</div>
+      <span
+        style={{
+          fontFamily: "'Cormorant Garamond', 'Playfair Display', 'Times New Roman', serif",
+          fontStyle: "italic",
+          fontWeight: active ? 500 : 400,
+          fontSize: 14,
+          letterSpacing: "0.10em",
+          color,
+          fontVariantNumeric: "tabular-nums",
+          writingMode: "vertical-rl",
+          transform: "rotate(180deg)",
+          whiteSpace: "nowrap",
+          lineHeight: 1,
+          textShadow: "0 1px 0 rgba(255,255,255,0.6)",
+        }}
+      >
+        {preset.w}<span style={{ opacity: 0.5, fontSize: 11, margin: "0 2px", fontStyle: "normal", fontWeight: 300 }}>×</span>{preset.h}
+      </span>
+      {active && (
+        <span
+          aria-hidden
+          style={{
+            position: "absolute",
+            top: "50%",
+            transform: "translateY(-50%)",
+            right: 0,
+            height: 22,
+            width: 1,
+            background: "linear-gradient(to bottom, transparent 0%, rgba(143,102,28,0.85) 50%, transparent 100%)",
+          }}
+        />
+      )}
     </button>
   );
 }
 
 function PresetGroupHorizontal({
-  title, presets, width, height, onPick,
+  title: _title, presets, width, height, onPick,
 }: {
   title: string;
   presets: CanvasPreset[];
@@ -646,26 +787,15 @@ function PresetGroupHorizontal({
   onPick: (w: number, h: number) => void;
 }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 12, flex: 1, minWidth: 0 }}>
-      <div style={{
-        fontSize: 13,
-        fontWeight: 600,
-        color: "#475569",
-        letterSpacing: "0.01em",
-        flexShrink: 0,
-        writingMode: "horizontal-tb",
-      }}>{title}</div>
-      <div style={{ display: "flex", gap: 6, flex: 1, minWidth: 0 }}>
-        {presets.map(p => (
-          <PresetCard
-            key={p.key}
-            preset={p}
-            active={width === p.w && height === p.h}
-            onPick={onPick}
-            stretch
-          />
-        ))}
-      </div>
+    <div style={{ display: "flex", alignItems: "center", gap: 18, flexShrink: 0 }}>
+      {presets.map(p => (
+        <PresetCard
+          key={p.key}
+          preset={p}
+          active={width === p.w && height === p.h}
+          onPick={onPick}
+        />
+      ))}
     </div>
   );
 }
@@ -735,71 +865,66 @@ function TemplateNameInput({
 }
 
 function PresetCard({
-  preset, active, onPick, stretch = false,
+  preset, active, onPick,
 }: {
   preset: CanvasPreset;
   active: boolean;
   onPick: (w: number, h: number) => void;
-  /** Чи розтягувати картку по доступному простору батьківського ряду
-   *  (true у горизонтальному барі — 3 карти ділять width рівномірно).
-   *  У вертикальному стаку — false, картки auto-sized по контенту. */
   stretch?: boolean;
 }) {
   const [hov, setHov] = useState(false);
-  const BBOX = 18;
-  const ratio = preset.w / preset.h;
-  const thumbW = ratio >= 1 ? BBOX : Math.round(BBOX * ratio);
-  const thumbH = ratio >= 1 ? Math.round(BBOX / ratio) : BBOX;
+  const color = active
+    ? "rgba(110,76,22,1)"
+    : hov
+      ? "rgba(143,102,28,0.92)"
+      : "rgba(143,102,28,0.45)";
   return (
     <button
       type="button"
       onClick={() => onPick(preset.w, preset.h)}
       onMouseEnter={() => setHov(true)}
       onMouseLeave={() => setHov(false)}
-      title={`${preset.label} · ${preset.w}×${preset.h}`}
+      title={preset.label}
       aria-label={`${preset.label}, ${preset.w} на ${preset.h} пікселів`}
       style={{
+        position: "relative",
         display: "inline-flex",
-        alignItems: "center",
-        gap: 6,
-        padding: "3px 8px 3px 6px",
-        background: active ? "rgba(212,168,67,0.14)" : hov ? "rgba(15,23,42,0.04)" : "transparent",
-        border: `1px solid ${active ? "rgba(212,168,67,0.55)" : "transparent"}`,
-        borderRadius: 6,
+        alignItems: "baseline",
+        gap: 2,
+        padding: "2px 1px 4px",
+        background: "transparent",
+        border: "none",
         cursor: "pointer",
-        transition: "background 0.12s, border-color 0.12s",
-        fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
-        flex: stretch ? "0 0 auto" : "0 0 auto",
-        minWidth: 0,
-        boxShadow: "none",
+        transition: "color 0.18s ease",
+        fontFamily: "'Cormorant Garamond', 'Playfair Display', 'Times New Roman', serif",
+        fontStyle: "italic",
+        fontWeight: active ? 500 : 400,
+        fontSize: 14.5,
+        letterSpacing: "0.10em",
+        color,
+        fontVariantNumeric: "tabular-nums",
+        whiteSpace: "nowrap",
+        lineHeight: 1,
+        textShadow: "0 1px 0 rgba(255,255,255,0.6)",
       }}
     >
-      <div style={{
-        width: BBOX,
-        height: BBOX,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        flexShrink: 0,
-      }}>
-        <div style={{
-          width: thumbW,
-          height: thumbH,
-          border: `1.25px solid ${active ? "#A47A28" : "#94A3B8"}`,
-          borderRadius: 2,
-          background: "transparent",
-          transition: "border-color 0.12s",
-        }} />
-      </div>
-      <div style={{
-        fontSize: 11.5,
-        fontWeight: 500,
-        color: active ? "#78350F" : "#475569",
-        letterSpacing: "0.01em",
-        lineHeight: 1.1,
-        whiteSpace: "nowrap",
-        fontVariantNumeric: "tabular-nums",
-      }}>{preset.w}×{preset.h}</div>
+      <span>{preset.w}</span>
+      <span style={{ opacity: 0.5, fontSize: 11, margin: "0 2px", fontStyle: "normal", fontWeight: 300 }}>×</span>
+      <span>{preset.h}</span>
+      {active && (
+        <span
+          aria-hidden
+          style={{
+            position: "absolute",
+            left: "50%",
+            transform: "translateX(-50%)",
+            bottom: 0,
+            width: 22,
+            height: 1,
+            background: "linear-gradient(to right, transparent 0%, rgba(143,102,28,0.85) 50%, transparent 100%)",
+          }}
+        />
+      )}
     </button>
   );
 }

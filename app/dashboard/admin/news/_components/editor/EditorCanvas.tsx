@@ -182,6 +182,11 @@ export default function EditorCanvas({
   // blocks і переписував зміни попереднього (race), що ламало layout.
   const blocksRef = useRef(blocks);
   blocksRef.current = blocks;
+  // Попередні розміри канвасу — для проп. масштабування блоків коли користувач
+  // змінює canvas size через пресети/інпути (не через corner-drag). Висота блоків
+  // у px масштабується по sy = newH/oldH; ширина — авто, бо блоки у %.
+  const prevCanvasWidthRef = useRef<number | null>(null);
+  const prevCanvasHeightRef = useRef<number | null>(null);
   const canvasColumnRef = useRef<HTMLDivElement>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [isOverCanvas, setIsOverCanvas] = useState(false);
@@ -216,6 +221,47 @@ export default function EditorCanvas({
   // Тригер рендеру ResizeRuler — тонкої "лінійки" над блоком зі snap-марками і % бейджем.
   // Не плутати з drag-ом блока: drag-overrides пишуть напряму в setPreview, не через handlePreviewWidth.
   const [resizingBlockId, setResizingBlockId] = useState<string | null>(null);
+
+  // Floating settings panel — слідкує за screen-позицією вибраного блока.
+  // top тримається на рівні top краю блока, клампиться у [80, innerHeight-180]
+  // щоб панель завжди була в viewport-і; left ставимо ліворуч від канвасу (де
+  // раніше була палітра). Без цього налаштування «застрягали» вгорі сторінки,
+  // і щоб виправити блок на низу канвасу — треба було скролити назад угору.
+  const [floatingSettingsPos, setFloatingSettingsPos] = useState<{ top: number; left: number } | null>(null);
+  useEffect(() => {
+    if (!selectedBlockId || templateMode) {
+      setFloatingSettingsPos(null);
+      return;
+    }
+    let raf = 0;
+    const PANEL_TOP_MIN = 96;
+    const PANEL_BOTTOM_RESERVE = 180;
+    const update = () => {
+      const el = document.querySelector(`[data-block-id="${selectedBlockId}"]`) as HTMLElement | null;
+      if (!el) { setFloatingSettingsPos(null); return; }
+      const r = el.getBoundingClientRect();
+      const maxTop = Math.max(PANEL_TOP_MIN, window.innerHeight - PANEL_BOTTOM_RESERVE);
+      const top = Math.max(PANEL_TOP_MIN, Math.min(r.top, maxTop));
+      const left = 20;
+      setFloatingSettingsPos({ top, left });
+    };
+    const sched = () => {
+      if (raf) cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(update);
+    };
+    update();
+    window.addEventListener("scroll", sched, { passive: true, capture: true });
+    window.addEventListener("resize", sched);
+    const el = document.querySelector(`[data-block-id="${selectedBlockId}"]`);
+    const ro = el ? new ResizeObserver(sched) : null;
+    if (el && ro) ro.observe(el);
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      window.removeEventListener("scroll", sched, true);
+      window.removeEventListener("resize", sched);
+      ro?.disconnect();
+    };
+  }, [selectedBlockId, templateMode, blocks]);
 
   // Scroll-компенсація для drag-у. dnd-kit's `transform` рахується з ClientX/Y курсора
   // і НЕ оновлюється коли юзер скролить колесом без руху мишки — тоді блок візуально
@@ -293,7 +339,14 @@ export default function EditorCanvas({
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
-  const canvasWidthPx = canvasRectRef.current?.width ?? PAGE_WIDTH;
+  // Коли немає CSS zoom (displayScale === 1) — береме PAGE_WIDTH напряму,
+  // бо canvasRectRef оновлюється асинхронно через ResizeObserver і ВІДСТАЄ
+  // на render після зміни canvasWidth (з пресету/інпуту). При CSS zoom
+  // (displayScale < 1) — рендерна ширина відрізняється від PAGE_WIDTH, тому
+  // лишаємо fallback на ref для коректних snap/coord-обчислень.
+  const canvasWidthPx = displayScale === 1
+    ? PAGE_WIDTH
+    : (canvasRectRef.current?.width ?? PAGE_WIDTH);
 
   // Реальна висота блока — ПРІОРИТЕТ: DOM (найточніше, враховує CSS aspect-ratio,
   // overflow:visible експандованих шаблонів, тощо), потім block.height,
@@ -334,6 +387,31 @@ export default function EditorCanvas({
         // canvas росте → browser скролить → rect.top негативніший → cursorY - rectTop росте
         // → preview Y росте → canvas ще більший. Блок летить у нескінченність.
       );
+
+  // Авто-масштабування блоків при зміні розміру канвасу (через пресети або
+  // інпути W/H). Висота блоків (b.y, b.height) у px масштабується по
+  // sy = newH/oldH, щоб композиція розтягувалась/стискалась пропорційно і не
+  // вилазила за межі канвасу. Ширина у % — авто-адаптується через CSS, тож
+  // окремо не чіпаємо. Цей же ефект перекриває corner-handle, який раніше
+  // дублював scaling — тепер єдина точка масштабування.
+  useEffect(() => {
+    const prevH = prevCanvasHeightRef.current;
+    const prevW = prevCanvasWidthRef.current;
+    prevCanvasHeightRef.current = canvasHeight;
+    prevCanvasWidthRef.current = PAGE_WIDTH;
+    if (prevH === null || prevW === null) return; // перший рендер — ініціалізуємо ref-и без скейлу
+    if (prevH === canvasHeight) return;
+    if (!fixedHeight) return; // у нон-фіксованому режимі канвас сам росте під контент — скейл не потрібен
+    if (prevH <= 0 || canvasHeight <= 0) return;
+    const sy = canvasHeight / prevH;
+    if (Math.abs(sy - 1) < 0.0005) return;
+    const scaled = blocksRef.current.map(b => ({
+      ...b,
+      y: typeof b.y === "number" ? Math.round(b.y * sy) : b.y,
+      height: typeof b.height === "number" ? Math.round(b.height * sy) : b.height,
+    }));
+    onBlocksChange(scaled);
+  }, [canvasHeight, PAGE_WIDTH, fixedHeight, onBlocksChange]);
 
   function clampXY(xPct: number, yPx: number, wPct: number): { x: number; y: number } {
     const clampedX = Math.max(0, Math.min(100 - wPct, xPct));
@@ -1811,6 +1889,10 @@ export default function EditorCanvas({
               const sel = blocks.find(b => b.id === selectedBlockId);
               return sel?.y ?? null;
             })()}
+            // Коли блок вибраний — палітра «слідує» за ним по екрану:
+            // top = top-edge вибраного блока у viewport-і (клампиться). Без
+            // вибору — default top:80/96, палітра поводиться як sticky.
+            anchorTopPx={floatingSettingsPos?.top ?? null}
             onAddImageOverlay={() => {
             // Знаходимо ОСТАННІЙ image-блок з url. Якщо нема — нічого не робимо.
             const targets = blocks.filter(b => b.type === "image" && b.data.url);
@@ -1924,10 +2006,12 @@ export default function EditorCanvas({
                 boxShadow: templateMode
                   ? "0 1px 2px rgba(0,0,0,0.03), 0 6px 24px rgba(15,32,25,0.06)"
                   : "0 1px 2px rgba(0,0,0,0.04), 0 12px 40px rgba(15,32,25,0.08)",
-                // У template-режимі — менший padding, щоб канвас не "плавав" у
-                // зайвій білій зоні. Право-низ лишаємо більше, бо там corner-handle.
+                // У template-режимі — асиметричний padding: top тримаємо
+                // PAGE_PAD_Y (32) щоб ResizeRuler/чіп з шириною блока вміщались
+                // у padding-зону над canvas-grid, а не вилазили на блоки.
+                // Боки/низ — стиснуті, щоб канвас не «плавав» у зайвій білій зоні.
                 padding: templateMode
-                  ? `16px 16px 22px 16px`
+                  ? `${PAGE_PAD_Y}px 16px 22px 16px`
                   : `${PAGE_PAD_Y}px ${PAGE_PAD_X}px`,
                 position: "relative",
               }}
@@ -2169,22 +2253,9 @@ export default function EditorCanvas({
                   minHeight={canvasMinHeight}
                   maxHeight={canvasMaxHeight}
                   onResize={(newW, newH) => {
-                    // Масштабуємо всі блоки пропорційно зі зміною канвасу,
-                    // щоб layout розтягувався «як єдине ціле». block.x і block.width
-                    // зберігаються у % — горизонтально вже адаптуються через CSS.
-                    // block.y і block.height у px — множимо на vertical scale.
-                    const oldW = PAGE_WIDTH;
-                    const oldH = canvasHeight;
-                    if (oldH > 0 && newH !== oldH) {
-                      const sy = newH / oldH;
-                      const scaled = blocks.map(b => ({
-                        ...b,
-                        y: typeof b.y === "number" ? Math.round(b.y * sy) : b.y,
-                        height: typeof b.height === "number" ? Math.round(b.height * sy) : b.height,
-                      }));
-                      onBlocksChange(scaled);
-                    }
-                    void oldW;
+                    // Масштабування блоків відбувається в єдиному useEffect-і
+                    // вище (за зміною canvasHeight). Тут лише пропагуємо новий
+                    // розмір нагору — ефект сам пропорційно перерахує y/height.
                     onCanvasResize(newW, newH);
                   }}
                 />
@@ -2241,6 +2312,7 @@ export default function EditorCanvas({
           />
         </DragOverlay>
       </DndContext>
+
     </>
   );
 }
@@ -2763,7 +2835,6 @@ function VResizeRuler({
   canvasHeightPx: number;
   mode: "active" | "selected";
 }) {
-  const ff = "-apple-system, BlinkMacSystemFont, sans-serif";
   const isActive = mode === "active";
   const accent = isActive ? "rgba(212,168,67,0.95)" : "rgba(212,168,67,0.55)";
   const trackColor = "rgba(28,58,46,0.08)";
@@ -2831,32 +2902,40 @@ function VResizeRuler({
         background: tickColor,
       }} />
 
-      {/* Compact chip — повернутий на 90° проти годинникової. Зменшений у розмірі
-          (менший padding/font), щоб після rotate він поміщався у padding-зоні
-          ліворуч від canvas-grid і не заїздив на блоки. */}
+      {/* Преміум gold-italic чіп для висоти. Повернутий на 90° проти годинникової
+          і центрований у padding-зоні ліворуч від canvas-grid. */}
       <div style={{
         position: "absolute",
         left: -14,
         top: `${chipOffsetPct}%`,
         transform: "translateY(-50%) rotate(-90deg)",
         transformOrigin: "center",
-        background: isActive ? "#D4A843" : "#FFFFFF",
-        color: isActive ? "#1C3A2E" : "#5C4A1F",
-        padding: "2px 7px",
-        borderRadius: 999,
-        fontSize: 9.5,
-        fontWeight: 700,
-        letterSpacing: "0.02em",
-        fontFamily: ff,
-        fontVariantNumeric: "tabular-nums",
-        border: `1px solid ${isActive ? "rgba(28,58,46,0.18)" : "rgba(212,168,67,0.50)"}`,
+        padding: "2px 8px",
+        borderRadius: 4,
+        background: "rgba(255,253,247,0.92)",
         boxShadow: isActive
-          ? "0 2px 8px rgba(212,168,67,0.40)"
-          : "0 1px 3px rgba(28,58,46,0.10)",
+          ? "0 1px 4px rgba(143,102,28,0.22)"
+          : "0 1px 2px rgba(143,102,28,0.10)",
+        fontFamily: "'Cormorant Garamond', 'Playfair Display', 'Times New Roman', serif",
+        fontStyle: "italic",
+        fontWeight: isActive ? 500 : 400,
+        fontSize: 13.5,
+        letterSpacing: "0.08em",
+        color: isActive ? "rgba(110,76,22,1)" : "rgba(143,102,28,0.78)",
+        fontVariantNumeric: "tabular-nums",
+        textShadow: "0 1px 0 rgba(255,255,255,0.7)",
         whiteSpace: "nowrap",
-        transition: "background 120ms ease, color 120ms ease, box-shadow 120ms ease",
+        transition: "color 140ms ease, box-shadow 140ms ease, font-weight 140ms ease",
       }}>
-        <span>{Math.round(blockHeightPx)}<span style={{ opacity: 0.55, marginLeft: 1 }}>px</span></span>
+        {Math.round(blockHeightPx)}
+        <span style={{
+          opacity: 0.55,
+          fontSize: 9.5,
+          letterSpacing: "0.28em",
+          fontStyle: "normal",
+          marginLeft: 4,
+          textTransform: "lowercase",
+        }}>px</span>
       </div>
     </div>
   );
@@ -2878,7 +2957,6 @@ function ResizeRuler({
   pxPerPct: number;
   mode: "active" | "selected";
 }) {
-  const ff = "-apple-system, BlinkMacSystemFont, sans-serif";
   const widthPx = Math.round(blockWidthPct * pxPerPct);
   const centerPct = blockX + blockWidthPct / 2;
   const rightPct = blockX + blockWidthPct;
@@ -2953,36 +3031,56 @@ function ResizeRuler({
         background: tickColor,
       }} />
 
-      {/* Compact chip — дискретний бейдж з шириною та позицією. Білий з тонкою
-          амбер-рамкою; в active-режимі — амбер background. Цифри tabular-nums
-          щоб не "стрибали" при resize. */}
+      {/* Преміум gold-italic чіп — у тоні з gold edge-ruler-ом канвасу. Без
+          важкої pill-рамки: italic Cormorant, тонке gold-tinted підкладочне
+          сяйво, цифри tabular-nums. */}
       <div style={{
         position: "absolute",
-        top: -10,
+        top: -12,
         left: `${chipOffsetPct}%`,
         transform: "translateX(-50%)",
-        background: isActive ? "#D4A843" : "#FFFFFF",
-        color: isActive ? "#1C3A2E" : "#5C4A1F",
-        padding: "3px 9px",
-        borderRadius: 999,
-        fontSize: 10.5,
-        fontWeight: 700,
-        letterSpacing: "0.02em",
-        fontFamily: ff,
-        fontVariantNumeric: "tabular-nums",
-        border: `1px solid ${isActive ? "rgba(28,58,46,0.18)" : "rgba(212,168,67,0.50)"}`,
+        padding: "2px 8px",
+        borderRadius: 4,
+        background: "rgba(255,253,247,0.92)",
         boxShadow: isActive
-          ? "0 2px 8px rgba(212,168,67,0.40)"
-          : "0 1px 3px rgba(28,58,46,0.10)",
+          ? "0 1px 4px rgba(143,102,28,0.22)"
+          : "0 1px 2px rgba(143,102,28,0.10)",
+        fontFamily: "'Cormorant Garamond', 'Playfair Display', 'Times New Roman', serif",
+        fontStyle: "italic",
+        fontWeight: isActive ? 500 : 400,
+        fontSize: 14,
+        letterSpacing: "0.08em",
+        color: isActive ? "rgba(110,76,22,1)" : "rgba(143,102,28,0.78)",
+        fontVariantNumeric: "tabular-nums",
+        textShadow: "0 1px 0 rgba(255,255,255,0.7)",
         whiteSpace: "nowrap",
         display: "inline-flex",
-        alignItems: "center",
+        alignItems: "baseline",
         gap: 6,
-        transition: "background 120ms ease, color 120ms ease, box-shadow 120ms ease",
+        transition: "color 140ms ease, box-shadow 140ms ease, font-weight 140ms ease",
       }}>
-        <span>{widthPx}<span style={{ opacity: 0.55, marginLeft: 1 }}>px</span></span>
-        <span style={{ opacity: 0.35 }}>·</span>
-        <span>{blockWidthPct.toFixed(0)}<span style={{ opacity: 0.55, marginLeft: 1 }}>%</span></span>
+        <span>
+          {widthPx}
+          <span style={{
+            opacity: 0.55,
+            fontSize: 9.5,
+            letterSpacing: "0.28em",
+            fontStyle: "normal",
+            marginLeft: 4,
+            textTransform: "lowercase",
+          }}>px</span>
+        </span>
+        <span aria-hidden style={{ opacity: 0.4, fontSize: 11, fontStyle: "normal" }}>·</span>
+        <span>
+          {blockWidthPct.toFixed(0)}
+          <span style={{
+            opacity: 0.55,
+            fontSize: 9.5,
+            letterSpacing: "0.18em",
+            fontStyle: "normal",
+            marginLeft: 2,
+          }}>%</span>
+        </span>
       </div>
     </div>
   );

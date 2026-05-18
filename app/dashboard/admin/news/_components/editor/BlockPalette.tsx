@@ -182,6 +182,10 @@ interface PaletteProps {
    *  (як у constructor compact), АЛЕ settings-панель залишаємо видимою — менеджер
    *  редагує контент блоків через стандартні inline-редактори. */
   lockLayout?: boolean;
+  /** Top-координата (у px viewport-у), куди слід пінити палітру. Коли блок
+   *  вибраний — передається його screen-top, щоб бар «слідував» за блоком на
+   *  екрані. Null/undefined → default top:80/96 (sticky-поведінка як раніше). */
+  anchorTopPx?: number | null;
 }
 
 // Draggable handle для overlay-tool — drop на image-блок створює overlay у точці drop.
@@ -301,19 +305,37 @@ function ImageOverlayPaletteItem({ onAddImageOverlay, compact = false }: { onAdd
   );
 }
 
-export default function BlockPalette({ onAddImageOverlay, selectedBlockY, extraBlocks, extraBlocksTitle, compact = false, wide = false, lockLayout = false }: PaletteProps = {}) {
-  // selectedBlockY більше не потрібний для геометрії — settings завжди на верху palette
-  // (стандартний Figma/Webflow паттерн). Зберігаємо параметр для майбутньої сумісності.
+export default function BlockPalette({ onAddImageOverlay, selectedBlockY, extraBlocks, extraBlocksTitle, compact = false, wide = false, lockLayout = false, anchorTopPx = null }: PaletteProps = {}) {
   void selectedBlockY;
-  const isSelected = selectedBlockY !== null && selectedBlockY !== undefined;
 
   // У compact (template) режимі — ширша палітра, бо 2 колонки блоків поряд.
   // У wide-режимі (page-builder /news) — трохи вужче (288), щоб не з'їдати простір
   // канвасу; layout 2-col зберігається.
   const paletteWidth = wide ? 264 : (compact || lockLayout ? 320 : 304);
 
+  const defaultTop = compact ? 96 : 80;
+  // Палітра ЗАВЖДИ position:fixed з тим самим left:20 і фіксованою шириною —
+  // не змінюється горизонтально при будь-якому стані. Top:
+  //   • Блок вибраний (anchorTopPx число) → top = top-edge блока (клампиться).
+  //   • Інакше → defaultTop (80/96).
+  // Щоб канвас не зсувався вліво (палітра ж out of flex flow) — рендеримо
+  // spacer-div тих самих розмірів у потоці. Так макет «резервує» місце.
+  const topPx = typeof anchorTopPx === "number" ? anchorTopPx : defaultTop;
+
   return (
-    <div className="news-palette-scroll" style={{
+    <>
+      {/* Spacer у flex-потоці: резервує ширину палітри, щоб канвас залишався
+          на тій самій позиції коли палітра fixed-рендериться поза потоком. */}
+      <div
+        aria-hidden
+        style={{
+          width: `${paletteWidth}px`,
+          minWidth: `${paletteWidth}px`,
+          flexShrink: 0,
+          alignSelf: "stretch",
+        }}
+      />
+      <div className="news-palette-scroll" style={{
       width: `${paletteWidth}px`,
       minWidth: `${paletteWidth}px`,
       background: "linear-gradient(180deg, #162C25 0%, #0F2019 100%)",
@@ -323,27 +345,26 @@ export default function BlockPalette({ onAddImageOverlay, selectedBlockY, extraB
       marginTop: compact ? 16 : 0,
       display: "flex",
       flexDirection: "column",
-      // Sticky-палітра — фіксована у viewport, внутрішній скрол. Без цього palette
-      // ріс/стискався разом з canvas і провокував вертикальний стрибок сторінки
-      // при зміні selection.
-      position: "sticky",
-      top: compact ? "96px" : "80px",
-      alignSelf: "flex-start",
-      maxHeight: "calc(100vh - 100px)",
+      // ✅ Завжди fixed: палітра ніколи не з'їжджає горизонтально, тільки top
+      // змінюється (плавно слідуючи за вибраним блоком).
+      position: "fixed",
+      top: `${topPx}px`,
+      left: "20px",
+      zIndex: 95,
+      maxHeight: `calc(100vh - ${topPx + 24}px)`,
       overflowY: "auto",
       // scrollbarWidth/-ms-overflow-style/-webkit-scrollbar — приховуємо візуальну
       // смугу прокрутки, але scroll-функція залишається (на колесі / трекпаді).
       scrollbarWidth: "none",
       msOverflowStyle: "none",
       boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.06), 0 8px 40px rgba(0,0,0,0.2)",
+      transition: "top 0.18s cubic-bezier(0.2, 0.8, 0.2, 1)",
     }}>
-      {/* Налаштування вибраного блока — flex-item з marginTop=blockY+offset.
-          Стає vertically напроти блока на канвасі. Коли блок вибраний, цей секція
-          "штовхає" статичні блоки нижче (вони flexible слайдять вниз).
-          BlockItem/TextEditor/ImageEditor portal-ять контролі через createPortal
-          у #news-block-settings-slot.
-          У template-режимі (compact) ховаємо повністю — менеджер редагує тільки
-          геометрію/позицію блоків, content-нолаштування у шаблоні не потрібні. */}
+      {/* Налаштування вибраного блока — порожній слот, який BlockItem та
+          editor-и заповнюють через createPortal у #news-block-settings-slot.
+          Видимість wrapper-а керується через :has(:empty) — без виділеного
+          блока секція ховається повністю. У compact (template) режимі
+          контент-налаштування не потрібні взагалі. */}
       {!compact && (
         <div className="news-settings-wrapper" style={{ marginBottom: "20px" }}>
           <div className="news-settings-title" style={{
@@ -367,24 +388,17 @@ export default function BlockPalette({ onAddImageOverlay, selectedBlockY, extraB
               overflow: "hidden",
             }}
           />
-          {/* Видимість керується через :empty: коли slot не має портал-дітей,
-              ховаємо весь wrapper. Так overlay-toolbar (без selected парент-блока)
-              теж стане видимим, бо ImageEditor портал-ить туди свою панель і :empty
-              перестає матчитись. */}
-          <style>{`
-            .news-palette-scroll::-webkit-scrollbar { display: none; }
-            #news-block-settings-slot > * + * {
-              border-top: 1px solid #EEEAE2;
-            }
-            .news-settings-wrapper:has(#news-block-settings-slot:empty) {
-              display: none;
-            }
-          `}</style>
         </div>
       )}
-      {compact && (
-        <style>{`.news-palette-scroll::-webkit-scrollbar { display: none; }`}</style>
-      )}
+      <style>{`
+        .news-palette-scroll::-webkit-scrollbar { display: none; }
+        #news-block-settings-slot > * + * {
+          border-top: 1px solid #EEEAE2;
+        }
+        .news-settings-wrapper:has(#news-block-settings-slot:empty) {
+          display: none;
+        }
+      `}</style>
 
       {(compact || wide || lockLayout) && extraBlocks && extraBlocks.length > 0 ? (
         // 2-col layout: ліворуч Блоки, праворуч Спецблоки (з ImageOverlay усередині).
@@ -493,6 +507,7 @@ export default function BlockPalette({ onAddImageOverlay, selectedBlockY, extraB
           </div>
         </>
       )}
-    </div>
+      </div>
+    </>
   );
 }

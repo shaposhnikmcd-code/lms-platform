@@ -329,11 +329,12 @@ export default function BlockItem({
           // 100% canvas-у). Force-set один раз при переключенні в expanded.
           targetWidth = "100";
         } else {
-          // mode === "preview" — фіксуємо block.width = PREVIEW_CARD_WIDTH/920
-          // (≈39.1%, thumbnail-розмір як історично), але ВИСОТУ беремо з
-          // нативного aspect шаблону новини (templateCanvas). Так блок на канвасі
-          // компактний preview-thumbnail, а PreviewCardScale всередині масштабує
-          // нативний 600×400/etc контент до цього розміру без overflow.
+          // mode === "preview" — РОЗМІР блока = templateCanvas новини (точно як
+          // менеджер створював у білдері новини). Якщо nativeW > canvas — клампимо
+          // у 100% (висота скейлиться пропорційно). Без цього раніше блок був
+          // 360px ширини незалежно від templateCanvas, і контент шаблону «спливав»
+          // за межі бокса через overflow:visible — клік на «вилитому» контенті
+          // потрапляв у DOM-дитину блока і не давав скинути виділення.
           let nativeW = PREVIEW_CARD_WIDTH;
           let nativeH = PREVIEW_CARD_HEIGHT;
           if (it.templateCanvas) {
@@ -347,9 +348,9 @@ export default function BlockItem({
               }
             }
           }
-          const widthPct = Math.round((PREVIEW_CARD_WIDTH / 920) * 1000) / 10; // 39.1
+          const widthPct = Math.min(100, Math.round((nativeW / containerWidthPx) * 1000) / 10);
           targetWidth = String(widthPct);
-          const blockPxW = (widthPct / 100) * 920;
+          const blockPxW = (widthPct / 100) * containerWidthPx;
           total = Math.max(60, Math.round(blockPxW * (nativeH / nativeW)));
         }
         if (total === 0) return;
@@ -567,7 +568,11 @@ export default function BlockItem({
         )}
 
         {isPlaceholder ? (
-          <TemplatePlaceholder type={block.type} />
+          <TemplatePlaceholder
+            type={block.type}
+            blockWidthPx={(Number(block.width) || 100) / 100 * containerWidthPx}
+            blockHeightPx={typeof block.height === "number" ? block.height : 80}
+          />
         ) : (
           <>
             {block.type === "text"    && <TextEditor    block={block} onChange={d => onChange(block.id, d)} selected={selected} onSetVAlign={v => onSetVAlign(block.id, v)} containerWidthPx={containerWidthPx} />}
@@ -685,8 +690,35 @@ const TEMPLATE_PLACEHOLDER_LABELS: Record<string, { icon: string; label: string;
   educationItem:  { icon: "📜", label: "Пункт освіти", color: SPEC_TINT, bg: SPEC_BG },
 };
 
-function TemplatePlaceholder({ type }: { type: string }) {
+function TemplatePlaceholder({
+  type, blockWidthPx, blockHeightPx,
+}: {
+  type: string;
+  blockWidthPx: number;
+  blockHeightPx: number;
+}) {
   const info = TEMPLATE_PLACEHOLDER_LABELS[type] || { icon: "■", label: type, color: "#1C3A2E", bg: "rgba(28,58,46,0.04)" };
+  // Шрифт лінійно прив'язаний до ШИРИНИ блока — менеджер одразу бачить, як
+  // текст вписується у конкретний блок. Кожен тип має свій множник, щоб у
+  // референсному блоці 300px heading був більший за text. Окремо — жорсткі
+  // ліміти по ширині (label не вилазить горизонтально) і висоті блока.
+  const labelChars = info.label.length;
+  const sizeFactor = type === "heading" ? 0.060
+    : type === "quote" ? 0.050
+    : type === "price" || type === "ctaButton" ? 0.048
+    : 0.042;
+  const desiredFont = blockWidthPx * sizeFactor;
+  // horizontal-units у em: символи (0.55) + іконка (1.0) + gap (0.45).
+  const horizUnits = labelChars * 0.55 + 1.0 + 0.45;
+  const widthLimit = Math.max(6, (blockWidthPx - 10) / horizUnits);
+  const heightLimit = Math.max(6, blockHeightPx * 0.55);
+  const labelFontPx = Math.max(6, Math.min(desiredFont, widthLimit, heightLimit, 22));
+  const labelFontPxR = Math.round(labelFontPx * 10) / 10;
+  const iconFontPx = Math.round(labelFontPxR * 1.1 * 10) / 10;
+  const gapPx = Math.max(2, Math.round(labelFontPxR * 0.5));
+  // Якщо фінальний font нижчий за 7.5px — текст нечитабельний; ховаємо лейбл,
+  // лишаємо тільки іконку (icon-only режим для мікро-блоків).
+  const hideLabel = labelFontPx < 7.5;
   // cardBody — порожній контейнер-host. Показуємо ЛИШЕ маленьку мітку-іконку
   // у верхньому-лівому куті (▢ корнер-маркер), без центрального лейблу.
   // Заливка subtle-sand, щоб блок не виглядав абсолютно порожнім.
@@ -726,26 +758,24 @@ function TemplatePlaceholder({ type }: { type: string }) {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        gap: 10,
+        gap: gapPx,
         background: info.bg,
-        // Без власної рамки і radius — батьківський wrapper (BlockItem inner div)
-        // вже задає межі блока через outline + overflow:hidden, і саме він
-        // повинен бути "візуальною рамкою" блока. Інакше з'являлась подвійна
-        // рамка (зовнішня тонка solid + внутрішня пунктирна) з gap-ом між ними.
         boxSizing: "border-box",
         color: info.color,
         fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
-        fontSize: 13,
+        fontSize: labelFontPxR,
         fontWeight: 600,
         letterSpacing: "0.02em",
         userSelect: "none",
-        padding: "8px 14px",
+        padding: `${Math.max(2, Math.round(labelFontPxR * 0.4))}px ${Math.max(4, Math.round(labelFontPxR * 0.6))}px`,
         textAlign: "center",
         lineHeight: 1.2,
+        whiteSpace: "nowrap",
+        overflow: "hidden",
       }}
     >
-      <span style={{ fontSize: 16 }}>{info.icon}</span>
-      <span>{info.label}</span>
+      <span style={{ fontSize: iconFontPx, lineHeight: 1 }}>{info.icon}</span>
+      {!hideLabel && <span>{info.label}</span>}
     </div>
   );
 }
