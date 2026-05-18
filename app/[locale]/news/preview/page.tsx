@@ -116,6 +116,8 @@ export default async function NewsPreviewPage({
     pageBgColor: n.pageBgColor,
     templateKind: n.templateKind,
     templateData: n.templateData,
+    templateBlocks: n.templateBlocks,
+    templateCanvas: n.templateCanvas,
   }));
 
   let blocks: Block[] = [];

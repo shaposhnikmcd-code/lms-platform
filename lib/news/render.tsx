@@ -588,7 +588,6 @@ export function BlockInner({
             margin: 0,
             padding: "0.5em 1em",
             background: "#E8F5E0",
-            borderRadius: "0 6px 6px 0",
             color: textColor,
             textAlign: align,
             height: "100%",

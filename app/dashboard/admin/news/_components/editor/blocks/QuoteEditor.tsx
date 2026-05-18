@@ -116,7 +116,7 @@ export default function QuoteEditor({ block, onChange, selected = false, onSetVA
         }}
         style={{
           borderLeftWidth: "4px", borderLeftStyle: "solid", borderLeftColor: "#D4A843",
-          borderRadius: "0 8px 8px 0", padding: "12px 16px", background: "#E8F5E0",
+          padding: "12px 16px", background: "#E8F5E0",
           height: "100%", boxSizing: "border-box", cursor: "text",
         }}
       >

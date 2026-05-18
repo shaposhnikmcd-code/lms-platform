@@ -88,7 +88,7 @@ export default function TemplateBlocksPreview({ blocks, width, height, backgroun
         const radius =
           typeof b.borderRadius === "number"
             ? (b.borderRadius >= 999 ? 9999 : b.borderRadius)
-            : 6;
+            : 0;
         // cardBody — порожній блок-host. Як і у білдері (BlockItem.tsx
         // TemplatePlaceholder для cardBody) — тільки маленький корнер-маркер
         // ▢, без центрального лейблу «Пустий блок».
