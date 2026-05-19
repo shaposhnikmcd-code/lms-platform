@@ -338,10 +338,11 @@ export default function BlockPalette({ onAddImageOverlay, selectedBlockY, extraB
         minWidth: `${paletteWidth}px`,
         flexShrink: 0,
         zIndex: 95,
-        // У wide (page-builder /news) — опускаємо палітру нижче на висоту
+        // У wide (page-builder /news), compact (Білдер Шаблону) і lockLayout (Білдер
+        // Новин у content-mode) — опускаємо палітру на висоту canvasTopToolbar/
         // canvas-label рядка (≈44px), щоб її верх збігався з верхом канвасу-папера,
-        // а не з canvas-label («📄 Сторінка новини»).
-        marginTop: wide ? 44 : compact ? 16 : 0,
+        // а не з рядком пресетів/тогглів над ним.
+        marginTop: wide || compact || lockLayout ? 44 : 0,
         // relative positioning context для absolute topCard.
       }}>
         {topCard && (

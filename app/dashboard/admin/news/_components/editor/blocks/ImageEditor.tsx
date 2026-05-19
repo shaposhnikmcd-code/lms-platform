@@ -80,26 +80,24 @@ export const OVERLAY_FONTS: { label: string; value: string; category?: string; v
 
 const FONT_SIZE_PRESETS = [12, 14, 16, 18, 24, 32, 40, 48, 64, 80, 96, 120];
 
-// Реєстр crop-обробників — кожен ImageEditor реєструє свій setCropOpen для свого
-// blockId. BlockItemHeader викликає requestCrop(blockId) напряму, без window-event.
-const cropHandlers = new Map<string, () => void>();
+// Window-event broadcaster — кожен ImageEditor слухає `news-image-*` події і
+// реагує тільки коли `detail === свій blockId`. Раніше тут був Map<blockId, fn>
+// реєстр, але він давав false-empty стан у деяких unmount/HMR-сценаріях.
+// CustomEvent надійніше: жодних closure/timing-проблем.
 export function requestCrop(blockId: string) {
-  cropHandlers.get(blockId)?.();
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("news-image-crop", { detail: blockId }));
+  }
 }
-
-// Реєстр обробників «замінити фото» — клік відкриває file-picker для нової картинки.
-// BlockItemHeader викликає requestReplacePhoto(blockId) з кнопки 🔄 у лівому барі.
-const replaceHandlers = new Map<string, () => void>();
 export function requestReplacePhoto(blockId: string) {
-  replaceHandlers.get(blockId)?.();
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("news-image-replace", { detail: blockId }));
+  }
 }
-
-// Реєстр обробників «додати текстовий overlay» — той самий патерн, що cropHandlers.
-// Зовнішні toolbar-и (TemplateEditor → CoverImageToolbar) викликають
-// requestAddOverlay(blockId) щоб додати overlay без власної кнопки на фото.
-const addOverlayHandlers = new Map<string, () => void>();
 export function requestAddOverlay(blockId: string) {
-  addOverlayHandlers.get(blockId)?.();
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("news-image-add-overlay", { detail: blockId }));
+  }
 }
 
 type ResizeMode = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
@@ -291,34 +289,41 @@ export default function ImageEditor({ block, onChange, onUpload, previewHeight, 
     img.src = url;
   };
 
-  // Реєструємо обробник crop у module-level Map — щоб BlockItemHeader міг
-  // викликати його напряму. Тепер crop виконується всередині ImageStudioModal,
-  // тому requestCrop відкриває студію одразу в crop-режимі.
+  // Слухачі window-подій crop/replace/add-overlay — реагуємо лише на свій blockId.
+  // requestCrop відкриває студію одразу в crop-режимі.
   useEffect(() => {
     if (!block.data.url) return;
-    cropHandlers.set(block.id, () => {
+    const onCrop = (e: Event) => {
+      if ((e as CustomEvent).detail !== block.id) return;
       setStudioInitialCropMode(true);
       setStudioOpen(true);
-    });
-    return () => { cropHandlers.delete(block.id); };
+    };
+    window.addEventListener("news-image-crop", onCrop);
+    return () => window.removeEventListener("news-image-crop", onCrop);
   }, [block.id, block.data.url]);
 
   // Replace photo: клік на 🔄 у BlockItemHeader → відкриває file-picker. Працює
   // навіть коли фото вже завантажене (на відміну від «З диска» який видно тільки
   // у empty-state).
   useEffect(() => {
-    replaceHandlers.set(block.id, () => {
+    const onReplace = (e: Event) => {
+      if ((e as CustomEvent).detail !== block.id) return;
       ref.current?.click();
-    });
-    return () => { replaceHandlers.delete(block.id); };
+    };
+    window.addEventListener("news-image-replace", onReplace);
+    return () => window.removeEventListener("news-image-replace", onReplace);
   }, [block.id]);
 
-  // Реєструємо «додати overlay» — щоб CoverImageToolbar у TemplateEditor міг
-  // викликати addOverlay() ззовні (кнопка «Текст на фото» в toolbar над сторінкою).
+  // «Додати overlay» — щоб CoverImageToolbar у TemplateEditor міг викликати
+  // addOverlay() ззовні (кнопка «Текст на фото» в toolbar над сторінкою).
   useEffect(() => {
     if (!block.data.url) return;
-    addOverlayHandlers.set(block.id, () => addOverlay());
-    return () => { addOverlayHandlers.delete(block.id); };
+    const onAdd = (e: Event) => {
+      if ((e as CustomEvent).detail !== block.id) return;
+      addOverlay();
+    };
+    window.addEventListener("news-image-add-overlay", onAdd);
+    return () => window.removeEventListener("news-image-add-overlay", onAdd);
   });
 
   // Escape / Delete / Backspace: якщо є вибраний overlay (і не в режимі редагування) — видалити його.
@@ -694,26 +699,6 @@ export default function ImageEditor({ block, onChange, onUpload, previewHeight, 
         if (!slot) return null;
         const toolbarNode = <OverlayToolbar ov={ov} updateOverlay={updateOverlay} setEditingOverlayId={setEditingOverlayId} removeOverlay={removeOverlay} />;
         return createPortal(toolbarNode, slot);
-      })()}
-      {(() => {
-        // Image-specific trigger (відкрити повноекранний редактор фото).
-        // Портал у slot ПІСЛЯ BlockItemHeader. Не показуємо якщо вибрано overlay
-        // або фото ще не завантажено.
-        if (!selected) return null;
-        if (selectedOverlayId !== null) return null;
-        if (!block.data.url) return null;
-        const slot = typeof document !== "undefined"
-          ? document.getElementById(sidebarSlotId)
-          : null;
-        if (!slot) return null;
-        return createPortal(
-          <ImageBlockSettings
-            onOpenStudio={() => { setStudioInitialCropMode(true); setStudioOpen(true); }}
-            data={block.data}
-            onChangeData={onChange}
-          />,
-          slot,
-        );
       })()}
       {/* Alt текст для SEO/доступності — викликається через prompt() з невидимої кнопки.
           Якщо потрібно ввести/змінити alt, юзер може зробити це через спец-команду пізніше.
@@ -1340,49 +1325,3 @@ function PhotoFitControls({
   );
 }
 
-// ────────────────────────────────────────────────────────────────────────────
-// ImageBlockSettings — image-specific панель (заокруглення кутів + chroma-key).
-// Портал-иться у #news-block-settings-slot ПІСЛЯ BlockItemHeader.
-// ────────────────────────────────────────────────────────────────────────────
-
-function ImageBlockSettings({
-  onOpenStudio,
-  data,
-  onChangeData,
-}: {
-  onOpenStudio: () => void;
-  data: Record<string, string>;
-  onChangeData: (next: Record<string, string>) => void;
-}) {
-  // Контроли «Розгорнути / Заповнити» + focal-крапка винесені прямо на канвас
-  // (FitToolbar + FocalDotOverlay у самому image-блоці), а не в sidebar —
-  // щоб менеджер бачив зміну одразу. Тут лишається лише «Кадрувати».
-  void data; void onChangeData;
-  return (
-    <div style={{ background: "#FFFFFF", fontFamily: ff, borderTop: "1px solid #F0E6D2" }}>
-      <Section>
-        <SectionLabel>Кадрувати</SectionLabel>
-        <button
-          type="button"
-          onClick={onOpenStudio}
-          style={{
-            width: "100%", height: "34px",
-            borderRadius: "6px",
-            border: "1px solid #D4A843",
-            background: "#1C3A2E",
-            color: "#D4A843",
-            fontSize: "12px",
-            fontWeight: 700,
-            cursor: "pointer",
-            fontFamily: ff,
-            display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "8px",
-            letterSpacing: "0.04em",
-          }}
-        >✂ Відкрити кадрування</button>
-        <div style={{ fontSize: "10px", color: "#9CA3AF", lineHeight: 1.5, marginTop: "6px" }}>
-          Інтерактивне обрізання фото з live-превʼю — у повноекранному вікні.
-        </div>
-      </Section>
-    </div>
-  );
-}

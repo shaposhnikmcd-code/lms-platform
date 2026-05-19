@@ -192,6 +192,13 @@ export default function TemplateConstructor({
 
   const handleSave = useCallback(
     async (_meta: NewsMeta, content: string, imageUrl: string) => {
+      // Назва шаблону — обов'язкова. У blueprint-режимі без неї шаблон неможливо
+      // ідентифікувати в listing-у. У content-режимі — це title новини, який
+      // зʼявляється на /news. Блокуємо Save поки порожньо.
+      if (!title.trim()) {
+        setError("Введіть назву шаблону");
+        throw new Error("Title required");
+      }
       setSaving(true);
       setError("");
       // Скасовуємо pending debounced title PATCH — final Save все одно його перепише.
@@ -870,6 +877,10 @@ function TemplateNameInput({
     el.style.height = "auto";
     el.style.height = `${el.scrollHeight}px`;
   }, [value]);
+  const isEmpty = value.trim() === "";
+  const borderColor = isEmpty
+    ? (focused ? "#F87171" : "rgba(248,113,113,0.55)")
+    : (focused ? "#D4A843" : "rgba(212,168,67,0.25)");
   return (
     <div
       style={{
@@ -897,7 +908,7 @@ function TemplateNameInput({
           paddingLeft: 4,
         }}
       >
-        Назва шаблону
+        Назва шаблону <span style={{ color: "#F87171" }}>*</span>
       </label>
       <textarea
         id="template-name-input"
@@ -907,11 +918,13 @@ function TemplateNameInput({
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
         onKeyDown={e => { if (e.key === "Enter") e.preventDefault(); }}
-        placeholder="Подія / Фахівець"
+        placeholder="Введіть назву шаблону"
         rows={1}
+        required
+        aria-required="true"
         style={{
           background: "rgba(0,0,0,0.25)",
-          border: `1px solid ${focused ? "#D4A843" : "rgba(212,168,67,0.25)"}`,
+          border: `1px solid ${borderColor}`,
           borderRadius: 8,
           color: "#F4E7C7",
           fontSize: 13,

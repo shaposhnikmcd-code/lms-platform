@@ -675,7 +675,9 @@ export default function NewsEditor(props: Props) {
         mode === "page"
           ? "max-w-[1516px] mx-auto pt-7 pb-10"
           : props.templateMode
-          ? "max-w-[1820px] mx-auto px-6 pt-7 pb-10"
+          ? "max-w-[1820px] mx-auto px-6 pt-12 pb-10"
+          : mode === "preview"
+          ? "max-w-[1520px] mx-auto px-6 pt-12 pb-10"
           : "max-w-[1520px] mx-auto px-6 pt-7 pb-10"
       }`}>
         {/* Header — однаковий у всіх білдерах: breadcrumb-пілюля ліворуч,
@@ -684,13 +686,7 @@ export default function NewsEditor(props: Props) {
             стояли на однаковій відстані. У page-mode (зовнішній wrapper без
             горизонтального padding-у) додаємо px-6 локально, щоб breadcrumb
             не прилипав до краю вʼюпорта. */}
-        <div className={`mb-4 relative flex items-center min-h-[44px] ${mode === "page" ? "px-6" : ""}`}>
-          <div className="inline-flex items-center gap-2.5 px-3.5 py-1.5 rounded-full bg-gradient-to-r from-violet-50 to-violet-100/40 border border-violet-200/60 shadow-[0_1px_2px_rgba(124,58,237,0.06)]">
-            <span className="inline-block w-1.5 h-1.5 rounded-full bg-violet-500 shadow-[0_0_6px_rgba(124,58,237,0.5)]" />
-            <span className="text-[13px] font-bold tracking-wider uppercase text-violet-700">Admin</span>
-            <span className="text-violet-300 text-[13px] -mx-0.5">·</span>
-            <span className="text-[13px] font-semibold tracking-wide uppercase text-slate-600">Новини</span>
-          </div>
+        <div className={`mb-10 relative flex items-center min-h-[44px] ${mode === "page" ? "px-6" : ""}`}>
           <h1 className="absolute left-1/2 -translate-x-1/2 text-3xl font-bold text-slate-900 tracking-tight flex items-center gap-3 min-w-0 whitespace-nowrap">
             <span
               className={`inline-block w-2.5 h-2.5 rounded-full flex-shrink-0 ${

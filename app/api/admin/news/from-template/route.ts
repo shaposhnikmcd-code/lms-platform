@@ -47,9 +47,10 @@ export async function POST(req: NextRequest) {
   const baseSlug = slugPrefix + cleanBase + "-" + Date.now().toString(36);
 
   const cloneBase = blueprint.title.replace(/^\[Шаблон\]\s*/i, "");
-  const cloneTitle = asBlueprint
-    ? `${cloneBase} · копія`
-    : `${cloneBase} — нова`;
+  // Кастомний шаблон (asBlueprint=true) створюється з ПУСТОЮ назвою — менеджер
+  // зобов'язаний дати свою (validation у TemplateConstructor блокує Save без неї).
+  // Для звичайної новини (asBlueprint=false) лишаємо "{base} — нова" як hint.
+  const cloneTitle = asBlueprint ? "" : `${cloneBase} — нова`;
 
   // parentTemplateId:
   //   - asBlueprint=true: parent — це поточний blueprint, АЛЕ тільки якщо він
