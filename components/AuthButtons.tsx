@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useSession, signOut } from 'next-auth/react';
@@ -12,14 +13,22 @@ export default function AuthButtons() {
   const { data: session, status } = useSession();
   const t = useTranslations('Auth');
   const [open, setOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => { setMounted(true); }, []);
 
   useEffect(() => {
     if (!open) return;
     const handleClick = (e: MouseEvent) => {
-      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
+      const target = e.target as Node;
+      // ignore clicks inside the wrapper (the avatar button)
+      if (wrapperRef.current && wrapperRef.current.contains(target)) return;
+      // ignore clicks inside the portal dropdown
+      if (target instanceof Element && target.closest('[data-auth-dropdown]')) return;
+      setOpen(false);
     };
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setOpen(false);
@@ -29,6 +38,21 @@ export default function AuthButtons() {
     return () => {
       document.removeEventListener('mousedown', handleClick);
       document.removeEventListener('keydown', handleKey);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open || !btnRef.current) return;
+    const updatePos = () => {
+      const r = btnRef.current!.getBoundingClientRect();
+      setPos({ top: r.bottom + 8, right: Math.max(8, window.innerWidth - r.right) });
+    };
+    updatePos();
+    window.addEventListener('resize', updatePos);
+    window.addEventListener('scroll', updatePos, true);
+    return () => {
+      window.removeEventListener('resize', updatePos);
+      window.removeEventListener('scroll', updatePos, true);
     };
   }, [open]);
 
@@ -45,6 +69,7 @@ export default function AuthButtons() {
   return (
     <div ref={wrapperRef} className="relative">
       <button
+        ref={btnRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
         className="flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-[#E8F5E0] transition-colors"
@@ -71,10 +96,19 @@ export default function AuthButtons() {
         </div>
       </button>
 
-      {open && (
+      {mounted && open && pos && createPortal(
         <div
+          data-auth-dropdown
           role="menu"
-          className="absolute right-0 mt-2 w-72 bg-white rounded-xl shadow-lg border border-stone-200 overflow-hidden z-50"
+          className="bg-white rounded-xl border border-stone-200 overflow-hidden"
+          style={{
+            position: 'fixed',
+            top: pos.top,
+            right: pos.right,
+            width: 288,
+            boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+            zIndex: 9999,
+          }}
         >
           <div className="px-4 py-3 bg-[#FAF7F0] border-b border-stone-200 flex items-center gap-3">
             <div className="w-10 h-10 bg-[#D4A017] rounded-full flex items-center justify-center overflow-hidden flex-shrink-0">
@@ -123,7 +157,8 @@ export default function AuthButtons() {
             <HiOutlineArrowRightOnRectangle className="text-lg" />
             <span>{t('logout')}</span>
           </button>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
