@@ -3,6 +3,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   FaPlus,
   FaEdit,
@@ -187,6 +188,7 @@ function tileGridFor(n: number): { cols: number; rows: number } {
 export default function AdminNewsPage() {
   const { theme, setTheme } = useAdminTheme();
   const dark = theme === 'dark';
+  const router = useRouter();
 
   const [news, setNews] = useState<NewsItem[]>([]);
   const [templates, setTemplates] = useState<NewsItem[]>([]);
@@ -222,15 +224,22 @@ export default function AdminNewsPage() {
   // Який confirm-діалог відкритий для staged-секції (`null` — закрито).
   // Оголошуємо до Esc-handler-а нижче, інакше TDZ.
   const [stagedConfirm, setStagedConfirm] = useState<null | 'publishNow' | 'discard'>(null);
+  const [archiveConfirm, setArchiveConfirm] = useState<null | {
+    id: string;
+    action: 'load' | 'restore';
+    dateLabel: string;
+  }>(null);
+  const [archiveConfirmPending, setArchiveConfirmPending] = useState(false);
 
   // Esc + body-scroll lock для будь-якої з модалок.
-  const anyModalOpen = pagePreviewOpen || itemPreview !== null || stagedConfirm !== null;
+  const anyModalOpen = pagePreviewOpen || itemPreview !== null || stagedConfirm !== null || archiveConfirm !== null;
   useEffect(() => {
     if (!anyModalOpen) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       if (itemPreview) setItemPreview(null);
       else if (stagedConfirm) setStagedConfirm(null);
+      else if (archiveConfirm) setArchiveConfirm(null);
       else if (pagePreviewOpen) setPagePreviewOpen(false);
     };
     window.addEventListener('keydown', onKey);
@@ -240,7 +249,7 @@ export default function AdminNewsPage() {
       window.removeEventListener('keydown', onKey);
       document.body.style.overflow = prevOverflow;
     };
-  }, [anyModalOpen, pagePreviewOpen, itemPreview, stagedConfirm]);
+  }, [anyModalOpen, pagePreviewOpen, itemPreview, stagedConfirm, archiveConfirm]);
 
   // Staged ("Наступна сторінка") стан — для countdown і дій у адмінці.
   // `publishOn` — Київ-календарна дата (YYYY-MM-DD); час фіксований 06:00 Київ.
@@ -256,9 +265,18 @@ export default function AdminNewsPage() {
       .catch(() => setArchive([]));
   }, []);
   const [datePickerOpen, setDatePickerOpen] = useState(false);
-  const [scheduleInput, setScheduleInput] = useState<string>(''); // YYYY-MM-DD
+  const [scheduleInput, setScheduleInput] = useState<string>(''); // YYYY-MM-DD (committed)
+  // Локальний draft вибраної дати у popover-і — комітиться у scheduleInput
+  // тільки після кліку «Підтвердити». Без цього draft-у вибір дати миттєво
+  // зберігав би і закривав picker — менеджеру здається що нічого не сталось.
+  const [scheduleDraft, setScheduleDraft] = useState<string>('');
   const [scheduleSaveState, setScheduleSaveState] = useState<'idle' | 'saving' | 'saved'>('idle');
   const scheduleDebounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // При відкритті picker-а — синхронізуємо draft з commited значенням.
+  useEffect(() => {
+    if (datePickerOpen) setScheduleDraft(scheduleInput);
+  }, [datePickerOpen, scheduleInput]);
 
   // Date-picker popover рендериться через portal до body — щоб не клипатись
   // overflow:hidden батьківської staged-панелі. Координати рахуємо з рефу
@@ -271,7 +289,17 @@ export default function AdminNewsPage() {
       const el = dateTriggerRef.current;
       if (!el) return;
       const r = el.getBoundingClientRect();
-      setDatePickerPos({ top: r.bottom + 6, left: r.left });
+      // Якщо знизу мало місця (popover ~390px з кнопкою підтвердження + підказкою)
+      // — відкриваємо догори над кнопкою. Аналогічна логіка як у select-flip патернах.
+      const POPOVER_H = 390;
+      const GAP = 6;
+      const spaceBelow = window.innerHeight - r.bottom;
+      const spaceAbove = r.top;
+      const flipUp = spaceBelow < POPOVER_H && spaceAbove > spaceBelow;
+      const top = flipUp
+        ? Math.max(8, r.top - POPOVER_H - GAP)
+        : r.bottom + GAP;
+      setDatePickerPos({ top, left: r.left });
     };
     recalc();
     window.addEventListener('resize', recalc);
@@ -781,11 +809,19 @@ export default function AdminNewsPage() {
                   </button>
                 </div>
 
-                {/* Actions row — 4 pill-кнопки в одну строку (date picker shrink-абельний). */}
-                <div className={`px-3 py-2 border-t flex items-center gap-2 flex-nowrap ${
+                {/* Footer — schedule зверху (повна ширина), state-actions знизу
+                    окремою смужкою. Дві колонки б ставали б тісними при малій
+                    ширині картки (4 контроли + crowded gap), тому розділив. */}
+                <div className={`border-t flex flex-col ${
                   dark ? 'border-white/[0.06] bg-white/[0.015]' : 'border-amber-500/15 bg-white/40'
                 }`}>
-                  <div className="flex-1 min-w-0 flex items-center gap-1">
+                  {/* Row 1 — schedule input. Date pill full-width + reset праворуч. */}
+                  <div className={`px-3 pt-2.5 pb-2 flex items-center gap-2 ${
+                    dark ? 'border-b border-white/[0.04]' : 'border-b border-amber-500/10'
+                  }`}>
+                    <span className={`flex-shrink-0 text-[9.5px] font-bold tracking-[0.14em] uppercase ${
+                      dark ? 'text-amber-300/55' : 'text-amber-800/55'
+                    }`}>Публікація</span>
                     <button
                       type="button"
                       ref={dateTriggerRef}
@@ -797,7 +833,23 @@ export default function AdminNewsPage() {
                       }`}
                     >
                       <span className="inline-flex items-center gap-1.5 min-w-0">
-                        <span aria-hidden className="text-[11px]">📅</span>
+                        <svg
+                          aria-hidden
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          className="flex-shrink-0"
+                        >
+                          <rect x="3" y="5" width="18" height="16" rx="2" />
+                          <path d="M3 10h18" />
+                          <path d="M8 3v4" />
+                          <path d="M16 3v4" />
+                        </svg>
                         <span className="font-medium truncate">
                           {scheduleInput ? formatDateChip(scheduleInput) : 'Обрати дату'}
                         </span>
@@ -808,56 +860,74 @@ export default function AdminNewsPage() {
                       <button
                         type="button"
                         onClick={() => { setScheduleInput(''); setDatePickerOpen(false); }}
-                        title="Прибрати дату"
-                        aria-label="Прибрати дату"
-                        className={`flex-shrink-0 inline-flex items-center justify-center w-6 h-6 rounded-full border transition-colors text-[10px] ${
+                        title="Скинути дату публікації"
+                        aria-label="Скинути дату публікації"
+                        className={`flex-shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-full border transition-colors ${
                           dark
-                            ? 'bg-white/[0.04] text-amber-200 border-white/[0.10] hover:bg-white/[0.10]'
-                            : 'bg-white/70 text-amber-800 border-stone-300/60 hover:bg-white'
+                            ? 'bg-rose-500/15 text-rose-200 border-rose-400/40 hover:bg-rose-500/25'
+                            : 'bg-rose-100/70 text-rose-800 border-rose-400/55 hover:bg-rose-100'
                         }`}
-                      >✕</button>
+                      >
+                        <svg
+                          aria-hidden
+                          width="13"
+                          height="13"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2.6"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <path d="M6 6l12 12" />
+                          <path d="M6 18L18 6" />
+                        </svg>
+                      </button>
                     )}
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setStagedConfirm('publishNow')}
-                    disabled={stagedActionPending !== null}
-                    title="Опублікувати чернетку негайно"
-                    className={`flex-shrink-0 inline-flex items-center justify-center gap-1.5 px-3 h-8 text-[11.5px] font-medium rounded-full border transition-colors whitespace-nowrap disabled:opacity-50 ${
-                      dark
-                        ? 'bg-emerald-400/90 text-stone-900 border-transparent hover:bg-emerald-300'
-                        : 'bg-emerald-600 text-white border-transparent hover:bg-emerald-700'
-                    }`}
-                  >
-                    <span aria-hidden className="text-[11px]">⚡</span>
-                    <span>{stagedActionPending === 'publishNow' ? '...' : 'Опублікувати'}</span>
-                  </button>
-                  <Link
-                    href="/dashboard/admin/news/page-builder/next"
-                    title="Редагувати чернетку наступної сторінки"
-                    className={`flex-shrink-0 inline-flex items-center justify-center gap-1.5 px-3 h-8 text-[11.5px] font-medium rounded-full border transition-colors whitespace-nowrap ${
-                      dark
-                        ? 'bg-transparent border-amber-300/40 text-amber-200 hover:border-amber-300/70 hover:bg-amber-300/10'
-                        : 'bg-white/60 border-amber-700/40 text-amber-800 hover:border-amber-700/70 hover:bg-amber-50'
-                    }`}
-                  >
-                    <FaPlus className="text-[10px]" />
-                    <span>Редагувати</span>
-                  </Link>
-                  <button
-                    type="button"
-                    onClick={() => setStagedConfirm('discard')}
-                    disabled={stagedActionPending !== null}
-                    title="Видалити чернетку"
-                    aria-label="Очистити чернетку"
-                    className={`flex-shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-full border transition-colors disabled:opacity-50 ${
-                      dark
-                        ? 'bg-rose-500/10 text-rose-200 border-rose-400/30 hover:bg-rose-500/20'
-                        : 'bg-rose-100/60 text-rose-800 border-rose-300/60 hover:bg-rose-100'
-                    }`}
-                  >
-                    <span aria-hidden className="text-[12px]">{stagedActionPending === 'discard' ? '…' : '🗑'}</span>
-                  </button>
+                  {/* Row 2 — state-actions: Publish (primary, flex-1) + Edit + Discard. */}
+                  <div className="px-3 py-2 flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setStagedConfirm('publishNow')}
+                      disabled={stagedActionPending !== null}
+                      title="Опублікувати чернетку негайно"
+                      className={`flex-1 min-w-0 inline-flex items-center justify-center gap-1.5 px-3 h-8 text-[11.5px] font-medium rounded-full border transition-colors whitespace-nowrap disabled:opacity-50 ${
+                        dark
+                          ? 'bg-emerald-400/90 text-stone-900 border-transparent hover:bg-emerald-300'
+                          : 'bg-emerald-600 text-white border-transparent hover:bg-emerald-700'
+                      }`}
+                    >
+                      <span aria-hidden className="text-[11px]">⚡</span>
+                      <span>{stagedActionPending === 'publishNow' ? '...' : 'Опублікувати'}</span>
+                    </button>
+                    <Link
+                      href="/dashboard/admin/news/page-builder/next"
+                      title="Редагувати чернетку наступної сторінки"
+                      className={`flex-shrink-0 inline-flex items-center justify-center gap-1.5 px-3 h-8 text-[11.5px] font-medium rounded-full border transition-colors whitespace-nowrap ${
+                        dark
+                          ? 'bg-transparent border-amber-300/40 text-amber-200 hover:border-amber-300/70 hover:bg-amber-300/10'
+                          : 'bg-white/60 border-amber-700/40 text-amber-800 hover:border-amber-700/70 hover:bg-amber-50'
+                      }`}
+                    >
+                      <FaPlus className="text-[10px]" />
+                      <span>Редагувати</span>
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={() => setStagedConfirm('discard')}
+                      disabled={stagedActionPending !== null}
+                      title="Видалити чернетку"
+                      aria-label="Очистити чернетку"
+                      className={`flex-shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-full border transition-colors disabled:opacity-50 ${
+                        dark
+                          ? 'bg-rose-500/10 text-rose-200 border-rose-400/30 hover:bg-rose-500/20'
+                          : 'bg-rose-100/60 text-rose-800 border-rose-300/60 hover:bg-rose-100'
+                      }`}
+                    >
+                      <span aria-hidden className="text-[12px]">{stagedActionPending === 'discard' ? '…' : '🗑'}</span>
+                    </button>
+                  </div>
                 </div>
 
                 {datePickerOpen && datePickerPos && typeof document !== 'undefined' && createPortal(
@@ -875,14 +945,52 @@ export default function AdminNewsPage() {
                     }`}
                   >
                     <InlineDatePicker
-                      value={scheduleInput}
-                      onChange={(v) => { setScheduleInput(v); setDatePickerOpen(false); }}
+                      value={scheduleDraft}
+                      onChange={(v) => setScheduleDraft(v)}
                       theme={theme}
                       min={minDate}
                     />
-                    <p className={`px-2.5 pb-2 -mt-1 text-[10px] leading-snug ${dark ? 'text-amber-200/55' : 'text-amber-800/65'}`}>
+                    <p className={`px-2.5 pb-1.5 -mt-1 text-[10px] leading-snug ${dark ? 'text-amber-200/55' : 'text-amber-800/65'}`}>
                       Заміна вранці обраного дня (06:00 Київ).
                     </p>
+                    <div className={`flex items-center gap-2 px-2.5 py-2 border-t ${
+                      dark ? 'border-white/[0.06] bg-white/[0.02]' : 'border-amber-500/15 bg-amber-50/40'
+                    }`}>
+                      <button
+                        type="button"
+                        onClick={() => setDatePickerOpen(false)}
+                        className={`flex-shrink-0 px-3 h-8 rounded-full text-[11px] font-medium border transition-colors ${
+                          dark
+                            ? 'bg-transparent text-stone-300 border-white/[0.10] hover:bg-white/[0.05]'
+                            : 'bg-transparent text-stone-700 border-stone-300/70 hover:bg-stone-100/60'
+                        }`}
+                      >Скасувати</button>
+                      <button
+                        type="button"
+                        disabled={!scheduleDraft || scheduleDraft === scheduleInput}
+                        onClick={() => { setScheduleInput(scheduleDraft); setDatePickerOpen(false); }}
+                        className={`flex-1 inline-flex items-center justify-center gap-1.5 h-8 rounded-full text-[11.5px] font-semibold border transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                          dark
+                            ? 'bg-emerald-400/90 text-stone-900 border-transparent hover:bg-emerald-300'
+                            : 'bg-emerald-600 text-white border-transparent hover:bg-emerald-700'
+                        }`}
+                      >
+                        <svg
+                          aria-hidden
+                          width="13"
+                          height="13"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2.6"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <path d="M5 12.5l4.5 4.5L19 7.5" />
+                        </svg>
+                        <span>Підтвердити</span>
+                      </button>
+                    </div>
                   </div>,
                   document.body,
                 )}
@@ -953,19 +1061,56 @@ export default function AdminNewsPage() {
                         замінено о {timeLabel}{entry.wasPublished ? ' · була live' : ' · була прихована'}
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setPagePreviewSource({ kind: 'archive', id: entry.id, archivedAt: entry.archivedAt })}
-                      title="Превʼю архівної версії"
-                      className={`flex-shrink-0 inline-flex items-center gap-1.5 px-2.5 h-7 rounded-full border text-[11px] font-medium transition-colors ${
-                        dark
-                          ? 'bg-white/[0.04] text-slate-300 border-white/[0.10] hover:bg-white/[0.10] hover:text-slate-100'
-                          : 'bg-white/70 text-stone-700 border-stone-300/60 hover:bg-white hover:text-stone-900'
-                      }`}
-                    >
-                      <span aria-hidden>👁</span>
-                      <span>Превʼю</span>
-                    </button>
+                    <div className="flex-shrink-0 inline-flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setPagePreviewSource({ kind: 'archive', id: entry.id, archivedAt: entry.archivedAt })}
+                        title="Превʼю архівної версії"
+                        aria-label="Превʼю"
+                        className={`inline-flex items-center justify-center w-7 h-7 rounded-full border transition-colors ${
+                          dark
+                            ? 'bg-white/[0.04] text-slate-300 border-white/[0.10] hover:bg-white/[0.10] hover:text-slate-100'
+                            : 'bg-white/70 text-stone-700 border-stone-300/60 hover:bg-white hover:text-stone-900'
+                        }`}
+                      >
+                        <svg aria-hidden width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" />
+                          <circle cx="12" cy="12" r="3" />
+                        </svg>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setArchiveConfirm({ id: entry.id, action: 'load', dateLabel })}
+                        title="Відкрити у білдері (як чернетку наступної сторінки)"
+                        aria-label="Відкрити"
+                        className={`inline-flex items-center justify-center w-7 h-7 rounded-full border transition-colors ${
+                          dark
+                            ? 'bg-amber-300/10 text-amber-200 border-amber-300/30 hover:bg-amber-300/20'
+                            : 'bg-amber-100/60 text-amber-800 border-amber-500/40 hover:bg-amber-100'
+                        }`}
+                      >
+                        <svg aria-hidden width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M12 20h9" />
+                          <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                        </svg>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setArchiveConfirm({ id: entry.id, action: 'restore', dateLabel })}
+                        title="Повернути на live"
+                        aria-label="Повернути"
+                        className={`inline-flex items-center justify-center w-7 h-7 rounded-full border transition-colors ${
+                          dark
+                            ? 'bg-emerald-400/10 text-emerald-200 border-emerald-400/30 hover:bg-emerald-400/20'
+                            : 'bg-emerald-100/60 text-emerald-800 border-emerald-500/40 hover:bg-emerald-100'
+                        }`}
+                      >
+                        <svg aria-hidden width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M3 12a9 9 0 1 0 3-6.7" />
+                          <polyline points="3 4 3 10 9 10" />
+                        </svg>
+                      </button>
+                    </div>
                   </li>
                 );
               })}
@@ -1691,6 +1836,133 @@ export default function AdminNewsPage() {
                   className={`flex-1 px-4 py-2.5 text-sm font-medium rounded-xl transition-colors disabled:opacity-50 ${cfg.confirmClass}`}
                 >
                   {pending ? '...' : cfg.confirmLabel}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Archive confirm — Відкрити / Повернути архівну версію /news. */}
+      {archiveConfirm && (() => {
+        const isRestore = archiveConfirm.action === 'restore';
+        const cfg = isRestore
+          ? {
+              iconBg: dark ? 'bg-emerald-400/15 text-emerald-300' : 'bg-emerald-100 text-emerald-700',
+              icon: (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 12a9 9 0 1 0 3-6.7" />
+                  <polyline points="3 4 3 10 9 10" />
+                </svg>
+              ),
+              title: 'Повернути цю версію на live?',
+              body: (
+                <>
+                  Версія від <span className={`font-semibold ${dark ? 'text-slate-100' : 'text-stone-900'}`}>{archiveConfirm.dateLabel}</span> стане
+                  новою live-сторінкою <span className={`font-semibold ${dark ? 'text-slate-100' : 'text-stone-900'}`}>/news</span>.
+                  Поточна live-версія автоматично перейде в архів — повернути її можна буде звідти.
+                </>
+              ),
+              confirmLabel: 'Повернути на live',
+              confirmClass: dark
+                ? 'bg-emerald-400/90 text-stone-900 hover:bg-emerald-300 shadow-[0_0_20px_-4px_rgba(16,185,129,0.5)]'
+                : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm',
+            }
+          : {
+              iconBg: dark ? 'bg-amber-300/15 text-amber-300' : 'bg-amber-100 text-amber-800',
+              icon: (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 20h9" />
+                  <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                </svg>
+              ),
+              title: 'Відкрити цю версію у білдері?',
+              body: (
+                <>
+                  Версію від <span className={`font-semibold ${dark ? 'text-slate-100' : 'text-stone-900'}`}>{archiveConfirm.dateLabel}</span> буде
+                  завантажено як чернетку <span className={`font-semibold ${dark ? 'text-slate-100' : 'text-stone-900'}`}>наступної сторінки</span>.
+                  Поточну чернетку, якщо вона є, буде перезаписано.
+                </>
+              ),
+              confirmLabel: 'Відкрити',
+              confirmClass: dark
+                ? 'bg-amber-400/90 text-stone-900 hover:bg-amber-300 shadow-[0_0_20px_-4px_rgba(251,191,36,0.5)]'
+                : 'bg-amber-600 text-white hover:bg-amber-700 shadow-sm',
+            };
+        const runAction = async () => {
+          if (archiveConfirmPending) return;
+          setArchiveConfirmPending(true);
+          try {
+            const res = await fetch(`/api/admin/news/page-content/archive/${archiveConfirm.id}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: archiveConfirm.action }),
+            });
+            if (!res.ok) {
+              const body = await res.json().catch(() => ({}));
+              setToast({ type: 'error', message: body?.error || 'Не вдалось виконати дію' });
+              setArchiveConfirm(null);
+              return;
+            }
+            if (archiveConfirm.action === 'load') {
+              router.push('/dashboard/admin/news/page-builder/next');
+            } else {
+              setToast({ type: 'success', message: `Версію від ${archiveConfirm.dateLabel} повернуто на live` });
+              setArchiveConfirm(null);
+              // Перевантажуємо архів і staged-статус.
+              fetch('/api/admin/news/page-content/archive')
+                .then(r => r.ok ? r.json() : [])
+                .then((d: unknown) => setArchive(Array.isArray(d) ? d as typeof archive : []))
+                .catch(() => {/* ignore */});
+            }
+          } finally {
+            setArchiveConfirmPending(false);
+          }
+        };
+        return (
+          <div
+            className={`fixed inset-0 flex items-center justify-center z-50 backdrop-blur-sm ${
+              dark ? 'bg-black/60' : 'bg-stone-900/30'
+            }`}
+            onClick={() => !archiveConfirmPending && setArchiveConfirm(null)}
+          >
+            <div
+              className={`rounded-2xl p-6 w-full max-w-sm mx-4 border shadow-2xl ${
+                dark ? 'bg-[#14161d] border-white/[0.08]' : 'bg-[#fbf7ec] border-stone-300/60'
+              }`}
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex items-start gap-3 mb-3">
+                <span className={`flex-shrink-0 inline-flex items-center justify-center w-10 h-10 rounded-full ${cfg.iconBg}`}>
+                  {cfg.icon}
+                </span>
+                <h3 className={`text-lg font-semibold leading-snug pt-1.5 ${dark ? 'text-slate-100' : 'text-stone-900'}`}>
+                  {cfg.title}
+                </h3>
+              </div>
+              <p className={`text-sm mb-5 leading-relaxed ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
+                {cfg.body}
+              </p>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setArchiveConfirm(null)}
+                  disabled={archiveConfirmPending}
+                  className={`flex-1 px-4 py-2.5 text-sm font-medium rounded-xl border transition-colors disabled:opacity-50 ${
+                    dark
+                      ? 'bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.08]'
+                      : 'bg-white/70 border-stone-300/60 text-stone-700 hover:bg-white'
+                  }`}
+                >
+                  Скасувати
+                </button>
+                <button
+                  type="button"
+                  onClick={runAction}
+                  disabled={archiveConfirmPending}
+                  className={`flex-1 px-4 py-2.5 text-sm font-medium rounded-xl transition-colors disabled:opacity-50 ${cfg.confirmClass}`}
+                >
+                  {archiveConfirmPending ? '...' : cfg.confirmLabel}
                 </button>
               </div>
             </div>

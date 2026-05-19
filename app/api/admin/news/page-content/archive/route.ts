@@ -26,6 +26,7 @@ export async function GET(req: NextRequest) {
       id: entry.id,
       content: entry.content,
       pageBgColor: entry.pageBgColor,
+      pageWidth: entry.pageWidth,
       wasPublished: entry.wasPublished,
       archivedAt: entry.archivedAt.toISOString(),
     });

@@ -50,6 +50,7 @@ export async function GET(req: NextRequest) {
     contentEn: page.nextContentEn ?? "",
     contentPl: page.nextContentPl ?? "",
     pageBgColor: page.nextPageBgColor ?? "",
+    pageWidth: page.nextPageWidth,
     // `publishOn` — Київ-календарна дата (YYYY-MM-DD). UI працює тільки з нею.
     // `publishAt` — повний UTC-інстант для довідкових рендерів (countdown).
     publishOn: utcToKyivDateStr(page.nextPublishAt),
@@ -110,6 +111,9 @@ export async function PATCH(req: NextRequest) {
   // Повний апдейт (з content): зберігається з білдера.
   const content = typeof body.content === "string" ? body.content : "";
   const pageBgColor = typeof body.pageBgColor === "string" ? body.pageBgColor : null;
+  const pageWidth = typeof body.pageWidth === "number" && body.pageWidth > 0
+    ? Math.max(850, Math.min(1450, Math.round(body.pageWidth)))
+    : null;
 
   // DeepL для contentEn/Pl (якщо клієнт їх явно не передав). Помилки swallow-имо
   // — fallback на UA-оригінал у render-логіці.
@@ -135,6 +139,7 @@ export async function PATCH(req: NextRequest) {
     nextContentEn: contentEn,
     nextContentPl: contentPl,
     nextPageBgColor: pageBgColor,
+    nextPageWidth: pageWidth,
     nextUpdatedAt: new Date(),
   };
   await prisma.newsPage.upsert({
@@ -166,6 +171,7 @@ export async function DELETE(req: NextRequest) {
       nextContentEn: null,
       nextContentPl: null,
       nextPageBgColor: null,
+      nextPageWidth: null,
       nextPublishAt: null,
       nextUpdatedAt: null,
     },

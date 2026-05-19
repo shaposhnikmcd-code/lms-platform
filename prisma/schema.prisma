@@ -528,6 +528,8 @@ model NewsPage {
   nextContentEn   String?
   nextContentPl   String?
   nextPageBgColor String?
+  /// Staged-ширина «папера». Копіюється у pageWidth при публікації.
+  nextPageWidth   Int?
   nextPublishAt   DateTime?
   /// Хто і коли востаннє редагував staged. Допомагає у адмінці показати "редаговано Х годин тому".
   nextUpdatedAt   DateTime?
@@ -550,6 +552,9 @@ model NewsPageArchive {
   contentEn   String?
   contentPl   String?
   pageBgColor String?
+  /// Ширина «папера» на момент архівації. Потрібна для коректного відновлення
+  /// геометрії блоків (вони у px і прив'язані до конкретної pageWidth).
+  pageWidth   Int?
   /// Чи був snapshot активним (NewsPage.published) у момент архівації — для
   /// довідки в адмінці.
   wasPublished Boolean @default(false)

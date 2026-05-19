@@ -61,7 +61,7 @@ async function loadSource(source: string, archiveId: string | null): Promise<Con
       contentEn: page.nextContentEn,
       contentPl: page.nextContentPl,
       pageBgColor: page.nextPageBgColor ?? page.pageBgColor,
-      pageWidth: page.pageWidth,
+      pageWidth: page.nextPageWidth ?? page.pageWidth,
     };
   }
   return {

@@ -165,6 +165,9 @@ interface BaseProps {
    *  Менеджер вмикає кнопкою в toolbar-і, щоб бачити реальну форму блоків
    *  без візуального шуму. Дефолт false. */
   hideFrames?: boolean;
+  /** Джерело даних для floating Preview iframe-у (mode="page"). "live" (default)
+   *  → поточна live-сторінка `/news`. "next" → staged-чернетка з NewsPage.next*. */
+  previewSource?: "live" | "next";
 }
 
 interface SingleProps extends BaseProps {
@@ -861,7 +864,7 @@ export default function NewsEditor(props: Props) {
           <div className="flex-1 overflow-hidden p-6" onClick={e => e.stopPropagation()}>
             <div className="mx-auto h-full rounded-lg overflow-hidden shadow-2xl bg-white" style={{ maxWidth: "1440px" }}>
               <iframe
-                src="/uk/news/preview?source=live"
+                src={`/uk/news/preview?source=${props.previewSource ?? "live"}`}
                 title="Превʼю /news"
                 className="w-full h-full border-0"
               />

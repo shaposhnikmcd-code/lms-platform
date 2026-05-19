@@ -1154,6 +1154,12 @@ export default function EditorCanvas({
   }, [updateCanvasRect]);
 
   const handleDragMove = useCallback((event: DragMoveEvent) => {
+    // Перерахунок canvas rect на кожен dragMove — критично для drag-із-sidebar:
+    // dnd-kit auto-scroll-ить контейнер під час drag-у і canvas «їде» у viewport-і.
+    // Без updateCanvasRect() rect.top лишається staled з moment drag-start-у, тож
+    // dropPreview Y = (cursorY - stale_top) не співпадає з реальним пікселем
+    // курсора → ghost-outline опиняється в одному місці, а drag-overlay у іншому.
+    updateCanvasRect();
     const rect = canvasRectRef.current;
     if (!rect) return;
     const ev = event.activatorEvent as MouseEvent;

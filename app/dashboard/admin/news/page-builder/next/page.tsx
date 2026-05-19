@@ -1,11 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { NewsMeta } from "../../_components/editor/types";
-import InlineDatePicker, { formatDateChip } from "../../../_components/InlineDatePicker";
-import { useAdminTheme } from "../../../_components/adminTheme";
+import { TEMPLATE_PALETTE_BLOCKS } from "../../_components/editor/BlockPalette";
 
 // Білдер "Наступної сторінки" /news. Працює з staged-копією (next* поля
 // NewsPage). При відкритті — якщо staged ще нема, /api/admin/news/page-content/next
@@ -14,6 +13,10 @@ import { useAdminTheme } from "../../../_components/adminTheme";
 // (06:00 Київ обраного дня в UTC). Cron `/api/cron/news-publish` щоранку
 // (04:00 UTC = 06:00–07:00 Київ) робить swap; read-time auto-publish
 // в `app/[locale]/news/page.tsx` лишається як safety-net.
+//
+// Функціонально ідентичний до /page-builder (live): ті самі спецблоки, той самий
+// слайдер ширини, та сама px↔% конвертація. Різниця тільки в endpoint-і збереження
+// (next* поля замість content) і у заголовку.
 
 const NewsEditor = dynamic(() => import("../../_components/editor/NewsEditor"), {
   ssr: false,
@@ -26,35 +29,78 @@ const NewsEditor = dynamic(() => import("../../_components/editor/NewsEditor"), 
 
 const ff = "-apple-system, BlinkMacSystemFont, sans-serif";
 
+const DEFAULT_PAGE_WIDTH = 920;
+const MIN_PAGE_WIDTH = 850;
+const MAX_PAGE_WIDTH = 1450;
+const BUILDER_FRAME_W = 920;
+
+// Конвертація блоків між storage (px) і builder math (%). Реліз-копія з
+// /page-builder/page.tsx — щоб обидва білдери поводились однаково.
+function blocksDbToBuilder(rawJson: string, pageWidth: number): string {
+  let blocks: Array<Record<string, unknown>> = [];
+  try {
+    const parsed = JSON.parse(rawJson || "[]");
+    if (Array.isArray(parsed)) blocks = parsed;
+  } catch { return rawJson; }
+  if (blocks.length === 0) return rawJson;
+  const maxW = Math.max(0, ...blocks.map(b => Number(b.width) || 0));
+  const maxX = Math.max(0, ...blocks.map(b => Number(b.x) || 0));
+  const isLegacyPct = maxW <= 100 && maxX <= 100;
+  const out = blocks.map(b => {
+    const wRaw = Number(b.width) || 0;
+    const xRaw = typeof b.x === "number" ? b.x : 0;
+    const wPct = isLegacyPct ? wRaw : (wRaw / pageWidth) * 100;
+    const xPct = isLegacyPct ? xRaw : (xRaw / pageWidth) * 100;
+    return {
+      ...b,
+      width: String(Math.round(wPct * 100) / 100),
+      x: Math.round(xPct * 100) / 100,
+    };
+  });
+  return JSON.stringify(out);
+}
+
+function blocksBuilderToDb(rawJson: string, pageWidth: number): string {
+  let blocks: Array<Record<string, unknown>> = [];
+  try {
+    const parsed = JSON.parse(rawJson || "[]");
+    if (Array.isArray(parsed)) blocks = parsed;
+  } catch { return rawJson; }
+  if (blocks.length === 0) return rawJson;
+  const out = blocks.map(b => {
+    const wPct = Number(b.width) || 0;
+    const xPct = typeof b.x === "number" ? b.x : 0;
+    return {
+      ...b,
+      width: String(Math.round((wPct / 100) * pageWidth)),
+      x: Math.round((xPct / 100) * pageWidth),
+    };
+  });
+  return JSON.stringify(out);
+}
+
+const WIDTH_PRESETS = [
+  { label: "Вузька", value: 880 },
+  { label: "Стандарт", value: 920 },
+  { label: "Широка", value: 1100 },
+  { label: "Повна", value: 1450 },
+];
+
 export default function NewsPageBuilderNext() {
   const router = useRouter();
-  const { theme } = useAdminTheme();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [initialMeta, setInitialMeta] = useState<Partial<NewsMeta>>({});
   const [initialContent, setInitialContent] = useState("");
-  const [hasStaged, setHasStaged] = useState(false);
-  const [publishOn, setPublishOn] = useState(""); // YYYY-MM-DD
-  const [datePickerOpen, setDatePickerOpen] = useState(false);
-  const [actionPending, setActionPending] = useState<null | "publishNow" | "discard">(null);
+  const [pageWidth, setPageWidth] = useState<number>(DEFAULT_PAGE_WIDTH);
   const [toast, setToast] = useState<{ message: string; type: "error" | "success" } | null>(null);
-
-  const minDate = useMemo(() => {
-    const fmt = new Intl.DateTimeFormat("en-CA", {
-      timeZone: "Europe/Kyiv",
-      year: "numeric", month: "2-digit", day: "2-digit",
-    });
-    const [y, m, d] = fmt.format(new Date()).split("-").map(Number);
-    return fmt.format(new Date(Date.UTC(y, m - 1, d + 1)));
-  }, []);
 
   useEffect(() => {
     fetch("/api/admin/news/page-content/next")
       .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
       .then(d => {
         if (d) {
-          setHasStaged(!!d.hasStaged);
           // Сервер — джерело правди. Якщо staged-чернетки нема (щойно очищено
           // або ще ніколи не створювали) — будь-який осиротілий localStorage-draft
           // NewsEditor-а вважаємо невалідним і видаляємо. Інакше editor restore-ить
@@ -76,8 +122,12 @@ export default function NewsPageBuilderNext() {
               cleaned = JSON.stringify(filtered);
             }
           } catch {/* not JSON */}
-          setInitialContent(cleaned);
-          setPublishOn(d.publishOn || "");
+          const loadedPageWidth = typeof d.pageWidth === "number" && d.pageWidth > 0
+            ? Math.max(MIN_PAGE_WIDTH, Math.min(MAX_PAGE_WIDTH, d.pageWidth))
+            : DEFAULT_PAGE_WIDTH;
+          setPageWidth(loadedPageWidth);
+          // Конвертуємо блоки з px (БД) у % (builder math) — той самий шлях, що live-білдер.
+          setInitialContent(blocksDbToBuilder(cleaned, loadedPageWidth));
         } else {
           setInitialMeta({ title: "", slug: "", excerpt: "", category: "NEWS", imageUrl: "", pageBgColor: "", published: true });
           setInitialContent("");
@@ -96,60 +146,24 @@ export default function NewsPageBuilderNext() {
   const handleSave = async (meta: NewsMeta, content: string) => {
     setSaving(true);
     try {
+      // Конвертуємо % → px перед збереженням (як у live-білдері).
+      // НЕ передаємо publishOn — щоб не затерти заплановану дату публікації,
+      // виставлену через date-picker у адмінці. Зміни розкладу — окремий PATCH.
+      const contentPx = blocksBuilderToDb(content, pageWidth);
       const res = await fetch("/api/admin/news/page-content/next", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          content,
+          content: contentPx,
           pageBgColor: meta.pageBgColor || null,
-          publishOn: publishOn || null,
+          pageWidth,
         }),
       });
-      if (res.ok) {
-        router.push("/dashboard/admin/news");
-        return;
-      }
+      if (res.ok) return;
       const body = await res.json().catch(() => ({}));
       throw new Error(body?.error || `Помилка збереження (HTTP ${res.status})`);
     } finally {
       setSaving(false);
-    }
-  };
-
-  const publishNow = async () => {
-    if (!confirm("Опублікувати наступну сторінку зараз? Поточна live-версія буде замінена.")) return;
-    setActionPending("publishNow");
-    try {
-      const res = await fetch("/api/admin/news/page-content/next", { method: "POST" });
-      if (res.ok) {
-        setToast({ message: "Опубліковано — наступна сторінка стала live", type: "success" });
-        setTimeout(() => router.push("/dashboard/admin/news"), 800);
-      } else {
-        const body = await res.json().catch(() => ({}));
-        setToast({ message: body?.error || "Не вдалось опублікувати", type: "error" });
-      }
-    } catch {
-      setToast({ message: "Помилка мережі", type: "error" });
-    } finally {
-      setActionPending(null);
-    }
-  };
-
-  const discardStaged = async () => {
-    if (!confirm("Видалити чернетку наступної сторінки? Усі несейвлені зміни буде втрачено.")) return;
-    setActionPending("discard");
-    try {
-      const res = await fetch("/api/admin/news/page-content/next", { method: "DELETE" });
-      if (res.ok) {
-        setToast({ message: "Чернетку видалено", type: "success" });
-        setTimeout(() => router.push("/dashboard/admin/news"), 800);
-      } else {
-        setToast({ message: "Не вдалось видалити", type: "error" });
-      }
-    } catch {
-      setToast({ message: "Помилка мережі", type: "error" });
-    } finally {
-      setActionPending(null);
     }
   };
 
@@ -165,119 +179,94 @@ export default function NewsPageBuilderNext() {
     </div>
   );
 
-  return (
-    <>
-      {/* Sticky banner з контролем nextPublishAt + швидкими діями. Завжди над
-          NewsEditor — щоб менеджер бачив контекст: це staged, є таймер. */}
-      <div style={{
-        position: "sticky", top: 0, zIndex: 30,
-        padding: "10px 18px",
-        background: "linear-gradient(90deg, #FAF6F0 0%, #FCF5E2 100%)",
-        borderBottom: "1px solid #E8D5B7",
-        boxShadow: "0 2px 8px rgba(28,58,46,0.04)",
-        fontFamily: ff,
-        display: "flex", alignItems: "center", gap: "16px", flexWrap: "wrap",
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <span style={{
-            display: "inline-flex", alignItems: "center", justifyContent: "center",
-            width: "26px", height: "26px", borderRadius: "8px",
-            background: "#D4A843", color: "#1C3A2E", fontSize: "13px", fontWeight: 800,
-          }}>🕒</span>
-          <div>
-            <div style={{ fontSize: "12px", fontWeight: 700, color: "#1C3A2E", lineHeight: 1.1 }}>
-              Наступна сторінка /news
-            </div>
-            <div style={{ fontSize: "10px", color: "#9B7C45", marginTop: "2px" }}>
-              {hasStaged ? "Чернетка вже існує — редагуєш існуючу версію" : "Чиста сторінка — наповни блоками; зберегти створить чернетку"}
-            </div>
-          </div>
-        </div>
-
-        <div style={{ display: "flex", alignItems: "center", gap: "8px", marginLeft: "auto", flexWrap: "wrap", position: "relative" }}>
-          <label style={{ fontSize: "11px", fontWeight: 600, color: "#1C3A2E" }}>
-            Опублікувати:
-          </label>
-          <button
-            type="button"
-            onClick={() => setDatePickerOpen(o => !o)}
-            style={{
-              padding: "6px 12px", borderRadius: "8px",
-              border: "1.5px solid #E8D5B7", background: "#FFFFFF",
-              fontSize: "12px", color: "#1C3A2E", fontFamily: ff,
-              cursor: "pointer", fontWeight: 600,
-              display: "inline-flex", alignItems: "center", gap: "8px",
-            }}
-          >
-            <span aria-hidden>📅</span>
-            <span>{publishOn ? formatDateChip(publishOn) : "Обрати дату"}</span>
-            {publishOn && (
-              <span style={{ fontSize: "10px", color: "#9B7C45", fontWeight: 500 }}>· 06:00 Київ</span>
-            )}
-          </button>
-          {publishOn && (
+  // Сегментований контрол з пресетами + слайдер для точного налаштування ширини.
+  const widthLabel = (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 10,
+        color: "#1C3A2E",
+        textTransform: "none",
+        letterSpacing: 0,
+      }}
+    >
+      <span
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          padding: 2,
+          background: "#F3F0E8",
+          border: "1px solid #E5DEC9",
+          borderRadius: 8,
+          gap: 2,
+        }}
+      >
+        {WIDTH_PRESETS.map(p => {
+          const active = pageWidth === p.value;
+          return (
             <button
+              key={p.value}
               type="button"
-              onClick={() => { setPublishOn(""); setDatePickerOpen(false); }}
-              title="Прибрати дату — чернетка не публікуватиметься автоматично"
+              onClick={() => setPageWidth(p.value)}
+              title={`${p.label} — ${p.value}px`}
               style={{
-                width: "28px", height: "28px", borderRadius: "6px",
-                border: "1px solid #E8D5B7", background: "#FFFFFF",
-                color: "#9B7C45", cursor: "pointer", fontSize: "12px",
-              }}
-            >✕</button>
-          )}
-          {datePickerOpen && (
-            <div
-              style={{
-                position: "absolute", top: "calc(100% + 8px)", right: 0, zIndex: 40,
-                width: "280px", background: "#FFFFFF",
-                border: "1px solid #E8D5B7", borderRadius: "12px",
-                boxShadow: "0 12px 32px rgba(28,58,46,0.18)",
-                padding: "10px",
+                appearance: "none",
+                border: "none",
+                cursor: "pointer",
+                padding: "5px 10px",
+                fontSize: 11,
+                fontWeight: 700,
+                fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
+                color: active ? "#1C3A2E" : "#6B6760",
+                background: active ? "#FFFFFF" : "transparent",
+                boxShadow: active ? "0 1px 2px rgba(28,58,46,0.12)" : "none",
+                borderRadius: 6,
+                letterSpacing: 0,
+                transition: "background 120ms ease, color 120ms ease",
               }}
             >
-              <InlineDatePicker
-                value={publishOn}
-                onChange={(v) => { setPublishOn(v); setDatePickerOpen(false); }}
-                theme={theme}
-                min={minDate}
-              />
-              <p style={{ marginTop: "8px", fontSize: "10px", color: "#9B7C45", lineHeight: 1.4 }}>
-                Заміна сторінки відбудеться вранці обраного дня (06:00 Київ).
-              </p>
-            </div>
-          )}
-          <span style={{ width: "1px", height: "22px", background: "#E8D5B7", margin: "0 4px" }} />
-          {hasStaged && (
-            <>
-              <button
-                type="button"
-                onClick={publishNow}
-                disabled={actionPending !== null}
-                style={{
-                  padding: "7px 14px", borderRadius: "8px",
-                  border: "none", background: "#1C3A2E", color: "#D4A843",
-                  fontSize: "12px", fontWeight: 700, cursor: "pointer", fontFamily: ff,
-                  opacity: actionPending ? 0.6 : 1,
-                }}
-              >{actionPending === "publishNow" ? "..." : "Опублікувати зараз"}</button>
-              <button
-                type="button"
-                onClick={discardStaged}
-                disabled={actionPending !== null}
-                style={{
-                  padding: "7px 12px", borderRadius: "8px",
-                  border: "1px solid #FECACA", background: "#FFFFFF", color: "#B91C1C",
-                  fontSize: "12px", fontWeight: 600, cursor: "pointer", fontFamily: ff,
-                  opacity: actionPending ? 0.6 : 1,
-                }}
-              >{actionPending === "discard" ? "..." : "Скасувати чернетку"}</button>
-            </>
-          )}
-        </div>
-      </div>
+              {p.label}
+            </button>
+          );
+        })}
+      </span>
+      <input
+        type="range"
+        min={MIN_PAGE_WIDTH}
+        max={MAX_PAGE_WIDTH}
+        step={10}
+        value={pageWidth}
+        onChange={e => setPageWidth(Number(e.target.value))}
+        title={`Точна ширина: ${pageWidth}px`}
+        style={{
+          width: 110,
+          accentColor: "#D4A843",
+          cursor: "pointer",
+        }}
+      />
+      <span
+        style={{
+          minWidth: 56,
+          padding: "3px 8px",
+          fontSize: 11,
+          fontWeight: 700,
+          fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
+          color: "#1C3A2E",
+          background: "#FFFFFF",
+          border: "1px solid #E5DEC9",
+          borderRadius: 6,
+          textAlign: "center",
+          letterSpacing: 0,
+        }}
+      >
+        {pageWidth} px
+      </span>
+    </span>
+  );
 
+  return (
+    <>
       {toast && (
         <div style={{
           position: "fixed", top: "76px", right: "24px", zIndex: 50,
@@ -299,6 +288,12 @@ export default function NewsPageBuilderNext() {
         onSave={handleSave}
         onBack={() => router.push("/dashboard/admin/news")}
         saving={saving}
+        extraPaletteBlocks={TEMPLATE_PALETTE_BLOCKS}
+        extraPaletteBlocksTitle="Спецблоки"
+        canvasWidth={pageWidth}
+        displayBaseWidth={BUILDER_FRAME_W}
+        canvasLabel={{ left: "📄 Наступна сторінка", right: widthLabel }}
+        previewSource="next"
       />
     </>
   );
