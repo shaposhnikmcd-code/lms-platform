@@ -38,10 +38,26 @@ export default function PreviewCardScale({
 
   useIso(() => {
     if (!ref.current) return;
+    // Якщо хтось у предках застосував CSS `zoom` (як EditorCanvas у білдері
+    // page-mode для масштабування канвасу під різну логічну ширину сторінки),
+    // getBoundingClientRect повертає вже зменшену/збільшену ширину. Без
+    // компенсації нашого власного transform: scale це дає подвійне масштабування —
+    // контент усередині картки виглядає менше за саму картку.
+    const ancestorZoom = (el: HTMLElement | null): number => {
+      let cur: HTMLElement | null = el?.parentElement ?? null;
+      let total = 1;
+      while (cur) {
+        const z = parseFloat(window.getComputedStyle(cur).zoom);
+        if (Number.isFinite(z) && z > 0 && z !== 1) total *= z;
+        cur = cur.parentElement;
+      }
+      return total || 1;
+    };
     const update = () => {
       if (!ref.current) return;
       const w = ref.current.getBoundingClientRect().width;
-      if (w > 0) setScale(w / baseWidth);
+      const z = ancestorZoom(ref.current);
+      if (w > 0) setScale(w / z / baseWidth);
     };
     update();
     const ro = new ResizeObserver(update);

@@ -92,6 +92,10 @@ interface Props {
   templateMode?: boolean;
   /** Layout lock: resize handles прибрані; блок заморожений у розмірах шаблону. */
   lockLayout?: boolean;
+  /** CSS zoom предка canvas-grid (default 1). Пробрасується у useBlockResize
+   *  щоб resize-mouse-delta перетворити з screen-px у логічні-px коли
+   *  page-builder стискає канвас. */
+  zoomScale?: number;
 }
 
 export default function BlockItem({
@@ -106,6 +110,7 @@ export default function BlockItem({
   onSelectBlock, maxBlockHeight,
   templateMode = false,
   lockLayout = false,
+  zoomScale = 1,
 }: Props) {
   // У шаблон-режимі ВСІ блоки — плейсхолдери (без editors/settings всередині).
   // cardBody (тепер «Пустий блок» у палітрі) рендериться як звичайний host-плейсхолдер.
@@ -208,6 +213,7 @@ export default function BlockItem({
           return (containerWidthPx / 100) * aspect;
         })()
       : 0,
+    zoomScale,
   });
 
   // Auto-bump висоти для legacy YouTube блоків — драфти, збережені до того,

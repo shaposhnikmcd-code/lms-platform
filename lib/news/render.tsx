@@ -267,15 +267,23 @@ export function hasCoords(blocks: Block[]): boolean {
 
 // Обчислює висоту канваса (px) з урахуванням aspectRatio для image-блоків.
 // Використовується як SSR-початкове значення; AbsoluteCanvas потім переміряє по DOM.
-export function canvasHeight(blocks: Block[]): number {
+export function canvasHeight(blocks: Block[], opts?: { widthIsPx?: boolean }): number {
+  const widthIsPx = !!opts?.widthIsPx;
   return Math.max(
     400,
     ...blocks.map((b) => {
       let h = b.height;
       if (!h && b.type === "image" && b.data?.aspectRatio) {
         const ar = parseFloat(b.data.aspectRatio);
-        const wPct = Math.max(1, Number(b.width) || 100);
-        if (ar > 0) h = Math.round(((CANVAS_WIDTH * wPct) / 100) / ar);
+        if (ar > 0) {
+          if (widthIsPx) {
+            const wPx = Math.max(1, Number(b.width) || 0);
+            h = Math.round(wPx / ar);
+          } else {
+            const wPct = Math.max(1, Number(b.width) || 100);
+            h = Math.round(((CANVAS_WIDTH * wPct) / 100) / ar);
+          }
+        }
       }
       if (!h || h <= 0) h = LEGACY_H[b.type] ?? 200;
       return (b.y ?? 0) + h + 60;
@@ -1504,12 +1512,19 @@ export function AbsoluteBlockRender({
   block,
   newsItems,
   locale,
+  widthIsPx = false,
 }: {
   block: Block;
   newsItems?: NewsListItemForBlock[];
   locale?: string;
+  /** Якщо true — `block.width` і `block.x` трактуються як абсолютні пікселі
+   *  (для /news Page Builder: блоки зберігаються у px, розмір блока на сайті
+   *  завжди дорівнює його реальному розміру незалежно від ширини сторінки).
+   *  За замовчуванням false — width/x як % від батьківського контейнера
+   *  (для блоків усередині новини /news/[slug]). */
+  widthIsPx?: boolean;
 }) {
-  const w = Number(block.width) || 100;
+  const w = Number(block.width) || (widthIsPx ? 0 : 100);
   const x = block.x ?? 0;
   const y = block.y ?? 0;
   const h = block.height;
@@ -1548,14 +1563,16 @@ export function AbsoluteBlockRender({
     cornersStr && cornersStr.length === 4 && cornersStr !== "1111"
       ? [0, 1, 2, 3].map(i => `${cornersStr[i] === "1" ? resolvedRadiusBase : 0}px`).join(" ")
       : resolvedRadiusBase;
+  const leftCss = widthIsPx ? `${x}px` : `${x}%`;
+  const widthCss = widthIsPx ? `${w}px` : `${w}%`;
   return (
     <div
       data-news-block
       style={{
         position: "absolute",
-        left: `${x}%`,
+        left: leftCss,
         top: `${y}px`,
-        width: `${w}%`,
+        width: widthCss,
         // newsCard preview: висота auto через aspect-ratio 360:400 — щоб картка
         // мала однакові пропорції незалежно від canvas-ширини. Усі preview-блоки
         // мусять мати однаковий block.width % (auto-fit нормалізує) → візуально

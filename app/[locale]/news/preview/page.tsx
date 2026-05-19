@@ -38,6 +38,7 @@ interface ContentSource {
   contentEn: string | null;
   contentPl: string | null;
   pageBgColor: string | null;
+  pageWidth: number | null;
 }
 
 async function loadSource(source: string, archiveId: string | null): Promise<ContentSource | null> {
@@ -49,6 +50,7 @@ async function loadSource(source: string, archiveId: string | null): Promise<Con
       contentEn: row.contentEn,
       contentPl: row.contentPl,
       pageBgColor: row.pageBgColor,
+      pageWidth: null,
     };
   }
   const page = await prisma.newsPage.findUnique({ where: { key: "default" } });
@@ -59,6 +61,7 @@ async function loadSource(source: string, archiveId: string | null): Promise<Con
       contentEn: page.nextContentEn,
       contentPl: page.nextContentPl,
       pageBgColor: page.nextPageBgColor ?? page.pageBgColor,
+      pageWidth: page.pageWidth,
     };
   }
   return {
@@ -66,6 +69,7 @@ async function loadSource(source: string, archiveId: string | null): Promise<Con
     contentEn: page.contentEn,
     contentPl: page.contentPl,
     pageBgColor: page.pageBgColor,
+    pageWidth: page.pageWidth,
   };
 }
 
@@ -151,7 +155,16 @@ export default async function NewsPreviewPage({
 
   const useBuilderLayout = visibleBlocks.length > 0;
   const pageBg = src?.pageBgColor || undefined;
-  const canvasH = useBuilderLayout ? canvasHeight(visibleBlocks) : 0;
+  // Heuristic: блоки збережені новим кодом мають width у px (>100). Legacy
+  // %-формат — width ≤ 100. Дзеркало /[locale]/news/page.tsx — без цього
+  // детектора preview ламається на legacy-сторінках.
+  const blocksUseAbsolutePx = visibleBlocks.some(
+    b => (Number(b.width) || 0) > 100 || (b.x ?? 0) > 100
+  );
+  const canvasH = useBuilderLayout
+    ? canvasHeight(visibleBlocks, { widthIsPx: blocksUseAbsolutePx })
+    : 0;
+  const pageWidthPx = src?.pageWidth ?? CANVAS_WIDTH;
 
   return (
     <main className="min-h-screen" style={{ background: pageBg || "#F9FAFB" }}>
@@ -163,12 +176,15 @@ export default async function NewsPreviewPage({
         </div>
       </section>
 
-      <section className="max-w-5xl mx-auto px-4 py-16">
+      <section
+        className="mx-auto px-4 py-16"
+        style={{ maxWidth: pageWidthPx + 32 }}
+      >
         {useBuilderLayout ? (
           <>
             <div
               className="hidden md:block relative mx-auto"
-              style={{ width: CANVAS_WIDTH, height: canvasH }}
+              style={{ width: pageWidthPx, height: canvasH }}
             >
               {visibleBlocks.map(b => (
                 <AbsoluteBlockRender
@@ -176,6 +192,7 @@ export default async function NewsPreviewPage({
                   block={b}
                   newsItems={newsItemsForBlocks}
                   locale={locale}
+                  widthIsPx={blocksUseAbsolutePx}
                 />
               ))}
             </div>

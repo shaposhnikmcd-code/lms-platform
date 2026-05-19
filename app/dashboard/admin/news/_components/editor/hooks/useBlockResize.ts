@@ -51,6 +51,11 @@ interface Options {
    *  до 60 при спробі зменшити блок, що менший за цей floor (auto-fit-блоки в
    *  тісному канвасі), або при maxBlockHeight < 60. */
   minBlockHeight?: number;
+  /** CSS zoom предка canvas-grid. У page-builder /news канвас стискається до
+   *  920px візуально через CSS zoom при ширшій логічній сторінці. Мишка дає
+   *  screen-px delta, а блок-розміри й containerWidthPx — у логічних координатах
+   *  канвасу. Без поділу delta на zoom resize «лагає» при slider != 920. */
+  zoomScale?: number;
 }
 
 export function useBlockResize({
@@ -60,7 +65,9 @@ export function useBlockResize({
   onReportHeight, getEdgeSnapTargets, snapThreshold,
   blockX, blockY, widthAspectFactor,
   maxBlockHeight, minBlockHeight,
+  zoomScale = 1,
 }: Options) {
+  const zScale = zoomScale > 0 ? zoomScale : 1;
   // Figma-style edge-snap helper. Магнітить ширину і висоту так, щоб правий
   // край (blockX + newW) або нижній край (blockY + newH) блока ляг рівно на
   // край сусіда (або канвасу). Для aspect-locked блоків (newsCard preview,
@@ -243,7 +250,10 @@ export function useBlockResize({
 
     const onMove = (ev: MouseEvent) => {
       const freeMode = ev.shiftKey;
-      const pct = ((startPx + ev.clientX - startX) / containerWidthPx) * 100;
+      // screen-px delta → logical-px (compensate ancestor CSS zoom). При zoom=1
+      // ділення на 1 — no-op.
+      const dxLogical = (ev.clientX - startX) / zScale;
+      const pct = ((startPx + dxLogical) / containerWidthPx) * 100;
       let snapped = Number(snapWidth(pct));
 
       // Figma edge-snap: магнітимо ширину так, щоб правий край блока ліг на
@@ -356,7 +366,8 @@ export function useBlockResize({
       // якщо maxBlockHeight > 60 — у fixedHeight-канвасі, де auto-fit міг покласти
       // блок з h<60, mousedown стрибав до 60 і блок вилазив за canvas-bottom →
       // handle "тікав" з-під курсора. Зараз floor дізкий, ceiling завжди клампимо.
-      let rawH = Math.max(minH, startH + ev.clientY - startY);
+      const dyLogical = (ev.clientY - startY) / zScale;
+      let rawH = Math.max(minH, startH + dyLogical);
       if (typeof maxBlockHeight === "number" && maxBlockHeight >= minH) {
         rawH = Math.min(rawH, maxBlockHeight);
       }
@@ -525,8 +536,8 @@ export function useBlockResize({
     let currentH = Number(blockData.minHeight) || 0;
 
     const onMove = (ev: MouseEvent) => {
-      const dx = ev.clientX - startX;
-      const dy = ev.clientY - startY;
+      const dx = (ev.clientX - startX) / zScale;
+      const dy = (ev.clientY - startY) / zScale;
       const freeMode = ev.shiftKey;
       // Діагональна ручка має реагувати і на вертикальний, і на горизонтальний рух.
       // Конвертуємо dy в «еквівалентну ширину» через aspect (image або block) і беремо

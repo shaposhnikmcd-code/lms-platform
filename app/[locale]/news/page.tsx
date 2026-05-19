@@ -117,7 +117,17 @@ export default async function NewsPage({ params }: { params: Promise<{ locale: s
 
   const useBuilderLayout = visibleBlocks.length > 0;
   const pageBg = pageRow?.pageBgColor || undefined;
-  const canvasH = useBuilderLayout ? canvasHeight(visibleBlocks) : 0;
+  // Heuristic: блоки, збережені новим кодом, мають width у пікселях (>100 для
+  // реальних розмірів). Legacy %-формат тримає всі width ≤ 100. Без цієї
+  // детекції превʼю ламається для непереміщених legacy-сторінок (block w="100"
+  // інтерпретувався би як 100px → крихітна точка). Після першого save через
+  // нову адмінку дані конвертуються у px і блок-флаг стане true автоматично.
+  const blocksUseAbsolutePx = visibleBlocks.some(
+    b => (Number(b.width) || 0) > 100 || (b.x ?? 0) > 100
+  );
+  const canvasH = useBuilderLayout
+    ? canvasHeight(visibleBlocks, { widthIsPx: blocksUseAbsolutePx })
+    : 0;
 
   return (
     <main className="min-h-screen" style={{ background: pageBg || "#F9FAFB" }}>
@@ -129,7 +139,13 @@ export default async function NewsPage({ params }: { params: Promise<{ locale: s
         </div>
       </section>
 
-      <section className="max-w-5xl mx-auto px-4 py-16">
+      <section
+        className="mx-auto px-4 py-16"
+        // maxWidth = pageWidth + horizontal padding (px-4 = 32px), щоб контент-зона
+        // дорівнювала pageWidth. Інакше container шириною pageWidth «вилазив» за
+        // межі section через padding.
+        style={{ maxWidth: (pageRow?.pageWidth ?? CANVAS_WIDTH) + 32 }}
+      >
         {useBuilderLayout ? (
           <>
             {/* Desktop — абсолютний canvas; Mobile — sequential stack. */}
@@ -143,6 +159,11 @@ export default async function NewsPage({ params }: { params: Promise<{ locale: s
                   block={b}
                   newsItems={newsItemsForBlocks}
                   locale={locale}
+                  // На /news блоки збережені у абсолютних пікселях (а не у % від
+                  // контейнера) — щоб реальний розмір новини/блока на сайті НЕ
+                  // змінювався при зміні ширини сторінки. Detection вище — щоб
+                  // legacy %-сторінки рендерилися без поломки.
+                  widthIsPx={blocksUseAbsolutePx}
                 />
               ))}
             </div>

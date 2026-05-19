@@ -159,10 +159,11 @@ export default function EditorCanvas({
   const PAGE_WIDTH = canvasWidth ?? CANVAS_WIDTH;
   // Базова видима ширина «паперу» в білдері. Якщо caller не передав — рендеримо
   // у логічній ширині (легасі-поведінка). Якщо передав — канвас тримає фіксовану
-  // ширину DISPLAY_BASE_W, а вміст масштабується через CSS zoom (≤1, тобто
-  // при більшій логічній ширині блоки візуально стискаються).
+  // видиму ширину DISPLAY_BASE_W, а вміст масштабується через CSS zoom (у обидва
+  // боки: при більшій логічній ширині блоки візуально стискаються, при меншій —
+  // розтягуються). Логіка блоків лишається у % від PAGE_WIDTH-координатах.
   const DISPLAY_BASE_W = displayBaseWidth ?? PAGE_WIDTH;
-  const displayScale = PAGE_WIDTH > 0 ? Math.min(1, DISPLAY_BASE_W / PAGE_WIDTH) : 1;
+  const displayScale = PAGE_WIDTH > 0 ? DISPLAY_BASE_W / PAGE_WIDTH : 1;
   const VISIBLE_INNER_W = Math.round(PAGE_WIDTH * displayScale);
   const VISIBLE_WRAPPER_W = VISIBLE_INNER_W + PAGE_PAD_X * 2;
   const MIN_CANVAS_H = minCanvasHeight ?? DEFAULT_MIN_CANVAS_H;
@@ -351,14 +352,13 @@ export default function EditorCanvas({
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
-  // Коли немає CSS zoom (displayScale === 1) — береме PAGE_WIDTH напряму,
-  // бо canvasRectRef оновлюється асинхронно через ResizeObserver і ВІДСТАЄ
-  // на render після зміни canvasWidth (з пресету/інпуту). При CSS zoom
-  // (displayScale < 1) — рендерна ширина відрізняється від PAGE_WIDTH, тому
-  // лишаємо fallback на ref для коректних snap/coord-обчислень.
-  const canvasWidthPx = displayScale === 1
-    ? PAGE_WIDTH
-    : (canvasRectRef.current?.width ?? PAGE_WIDTH);
+  // canvasWidthPx — ЗАВЖДИ логічна ширина канвасу (= PAGE_WIDTH). Раніше при
+  // CSS zoom < 1 ми використовували canvasRect.width (visual), але це ламає
+  // resize-math: offsetWidth блока — у логічних px, mouse delta — у visual,
+  // змішування дає бажaний результат тільки при zoom=1. Тепер consistency:
+  // всі px-обчислення у логічних координатах; resize-хук ділить mouse-delta
+  // на zoomScale, щоб конвертувати visual → logical.
+  const canvasWidthPx = PAGE_WIDTH;
 
   // Реальна висота блока — ПРІОРИТЕТ: DOM (найточніше, враховує CSS aspect-ratio,
   // overflow:visible експандованих шаблонів, тощо), потім block.height,
@@ -424,6 +424,38 @@ export default function EditorCanvas({
     }));
     onBlocksChange(scaled);
   }, [canvasHeight, PAGE_WIDTH, fixedHeight, onBlocksChange]);
+
+  // Окреме масштабування блоків при зміні PAGE_WIDTH (логічна ширина канвасу).
+  // Працює у zoom-mode (displayBaseWidth задано): коли менеджер слайдером
+  // змінює ширину сторінки, блоки маcштабуються у % так, щоб їхня АБСОЛЮТНА
+  // ширина у пікселях НЕ змінювалась. Тобто блок 920 px стає вужчим у %
+  // (= 920/нова_ширина × 100) і візуально зменшується разом з CSS zoom.
+  const prevPageWidthForScaleRef = useRef<number | null>(null);
+  useEffect(() => {
+    const prevW = prevPageWidthForScaleRef.current;
+    prevPageWidthForScaleRef.current = PAGE_WIDTH;
+    if (prevW === null) return;
+    if (prevW === PAGE_WIDTH) return;
+    if (prevW <= 0 || PAGE_WIDTH <= 0) return;
+    // Тільки у zoom-mode (displayBaseWidth заданий, тобто фрейм фіксований
+    // а pageWidth — змінна): page-builder /news. Інші контексти (template
+    // editor, content editor) працюють з фіксованим canvas-ом — там скейл
+    // блоків при зміні PAGE_WIDTH не потрібен (і призводив би до random
+    // resize у відповідь на пресети canvas-розміру).
+    if (displayBaseWidth === undefined) return;
+    const sx = prevW / PAGE_WIDTH;
+    if (Math.abs(sx - 1) < 0.0005) return;
+    const scaled = blocksRef.current.map(b => {
+      const w = Number(b.width) || 100;
+      const x = typeof b.x === "number" ? b.x : 0;
+      return {
+        ...b,
+        width: String(Math.round(w * sx * 100) / 100),
+        x: Math.round(x * sx * 100) / 100,
+      };
+    });
+    onBlocksChange(scaled);
+  }, [PAGE_WIDTH, displayBaseWidth, onBlocksChange]);
 
   function clampXY(xPct: number, yPx: number, wPct: number): { x: number; y: number } {
     const clampedX = Math.max(0, Math.min(100 - wPct, xPct));
@@ -2360,6 +2392,7 @@ export default function EditorCanvas({
                       fixedHeight={fixedHeight}
                       templateMode={templateMode}
                       lockLayout={lockLayout}
+                      zoomScale={displayScale}
                     />
                   );
                 })}
@@ -2679,12 +2712,20 @@ function AbsoluteBlock(props: {
   templateMode?: boolean;
   /** Layout lock: drag і resize вимкнено; блок заморожений. */
   lockLayout?: boolean;
+  /** CSS zoom предка canvas-grid (1 за замовчуванням). dnd-kit рапортує delta
+   *  у screen px, але translate усередині zoom-контейнера інтерпретується у
+   *  логічних координатах батька — без поділу translate на zoom блок «відстає»
+   *  від курсора у режимах де canvas-grid має zoom!=1 (page-builder slider). */
+  zoomScale?: number;
 }) {
-  const { block, x, y, widthPct, lastAddedId, previewHeight, isActive, canvasWidthPx, selected, scrollCompensation = 0, maxBlockHeight, fixedHeight, isResizing = false, templateMode = false, lockLayout = false } = props;
+  const { block, x, y, widthPct, lastAddedId, previewHeight, isActive, canvasWidthPx, selected, scrollCompensation = 0, maxBlockHeight, fixedHeight, isResizing = false, templateMode = false, lockLayout = false, zoomScale = 1 } = props;
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: block.id });
 
-  const tx = transform?.x ?? 0;
-  const ty = (transform?.y ?? 0) + (isDragging ? scrollCompensation : 0);
+  // Компенсація CSS zoom предка: screen-px delta від dnd-kit → логічні-px
+  // translate. При zoom < 1 (напр. 0.634 при slider=1450) ділимо на zoom,
+  // щоб візуальний рух блока 1:1 з мишкою.
+  const tx = (transform?.x ?? 0) / (zoomScale || 1);
+  const ty = ((transform?.y ?? 0) / (zoomScale || 1)) + (isDragging ? scrollCompensation : 0);
   const translate = (transform || isDragging) ? `translate3d(${tx}px, ${ty}px, 0)` : undefined;
 
   // Whole-block drag: drag-listeners на wrapper, але pointerdown ігнорується якщо
@@ -2868,6 +2909,7 @@ function AbsoluteBlock(props: {
         blockY={y}
         templateMode={templateMode}
         lockLayout={lockLayout}
+        zoomScale={zoomScale}
       />
       {selected && <SelectionCornerMarks />}
     </div>

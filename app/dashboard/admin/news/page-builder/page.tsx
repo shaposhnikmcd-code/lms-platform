@@ -22,6 +22,70 @@ const NewsEditor = dynamic(() => import("../_components/editor/NewsEditor"), {
 const DEFAULT_PAGE_WIDTH = 920;
 const MIN_PAGE_WIDTH = 850;
 const MAX_PAGE_WIDTH = 1450;
+// Видима ширина «папера» у білдері — завжди ця константа. Слайдер змінює логічну
+// ширину сторінки (PAGE_WIDTH у EditorCanvas), а каркас «папера» у білдері
+// тримає сталий розмір — блоки візуально стискаються при зростанні pageWidth
+// (через CSS zoom = BUILDER_FRAME_W / pageWidth).
+const BUILDER_FRAME_W = 920;
+
+// Конвертуємо блоки між:
+//   storage (БД, public-render): width/x в абсолютних пікселях;
+//   builder math (EditorCanvas): width/x у % від PAGE_WIDTH=pageWidth.
+// Heuristic для legacy %-даних: якщо у JSON-і немає жодного значення > 100 —
+// вважаємо що це % і конвертуємо ×9.2 (тобто старе pageWidth=920) лише на load.
+// Усі наступні save пишуть pixels.
+function blocksDbToBuilder(rawJson: string, pageWidth: number): string {
+  let blocks: Array<Record<string, unknown>> = [];
+  try {
+    const parsed = JSON.parse(rawJson || "[]");
+    if (Array.isArray(parsed)) blocks = parsed;
+  } catch { return rawJson; }
+  if (blocks.length === 0) return rawJson;
+  // Якщо найбільший width ≤ 100 — це legacy % формат (стара БД). Інакше — pixels.
+  const maxW = Math.max(0, ...blocks.map(b => Number(b.width) || 0));
+  const maxX = Math.max(0, ...blocks.map(b => Number(b.x) || 0));
+  const isLegacyPct = maxW <= 100 && maxX <= 100;
+  const out = blocks.map(b => {
+    const wRaw = Number(b.width) || 0;
+    const xRaw = typeof b.x === "number" ? b.x : 0;
+    const wPct = isLegacyPct ? wRaw : (wRaw / pageWidth) * 100;
+    const xPct = isLegacyPct ? xRaw : (xRaw / pageWidth) * 100;
+    return {
+      ...b,
+      width: String(Math.round(wPct * 100) / 100),
+      x: Math.round(xPct * 100) / 100,
+    };
+  });
+  return JSON.stringify(out);
+}
+
+function blocksBuilderToDb(rawJson: string, pageWidth: number): string {
+  let blocks: Array<Record<string, unknown>> = [];
+  try {
+    const parsed = JSON.parse(rawJson || "[]");
+    if (Array.isArray(parsed)) blocks = parsed;
+  } catch { return rawJson; }
+  if (blocks.length === 0) return rawJson;
+  const out = blocks.map(b => {
+    const wPct = Number(b.width) || 0;
+    const xPct = typeof b.x === "number" ? b.x : 0;
+    return {
+      ...b,
+      width: String(Math.round((wPct / 100) * pageWidth)),
+      x: Math.round((xPct / 100) * pageWidth),
+    };
+  });
+  return JSON.stringify(out);
+}
+
+// Пресети ширини — як на топ-платформах (Notion/Substack/Medium).
+// Менеджер кліком вибирає типовий розмір, слайдер — для точного тюнингу.
+const WIDTH_PRESETS = [
+  { label: "Вузька", value: 880 },
+  { label: "Стандарт", value: 920 },
+  { label: "Широка", value: 1100 },
+  { label: "Повна", value: 1450 },
+];
 
 export default function NewsPageBuilder() {
   const router = useRouter();
@@ -61,10 +125,12 @@ export default function NewsPageBuilder() {
           } catch {
             /* not JSON — лишаємо як є */
           }
-          setInitialContent(cleaned);
-          if (typeof d.pageWidth === "number" && d.pageWidth > 0) {
-            setPageWidth(Math.max(MIN_PAGE_WIDTH, Math.min(MAX_PAGE_WIDTH, d.pageWidth)));
-          }
+          const loadedPageWidth = typeof d.pageWidth === "number" && d.pageWidth > 0
+            ? Math.max(MIN_PAGE_WIDTH, Math.min(MAX_PAGE_WIDTH, d.pageWidth))
+            : DEFAULT_PAGE_WIDTH;
+          setPageWidth(loadedPageWidth);
+          // Конвертуємо блоки з px (БД) у % (builder math).
+          setInitialContent(blocksDbToBuilder(cleaned, loadedPageWidth));
         } else {
           // Дефолт: пуста сторінка. Користувач починає з drag-карток з правого бару.
           setInitialMeta({ title: "", slug: "", excerpt: "", category: "NEWS", imageUrl: "", pageBgColor: "", published: true });
@@ -78,10 +144,12 @@ export default function NewsPageBuilder() {
   const handleSave = async (meta: NewsMeta, content: string) => {
     setSaving(true);
     try {
+      // Конвертуємо блоки з % (builder) у px (БД/site).
+      const contentPx = blocksBuilderToDb(content, pageWidth);
       const res = await fetch("/api/admin/news/page-content", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content, pageBgColor: meta.pageBgColor || null, pageWidth }),
+        body: JSON.stringify({ content: contentPx, pageBgColor: meta.pageBgColor || null, pageWidth }),
       });
       if (res.ok) return;
       const body = await res.json().catch(() => ({}));
@@ -103,36 +171,91 @@ export default function NewsPageBuilder() {
     </div>
   );
 
-  // Кастомний canvasLabel.right — інлайн input для ширини сторінки (850..1450).
+  // Сегментований контрол з пресетами (як у Notion/Substack) + слайдер для точного
+  // налаштування. Активний пресет підсвічується amber-фоном; слайдер дозволяє
+  // тонко скоригувати ширину в межах 850..1450.
   const widthLabel = (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 8, color: "#D4A843" }}>
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 10,
+        color: "#1C3A2E",
+        textTransform: "none",
+        letterSpacing: 0,
+      }}
+    >
+      <span
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          padding: 2,
+          background: "#F3F0E8",
+          border: "1px solid #E5DEC9",
+          borderRadius: 8,
+          gap: 2,
+        }}
+      >
+        {WIDTH_PRESETS.map(p => {
+          const active = pageWidth === p.value;
+          return (
+            <button
+              key={p.value}
+              type="button"
+              onClick={() => setPageWidth(p.value)}
+              title={`${p.label} — ${p.value}px`}
+              style={{
+                appearance: "none",
+                border: "none",
+                cursor: "pointer",
+                padding: "5px 10px",
+                fontSize: 11,
+                fontWeight: 700,
+                fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
+                color: active ? "#1C3A2E" : "#6B6760",
+                background: active ? "#FFFFFF" : "transparent",
+                boxShadow: active ? "0 1px 2px rgba(28,58,46,0.12)" : "none",
+                borderRadius: 6,
+                letterSpacing: 0,
+                transition: "background 120ms ease, color 120ms ease",
+              }}
+            >
+              {p.label}
+            </button>
+          );
+        })}
+      </span>
       <input
-        type="number"
+        type="range"
         min={MIN_PAGE_WIDTH}
         max={MAX_PAGE_WIDTH}
         step={10}
         value={pageWidth}
-        onChange={e => {
-          const v = Number(e.target.value);
-          if (Number.isFinite(v)) setPageWidth(v);
-        }}
-        onBlur={() => setPageWidth(w => Math.max(MIN_PAGE_WIDTH, Math.min(MAX_PAGE_WIDTH, Math.round(w))))}
-        title={`Ширина сторінки /news у px (${MIN_PAGE_WIDTH}..${MAX_PAGE_WIDTH})`}
+        onChange={e => setPageWidth(Number(e.target.value))}
+        title={`Точна ширина: ${pageWidth}px`}
         style={{
-          width: 64,
-          padding: "3px 6px",
+          width: 110,
+          accentColor: "#D4A843",
+          cursor: "pointer",
+        }}
+      />
+      <span
+        style={{
+          minWidth: 56,
+          padding: "3px 8px",
           fontSize: 11,
           fontWeight: 700,
           fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
           color: "#1C3A2E",
           background: "#FFFFFF",
-          border: "1px solid #D4A843",
+          border: "1px solid #E5DEC9",
           borderRadius: 6,
           textAlign: "center",
-          letterSpacing: "0.06em",
+          letterSpacing: 0,
         }}
-      />
-      <span>px — ширина сторінки на сайті</span>
+      >
+        {pageWidth} px
+      </span>
     </span>
   );
 
@@ -148,7 +271,14 @@ export default function NewsPageBuilder() {
       saving={saving}
       extraPaletteBlocks={TEMPLATE_PALETTE_BLOCKS}
       extraPaletteBlocksTitle="Спецблоки"
+      // canvasWidth — логічна ширина сторінки (= pageWidth слайдера). У БД
+      // зберігається ця ж величина і використовується на /news. displayBaseWidth
+      // — видима ширина «папера» в білдері (константа 920); EditorCanvas через
+      // CSS zoom стискає логічну ширину у фіксований 920-каркас, тож блоки
+      // візуально зменшуються при зростанні pageWidth (зберігаючи свою реальну
+      // ширину на сайті).
       canvasWidth={pageWidth}
+      displayBaseWidth={BUILDER_FRAME_W}
       canvasLabel={{ left: "📄 Сторінка новини", right: widthLabel }}
     />
   );
