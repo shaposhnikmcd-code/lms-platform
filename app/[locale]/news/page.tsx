@@ -1,6 +1,7 @@
 import prisma from "@/lib/prisma";
 import { getTranslatedContent } from "@/lib/translate";
 import { maybeAutoPublishStagedNewsPage } from "@/lib/newsPagePublish";
+import { hasUnfilledPlaceholders } from "@/lib/news/placeholderCheck";
 import { newsContent } from "./_content/uk";
 import {
   AbsoluteBlockRender,
@@ -95,11 +96,15 @@ export default async function NewsPage({ params }: { params: Promise<{ locale: s
 
   // Per-block schedule: відсіюємо newsCard блоки, чий час "Зʼявиться" ще не настав
   // або "Зникне" вже минув. Інші типи блоків (heading/text/image тощо) лишаються завжди.
-  // Також фільтруємо newsCard, у яких прикріплена новина не доступна (не published чи suspended).
+  // Також фільтруємо newsCard, у яких прикріплена новина не доступна (не published чи suspended)
+  // АБО містить незаповнені плейсхолдери шаблону (safety net поверх API-гарду в
+  // [app/api/admin/news/[id]/route.ts] на випадок legacy-записів).
   const visibleBlocks = blocks.filter((b) => {
     if (b.type === "newsCard") {
       const newsId = b.data.newsId || "";
-      if (!newsItemsForBlocks.some((n) => n.id === newsId)) return false;
+      const item = newsItemsForBlocks.find((n) => n.id === newsId);
+      if (!item) return false;
+      if (hasUnfilledPlaceholders(item.templateData, item.templateBlocks)) return false;
 
       const fromStr = b.data.visibleFrom || "";
       const untilStr = b.data.visibleUntil || "";

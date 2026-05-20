@@ -26,6 +26,7 @@ import PreviewCardScale from '@/lib/news/PreviewCardScale';
 import TemplatePreviewCard from '@/lib/news/templates/TemplatePreviewCard';
 import TemplateBlocksPreview from '@/lib/news/templates/TemplateBlocksPreview';
 import { parseTemplateData, type TemplateKind } from '@/lib/news/templates/types';
+import { hasUnfilledPlaceholders } from '@/lib/news/placeholderCheck';
 
 interface NewsItem {
   id: string;
@@ -1544,6 +1545,7 @@ export default function AdminNewsPage() {
                               const nBlocks = n.templateBlocks ? parseBlocks(n.templateBlocks) : null;
                               const hasBlocks = !!(nBlocks && nBlocks.isJson && nBlocks.blocks.length > 0);
                               const nData = !hasBlocks && n.templateData ? parseTemplateData((n.templateKind || 'ARTICLE') as TemplateKind, n.templateData) : null;
+                              const hasPlaceholders = hasUnfilledPlaceholders(n.templateData ?? null, n.templateBlocks ?? null);
                               return (
                                 <article
                                   key={n.id}
@@ -1585,7 +1587,7 @@ export default function AdminNewsPage() {
                                       <span aria-hidden className="text-[10px]">📰</span>
                                       <span className="line-clamp-2 break-words">{nTitle}</span>
                                     </span>
-                                    {n.published && (
+                                    {n.published && !hasPlaceholders && (
                                       <span
                                         className={`absolute bottom-1.5 left-1.5 z-[1] inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider backdrop-blur-md ${
                                           dark
@@ -1594,6 +1596,18 @@ export default function AdminNewsPage() {
                                         }`}
                                       >
                                         <span aria-hidden>●</span> На /news
+                                      </span>
+                                    )}
+                                    {hasPlaceholders && (
+                                      <span
+                                        className={`absolute bottom-1.5 left-1.5 z-[1] inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider backdrop-blur-md ${
+                                          dark
+                                            ? 'bg-amber-500/30 text-amber-100 border border-amber-400/45'
+                                            : 'bg-amber-500/90 text-white border border-amber-600/40'
+                                        }`}
+                                        title="У шаблоні залишились незаповнені поля (плейсхолдери). На /news така новина прихована."
+                                      >
+                                        <span aria-hidden>⚠</span> Незаповнено
                                       </span>
                                     )}
                                   </Link>

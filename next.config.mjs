@@ -36,6 +36,15 @@ const nextConfig = {
     // AVIF дає додаткові −20-30% до WebP. Next сам обирає кращий формат,
     // підтримуваний браузером.
     formats: ["image/avif", "image/webp"],
+    // Next.js 16 робить білий-список обов'язковим; перераховуємо явно ті
+    // значення, що реально використовуються (`quality={85}` і `={90}`).
+    qualities: [75, 85, 90],
+    // `?v=N` cache-buster на /Certificates/*.png (див. CertificatesSection.tsx).
+    // Без цього паттерну Next 16 reject-не Image з query-рядком.
+    localPatterns: [
+      { pathname: "/**", search: "" },
+      { pathname: "/Certificates/**", search: "v=*" },
+    ],
     remotePatterns: [
       {
         protocol: "https",

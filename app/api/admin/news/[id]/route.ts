@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import { translateNewsAllLocales } from "@/lib/translateNews";
 import { isAdmin } from "@/lib/adminAuth";
+import { findUnfilledPlaceholders } from "@/lib/news/placeholderCheck";
 
 export async function GET(
   req: NextRequest,
@@ -34,6 +35,37 @@ export async function PATCH(
 
   const { id } = await params;
   const data = await req.json();
+
+  // Гард на публікацію новин зі шаблону: якщо новина переводиться в published,
+  // або просто переходить через published-стан, забороняємо зберігати з
+  // плейсхолдерами "[Назва події]" / "<p>Заголовок</p>" — інакше менеджер
+  // випадково публікує template-«рибу» на /news. Перевіряємо ефективний стан
+  // після PATCH (data поверх існуючого).
+  if (data.published === true || data.isTemplate === false) {
+    const current = await prisma.news.findUnique({
+      where: { id },
+      select: { published: true, templateData: true, templateBlocks: true, isTemplate: true },
+    });
+    if (current && !(data.isTemplate ?? current.isTemplate)) {
+      const effectivePublished = data.published ?? current.published;
+      if (effectivePublished) {
+        const td = data.templateData ?? current.templateData;
+        const tb = data.templateBlocks ?? current.templateBlocks;
+        const issues = findUnfilledPlaceholders(td, tb);
+        if (issues.length > 0) {
+          const samples = issues.slice(0, 3).map(i => `«${i.sample}»`).join(", ");
+          return NextResponse.json(
+            {
+              error: `Не можу опублікувати — у новині залишились незаповнені плейсхолдери шаблону: ${samples}. Заповніть поля у формі-редакторі.`,
+              code: "UNFILLED_PLACEHOLDERS",
+              issues,
+            },
+            { status: 422 }
+          );
+        }
+      }
+    }
+  }
 
   // Re-run DeepL translation when title/excerpt/content/previewContent actually changed.
   // PATCH may also be called for tiny edits (publish toggle, image swap) — in

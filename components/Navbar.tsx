@@ -5,6 +5,7 @@ import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { FaBars, FaTimes, FaChevronDown } from "react-icons/fa";
 import AuthButtons from "@/components/AuthButtons";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
@@ -13,11 +14,16 @@ export default function Navbar() {
   const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const [morePos, setMorePos] = useState<{ top: number; right: number } | null>(null);
   const moreRef = useRef<HTMLDivElement | null>(null);
+  const moreBtnRef = useRef<HTMLButtonElement | null>(null);
   const linksContainerRef = useRef<HTMLDivElement | null>(null);
   const measureRef = useRef<HTMLDivElement | null>(null);
   const [overflowCount, setOverflowCount] = useState(0);
   const t = useTranslations("Navigation");
+
+  useEffect(() => { setMounted(true); }, []);
 
   const isActivePath = (path: string) => {
     const clean = pathname.replace(/^\/(uk|pl|en)/, '') || '/';
@@ -107,9 +113,10 @@ export default function Navbar() {
   useEffect(() => {
     if (!moreOpen) return;
     const onClick = (e: MouseEvent) => {
-      if (moreRef.current && !moreRef.current.contains(e.target as Node)) {
-        setMoreOpen(false);
-      }
+      const target = e.target as Node;
+      if (moreRef.current && moreRef.current.contains(target)) return;
+      if (target instanceof Element && target.closest("[data-more-dropdown]")) return;
+      setMoreOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setMoreOpen(false);
@@ -122,9 +129,31 @@ export default function Navbar() {
     };
   }, [moreOpen]);
 
-  // Закриваємо dropdown при переході на іншу сторінку
+  // Позиціювання Portal-дропдауну "Ще" — оновлюємо при resize/scroll.
+  // На resize ref-кнопки може стати null (overflowCount→0 ховає "Ще"); guard'имо
+  // кожен виклик, а в такому стані просто закриваємо dropdown.
+  useEffect(() => {
+    if (!moreOpen) return;
+    const updatePos = () => {
+      const btn = moreBtnRef.current;
+      if (!btn) { setMoreOpen(false); return; }
+      const r = btn.getBoundingClientRect();
+      setMorePos({ top: r.bottom + 8, right: Math.max(8, window.innerWidth - r.right) });
+    };
+    updatePos();
+    window.addEventListener("resize", updatePos);
+    window.addEventListener("scroll", updatePos, true);
+    return () => {
+      window.removeEventListener("resize", updatePos);
+      window.removeEventListener("scroll", updatePos, true);
+    };
+  }, [moreOpen]);
+
+  // Закриваємо обидва меню при переході на іншу сторінку (інакше mobile panel
+  // лишається відкритою при back/forward, а "Ще" — при client-nav без кліку).
   useEffect(() => {
     setMoreOpen(false);
+    setMenuOpen(false);
   }, [pathname]);
 
   return (
@@ -157,6 +186,7 @@ export default function Navbar() {
               {showMore && (
                 <div className="relative" ref={moreRef}>
                   <button
+                    ref={moreBtnRef}
                     type="button"
                     onClick={() => setMoreOpen((v) => !v)}
                     aria-haspopup="menu"
@@ -173,10 +203,19 @@ export default function Navbar() {
                       className={`transition-transform duration-200 ${moreOpen ? "rotate-180" : ""}`}
                     />
                   </button>
-                  {moreOpen && (
+                  {mounted && moreOpen && morePos && createPortal(
                     <div
+                      data-more-dropdown
                       role="menu"
-                      className="absolute right-0 top-full mt-2 min-w-[200px] bg-white rounded-lg shadow-lg border border-black/5 py-1 z-50"
+                      className="bg-white rounded-lg border border-black/5 py-1"
+                      style={{
+                        position: 'fixed',
+                        top: morePos.top,
+                        right: morePos.right,
+                        minWidth: 200,
+                        boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+                        zIndex: 9999,
+                      }}
                     >
                       {dropdownLinks.map((link) => (
                         <Link
@@ -194,7 +233,8 @@ export default function Navbar() {
                           {link.label}
                         </Link>
                       ))}
-                    </div>
+                    </div>,
+                    document.body
                   )}
                 </div>
               )}
