@@ -174,10 +174,19 @@ export default function CourseRow({
   const effPromo2Starts = promo2CodeParsed.code === null ? null : promo2StartsAt;
   const effPromo2Expires = promo2CodeParsed.code === null ? null : promo2ExpiresAt;
 
+  // Порожній oldPriceStr + немає override на це поле = той самий server-state
+  // (API має all-null=delete-override оптимізацію, тож save нічого не змінить).
+  // Без цього курси з ненульовим defaultOldPrice (psychology-basics=4900,
+  // military-psychology=8499) залишались dirty після save, якщо localStorage-draft
+  // прийшов порожнім — кнопка висіла на "Зберегти" замість "Збережено".
+  const oldPriceTrulyDirty =
+    !(oldPriceStr.trim() === '' && row.overrideOldPrice === null) &&
+    currentOldPrice !== initialOldPrice;
+
   const dirty =
     formValid && (
       currentPrice !== initialPrice ||
-      currentOldPrice !== initialOldPrice ||
+      oldPriceTrulyDirty ||
       (spIdParsed.num ?? null) !== (row.sendpulseCourseId ?? null) ||
       (promo1CodeParsed.code ?? null) !== (row.promo1Code ?? null) ||
       (promo1PriceParsed.num ?? null) !== (row.promo1Price ?? null) ||
