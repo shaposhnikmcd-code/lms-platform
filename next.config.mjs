@@ -43,7 +43,7 @@ const nextConfig = {
     // Без цього паттерну Next 16 reject-не Image з query-рядком.
     localPatterns: [
       { pathname: "/**", search: "" },
-      { pathname: "/Certificates/**", search: "v=*" },
+      { pathname: "/Certificates/**", search: "?v=2" },
     ],
     remotePatterns: [
       {
