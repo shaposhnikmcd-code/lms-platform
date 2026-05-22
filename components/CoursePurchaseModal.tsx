@@ -1,9 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { FaWallet } from 'react-icons/fa';
 import { useTranslations } from 'next-intl';
+import { inferEcommerceCategory, trackAddToCart, trackViewItem } from '@/lib/analytics/ecommerce';
 
 // Діалог (форма оплати, валідація, promo, 4 іконки, next-auth useSession) винесено
 // в окремий чанк і довантажується ЛИШЕ коли юзер клікне "Купити". На першому
@@ -52,10 +53,28 @@ export default function CoursePurchaseModal({
   const t = useTranslations('PurchaseModal');
   const [isOpen, setIsOpen] = useState(false);
 
+  const ecommerceItem = {
+    item_id: courseId,
+    item_name: courseName,
+    item_category: inferEcommerceCategory(courseId),
+    price,
+  };
+
+  // GA4 view_item — одне спрацьовування на item_id за сесію (dedup у helper-і).
+  useEffect(() => {
+    trackViewItem(ecommerceItem);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [courseId]);
+
+  const handleOpen = () => {
+    trackAddToCart(ecommerceItem);
+    setIsOpen(true);
+  };
+
   return (
     <>
       <button
-        onClick={() => setIsOpen(true)}
+        onClick={handleOpen}
         disabled={disabled}
         className={`group relative inline-flex items-center gap-3 bg-[#D4A017] text-white font-bold rounded-xl mx-auto justify-center overflow-hidden shadow-md shadow-[#D4A017]/20 transition-all duration-300 hover:bg-[#c69414] hover:shadow-lg hover:shadow-[#D4A017]/30 border border-[#D4A017]/30 disabled:opacity-50 disabled:cursor-not-allowed ${compact ? 'py-2.5 px-6 text-sm' : 'py-2.5 px-3 text-sm'}`}
       >

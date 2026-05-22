@@ -8,6 +8,7 @@ import { useTranslations } from 'next-intl';
 import CoursePhoneInput, { PHONE_CONFIG } from './CoursePhoneInput';
 import CountryPicker from './CountryPicker';
 import { parseTelegramUsername } from '@/lib/telegramUsername';
+import { inferEcommerceCategory, trackBeginCheckout } from '@/lib/analytics/ecommerce';
 
 const capitalizeFirst = (s: string) =>
   s.length > 0 ? s.charAt(0).toLocaleUpperCase('uk-UA') + s.slice(1) : s;
@@ -234,6 +235,14 @@ export default function CoursePurchaseDialog({
         ? crypto.randomUUID().slice(0, 8)
         : Math.random().toString(36).slice(2, 10);
       const orderReference = `${courseId}_${Date.now()}_${uuid}`;
+
+      // GA4 begin_checkout — фінальна ціна (з промокодом / адмін-тарифом) перед редіректом у WFP.
+      trackBeginCheckout({
+        item_id: courseId,
+        item_name: courseName,
+        item_category: inferEcommerceCategory(courseId),
+        price: finalPrice,
+      });
       const response = await fetch('/api/wayforpay', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
