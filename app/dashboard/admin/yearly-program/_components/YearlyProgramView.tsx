@@ -17,6 +17,9 @@ import {
   HiOutlineCheck,
   HiOutlineCurrencyDollar,
   HiOutlineExclamationTriangle,
+  HiOutlineShoppingCart,
+  HiOutlineNoSymbol,
+  HiOutlineArchiveBoxXMark,
 } from 'react-icons/hi2';
 import type { YearlyProgramSettings } from '@/lib/yearlyProgramSettings';
 import { useAdminTheme, type Theme } from '../../_components/adminTheme';
@@ -97,14 +100,19 @@ const PLAN_OPTIONS: { value: PlanFilter; label: string }[] = [
   { value: 'MONTHLY_ONCE', label: 'Місячний на 1 міс.' },
 ];
 
-function buildStatusOptions(graceDays: number): { value: 'ALL' | SubStatus; label: string }[] {
+/// Віртуальний статус-фільтр: PENDING-підписки старші 48 год без жодного PAID.
+/// Не існує в БД як окремий статус, обчислюється з createdAt + paymentsCount.
+type StatusFilter = 'ALL' | SubStatus | 'ABANDONED';
+
+function buildStatusOptions(graceDays: number): { value: StatusFilter; label: string }[] {
   return [
     { value: 'ALL', label: 'Усі' },
     { value: 'ACTIVE', label: 'Активний' },
     { value: 'GRACE', label: `Grace (${graceDays} ${pluralizeDays(graceDays)})` },
     { value: 'EXPIRED', label: 'Доступ закрито' },
     { value: 'CANCELLED', label: 'Скасовано' },
-    { value: 'PENDING', label: 'Очікує' },
+    { value: 'PENDING', label: 'Очікує (свіжі)' },
+    { value: 'ABANDONED', label: '🛒 Покинули чекаут' },
     { value: 'ARCHIVED', label: 'Архів' },
   ];
 }
@@ -135,6 +143,9 @@ export default function YearlyProgramView(props: {
   /// SSR-pre-computed загальна кількість активних issue-ів — для red-badge на кнопці
   /// «🚨 Помилки» без HTTP-roundtrip-у при першому render-і.
   initialIssuesTotal: number;
+  /// SSR-pre-computed `subscriptionId → highest active issue severity + count`.
+  /// Дозволяє рендерити ⚠️ severity-бейдж на рядку таблиці без HTTP-roundtrip-у.
+  issueSeverityBySub: Record<string, { severity: 'critical' | 'warning' | 'info'; count: number }>;
 }) {
   const { theme, setTheme } = useAdminTheme();
 
@@ -179,6 +190,7 @@ function YearlyProgramViewInner({
   setTheme,
   isSuperAdmin,
   initialIssuesTotal,
+  issueSeverityBySub,
 }: {
   rows: Row[];
   summary: SummaryData;
@@ -191,6 +203,7 @@ function YearlyProgramViewInner({
   setTheme: (t: Theme) => void;
   isSuperAdmin: boolean;
   initialIssuesTotal: number;
+  issueSeverityBySub: Record<string, { severity: 'critical' | 'warning' | 'info'; count: number }>;
   // prewarm проходить через spread у props, але тут не використовується — кеш заповнюється
   // у YearlyProgramView (parent) до mount-у inner-а.
   prewarm?: YearlyProgramAdminPrewarm;
@@ -206,7 +219,7 @@ function YearlyProgramViewInner({
   const activeCohort = cohorts.find((c) => c.id === activeCohortId) ?? null;
 
   const [planFilter, setPlanFilter] = useState<PlanFilter>('ALL');
-  const [statusFilter, setStatusFilter] = useState<'ALL' | SubStatus>('ALL');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
   const [search, setSearch] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [details, setDetails] = useState<Record<string, SubscriptionDetails | 'loading' | 'error'>>({});
@@ -229,7 +242,17 @@ function YearlyProgramViewInner({
       if (planFilter === 'YEARLY' && r.plan !== 'YEARLY') return false;
       if (planFilter === 'MONTHLY_AUTO' && !(r.plan === 'MONTHLY' && r.autoRenew)) return false;
       if (planFilter === 'MONTHLY_ONCE' && !(r.plan === 'MONTHLY' && !r.autoRenew)) return false;
-      if (statusFilter !== 'ALL' && r.status !== statusFilter) return false;
+      if (statusFilter === 'ABANDONED') {
+        const ageMs = Date.now() - new Date(r.createdAt).getTime();
+        if (!(r.status === 'PENDING' && r.paymentsCount === 0 && ageMs > 48 * 60 * 60 * 1000)) return false;
+      } else if (statusFilter === 'PENDING') {
+        // «Свіжі PENDING» — без покинутих чекаутів.
+        const ageMs = Date.now() - new Date(r.createdAt).getTime();
+        const isAbandoned = r.status === 'PENDING' && r.paymentsCount === 0 && ageMs > 48 * 60 * 60 * 1000;
+        if (r.status !== 'PENDING' || isAbandoned) return false;
+      } else if (statusFilter !== 'ALL' && r.status !== statusFilter) {
+        return false;
+      }
       if (q && !r.userEmail.toLowerCase().includes(q) && !(r.userName ?? '').toLowerCase().includes(q)) return false;
       return true;
     });
@@ -335,10 +358,31 @@ function YearlyProgramViewInner({
           </>
         )}
         <div className={dark ? 'border-t border-white/[0.06]' : 'border-t border-stone-300/40'} />
+        <FunnelStrip theme={theme} summary={summary} graceDays={graceDays} />
+        <div className={dark ? 'border-t border-white/[0.06]' : 'border-t border-stone-300/40'} />
         <div className="px-5 py-3 flex items-center gap-x-5 gap-y-2 flex-wrap">
-          <KpiInline theme={theme} icon={HiOutlineUserGroup} label="Підписок" value={summary.total.toLocaleString()} />
+          <KpiInline
+            theme={theme}
+            icon={HiOutlineShoppingCart}
+            label="Спроб купити"
+            value={summary.pendingTotal.toLocaleString()}
+            hint={
+              summary.pendingAbandoned > 0
+                ? `з них покинули чекаут (>48 год): ${summary.pendingAbandoned}`
+                : 'PENDING-підписки, які ще не завершили оплату'
+            }
+          />
           <KpiDot dark={dark} />
-          <KpiInline theme={theme} icon={HiOutlineCheckCircle} label="Активних" value={summary.active.toLocaleString()} tone="success" />
+          <KpiInline
+            theme={theme}
+            icon={HiOutlineCheckCircle}
+            label="Оплачених"
+            value={summary.paidCount.toLocaleString()}
+            tone="success"
+            hint="Підписки з ≥1 успішною оплатою (історично, незалежно від поточного статусу)"
+          />
+          <KpiDot dark={dark} />
+          <KpiInline theme={theme} icon={HiOutlineUserGroup} label="Активних" value={summary.active.toLocaleString()} tone="success" />
           <KpiDot dark={dark} />
           <KpiInline
             theme={theme}
@@ -350,9 +394,18 @@ function YearlyProgramViewInner({
           <KpiDot dark={dark} />
           <KpiInline
             theme={theme}
-            icon={HiOutlineXCircle}
-            label="Доступ закрито / скасовано"
-            value={(summary.expired + summary.cancelled).toLocaleString()}
+            icon={HiOutlineArchiveBoxXMark}
+            label="Доступ закрито"
+            value={summary.expired.toLocaleString()}
+            hint="EXPIRED — термін підписки закінчився"
+          />
+          <KpiDot dark={dark} />
+          <KpiInline
+            theme={theme}
+            icon={HiOutlineNoSymbol}
+            label="Скасовано"
+            value={summary.cancelled.toLocaleString()}
+            hint="CANCELLED — студент/адмін перервав підписку"
           />
           <div className="ml-auto" />
           <KpiInline
@@ -551,6 +604,8 @@ function YearlyProgramViewInner({
                     busy={busyId === r.id}
                     onToggle={() => toggleExpand(r.id)}
                     onAction={(action, payload, confirm) => runAction(r.id, action, payload, confirm)}
+                    issueBadge={issueSeverityBySub[r.id]}
+                    onOpenIssues={() => setIssuesOpen(true)}
                   />
                 ))
               )}
@@ -697,6 +752,8 @@ function RowBlock({
   busy,
   onToggle,
   onAction,
+  issueBadge,
+  onOpenIssues,
 }: {
   r: Row;
   theme: Theme;
@@ -706,8 +763,16 @@ function RowBlock({
   busy: boolean;
   onToggle: () => void;
   onAction: (action: string, payload?: Record<string, unknown>, confirm?: string) => void;
+  issueBadge?: { severity: 'critical' | 'warning' | 'info'; count: number };
+  onOpenIssues: () => void;
 }) {
   const dark = theme === 'dark';
+  /// Для PENDING-підписки старшої 48 год без жодного PAID-платежу — показуємо мітку «покинули чекаут».
+  /// Це обчислюється тут (а не сервером), бо state чисто derived: createdAt + status + paidCount.
+  const abandonedAgeMs = Date.now() - new Date(r.createdAt).getTime();
+  const isAbandoned =
+    r.status === 'PENDING' && r.paymentsCount === 0 && abandonedAgeMs > 48 * 60 * 60 * 1000;
+  const abandonedDays = Math.floor(abandonedAgeMs / (24 * 60 * 60 * 1000));
   return (
     <>
       <tr data-sub-row={r.id} className={`transition-shadow ${dark ? 'hover:bg-white/[0.02]' : 'hover:bg-stone-50/60'}`}>
@@ -750,6 +815,33 @@ function RowBlock({
             >
               ✋ Додано вручну
             </span>
+          )}
+          {isAbandoned && (
+            <span
+              className={`mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wider ${
+                dark ? 'bg-slate-500/15 text-slate-300 border border-slate-400/25' : 'bg-stone-100 text-stone-600 border border-stone-300/50'
+              }`}
+              title={`Створено ${abandonedDays} ${abandonedDays === 1 ? 'день' : abandonedDays < 5 ? 'дні' : 'днів'} тому, оплата не завершена`}
+            >
+              🛒 Покинули чекаут · {abandonedDays}д
+            </span>
+          )}
+          {issueBadge && (
+            <button
+              type="button"
+              onClick={onOpenIssues}
+              className={`mt-1 ml-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wider transition-colors ${
+                issueBadge.severity === 'critical'
+                  ? dark ? 'bg-rose-500/15 text-rose-200 border border-rose-400/30 hover:bg-rose-500/25' : 'bg-rose-100 text-rose-900 border border-rose-300/60 hover:bg-rose-200'
+                  : issueBadge.severity === 'warning'
+                  ? dark ? 'bg-amber-500/15 text-amber-200 border border-amber-400/30 hover:bg-amber-500/25' : 'bg-amber-100 text-amber-900 border border-amber-300/60 hover:bg-amber-200'
+                  : dark ? 'bg-white/[0.06] text-slate-300 border border-white/[0.1] hover:bg-white/[0.1]' : 'bg-stone-100 text-stone-700 border border-stone-300/60 hover:bg-stone-200'
+              }`}
+              title={`Активних issue-ів: ${issueBadge.count}. Натисніть, щоб відкрити панель помилок.`}
+            >
+              ⚠ {issueBadge.severity === 'critical' ? 'Критична' : issueBadge.severity === 'warning' ? 'Увага' : 'Інфо'}
+              {issueBadge.count > 1 && <span className="tabular-nums">· {issueBadge.count}</span>}
+            </button>
           )}
         </td>
         <td className="px-4 py-2.5">
@@ -1413,6 +1505,7 @@ function KpiInline({
   tone = 'neutral',
   theme,
   big = false,
+  hint,
 }: {
   label: string;
   value: string;
@@ -1420,6 +1513,8 @@ function KpiInline({
   tone?: 'neutral' | 'success' | 'warning' | 'danger';
   theme: Theme;
   big?: boolean;
+  /// Native browser tooltip — короткий опис що означає цифра.
+  hint?: string;
 }) {
   const dark = theme === 'dark';
   const toneColor = {
@@ -1429,12 +1524,67 @@ function KpiInline({
     danger: dark ? 'text-rose-300' : 'text-rose-700',
   }[tone];
   return (
-    <div className="inline-flex items-baseline gap-1.5">
+    <div className="inline-flex items-baseline gap-1.5" title={hint}>
       <Icon className={`shrink-0 self-center text-[13px] ${dark ? 'text-slate-500' : 'text-stone-500'}`} />
       <span className={`text-[11px] uppercase tracking-[0.14em] font-medium ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
         {label}
       </span>
       <span className={`tabular-nums font-semibold ${big ? 'text-[16px]' : 'text-[14px]'} ${toneColor}`}>{value}</span>
+    </div>
+  );
+}
+
+/// Воронка життєвого циклу підписки: спроби → оплати → активні → grace → закрито.
+/// Показує абсолютні числа + конверсію між сходинками. NULL-safe для нульових when-empty.
+function FunnelStrip({ theme, summary, graceDays }: { theme: Theme; summary: SummaryData; graceDays: number }) {
+  const dark = theme === 'dark';
+  /// «Спроб» = всі PENDING + всі paid (бо paid = вже не PENDING, але стартували з PENDING).
+  /// Це close approximation для конверсії — точне число пробитих чекаутів вимагає окремої таблиці.
+  const attempts = summary.pendingTotal + summary.paidCount;
+  const closed = summary.expired + summary.cancelled;
+  const livingAccess = summary.active + summary.grace;
+  const pct = (n: number, base: number) => (base > 0 ? `${Math.round((n / base) * 100)}%` : '—');
+
+  const steps: { label: string; value: number; tone: 'pending' | 'success' | 'warning' | 'danger'; conv?: string }[] = [
+    { label: 'Спроб', value: attempts, tone: 'pending' },
+    { label: 'Оплат', value: summary.paidCount, tone: 'success', conv: pct(summary.paidCount, attempts) },
+    { label: 'З доступом', value: livingAccess, tone: 'success', conv: pct(livingAccess, summary.paidCount) },
+    { label: `Grace ${graceDays}д`, value: summary.grace, tone: 'warning' },
+    { label: 'Закрито', value: closed, tone: 'danger' },
+  ];
+
+  const toneColor = (t: 'pending' | 'success' | 'warning' | 'danger') => {
+    if (t === 'pending') return dark ? 'text-slate-300' : 'text-stone-700';
+    if (t === 'success') return dark ? 'text-emerald-300' : 'text-emerald-700';
+    if (t === 'warning') return dark ? 'text-amber-300' : 'text-amber-700';
+    return dark ? 'text-rose-300' : 'text-rose-700';
+  };
+
+  return (
+    <div className="px-5 py-3 flex items-center gap-2 flex-wrap">
+      <span className={`text-[10px] uppercase tracking-[0.18em] font-semibold mr-1 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+        Воронка
+      </span>
+      {steps.map((step, i) => (
+        <span key={step.label} className="inline-flex items-center gap-2">
+          {i > 0 && (
+            <span className={`inline-flex items-center gap-1 text-[10px] ${dark ? 'text-slate-500' : 'text-stone-400'}`}>
+              <HiOutlineChevronRight className="text-[11px]" />
+              {step.conv && (
+                <span className={`tabular-nums ${dark ? 'text-slate-400' : 'text-stone-500'}`}>{step.conv}</span>
+              )}
+            </span>
+          )}
+          <span
+            className={`inline-flex items-baseline gap-1 px-2 py-0.5 rounded border text-[11px] ${
+              dark ? 'bg-white/[0.03] border-white/[0.06]' : 'bg-white/70 border-stone-300/40'
+            }`}
+          >
+            <span className={dark ? 'text-slate-400' : 'text-stone-500'}>{step.label}</span>
+            <span className={`tabular-nums font-semibold ${toneColor(step.tone)}`}>{step.value.toLocaleString()}</span>
+          </span>
+        </span>
+      ))}
     </div>
   );
 }

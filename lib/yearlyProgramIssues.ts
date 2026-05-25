@@ -39,6 +39,41 @@ export const ISSUE_KIND_VALUES: IssueKind[] = [
   'AUTOPAY_CHARGE_FAILED',
 ];
 
+export type IssueSeverity = 'critical' | 'warning' | 'info';
+
+/// Severity per kind. Має 1-в-1 збігатись з CATALOG у IssuesModal.tsx (UI-каталог).
+/// Дублюється свідомо: UI-каталог тримає тексти/іконки/дії (client-only), а ця мапа
+/// потрібна на сервері для агрегації «highest severity per subscription» без тягнення
+/// клієнтського модуля у server bundle.
+export const ISSUE_KIND_SEVERITY: Record<IssueKind, IssueSeverity> = {
+  LAUNCH_ACCESS_FAILED: 'critical',
+  LAUNCH_EMAIL_FAILED: 'warning',
+  TG_INVITE_FAILED: 'warning',
+  TG_KICK_FAILED: 'info',
+  SP_CLOSE_FAILED: 'info',
+  SP_REOPEN_FAILED: 'warning',
+  AUTOPAY_CHARGE_FAILED: 'warning',
+};
+
+const SEVERITY_RANK: Record<IssueSeverity, number> = { critical: 0, warning: 1, info: 2 };
+
+/// Будує мапу `subscriptionId → найвища severity активних issue-ів + кількість`.
+/// Використовується для бейджа на рядку таблиці підписок.
+export function buildSubscriptionSeverityMap(payload: IssuesPayload): Record<string, { severity: IssueSeverity; count: number }> {
+  const acc: Record<string, { severity: IssueSeverity; count: number }> = {};
+  for (const rec of payload.active) {
+    const sev = ISSUE_KIND_SEVERITY[rec.kind];
+    const prev = acc[rec.subscriptionId];
+    if (!prev) {
+      acc[rec.subscriptionId] = { severity: sev, count: 1 };
+    } else {
+      prev.count += 1;
+      if (SEVERITY_RANK[sev] < SEVERITY_RANK[prev.severity]) prev.severity = sev;
+    }
+  }
+  return acc;
+}
+
 export const ISSUE_KIND_LABELS: Record<IssueKind, string> = {
   LAUNCH_ACCESS_FAILED: 'Запуск: SP-доступ не відкрито',
   LAUNCH_EMAIL_FAILED: 'Запуск: welcome-лист не доставлено',
