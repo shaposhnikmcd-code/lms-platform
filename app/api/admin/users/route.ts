@@ -219,8 +219,6 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'Не можна видалити власний акаунт' }, { status: 400 });
     }
 
-    // Захист від lockout: ADMIN не може soft-delete іншого ADMIN. Якщо треба зняти права —
-    // спершу PATCH { newRole: 'MANAGER' }, потім DELETE.
     const target = await prisma.user.findUnique({
       where: { id: userId },
       select: { role: true, email: true },
@@ -232,9 +230,11 @@ export async function DELETE(req: NextRequest) {
         { status: 403 }
       );
     }
-    if (target?.role === 'ADMIN') {
+    // Видалити іншого ADMIN може тільки супер-адмін (захищені акаунти).
+    const actorIsSuperAdmin = !!actor.email && PROTECTED_ACCOUNTS.has(actor.email.toLowerCase());
+    if (target?.role === 'ADMIN' && !actorIsSuperAdmin) {
       return NextResponse.json(
-        { error: 'Не можна видалити іншого адміна. Спершу зніміть роль ADMIN.' },
+        { error: 'Видалити іншого адміна може тільки супер-адмін. Спершу зніміть роль ADMIN.' },
         { status: 400 }
       );
     }
