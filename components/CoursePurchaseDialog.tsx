@@ -113,6 +113,8 @@ export default function CoursePurchaseDialog({
   const [alreadyPurchased, setAlreadyPurchased] = useState(false);
   /// Soft-warning для пакетів: курси з пакету, які юзер уже має. Оплату не блокує.
   const [bundleOverlap, setBundleOverlap] = useState<{ slug: string; title: string }[]>([]);
+  /// Confirm-попап перед оплатою пакету з overlap-ом. Захист від випадкового кліку.
+  const [showOverlapConfirm, setShowOverlapConfirm] = useState(false);
   const clearError = (k: keyof FieldErrors) =>
     setErrors((prev) => (prev[k] ? { ...prev, [k]: undefined } : prev));
 
@@ -336,6 +338,51 @@ export default function CoursePurchaseDialog({
       <div className="relative min-h-full flex items-center justify-center p-3 sm:p-4" onClick={closeModal}>
         {/* Modal card */}
         <div className="relative bg-white rounded-2xl w-full max-w-lg shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          {/* Overlap confirm popup (поверх форми) */}
+          {showOverlapConfirm && (
+            <div className="absolute inset-0 z-20 rounded-2xl bg-white/95 backdrop-blur-sm flex items-center justify-center p-5">
+              <div className="w-full max-w-sm rounded-xl border border-amber-300 bg-amber-50/80 shadow-lg p-5">
+                <div className="flex items-start gap-2.5 mb-3">
+                  <span className="text-2xl leading-none mt-0.5" aria-hidden>⚠️</span>
+                  <div>
+                    <h3 className="text-[15px] font-bold text-amber-900 mb-1">
+                      Підтвердіть покупку пакету
+                    </h3>
+                    <p className="text-[13px] leading-relaxed text-amber-900">
+                      {bundleOverlap.length === 1
+                        ? 'У вас вже є курс із цього пакету:'
+                        : `У вас вже є ${bundleOverlap.length} курси з цього пакету:`}
+                    </p>
+                  </div>
+                </div>
+                <ul className="text-[13px] leading-relaxed list-disc pl-7 space-y-0.5 text-amber-900 mb-3">
+                  {bundleOverlap.map((c) => (
+                    <li key={c.slug}><strong>«{c.title}»</strong></li>
+                  ))}
+                </ul>
+                <p className="text-[12px] text-amber-800 mb-4 leading-relaxed">
+                  Доступ до вже наявних курсів не зникне. Ви дійсно хочете купити пакет повністю?
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowOverlapConfirm(false)}
+                    className="flex-1 py-2 px-3 rounded-lg text-[13px] font-semibold text-stone-700 bg-white border border-stone-300 hover:bg-stone-50 transition-colors"
+                  >
+                    Скасувати
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setShowOverlapConfirm(false); handlePay(); }}
+                    className="flex-1 py-2 px-3 rounded-lg text-[13px] font-semibold text-white bg-[#1C3A2E] hover:bg-[#2a4f3f] transition-colors"
+                  >
+                    Так, купити пакет
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Close button */}
           <button
             onClick={closeModal}
@@ -736,7 +783,13 @@ export default function CoursePurchaseDialog({
             )}
 
             <button
-              onClick={handlePay}
+              onClick={() => {
+                if (isBundlePurchase && bundleOverlap.length > 0) {
+                  setShowOverlapConfirm(true);
+                } else {
+                  handlePay();
+                }
+              }}
               disabled={loading || alreadyPurchased}
               className="w-full py-2.5 bg-[#1C3A2E] text-white font-bold rounded-xl hover:bg-[#2a4f3f] transition-all text-base disabled:opacity-50 disabled:cursor-not-allowed"
             >
