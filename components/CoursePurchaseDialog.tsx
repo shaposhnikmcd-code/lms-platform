@@ -338,43 +338,65 @@ export default function CoursePurchaseDialog({
       <div className="relative min-h-full flex items-center justify-center p-3 sm:p-4" onClick={closeModal}>
         {/* Modal card */}
         <div className="relative bg-white rounded-2xl w-full max-w-lg shadow-2xl" onClick={(e) => e.stopPropagation()}>
-          {/* Overlap confirm popup (поверх форми) */}
+          {/* Overlap confirm — повний overlay поверх форми */}
           {showOverlapConfirm && (
-            <div className="absolute inset-0 z-20 rounded-2xl bg-white/95 backdrop-blur-sm flex items-center justify-center p-5">
-              <div className="w-full max-w-sm rounded-xl border border-amber-300 bg-amber-50/80 shadow-lg p-5">
-                <div className="flex items-start gap-2.5 mb-3">
-                  <span className="text-2xl leading-none mt-0.5" aria-hidden>⚠️</span>
-                  <div>
-                    <h3 className="text-[15px] font-bold text-amber-900 mb-1">
-                      Підтвердіть покупку пакету
-                    </h3>
-                    <p className="text-[13px] leading-relaxed text-amber-900">
-                      {bundleOverlap.length === 1
-                        ? 'У вас вже є курс із цього пакету:'
-                        : `У вас вже є ${bundleOverlap.length} курси з цього пакету:`}
-                    </p>
-                  </div>
+            <div className="absolute inset-0 z-20 rounded-2xl bg-white flex flex-col overflow-hidden">
+              {/* Top accent strip */}
+              <div className="h-1 bg-gradient-to-r from-[#F2C76D] via-[#D4A843] to-[#F2C76D]" />
+
+              <div className="flex-1 flex flex-col items-center justify-center px-7 sm:px-10 py-8 text-center">
+                {/* Icon badge */}
+                <div className="w-14 h-14 rounded-full bg-gradient-to-br from-amber-50 to-amber-100 border border-amber-200 shadow-[0_4px_14px_-4px_rgba(212,168,67,0.35)] flex items-center justify-center mb-4">
+                  <svg viewBox="0 0 24 24" className="w-7 h-7 text-amber-600" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                    <line x1="12" y1="9" x2="12" y2="13" />
+                    <line x1="12" y1="17" x2="12.01" y2="17" />
+                  </svg>
                 </div>
-                <ul className="text-[13px] leading-relaxed list-disc pl-7 space-y-0.5 text-amber-900 mb-3">
-                  {bundleOverlap.map((c) => (
-                    <li key={c.slug}><strong>«{c.title}»</strong></li>
-                  ))}
-                </ul>
-                <p className="text-[12px] text-amber-800 mb-4 leading-relaxed">
-                  Доступ до вже наявних курсів не зникне. Ви дійсно хочете купити пакет повністю?
+
+                <h3 className="text-[18px] sm:text-[19px] font-bold text-stone-900 tracking-tight mb-1.5">
+                  Підтвердіть покупку
+                </h3>
+                <p className="text-[13px] text-stone-500 leading-relaxed mb-5 max-w-xs">
+                  {bundleOverlap.length === 1
+                    ? 'У вас уже є цей курс із пакету:'
+                    : `У вас уже є ${bundleOverlap.length} курси з пакету:`}
                 </p>
-                <div className="flex gap-2">
+
+                {/* Course chips */}
+                <div className="w-full space-y-1.5 mb-5">
+                  {bundleOverlap.map((c) => (
+                    <div
+                      key={c.slug}
+                      className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl bg-amber-50/60 border border-amber-200/70"
+                    >
+                      <div className="w-5 h-5 rounded-full bg-amber-500/15 border border-amber-400/40 flex items-center justify-center shrink-0">
+                        <FaCheck className="text-amber-600 text-[10px]" aria-hidden />
+                      </div>
+                      <span className="text-[13px] font-medium text-stone-800 text-left truncate">
+                        {c.title}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+
+                <p className="text-[12px] text-stone-500 leading-relaxed mb-6 max-w-xs">
+                  Доступ до вже наявних курсів збережеться. Ви заплатите за весь пакет.
+                </p>
+
+                {/* Buttons */}
+                <div className="w-full flex gap-2.5">
                   <button
                     type="button"
                     onClick={() => setShowOverlapConfirm(false)}
-                    className="flex-1 py-2 px-3 rounded-lg text-[13px] font-semibold text-stone-700 bg-white border border-stone-300 hover:bg-stone-50 transition-colors"
+                    className="flex-1 py-2.5 rounded-xl text-[14px] font-semibold text-stone-700 bg-stone-100 hover:bg-stone-200 transition-colors"
                   >
                     Скасувати
                   </button>
                   <button
                     type="button"
                     onClick={() => { setShowOverlapConfirm(false); handlePay(); }}
-                    className="flex-1 py-2 px-3 rounded-lg text-[13px] font-semibold text-white bg-[#1C3A2E] hover:bg-[#2a4f3f] transition-colors"
+                    className="flex-1 py-2.5 rounded-xl text-[14px] font-semibold text-white bg-[#1C3A2E] hover:bg-[#2a4f3f] shadow-[0_6px_16px_-6px_rgba(28,58,46,0.5)] transition-colors"
                   >
                     Так, купити пакет
                   </button>
