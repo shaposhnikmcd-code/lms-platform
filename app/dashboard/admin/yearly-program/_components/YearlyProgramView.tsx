@@ -233,6 +233,36 @@ function YearlyProgramViewInner({
   /// показується як red-badge на кнопці. Initial = 0; перший fetch виконує модалка
   /// при відкритті, а потім callback оновлює badge для toolbar-а без відкриття модалки.
   const [issuesActiveTotal, setIssuesActiveTotal] = useState<number>(initialIssuesTotal);
+  const [cleanupBusy, setCleanupBusy] = useState(false);
+
+  async function cleanupAbandoned() {
+    const ok = await confirm({
+      title: `Архівувати ${summary.pendingAbandoned} ${summary.pendingAbandoned === 1 ? 'покинутий чекаут' : 'покинутих чекаутів'}?`,
+      description:
+        'PENDING-підписки старші 48 год без жодного оплаченого платежу будуть переведені в архів (status=ARCHIVED, cancelledBy=system_abandoned). У SendPulse/Telegram/WayForPay нічого не робимо — у цих підписок там ніколи нічого не відкривалось.',
+      confirmLabel: 'Архівувати',
+      cancelLabel: 'Скасувати',
+    });
+    if (!ok) return;
+    setCleanupBusy(true);
+    try {
+      const res = await fetch('/api/admin/yearly-program/cleanup-abandoned', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast('error', data.error ?? res.statusText);
+        return;
+      }
+      toast('success', `Архівовано: ${data.archived}`);
+      router.refresh();
+    } catch (e) {
+      toast('error', (e as Error).message);
+    } finally {
+      setCleanupBusy(false);
+    }
+  }
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -463,6 +493,31 @@ function YearlyProgramViewInner({
             />
           </div>
         </AdminPanel>
+
+        {summary.pendingAbandoned > 0 && (
+          <AdminPanel theme={theme} padding="p-3" className="w-fit">
+            <button
+              type="button"
+              onClick={() => cleanupAbandoned()}
+              disabled={cleanupBusy}
+              title="Архівувати всі PENDING-підписки старші 48 год без жодного PAID-платежу"
+              className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[12px] font-semibold transition-colors disabled:opacity-50 ${
+                dark
+                  ? 'bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.08]'
+                  : 'bg-white/80 border-stone-300/60 text-stone-700 hover:bg-stone-50'
+              }`}
+            >
+              🛒 Очистити покинуті
+              <span
+                className={`ml-0.5 inline-flex items-center justify-center min-w-[20px] h-5 px-1 rounded-full text-[10px] font-bold tabular-nums ${
+                  dark ? 'bg-white/[0.08] text-slate-200' : 'bg-stone-200 text-stone-800'
+                }`}
+              >
+                {summary.pendingAbandoned}
+              </span>
+            </button>
+          </AdminPanel>
+        )}
 
         <AdminPanel theme={theme} padding="p-3" className="w-fit">
           <button
