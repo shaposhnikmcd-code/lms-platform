@@ -26,8 +26,7 @@ type IssueKind =
   | 'TG_INVITE_FAILED'
   | 'TG_KICK_FAILED'
   | 'SP_CLOSE_FAILED'
-  | 'SP_REOPEN_FAILED'
-  | 'AUTOPAY_CHARGE_FAILED';
+  | 'SP_REOPEN_FAILED';
 
 const ALL_KINDS: IssueKind[] = [
   'LAUNCH_ACCESS_FAILED',
@@ -36,7 +35,6 @@ const ALL_KINDS: IssueKind[] = [
   'TG_KICK_FAILED',
   'SP_CLOSE_FAILED',
   'SP_REOPEN_FAILED',
-  'AUTOPAY_CHARGE_FAILED',
 ];
 
 type Severity = 'critical' | 'warning' | 'info';
@@ -176,29 +174,6 @@ const CATALOG: Record<IssueKind, CatalogEntry> = {
       'Зачекайте 1–2 хвилини і натисніть «Відкрити доступ» повторно.',
       'Перегляньте стан акаунту студента в SP-кабінеті.',
       'У крайньому разі — додайте студента до курсу вручну в SP.',
-    ],
-    hasRetry: false,
-  },
-  AUTOPAY_CHARGE_FAILED: {
-    severity: 'warning',
-    icon: '💳',
-    shortTitle: 'Автоплатіж',
-    title: 'Автосписання не пройшло',
-    whatHappened:
-      'WayForPay не зміг автоматично провести місячне списання. Гроші зі студента не списано — це невдала спроба, а не успішна транзакція з проблемою.',
-    sideEffects:
-      'Підписка діє до expiresAt. Якщо до цієї дати автоплатіж так і не пройде — піде в GRACE на 7 днів, далі EXPIRED.',
-    causes: [
-      'Недостатньо коштів на картці студента.',
-      'Картку перевипустили — змінився номер, CVV або термін дії.',
-      'Студент сам відмовив у рекурентному платежі в банку або в WayForPay.',
-      'Закінчився TTL recurring-токена WFP («Cardholder session expired»).',
-      'Технічний збій на стороні WayForPay.',
-    ],
-    actions: [
-      'Зачекайте на повторну спробу cron-а (наступного дня).',
-      'Якщо лічильник fails росте — напишіть студенту з проханням оплатити місяць вручну: нова оплата створить свіжий recToken і автоплатіж далі піде по новій картці.',
-      'Якщо студент сам більше не хоче продовжувати — скасуйте підписку в експандері.',
     ],
     hasRetry: false,
   },

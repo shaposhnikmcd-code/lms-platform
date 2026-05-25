@@ -433,7 +433,7 @@ export default function WorkflowDiagramModal({ theme, graceDays, onClose }: { th
             ]} accent="amber" />
             <ScenarioCard dark={dark} c={c} emoji="💸" title="Невдале списання (cyclical)" trigger="WFP не зміг списати чергові 2 200 ₴ з картки (тільки автосписання)" steps={[
               { who: 'wfp', what: 'списання провалилось → callback на сайт' },
-              { who: 'platform', what: 'failedChargeCount + 1, ISSUE «AUTOPAY_CHARGE_FAILED» у трекері' },
+              { who: 'platform', what: 'failedChargeCount + 1 на підписці; видно в expand-рядку, не у «Помилки» (це бізнес-подія, не системний збій)' },
               { who: 'platform', what: 'після expiresAt → підписка стає пільговою (graceStartedAt = now)' },
               { who: 'email', what: 'на старті grace — «не вдалось списати оплату»' },
               ...(midReminderActive ? [{ who: 'email' as const, what: `день ${midGraceDay} grace — «залишилось N днів до закриття» (тільки коли graceDays ≥ 5)` }] : []),
@@ -481,7 +481,7 @@ export default function WorkflowDiagramModal({ theme, graceDays, onClose }: { th
               { who: 'manager', what: 'бачить статус у колонці TG, може повторно надіслати invite з панелі підписки' },
             ]} accent="sky" />
             <ScenarioCard dark={dark} c={c} emoji="🚨" title="Issue tracker · автоматичні інциденти" trigger="Будь-яка системна помилка в lifecycle підписки → потрапляє в трекер" steps={[
-              { who: 'platform', what: 'класифікує помилку у kind: LAUNCH_ACCESS_FAILED / LAUNCH_EMAIL_FAILED / TG_INVITE_FAILED / TG_KICK_FAILED / SP_CLOSE_FAILED / SP_REOPEN_FAILED / AUTOPAY_CHARGE_FAILED' },
+              { who: 'platform', what: 'класифікує помилку у kind: LAUNCH_ACCESS_FAILED / LAUNCH_EMAIL_FAILED / TG_INVITE_FAILED / TG_KICK_FAILED / SP_CLOSE_FAILED / SP_REOPEN_FAILED' },
               { who: 'platform', what: 'у toolbar з\'являється «🚨 Помилки» + red badge з лічильником active issues' },
               { who: 'manager', what: 'відкриває модалку → бачить вкладки Active / Dismissed, фільтр по kind/plan, посилання на subscription' },
               { who: 'manager', what: 'може retry (для TG-invite), dismiss з причиною, або клікнути «Відкрити підписку» → таблиця прокрутиться + рядок підсвітиться' },

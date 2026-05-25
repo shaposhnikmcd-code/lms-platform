@@ -58,7 +58,6 @@ export async function GET(req: NextRequest) {
   results.push(await runScheduledCohortLaunches());
   results.push(await transitionActiveToGrace());
   results.push(await expireGraceSubscriptions());
-  results.push(await archiveAbandonedCheckouts());
   results.push(await sendManualBeforeExpiryReminders());
   results.push(await sendManualOnExpiryReminders());
   results.push(await sendGraceStartReminders());
@@ -157,51 +156,6 @@ async function sendScheduledCohortLaunchEmails(): Promise<StepResult> {
   }
 
   return { step: 'sendScheduledCohortLaunchEmails', processed, errors };
-}
-
-/// Архівує покинуті чекаути: PENDING-підписки, створені >30 днів тому без жодного
-/// PAID-платежу. Це чисто бухгалтерська чистка БД: SP/TG/WFP side-effects не виконуємо
-/// (їх просто немає для abandoned), статус міняємо на ARCHIVED + cancelledBy='system_abandoned'.
-/// Поріг 30 днів — а не 48 год як у UI-міткіе — щоб залишити запас часу на retry оплати,
-/// перш ніж фінально архівувати в БД. UI-мітка про покинутий чекаут зʼявляється через 48 год.
-async function archiveAbandonedCheckouts(): Promise<StepResult> {
-  const errors: string[] = [];
-  const threshold = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-  const candidates = await prisma.yearlyProgramSubscription.findMany({
-    where: {
-      status: 'PENDING',
-      createdAt: { lt: threshold },
-      payments: { none: { status: 'PAID' } },
-    },
-    select: { id: true, userId: true, createdAt: true },
-  });
-
-  await processInParallel(candidates, async (s) => {
-    try {
-      const now = new Date();
-      await prisma.yearlyProgramSubscription.update({
-        where: { id: s.id },
-        data: {
-          status: 'ARCHIVED',
-          cancelledAt: now,
-          cancelledBy: 'system_abandoned',
-          cancelledReason: 'PENDING без оплати >30 днів — auto-archive',
-        },
-      });
-      await prisma.yearlyProgramSubscriptionEvent.create({
-        data: {
-          subscriptionId: s.id,
-          type: 'admin_action',
-          message: 'Auto-archived: PENDING without payment >30d',
-          metadata: { auto: true, reason: 'abandoned_checkout', ageDays: Math.floor((now.getTime() - s.createdAt.getTime()) / (24 * 60 * 60 * 1000)) },
-        },
-      });
-    } catch (e) {
-      errors.push(`${s.id}: ${(e as Error).message}`);
-    }
-  });
-
-  return { step: 'archiveAbandonedCheckouts', processed: candidates.length, errors };
 }
 
 async function transitionActiveToGrace(): Promise<StepResult> {

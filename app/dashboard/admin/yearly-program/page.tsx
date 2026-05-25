@@ -113,29 +113,12 @@ export default async function AdminYearlyProgramPage() {
   // Клієнт записує ці дані в module-level кеш модалок при mount → відкриття без skeleton.
   const launchedCohortIds = cohortList.filter((c) => c.launchedAt !== null).map((c) => c.id);
 
-  /// "Покинули чекаут": PENDING + старіше 48 год + жодного PAID-платежу.
-  /// 48 год — компроміс між «дав час оплатити» і «не плутати свіжі спроби».
-  const abandonedThreshold = new Date(Date.now() - 48 * 60 * 60 * 1000);
-
-  const [statusCounts, totalAggr, paidCount, pendingAbandoned, revenueAggr, graceDays, programSettings, tgSettings, prewarm, superAdmin, issuesPayload] = await Promise.all([
+  const [statusCounts, totalAggr, revenueAggr, graceDays, programSettings, tgSettings, prewarm, superAdmin, issuesPayload] = await Promise.all([
     prisma.yearlyProgramSubscription.groupBy({
       by: ['status'],
       _count: { _all: true },
     }),
     prisma.yearlyProgramSubscription.count({ where: { status: { not: 'ARCHIVED' } } }),
-    prisma.yearlyProgramSubscription.count({
-      where: {
-        status: { not: 'ARCHIVED' },
-        payments: { some: { status: 'PAID' } },
-      },
-    }),
-    prisma.yearlyProgramSubscription.count({
-      where: {
-        status: 'PENDING',
-        createdAt: { lt: abandonedThreshold },
-        payments: { none: { status: 'PAID' } },
-      },
-    }),
     prisma.payment.aggregate({
       where: { status: 'PAID', yearlyProgramSubscriptionId: { not: null } },
       _sum: { amount: true },
@@ -157,9 +140,6 @@ export default async function AdminYearlyProgramPage() {
     expired: countByStatus('EXPIRED'),
     cancelled: countByStatus('CANCELLED'),
     revenueTotal: revenueAggr._sum.amount ?? 0,
-    pendingTotal: countByStatus('PENDING'),
-    pendingAbandoned,
-    paidCount,
   };
 
   return (

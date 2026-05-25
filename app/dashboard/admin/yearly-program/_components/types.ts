@@ -57,14 +57,6 @@ export interface SummaryData {
   expired: number;
   cancelled: number;
   revenueTotal: number;
-  /// Всі PENDING (відкрили чекаут, ще немає Approved-callback). Включає і свіжі спроби,
-  /// і покинуті — деталізація в `pendingAbandoned`.
-  pendingTotal: number;
-  /// PENDING, створені >48 год тому, без жодного PAID-платежу — фактично покинули чекаут.
-  pendingAbandoned: number;
-  /// Підписки з ≥1 PAID-платежем (історичний лічильник тих, хто колись заплатив,
-  /// незалежно від поточного статусу). Виключає ARCHIVED.
-  paidCount: number;
 }
 
 export interface CohortListItem {

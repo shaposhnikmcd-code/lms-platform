@@ -20,14 +20,17 @@ import prisma from '@/lib/prisma';
 /// Стабільний enum типів issue. Не перейменовуй значення — вони зберігаються
 /// у `YearlyProgramIssueDismissal.kind` як рядки (історичні dismissal-и зламаються).
 /// Додавати нові — можна. Видаляти — лише з міграцією, що чистить старі dismissal-и.
+/// «Помилки» — це ТЕХНІЧНІ збої системи (SP API не відповів, Telegram bot не зміг
+/// створити invite, шаблон листа не відрендерився). НЕ бізнес-події типу
+/// «студентська картка не пройшла» — це нормальне життя автоплатежів, видно у
+/// розділі підписки expand, не варто рахувати як «помилку».
 export type IssueKind =
   | 'LAUNCH_ACCESS_FAILED'
   | 'LAUNCH_EMAIL_FAILED'
   | 'TG_INVITE_FAILED'
   | 'TG_KICK_FAILED'
   | 'SP_CLOSE_FAILED'
-  | 'SP_REOPEN_FAILED'
-  | 'AUTOPAY_CHARGE_FAILED';
+  | 'SP_REOPEN_FAILED';
 
 export const ISSUE_KIND_VALUES: IssueKind[] = [
   'LAUNCH_ACCESS_FAILED',
@@ -36,7 +39,6 @@ export const ISSUE_KIND_VALUES: IssueKind[] = [
   'TG_KICK_FAILED',
   'SP_CLOSE_FAILED',
   'SP_REOPEN_FAILED',
-  'AUTOPAY_CHARGE_FAILED',
 ];
 
 export type IssueSeverity = 'critical' | 'warning' | 'info';
@@ -52,7 +54,6 @@ export const ISSUE_KIND_SEVERITY: Record<IssueKind, IssueSeverity> = {
   TG_KICK_FAILED: 'info',
   SP_CLOSE_FAILED: 'info',
   SP_REOPEN_FAILED: 'warning',
-  AUTOPAY_CHARGE_FAILED: 'warning',
 };
 
 const SEVERITY_RANK: Record<IssueSeverity, number> = { critical: 0, warning: 1, info: 2 };
@@ -81,7 +82,6 @@ export const ISSUE_KIND_LABELS: Record<IssueKind, string> = {
   TG_KICK_FAILED: 'Telegram: вилучення/ban не виконано',
   SP_CLOSE_FAILED: 'SendPulse: close-access помилка',
   SP_REOPEN_FAILED: 'SendPulse: reopen-access помилка',
-  AUTOPAY_CHARGE_FAILED: 'Автоплатіж: невдале списання',
 };
 
 /// Чи є retry-action для kind-у — впливає на UI (показ кнопки «Спробувати ще»).
@@ -93,7 +93,6 @@ export const ISSUE_HAS_RETRY: Record<IssueKind, boolean> = {
   TG_KICK_FAILED: false,        // одноразова дія, повторювати не варто
   SP_CLOSE_FAILED: false,       // менеджер натискає "Закрити доступ" знову вручну
   SP_REOPEN_FAILED: false,      // менеджер натискає "Відкрити доступ" знову вручну
-  AUTOPAY_CHARGE_FAILED: false, // WFP-driven, не з нашої сторони
 };
 
 export interface IssueRecord {
@@ -198,13 +197,6 @@ function stateBasedIssues(sub: RawSubscription): { kind: IssueKind; errorExcerpt
       errorExcerpt: sub.telegramInviteError.slice(0, 200),
       // Best approximation: останнє ненульове `telegramInvitedAt`, інакше updatedAt.
       lastOccurredAt: sub.telegramInvitedAt ?? sub.updatedAt,
-    });
-  }
-  if (sub.lastChargeError && sub.failedChargeCount > 0) {
-    out.push({
-      kind: 'AUTOPAY_CHARGE_FAILED',
-      errorExcerpt: `[fails=${sub.failedChargeCount}] ${sub.lastChargeError}`.slice(0, 200),
-      lastOccurredAt: sub.lastChargeAttemptAt ?? sub.updatedAt,
     });
   }
   return out;

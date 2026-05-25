@@ -17,7 +17,6 @@ import {
   HiOutlineCheck,
   HiOutlineCurrencyDollar,
   HiOutlineExclamationTriangle,
-  HiOutlineShoppingCart,
   HiOutlineNoSymbol,
   HiOutlineArchiveBoxXMark,
 } from 'react-icons/hi2';
@@ -100,19 +99,14 @@ const PLAN_OPTIONS: { value: PlanFilter; label: string }[] = [
   { value: 'MONTHLY_ONCE', label: 'Місячний на 1 міс.' },
 ];
 
-/// Віртуальний статус-фільтр: PENDING-підписки старші 48 год без жодного PAID.
-/// Не існує в БД як окремий статус, обчислюється з createdAt + paymentsCount.
-type StatusFilter = 'ALL' | SubStatus | 'ABANDONED';
-
-function buildStatusOptions(graceDays: number): { value: StatusFilter; label: string }[] {
+function buildStatusOptions(graceDays: number): { value: 'ALL' | SubStatus; label: string }[] {
   return [
     { value: 'ALL', label: 'Усі' },
     { value: 'ACTIVE', label: 'Активний' },
     { value: 'GRACE', label: `Grace (${graceDays} ${pluralizeDays(graceDays)})` },
     { value: 'EXPIRED', label: 'Доступ закрито' },
     { value: 'CANCELLED', label: 'Скасовано' },
-    { value: 'PENDING', label: 'Очікує (свіжі)' },
-    { value: 'ABANDONED', label: '🛒 Покинули чекаут' },
+    { value: 'PENDING', label: 'Очікує' },
     { value: 'ARCHIVED', label: 'Архів' },
   ];
 }
@@ -219,7 +213,7 @@ function YearlyProgramViewInner({
   const activeCohort = cohorts.find((c) => c.id === activeCohortId) ?? null;
 
   const [planFilter, setPlanFilter] = useState<PlanFilter>('ALL');
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | SubStatus>('ALL');
   const [search, setSearch] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [details, setDetails] = useState<Record<string, SubscriptionDetails | 'loading' | 'error'>>({});
@@ -233,36 +227,6 @@ function YearlyProgramViewInner({
   /// показується як red-badge на кнопці. Initial = 0; перший fetch виконує модалка
   /// при відкритті, а потім callback оновлює badge для toolbar-а без відкриття модалки.
   const [issuesActiveTotal, setIssuesActiveTotal] = useState<number>(initialIssuesTotal);
-  const [cleanupBusy, setCleanupBusy] = useState(false);
-
-  async function cleanupAbandoned() {
-    const ok = await confirm({
-      title: `Архівувати ${summary.pendingAbandoned} ${summary.pendingAbandoned === 1 ? 'покинутий чекаут' : 'покинутих чекаутів'}?`,
-      description:
-        'PENDING-підписки старші 48 год без жодного оплаченого платежу будуть переведені в архів (status=ARCHIVED, cancelledBy=system_abandoned). У SendPulse/Telegram/WayForPay нічого не робимо — у цих підписок там ніколи нічого не відкривалось.',
-      confirmLabel: 'Архівувати',
-      cancelLabel: 'Скасувати',
-    });
-    if (!ok) return;
-    setCleanupBusy(true);
-    try {
-      const res = await fetch('/api/admin/yearly-program/cleanup-abandoned', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        toast('error', data.error ?? res.statusText);
-        return;
-      }
-      toast('success', `Архівовано: ${data.archived}`);
-      router.refresh();
-    } catch (e) {
-      toast('error', (e as Error).message);
-    } finally {
-      setCleanupBusy(false);
-    }
-  }
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -272,17 +236,7 @@ function YearlyProgramViewInner({
       if (planFilter === 'YEARLY' && r.plan !== 'YEARLY') return false;
       if (planFilter === 'MONTHLY_AUTO' && !(r.plan === 'MONTHLY' && r.autoRenew)) return false;
       if (planFilter === 'MONTHLY_ONCE' && !(r.plan === 'MONTHLY' && !r.autoRenew)) return false;
-      if (statusFilter === 'ABANDONED') {
-        const ageMs = Date.now() - new Date(r.createdAt).getTime();
-        if (!(r.status === 'PENDING' && r.paymentsCount === 0 && ageMs > 48 * 60 * 60 * 1000)) return false;
-      } else if (statusFilter === 'PENDING') {
-        // «Свіжі PENDING» — без покинутих чекаутів.
-        const ageMs = Date.now() - new Date(r.createdAt).getTime();
-        const isAbandoned = r.status === 'PENDING' && r.paymentsCount === 0 && ageMs > 48 * 60 * 60 * 1000;
-        if (r.status !== 'PENDING' || isAbandoned) return false;
-      } else if (statusFilter !== 'ALL' && r.status !== statusFilter) {
-        return false;
-      }
+      if (statusFilter !== 'ALL' && r.status !== statusFilter) return false;
       if (q && !r.userEmail.toLowerCase().includes(q) && !(r.userName ?? '').toLowerCase().includes(q)) return false;
       return true;
     });
@@ -388,35 +342,8 @@ function YearlyProgramViewInner({
           </>
         )}
         <div className={dark ? 'border-t border-white/[0.06]' : 'border-t border-stone-300/40'} />
-        <div className="px-5 py-3 flex items-center gap-x-5 gap-y-2 flex-wrap">
-          <KpiInline
-            theme={theme}
-            icon={HiOutlineShoppingCart}
-            label="Спроб купити"
-            value={summary.pendingTotal.toLocaleString()}
-            hint={
-              summary.pendingAbandoned > 0
-                ? `з них покинули чекаут (>48 год): ${summary.pendingAbandoned}`
-                : 'PENDING-підписки, які ще не завершили оплату'
-            }
-          />
-          <KpiDot dark={dark} />
-          <KpiInline
-            theme={theme}
-            icon={HiOutlineCheckCircle}
-            label="Оплачених"
-            value={summary.paidCount.toLocaleString()}
-            suffix={
-              summary.pendingTotal + summary.paidCount > 0
-                ? `${Math.round((summary.paidCount / (summary.pendingTotal + summary.paidCount)) * 100)}% конверсія`
-                : undefined
-            }
-            tone="success"
-            hint="Підписки з ≥1 успішною оплатою (історично, незалежно від поточного статусу). % — частка тих, хто дійшов до оплати від усіх спроб."
-          />
-          <KpiDot dark={dark} />
+        <div className="px-5 py-3 flex items-center gap-x-6 gap-y-2 flex-wrap">
           <KpiInline theme={theme} icon={HiOutlineUserGroup} label="Активних" value={summary.active.toLocaleString()} tone="success" />
-          <KpiDot dark={dark} />
           <KpiInline
             theme={theme}
             icon={HiOutlineClock}
@@ -424,7 +351,6 @@ function YearlyProgramViewInner({
             value={summary.grace.toLocaleString()}
             tone="warning"
           />
-          <KpiDot dark={dark} />
           <KpiInline
             theme={theme}
             icon={HiOutlineArchiveBoxXMark}
@@ -432,7 +358,6 @@ function YearlyProgramViewInner({
             value={summary.expired.toLocaleString()}
             hint="EXPIRED — термін підписки закінчився"
           />
-          <KpiDot dark={dark} />
           <KpiInline
             theme={theme}
             icon={HiOutlineNoSymbol}
@@ -440,7 +365,6 @@ function YearlyProgramViewInner({
             value={summary.cancelled.toLocaleString()}
             hint="CANCELLED — студент/адмін перервав підписку"
           />
-          <KpiDot dark={dark} />
           <KpiInline
             theme={theme}
             icon={HiOutlineBanknotes}
@@ -496,31 +420,6 @@ function YearlyProgramViewInner({
             />
           </div>
         </AdminPanel>
-
-        {summary.pendingAbandoned > 0 && (
-          <AdminPanel theme={theme} padding="p-3" className="w-fit">
-            <button
-              type="button"
-              onClick={() => cleanupAbandoned()}
-              disabled={cleanupBusy}
-              title="Архівувати всі PENDING-підписки старші 48 год без жодного PAID-платежу"
-              className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[12px] font-semibold transition-colors disabled:opacity-50 ${
-                dark
-                  ? 'bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.08]'
-                  : 'bg-white/80 border-stone-300/60 text-stone-700 hover:bg-stone-50'
-              }`}
-            >
-              🛒 Очистити покинуті
-              <span
-                className={`ml-0.5 inline-flex items-center justify-center min-w-[20px] h-5 px-1 rounded-full text-[10px] font-bold tabular-nums ${
-                  dark ? 'bg-white/[0.08] text-slate-200' : 'bg-stone-200 text-stone-800'
-                }`}
-              >
-                {summary.pendingAbandoned}
-              </span>
-            </button>
-          </AdminPanel>
-        )}
 
         <AdminPanel theme={theme} padding="p-3" className="w-fit">
           <button
@@ -825,12 +724,6 @@ function RowBlock({
   onOpenIssues: () => void;
 }) {
   const dark = theme === 'dark';
-  /// Для PENDING-підписки старшої 48 год без жодного PAID-платежу — показуємо мітку «покинули чекаут».
-  /// Це обчислюється тут (а не сервером), бо state чисто derived: createdAt + status + paidCount.
-  const abandonedAgeMs = Date.now() - new Date(r.createdAt).getTime();
-  const isAbandoned =
-    r.status === 'PENDING' && r.paymentsCount === 0 && abandonedAgeMs > 48 * 60 * 60 * 1000;
-  const abandonedDays = Math.floor(abandonedAgeMs / (24 * 60 * 60 * 1000));
   return (
     <>
       <tr data-sub-row={r.id} className={`transition-shadow ${dark ? 'hover:bg-white/[0.02]' : 'hover:bg-stone-50/60'}`}>
@@ -872,16 +765,6 @@ function RowBlock({
               title={`Додано вручну: ${new Date(r.manuallyAddedAt).toLocaleString('uk-UA')}${r.manuallyAddedBy ? ` · ${r.manuallyAddedBy}` : ''}`}
             >
               ✋ Додано вручну
-            </span>
-          )}
-          {isAbandoned && (
-            <span
-              className={`mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wider ${
-                dark ? 'bg-slate-500/15 text-slate-300 border border-slate-400/25' : 'bg-stone-100 text-stone-600 border border-stone-300/50'
-              }`}
-              title={`Створено ${abandonedDays} ${abandonedDays === 1 ? 'день' : abandonedDays < 5 ? 'дні' : 'днів'} тому, оплата не завершена`}
-            >
-              🛒 Покинули чекаут · {abandonedDays}д
             </span>
           )}
           {issueBadge && (
