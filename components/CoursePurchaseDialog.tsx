@@ -59,10 +59,12 @@ export default function CoursePurchaseDialog({
   /// Поля "Країна проживання" і "Telegram username" обов'язкові тільки для покупок
   /// Річної програми (yearly + monthly). На звичайні курси/пакети — не показуємо.
   const isYearlyProgram = courseId === 'yearly-program' || courseId === 'yearly-program-monthly';
-  /// Pre-submit enrollment check ганяємо лише для звичайних курсів. Пакети/Річна/конектор
-  /// мають власні політики ownership і їх /api/wayforpay не блокує по дублю.
+  /// Pre-submit enrollment check ганяємо для звичайних курсів і для пакетів. Пакет
+  /// повертає список курсів, які вже є у юзера (soft-warning, не блокуємо оплату).
+  /// Yearly/конектор мають власні політики ownership.
+  const isBundlePurchase = courseId.startsWith('bundle_');
   const isRegularCoursePurchase = !isYearlyProgram
-    && !courseId.startsWith('bundle_')
+    && !isBundlePurchase
     && courseId !== 'connector'
     && !courseId.startsWith('connector_');
   /// Висота полів зменшена в обох yearly-формах, щоб компенсувати додаткові секції
@@ -109,6 +111,8 @@ export default function CoursePurchaseDialog({
   type FieldErrors = Partial<Record<'email' | 'firstName' | 'lastName' | 'phone' | 'country' | 'telegram' | 'payType' | 'general', string>>;
   const [errors, setErrors] = useState<FieldErrors>({});
   const [alreadyPurchased, setAlreadyPurchased] = useState(false);
+  /// Soft-warning для пакетів: курси з пакету, які юзер уже має. Оплату не блокує.
+  const [bundleOverlap, setBundleOverlap] = useState<{ slug: string; title: string }[]>([]);
   const clearError = (k: keyof FieldErrors) =>
     setErrors((prev) => (prev[k] ? { ...prev, [k]: undefined } : prev));
 
@@ -129,7 +133,7 @@ export default function CoursePurchaseDialog({
   // як юзер ввів промокод і клацнув "Купити". Server-side guard на /api/wayforpay
   // лишається — це лише UX-сигнал. Скоуп — звичайні курси.
   useEffect(() => {
-    if (!isRegularCoursePurchase) return;
+    if (!isRegularCoursePurchase && !isBundlePurchase) return;
     const trimmed = email.trim();
     if (!trimmed || !trimmed.includes('@')) return;
     const ctrl = new AbortController();
@@ -143,11 +147,16 @@ export default function CoursePurchaseDialog({
         .then((r) => r.json())
         .then((data) => {
           if (data?.enrolled === true) setAlreadyPurchased(true);
+          if (Array.isArray(data?.overlap)) {
+            setBundleOverlap(data.overlap.filter((c: unknown): c is { slug: string; title: string } =>
+              !!c && typeof c === 'object' && typeof (c as { slug?: unknown }).slug === 'string'
+                && typeof (c as { title?: unknown }).title === 'string'));
+          }
         })
         .catch(() => { /* ignore — server-side check на /api/wayforpay лишається authoritative */ });
     }, 500);
     return () => { clearTimeout(tid); ctrl.abort(); };
-  }, [email, courseId, isRegularCoursePurchase]);
+  }, [email, courseId, isRegularCoursePurchase, isBundlePurchase]);
 
   // Dialog рендериться лише коли isOpen=true у батька, тому гарантовано відкритий.
   // Esc + scroll lock активуються відразу на mount і знімаються на unmount.
@@ -409,7 +418,7 @@ export default function CoursePurchaseDialog({
                 id="purchase-email"
                 type="email"
                 value={email}
-                onChange={(e) => { setEmail(e.target.value); clearError('email'); setAlreadyPurchased(false); }}
+                onChange={(e) => { setEmail(e.target.value); clearError('email'); setAlreadyPurchased(false); setBundleOverlap([]); }}
                 placeholder="username@gmail.com"
                 autoComplete="email"
                 aria-invalid={!!errors.email}
@@ -705,12 +714,39 @@ export default function CoursePurchaseDialog({
               </div>
             )}
 
+            {isBundlePurchase && bundleOverlap.length > 0 && !alreadyPurchased && (
+              <div className="mb-3 px-4 py-3 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-sm flex items-start gap-2.5">
+                <span className="text-lg mt-0.5" aria-hidden>⚠️</span>
+                <div>
+                  <p className="font-semibold mb-1">
+                    {bundleOverlap.length === 1
+                      ? 'У вас вже є курс із цього пакету'
+                      : `У вас вже є ${bundleOverlap.length} курси з цього пакету`}
+                  </p>
+                  <ul className="leading-relaxed list-disc pl-5 space-y-0.5">
+                    {bundleOverlap.map((c) => (
+                      <li key={c.slug}><strong>«{c.title}»</strong></li>
+                    ))}
+                  </ul>
+                  <p className="mt-2 text-[12px] text-amber-800">
+                    Ви можете все одно купити пакет, щоб отримати решту курсів — доступ до вже наявних не зникне.
+                  </p>
+                </div>
+              </div>
+            )}
+
             <button
               onClick={handlePay}
               disabled={loading || alreadyPurchased}
               className="w-full py-2.5 bg-[#1C3A2E] text-white font-bold rounded-xl hover:bg-[#2a4f3f] transition-all text-base disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {loading ? t('loading') : alreadyPurchased ? 'Курс уже у вас' : t('btnPay')}
+              {loading
+                ? t('loading')
+                : alreadyPurchased
+                ? 'Курс уже у вас'
+                : isBundlePurchase && bundleOverlap.length > 0
+                ? 'Все одно купити пакет'
+                : t('btnPay')}
             </button>
           </div>
         </div>
