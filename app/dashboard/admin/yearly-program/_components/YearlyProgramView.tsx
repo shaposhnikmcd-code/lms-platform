@@ -388,8 +388,6 @@ function YearlyProgramViewInner({
           </>
         )}
         <div className={dark ? 'border-t border-white/[0.06]' : 'border-t border-stone-300/40'} />
-        <FunnelStrip theme={theme} summary={summary} graceDays={graceDays} />
-        <div className={dark ? 'border-t border-white/[0.06]' : 'border-t border-stone-300/40'} />
         <div className="px-5 py-3 flex items-center gap-x-5 gap-y-2 flex-wrap">
           <KpiInline
             theme={theme}
@@ -408,8 +406,13 @@ function YearlyProgramViewInner({
             icon={HiOutlineCheckCircle}
             label="Оплачених"
             value={summary.paidCount.toLocaleString()}
+            suffix={
+              summary.pendingTotal + summary.paidCount > 0
+                ? `${Math.round((summary.paidCount / (summary.pendingTotal + summary.paidCount)) * 100)}% конверсія`
+                : undefined
+            }
             tone="success"
-            hint="Підписки з ≥1 успішною оплатою (історично, незалежно від поточного статусу)"
+            hint="Підписки з ≥1 успішною оплатою (історично, незалежно від поточного статусу). % — частка тих, хто дійшов до оплати від усіх спроб."
           />
           <KpiDot dark={dark} />
           <KpiInline theme={theme} icon={HiOutlineUserGroup} label="Активних" value={summary.active.toLocaleString()} tone="success" />
@@ -1561,6 +1564,7 @@ function KpiInline({
   theme,
   big = false,
   hint,
+  suffix,
 }: {
   label: string;
   value: string;
@@ -1570,6 +1574,8 @@ function KpiInline({
   big?: boolean;
   /// Native browser tooltip — короткий опис що означає цифра.
   hint?: string;
+  /// Малий додатковий текст після основного value (напр. конверсія у %).
+  suffix?: string;
 }) {
   const dark = theme === 'dark';
   const toneColor = {
@@ -1585,61 +1591,11 @@ function KpiInline({
         {label}
       </span>
       <span className={`tabular-nums font-semibold ${big ? 'text-[16px]' : 'text-[14px]'} ${toneColor}`}>{value}</span>
-    </div>
-  );
-}
-
-/// Воронка життєвого циклу підписки: спроби → оплати → активні → grace → закрито.
-/// Показує абсолютні числа + конверсію між сходинками. NULL-safe для нульових when-empty.
-function FunnelStrip({ theme, summary, graceDays }: { theme: Theme; summary: SummaryData; graceDays: number }) {
-  const dark = theme === 'dark';
-  /// «Спроб» = всі PENDING + всі paid (бо paid = вже не PENDING, але стартували з PENDING).
-  /// Це close approximation для конверсії — точне число пробитих чекаутів вимагає окремої таблиці.
-  const attempts = summary.pendingTotal + summary.paidCount;
-  const closed = summary.expired + summary.cancelled;
-  const livingAccess = summary.active + summary.grace;
-  const pct = (n: number, base: number) => (base > 0 ? `${Math.round((n / base) * 100)}%` : '—');
-
-  const steps: { label: string; value: number; tone: 'pending' | 'success' | 'warning' | 'danger'; conv?: string }[] = [
-    { label: 'Спроб', value: attempts, tone: 'pending' },
-    { label: 'Оплат', value: summary.paidCount, tone: 'success', conv: pct(summary.paidCount, attempts) },
-    { label: 'З доступом', value: livingAccess, tone: 'success', conv: pct(livingAccess, summary.paidCount) },
-    { label: `Grace ${graceDays}д`, value: summary.grace, tone: 'warning' },
-    { label: 'Закрито', value: closed, tone: 'danger' },
-  ];
-
-  const toneColor = (t: 'pending' | 'success' | 'warning' | 'danger') => {
-    if (t === 'pending') return dark ? 'text-slate-300' : 'text-stone-700';
-    if (t === 'success') return dark ? 'text-emerald-300' : 'text-emerald-700';
-    if (t === 'warning') return dark ? 'text-amber-300' : 'text-amber-700';
-    return dark ? 'text-rose-300' : 'text-rose-700';
-  };
-
-  return (
-    <div className="px-5 py-3 flex items-center gap-2 flex-wrap">
-      <span className={`text-[10px] uppercase tracking-[0.18em] font-semibold mr-1 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
-        Воронка
-      </span>
-      {steps.map((step, i) => (
-        <span key={step.label} className="inline-flex items-center gap-2">
-          {i > 0 && (
-            <span className={`inline-flex items-center gap-1 text-[10px] ${dark ? 'text-slate-500' : 'text-stone-400'}`}>
-              <HiOutlineChevronRight className="text-[11px]" />
-              {step.conv && (
-                <span className={`tabular-nums ${dark ? 'text-slate-400' : 'text-stone-500'}`}>{step.conv}</span>
-              )}
-            </span>
-          )}
-          <span
-            className={`inline-flex items-baseline gap-1 px-2 py-0.5 rounded border text-[11px] ${
-              dark ? 'bg-white/[0.03] border-white/[0.06]' : 'bg-white/70 border-stone-300/40'
-            }`}
-          >
-            <span className={dark ? 'text-slate-400' : 'text-stone-500'}>{step.label}</span>
-            <span className={`tabular-nums font-semibold ${toneColor(step.tone)}`}>{step.value.toLocaleString()}</span>
-          </span>
+      {suffix && (
+        <span className={`text-[10px] tabular-nums ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+          · {suffix}
         </span>
-      ))}
+      )}
     </div>
   );
 }
