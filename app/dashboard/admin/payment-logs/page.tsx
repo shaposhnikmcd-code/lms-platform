@@ -10,7 +10,7 @@ const DEFAULT_PAGE_SIZE = 25;
 export default async function PaymentLogsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ kind?: string; page?: string; pageSize?: string }>;
+  searchParams: Promise<{ kind?: string; page?: string; pageSize?: string; q?: string }>;
 }) {
   const sp = await searchParams;
   const kind: KindFilter = (KIND_FILTERS as readonly string[]).includes(sp.kind ?? '')
@@ -22,8 +22,35 @@ export default async function PaymentLogsPage({
     : DEFAULT_PAGE_SIZE;
   const page = Math.max(1, parseInt(sp.page ?? '1') || 1);
   const skip = (page - 1) * pageSize;
+  const query = (sp.q ?? '').trim();
 
-  const where = kind === 'all' ? {} : { kind };
+  // Пошук за іменем або email клієнта. Email шукаємо у двох місцях:
+  //  - PaymentCallbackLog.clientEmail (email з WFP-payload, є завжди коли callback приніс контакт)
+  //  - linked User.email через Payment.user (UIMP-side, primary identity у View)
+  // Імʼя — тільки через User (PaymentCallbackLog імені не зберігає).
+  // Спочатку резолвимо matching orderReferences, потім додаємо їх до where разом з contains-фільтром по email.
+  let searchWhere: Record<string, unknown> = {};
+  if (query) {
+    const matchedPayments = await prisma.payment.findMany({
+      where: {
+        OR: [
+          { user: { email: { contains: query, mode: 'insensitive' } } },
+          { user: { name: { contains: query, mode: 'insensitive' } } },
+        ],
+      },
+      select: { orderReference: true },
+    });
+    const orderRefs = matchedPayments.map((p) => p.orderReference);
+    searchWhere = {
+      OR: [
+        { clientEmail: { contains: query, mode: 'insensitive' } },
+        ...(orderRefs.length ? [{ orderReference: { in: orderRefs } }] : []),
+      ],
+    };
+  }
+
+  const baseWhere = kind === 'all' ? {} : { kind };
+  const where = query ? { AND: [baseWhere, searchWhere] } : baseWhere;
 
   const [total, logs, approvedCount, skippedCount, invalidSigCount] = await Promise.all([
     prisma.paymentCallbackLog.count({ where }),
@@ -176,6 +203,7 @@ export default async function PaymentLogsPage({
     page,
     totalPages,
     pageSize,
+    query,
   };
 
   return <PaymentLogsView data={data} />;

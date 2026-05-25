@@ -62,6 +62,7 @@ export default function PaymentsView({ rows }: { rows: Row[] }) {
   const [typeFilter, setTypeFilter] = useState<string>('ALL');
   const [productFilter, setProductFilter] = useState<string>('ALL');
   const [statusFilter, setStatusFilter] = useState<string>('PAID');
+  const [searchQuery, setSearchQuery] = useState<string>('');
   const [pageSize, setPageSize] = useState<number>(25);
   const [page, setPage] = useState<number>(1);
   /// Локальний state-копія `ref` URL-параметра щоб можна було вимкнути підсвітку
@@ -78,12 +79,21 @@ export default function PaymentsView({ rows }: { rows: Row[] }) {
     return () => clearTimeout(t);
   }, [highlightRef]);
 
+  // Стандартне відкриття (без ref) — скролимо до верху, перекриваючи browser scroll-restoration.
+  // Інакше при поверненні з іншої сторінки/деплою браузер може показати сторінку посередині.
+  useEffect(() => {
+    if (refFromUrl) return;
+    window.scrollTo({ top: 0, left: 0 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Якщо прийшли по ref-у — скидаємо фільтри, щоб не приховати цільовий рядок.
   useEffect(() => {
     if (!refFromUrl) return;
     setTypeFilter('ALL');
     setProductFilter('ALL');
     setStatusFilter('ALL');
+    setSearchQuery('');
   }, [refFromUrl]);
 
   const productOptions = useMemo(() => {
@@ -110,12 +120,17 @@ export default function PaymentsView({ rows }: { rows: Row[] }) {
     }
   }, [productOptions, productFilter]);
 
+  const normalizedQuery = searchQuery.trim().toLowerCase();
   const filtered = useMemo(() => rows.filter(r => {
     if (typeFilter !== 'ALL' && r.source !== typeFilter) return false;
     if (productFilter !== 'ALL' && r.productLabel !== productFilter) return false;
     if (statusFilter !== 'ALL' && r.status !== statusFilter) return false;
+    if (normalizedQuery) {
+      const haystack = `${r.clientName} ${r.clientEmail}`.toLowerCase();
+      if (!haystack.includes(normalizedQuery)) return false;
+    }
     return true;
-  }), [rows, typeFilter, productFilter, statusFilter]);
+  }), [rows, typeFilter, productFilter, statusFilter, normalizedQuery]);
 
   // Summary KPIs — рахуємо по ВСІХ рядках, не по фільтру, щоб була загальна картина.
   const totals = useMemo(() => {
@@ -128,10 +143,10 @@ export default function PaymentsView({ rows }: { rows: Row[] }) {
     return { total, paid, pending, paidCount };
   }, [rows]);
 
-  const isFilterActive = typeFilter !== 'ALL' || productFilter !== 'ALL' || statusFilter !== 'PAID';
+  const isFilterActive = typeFilter !== 'ALL' || productFilter !== 'ALL' || statusFilter !== 'PAID' || normalizedQuery.length > 0;
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
-  useEffect(() => { setPage(1); }, [typeFilter, productFilter, statusFilter, pageSize]);
+  useEffect(() => { setPage(1); }, [typeFilter, productFilter, statusFilter, normalizedQuery, pageSize]);
   useEffect(() => { if (page > totalPages) setPage(totalPages); }, [page, totalPages]);
   const pageStart = (page - 1) * pageSize;
   const pageEnd = Math.min(pageStart + pageSize, filtered.length);
@@ -192,24 +207,54 @@ export default function PaymentsView({ rows }: { rows: Row[] }) {
           <>
             {/* Sub-header */}
             <div
-              className={`flex items-center justify-between px-5 py-3 border-b ${
+              className={`flex items-center justify-between gap-3 px-5 py-3 border-b ${
                 dark ? 'border-white/[0.06] bg-black/20' : 'border-stone-300/40 bg-stone-50/60'
               }`}
             >
-              <p className={`text-[11px] uppercase tracking-[0.18em] font-medium ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
-                Показано <span className={`font-semibold tabular-nums ${dark ? 'text-slate-200' : 'text-stone-800'}`}>{filtered.length}</span>
-                <span className="opacity-60"> з {rows.length}</span>
-              </p>
-              {isFilterActive && (
-                <button
-                  onClick={() => { setTypeFilter('ALL'); setProductFilter('ALL'); setStatusFilter('PAID'); }}
-                  className={`text-[11px] font-medium transition-colors ${
-                    dark ? 'text-amber-300 hover:text-amber-200' : 'text-amber-800 hover:text-amber-900'
+              <div className="relative">
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Пошук за іменем або email…"
+                  aria-label="Пошук за іменем або email"
+                  className={`w-64 sm:w-72 text-[12px] rounded-lg px-3 py-1.5 outline-none transition-colors border ${
+                    dark
+                      ? 'bg-black/30 border-white/[0.08] text-slate-100 placeholder:text-slate-500 focus:border-amber-400/60 focus:ring-2 focus:ring-amber-400/20'
+                      : 'bg-white border-stone-300/70 text-stone-800 placeholder:text-stone-400 focus:border-amber-500/60 focus:ring-2 focus:ring-amber-500/20'
                   }`}
-                >
-                  Скинути фільтри
-                </button>
-              )}
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery('')}
+                    aria-label="Очистити пошук"
+                    className={`absolute right-1.5 top-1/2 -translate-y-1/2 w-5 h-5 inline-flex items-center justify-center rounded-full text-[11px] leading-none transition-colors ${
+                      dark
+                        ? 'text-slate-400 hover:text-slate-100 hover:bg-white/[0.08]'
+                        : 'text-stone-500 hover:text-stone-900 hover:bg-stone-200/70'
+                    }`}
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-4 ml-auto">
+                {isFilterActive && (
+                  <button
+                    onClick={() => { setTypeFilter('ALL'); setProductFilter('ALL'); setStatusFilter('PAID'); setSearchQuery(''); }}
+                    className={`text-[11px] font-medium transition-colors shrink-0 ${
+                      dark ? 'text-amber-300 hover:text-amber-200' : 'text-amber-800 hover:text-amber-900'
+                    }`}
+                  >
+                    Скинути фільтри
+                  </button>
+                )}
+                <p className={`text-[11px] uppercase tracking-[0.18em] font-medium shrink-0 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+                  Показано <span className={`font-semibold tabular-nums ${dark ? 'text-slate-200' : 'text-stone-800'}`}>{filtered.length}</span>
+                  <span className="opacity-60"> з {rows.length}</span>
+                </p>
+              </div>
             </div>
 
             <div className="overflow-x-auto">

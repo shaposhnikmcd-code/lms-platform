@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useState, useEffect, useRef } from 'react';
 import {
   HiOutlineClipboardDocumentList,
@@ -54,6 +55,8 @@ export interface PaymentLogsData {
   page: number;
   totalPages: number;
   pageSize: number;
+  /// Поточний пошуковий запит (email/імʼя). Порожній рядок = без пошуку.
+  query: string;
 }
 
 const KIND_TABS: { value: PaymentLogsData['kind']; label: string }[] = [
@@ -70,16 +73,40 @@ export default function PaymentLogsView({ data }: { data: PaymentLogsData }) {
   const { theme, setTheme } = useAdminTheme();
   const dark = theme === 'dark';
 
-  const buildUrl = (overrides: { page?: number; pageSize?: number }) => {
+  const buildUrl = (overrides: { page?: number; pageSize?: number; q?: string; kind?: PaymentLogsData['kind'] }) => {
     const qs = new URLSearchParams();
-    if (data.kind !== 'all') qs.set('kind', data.kind);
+    const targetKind = overrides.kind ?? data.kind;
+    if (targetKind !== 'all') qs.set('kind', targetKind);
     const targetPage = overrides.page ?? data.page;
     const targetSize = overrides.pageSize ?? data.pageSize;
+    const targetQuery = (overrides.q ?? data.query).trim();
     if (targetPage > 1) qs.set('page', String(targetPage));
     if (targetSize !== 25) qs.set('pageSize', String(targetSize));
+    if (targetQuery) qs.set('q', targetQuery);
     const s = qs.toString();
     return s ? `/dashboard/admin/payment-logs?${s}` : '/dashboard/admin/payment-logs';
   };
+
+  // Стандартне відкриття — скролимо до верху, перекриваючи browser scroll-restoration.
+  // Інакше при поверненні з іншої сторінки браузер може показати сторінку посередині.
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0 });
+  }, []);
+
+  // Локальний інпут з 350 мс debounce → пушимо URL з ?q= через Next router (SSR refetch).
+  const router = useRouter();
+  const [searchInput, setSearchInput] = useState(data.query);
+  // Якщо URL змінився ззовні (kind tab, paginate), синхронізуємо input.
+  useEffect(() => { setSearchInput(data.query); }, [data.query]);
+  useEffect(() => {
+    const next = searchInput.trim();
+    if (next === data.query) return;
+    const tid = setTimeout(() => {
+      router.push(buildUrl({ page: 1, q: next }), { scroll: false });
+    }, 350);
+    return () => clearTimeout(tid);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchInput]);
 
   return (
     <AdminShell
@@ -118,9 +145,10 @@ export default function PaymentLogsView({ data }: { data: PaymentLogsData }) {
         />
       </div>
 
-      {/* Kind tabs */}
+      {/* Tabs + search */}
+      <div className="mb-5 flex items-center gap-3 flex-wrap">
       <div
-        className={`mb-5 inline-flex rounded-xl p-0.5 border ${
+        className={`inline-flex rounded-xl p-0.5 border ${
           dark ? 'bg-black/30 border-white/[0.06]' : 'bg-stone-100/80 border-stone-300/50'
         }`}
       >
@@ -129,7 +157,7 @@ export default function PaymentLogsView({ data }: { data: PaymentLogsData }) {
           return (
             <Link
               key={t.value}
-              href={`/dashboard/admin/payment-logs${t.value === 'all' ? '' : `?kind=${t.value}`}`}
+              href={buildUrl({ page: 1, kind: t.value })}
               scroll={false}
               className={`px-3 py-1.5 text-[12px] font-medium rounded-lg transition-all ${
                 active
@@ -145,6 +173,36 @@ export default function PaymentLogsView({ data }: { data: PaymentLogsData }) {
             </Link>
           );
         })}
+      </div>
+
+        <div className="relative">
+          <input
+            type="text"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            placeholder="Пошук за іменем або email…"
+            aria-label="Пошук за іменем або email"
+            className={`w-64 sm:w-72 text-[12px] rounded-lg px-3 py-1.5 outline-none transition-colors border ${
+              dark
+                ? 'bg-black/30 border-white/[0.08] text-slate-100 placeholder:text-slate-500 focus:border-amber-400/60 focus:ring-2 focus:ring-amber-400/20'
+                : 'bg-white border-stone-300/70 text-stone-800 placeholder:text-stone-400 focus:border-amber-500/60 focus:ring-2 focus:ring-amber-500/20'
+            }`}
+          />
+          {searchInput && (
+            <button
+              type="button"
+              onClick={() => setSearchInput('')}
+              aria-label="Очистити пошук"
+              className={`absolute right-1.5 top-1/2 -translate-y-1/2 w-5 h-5 inline-flex items-center justify-center rounded-full text-[11px] leading-none transition-colors ${
+                dark
+                  ? 'text-slate-400 hover:text-slate-100 hover:bg-white/[0.08]'
+                  : 'text-stone-500 hover:text-stone-900 hover:bg-stone-200/70'
+              }`}
+            >
+              ✕
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Table panel */}
