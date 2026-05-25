@@ -437,7 +437,7 @@ function YearlyProgramViewInner({
             value={summary.cancelled.toLocaleString()}
             hint="CANCELLED — студент/адмін перервав підписку"
           />
-          <div className="ml-auto" />
+          <KpiDot dark={dark} />
           <KpiInline
             theme={theme}
             icon={HiOutlineBanknotes}
