@@ -61,6 +61,7 @@ export default function AdminUsersPage() {
   const [createError, setCreateError] = useState('');
   const [newUser, setNewUser] = useState({ name: '', email: '', role: 'MANAGER' });
   const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<{ userId: string; name: string } | null>(null);
   const [editingNameId, setEditingNameId] = useState<string | null>(null);
   const [editingNameValue, setEditingNameValue] = useState('');
   /// Відокремлює "Escape → скасувати" від "blur → зберегти" — інакше після Escape
@@ -88,8 +89,14 @@ export default function AdminUsersPage() {
     }
   };
 
-  const deleteUser = async (userId: string, name: string) => {
-    if (!confirm(`Видалити користувача "${name}"? Його буде перенесено в архів.`)) return;
+  const requestDelete = (userId: string, name: string) => {
+    setConfirmDelete({ userId, name });
+  };
+
+  const confirmDeleteUser = async () => {
+    if (!confirmDelete) return;
+    const { userId, name } = confirmDelete;
+    setConfirmDelete(null);
     setUpdatingId(userId);
     try {
       const res = await fetch('/api/admin/users', {
@@ -399,7 +406,7 @@ export default function AdminUsersPage() {
                         </span>
                       ) : (
                         <button
-                          onClick={() => deleteUser(user.id, user.name || user.email)}
+                          onClick={() => requestDelete(user.id, user.name || user.email)}
                           disabled={updatingId === user.id}
                           title="Видалити користувача"
                           className={`p-2 rounded-lg transition-colors disabled:opacity-50 ${
@@ -426,6 +433,77 @@ export default function AdminUsersPage() {
           </div>
         )}
       </AdminPanel>
+
+      {/* Delete confirm modal */}
+      {confirmDelete && (
+        <div className="fixed inset-0 z-50 overflow-y-auto">
+          <div
+            className={`fixed inset-0 backdrop-blur-sm ${dark ? 'bg-black/60' : 'bg-stone-900/30'}`}
+            onClick={() => setConfirmDelete(null)}
+          />
+          <div className="min-h-screen flex items-center justify-center p-4">
+            <div
+              onClick={e => e.stopPropagation()}
+              className={`relative rounded-2xl w-full max-w-md p-6 border backdrop-blur-md ${
+                dark
+                  ? 'bg-[#12141b]/95 border-white/[0.08] shadow-[0_24px_64px_rgba(0,0,0,0.5)]'
+                  : 'bg-white/95 border-stone-300/60 shadow-[0_24px_64px_rgba(68,64,60,0.25)]'
+              }`}
+            >
+              <button
+                onClick={() => setConfirmDelete(null)}
+                className={`absolute top-4 right-4 p-1 rounded-md transition-colors ${
+                  dark ? 'text-slate-500 hover:text-slate-200 hover:bg-white/[0.06]' : 'text-stone-500 hover:text-stone-800 hover:bg-stone-100/70'
+                }`}
+              >
+                <HiOutlineXMark size={18} />
+              </button>
+              <div className="flex items-start gap-3 mb-4">
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${
+                  dark ? 'bg-rose-500/15 text-rose-300' : 'bg-rose-500/15 text-rose-700'
+                }`}>
+                  <HiOutlineTrash className="text-[18px]" />
+                </div>
+                <div>
+                  <h2 className={`text-[18px] font-semibold tracking-tight ${dark ? 'text-white' : 'text-stone-900'}`}>
+                    Видалити користувача?
+                  </h2>
+                  <p className={`mt-1.5 text-[13px] leading-snug ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
+                    <span className={dark ? 'text-slate-200 font-medium' : 'text-stone-800 font-medium'}>
+                      {confirmDelete.name}
+                    </span>{' '}
+                    буде перенесено в архів. Дію можна скасувати в історії змін.
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-6 flex gap-3">
+                <button
+                  onClick={() => setConfirmDelete(null)}
+                  className={`flex-1 px-4 py-2.5 text-[13px] font-medium rounded-lg border transition-colors ${
+                    dark
+                      ? 'bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.08]'
+                      : 'bg-stone-100/70 border-stone-300/60 text-stone-800 hover:bg-stone-200/70'
+                  }`}
+                >
+                  Скасувати
+                </button>
+                <button
+                  onClick={confirmDeleteUser}
+                  autoFocus
+                  className={`flex-1 px-4 py-2.5 text-[13px] font-semibold rounded-lg border transition-colors ${
+                    dark
+                      ? 'bg-rose-500/20 border-rose-500/30 text-rose-200 hover:bg-rose-500/30'
+                      : 'bg-rose-500/15 border-rose-500/30 text-rose-800 hover:bg-rose-500/25'
+                  }`}
+                >
+                  Видалити
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Create modal */}
       {showCreateModal && (
