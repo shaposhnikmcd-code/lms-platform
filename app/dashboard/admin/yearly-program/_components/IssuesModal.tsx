@@ -11,6 +11,8 @@ import {
   HiOutlineEyeSlash,
   HiOutlineEye,
   HiOutlineArrowTopRightOnSquare,
+  HiOutlineChevronDown,
+  HiOutlineChevronUp,
 } from 'react-icons/hi2';
 import type { Theme } from '../../_components/adminTheme';
 import { useUIFeedback } from './UIFeedback';
@@ -37,34 +39,195 @@ const ALL_KINDS: IssueKind[] = [
   'AUTOPAY_CHARGE_FAILED',
 ];
 
-const KIND_LABELS: Record<IssueKind, string> = {
-  LAUNCH_ACCESS_FAILED: 'Запуск SP-доступу',
-  LAUNCH_EMAIL_FAILED: 'Welcome-лист',
-  TG_INVITE_FAILED: 'TG invite',
-  TG_KICK_FAILED: 'TG kick',
-  SP_CLOSE_FAILED: 'SP close',
-  SP_REOPEN_FAILED: 'SP reopen',
-  AUTOPAY_CHARGE_FAILED: 'Автоплатіж',
+type Severity = 'critical' | 'warning' | 'info';
+
+interface CatalogEntry {
+  severity: Severity;
+  icon: string;
+  /// Коротка назва для filter-pill і селектів.
+  shortTitle: string;
+  /// Повний людський заголовок для рядка issue.
+  title: string;
+  /// Одне-два речення «що сталось» простою мовою менеджера.
+  whatHappened: string;
+  /// Опційно: важливий side-effect (гроші/доступ/state), на якому варто зробити акцент.
+  sideEffects?: string;
+  /// Можливі першопричини, від найімовірнішої.
+  causes: string[];
+  /// Рекомендовані дії в порядку пріоритету.
+  actions: string[];
+  /// Чи є кнопка «Спробувати ще» (in-app retry, без участі студента).
+  hasRetry: boolean;
+}
+
+const CATALOG: Record<IssueKind, CatalogEntry> = {
+  LAUNCH_ACCESS_FAILED: {
+    severity: 'critical',
+    icon: '🚀',
+    shortTitle: 'Запуск SP-доступу',
+    title: 'SendPulse-доступ не відкрито',
+    whatHappened:
+      'Під час запуску cohort-у система не змогла відкрити студенту доступ до курсу в SendPulse. Студент не зможе зайти на навчання, поки доступ не відкритий.',
+    sideEffects:
+      'Гроші студента не зачеплено — це збій на стороні SP, а не оплати. Підписка ACTIVE, але без фактичного доступу до матеріалів.',
+    causes: [
+      'SendPulse API тимчасово недоступний або відповів помилкою.',
+      'У змінних оточення невалідний SENDPULSE_YEARLY_COURSE_ID.',
+      'Email студента ще не зареєстрований у SendPulse, а автоматична реєстрація провалилась.',
+      'Email невалідний або заблокований SendPulse.',
+    ],
+    actions: [
+      'Натисніть «Спробувати ще» у експандері cohort-у або підписки.',
+      'У вкладці «Події» підписки знайдіть точний текст відмови SP API.',
+      'Якщо повторюється — додайте студента в SendPulse вручну і відкрийте доступ через інтерфейс SP, потім заглушіть issue.',
+    ],
+    hasRetry: false,
+  },
+  LAUNCH_EMAIL_FAILED: {
+    severity: 'warning',
+    icon: '✉️',
+    shortTitle: 'Welcome-лист',
+    title: 'Welcome-лист не доставлений',
+    whatHappened:
+      'Доступ до навчання відкритий, але welcome-лист із посиланнями студенту не надіслався. Він може не знати, що навчання вже почалось.',
+    causes: [
+      'Email студента невалідний або в bounce-листі Resend.',
+      'Resend API тимчасово недоступний або вичерпана квота акаунту.',
+      'Помилка в HTML-шаблоні листа.',
+    ],
+    actions: [
+      'Використайте «Дослати лист» у модалці запуску (per-recipient resend).',
+      'Перевірте написання email у профілі студента.',
+      'Подивіться статус доставки у дашборді Resend (deliverability tab).',
+      'Якщо адреса неробоча — звʼяжіться зі студентом іншим каналом і попросіть оновити email.',
+    ],
+    hasRetry: false,
+  },
+  TG_INVITE_FAILED: {
+    severity: 'warning',
+    icon: '📨',
+    shortTitle: 'TG-запрошення',
+    title: 'Telegram-запрошення не згенероване',
+    whatHappened:
+      'Telegram API відмовив у створенні invite-посилання для цієї підписки — студент не отримав посилання на приватний канал програми.',
+    causes: [
+      'Бот UIMP не доданий у канал як адмін або не має права «Invite Users».',
+      'Telegram API rate-limit (забагато запитів за короткий час).',
+      'У налаштуваннях канал-id невалідний або канал видалений.',
+    ],
+    actions: [
+      'Перевірте, що бот UIMP є в каналі як адмін з правом «Запрошувати користувачів».',
+      'Натисніть «Спробувати ще» — система перегенерує invite.',
+      'Якщо й далі помилка — запросіть студента вручну через Telegram і заглушіть issue.',
+    ],
+    hasRetry: true,
+  },
+  TG_KICK_FAILED: {
+    severity: 'info',
+    icon: '🚪',
+    shortTitle: 'TG-видалення',
+    title: 'Не вдалося вилучити з Telegram-каналу',
+    whatHappened:
+      'При спробі видалити студента з каналу (після завершення підписки) Telegram API повернув помилку.',
+    causes: [
+      'Студент уже сам залишив канал.',
+      'Бот втратив права адміна або був видалений з каналу.',
+      'Telegram API тимчасово недоступний.',
+    ],
+    actions: [
+      'Подивіться вручну в Telegram, чи студент справді ще в каналі.',
+      'Якщо ще там — видаліть через інтерфейс Telegram.',
+      'Якщо вже немає — натисніть «Заглушити».',
+    ],
+    hasRetry: false,
+  },
+  SP_CLOSE_FAILED: {
+    severity: 'info',
+    icon: '✕',
+    shortTitle: 'SP закриття',
+    title: 'Не вдалося закрити SendPulse-доступ',
+    whatHappened:
+      'Підписка завершилась (EXPIRED), але система не змогла закрити доступ до курсу в SendPulse. Студент потенційно ще бачить матеріали.',
+    causes: [
+      'SendPulse API недоступний.',
+      'Невалідний SENDPULSE_YEARLY_COURSE_ID.',
+      'Студент уже видалений з курсу вручну адміністратором SP.',
+    ],
+    actions: [
+      'Перевірте у SP-кабінеті, чи студент ще зареєстрований на курс.',
+      'Якщо так — натисніть «Закрити доступ» повторно в експандері підписки.',
+      'Якщо вже закрито вручну — натисніть «Заглушити».',
+    ],
+    hasRetry: false,
+  },
+  SP_REOPEN_FAILED: {
+    severity: 'warning',
+    icon: '↻',
+    shortTitle: 'SP відкриття',
+    title: 'Не вдалося повернути SendPulse-доступ',
+    whatHappened:
+      'При поверненні студенту доступу (після GRACE або ручної дії «Відкрити доступ») SendPulse API відмовив. Студент чекає доступу.',
+    causes: [
+      'SendPulse API недоступний.',
+      'Невалідний courseId у налаштуваннях.',
+      'Студент видалений з SP повністю — треба зареєструвати знову.',
+    ],
+    actions: [
+      'Зачекайте 1–2 хвилини і натисніть «Відкрити доступ» повторно.',
+      'Перегляньте стан акаунту студента в SP-кабінеті.',
+      'У крайньому разі — додайте студента до курсу вручну в SP.',
+    ],
+    hasRetry: false,
+  },
+  AUTOPAY_CHARGE_FAILED: {
+    severity: 'warning',
+    icon: '💳',
+    shortTitle: 'Автоплатіж',
+    title: 'Автосписання не пройшло',
+    whatHappened:
+      'WayForPay не зміг автоматично провести місячне списання. Гроші зі студента не списано — це невдала спроба, а не успішна транзакція з проблемою.',
+    sideEffects:
+      'Підписка діє до expiresAt. Якщо до цієї дати автоплатіж так і не пройде — піде в GRACE на 7 днів, далі EXPIRED.',
+    causes: [
+      'Недостатньо коштів на картці студента.',
+      'Картку перевипустили — змінився номер, CVV або термін дії.',
+      'Студент сам відмовив у рекурентному платежі в банку або в WayForPay.',
+      'Закінчився TTL recurring-токена WFP («Cardholder session expired»).',
+      'Технічний збій на стороні WayForPay.',
+    ],
+    actions: [
+      'Зачекайте на повторну спробу cron-а (наступного дня).',
+      'Якщо лічильник fails росте — напишіть студенту з проханням оплатити місяць вручну: нова оплата створить свіжий recToken і автоплатіж далі піде по новій картці.',
+      'Якщо студент сам більше не хоче продовжувати — скасуйте підписку в експандері.',
+    ],
+    hasRetry: false,
+  },
 };
 
-const KIND_ICON: Record<IssueKind, string> = {
-  LAUNCH_ACCESS_FAILED: '🚀',
-  LAUNCH_EMAIL_FAILED: '✉️',
-  TG_INVITE_FAILED: '📨',
-  TG_KICK_FAILED: '🚪',
-  SP_CLOSE_FAILED: '✕',
-  SP_REOPEN_FAILED: '↻',
-  AUTOPAY_CHARGE_FAILED: '💳',
-};
+const SEVERITY_ORDER: Record<Severity, number> = { critical: 0, warning: 1, info: 2 };
 
-const KIND_HAS_RETRY: Record<IssueKind, boolean> = {
-  LAUNCH_ACCESS_FAILED: false, // potential future enhancement: per-cohort retry trigger
-  LAUNCH_EMAIL_FAILED: false,
-  TG_INVITE_FAILED: true,
-  TG_KICK_FAILED: false,
-  SP_CLOSE_FAILED: false,
-  SP_REOPEN_FAILED: false,
-  AUTOPAY_CHARGE_FAILED: false,
+const SEVERITY_META: Record<Severity, { label: string; chipLight: string; chipDark: string; railLight: string; railDark: string }> = {
+  critical: {
+    label: 'Критична',
+    chipLight: 'bg-rose-100 border-rose-300/70 text-rose-900',
+    chipDark: 'bg-rose-500/15 border-rose-400/30 text-rose-200',
+    railLight: 'before:bg-rose-500',
+    railDark: 'before:bg-rose-400/70',
+  },
+  warning: {
+    label: 'Попередження',
+    chipLight: 'bg-amber-100 border-amber-300/70 text-amber-900',
+    chipDark: 'bg-amber-500/15 border-amber-400/30 text-amber-200',
+    railLight: 'before:bg-amber-500',
+    railDark: 'before:bg-amber-400/70',
+  },
+  info: {
+    label: 'Інфо',
+    chipLight: 'bg-stone-200/70 border-stone-300/60 text-stone-700',
+    chipDark: 'bg-white/[0.06] border-white/[0.1] text-slate-300',
+    railLight: 'before:bg-stone-400',
+    railDark: 'before:bg-slate-500/60',
+  },
 };
 
 interface IssueRecord {
@@ -152,16 +315,33 @@ export default function IssuesModal({
   const list = useMemo(() => {
     if (!payload) return [];
     const src = tab === 'active' ? payload.active : payload.dismissed;
-    return src.filter((i) => {
+    const filtered = src.filter((i) => {
       if (kindFilter !== 'ALL' && i.kind !== kindFilter) return false;
       if (planFilter !== 'ALL' && i.plan !== planFilter) return false;
       return true;
     });
+    /// Для активних — severity-priority (критичні зверху), для заглушених
+    /// зберігаємо сервер-сторонній порядок (за dismissedAt desc).
+    if (tab !== 'active') return filtered;
+    return [...filtered].sort((a, b) => {
+      const sa = SEVERITY_ORDER[CATALOG[a.kind].severity];
+      const sb = SEVERITY_ORDER[CATALOG[b.kind].severity];
+      if (sa !== sb) return sa - sb;
+      return new Date(b.lastOccurredAt).getTime() - new Date(a.lastOccurredAt).getTime();
+    });
   }, [payload, tab, kindFilter, planFilter]);
+
+  /// Розбивка активних по severity для заголовку.
+  const severityBreakdown = useMemo(() => {
+    const acc: Record<Severity, number> = { critical: 0, warning: 0, info: 0 };
+    if (!payload) return acc;
+    for (const r of payload.active) acc[CATALOG[r.kind].severity] += 1;
+    return acc;
+  }, [payload]);
 
   async function handleDismiss(rec: IssueRecord) {
     const reason = await prompt({
-      title: `Заглушити issue: ${KIND_LABELS[rec.kind]}?`,
+      title: `Заглушити issue: ${CATALOG[rec.kind].title}?`,
       description: `Студент: ${rec.user.email}. Issue знову зʼявиться, якщо для цієї підписки виникне нова помилка цього типу після заглушення.`,
       inputLabel: 'Причина (опційно)',
       placeholder: 'Напр.: студент передзвонив, проблему вирішено вручну',
@@ -218,7 +398,7 @@ export default function IssuesModal({
   }
 
   async function handleRetry(rec: IssueRecord) {
-    if (!KIND_HAS_RETRY[rec.kind]) return;
+    if (!CATALOG[rec.kind].hasRetry) return;
     const key = `${rec.subscriptionId}::${rec.kind}::retry`;
     setBusyKey(key);
     try {
@@ -258,14 +438,38 @@ export default function IssuesModal({
         <div className={`flex items-center justify-between px-5 py-3 border-b ${dark ? 'border-white/10' : 'border-stone-200'}`}>
           <div className="flex items-center gap-3">
             <HiOutlineExclamationTriangle className={`text-xl ${dark ? 'text-rose-300' : 'text-rose-600'}`} />
-            <h3 id="issues-modal-title" className="text-base font-bold">
-              Помилки Річної програми
+            <div className="flex items-baseline gap-2 flex-wrap">
+              <h3 id="issues-modal-title" className="text-base font-bold">
+                Помилки Річної програми
+              </h3>
               {payload && (
-                <span className={`ml-2 text-[12px] font-medium ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
-                  · активних: {payload.activeTotal} · заглушених: {payload.dismissed.length}
+                <span className={`text-[12px] font-medium ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
+                  · активних: {payload.activeTotal}
+                  {payload.activeTotal > 0 && (
+                    <>
+                      {' '}(
+                      {severityBreakdown.critical > 0 && (
+                        <span className={dark ? 'text-rose-300' : 'text-rose-700'}>
+                          критичних: {severityBreakdown.critical}
+                        </span>
+                      )}
+                      {severityBreakdown.critical > 0 && (severityBreakdown.warning > 0 || severityBreakdown.info > 0) && ', '}
+                      {severityBreakdown.warning > 0 && (
+                        <span className={dark ? 'text-amber-300' : 'text-amber-700'}>
+                          попереджень: {severityBreakdown.warning}
+                        </span>
+                      )}
+                      {severityBreakdown.warning > 0 && severityBreakdown.info > 0 && ', '}
+                      {severityBreakdown.info > 0 && (
+                        <span>інфо: {severityBreakdown.info}</span>
+                      )}
+                      )
+                    </>
+                  )}
+                  {' · заглушених: '}{payload.dismissed.length}
                 </span>
               )}
-            </h3>
+            </div>
           </div>
           <div className="flex items-center gap-1">
             <button
@@ -310,7 +514,7 @@ export default function IssuesModal({
               return (
                 <KindPill
                   key={k}
-                  label={`${KIND_ICON[k]} ${KIND_LABELS[k]}${count !== null ? ` · ${count}` : ''}`}
+                  label={`${CATALOG[k].icon} ${CATALOG[k].shortTitle}${count !== null ? ` · ${count}` : ''}`}
                   active={kindFilter === k}
                   onClick={() => setKindFilter(k)}
                   dark={dark}
@@ -438,47 +642,74 @@ function IssueRow({
   const retryBusy = busyKey === `${rec.subscriptionId}::${rec.kind}::retry`;
   const anyBusy = !!busyKey && busyKey.startsWith(`${rec.subscriptionId}::${rec.kind}::`);
 
+  const entry = CATALOG[rec.kind];
+  const sev = SEVERITY_META[entry.severity];
+  /// Активні розкриваємо за замовчуванням (менеджер прийшов сюди діяти),
+  /// заглушені — згорнутими (це довідник).
+  const [expanded, setExpanded] = useState(tab === 'active');
+  const [techOpen, setTechOpen] = useState(false);
+
   return (
     <div
-      className={`rounded-lg border p-3 flex items-start gap-3 ${
+      className={`relative rounded-lg border overflow-hidden pl-3.5 before:absolute before:left-0 before:top-0 before:bottom-0 before:w-1 ${
         dark ? 'border-white/[0.06] bg-white/[0.02]' : 'border-stone-300/40 bg-white/80'
-      }`}
+      } ${dark ? sev.railDark : sev.railLight}`}
     >
-      <div className="text-[18px] leading-none mt-0.5">{KIND_ICON[rec.kind]}</div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-baseline gap-2 flex-wrap">
-          <span className={`text-[12px] font-semibold ${dark ? 'text-slate-100' : 'text-stone-900'}`}>{KIND_LABELS[rec.kind]}</span>
-          <span className={`text-[11px] ${dark ? 'text-slate-400' : 'text-stone-600'}`}>{rec.user.name ?? rec.user.email}</span>
-          <span className={`text-[10px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>{rec.user.email}</span>
-          {rec.cohortName && (
-            <span className={`text-[10px] px-1.5 py-0.5 rounded ${dark ? 'bg-white/[0.04] text-slate-400' : 'bg-stone-100 text-stone-600'}`}>
-              {rec.cohortName}
+      <div className="p-3 pl-2 flex items-start gap-3">
+        <div className="text-[18px] leading-none mt-0.5">{entry.icon}</div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className={`text-[13px] font-semibold ${dark ? 'text-slate-100' : 'text-stone-900'}`}>
+              {entry.title}
             </span>
-          )}
-          <span className={`text-[10px] px-1.5 py-0.5 rounded ${dark ? 'bg-white/[0.04] text-slate-400' : 'bg-stone-100 text-stone-600'}`}>
-            {rec.plan}
-          </span>
-        </div>
-        <div className={`mt-1 text-[11px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
-          {tab === 'active' ? (
-            <>
-              Останній прояв: <span className="tabular-nums">{fmtDateTime(rec.lastOccurredAt)}</span>
-              {rec.occurrenceCount > 1 && <> · повторень: {rec.occurrenceCount}</>}
-            </>
-          ) : (
-            <>
-              Заглушено: <span className="tabular-nums">{fmtDateTime(rec.dismissedAt!)}</span>
-              {rec.dismissedBy && <> · ким: {rec.dismissedBy}</>}
-              {rec.dismissedReason && <> · причина: «{rec.dismissedReason}»</>}
-            </>
-          )}
-        </div>
-        {rec.errorExcerpt && (
-          <div className={`mt-1.5 text-[11px] font-mono break-words leading-snug ${dark ? 'text-rose-300/90' : 'text-rose-700/90'}`}>
-            {rec.errorExcerpt}
+            <span
+              className={`text-[10px] px-1.5 py-0.5 rounded border font-medium uppercase tracking-wider ${
+                dark ? sev.chipDark : sev.chipLight
+              }`}
+            >
+              {sev.label}
+            </span>
+            <button
+              type="button"
+              onClick={() => setExpanded((v) => !v)}
+              className={`inline-flex items-center gap-0.5 text-[11px] px-1.5 py-0.5 rounded transition-colors ${
+                dark ? 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.06]' : 'text-stone-500 hover:text-stone-800 hover:bg-stone-100'
+              }`}
+              aria-expanded={expanded}
+            >
+              {expanded ? <HiOutlineChevronUp /> : <HiOutlineChevronDown />}
+              {expanded ? 'Сховати деталі' : 'Деталі'}
+            </button>
           </div>
-        )}
-      </div>
+          <div className={`mt-1 text-[11px] flex flex-wrap items-center gap-x-2 gap-y-0.5 ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
+            <span className={dark ? 'text-slate-300' : 'text-stone-700'}>
+              {rec.user.name ?? rec.user.email}
+            </span>
+            <span className={dark ? 'text-slate-500' : 'text-stone-500'}>{rec.user.email}</span>
+            {rec.cohortName && (
+              <span className={`text-[10px] px-1.5 py-0.5 rounded ${dark ? 'bg-white/[0.04] text-slate-400' : 'bg-stone-100 text-stone-600'}`}>
+                {rec.cohortName}
+              </span>
+            )}
+            <span className={`text-[10px] px-1.5 py-0.5 rounded ${dark ? 'bg-white/[0.04] text-slate-400' : 'bg-stone-100 text-stone-600'}`}>
+              {rec.plan}
+            </span>
+          </div>
+          <div className={`mt-1 text-[11px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+            {tab === 'active' ? (
+              <>
+                Останній прояв: <span className="tabular-nums">{fmtDateTime(rec.lastOccurredAt)}</span>
+                {rec.occurrenceCount > 1 && <> · повторень: {rec.occurrenceCount}</>}
+              </>
+            ) : (
+              <>
+                Заглушено: <span className="tabular-nums">{fmtDateTime(rec.dismissedAt!)}</span>
+                {rec.dismissedBy && <> · ким: {rec.dismissedBy}</>}
+                {rec.dismissedReason && <> · причина: «{rec.dismissedReason}»</>}
+              </>
+            )}
+          </div>
+        </div>
       <div className="flex flex-col items-stretch gap-1.5 shrink-0">
         <button
           type="button"
@@ -491,7 +722,7 @@ function IssueRow({
         >
           <HiOutlineArrowTopRightOnSquare /> Відкрити
         </button>
-        {tab === 'active' && KIND_HAS_RETRY[rec.kind] && (
+        {tab === 'active' && CATALOG[rec.kind].hasRetry && (
           <button
             type="button"
             onClick={onRetry}
@@ -529,6 +760,82 @@ function IssueRow({
           </button>
         )}
       </div>
+      </div>
+
+      {expanded && (
+        <div
+          className={`px-3 pb-3 pt-0 border-t text-[12px] leading-snug space-y-3 ${
+            dark ? 'border-white/[0.06] bg-black/10' : 'border-stone-300/40 bg-stone-50/40'
+          }`}
+        >
+          <Section label="Що сталось" dark={dark}>
+            <p className={dark ? 'text-slate-300' : 'text-stone-700'}>{entry.whatHappened}</p>
+            {entry.sideEffects && (
+              <p
+                className={`mt-1.5 italic ${dark ? 'text-slate-400' : 'text-stone-600'}`}
+              >
+                {entry.sideEffects}
+              </p>
+            )}
+          </Section>
+
+          <Section label="Можливі причини" dark={dark}>
+            <ul className={`list-disc pl-4 space-y-1 ${dark ? 'text-slate-300' : 'text-stone-700'}`}>
+              {entry.causes.map((c, i) => (
+                <li key={i}>{c}</li>
+              ))}
+            </ul>
+          </Section>
+
+          <Section label="Що зробити" dark={dark}>
+            <ol className={`list-decimal pl-4 space-y-1 ${dark ? 'text-slate-200' : 'text-stone-800'}`}>
+              {entry.actions.map((a, i) => (
+                <li key={i}>{a}</li>
+              ))}
+            </ol>
+          </Section>
+
+          {rec.errorExcerpt && (
+            <div>
+              <button
+                type="button"
+                onClick={() => setTechOpen((v) => !v)}
+                className={`inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-semibold ${
+                  dark ? 'text-slate-400 hover:text-slate-200' : 'text-stone-500 hover:text-stone-700'
+                }`}
+                aria-expanded={techOpen}
+              >
+                {techOpen ? <HiOutlineChevronUp /> : <HiOutlineChevronDown />}
+                Технічна деталь
+              </button>
+              {techOpen && (
+                <pre
+                  className={`mt-1.5 text-[11px] font-mono break-words whitespace-pre-wrap rounded-md p-2.5 ${
+                    dark ? 'bg-black/30 text-rose-200/90 border border-white/[0.05]' : 'bg-stone-100 text-rose-800/90 border border-stone-200'
+                  }`}
+                >
+                  {rec.errorExcerpt}
+                </pre>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Section({ label, children, dark }: { label: string; children: React.ReactNode; dark: boolean }) {
+  return (
+    <div>
+      <div
+        className={`text-[10px] uppercase tracking-[0.14em] font-semibold mb-1 ${
+          dark ? 'text-slate-500' : 'text-stone-500'
+        }`}
+      >
+        {label}
+      </div>
+      {children}
     </div>
   );
 }
