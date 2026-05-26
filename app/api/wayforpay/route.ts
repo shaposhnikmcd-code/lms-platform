@@ -99,6 +99,21 @@ export async function POST(req: NextRequest) {
       if (!clientEmail || typeof clientEmail !== 'string') {
         return NextResponse.json({ error: 'Email is required' }, { status: 400 });
       }
+      /// Defense-in-depth: формат email перевіряємо і на сервері.
+      /// Клієнт уже валідовано у CoursePurchaseDialog, але `/api/wayforpay`
+      /// доступний прямим POST, тому без серверного гарду «римо» проходить у БД.
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clientEmail.trim())) {
+        return NextResponse.json({ error: 'Невалідний email' }, { status: 400 });
+      }
+      /// Phone: ми приймаємо вже нормалізований номер з prefix (`+380...`). Перевіряємо
+      /// тільки що містить розумну кількість цифр (E.164 range 7-15) — детальніша перевірка
+      /// на стороні клієнта (per country maxDigits) у CoursePurchaseDialog.
+      if (typeof clientPhone === 'string' && clientPhone.trim()) {
+        const phoneDigits = clientPhone.replace(/\D/g, '');
+        if (phoneDigits.length < 7 || phoneDigits.length > 15) {
+          return NextResponse.json({ error: 'Невалідний номер телефону' }, { status: 400 });
+        }
+      }
 
       // Знайти активного (НЕ soft-deleted) юзера за email, або створити нового з
       // ім'ям з форми WFP. Soft-deleted користувачі свідомо ігноруються — їх дані

@@ -218,10 +218,27 @@ export default function CoursePurchaseDialog({
   const handlePay = async () => {
     if (inFlightRef.current) return;
     const next: FieldErrors = {};
-    if (!email.trim()) next.email = t('alertEmail');
+    /// Email: формат `local@domain.tld`. До цього перевіряли лише `!email.trim()` —
+    /// «римо», «123», та ін. проходили. Той самий regex живе на сервері в
+    /// `/api/wayforpay` як defense-in-depth.
+    const emailTrimmed = email.trim();
+    if (!emailTrimmed) {
+      next.email = t('alertEmail');
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailTrimmed)) {
+      next.email = 'Введіть коректну адресу: наприклад name@gmail.com';
+    }
     if (!firstName.trim()) next.firstName = t('alertFirstName');
     if (!lastName.trim()) next.lastName = t('alertLastName');
-    if (!phone.trim()) next.phone = t('alertPhone');
+    /// Phone: вимагаємо рівно `maxDigits` цифр для обраної країни. Поле вже
+    /// очищає не-цифри і обмежує довжину при вводі, але користувач міг ввести
+    /// менше і натиснути «Оплатити».
+    const phoneTrimmed = phone.trim();
+    const expectedDigits = (PHONE_CONFIG[phoneCountry] ?? PHONE_CONFIG['UA']).maxDigits;
+    if (!phoneTrimmed) {
+      next.phone = t('alertPhone');
+    } else if (phoneTrimmed.length !== expectedDigits) {
+      next.phone = `Введіть повний номер: ${expectedDigits} цифр`;
+    }
     let normalizedTelegram: string | null = null;
     if (isYearlyProgram) {
       if (!residenceCountry) next.country = 'Оберіть країну проживання';
