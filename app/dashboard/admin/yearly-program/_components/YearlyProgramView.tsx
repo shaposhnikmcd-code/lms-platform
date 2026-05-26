@@ -321,7 +321,7 @@ function YearlyProgramViewInner({
       {/* Workspace card: cohort header + actions + KPI strip — об'єднані в один блок з
           внутрішніми розділювачами, щоб не виглядали як 3 окремі картки. Program-налаштування
           (Вартість/Grace/Email) — в правому верхньому куті workspace, окремо від фільтрів таблиці. */}
-      <AdminPanel theme={theme} padding="p-0" className="mb-5 max-w-5xl">
+      <AdminPanel theme={theme} padding="p-0" className="mb-5 w-fit max-w-5xl">
         <CohortHeader
           cohorts={cohorts}
           activeCohortId={activeCohortId}
