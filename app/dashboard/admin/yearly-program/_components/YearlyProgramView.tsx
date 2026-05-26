@@ -1367,12 +1367,44 @@ function ColumnFilter<T extends string>({
 }) {
   const dark = theme === 'dark';
   const [open, setOpen] = useState(false);
+  const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  /// Позиціонуємо меню через portal на document.body, щоб воно не клипалось
+  /// батьківським `overflow-x-auto` навколо таблиці.
+  useEffect(() => {
+    if (!open) return;
+    const place = () => {
+      const btn = btnRef.current;
+      if (!btn) return;
+      const r = btn.getBoundingClientRect();
+      const menuW = menuRef.current?.offsetWidth ?? 180;
+      let left: number;
+      if (align === 'center') left = r.left + r.width / 2 - menuW / 2;
+      else if (align === 'right') left = r.right - menuW;
+      else left = r.left;
+      const margin = 8;
+      left = Math.max(margin, Math.min(left, window.innerWidth - menuW - margin));
+      setCoords({ top: r.bottom + 6 + window.scrollY, left: left + window.scrollX });
+    };
+    place();
+    const onScroll = () => place();
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', onScroll);
+    return () => {
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', onScroll);
+    };
+  }, [open, align]);
 
   useEffect(() => {
     if (!open) return;
     const onDocClick = (e: MouseEvent) => {
-      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+      if (wrapRef.current?.contains(e.target as Node)) return;
+      if (menuRef.current?.contains(e.target as Node)) return;
+      setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
     document.addEventListener('mousedown', onDocClick);
@@ -1385,11 +1417,11 @@ function ColumnFilter<T extends string>({
 
   const allValue = options[0]?.value;
   const isFiltered = value !== allValue;
-  const menuAlign = align === 'center' ? 'left-1/2 -translate-x-1/2' : align === 'right' ? 'right-0' : 'left-0';
 
   return (
     <div ref={wrapRef} className="relative inline-block">
       <button
+        ref={btnRef}
         type="button"
         onClick={() => setOpen((o) => !o)}
         className={`inline-flex items-center gap-1 transition-colors ${
@@ -1404,9 +1436,18 @@ function ColumnFilter<T extends string>({
         )}
         <HiOutlineChevronDown className={`text-[11px] transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
-      {open && (
+      {open && typeof document !== 'undefined' && createPortal(
         <div
-          className={`absolute z-40 mt-1.5 min-w-[180px] rounded-lg border shadow-2xl overflow-hidden ${menuAlign} ${
+          ref={menuRef}
+          style={{
+            position: 'absolute',
+            top: coords?.top ?? -9999,
+            left: coords?.left ?? -9999,
+            minWidth: 180,
+            zIndex: 320,
+            opacity: coords ? 1 : 0,
+          }}
+          className={`rounded-lg border shadow-2xl overflow-hidden ${
             dark ? 'bg-zinc-900 border-white/10' : 'bg-white border-stone-200'
           }`}
         >
@@ -1431,7 +1472,8 @@ function ColumnFilter<T extends string>({
               </button>
             );
           })}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
