@@ -100,6 +100,7 @@ export default async function AdminYearlyProgramPage() {
       manuallyAddedAt: s.manuallyAddedAt?.toISOString() ?? null,
       manuallyAddedBy: s.manuallyAddedBy ?? null,
       country: s.country,
+      phone: s.phone,
       telegramUsername: s.telegramUsername,
       telegramInviteLink: s.telegramInviteLink,
       telegramInvitedAt: s.telegramInvitedAt?.toISOString() ?? null,

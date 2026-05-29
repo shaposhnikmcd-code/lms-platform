@@ -23,7 +23,7 @@ export default async function AdminPayments() {
         user: { select: { name: true, email: true, role: true } },
         course: { select: { id: true, slug: true, title: true, price: true } },
         bundle: { select: { id: true, title: true, price: true } },
-        yearlyProgramSubscription: { select: { plan: true, autoRenew: true, telegramUsername: true } },
+        yearlyProgramSubscription: { select: { plan: true, autoRenew: true, telegramUsername: true, phone: true } },
       },
     }),
     prisma.connectorOrder.findMany({
@@ -34,6 +34,7 @@ export default async function AdminPayments() {
         createdAt: true,
         fullName: true,
         email: true,
+        phone: true,
         amount: true,
         paymentStatus: true,
         orderReference: true,
@@ -65,7 +66,7 @@ export default async function AdminPayments() {
   const courseRows: Row[] = payments.map((p) => {
     // Пріоритет визначення source: yearly (по yearlyProgramSubscription) > bundle > course.
     if (p.yearlyProgramSubscription) {
-      const { plan, autoRenew, telegramUsername } = p.yearlyProgramSubscription;
+      const { plan, autoRenew, telegramUsername, phone } = p.yearlyProgramSubscription;
       const productLabel =
         plan === 'YEARLY'
           ? 'Річна підписка'
@@ -79,6 +80,7 @@ export default async function AdminPayments() {
         createdAt: p.createdAt.toISOString(),
         clientName: p.user?.name || '—',
         clientEmail: p.user?.email || '',
+        clientPhone: phone || null,
         clientTelegram: telegramUsername || null,
         productLabel,
         amount: p.amount,
@@ -109,6 +111,7 @@ export default async function AdminPayments() {
     createdAt: o.createdAt.toISOString(),
     clientName: o.fullName,
     clientEmail: o.email,
+    clientPhone: o.phone || null,
     productLabel: 'Конектор',
     amount: o.amount,
     basePrice: o.amount > 2 ? CONNECTOR_STANDARD_PRICE : null,

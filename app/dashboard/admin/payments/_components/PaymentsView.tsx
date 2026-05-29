@@ -16,6 +16,8 @@ export type Row = {
   createdAt: string;
   clientName: string;
   clientEmail: string;
+  /// Телефон з форми оплати. Yearly — з підписки, Конектор — з замовлення. null для course/bundle.
+  clientPhone?: string | null;
   /// Telegram username (тільки для Yearly Program; null для course/bundle/connector). Префікс "@" вже є.
   clientTelegram?: string | null;
   /// Для course/bundle/connector — назва продукту. Для yearly — "Річна підписка" або "Місячна на 1 міс." / "Місячна Автоплатіж".
@@ -126,7 +128,7 @@ export default function PaymentsView({ rows }: { rows: Row[] }) {
     if (productFilter !== 'ALL' && r.productLabel !== productFilter) return false;
     if (statusFilter !== 'ALL' && r.status !== statusFilter) return false;
     if (normalizedQuery) {
-      const haystack = `${r.clientName} ${r.clientEmail}`.toLowerCase();
+      const haystack = `${r.clientName} ${r.clientEmail} ${r.clientPhone ?? ''} ${r.clientTelegram ?? ''}`.toLowerCase();
       if (!haystack.includes(normalizedQuery)) return false;
     }
     return true;
@@ -339,6 +341,12 @@ export default function PaymentsView({ rows }: { rows: Row[] }) {
                               <div>
                                 <p className={`text-[13px] font-medium ${dark ? 'text-slate-100' : 'text-stone-900'}`}>{row.clientName}</p>
                                 <p className={`text-[11px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>{row.clientEmail}</p>
+                                {row.clientPhone && (
+                                  <p className={`text-[11px] inline-flex items-center gap-1 ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
+                                    <span aria-hidden>📞</span>
+                                    <span>{row.clientPhone}</span>
+                                  </p>
+                                )}
                                 {row.clientTelegram && (
                                   <p className={`text-[11px] inline-flex items-center gap-1 ${dark ? 'text-sky-300/85' : 'text-sky-700'}`}>
                                     <span aria-hidden>✈</span>

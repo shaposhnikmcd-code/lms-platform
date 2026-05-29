@@ -208,6 +208,7 @@ export async function POST(req: NextRequest) {
       const parsedCountry = yearlyKind && isValidCountryCode(country) ? country : null;
       const parsedTelegram = yearlyKind ? parseTelegramUsername(telegramUsername) : null;
       const normalizedTelegramUsername = parsedTelegram?.ok ? parsedTelegram.normalized : null;
+      const normalizedPhone = yearlyKind && typeof clientPhone === 'string' && clientPhone.trim() ? clientPhone.trim() : null;
       if (yearlyKind) {
         // Invite-flow: cohortId беремо з token-у замість поточного `isCurrent`. Дозволяє
         // менеджеру додати студента в конкретний cohort, навіть якщо він не isCurrent.
@@ -297,12 +298,13 @@ export async function POST(req: NextRequest) {
           // SendPulse-доступу (студент отримує лише generic welcome без логіну). Тільки для
           // PENDING — щоб не зачепити cohort/expiresAt уже оплаченої MONTHLY-підписки при renewal.
           const repointToInviteCohort = !!invitePayload && existing.status === 'PENDING';
-          if (parsedCountry || normalizedTelegramUsername || repointToInviteCohort) {
+          if (parsedCountry || normalizedTelegramUsername || normalizedPhone || repointToInviteCohort) {
             await prisma.yearlyProgramSubscription.update({
               where: { id: existing.id },
               data: {
                 ...(parsedCountry ? { country: parsedCountry } : {}),
                 ...(normalizedTelegramUsername ? { telegramUsername: normalizedTelegramUsername } : {}),
+                ...(normalizedPhone ? { phone: normalizedPhone } : {}),
                 ...(repointToInviteCohort
                   ? {
                       cohortId: currentCohortId,
@@ -372,6 +374,7 @@ export async function POST(req: NextRequest) {
               cohortId: currentCohortId,
               ...(parsedCountry ? { country: parsedCountry } : {}),
               ...(normalizedTelegramUsername ? { telegramUsername: normalizedTelegramUsername } : {}),
+              ...(normalizedPhone ? { phone: normalizedPhone } : {}),
               ...(invitePayload
                 ? {
                     manuallyAddedAt: new Date(),

@@ -745,6 +745,16 @@ function RowBlock({
         <td className="px-4 py-2.5">
           <div className={`text-[12px] font-medium ${dark ? 'text-slate-200' : 'text-stone-800'}`}>{r.userName ?? '—'}</div>
           <div className={`text-[10px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>{r.userEmail}</div>
+          {r.phone && (
+            <a
+              href={`tel:${r.phone.replace(/[^\d+]/g, '')}`}
+              className={`mt-0.5 inline-flex items-center gap-1 text-[10px] tabular-nums ${dark ? 'text-slate-400 hover:text-slate-200' : 'text-stone-600 hover:text-stone-900'}`}
+              title={`Телефон: ${r.phone}`}
+            >
+              <span aria-hidden>📞</span>
+              <span>{r.phone}</span>
+            </a>
+          )}
           {r.telegramUsername && (
             <a
               href={telegramProfileUrl(r.telegramUsername) ?? '#'}

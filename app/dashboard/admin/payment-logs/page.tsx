@@ -119,24 +119,34 @@ export default async function PaymentLogsPage({
             course: { select: { title: true } },
             bundle: { select: { title: true } },
             user: { select: { name: true, email: true } },
+            yearlyProgramSubscription: { select: { phone: true, telegramUsername: true } },
           },
         }),
         prisma.connectorOrder.findMany({
           where: { orderReference: { in: allOrderRefs } },
-          select: { orderReference: true, source: true },
+          select: { orderReference: true, source: true, phone: true },
         }),
       ])
     : [[], []];
   const sourceByOrderRef = new Map<string, 'UIMP' | 'TETYANA'>();
   const productNameByOrderRef = new Map<string, string>();
   const userByOrderRef = new Map<string, { name: string | null; email: string }>();
+  const phoneByOrderRef = new Map<string, string>();
+  const telegramByOrderRef = new Map<string, string>();
   for (const p of paymentRecords) {
     sourceByOrderRef.set(p.orderReference, p.source);
     const name = p.bundle?.title ?? p.course?.title;
     if (name) productNameByOrderRef.set(p.orderReference, name);
     if (p.user) userByOrderRef.set(p.orderReference, { name: p.user.name, email: p.user.email });
+    const phone = p.yearlyProgramSubscription?.phone;
+    if (phone) phoneByOrderRef.set(p.orderReference, phone);
+    const tg = p.yearlyProgramSubscription?.telegramUsername;
+    if (tg) telegramByOrderRef.set(p.orderReference, tg);
   }
-  for (const c of connectorSources) sourceByOrderRef.set(c.orderReference, c.source);
+  for (const c of connectorSources) {
+    sourceByOrderRef.set(c.orderReference, c.source);
+    if (c.phone) phoneByOrderRef.set(c.orderReference, c.phone);
+  }
 
   // Резолвимо "Вид" (деталь) під kind-правилами:
   // - course/bundle → назва з Payment (Course.title / Bundle.title)
@@ -185,6 +195,8 @@ export default async function PaymentLogsPage({
         currency: l.currency,
         clientName: primaryName,
         clientEmail: primaryEmail,
+        clientPhone: l.orderReference ? phoneByOrderRef.get(l.orderReference) ?? null : null,
+        clientTelegram: l.orderReference ? telegramByOrderRef.get(l.orderReference) ?? null : null,
         walletEmail,
         ip: l.ip,
         actionsTaken: l.actionsTaken,

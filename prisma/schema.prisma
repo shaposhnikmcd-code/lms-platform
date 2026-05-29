@@ -933,6 +933,8 @@ model YearlyProgramSubscription {
   /// і дозволяє швидко (без invite-link match-у) знаходити підписку на майбутні
   /// chat_member updates (leave/rejoin). Null = ще не приєднувався або pre-migration row.
   country             String?
+  /// phone — номер телефону з форми оплати (вже з префіксом, напр. "+380…"). null для legacy.
+  phone               String?
   telegramUsername    String?
   telegramInviteLink  String?
   telegramInvitedAt   DateTime?

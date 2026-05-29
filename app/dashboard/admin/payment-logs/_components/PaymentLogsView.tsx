@@ -32,6 +32,10 @@ export interface LogRow {
   currency: string | null;
   clientName: string | null;
   clientEmail: string | null;
+  /// Телефон (Yearly — з підписки, Конектор — з замовлення). null для course/bundle.
+  clientPhone: string | null;
+  /// Telegram username (тільки Yearly). null інакше. Префікс "@" вже є.
+  clientTelegram: string | null;
   /// Email що ввели в WFP-формі, якщо відрізняється від email юзера (рідкісний кейс — корисно для саппорту)
   walletEmail: string | null;
   ip: string | null;
@@ -280,6 +284,18 @@ export default function PaymentLogsView({ data }: { data: PaymentLogsData }) {
                               <span className={`text-[11px] truncate ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
                                 {log.clientEmail ?? ''}
                               </span>
+                              {log.clientPhone && (
+                                <span className={`text-[11px] inline-flex items-center gap-1 truncate ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
+                                  <span aria-hidden>📞</span>
+                                  <span>{log.clientPhone}</span>
+                                </span>
+                              )}
+                              {log.clientTelegram && (
+                                <span className={`text-[11px] inline-flex items-center gap-1 truncate ${dark ? 'text-sky-300/85' : 'text-sky-700'}`}>
+                                  <span aria-hidden>✈</span>
+                                  <span>{log.clientTelegram}</span>
+                                </span>
+                              )}
                               {log.walletEmail && (
                                 <span
                                   className={`text-[10px] truncate ${dark ? 'text-amber-400/70' : 'text-amber-700/80'}`}
