@@ -390,8 +390,8 @@ function YearlyProgramViewInner({
             <ProgramSettingButton
               theme={theme}
               icon={<HiOutlineCurrencyDollar className="text-base" />}
-              label="Вартість"
-              title="Налаштувати ціни, текст кнопок реєстрації та інформацію про програму"
+              label="Активація сторінки"
+              title="Активувати сторінку: відкрити реєстрацію, ціни, текст кнопок та інформацію про програму"
               onClick={() => setPricingModalOpen(true)}
               badge={!programSettings.registrationOpen ? 'закрито' : null}
             />
