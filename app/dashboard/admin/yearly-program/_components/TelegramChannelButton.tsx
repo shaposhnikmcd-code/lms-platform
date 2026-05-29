@@ -39,7 +39,22 @@ export default function TelegramChannelButton({ theme, initial }: Props) {
   const [helpOpen, setHelpOpen] = useState(false);
   const [testEmail, setTestEmail] = useState('');
   const [testSending, setTestSending] = useState(false);
+  // Inline-повідомлення всередині попапа. Потрібне, бо коли модалка відкрита, її
+  // блюр-backdrop перекриває звичайний page-toast — користувач його не бачить.
+  // Тому: попап відкритий → показуємо тут; закритий → звичайний toast на сторінці.
+  const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
+
+  function notify(type: 'success' | 'error', text: string) {
+    if (open) {
+      setNotice({ type, text });
+      if (noticeTimer.current) clearTimeout(noticeTimer.current);
+      noticeTimer.current = setTimeout(() => setNotice(null), type === 'error' ? 9000 : 5000);
+    } else {
+      toast(type, text);
+    }
+  }
   const [mounted, setMounted] = useState(false);
   const { toast, confirm } = useUIFeedback();
 
@@ -88,13 +103,16 @@ export default function TelegramChannelButton({ theme, initial }: Props) {
       }
       setState(normalizeSettings(data.settings));
       setEditMode(false);
-      toast('success', 'Telegram-канал збережено');
+      notify('success', 'Telegram-канал збережено');
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setSaving(false);
     }
   }
+
+  // Закрили попап — прибрати inline-повідомлення (наступне відкриття чисте).
+  useEffect(() => { if (!open) setNotice(null); }, [open]);
 
   async function handleSendTest() {
     setTestSending(true);
@@ -106,12 +124,12 @@ export default function TelegramChannelButton({ theme, initial }: Props) {
       });
       const data = await res.json();
       if (!res.ok) {
-        toast('error', data.error ?? 'Не вдалось надіслати тестовий лист');
+        notify('error', data.error ?? 'Не вдалось надіслати тестовий лист');
         return;
       }
-      toast('success', `Тестовий лист надіслано на ${data.email}`);
+      notify('success', `Тестовий лист надіслано на ${data.email}`);
     } catch (e) {
-      toast('error', (e as Error).message);
+      notify('error', (e as Error).message);
     } finally {
       setTestSending(false);
     }
@@ -127,13 +145,13 @@ export default function TelegramChannelButton({ theme, initial }: Props) {
       });
       const data = await res.json();
       if (!res.ok) {
-        toast('error', data.error ?? 'Не вдалося оновити');
+        notify('error', data.error ?? 'Не вдалося оновити');
         return;
       }
       setState(normalizeSettings(data.settings));
-      toast('success', checked ? 'Автододавання увімкнено' : 'Автододавання вимкнено');
+      notify('success', checked ? 'Автододавання увімкнено' : 'Автододавання вимкнено');
     } catch (e) {
-      toast('error', (e as Error).message);
+      notify('error', (e as Error).message);
     } finally {
       setAutoLoading(false);
     }
@@ -149,13 +167,13 @@ export default function TelegramChannelButton({ theme, initial }: Props) {
       });
       const data = await res.json();
       if (!res.ok) {
-        toast('error', data.error ?? 'Не вдалося оновити');
+        notify('error', data.error ?? 'Не вдалося оновити');
         return;
       }
       setState(normalizeSettings(data.settings));
-      toast('success', checked ? 'Режим заявок увімкнено' : 'Режим заявок вимкнено');
+      notify('success', checked ? 'Режим заявок увімкнено' : 'Режим заявок вимкнено');
     } catch (e) {
-      toast('error', (e as Error).message);
+      notify('error', (e as Error).message);
     } finally {
       setJrLoading(false);
     }
@@ -176,15 +194,15 @@ export default function TelegramChannelButton({ theme, initial }: Props) {
       });
       const data = await res.json();
       if (!res.ok) {
-        toast('error', data.error ?? 'Не вдалося очистити');
+        notify('error', data.error ?? 'Не вдалося очистити');
         return;
       }
       setState(normalizeSettings(data.settings));
       setChatIdInput('');
       setEditMode(true);
-      toast('success', 'Telegram-канал прибрано');
+      notify('success', 'Telegram-канал прибрано');
     } catch (e) {
-      toast('error', (e as Error).message);
+      notify('error', (e as Error).message);
     }
   }
 
@@ -235,6 +253,24 @@ export default function TelegramChannelButton({ theme, initial }: Props) {
               <HiOutlineXMark />
             </button>
           </header>
+
+          {notice && (
+            <div className={`shrink-0 mx-5 mt-3 flex items-start gap-2 px-3 py-2.5 rounded-lg text-[12px] border ${
+              notice.type === 'error'
+                ? dark ? 'bg-rose-500/10 border-rose-400/30 text-rose-200' : 'bg-rose-50 border-rose-300/50 text-rose-800'
+                : dark ? 'bg-emerald-500/10 border-emerald-400/30 text-emerald-200' : 'bg-emerald-50 border-emerald-300/50 text-emerald-800'
+            }`}>
+              <span className="flex-1 leading-snug">{notice.text}</span>
+              <button
+                type="button"
+                onClick={() => setNotice(null)}
+                className="shrink-0 opacity-60 hover:opacity-100"
+                aria-label="Закрити повідомлення"
+              >
+                <HiOutlineXMark className="text-sm" />
+              </button>
+            </div>
+          )}
 
           <div className="flex-1 overflow-y-auto p-5 space-y-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {hasChannel && !editMode ? (
