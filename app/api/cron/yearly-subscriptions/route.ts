@@ -163,12 +163,27 @@ async function transitionActiveToGrace(): Promise<StepResult> {
   const errors: string[] = [];
   const graceDays = await getYearlyGraceDays(prisma);
   const gracePeriodEndsAt = new Date(now.getTime() + graceDays * 24 * 60 * 60 * 1000);
-  const subs = await prisma.yearlyProgramSubscription.findMany({
+  const candidates = await prisma.yearlyProgramSubscription.findMany({
     where: {
       status: 'ACTIVE',
       expiresAt: { lt: now },
     },
-    select: { id: true, userId: true, plan: true, expiresAt: true },
+    select: { id: true, userId: true, plan: true, autoRenew: true, failedChargeCount: true, expiresAt: true },
+  });
+
+  // Буфер для MONTHLY-автоплатежу: WFP списує за розкладом, а cron біжить щодня о 04:00.
+  // Якщо чергове списання за цей день ще не надійшло (Approved-callback приходить пізніше),
+  // не штовхаємо підписку в GRACE одразу — інакше студент отримує хибний grace-лист, хоча
+  // гроші спишуться за кілька годин і підписка повернеться в ACTIVE. Переводимо в GRACE лише
+  // якщо: (а) списання реально провалилось — failedChargeCount > 0, або (б) доступ
+  // протермінований довше за буфер (WFP тихо перестав списувати — тоді експайр обов'язковий,
+  // щоб не лишити неоплачений доступ назавжди). Для YEARLY і MONTHLY-РАЗОВА буфера немає.
+  const AUTOPAY_GRACE_BUFFER_MS = 2 * 24 * 60 * 60 * 1000;
+  const subs = candidates.filter((s) => {
+    const isAutopay = s.plan === 'MONTHLY' && s.autoRenew;
+    if (!isAutopay) return true;
+    if ((s.failedChargeCount ?? 0) > 0) return true;
+    return s.expiresAt != null && s.expiresAt.getTime() < now.getTime() - AUTOPAY_GRACE_BUFFER_MS;
   });
 
   await processInParallel(subs, async (s) => {

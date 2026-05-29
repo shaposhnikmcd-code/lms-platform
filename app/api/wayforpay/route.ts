@@ -290,16 +290,43 @@ export async function POST(req: NextRequest) {
         const existing = plan === 'YEARLY' ? yearlySub : monthlySub;
         if (existing) {
           yearlyProgramSubscriptionId = existing.id;
-          // Оновлюємо country / telegramUsername при retry-оплаті — користувач міг змінити
-          // країну чи username після абандон-у. Не чіпаємо invite-link якщо вже згенерований.
-          if (parsedCountry || normalizedTelegramUsername) {
+          // Invite-flow: перенаправляємо reused PENDING-підписку на cohort із invite-token-у
+          // + позначаємо manuallyAdded. Без цього абандонована PENDING-спроба (напр. студент
+          // раніше відкривав форму під час тестування) лишається прив'язаною до старого cohort-у,
+          // і callback не бачить оплату як «у launched-cohort» → пропускає авто-відкриття
+          // SendPulse-доступу (студент отримує лише generic welcome без логіну). Тільки для
+          // PENDING — щоб не зачепити cohort/expiresAt уже оплаченої MONTHLY-підписки при renewal.
+          const repointToInviteCohort = !!invitePayload && existing.status === 'PENDING';
+          if (parsedCountry || normalizedTelegramUsername || repointToInviteCohort) {
             await prisma.yearlyProgramSubscription.update({
               where: { id: existing.id },
               data: {
                 ...(parsedCountry ? { country: parsedCountry } : {}),
                 ...(normalizedTelegramUsername ? { telegramUsername: normalizedTelegramUsername } : {}),
+                ...(repointToInviteCohort
+                  ? {
+                      cohortId: currentCohortId,
+                      ...(existing.manuallyAddedAt
+                        ? {}
+                        : { manuallyAddedAt: new Date(), manuallyAddedBy: invitePayload!.invitedBy }),
+                    }
+                  : {}),
               },
             });
+            if (repointToInviteCohort && existing.cohortId !== currentCohortId) {
+              await prisma.yearlyProgramSubscriptionEvent.create({
+                data: {
+                  subscriptionId: existing.id,
+                  type: 'admin_action',
+                  message: `Manual-add via invite by ${invitePayload!.invitedBy} · re-pointed cohort → ${currentCohortId}`,
+                  metadata: {
+                    invitedBy: invitePayload!.invitedBy,
+                    cohortId: invitePayload!.cohortId,
+                    repointedFromCohortId: existing.cohortId,
+                  },
+                },
+              });
+            }
           }
           // Sync autoRenew з recurring у обидва боки. Без цього БД залишається "разова"
           // навіть коли юзер апгрейдиться на АВТОПЛАТІЖ (callback пише monthly-once у логи).

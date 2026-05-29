@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { isAdmin, getAdminActor } from '@/lib/adminAuth';
 import { isSuperAdmin } from '@/lib/superAdmin';
+import { revalidateLocalized } from '@/lib/revalidatePaths';
 
 /// Відмінити запуск cohort-у (super-admin only).
 /// Логіка дзеркалить scripts/unlaunch-cohort.mjs варіант "A":
@@ -53,6 +54,11 @@ export async function POST(
 
   // Аудит у Vercel logs (cohort-level подій-моделі немає).
   console.log(`[super-admin] unlaunch cohort ${id} (${cohort.name}) by ${actor}`, before);
+
+  // Публічна `/yearly-program` ISR-кешована. Без інвалідації після віджимання запуску
+  // сторінка лишається на застарілому білді (поля оплати не повертаються, навіть коли
+  // registrationOpen=true + isCurrent cohort є). Інвалідуємо, щоб форма оновилась.
+  revalidateLocalized('/yearly-program');
 
   return NextResponse.json({ ok: true, cohortId: id, by: actor, before });
 }

@@ -832,9 +832,18 @@ async function handleYearlyProgramCallback(args: {
           lastPaymentAt: now,
           failedChargeCount: 0,
           lastChargeError: null,
-          // Reset reminders — щоб наступний цикл знову їх відправив.
+          // Reset ВСІХ нагадувань + grace-дат — щоб наступний цикл життя підписки
+          // (особливо MONTHLY-автоплатіж після відновлення з GRACE) знову коректно
+          // відпрацював попередження. Без скидання grace-прапорів на 2-му циклі студент
+          // не отримував жодного grace-листа, а стара grace-дата псувала текст листа.
           reminderSent3d: false,
           reminderSentExpired: false,
+          reminderSentOnExpiry: false,
+          reminderSentGraceStart: false,
+          reminderSentGraceMid: false,
+          reminderSentGraceLast: false,
+          graceStartedAt: null,
+          gracePeriodEndsAt: null,
         },
       });
 

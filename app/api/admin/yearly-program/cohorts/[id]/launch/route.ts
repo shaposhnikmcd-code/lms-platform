@@ -3,6 +3,7 @@ import prisma from '@/lib/prisma';
 import { isAdmin, getAdminActor } from '@/lib/adminAuth';
 import { executeLaunchLoop } from '@/lib/yearlyProgramLaunch';
 import { sendCohortLaunchEmails } from '@/lib/yearlyProgramSendEmails';
+import { revalidateLocalized } from '@/lib/revalidatePaths';
 
 /// 🚀 Запустити програму. Дія менеджера в адмінці. Об'єднує два кроки в один:
 /// відкриття доступу + (опціонально) розсилка welcome-листа.
@@ -67,6 +68,7 @@ export async function POST(
       where: { id },
       data: { launchScheduledFor: null, emailScheduledFor: null },
     });
+    revalidateLocalized('/yearly-program');
     return NextResponse.json({ ok: true, mode: 'cancelled' });
   }
 
@@ -94,6 +96,7 @@ export async function POST(
         emailScheduledFor: body.sendWelcomeEmails ? at : null,
       },
     });
+    revalidateLocalized('/yearly-program');
     return NextResponse.json({
       ok: true,
       mode: 'scheduled',
@@ -147,6 +150,7 @@ export async function POST(
     );
   }
 
+  revalidateLocalized('/yearly-program');
   return NextResponse.json({
     ok: true,
     mode: 'launched',

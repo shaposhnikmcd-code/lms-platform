@@ -145,10 +145,13 @@ async function handleChatJoinRequest(joinReq: TgChatJoinRequest): Promise<void> 
     return;
   }
 
-  // Шукаємо підписку за invite_link.
+  // Шукаємо ЧИННУ підписку за invite_link. Фільтр статусу ACTIVE/GRACE — захист від
+  // витоку: якщо підписку скасовано/протерміновано (EXPIRED/CANCELLED/ARCHIVED), її старий
+  // invite-лінк уже НЕ має пускати в канал (ні власника, ні того, кому переслали). Це і є
+  // суть join-request режиму, як описано у «Флоу Річної програми».
   const sub = inviteUrl
     ? await prisma.yearlyProgramSubscription.findFirst({
-        where: { telegramInviteLink: inviteUrl },
+        where: { telegramInviteLink: inviteUrl, status: { in: ['ACTIVE', 'GRACE'] } },
         select: { id: true, userId: true, telegramJoinedAt: true },
       })
     : null;
@@ -185,10 +188,11 @@ async function handleChatJoinRequest(joinReq: TgChatJoinRequest): Promise<void> 
     return;
   }
 
-  // Не знайшли підписку — стороння людина. Канал тільки для Річної → decline.
+  // Не знайшли ЧИННОЇ підписки — або стороння людина, або підписка вже неактивна
+  // (скасована/протермінована). Канал тільки для активної Річної → decline.
   try {
     await declineChatJoinRequest(chatId, userId);
-    console.log(`${LOG_PREFIX} declined non-yearly user=(${userDesc}) invite=${inviteUrl ?? 'none'}`);
+    console.log(`${LOG_PREFIX} declined (no active sub) user=(${userDesc}) invite=${inviteUrl ?? 'none'}`);
   } catch (e) {
     const msg = e instanceof TelegramApiError ? `[${e.errorCode}] ${e.message}` : (e instanceof Error ? e.message : String(e));
     console.error(`${LOG_PREFIX} decline failed user=${userId}: ${msg}`);

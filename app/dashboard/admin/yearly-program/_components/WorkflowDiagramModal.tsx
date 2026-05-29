@@ -474,6 +474,11 @@ export default function WorkflowDiagramModal({ theme, graceDays, onClose }: { th
               { who: 'platform', what: 'якщо знайдено + статус ACTIVE/GRACE → approveChatJoinRequest, ставить telegramJoinedAt' },
               { who: 'platform', what: 'якщо не знайдено АБО підписка EXPIRED/CANCELLED → declineChatJoinRequest (чужий не пройде)' },
             ]} accent="sky" />
+            <ScenarioCard dark={dark} c={c} emoji="📤" title="Telegram · коли доступ завершився" trigger="Підписка завершилась природно (закінчився термін / grace) або скасована" steps={[
+              { who: 'platform', what: 'доступ до курсу в SendPulse закривається автоматично (DELETE з курсу)' },
+              { who: 'platform', what: 'старий invite-лінк більше НЕ пускає в канал — нова заявка на вступ за ним автоматично відхиляється' },
+              { who: 'manager', what: 'студента, що ВЖЕ у каналі, система НЕ виганяє автоматично — за потреби менеджер вилучає його вручну («Закрити доступ» / «Вилучити з ТГ» у рядку підписки)' },
+            ]} accent="amber" />
             <ScenarioCard dark={dark} c={c} emoji="🚪" title="Telegram · студент покинув / вилучений" trigger="Webhook chat_member: студент leave-нув канал, або менеджер kick-нув" steps={[
               { who: 'tg', what: 'chat_member update: old_status=member, new_status=left/kicked' },
               { who: 'platform', what: 'знаходить subscription за tgUserId або invite_link' },
