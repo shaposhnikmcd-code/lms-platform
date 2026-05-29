@@ -173,25 +173,44 @@ export function HoverInfo({
   const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const id = useId();
+
+  // Hover-bridge: дозволяє провести курсор з кнопки в сам попап (щоб скролити довгий
+  // вміст), не закриваючи його. Закриваємо з невеликою затримкою.
+  const cancelClose = useCallback(() => {
+    if (closeTimer.current) { clearTimeout(closeTimer.current); closeTimer.current = null; }
+  }, []);
+  const scheduleClose = useCallback(() => {
+    cancelClose();
+    closeTimer.current = setTimeout(() => setOpen(false), 140);
+  }, [cancelClose]);
 
   const place = useCallback(() => {
     const btn = btnRef.current;
     const pop = popRef.current;
     if (!btn || !pop) return;
     const r = btn.getBoundingClientRect();
+    const margin = 8;
     const pw = pop.offsetWidth || 280;
+    // Висота вже обмежена CSS (maxHeight = viewport − 2*margin), тож offsetHeight
+    // ніколи не перевищить видиму область — клемпінг top коректний для довгого вмісту.
     const ph = pop.offsetHeight || 80;
-    let top = side === 'top' ? r.top - ph - 8 : r.bottom + 8;
+    const spaceBelow = window.innerHeight - r.bottom - margin;
+    const spaceAbove = r.top - margin;
+    // Якщо знизу не влазить, а зверху місця більше — відкриваємось угору.
+    const openTop = side === 'top' || (spaceBelow < ph && spaceAbove > spaceBelow);
+    let top = openTop ? r.top - ph - 8 : r.bottom + 8;
     let left: number;
     if (align === 'start') left = r.left;
     else if (align === 'center') left = r.left + r.width / 2 - pw / 2;
     else left = r.right - pw;
-    const margin = 8;
     left = Math.max(margin, Math.min(left, window.innerWidth - pw - margin));
     top = Math.max(margin, Math.min(top, window.innerHeight - ph - margin));
     setCoords({ top: top + window.scrollY, left: left + window.scrollX });
   }, [side, align]);
+
+  useEffect(() => () => cancelClose(), [cancelClose]);
 
   useEffect(() => {
     if (!open) return;
@@ -212,10 +231,10 @@ export function HoverInfo({
         type="button"
         aria-describedby={open ? id : undefined}
         aria-label={title ?? 'Підказка'}
-        onMouseEnter={() => setOpen(true)}
-        onMouseLeave={() => setOpen(false)}
-        onFocus={() => setOpen(true)}
-        onBlur={() => setOpen(false)}
+        onMouseEnter={() => { cancelClose(); setOpen(true); }}
+        onMouseLeave={scheduleClose}
+        onFocus={() => { cancelClose(); setOpen(true); }}
+        onBlur={scheduleClose}
         onClick={(e) => { e.preventDefault(); setOpen((v) => !v); }}
         className={`shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[12px] border transition-colors ${
           dark
@@ -230,16 +249,20 @@ export function HoverInfo({
           ref={popRef}
           id={id}
           role="tooltip"
+          onMouseEnter={cancelClose}
+          onMouseLeave={scheduleClose}
           style={{
             position: 'absolute',
             top: coords?.top ?? -9999,
             left: coords?.left ?? -9999,
             width: 280,
+            maxHeight: 'calc(100vh - 16px)',
+            overflowY: 'auto',
             zIndex: 320,
             opacity: coords ? 1 : 0,
             transition: coords ? 'opacity 0.14s ease-out' : 'none',
           }}
-          className={`rounded-xl border shadow-xl px-3.5 py-3 text-[12px] leading-snug pointer-events-none ${
+          className={`rounded-xl border shadow-xl px-3.5 py-3 text-[12px] leading-snug ${
             dark ? 'bg-zinc-800/95 border-white/10 text-slate-200 backdrop-blur-sm' : 'bg-white border-stone-200 text-stone-800'
           }`}
         >

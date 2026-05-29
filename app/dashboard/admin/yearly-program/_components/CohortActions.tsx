@@ -146,6 +146,7 @@ export default function CohortActions({
           </button>
           <HoverInfo
             theme={theme}
+            align="start"
             title={cohort.launchedAt ? 'Програма вже запущена' : cohort.launchScheduledFor ? 'Запуск заплановано' : 'Що відбудеться при запуску'}
             body={
               cohort.launchedAt
