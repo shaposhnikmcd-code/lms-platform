@@ -9,6 +9,7 @@ import { applyPromoServerSide, resolveServerPricing } from '@/lib/paymentPricing
 import { checkRateLimit } from '@/lib/ratelimit';
 import { lastAutopayChargeDate, maxAutopayChargeCount } from '@/lib/yearlyProgramAccess';
 import { removeSubscriptionAutopay } from '@/lib/yearlyProgramAutopay';
+import { resolveSellableCohort } from '@/lib/yearlyProgramCohort';
 import { verifyInvite, type InvitePayload } from '@/lib/yearlyProgramInvite';
 import { isValidCountryCode } from '@/lib/countries';
 import { parseTelegramUsername } from '@/lib/telegramUsername';
@@ -221,12 +222,11 @@ export async function POST(req: NextRequest) {
           }
           currentCohortId = inviteCohort.id;
         } else {
-          const currentCohort = await prisma.yearlyProgramCohort.findFirst({
-            where: { isCurrent: true },
-            select: { id: true },
-          });
+          // Той самий резолвер, що й публічна сторінка: «Поточний» або fallback на найближчий
+          // незавершений запуск. Має збігатися з page.tsx — інакше кнопка активна, а оплата падає.
+          const currentCohort = await resolveSellableCohort(prisma);
           currentCohortId = currentCohort?.id ?? null;
-          // Без активного cohort-у не продаємо доступ — бо немає від чого рахувати дати
+          // Без жодного придатного cohort-у не продаємо доступ — бо немає від чого рахувати дати
           // (cohort.startDate / cohort.endDate). Це жорсткий контракт продукту: реєстрація
           // відкрита тільки коли менеджер створив cohort з фіксованими датами.
           if (!currentCohortId) {

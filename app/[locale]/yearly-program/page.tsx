@@ -2,6 +2,7 @@ import { Inter } from 'next/font/google';
 import prisma from '@/lib/prisma';
 import { getTranslatedContent } from '@/lib/translate';
 import { getYearlyProgramSettings } from '@/lib/yearlyProgramSettings';
+import { resolveSellableCohort } from '@/lib/yearlyProgramCohort';
 import { verifyInvite, type InvitePayload } from '@/lib/yearlyProgramInvite';
 import { learningContent } from './_content/uk';
 import HeroSection from './_components/HeroSection';
@@ -40,10 +41,9 @@ export default async function YearlyProgramPage({
   const [c, settings, currentCohort] = await Promise.all([
     getContent(locale) as Promise<any>,
     getYearlyProgramSettings(prisma),
-    prisma.yearlyProgramCohort.findFirst({
-      where: { isCurrent: true },
-      select: { id: true },
-    }),
+    // «Поточний» cohort, або fallback на найближчий незавершений — щоб кнопки оплати
+    // були активні за «Реєстрація відкрита» + наявності запуску, без ручного прапорця.
+    resolveSellableCohort(prisma),
   ]);
 
   // Invite-flow: парсимо token (якщо є). Якщо валідний — підтягуємо назву cohort-у
