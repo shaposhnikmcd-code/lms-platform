@@ -37,6 +37,8 @@ export default function TelegramChannelButton({ theme, initial }: Props) {
   const [autoLoading, setAutoLoading] = useState(false);
   const [jrLoading, setJrLoading] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [testEmail, setTestEmail] = useState('');
+  const [testSending, setTestSending] = useState(false);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const [mounted, setMounted] = useState(false);
   const { toast, confirm } = useUIFeedback();
@@ -91,6 +93,27 @@ export default function TelegramChannelButton({ theme, initial }: Props) {
       setError((e as Error).message);
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleSendTest() {
+    setTestSending(true);
+    try {
+      const res = await fetch('/api/admin/yearly-program/telegram-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'test-email', email: testEmail.trim() || undefined }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast('error', data.error ?? 'Не вдалось надіслати тестовий лист');
+        return;
+      }
+      toast('success', `Тестовий лист надіслано на ${data.email}`);
+    } catch (e) {
+      toast('error', (e as Error).message);
+    } finally {
+      setTestSending(false);
     }
   }
 
@@ -213,7 +236,7 @@ export default function TelegramChannelButton({ theme, initial }: Props) {
             </button>
           </header>
 
-          <div className="flex-1 overflow-y-auto p-5 space-y-4">
+          <div className="flex-1 overflow-y-auto p-5 space-y-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {hasChannel && !editMode ? (
               <div
                 className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border ${
@@ -248,6 +271,18 @@ export default function TelegramChannelButton({ theme, initial }: Props) {
               </div>
             ) : (
               <div>
+                <div className={`mb-3 rounded-lg border p-3 ${dark ? 'bg-sky-500/[0.06] border-sky-400/20' : 'bg-sky-50/70 border-sky-200/60'}`}>
+                  <div className={`text-[11.5px] font-semibold mb-1.5 ${dark ? 'text-sky-200' : 'text-sky-900'}`}>
+                    Як створити канал і підключити
+                  </div>
+                  <ol className={`list-decimal pl-4 space-y-1 text-[11px] leading-relaxed ${dark ? 'text-slate-300' : 'text-stone-600'}`}>
+                    <li>У Telegram → меню → <b>Створити канал</b>, задайте назву.</li>
+                    <li>Відкрийте канал → <b>Керування каналом → Адміністратори → Додати</b> і додайте бота <b>UIMP</b> з правом <b>«Запрошувати користувачів»</b>.</li>
+                    <li>Скопіюйте <b>@username</b> каналу (для приватного — числовий <b>chat_id</b>) і вставте в поле нижче → <b>«Перевірити та зберегти»</b>.</li>
+                    <li><b>Зробіть канал приватним:</b> Керування каналом → <b>Тип каналу → Приватний</b>. Інакше будь-хто зайде за публічним посиланням чи пошуком — і захист від «чужих» не працюватиме.</li>
+                    <li><b>Підтвердження адміна</b> вмикається на посиланні: Керування каналом → <b>Запрошувальні посилання</b> → ваше посилання → <b>«Request Admin Approval»</b>. Наш бот і так створює посилання в цьому режимі — головне, щоб канал був приватний і прапорець «режим заявок» нижче був увімкнений.</li>
+                  </ol>
+                </div>
                 <label className={`block text-[11px] font-medium mb-1 ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
                   @username каналу або chat_id
                 </label>
@@ -362,6 +397,50 @@ export default function TelegramChannelButton({ theme, initial }: Props) {
               {jrLoading && <FaSpinner className="animate-spin text-xs mt-1" />}
             </label>
 
+            {/* Тестовий лист — перевірити, що канал підключено і телеграм-секція зʼявляється в welcome-листі */}
+            <div
+              className={`px-3 py-3 rounded-lg border ${
+                dark ? 'bg-white/[0.02] border-white/[0.06]' : 'bg-stone-50 border-stone-200'
+              } ${!hasChannel ? 'opacity-60' : ''}`}
+            >
+              <div className={`text-[12px] font-medium ${dark ? 'text-slate-100' : 'text-stone-800'}`}>
+                Тестовий лист
+              </div>
+              <div className={`text-[11px] mt-0.5 mb-2 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
+                Згенерує реальне invite-посилання і надішле welcome-лист, щоб перевірити, що телеграм-секція додається. Підписку/оплату не створює.
+              </div>
+              <div className="flex gap-2">
+                <input
+                  type="email"
+                  value={testEmail}
+                  onChange={(e) => setTestEmail(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && hasChannel && !testSending) handleSendTest(); }}
+                  placeholder="лишіть порожнім — на ваш email"
+                  autoComplete="off"
+                  spellCheck={false}
+                  disabled={!hasChannel || testSending}
+                  className={`flex-1 min-w-0 px-3 py-2 rounded-lg border text-[12px] outline-none transition-colors ${
+                    dark
+                      ? 'bg-white/[0.04] border-white/[0.08] text-slate-100 focus:border-amber-400/40'
+                      : 'bg-white border-stone-300/60 text-stone-800 focus:border-amber-600/50'
+                  }`}
+                />
+                <button
+                  type="button"
+                  onClick={handleSendTest}
+                  disabled={!hasChannel || testSending}
+                  className={`inline-flex items-center gap-1.5 px-3 h-9 rounded-lg text-[12px] font-medium transition-colors ${
+                    dark
+                      ? 'bg-amber-400/15 hover:bg-amber-400/25 text-amber-200 border border-amber-400/30 disabled:opacity-50'
+                      : 'bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300/60 disabled:opacity-50'
+                  }`}
+                >
+                  {testSending ? <FaSpinner className="animate-spin text-xs" /> : <HiOutlinePaperAirplane className="text-base" />}
+                  {testSending ? 'Надсилаю…' : 'Надіслати'}
+                </button>
+              </div>
+            </div>
+
             {state.updatedAt && (
               <div className={`text-[10px] ${dark ? 'text-slate-600' : 'text-stone-400'}`}>
                 Оновлено {new Date(state.updatedAt).toLocaleString('uk-UA')}
@@ -382,8 +461,8 @@ export default function TelegramChannelButton({ theme, initial }: Props) {
         className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border text-[13px] font-semibold transition-colors ${buttonBg}`}
         title="Налаштувати Telegram-канал Річної програми"
       >
-        <HiOutlinePaperAirplane className="text-base" />
-        <span>Додати в Telegram канал</span>
+        <span className="text-base" aria-hidden>📡</span>
+        <span>Telegram-канал</span>
         {hasChannel && (
           <span
             className={`ml-0.5 inline-flex items-center justify-center w-2 h-2 rounded-full ${

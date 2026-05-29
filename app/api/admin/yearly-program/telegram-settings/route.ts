@@ -7,6 +7,8 @@ import {
   setJoinRequestModeFlag,
   clearChatId,
 } from '@/lib/yearlyProgramTelegram';
+import { createChatInviteLink, TelegramApiError } from '@/lib/telegram';
+import { sendYearlyProgramWelcomeEmail } from '@/lib/yearlyProgramWelcomeEmail';
 
 /// GET — повертає поточні налаштування Telegram-каналу.
 /// POST — body: `{ action: "save", chatId: string }` — резолвить через Bot API getChat і зберігає.
@@ -86,6 +88,55 @@ export async function POST(req: NextRequest) {
   if (action === 'clear') {
     const settings = await clearChatId(adminEmail);
     return NextResponse.json({ settings });
+  }
+
+  // Тестовий лист: генерує РЕАЛЬНЕ одноразове invite-посилання для налаштованого
+  // каналу і шле welcome-лист (з телеграм-секцією) на вказаний email. Дозволяє
+  // перевірити, що канал підключено і секція коректно зʼявляється в листі — без
+  // реальної покупки. Підписку/Payment не створює.
+  if (action === 'test-email') {
+    const email = (typeof body.email === 'string' && body.email.trim())
+      ? body.email.trim()
+      : adminEmail;
+    if (!email) {
+      return NextResponse.json({ error: 'Вкажіть email для тестового листа' }, { status: 400 });
+    }
+    const settings = await getYearlyProgramTelegramSettings();
+    if (!settings.chatId) {
+      return NextResponse.json({ error: 'Спочатку налаштуйте Telegram-канал.' }, { status: 400 });
+    }
+    if (!process.env.TELEGRAM_BOT_TOKEN) {
+      return NextResponse.json({ error: 'TELEGRAM_BOT_TOKEN не налаштований у env.' }, { status: 400 });
+    }
+
+    let inviteLink: string | null = null;
+    try {
+      const link = await createChatInviteLink({
+        chatId: settings.chatId,
+        name: 'UIMP test',
+        ...(settings.joinRequestMode ? { createsJoinRequest: true } : { memberLimit: 1 }),
+        expireSeconds: 24 * 60 * 60,
+      });
+      inviteLink = link.invite_link;
+    } catch (e) {
+      const msg = e instanceof TelegramApiError ? e.message : (e instanceof Error ? e.message : String(e));
+      return NextResponse.json({ error: `Не вдалось згенерувати invite-посилання: ${msg}` }, { status: 502 });
+    }
+
+    const res = await sendYearlyProgramWelcomeEmail({
+      to: email,
+      name: 'Тест',
+      plan: 'YEARLY',
+      autoRenew: false,
+      telegramInviteLink: inviteLink,
+    });
+    if (res.skipped) {
+      return NextResponse.json({ error: 'Лист не надіслано: мейлер не налаштований (немає RESEND_API_KEY на цьому середовищі).' }, { status: 400 });
+    }
+    if (!res.ok) {
+      return NextResponse.json({ error: res.error ?? 'Не вдалось надіслати лист' }, { status: 502 });
+    }
+    return NextResponse.json({ ok: true, email, inviteGenerated: Boolean(inviteLink) });
   }
 
   return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
