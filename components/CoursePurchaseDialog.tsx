@@ -120,6 +120,18 @@ export default function CoursePurchaseDialog({
 
   const closeModal = useCallback(() => onClose(), [onClose]);
 
+  // Чи почалося натискання миші САМЕ на оверлеї (а не зсередини форми). Захист від
+  // закриття при виділенні тексту в полі з відпусканням миші за межами картки —
+  // тоді mousedown стартує всередині, і форма НЕ має закриватись.
+  const overlayPressRef = useRef(false);
+  const handleOverlayMouseDown = (e: React.MouseEvent) => {
+    overlayPressRef.current = e.target === e.currentTarget;
+  };
+  const handleOverlayClick = (e: React.MouseEvent) => {
+    if (e.target === e.currentTarget && overlayPressRef.current) closeModal();
+    overlayPressRef.current = false;
+  };
+
   useEffect(() => {
     setMounted(true);
   }, []);
@@ -163,13 +175,20 @@ export default function CoursePurchaseDialog({
   // Dialog рендериться лише коли isOpen=true у батька, тому гарантовано відкритий.
   // Esc + scroll lock активуються відразу на mount і знімаються на unmount.
   useEffect(() => {
+    // Блокуємо скрол body, але компенсуємо ширину скролбара padding-ом — інакше при
+    // зникненні вертикального скролбара сторінка «стрибає» ширше (layout shift).
+    const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
+    const prevOverflow = document.body.style.overflow;
+    const prevPaddingRight = document.body.style.paddingRight;
     document.body.style.overflow = 'hidden';
+    if (scrollbarWidth > 0) document.body.style.paddingRight = `${scrollbarWidth}px`;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') closeModal();
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => {
-      document.body.style.overflow = '';
+      document.body.style.overflow = prevOverflow;
+      document.body.style.paddingRight = prevPaddingRight;
       document.removeEventListener('keydown', handleKeyDown);
     };
   }, [closeModal]);
@@ -348,11 +367,15 @@ export default function CoursePurchaseDialog({
       aria-modal="true"
       aria-label={`${t('buyAria')} ${courseName}`}
     >
-      {/* Backdrop */}
-      <div className="fixed inset-0 bg-black/60" onClick={closeModal} />
+      {/* Backdrop — лише візуальний; закриття обробляє wrapper з guard-ом нижче */}
+      <div className="fixed inset-0 bg-black/60" />
 
-      {/* Centering wrapper */}
-      <div className="relative min-h-full flex items-center justify-center p-3 sm:p-4" onClick={closeModal}>
+      {/* Centering wrapper — закриваємо лише якщо і натискання, і клік сталися на оверлеї */}
+      <div
+        className="relative min-h-full flex items-center justify-center p-3 sm:p-4"
+        onMouseDown={handleOverlayMouseDown}
+        onClick={handleOverlayClick}
+      >
         {/* Modal card */}
         <div className="relative bg-white rounded-2xl w-full max-w-lg shadow-2xl" onClick={(e) => e.stopPropagation()}>
           {/* Overlap confirm — повний overlay поверх форми */}
