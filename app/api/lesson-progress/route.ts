@@ -86,9 +86,7 @@ export async function POST(req: NextRequest) {
 
         // Якщо курс завершено — видаємо повноцінний брендований сертифікат
         // (PDF + email через issueCourseCertificate; ідемпотентно по (userId, courseId)).
-        // ADMIN/MANAGER пропускаємо: вони купують за тестову ціну 1 ₴ для перевірки флоу,
-        // сертифікат їм автоматично не потрібен (див. lib/certificates/testUsers.ts).
-        if (progressPercent === 100 && role !== 'ADMIN' && role !== 'MANAGER') {
+        if (progressPercent === 100) {
           const { issueCourseCertificate } = await import('@/lib/certificates/service');
           await issueCourseCertificate({
             userId,

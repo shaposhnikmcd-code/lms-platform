@@ -6,7 +6,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { requireAdmin } from '@/lib/certificates/adminAuth';
 import { issueYearlyCertificate } from '@/lib/certificates/service';
-import { TEST_PURCHASE_ROLES } from '@/lib/certificates/testUsers';
 
 export async function GET(req: NextRequest) {
   const guard = await requireAdmin(req);
@@ -19,8 +18,6 @@ export async function GET(req: NextRequest) {
   const subs = await prisma.yearlyProgramSubscription.findMany({
     where: {
       ...(statusFilter ? { status: statusFilter as never } : {}),
-      // Виключаємо тестові підписки ADMIN/MANAGER (2 ₴) — див. lib/certificates/testUsers.ts
-      user: { role: { notIn: TEST_PURCHASE_ROLES } },
     },
     take: limit,
     orderBy: { createdAt: 'desc' },
