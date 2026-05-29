@@ -50,10 +50,14 @@ interface Props {
   theme: Theme;
   /** Мінімальна дозволена дата (включно), формат "YYYY-MM-DD" */
   min?: string;
+  /** Компактний варіант — менші клітинки/шрифти (для попапів). */
+  dense?: boolean;
 }
 
-export default function InlineDatePicker({ value, onChange, theme, min }: Props) {
+export default function InlineDatePicker({ value, onChange, theme, min, dense }: Props) {
   const dark = theme === 'dark';
+  const cellH = dense ? 'h-6' : 'h-7';
+  const cellText = dense ? 'text-[10px]' : 'text-[11px]';
   const parsed = parseDate(value);
   const minParts = min ? parseDate(min) : null;
 
@@ -118,24 +122,24 @@ export default function InlineDatePicker({ value, onChange, theme, min }: Props)
 
   return (
     <div
-      className={`rounded-lg border p-2.5 ${
+      className={`rounded-lg border ${dense ? 'p-2' : 'p-2.5'} ${
         dark ? 'bg-white/[0.02] border-white/[0.06]' : 'bg-white/40 border-stone-300/40'
       }`}
     >
-      <div className="flex items-center justify-between mb-2">
+      <div className={`flex items-center justify-between ${dense ? 'mb-1.5' : 'mb-2'}`}>
         <button
           type="button"
           aria-label="Попередній місяць"
           onClick={() =>
             setView(v => (v.mo === 0 ? { y: v.y - 1, mo: 11 } : { y: v.y, mo: v.mo - 1 }))
           }
-          className={`w-7 h-7 inline-flex items-center justify-center rounded text-[14px] leading-none ${
+          className={`${dense ? 'w-6 h-6 text-[13px]' : 'w-7 h-7 text-[14px]'} inline-flex items-center justify-center rounded leading-none ${
             dark ? 'text-slate-300 hover:bg-white/[0.06]' : 'text-stone-600 hover:bg-stone-200/60'
           }`}
         >
           ‹
         </button>
-        <span className={`text-[12px] font-medium capitalize ${dark ? 'text-slate-200' : 'text-stone-800'}`}>
+        <span className={`${dense ? 'text-[11px]' : 'text-[12px]'} font-medium capitalize ${dark ? 'text-slate-200' : 'text-stone-800'}`}>
           {monthName}
         </span>
         <button
@@ -144,7 +148,7 @@ export default function InlineDatePicker({ value, onChange, theme, min }: Props)
           onClick={() =>
             setView(v => (v.mo === 11 ? { y: v.y + 1, mo: 0 } : { y: v.y, mo: v.mo + 1 }))
           }
-          className={`w-7 h-7 inline-flex items-center justify-center rounded text-[14px] leading-none ${
+          className={`${dense ? 'w-6 h-6 text-[13px]' : 'w-7 h-7 text-[14px]'} inline-flex items-center justify-center rounded leading-none ${
             dark ? 'text-slate-300 hover:bg-white/[0.06]' : 'text-stone-600 hover:bg-stone-200/60'
           }`}
         >
@@ -191,7 +195,7 @@ export default function InlineDatePicker({ value, onChange, theme, min }: Props)
               type="button"
               disabled={disabled}
               onClick={() => pickDate(c.y, c.mo, c.d)}
-              className={`h-7 text-[11px] rounded transition-colors ${cls}`}
+              className={`${cellH} ${cellText} rounded transition-colors ${cls}`}
             >
               {c.d}
             </button>

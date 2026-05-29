@@ -1,11 +1,13 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { forwardRef, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
-import { HiOutlineSparkles, HiOutlinePlus, HiOutlineChevronDown, HiOutlineCheck, HiOutlineRocketLaunch, HiOutlineStar, HiOutlinePencilSquare, HiOutlineXMark } from 'react-icons/hi2';
+import { HiOutlineSparkles, HiOutlinePlus, HiOutlineChevronDown, HiOutlineCheck, HiOutlineRocketLaunch, HiOutlineStar, HiOutlinePencilSquare, HiOutlineXMark, HiOutlineCalendarDays } from 'react-icons/hi2';
 import type { Theme } from '../../_components/adminTheme';
 import type { CohortListItem } from './types';
-import { useUIFeedback } from './UIFeedback';
+import { useUIFeedback, HoverInfo } from './UIFeedback';
+import InlineDatePicker, { formatDateChip } from '../../_components/InlineDatePicker';
 
 /// Шапка зі списком cohort-ів — селектор + "+ Новий запуск".
 /// Назва обраного cohort-у показується великим заголовком.
@@ -33,6 +35,39 @@ export default function CohortHeader({
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState('');
   const [savingName, setSavingName] = useState(false);
+  const [editingPeriod, setEditingPeriod] = useState(false);
+  const [startDraft, setStartDraft] = useState('');
+  const [endDraft, setEndDraft] = useState('');
+  const [openCal, setOpenCal] = useState<'start' | 'end' | null>(null);
+  // Координати попапа у viewport-і (portal до body, fixed) + напрямок (вгору/вниз).
+  const [calPos, setCalPos] = useState<{ left: number; top: number; up: boolean } | null>(null);
+  const [savingPeriod, setSavingPeriod] = useState(false);
+  const periodRef = useRef<HTMLDivElement | null>(null);
+  const calRef = useRef<HTMLDivElement | null>(null);
+  const startChipRef = useRef<HTMLButtonElement | null>(null);
+  const endChipRef = useRef<HTMLButtonElement | null>(null);
+
+  const CAL_HEIGHT = 250; // приблизна висота dense-календаря
+
+  // Відкриваємо календар уверх, якщо знизу бракує місця, а зверху воно є.
+  function openCalendar(which: 'start' | 'end') {
+    if (openCal === which) {
+      setOpenCal(null);
+      return;
+    }
+    const chip = (which === 'start' ? startChipRef : endChipRef).current;
+    const rect = chip?.getBoundingClientRect();
+    if (rect) {
+      const below = window.innerHeight - rect.bottom;
+      const up = below < CAL_HEIGHT && rect.top > CAL_HEIGHT;
+      setCalPos({
+        left: rect.left,
+        top: up ? rect.top - 8 - CAL_HEIGHT : rect.bottom + 8,
+        up,
+      });
+    }
+    setOpenCal(which);
+  }
   const nameInputRef = useRef<HTMLInputElement | null>(null);
   const dropdownRef = useRef<HTMLDivElement | null>(null);
 
@@ -103,6 +138,78 @@ export default function CohortHeader({
       toast('error', (e as Error).message);
     } finally {
       setSavingName(false);
+    }
+  }
+
+  // При зміні обраного cohort-у виходимо з режиму редагування періоду.
+  useEffect(() => {
+    setEditingPeriod(false);
+    setOpenCal(null);
+  }, [activeCohortId]);
+
+  // Закрити календар-попап при кліку поза областю редагування періоду або по Escape.
+  useEffect(() => {
+    if (!openCal) return;
+    function onPointerDown(e: MouseEvent | TouchEvent) {
+      const target = e.target as Node | null;
+      if (!target) return;
+      const insideRow = periodRef.current?.contains(target);
+      const insideCal = calRef.current?.contains(target);
+      if (!insideRow && !insideCal) setOpenCal(null);
+    }
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') setOpenCal(null);
+    }
+    // Закриваємо при скролі/ресайзі — позиція fixed інакше «відʼїде» від чипа.
+    const onReflow = () => setOpenCal(null);
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('touchstart', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    window.addEventListener('scroll', onReflow, true);
+    window.addEventListener('resize', onReflow);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('touchstart', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('scroll', onReflow, true);
+      window.removeEventListener('resize', onReflow);
+    };
+  }, [openCal]);
+
+  async function handleSavePeriod() {
+    if (!active) return;
+    if (!startDraft || !endDraft) {
+      toast('error', 'Заповніть обидві дати');
+      return;
+    }
+    if (new Date(endDraft) <= new Date(startDraft)) {
+      toast('error', 'Дата завершення має бути пізніше дати старту');
+      return;
+    }
+    setSavingPeriod(true);
+    try {
+      const res = await fetch(`/api/admin/yearly-program/cohorts/${active.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          startDate: new Date(startDraft).toISOString(),
+          endDate: new Date(endDraft).toISOString(),
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        toast('error', data.error ?? `Помилка ${res.status}`);
+        return;
+      }
+      toast('success', active.launchedAt
+        ? 'Період оновлено — «Доступ до» підписок перераховано'
+        : 'Період навчання оновлено');
+      setEditingPeriod(false);
+      router.refresh();
+    } catch (e) {
+      toast('error', (e as Error).message);
+    } finally {
+      setSavingPeriod(false);
     }
   }
 
@@ -284,10 +391,126 @@ export default function CohortHeader({
                 {active.isCurrent ? 'Поточний' : active.launchedAt ? 'Запущено' : 'Заплановано'}
               </span>
             )}
-            {active && (
-              <span className={`text-[12px] tabular-nums ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
+            {active && !editingPeriod && (
+              <span className={`inline-flex items-center gap-1.5 text-[12px] tabular-nums ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
                 {fmtDate(active.startDate)} — {fmtDate(active.endDate)} · підписок: {active.subscriptionsCount}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStartDraft(toDateInput(active.startDate));
+                    setEndDraft(toDateInput(active.endDate));
+                    setEditingPeriod(true);
+                  }}
+                  title="Змінити період навчання"
+                  className={`inline-flex items-center justify-center w-6 h-6 rounded-md border transition-colors ${
+                    dark
+                      ? 'bg-white/[0.04] border-white/10 text-slate-300 hover:bg-white/[0.08] hover:text-amber-200'
+                      : 'bg-stone-50 border-stone-200 text-stone-600 hover:bg-stone-100 hover:text-amber-700'
+                  }`}
+                >
+                  <HiOutlineCalendarDays className="text-[13px]" />
+                </button>
               </span>
+            )}
+            {active && editingPeriod && (
+              <div ref={periodRef} className="flex items-center gap-2 flex-wrap relative">
+                <DateChip
+                  ref={startChipRef}
+                  dark={dark}
+                  label={startDraft ? formatDateChip(startDraft) : 'Дата старту'}
+                  active={openCal === 'start'}
+                  disabled={savingPeriod}
+                  onClick={() => openCalendar('start')}
+                />
+                <span className={dark ? 'text-slate-500' : 'text-stone-400'}>—</span>
+                <DateChip
+                  ref={endChipRef}
+                  dark={dark}
+                  label={endDraft ? formatDateChip(endDraft) : 'Дата завершення'}
+                  active={openCal === 'end'}
+                  disabled={savingPeriod}
+                  onClick={() => openCalendar('end')}
+                />
+                <button
+                  type="button"
+                  onClick={handleSavePeriod}
+                  disabled={savingPeriod}
+                  title="Зберегти період"
+                  className={`inline-flex items-center justify-center w-8 h-8 rounded-md border transition-colors disabled:opacity-50 ${
+                    dark ? 'bg-emerald-500/15 border-emerald-400/30 text-emerald-200 hover:bg-emerald-500/25' : 'bg-emerald-50 border-emerald-300/60 text-emerald-800 hover:bg-emerald-100'
+                  }`}
+                >
+                  <HiOutlineCheck />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setEditingPeriod(false); setOpenCal(null); }}
+                  disabled={savingPeriod}
+                  title="Скасувати"
+                  className={`inline-flex items-center justify-center w-8 h-8 rounded-md border transition-colors disabled:opacity-50 ${
+                    dark ? 'bg-white/[0.04] border-white/10 text-slate-300 hover:bg-white/[0.08]' : 'bg-stone-100 border-stone-300 text-stone-700 hover:bg-stone-200'
+                  }`}
+                >
+                  <HiOutlineXMark />
+                </button>
+                {active.launchedAt && (
+                  <span className={`inline-flex items-center gap-1 text-[10.5px] ${dark ? 'text-amber-300/80' : 'text-amber-700'}`}>
+                    Доступ перерахується
+                    <HoverInfo
+                      theme={theme}
+                      side="bottom"
+                      align="start"
+                      title="Що зміниться, якщо змінити дати"
+                      body={
+                        <div className="space-y-1.5">
+                          <p>Нічого критичного не зламається. Зміниться лише <b>до якої дати студенти мають доступ</b> — система сама підлаштує її під нову дату завершення.</p>
+                          <p><b>Гроші й оплати не чіпаються взагалі.</b> Усі платежі, суми та дати лишаються такими, як були. Студентам нічого не досписується і не повертається.</p>
+                          <p><b>Якщо подовжити дату завершення</b> — доступ студентів подовжиться до неї. <b>Якщо скоротити</b> — доступ скоротиться.</p>
+                          <p>Для студентів з <b>річною оплатою</b> доступ = просто нова дата завершення. Для <b>помісячної оплати</b> доступ рахується від їхніх оплат (кожна оплата ≈ +місяць), але не довше нової дати завершення.</p>
+                          <p><b>Доступ до курсів на платформі (SendPulse) прямо зараз не закриється.</b> Він уже відкритий і просто триватиме до нової дати. Сам доступ закриється тільки тоді, коли ця дата реально мине.</p>
+                        </div>
+                      }
+                    />
+                  </span>
+                )}
+
+                {/* Попап-календар у портал до body — поверх усіх блоків, вгору/вниз залежно від місця */}
+                {openCal && calPos && createPortal(
+                  <div
+                    ref={calRef}
+                    style={{ position: 'fixed', left: calPos.left, top: calPos.top, width: 230 }}
+                    className={`z-[300] rounded-xl border shadow-2xl ${
+                      dark ? 'bg-zinc-900 border-white/10' : 'bg-white border-stone-200'
+                    }`}
+                  >
+                    {openCal === 'start' ? (
+                      <InlineDatePicker
+                        theme={theme}
+                        dense
+                        value={startDraft}
+                        onChange={(v) => {
+                          setStartDraft(v);
+                          // Завершення авто-виставляється на +9 місяців від старту (−1 день).
+                          setEndDraft(addNineMonths(v));
+                          setOpenCal(null);
+                        }}
+                      />
+                    ) : (
+                      <InlineDatePicker
+                        theme={theme}
+                        dense
+                        value={endDraft}
+                        min={startDraft || undefined}
+                        onChange={(v) => {
+                          setEndDraft(v);
+                          setOpenCal(null);
+                        }}
+                      />
+                    )}
+                  </div>,
+                  document.body,
+                )}
+              </div>
             )}
           </div>
 
@@ -396,8 +619,60 @@ export default function CohortHeader({
   );
 }
 
+/// Чип-кнопка з обраною датою, яка відкриває InlineDatePicker-попап.
+const DateChip = forwardRef<HTMLButtonElement, {
+  dark: boolean;
+  label: string;
+  active: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+}>(function DateChip({ dark, label, active, disabled, onClick }, ref) {
+  return (
+    <button
+      ref={ref}
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={`inline-flex items-center gap-1.5 text-[12px] tabular-nums rounded-md px-2.5 py-1 border transition-colors disabled:opacity-50 ${
+        active
+          ? dark
+            ? 'bg-amber-400/15 border-amber-400/50 text-amber-100'
+            : 'bg-amber-50 border-amber-400 text-amber-900'
+          : dark
+            ? 'bg-zinc-900 border-white/15 text-slate-200 hover:border-amber-400/40'
+            : 'bg-white border-stone-300 text-stone-800 hover:border-amber-400'
+      }`}
+    >
+      <HiOutlineCalendarDays className="text-[13px] opacity-70" />
+      {label}
+    </button>
+  );
+});
+
 function fmtDate(iso: string): string {
   return new Intl.DateTimeFormat('uk-UA', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(iso));
+}
+
+/// 'YYYY-MM-DD' старту → 'YYYY-MM-DD' завершення = +9 місяців −1 день
+/// (як дефолт у CreateCohortModal: 01.09 → 31.05).
+function addNineMonths(dateStr: string): string {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  if (!y || !m || !d) return dateStr;
+  const end = new Date(y, m - 1 + 9, d);
+  end.setDate(end.getDate() - 1);
+  const yyyy = end.getFullYear();
+  const mm = String(end.getMonth() + 1).padStart(2, '0');
+  const dd = String(end.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+/// ISO → 'YYYY-MM-DD' для <input type="date"> (локальна дата, без зсуву на UTC).
+function toDateInput(iso: string): string {
+  const d = new Date(iso);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
 }
 
 export { fmtDate as fmtCohortDate };
