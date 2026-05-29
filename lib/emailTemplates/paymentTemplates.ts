@@ -25,7 +25,15 @@ export type PaymentTemplateKey =
   | 'connector-manager-test'
   | 'yearly-telegram-invite';
 
-export type PaymentTemplateGroup = 'payment' | 'manual-add' | 'plan-change' | 'admin-end' | 'bundle' | 'system' | 'yearly-telegram';
+export type PaymentTemplateGroup = 'welcome' | 'payment' | 'manual-add' | 'plan-change' | 'admin-end' | 'bundle' | 'system' | 'yearly-telegram';
+
+/// Групи, які входять у вікно «💳 Річна — Оплати» (і в SSR-prewarm цього списку).
+/// Welcome навмисно ВИНЕСЕНО в окрему групу 'welcome' (окрема картка на /emails),
+/// тому сюди не входить. Тримай цей список як єдине джерело для API + prewarm —
+/// інакше prewarm віддає всі групи і в Оплатах вилазять дублі (Telegram/Пакет/Системні).
+export const YEARLY_PAYMENT_GROUPS = ['payment', 'plan-change', 'admin-end'] as const;
+/// Група-обгортка для окремого вікна «🎓 Річна — Welcome».
+export const WELCOME_GROUPS = ['welcome'] as const;
 
 export interface PaymentTemplateMeta {
   key: PaymentTemplateKey;
@@ -45,7 +53,8 @@ export interface PaymentTemplateMeta {
 }
 
 export const PAYMENT_TEMPLATE_GROUPS: { id: PaymentTemplateGroup; title: string; description: string }[] = [
-  { id: 'payment', title: '💳 Оплата', description: 'Welcome на першу оплату + receipt на кожне успішне списання.' },
+  { id: 'welcome', title: '🎓 Welcome', description: 'Вітальний лист на першу оплату Річної програми — з посиланням на Telegram-канал.' },
+  { id: 'payment', title: '💳 Оплата', description: 'Receipt на кожне успішне списання.' },
   { id: 'manual-add', title: '✉️ Запрошення вручну', description: 'Лист з персональним посиланням на оплату — коли менеджер додає студента вручну.' },
   { id: 'plan-change', title: '🔄 Зміна плану', description: 'Коли користувач переключається між разовою/автоплатежем.' },
   { id: 'admin-end', title: '🚪 Закриття менеджером', description: 'Коли менеджер скасовує/архівує/закриває доступ.' },
@@ -143,6 +152,10 @@ export const PLACEHOLDER_DESCRIPTIONS: Record<string, { what: string; consequenc
     what: 'Готовий HTML-блок з кнопкою «Долучитись у Telegram» (запрошувальне посилання вже всередині).',
     consequence: 'БЕЗ цього поля юзер не отримає посилання на канал — лист стане безглуздим.',
   },
+  telegramSection: {
+    what: 'Готовий блок «Telegram-канал Річної програми» з кнопкою «Долучитись у Telegram» (персональне посилання підставляється автоматично).',
+    consequence: 'БЕЗ цього поля у Welcome-листі не буде запрошення в Telegram-канал. Якщо для студента посилання ще не згенеровано — блок автоматично ховається повністю.',
+  },
 };
 
 /// Витягує inner-HTML з повного `bodyHtml` (зворотний бік `wrapInnerHtml`). Якщо wrapper не розпізнано —
@@ -157,14 +170,16 @@ export function extractInnerHtml(fullBodyHtml: string): string {
 export const PAYMENT_TEMPLATES: Record<PaymentTemplateKey, PaymentTemplateMeta> = {
   'welcome': {
     key: 'welcome',
-    group: 'payment',
+    group: 'welcome',
     title: '🎓 Welcome — перша оплата',
-    when: 'Перша оплата YEARLY або MONTHLY (wasFirstPayment=true). Без креденшилз — креденшилз видаються при launch cohort-у.',
-    placeholders: ['greeting', 'plan', 'autoRenewBullet'],
+    when: 'Перша оплата YEARLY або MONTHLY (wasFirstPayment=true) — шлеться автоматично всім, хто записався на Річну. Без креденшилз — креденшилз видаються при launch cohort-у. Містить запрошення в Telegram-канал.',
+    placeholders: ['greeting', 'plan', 'autoRenewBullet', 'telegramSection'],
     sampleData: {
       greeting: 'Доброго дня, Іван Петренко!',
       plan: 'Місячна оплата (одноразова)',
       autoRenewBullet: '',
+      telegramSection:
+        '<div style="font-family: Arial, Helvetica, sans-serif; max-width: 600px; margin: 8px auto 0; padding: 20px 24px; border-top: 1px solid #e6e0cf; color: #1a1a1a; line-height: 1.6;"><h3 style="margin: 0 0 8px; color: #1a1a1a;">📣 Telegram-канал Річної програми</h3><p style="margin: 0 0 14px; color: #444;">Долучайтесь до нашого Telegram-каналу — там ми ділимось новинами, нагадуваннями та відповідаємо на питання щодо організації навчання.</p><p style="margin: 0 0 8px;"><a href="https://t.me/+SAMPLE_INVITE" style="display: inline-block; padding: 10px 20px; background: #229ED9; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: bold;">Долучитись у Telegram</a></p><p style="margin: 8px 0 0; color: #888; font-size: 12px;">Посилання одноразове — діє лише для вас.</p></div>',
     },
     defaultSubject: 'Вітаємо на Річній програмі — Український інститут Душеопіки та Психотерапії',
     defaultBodyHtml: layout(`  <h2 style="color: #1a1a1a; margin: 0 0 16px;">Вітаємо на Річній програмі</h2>
@@ -175,7 +190,8 @@ export const PAYMENT_TEMPLATES: Record<PaymentTemplateKey, PaymentTemplateMeta> 
   <ul style="margin: 0 0 16px; padding-left: 20px;">
     <li style="margin-bottom: 8px;">Ми готуємо запуск програми. <b>Перед початком навчання</b> ви отримаєте окремий лист з вашими доступами до навчальної платформи (логін і пароль).</li>
     {autoRenewBullet}
-  </ul>`),
+  </ul>
+  {telegramSection}`),
   },
   'manual-add-invite': {
     key: 'manual-add-invite',

@@ -36,9 +36,17 @@ export async function sendYearlyProgramWelcomeEmail(args: {
     : '';
 
   const tpl = await getPaymentTemplate('welcome');
-  const vars = { greeting, plan: esc(planText), autoRenewBullet };
+  // Телеграм-секція тепер вбудована в шаблон welcome через плейсхолдер {telegramSection}
+  // (а не дописується після рендера). Якщо посилання нема — renderer повертає '' і блок
+  // зникає повністю, без «обрізаного» заголовка без кнопки.
+  const vars = {
+    greeting,
+    plan: esc(planText),
+    autoRenewBullet,
+    telegramSection: renderTelegramInviteEmailBlock(telegramInviteLink),
+  };
 
-  const html = renderTemplate(tpl.bodyHtml, vars) + renderTelegramInviteEmailBlock(telegramInviteLink);
+  const html = renderTemplate(tpl.bodyHtml, vars);
 
   return sendEmail({
     to,

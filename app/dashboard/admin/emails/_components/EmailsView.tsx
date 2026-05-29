@@ -23,8 +23,9 @@ const RemindersTemplatesModal = dynamic(
 const BundleTemplatesModal = dynamic(() => import('./BundleTemplatesModal'), { ssr: false });
 const SystemTemplatesModal = dynamic(() => import('./SystemTemplatesModal'), { ssr: false });
 const YearlyTelegramTemplatesModal = dynamic(() => import('./YearlyTelegramTemplatesModal'), { ssr: false });
+const WelcomeTemplatesModal = dynamic(() => import('./WelcomeTemplatesModal'), { ssr: false });
 
-type ModalKey = 'payment' | 'reminder' | 'bundle' | 'system' | 'yearly-telegram' | null;
+type ModalKey = 'welcome' | 'payment' | 'reminder' | 'bundle' | 'system' | 'yearly-telegram' | null;
 
 interface CategoryCard {
   key: Exclude<ModalKey, null>;
@@ -37,11 +38,19 @@ interface CategoryCard {
 
 const CATEGORIES: CategoryCard[] = [
   {
+    key: 'welcome',
+    emoji: '🎓',
+    title: 'Річна — Welcome',
+    subtitle: 'Вітальний лист + Telegram-канал',
+    description: 'Лист на першу оплату Річної — шлеться автоматично всім, хто записався. Містить запрошення в Telegram-канал.',
+    accent: 'emerald',
+  },
+  {
     key: 'payment',
     emoji: '💳',
     title: 'Річна — Оплати',
-    subtitle: 'Welcome, receipt, plan-changed, admin-end',
-    description: 'Транзакційні листи Річної програми — шлються автоматично при оплатах і зміні підписки.',
+    subtitle: 'receipt, plan-changed, admin-end',
+    description: 'Транзакційні листи Річної програми — чеки списань та зміни/закриття підписки.',
     accent: 'amber',
   },
   {
@@ -106,6 +115,9 @@ export default function EmailsView() {
         </div>
       </AdminPanel>
 
+      {openModal === 'welcome' && (
+        <WelcomeTemplatesModal theme={theme} onClose={() => setOpenModal(null)} />
+      )}
       {openModal === 'payment' && (
         <PaymentTemplatesModal theme={theme} onClose={() => setOpenModal(null)} />
       )}

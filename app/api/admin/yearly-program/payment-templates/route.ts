@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { isAdmin } from '@/lib/adminAuth';
-import { PAYMENT_TEMPLATES, PAYMENT_TEMPLATE_GROUPS, type PaymentTemplateKey } from '@/lib/emailTemplates/paymentTemplates';
+import { PAYMENT_TEMPLATES, PAYMENT_TEMPLATE_GROUPS, YEARLY_PAYMENT_GROUPS, type PaymentTemplateKey } from '@/lib/emailTemplates/paymentTemplates';
 
 /// GET — тонкий список усіх payment-template-ів. Тільки meta (без HTML-тіла).
 /// HTML-тіло вантажиться окремо, коли менеджер відкриває конкретний шаблон
@@ -17,9 +17,10 @@ export async function GET(req: NextRequest) {
   });
   const customByKey = new Map(customRows.map((r) => [r.templateKey, r]));
 
-  // Yearly-program scope = групи payment/plan-change/admin-end (без bundle).
+  // Yearly-program scope = групи payment/plan-change/admin-end (без bundle і без welcome).
+  // Welcome винесено в окрему групу 'welcome' (вікно «🎓 Річна — Welcome»).
   // Bundle-template-и обробляються окремим API: /api/admin/emails/bundle-templates.
-  const YEARLY_GROUPS = new Set(['payment', 'plan-change', 'admin-end']);
+  const YEARLY_GROUPS = new Set<string>(YEARLY_PAYMENT_GROUPS);
 
   const items = (Object.keys(PAYMENT_TEMPLATES) as PaymentTemplateKey[])
     .filter((key) => YEARLY_GROUPS.has(PAYMENT_TEMPLATES[key].group))

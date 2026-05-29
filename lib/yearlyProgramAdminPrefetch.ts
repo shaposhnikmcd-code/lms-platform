@@ -8,6 +8,7 @@ import prisma from '@/lib/prisma';
 import {
   PAYMENT_TEMPLATES,
   PAYMENT_TEMPLATE_GROUPS,
+  YEARLY_PAYMENT_GROUPS,
   type PaymentTemplateKey,
 } from '@/lib/emailTemplates/paymentTemplates';
 import {
@@ -83,23 +84,32 @@ async function buildPaymentTemplatesList(): Promise<PrewarmedTemplateList> {
   });
   const customByKey = new Map(customRows.map((r) => [r.templateKey, r]));
 
-  const items: PrewarmedTemplateListItem[] = (Object.keys(PAYMENT_TEMPLATES) as PaymentTemplateKey[]).map((key) => {
-    const meta = PAYMENT_TEMPLATES[key];
-    const custom = customByKey.get(key);
-    return {
-      key: meta.key,
-      group: meta.group,
-      title: meta.title,
-      when: meta.when,
-      placeholders: meta.placeholders,
-      sampleData: meta.sampleData,
-      isCustomized: !!custom,
-      updatedAt: custom?.updatedAt?.toISOString() ?? null,
-      updatedBy: custom?.updatedBy ?? null,
-    };
-  });
+  // ВАЖЛИВО: фільтруємо за тими ж групами, що й API /payment-templates (YEARLY_PAYMENT_GROUPS).
+  // Без фільтра prewarm віддавав ВСІ групи (welcome/telegram/bundle/system), а оскільки кеш
+  // модалок спільний (module-level, ключ 'payment'), у вікні «Оплати» вилазили дублі.
+  const allowedGroups = new Set<string>(YEARLY_PAYMENT_GROUPS);
 
-  return { items, groups: [...PAYMENT_TEMPLATE_GROUPS] };
+  const items: PrewarmedTemplateListItem[] = (Object.keys(PAYMENT_TEMPLATES) as PaymentTemplateKey[])
+    .filter((key) => allowedGroups.has(PAYMENT_TEMPLATES[key].group))
+    .map((key) => {
+      const meta = PAYMENT_TEMPLATES[key];
+      const custom = customByKey.get(key);
+      return {
+        key: meta.key,
+        group: meta.group,
+        title: meta.title,
+        when: meta.when,
+        placeholders: meta.placeholders,
+        sampleData: meta.sampleData,
+        isCustomized: !!custom,
+        updatedAt: custom?.updatedAt?.toISOString() ?? null,
+        updatedBy: custom?.updatedBy ?? null,
+      };
+    });
+
+  const groups = PAYMENT_TEMPLATE_GROUPS.filter((g) => allowedGroups.has(g.id));
+
+  return { items, groups };
 }
 
 async function buildReminderTemplatesList(): Promise<PrewarmedTemplateList> {
