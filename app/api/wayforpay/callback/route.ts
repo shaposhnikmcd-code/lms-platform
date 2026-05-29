@@ -986,7 +986,18 @@ async function handleYearlyProgramCallback(args: {
           autoRenew: sub.autoRenew,
           telegramInviteLink: tgInviteLink,
         });
-        if (result.ok) {
+        if (result.skipped) {
+          // Мейлер не налаштований (немає RESEND_API_KEY) — лист реально НЕ пішов.
+          // Логуємо чесно, щоб подія не показувала оманливе «sent».
+          actions.push('email:welcome_skipped_no_mailer');
+          await prisma.yearlyProgramSubscriptionEvent.create({
+            data: {
+              subscriptionId: sub.id,
+              type: 'admin_action',
+              message: 'Welcome lett ПРОПУЩЕНО — мейлер не налаштований (RESEND_API_KEY відсутній на цьому середовищі)',
+            },
+          });
+        } else if (result.ok) {
           actions.push('email:welcome_sent');
           await prisma.yearlyProgramSubscriptionEvent.create({
             data: {

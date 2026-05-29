@@ -21,7 +21,7 @@ export async function sendYearlyProgramWelcomeEmail(args: {
   /// Якщо null — нічого не додається. Робимо append, щоб не вимагати редагування
   /// існуючих кастомних шаблонів менеджером.
   telegramInviteLink?: string | null;
-}): Promise<{ ok: boolean; error?: string }> {
+}): Promise<{ ok: boolean; error?: string; skipped?: boolean }> {
   const { to, name, plan, autoRenew, telegramInviteLink } = args;
 
   const greeting = name && name.trim() ? `Доброго дня, ${esc(name.trim())}!` : 'Доброго дня!';

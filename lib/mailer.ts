@@ -44,7 +44,7 @@ export interface SendEmailArgs {
   replyTo?: string;
 }
 
-export async function sendEmail(args: SendEmailArgs): Promise<{ ok: boolean; error?: string; messageId?: string }> {
+export async function sendEmail(args: SendEmailArgs): Promise<{ ok: boolean; error?: string; messageId?: string; skipped?: boolean }> {
   const { to, subject, html, devPreviewHint, attachments, replyTo } = args;
 
   if (!resend) {
@@ -54,7 +54,9 @@ export async function sendEmail(args: SendEmailArgs): Promise<{ ok: boolean; err
       console.warn('📧 [mailer] attachments:', attachments.map((a) => `${a.filename} (${a.content.byteLength}B)`).join(', '));
     }
     if (devPreviewHint) console.warn('📧 [mailer] preview:', devPreviewHint);
-    return { ok: true };
+    // skipped:true — лист НЕ пішов (немає ключа). Виклики можуть це залогувати чесно,
+    // щоб не показувати оманливе «надіслано».
+    return { ok: true, skipped: true };
   }
 
   try {
