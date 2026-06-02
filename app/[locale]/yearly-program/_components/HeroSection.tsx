@@ -29,8 +29,8 @@ export default function HeroSection({ badge, title1, title2, description, btnEnr
         <div className="absolute top-0 -left-4 w-96 h-96 bg-white rounded-full blur-3xl" />
         <div className="absolute bottom-0 right-0 w-96 h-96 bg-[#D4A017] rounded-full blur-3xl" />
       </div>
-      <div className="container mx-auto px-12 md:px-16 relative z-10 py-4 md:py-6">
-        <div className="grid lg:grid-cols-2 gap-16 items-center">
+      <div className="container mx-auto px-5 sm:px-8 md:px-12 lg:px-16 relative z-10 py-8 md:py-6">
+        <div className="grid lg:grid-cols-2 gap-10 lg:gap-16 items-center">
           <div className="space-y-6">
             <div className="inline-block px-4 py-2 bg-white/10 backdrop-blur-sm rounded-full text-sm">{badge}</div>
             <h1 className="text-5xl md:text-7xl font-bold leading-[1.05]">
@@ -55,7 +55,7 @@ export default function HeroSection({ badge, title1, title2, description, btnEnr
                 {btnProgram}
               </Link>
             </div>
-            <div className="flex items-start gap-8 pt-2 border-t border-white/10">
+            <div className="flex flex-wrap lg:flex-nowrap items-start gap-x-6 gap-y-4 sm:gap-x-8 pt-4 border-t border-white/10">
               {stats.map((s, i) => (
                 <div key={i} className="text-center">
                   <div className="text-2xl font-black text-[#D4A017]">{s.value}</div>

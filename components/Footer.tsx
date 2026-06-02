@@ -41,7 +41,7 @@ export default function Footer() {
         <div className="max-w-5xl mx-auto" style={{ position: 'relative', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', minHeight: 68 }}>
 
           {/* Заголовок зліва — абсолютно */}
-          <div className="hidden sm:flex" style={{ position: 'absolute', left: -80, bottom: 14, flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}>
+          <div className="hidden xl:flex" style={{ position: 'absolute', left: -80, bottom: 14, flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}>
             <span style={{ fontSize: 9, letterSpacing: '0.3em', textTransform: 'uppercase', color: 'rgba(212,168,67,0.5)', fontWeight: 700 }}>{"UIMP"}</span>
             <span className="text-sm font-bold tracking-[0.2em] uppercase" style={{ color: '#D4A843' }}>{t('social')}</span>
             <div style={{ height: 1, width: '100%', background: 'linear-gradient(to right, #D4A843, transparent)' }} />
@@ -82,7 +82,7 @@ export default function Footer() {
       </div>
 
       {/* Основний рядок */}
-      <div className="max-w-7xl mx-auto px-6 py-5 flex flex-col md:flex-row items-center justify-between gap-5">
+      <div className="max-w-7xl mx-auto px-6 py-5 flex flex-col lg:flex-row flex-wrap items-center justify-between gap-5">
         <div className="flex items-center gap-3 flex-shrink-0">
           <span className="text-[#D4A843] font-bold text-sm tracking-widest uppercase">{"UIMP"}</span>
           <span className="text-white/60 text-xs hidden md:block">{t('institute')}</span>
@@ -98,7 +98,7 @@ export default function Footer() {
             <a href={emailUrl} className={linkClass}>{emailDisplay}</a>
           </div>
         </div>
-        <p className="text-white/50 text-xs flex-shrink-0">{`© ${currentYear} Ukrainian Institute of Ministry and Psychotherapy. `}{t('allRightsReserved')}</p>
+        <p className="text-white/50 text-xs text-center lg:text-right">{`© ${currentYear} Ukrainian Institute of Ministry and Psychotherapy. `}{t('allRightsReserved')}</p>
       </div>
     </footer>
   );

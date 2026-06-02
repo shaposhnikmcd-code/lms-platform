@@ -32,7 +32,7 @@ export default function WhyChooseUimp() {
           >
             {t("whyTitle")}
           </h2>
-          <div style={{ height: 1, width: 320, margin: "0 auto 14px", background: "linear-gradient(90deg, transparent 0%, rgba(212,168,67,0.15) 20%, #D4A843 50%, rgba(212,168,67,0.15) 80%, transparent 100%)" }} />
+          <div style={{ height: 1, width: "min(320px, 100%)", margin: "0 auto 14px", background: "linear-gradient(90deg, transparent 0%, rgba(212,168,67,0.15) 20%, #D4A843 50%, rgba(212,168,67,0.15) 80%, transparent 100%)" }} />
           <p style={{ color: "#4A5E50", fontWeight: 500, fontSize: 15, margin: 0 }}>
             {t("whySubtitle")}
           </p>

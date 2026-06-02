@@ -67,7 +67,7 @@ export default function Directions({ content }: Props) {
           <h2 style={{ fontFamily: sysFont, fontSize: 'clamp(28px, 4vw, 44px)', fontWeight: 700, color: '#1C3A2E', lineHeight: 1.1, margin: '0 0 16px', letterSpacing: '-0.01em' }}>
             {content.title}
           </h2>
-          <div style={{ height: 1, width: 320, margin: '0 auto 14px', background: 'linear-gradient(90deg, transparent 0%, rgba(212,168,67,0.15) 20%, #D4A843 50%, rgba(212,168,67,0.15) 80%, transparent 100%)' }} />
+          <div style={{ height: 1, width: 'min(320px, 100%)', margin: '0 auto 14px', background: 'linear-gradient(90deg, transparent 0%, rgba(212,168,67,0.15) 20%, #D4A843 50%, rgba(212,168,67,0.15) 80%, transparent 100%)' }} />
           <p style={{ fontSize: 14, color: 'rgba(28,58,46,0.5)', lineHeight: 1.65, fontFamily: sysFont, margin: '0 auto', maxWidth: 480 }}>
             {content.subtitle}
           </p>
