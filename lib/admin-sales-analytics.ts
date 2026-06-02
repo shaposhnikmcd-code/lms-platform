@@ -3,7 +3,7 @@ import prisma from '@/lib/prisma';
 /// Series продажів для адмін-дашборду. Працюємо в часовій зоні Europe/Kyiv,
 /// інакше платежі біля півночі потраплятимуть у "не той" календарний день/місяць.
 
-export type SalesPeriod = '1m' | '3m' | '6m' | '1y' | 'all';
+export type SalesPeriod = '30d' | '1m' | '3m' | '6m' | '1y' | 'all';
 export type CategoryKey = 'courses' | 'bundles' | 'yearly' | 'connector';
 export type Granularity = 'day' | 'week' | 'month';
 
@@ -219,6 +219,14 @@ function pickRange(period: SalesPeriod, earliestPaymentAt: Date | null): { start
   const monthStart = startOfMonthKyiv(now);
   const monthEnd = endOfMonthKyiv(now);
   switch (period) {
+    case '30d': {
+      /// Ковзне вікно: сьогодні + 29 попередніх днів = рівно 30 днів. End = кінець сьогодні.
+      const tp = tzParts(now);
+      const todayStart = kyivStartOfDay(tp.year, tp.month, tp.day);
+      const start = addDaysKyiv(todayStart, -29);
+      const end = new Date(addDaysKyiv(todayStart, 1).getTime() - 1);
+      return { start, end, granularity: 'day' };
+    }
     case '1m':
       return { start: monthStart, end: monthEnd, granularity: 'day' };
     case '3m':

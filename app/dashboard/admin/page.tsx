@@ -8,6 +8,7 @@ const CONNECTOR_STANDARD_PRICE = 1099;
 const CONNECTOR_ADMIN_TEST_PRICE = 1;
 
 const PERIOD_OPTIONS: { value: SalesPeriod; label: string }[] = [
+  { value: '30d', label: 'Останні 30 днів' },
   { value: '1m', label: '1 міс.' },
   { value: '3m', label: '3 міс.' },
   { value: '6m', label: '6 міс.' },
@@ -22,9 +23,9 @@ export default async function AdminDashboard({
 }) {
   const { period, productPeriod } = await searchParams;
   const activePeriod = PERIOD_OPTIONS.find(p => p.value === period) ?? PERIOD_OPTIONS[0];
-  /// Окремий фільтр для блоку «Продажі по продуктах». Default = 'all' (вимога користувача).
+  /// Окремий фільтр для блоку «Продажі по продуктах». Default = '30d' (останні 30 днів).
   const activeProductPeriod = PERIOD_OPTIONS.find(p => p.value === productPeriod)
-    ?? PERIOD_OPTIONS.find(p => p.value === 'all')!;
+    ?? PERIOD_OPTIONS.find(p => p.value === '30d')!;
 
   const [
     series,
