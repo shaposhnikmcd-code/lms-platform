@@ -24,7 +24,7 @@ export type ProductSalesData = {
 
 /// Підсумок продажів по продуктах за період.
 /// — Курси: прямі покупки + частка від продажів пакетів (зважено по catalog price).
-/// — Cohort-и Річної програми: тільки запущені (launchedAt != null) і з продажами в періоді.
+/// — Річна програма: 3 типи покупок (Річна / Місячна разова / Місячна автоплатіж), всі окремими рядками.
 /// — Конектор: один рядок з агрегатом.
 /// Тестові оплати ADMIN/MANAGER виключаються (як у chart-аналітиці).
 export async function getSalesByProduct(period: SalesPeriod): Promise<ProductSalesData> {
@@ -53,7 +53,8 @@ export async function getSalesByProduct(period: SalesPeriod): Promise<ProductSal
       yearlyProgramSubscription: {
         select: {
           id: true,
-          cohort: { select: { id: true, name: true, startDate: true, launchedAt: true } },
+          plan: true,
+          autoRenew: true,
         },
       },
     },
@@ -76,7 +77,13 @@ export async function getSalesByProduct(period: SalesPeriod): Promise<ProductSal
   }
 
   const courseAcc = new Map<string, { id: string; title: string; slug: string; count: number; sum: number }>();
-  const cohortAcc = new Map<string, { id: string; name: string; startDate: Date | null; subs: Set<string>; sum: number }>();
+  /// Річна програма — 3 типи покупок (за CLAUDE.md мапінгом Тип/Вид):
+  ///   yearly        → «Річна підписка» (plan=YEARLY)
+  ///   monthly_once  → «Місячна на 1 міс.» (plan=MONTHLY, autoRenew=false)
+  ///   monthly_auto  → «Місячна Автоплатіж» (plan=MONTHLY, autoRenew=true)
+  /// Рахуємо кожен PAID-платіж окремо (автоплатіж = N списань = N продажів).
+  type YearlyVariant = 'yearly' | 'monthly_once' | 'monthly_auto';
+  const yearlyAcc = new Map<YearlyVariant, { count: number; sum: number }>();
 
   function bumpCourse(id: string, title: string, slug: string, addSum: number, addCount: number) {
     const cur = courseAcc.get(id) ?? { id, title, slug, count: 0, sum: 0 };
@@ -119,20 +126,18 @@ export async function getSalesByProduct(period: SalesPeriod): Promise<ProductSal
       }
       continue;
     }
-    if (p.yearlyProgramSubscriptionId && p.yearlyProgramSubscription?.cohort) {
-      const cohort = p.yearlyProgramSubscription.cohort;
-      /// Тільки cohort-и, що стартували (launchedAt не null) — вимога користувача.
-      if (!cohort.launchedAt) continue;
-      const cur = cohortAcc.get(cohort.id) ?? {
-        id: cohort.id,
-        name: cohort.name,
-        startDate: cohort.startDate ?? null,
-        subs: new Set<string>(),
-        sum: 0,
-      };
+    if (p.yearlyProgramSubscriptionId && p.yearlyProgramSubscription) {
+      const sub = p.yearlyProgramSubscription;
+      const variant: YearlyVariant =
+        sub.plan === 'YEARLY'
+          ? 'yearly'
+          : sub.autoRenew
+            ? 'monthly_auto'
+            : 'monthly_once';
+      const cur = yearlyAcc.get(variant) ?? { count: 0, sum: 0 };
       cur.sum += p.amount;
-      cur.subs.add(p.yearlyProgramSubscription.id);
-      cohortAcc.set(cohort.id, cur);
+      cur.count += 1;
+      yearlyAcc.set(variant, cur);
     }
   }
 
@@ -161,17 +166,21 @@ export async function getSalesByProduct(period: SalesPeriod): Promise<ProductSal
       sum: Math.round(c.sum),
     });
   }
-  for (const c of cohortAcc.values()) {
-    const dateLabel = c.startDate
-      ? `Старт ${c.startDate.toLocaleDateString('uk-UA', { day: '2-digit', month: 'short', year: 'numeric' })}`
-      : undefined;
+  const YEARLY_VARIANT_META: { variant: YearlyVariant; title: string; subtitle: string }[] = [
+    { variant: 'yearly', title: 'Річна підписка', subtitle: 'Оплата за рік' },
+    { variant: 'monthly_once', title: 'Місячна на 1 міс.', subtitle: 'Разова без автопродовження' },
+    { variant: 'monthly_auto', title: 'Місячна Автоплатіж', subtitle: 'Щомісячне автосписання' },
+  ];
+  for (const meta of YEARLY_VARIANT_META) {
+    const acc = yearlyAcc.get(meta.variant);
+    if (!acc || acc.count === 0) continue;
     rows.push({
-      key: `cohort:${c.id}`,
+      key: `yearly:${meta.variant}`,
       type: 'cohort',
-      title: c.name,
-      subtitle: dateLabel,
-      count: c.subs.size,
-      sum: c.sum,
+      title: meta.title,
+      subtitle: meta.subtitle,
+      count: acc.count,
+      sum: acc.sum,
     });
   }
   if (connectorCount > 0) {

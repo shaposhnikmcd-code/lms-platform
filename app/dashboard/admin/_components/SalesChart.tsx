@@ -25,6 +25,11 @@ const CATEGORIES: { key: CategoryKey; label: string; color: string }[] = [
   { key: 'connector', label: 'Гра Конектор', color: '#38BDF8' },
 ];
 
+/// Порядок укладання областей у стеку (перший = нижній шар).
+/// Конектор має лежати ПІД іншими, тож він перший.
+const STACK_ORDER: CategoryKey[] = ['connector', 'courses', 'bundles', 'yearly'];
+const STACKED_CATEGORIES = STACK_ORDER.map(k => CATEGORIES.find(c => c.key === k)!);
+
 function formatK(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
   if (n >= 10_000) return `${Math.round(n / 1000)}k`;
@@ -334,7 +339,7 @@ export default function SalesChart({ series, theme }: Props) {
               cursor={{ stroke: dark ? 'rgba(212,168,67,0.4)' : 'rgba(180,83,9,0.32)', strokeWidth: 1, strokeDasharray: '3 4' }}
             />
 
-            {CATEGORIES.map(c => (
+            {STACKED_CATEGORIES.map(c => (
               <Area
                 key={c.key}
                 type="monotone"
