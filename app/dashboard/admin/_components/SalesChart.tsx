@@ -114,17 +114,23 @@ export default function SalesChart({ series, theme }: Props) {
     return result;
   }, [series.buckets, series.granularity]);
 
-  /// Round Y-axis max to a nice value (1, 2, 5 × 10^n) щоб overlay-числа сиділи точно.
-  const niceMax = useMemo(() => {
+  /// Стеля Y-осі + round-поділки. Округлюємо дрібно (мантиси 1…10 з кроком ~0.5)
+  /// з невеликим запасом над піком (для лейбла), щоб не лишалось пустого простору
+  /// зверху (раніше правило 1/2/5×10ⁿ кидало пік 30k аж до 50k).
+  const { niceMax, yTicks } = useMemo(() => {
     const max = Math.max(0, ...data.map(d => d.total)) || 1;
     const exp = Math.pow(10, Math.floor(Math.log10(max)));
-    const f = max / exp;
-    let nice;
-    if (f <= 1) nice = 1;
-    else if (f <= 2) nice = 2;
-    else if (f <= 5) nice = 5;
-    else nice = 10;
-    return nice * exp;
+    const mant = [1, 1.5, 2, 2.5, 3, 3.5, 4, 5, 6, 8, 10];
+    const f = (max * 1.05) / exp; // +5% запасу під лейбл над піком
+    const niceMax = (mant.find(s => s >= f) ?? 10) * exp;
+    /// Крок поділок ≈ niceMax/5, округлений до 1/2/5×10ᵏ — щоб мітки були круглі.
+    const rawStep = niceMax / 5;
+    const stepExp = Math.pow(10, Math.floor(Math.log10(rawStep)));
+    const sf = rawStep / stepExp;
+    const step = (sf >= 5 ? 5 : sf >= 2 ? 2 : 1) * stepExp;
+    const yTicks: number[] = [];
+    for (let t = 0; t <= niceMax + 0.5; t += step) yTicks.push(t);
+    return { niceMax, yTicks };
   }, [data]);
 
   /// Явний список tick-індексів для XAxis. Для day — кожен 2-й день (15 міток на 30 днів),
@@ -333,6 +339,7 @@ export default function SalesChart({ series, theme }: Props) {
               tickFormatter={formatK}
               width={48}
               domain={[0, niceMax]}
+              ticks={yTicks}
             />
 
             <Tooltip
