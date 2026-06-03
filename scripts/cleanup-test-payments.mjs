@@ -235,21 +235,28 @@ async function main() {
     const payDel = await tx.payment.deleteMany({ where: { id: { in: paymentIds } } });
     console.log(`✅ Payment deleted: ${payDel.count}`);
 
-    // 5. Тепер subscription можна дропати (events — Cascade FK)
+    // 5. Тепер subscription можна дропати (events/dismissals — Cascade FK).
+    //    Реальний клієнт = підписка з PAID-платежем >2₴. ЛИШЕ такий платіж захищає
+    //    підписку від видалення. FAILED/PENDING-залишки (відхилена картка тощо) —
+    //    НЕ ознака реальної оплати, тож тестову підписку з ними все одно зносимо.
+    //    (Без цього guard лишав ACTIVE-сироти без жодної реальної оплати — bug-фікс.)
     if (yearlySubIds.length) {
-      // Перевірити чи на цих subscription-ах не лишилось інших Payment-ів (реальних)
-      const remaining = await tx.payment.findMany({
-        where: { yearlyProgramSubscriptionId: { in: yearlySubIds } },
-        select: { id: true, yearlyProgramSubscriptionId: true, amount: true, orderReference: true },
+      const realPaid = await tx.payment.findMany({
+        where: { yearlyProgramSubscriptionId: { in: yearlySubIds }, status: 'PAID', amount: { gt: 2 } },
+        select: { yearlyProgramSubscriptionId: true, amount: true, orderReference: true },
       });
-      if (remaining.length) {
-        console.log(`⚠️  ${remaining.length} Payment-ів залишились на тестових підписках (НЕ 1₴/2₴). Subscriptions НЕ видаляю:`);
-        for (const r of remaining) console.log(`   - ${r.orderReference} ${r.amount}₴ → sub ${r.yearlyProgramSubscriptionId}`);
-        const safeSubIds = yearlySubIds.filter(id => !remaining.some(r => r.yearlyProgramSubscriptionId === id));
-        const subDel = await tx.yearlyProgramSubscription.deleteMany({ where: { id: { in: safeSubIds } } });
-        console.log(`✅ YearlyProgramSubscription deleted (без тих що з реальними payments): ${subDel.count}`);
-      } else {
-        const subDel = await tx.yearlyProgramSubscription.deleteMany({ where: { id: { in: yearlySubIds } } });
+      const protectedSubIds = new Set(realPaid.map(r => r.yearlyProgramSubscriptionId));
+      if (protectedSubIds.size) {
+        console.log(`⚠️  ${protectedSubIds.size} підписок мають РЕАЛЬНУ оплату (PAID >2₴) — НЕ видаляю:`);
+        for (const r of realPaid) console.log(`   - ${r.orderReference} ${r.amount}₴ → sub ${r.yearlyProgramSubscriptionId}`);
+      }
+      const deletableSubIds = yearlySubIds.filter(id => !protectedSubIds.has(id));
+      if (deletableSubIds.length) {
+        // Спершу прибрати залишкові НЕ-PAID платежі (FAILED/PENDING) цих підписок —
+        // інакше Payment→Subscription FK не дасть видалити підписку.
+        const leftoverDel = await tx.payment.deleteMany({ where: { yearlyProgramSubscriptionId: { in: deletableSubIds } } });
+        if (leftoverDel.count) console.log(`✅ Залишкові не-PAID платежі тестових підписок видалено: ${leftoverDel.count}`);
+        const subDel = await tx.yearlyProgramSubscription.deleteMany({ where: { id: { in: deletableSubIds } } });
         console.log(`✅ YearlyProgramSubscription deleted: ${subDel.count}`);
       }
     }

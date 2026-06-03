@@ -30,7 +30,8 @@ export type IssueKind =
   | 'TG_INVITE_FAILED'
   | 'TG_KICK_FAILED'
   | 'SP_CLOSE_FAILED'
-  | 'SP_REOPEN_FAILED';
+  | 'SP_REOPEN_FAILED'
+  | 'ORPHAN_NO_PAYMENT';
 
 export const ISSUE_KIND_VALUES: IssueKind[] = [
   'LAUNCH_ACCESS_FAILED',
@@ -39,6 +40,7 @@ export const ISSUE_KIND_VALUES: IssueKind[] = [
   'TG_KICK_FAILED',
   'SP_CLOSE_FAILED',
   'SP_REOPEN_FAILED',
+  'ORPHAN_NO_PAYMENT',
 ];
 
 export type IssueSeverity = 'critical' | 'warning' | 'info';
@@ -54,6 +56,7 @@ export const ISSUE_KIND_SEVERITY: Record<IssueKind, IssueSeverity> = {
   TG_KICK_FAILED: 'info',
   SP_CLOSE_FAILED: 'info',
   SP_REOPEN_FAILED: 'warning',
+  ORPHAN_NO_PAYMENT: 'critical',
 };
 
 const SEVERITY_RANK: Record<IssueSeverity, number> = { critical: 0, warning: 1, info: 2 };
@@ -82,6 +85,7 @@ export const ISSUE_KIND_LABELS: Record<IssueKind, string> = {
   TG_KICK_FAILED: 'Telegram: вилучення/ban не виконано',
   SP_CLOSE_FAILED: 'SendPulse: close-access помилка',
   SP_REOPEN_FAILED: 'SendPulse: reopen-access помилка',
+  ORPHAN_NO_PAYMENT: 'Цілісність: активна підписка без жодної оплати',
 };
 
 /// Чи є retry-action для kind-у — впливає на UI (показ кнопки «Спробувати ще»).
@@ -93,6 +97,7 @@ export const ISSUE_HAS_RETRY: Record<IssueKind, boolean> = {
   TG_KICK_FAILED: false,        // одноразова дія, повторювати не варто
   SP_CLOSE_FAILED: false,       // менеджер натискає "Закрити доступ" знову вручну
   SP_REOPEN_FAILED: false,      // менеджер натискає "Відкрити доступ" знову вручну
+  ORPHAN_NO_PAYMENT: false,     // ручний розбір: видалити сироту або знайти втрачений платіж
 };
 
 export interface IssueRecord {
@@ -127,6 +132,7 @@ export interface IssuesPayload {
 interface RawSubscription {
   id: string;
   plan: 'YEARLY' | 'MONTHLY';
+  status: string;
   updatedAt: Date;
   telegramInviteError: string | null;
   telegramInvitedAt: Date | null;
@@ -206,12 +212,13 @@ function stateBasedIssues(sub: RawSubscription): { kind: IssueKind; errorExcerpt
 /// запитів, далі агрегація в пам'яті. Не залежить від адмін-сесії — викликається з API
 /// route, який сам гейтується isAdmin.
 export async function collectAllIssues(): Promise<IssuesPayload> {
-  const [subs, events, dismissals] = await Promise.all([
+  const [subs, events, dismissals, paidRows] = await Promise.all([
     prisma.yearlyProgramSubscription.findMany({
       where: { status: { not: 'ARCHIVED' } },
       select: {
         id: true,
         plan: true,
+        status: true,
         updatedAt: true,
         telegramInviteError: true,
         telegramInvitedAt: true,
@@ -250,7 +257,16 @@ export async function collectAllIssues(): Promise<IssuesPayload> {
         reason: true,
       },
     }),
+    /// Для детектора цілісності ORPHAN_NO_PAYMENT — множина підписок, що мають
+    /// хоч один PAID-платіж. Підписка в «оплаченому» статусі поза цією множиною = аномалія.
+    prisma.payment.findMany({
+      where: { yearlyProgramSubscriptionId: { not: null }, status: 'PAID' },
+      select: { yearlyProgramSubscriptionId: true },
+      distinct: ['yearlyProgramSubscriptionId'],
+    }),
   ]);
+
+  const paidSubIds = new Set(paidRows.map((r) => r.yearlyProgramSubscriptionId).filter(Boolean) as string[]);
 
   const subById = new Map<string, RawSubscription>(subs.map((s) => [s.id, s]));
 
@@ -341,6 +357,32 @@ export async function collectAllIssues(): Promise<IssuesPayload> {
         dismissedReason: dismissal?.reason ?? null,
       });
     }
+  }
+
+  // Детектор цілісності ORPHAN_NO_PAYMENT: підписка в «оплаченому» статусі
+  // (ACTIVE/GRACE/EXPIRED/CANCELLED) без жодного PAID-платежу — це порушення інваріанта
+  // (втрачений платіж / тестовий залишок / ручна правка БД). PENDING сюди НЕ входить —
+  // там відсутність оплати нормальна (незавершений чекаут, його архівує cron).
+  const ORPHAN_PAID_STATUSES = new Set(['ACTIVE', 'GRACE', 'EXPIRED', 'CANCELLED']);
+  for (const sub of subs) {
+    if (!sub.user) continue;
+    if (!ORPHAN_PAID_STATUSES.has(sub.status)) continue;
+    if (paidSubIds.has(sub.id)) continue;
+    if (haveEventRecord.has(`${sub.id}::ORPHAN_NO_PAYMENT`)) continue;
+    const dismissal = dismissalMap.get(dismissalKey(sub.id, 'ORPHAN_NO_PAYMENT'));
+    records.push({
+      subscriptionId: sub.id,
+      kind: 'ORPHAN_NO_PAYMENT',
+      lastOccurredAt: sub.updatedAt.toISOString(),
+      occurrenceCount: 1,
+      errorExcerpt: `Статус ${sub.status}, але жодного PAID-платежу не знайдено.`,
+      user: sub.user,
+      plan: sub.plan,
+      cohortName: sub.cohort?.name ?? null,
+      dismissedAt: dismissal?.dismissedAt.toISOString() ?? null,
+      dismissedBy: dismissal?.dismissedBy ?? null,
+      dismissedReason: dismissal?.reason ?? null,
+    });
   }
 
   // Розділяємо active vs dismissed. Issue active якщо:

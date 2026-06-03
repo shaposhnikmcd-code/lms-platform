@@ -26,7 +26,8 @@ type IssueKind =
   | 'TG_INVITE_FAILED'
   | 'TG_KICK_FAILED'
   | 'SP_CLOSE_FAILED'
-  | 'SP_REOPEN_FAILED';
+  | 'SP_REOPEN_FAILED'
+  | 'ORPHAN_NO_PAYMENT';
 
 const ALL_KINDS: IssueKind[] = [
   'LAUNCH_ACCESS_FAILED',
@@ -35,6 +36,7 @@ const ALL_KINDS: IssueKind[] = [
   'TG_KICK_FAILED',
   'SP_CLOSE_FAILED',
   'SP_REOPEN_FAILED',
+  'ORPHAN_NO_PAYMENT',
 ];
 
 type Severity = 'critical' | 'warning' | 'info';
@@ -174,6 +176,27 @@ const CATALOG: Record<IssueKind, CatalogEntry> = {
       'Зачекайте 1–2 хвилини і натисніть «Відкрити доступ» повторно.',
       'Перегляньте стан акаунту студента в SP-кабінеті.',
       'У крайньому разі — додайте студента до курсу вручну в SP.',
+    ],
+    hasRetry: false,
+  },
+  ORPHAN_NO_PAYMENT: {
+    severity: 'critical',
+    icon: '🧮',
+    shortTitle: 'Без оплати',
+    title: 'Активна підписка без жодної оплати',
+    whatHappened:
+      'Підписка має «оплачений» статус (Активний / Grace / Доступ закрито / Скасовано), але в системі немає жодного успішного (PAID) платежу. У нормі такого бути не може — статус і оплата розійшлися.',
+    sideEffects:
+      'Студент може мати відкритий доступ, за який реально не надійшло грошей. Така підписка спотворює дохід і статистику.',
+    causes: [
+      'Тестовий залишок: активуючий 1-2₴ платіж було видалено при чистці тестових оплат.',
+      'Втрачений/відв’язаний платіж — Payment-запис зник або відв’язався від підписки.',
+      'Ручна правка статусу в БД без відповідної оплати.',
+    ],
+    actions: [
+      'Перевірте «Платежі» та «Події» цієї підписки — чи був реальний платіж.',
+      'Якщо це тест або помилка — видаліть підписку (scripts/cleanup-orphan-yearly-subs.mjs --execute).',
+      'Якщо платіж реально був, але загубився — відновіть Payment-запис і прив’яжіть до підписки, потім заглушіть issue.',
     ],
     hasRetry: false,
   },
