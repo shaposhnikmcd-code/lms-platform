@@ -3,31 +3,26 @@ import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import prisma from '@/lib/prisma';
 import { isAdmin, getAdminActor } from '@/lib/adminAuth';
-import { calculateAccessUntil } from '@/lib/yearlyProgramAccess';
-import { getYearlyPostAccessMonths } from '@/lib/yearlyProgramConfig';
-import { runExtraLaunchForSubscription } from '@/lib/yearlyProgramLaunch';
 import { parseTelegramUsername } from '@/lib/telegramUsername';
 import { createPasswordResetToken } from '@/lib/passwordResetToken';
 import { sendEmail, appBaseUrl, esc } from '@/lib/mailer';
 import { getPaymentTemplate, renderTemplate } from '@/lib/emailTemplates/paymentTemplates';
 
 /// POST /api/admin/yearly-program/manual-add
-/// Body: { email, name?, plan, cohortId, telegramUsername?, openAccessNow, sendPasswordEmail? }
+/// Body: { email, name?, plan, cohortId, telegramUsername?, sendPasswordEmail? }
 ///
-/// Менеджер додає студента у Річну програму ВРУЧНУ, БЕЗ нової оплати (напр. перенесення
-/// з минулорічного набору — людина вже навчалась/оплачувала раніше). Платіж НЕ створюється —
-/// дохід не чіпаємо.
+/// Менеджер заводить студента у Річну програму ВРУЧНУ. Створює запис у статусі PENDING
+/// (очікує підтвердження оплати) — БЕЗ доступу й без впливу на дохід. Активується підписка
+/// окремо: менеджер тисне 💵 «Підтвердити оплату вручну» на рядку → створюється Payment(PAID),
+/// статус стає ACTIVE, відкривається SendPulse + welcome-лист (через існуючий manual_payment-флоу).
 ///
 /// Кроки:
 /// 1. Знайти User за email; якщо нема — створити (рандомний пароль). За прапорцем
 ///    sendPasswordEmail — надіслати лист для встановлення пароля (INVITE-токен, 7 днів).
-/// 2. Створити YearlyProgramSubscription у вибраному cohort зі статусом ACTIVE,
-///    manuallyAddedAt=now, manuallyAddedBy=email менеджера, expiresAt через
-///    calculateAccessUntil. Без платежів calculateAccessUntil поверне null → для cohort-у
-///    ставимо cohort.endDate + postAccessMonths напряму.
-/// 3. Якщо openAccessNow=true і cohort launched — відкрити SendPulse + welcome-лист через
-///    runExtraLaunchForSubscription.
-/// 4. Лог події admin_action «Додано вручну без оплати by <manager>».
+/// 2. Створити YearlyProgramSubscription у вибраному cohort зі статусом PENDING
+///    (expiresAt=null, доступу ще нема), manuallyAddedAt=now, manuallyAddedBy=email менеджера.
+///    Платіж НЕ створюється.
+/// 3. Лог події admin_action «Додано вручну, очікує підтвердження оплати by <manager>».
 ///
 /// Захист від дублів: якщо в юзера вже є жива (PENDING/ACTIVE/GRACE) підписка — 409.
 export async function POST(req: NextRequest) {
@@ -43,7 +38,6 @@ export async function POST(req: NextRequest) {
     plan?: string;
     cohortId?: string;
     telegramUsername?: string;
-    openAccessNow?: boolean;
     sendPasswordEmail?: boolean;
   };
 
@@ -76,7 +70,7 @@ export async function POST(req: NextRequest) {
 
   const cohort = await prisma.yearlyProgramCohort.findUnique({
     where: { id: cohortId },
-    select: { id: true, name: true, startDate: true, endDate: true, launchedAt: true },
+    select: { id: true, name: true },
   });
   if (!cohort) {
     return NextResponse.json({ error: 'Cohort не знайдено' }, { status: 404 });
@@ -120,7 +114,7 @@ export async function POST(req: NextRequest) {
   if (existing) {
     return NextResponse.json(
       {
-        error: `У студента вже є активна підписка (${existing.plan}, ${existing.status}). Другу не створюю.`,
+        error: `У студента вже є підписка (${existing.plan}, ${existing.status}). Другу не створюю.`,
         code: 'subscription_exists',
         subscriptionId: existing.id,
       },
@@ -128,29 +122,15 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // 2) Розрахунок expiresAt. Без платежів calculateAccessUntil → null, тому для cohort-у
-  //    ставимо cohort.endDate + postAccessMonths напряму (та сама логіка, що для YEARLY).
-  const postAccessMonths = await getYearlyPostAccessMonths(prisma);
-  let expiresAt = calculateAccessUntil({
-    plan,
-    autoRenew: false,
-    cohort: { startDate: cohort.startDate, endDate: cohort.endDate },
-    payments: [],
-    postAccessMonths,
-  });
-  if (!expiresAt) {
-    expiresAt = addCalendarMonths(cohort.endDate, postAccessMonths);
-  }
-
+  // 2) Створюємо PENDING-підписку без доступу. expiresAt/startDate лишаємо null —
+  //    їх проставить активація (натискання 💵 «Підтвердити оплату вручну»).
   const now = new Date();
   const sub = await prisma.yearlyProgramSubscription.create({
     data: {
       userId: user.id,
       plan,
       autoRenew: false,
-      status: 'ACTIVE',
-      startDate: cohort.startDate,
-      expiresAt,
+      status: 'PENDING',
       cohortId: cohort.id,
       manuallyAddedAt: now,
       manuallyAddedBy: managerLabel,
@@ -159,19 +139,18 @@ export async function POST(req: NextRequest) {
     select: { id: true },
   });
 
-  // 4) Лог події (створюємо одразу — щоб подія була навіть якщо extra-launch впаде).
+  // 3) Лог події.
   await prisma.yearlyProgramSubscriptionEvent.create({
     data: {
       subscriptionId: sub.id,
       type: 'admin_action',
-      message: `Додано вручну без оплати by ${managerLabel}`,
+      message: `Додано вручну, очікує підтвердження оплати by ${managerLabel}`,
       metadata: {
-        manualAddNoPayment: true,
+        manualAddPendingPayment: true,
         actor: managerLabel,
         plan,
         cohortId: cohort.id,
         userCreated: createdUser,
-        openAccessNow: !!body.openAccessNow,
       },
     },
   });
@@ -182,39 +161,13 @@ export async function POST(req: NextRequest) {
     passwordEmail = await sendPasswordSetupEmail(user.id, user.email, user.name);
   }
 
-  // 3) Відкриття доступу + welcome-лист, якщо попросили і cohort launched.
-  let extraLaunch: Awaited<ReturnType<typeof runExtraLaunchForSubscription>> | null = null;
-  if (body.openAccessNow) {
-    if (!cohort.launchedAt) {
-      // Cohort ще не запущено — доступ відкриється на загальному запуску. Не помилка.
-      extraLaunch = null;
-    } else {
-      extraLaunch = await runExtraLaunchForSubscription(sub.id, managerLabel);
-    }
-  }
-
   return NextResponse.json({
     ok: true,
     subscriptionId: sub.id,
     userCreated: createdUser,
-    cohortLaunched: !!cohort.launchedAt,
-    expiresAt: expiresAt?.toISOString() ?? null,
-    extraLaunch,
+    status: 'PENDING',
     passwordEmail,
   });
-}
-
-/// Локальна копія addCalendarMonths з yearlyProgramAccess (там не експортується).
-/// Додає `months` календарних місяців, клемпуючи день до останнього дня цільового місяця.
-function addCalendarMonths(date: Date, months: number): Date {
-  if (!months) return new Date(date);
-  const day = date.getDate();
-  const result = new Date(date);
-  result.setDate(1);
-  result.setMonth(result.getMonth() + months);
-  const lastDayOfTarget = new Date(result.getFullYear(), result.getMonth() + 1, 0).getDate();
-  result.setDate(Math.min(day, lastDayOfTarget));
-  return result;
 }
 
 /// Лист "встановіть пароль" для щойно створеного акаунта. Використовує INVITE-токен

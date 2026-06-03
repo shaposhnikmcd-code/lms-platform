@@ -193,7 +193,14 @@ export async function getSalesByProduct(period: SalesPeriod): Promise<ProductSal
     });
   }
 
-  rows.sort((a, b) => b.sum - a.sum);
+  // Усі типи Річної програми (cohort) йдуть разом першими (позиції 1-3), решта —
+  // по сумі. Всередині кожної групи сортуємо за сумою (спадання).
+  rows.sort((a, b) => {
+    const aCohort = a.type === 'cohort' ? 0 : 1;
+    const bCohort = b.type === 'cohort' ? 0 : 1;
+    if (aCohort !== bCohort) return aCohort - bCohort;
+    return b.sum - a.sum;
+  });
 
   const totalSum = rows.reduce((s, r) => s + r.sum, 0);
   const totalCount = rows.reduce((s, r) => s + r.count, 0);

@@ -45,6 +45,7 @@ const CreateCohortModal = dynamic(() => import('./CreateCohortModal'), { ssr: fa
 const IssuesModal = dynamic(() => import('./IssuesModal'), { ssr: false });
 const ManualPaymentModal = dynamic(() => import('./ManualPaymentModal'), { ssr: false });
 const ManualAddStudentModal = dynamic(() => import('./ManualAddStudentModal'), { ssr: false });
+import ManualAddHelpButton from './ManualAddHelpButton';
 import ProgramSettingButton from './ProgramSettingButton';
 import { type TelegramSettingsState } from './TelegramChannelButton';
 import { getCountryName, COUNTRIES } from '@/lib/countries';
@@ -455,19 +456,22 @@ function YearlyProgramViewInner({
         </AdminPanel>
 
         <AdminPanel theme={theme} padding="p-3" className="w-fit">
-          <button
-            type="button"
-            onClick={() => setManualAddOpen(true)}
-            title="Додати студента у Річну вручну, без нової оплати (перенесення з минулорічного набору)"
-            className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[12px] font-semibold transition-colors ${
-              dark
-                ? 'bg-sky-500/12 border-sky-400/35 text-sky-200 hover:bg-sky-500/20'
-                : 'bg-sky-50 border-sky-300/60 text-sky-900 hover:bg-sky-100'
-            }`}
-          >
-            <HiOutlineUserPlus className="text-base" />
-            Додати студента вручну
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setManualAddOpen(true)}
+              title="Додати студента у Річну вручну (без нової оплати — статус «Очікує» до підтвердження оплати)"
+              className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[12px] font-semibold transition-colors ${
+                dark
+                  ? 'bg-sky-500/12 border-sky-400/35 text-sky-200 hover:bg-sky-500/20'
+                  : 'bg-sky-50 border-sky-300/60 text-sky-900 hover:bg-sky-100'
+              }`}
+            >
+              <HiOutlineUserPlus className="text-base" />
+              Додати студента вручну
+            </button>
+            <ManualAddHelpButton theme={theme} />
+          </div>
         </AdminPanel>
 
         <AdminPanel theme={theme} padding="p-3" className="w-fit">
@@ -856,7 +860,7 @@ function RowBlock({
           )}
           {r.manuallyAddedAt && (
             <span
-              className={`mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wider ${
+              className={`mt-1 flex w-fit items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wider ${
                 dark ? 'bg-rose-500/12 text-rose-200 border border-rose-400/25' : 'bg-rose-50 text-rose-800 border border-rose-300/40'
               }`}
               title={`Додано вручну: ${new Date(r.manuallyAddedAt).toLocaleString('uk-UA')}${r.manuallyAddedBy ? ` · ${r.manuallyAddedBy}` : ''}`}
@@ -2101,7 +2105,7 @@ function StatusInfoButton({ theme, graceDays }: { theme: Theme; graceDays: numbe
       </button>
       {open && (
         <div
-          className={`absolute left-1/2 -translate-x-1/2 top-full mt-1.5 w-[440px] max-w-[calc(100vw-32px)] rounded-xl py-2 z-30 backdrop-blur-md border ${
+          className={`absolute left-1/2 -translate-x-1/2 top-full mt-1.5 w-[440px] max-w-[calc(100vw-32px)] whitespace-normal text-left rounded-xl py-2 z-30 backdrop-blur-md border ${
             dark
               ? 'bg-[#161821]/95 border-white/[0.08] shadow-[0_12px_32px_rgba(0,0,0,0.5)]'
               : 'bg-white/95 border-stone-300/60 shadow-[0_12px_32px_rgba(68,64,60,0.15)]'

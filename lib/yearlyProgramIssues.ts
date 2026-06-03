@@ -139,6 +139,7 @@ interface RawSubscription {
   lastChargeError: string | null;
   failedChargeCount: number;
   lastChargeAttemptAt: Date | null;
+  manuallyAddedAt: Date | null;
   user: { id: string; name: string | null; email: string } | null;
   cohort: { name: string } | null;
 }
@@ -225,6 +226,7 @@ export async function collectAllIssues(): Promise<IssuesPayload> {
         lastChargeError: true,
         failedChargeCount: true,
         lastChargeAttemptAt: true,
+        manuallyAddedAt: true,
         user: { select: { id: true, name: true, email: true } },
         cohort: { select: { name: true } },
       },
@@ -368,6 +370,9 @@ export async function collectAllIssues(): Promise<IssuesPayload> {
     if (!sub.user) continue;
     if (!ORPHAN_PAID_STATUSES.has(sub.status)) continue;
     if (paidSubIds.has(sub.id)) continue;
+    // Ручне додавання без оплати (перенесення з минулорічного набору) — легітимно
+    // безплатна підписка. НЕ вважаємо її «сиротою»/порушенням інваріанта.
+    if (sub.manuallyAddedAt) continue;
     if (haveEventRecord.has(`${sub.id}::ORPHAN_NO_PAYMENT`)) continue;
     const dismissal = dismissalMap.get(dismissalKey(sub.id, 'ORPHAN_NO_PAYMENT'));
     records.push({

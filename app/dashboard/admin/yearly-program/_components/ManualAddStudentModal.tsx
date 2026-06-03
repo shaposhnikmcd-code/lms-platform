@@ -31,7 +31,6 @@ export default function ManualAddStudentModal({
   const [plan, setPlan] = useState<Plan>('YEARLY');
   const [cohortId, setCohortId] = useState<string>(defaultCohortId ?? cohorts[0]?.id ?? '');
   const [telegram, setTelegram] = useState('');
-  const [openAccessNow, setOpenAccessNow] = useState(true);
   const [sendPasswordEmail, setSendPasswordEmail] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -45,8 +44,6 @@ export default function ManualAddStudentModal({
   }, [onClose]);
 
   const validEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
-  const selectedCohort = cohorts.find((c) => c.id === cohortId) ?? null;
-  const cohortLaunched = !!selectedCohort?.launchedAt;
   const canSubmit = validEmail && !!cohortId && !submitting;
 
   async function submit() {
@@ -64,7 +61,6 @@ export default function ManualAddStudentModal({
           plan,
           cohortId,
           telegramUsername: telegram.trim() || undefined,
-          openAccessNow,
           sendPasswordEmail,
         }),
       });
@@ -74,17 +70,7 @@ export default function ManualAddStudentModal({
         return;
       }
       let note = data.userCreated ? ' · акаунт створено' : '';
-      if (openAccessNow) {
-        if (!data.cohortLaunched) {
-          note += ' · програму ще не запущено → доступ відкриється на загальному запуску';
-        } else if (data.extraLaunch?.ok && data.extraLaunch?.sendpulseAccessOpened) {
-          note += data.extraLaunch?.email?.sent
-            ? ' · доступ відкрито + welcome-лист надіслано'
-            : ' · доступ відкрито';
-        } else if (data.extraLaunch && !data.extraLaunch.ok) {
-          note += ` · ⚠ доступ НЕ відкрито: ${data.extraLaunch.reason ?? 'помилка'}`;
-        }
-      }
+      note += ' · статус «Очікує» (підтвердьте оплату вручну для активації)';
       if (data.passwordEmail && !data.passwordEmail.sent) {
         note += ` · ⚠ лист пароля FAILED: ${data.passwordEmail.error ?? 'помилка'}`;
       } else if (data.passwordEmail?.sent) {
@@ -124,7 +110,7 @@ export default function ManualAddStudentModal({
             <div className="min-w-0">
               <h3 className="text-[16px] font-bold leading-tight">Додати студента вручну</h3>
               <p className={`text-[11.5px] leading-tight mt-0.5 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
-                Без нової оплати — дохід не змінюється
+                Створює запис «Очікує» — активація після підтвердження оплати
               </p>
             </div>
           </div>
@@ -144,8 +130,8 @@ export default function ManualAddStudentModal({
           }`}>
             <span className="shrink-0">ℹ️</span>
             <span>
-              Для студентів, які вже навчались/оплачували раніше (перенесення з минулорічного набору).
-              Платіж НЕ створюється. Підписка стане активною у вибраному запуску.
+              Заводить студента у вибраний запуск зі статусом «Очікує» (без доступу). Щоб
+              активувати — на рядку студента натисніть 💵 «Підтвердити оплату вручну».
             </span>
           </div>
 
@@ -218,15 +204,6 @@ export default function ManualAddStudentModal({
           </Field>
 
           <div className="space-y-2.5 pt-1">
-            <Checkbox
-              theme={theme}
-              checked={openAccessNow}
-              onChange={setOpenAccessNow}
-              label="Відкрити доступ і надіслати лист одразу"
-              hint={cohortLaunched
-                ? 'Відкриє SendPulse + welcome-лист (як «Екстра Запуск»).'
-                : 'Запуск ще не активовано → доступ відкриється на загальному запуску.'}
-            />
             <Checkbox
               theme={theme}
               checked={sendPasswordEmail}
