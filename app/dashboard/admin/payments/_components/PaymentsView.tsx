@@ -63,7 +63,7 @@ export default function PaymentsView({ rows }: { rows: Row[] }) {
 
   const [typeFilter, setTypeFilter] = useState<string>('ALL');
   const [productFilter, setProductFilter] = useState<string>('ALL');
-  const [statusFilter, setStatusFilter] = useState<string>('PAID');
+  const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [pageSize, setPageSize] = useState<number>(25);
   const [page, setPage] = useState<number>(1);
@@ -145,7 +145,7 @@ export default function PaymentsView({ rows }: { rows: Row[] }) {
     return { total, paid, pending, paidCount };
   }, [rows]);
 
-  const isFilterActive = typeFilter !== 'ALL' || productFilter !== 'ALL' || statusFilter !== 'PAID' || normalizedQuery.length > 0;
+  const isFilterActive = typeFilter !== 'ALL' || productFilter !== 'ALL' || statusFilter !== 'ALL' || normalizedQuery.length > 0;
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   useEffect(() => { setPage(1); }, [typeFilter, productFilter, statusFilter, normalizedQuery, pageSize]);
@@ -244,7 +244,7 @@ export default function PaymentsView({ rows }: { rows: Row[] }) {
               <div className="flex items-center gap-4 ml-auto">
                 {isFilterActive && (
                   <button
-                    onClick={() => { setTypeFilter('ALL'); setProductFilter('ALL'); setStatusFilter('PAID'); setSearchQuery(''); }}
+                    onClick={() => { setTypeFilter('ALL'); setProductFilter('ALL'); setStatusFilter('ALL'); setSearchQuery(''); }}
                     className={`text-[11px] font-medium transition-colors shrink-0 ${
                       dark ? 'text-amber-300 hover:text-amber-200' : 'text-amber-800 hover:text-amber-900'
                     }`}
