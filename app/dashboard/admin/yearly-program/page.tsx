@@ -61,7 +61,20 @@ export default async function AdminYearlyProgramPage() {
 
   const now = Date.now();
 
-  const rows: Row[] = subs.map((s) => {
+  // Ховаємо «осиротілі» PENDING-підписки: якщо той самий юзер уже має живу
+  // (ACTIVE/GRACE) підписку, то його незавершена спроба «Очікує» — це покинутий
+  // чекаут, який лише дублює рядок. Самотні PENDING (юзер ще нічого не оплатив —
+  // це лід) лишаються видимими. PENDING з реальним PAID-платежем (аномалія) теж не ховаємо.
+  const liveUserIds = new Set(
+    subs.filter((s) => s.status === 'ACTIVE' || s.status === 'GRACE').map((s) => s.userId),
+  );
+  const visibleSubs = subs.filter((s) => {
+    if (s.status !== 'PENDING') return true;
+    if (s.payments.some((p) => p.status === 'PAID')) return true;
+    return !liveUserIds.has(s.userId);
+  });
+
+  const rows: Row[] = visibleSubs.map((s) => {
     const paidPayments = s.payments.filter((p) => p.status === 'PAID');
     const totalPaid = paidPayments.reduce((sum, p) => sum + p.amount, 0);
     const msLeft = s.expiresAt ? s.expiresAt.getTime() - now : null;
