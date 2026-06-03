@@ -1,6 +1,8 @@
 /// POST /api/admin/certificates/yearly — видача сертифіката Річної програми (ручна).
-/// GET  /api/admin/certificates/yearly — кандидати: всі підписки + health статус оплат
-/// (9/9 для MONTHLY, 1/1 для YEARLY) + чи вже є сертифікат.
+/// GET  /api/admin/certificates/yearly — кандидати: ЛИШЕ підписки з реальною оплатою
+/// (≥1 PAID-платіж) + health статус оплат (9/9 для MONTHLY, 1/1 для YEARLY) + чи вже є
+/// сертифікат. Неоплачені (PENDING / покинуті чекаути / тестові залишки) сюди не потрапляють —
+/// сертифікат видається тільки тим, хто сплатив.
 
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
@@ -17,6 +19,8 @@ export async function GET(req: NextRequest) {
 
   const subs = await prisma.yearlyProgramSubscription.findMany({
     where: {
+      /// Тільки ті, хто реально сплатив — сертифікати не для неоплачених підписок.
+      payments: { some: { status: 'PAID' } },
       ...(statusFilter ? { status: statusFilter as never } : {}),
     },
     take: limit,
