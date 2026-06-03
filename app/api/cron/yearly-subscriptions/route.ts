@@ -164,6 +164,10 @@ async function sendScheduledCohortLaunchEmails(): Promise<StepResult> {
 /// лише засмічують список. Переводимо в ARCHIVED (зникає з дефолтного вигляду Річної,
 /// лишається доступним через фільтр «Архів»). Guard payments.none(PAID) у updateMany —
 /// захист від рейсу: якщо людина встигла оплатити саме в цей момент, підписку не чіпаємо.
+///
+/// ВАЖЛИВО: ручно додані студенти (manuallyAddedAt != null) НЕ архівуються — менеджер
+/// свідомо завів їх у статусі «Очікує» і може підтверджувати оплату (готівка/переказ/ФОП)
+/// будь-коли пізніше. Без цього винятку студент зник би в архів через добу.
 async function archiveStalePending(): Promise<StepResult> {
   const errors: string[] = [];
   const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
@@ -172,6 +176,7 @@ async function archiveStalePending(): Promise<StepResult> {
       status: 'PENDING',
       createdAt: { lt: cutoff },
       payments: { none: { status: 'PAID' } },
+      manuallyAddedAt: null,
     },
     select: { id: true },
   });
@@ -180,7 +185,7 @@ async function archiveStalePending(): Promise<StepResult> {
   await processInParallel(subs, async (s) => {
     try {
       const res = await prisma.yearlyProgramSubscription.updateMany({
-        where: { id: s.id, status: 'PENDING', payments: { none: { status: 'PAID' } } },
+        where: { id: s.id, status: 'PENDING', payments: { none: { status: 'PAID' } }, manuallyAddedAt: null },
         data: { status: 'ARCHIVED' },
       });
       if (res.count === 0) return; // встигли оплатити між вибіркою й апдейтом — не чіпаємо
