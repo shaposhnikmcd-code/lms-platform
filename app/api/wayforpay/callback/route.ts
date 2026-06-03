@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import prisma from '@/lib/prisma';
-import { isYearlyProgramOrderRef, YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
+import { isYearlyProgramOrderRef, YEARLY_PROGRAM_CONFIG, getYearlyPostAccessMonths } from '@/lib/yearlyProgramConfig';
 import { sendYearlyProgramWelcomeEmail } from '@/lib/yearlyProgramWelcomeEmail';
 import {
   generateInviteForSubscription,
@@ -815,11 +815,13 @@ async function handleYearlyProgramCallback(args: {
         where: { yearlyProgramSubscriptionId: sub.id, status: 'PAID' },
         select: { amount: true, status: true, paidAt: true, createdAt: true },
       });
+      const postAccessMonths = await getYearlyPostAccessMonths(tx);
       const newExpiresAt = calculateAccessUntil({
         plan: sub.plan,
         autoRenew: sub.autoRenew,
         cohort: sub.cohort ? { startDate: sub.cohort.startDate, endDate: sub.cohort.endDate } : null,
         payments: allPayments,
+        postAccessMonths,
       }) ?? now;
       const durationDays = Math.round((newExpiresAt.getTime() - (sub.expiresAt ?? now).getTime()) / (24 * 60 * 60 * 1000));
 

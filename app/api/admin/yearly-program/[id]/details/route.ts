@@ -25,6 +25,8 @@ export async function GET(
           status: true,
           createdAt: true,
           paidAt: true,
+          manualMethod: true,
+          manualNote: true,
         },
       },
       events: {
@@ -74,6 +76,8 @@ export async function GET(
       status: p.status,
       createdAt: p.createdAt.toISOString(),
       paidAt: p.paidAt?.toISOString() ?? null,
+      manualMethod: p.manualMethod,
+      manualNote: p.manualNote,
     })),
     events: sub.events.map((e) => ({
       id: e.id,

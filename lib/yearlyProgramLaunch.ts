@@ -1,6 +1,6 @@
 import prisma from '@/lib/prisma';
 import { openAccessViaEvent, lookupStudentIdByEmail } from '@/lib/sendpulse';
-import { YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
+import { YEARLY_PROGRAM_CONFIG, getYearlyPostAccessMonths } from '@/lib/yearlyProgramConfig';
 import { calculateAccessUntil } from '@/lib/yearlyProgramAccess';
 import { sendEmail } from '@/lib/mailer';
 import {
@@ -60,6 +60,7 @@ export async function executeLaunchLoop(
     },
   });
 
+  const postAccessMonths = await getYearlyPostAccessMonths(prisma);
   const results: LaunchResult[] = [];
 
   for (const s of subs) {
@@ -116,6 +117,7 @@ export async function executeLaunchLoop(
       autoRenew: s.autoRenew,
       cohort: { startDate: cohort.startDate, endDate: cohort.endDate },
       payments: s.payments,
+      postAccessMonths,
     });
 
     await prisma.yearlyProgramSubscription.update({
@@ -226,11 +228,13 @@ export async function runExtraLaunchForSubscription(
     return { ok: false, reason: `sendpulse_open_failed:${openErr}`, expiresAt: null, sendpulseAccessOpened: false, studentId, email: { sent: false } };
   }
 
+  const postAccessMonths = await getYearlyPostAccessMonths(prisma);
   const newExpiresAt = calculateAccessUntil({
     plan: sub.plan,
     autoRenew: sub.autoRenew,
     cohort: { startDate: sub.cohort.startDate, endDate: sub.cohort.endDate },
     payments: sub.payments,
+    postAccessMonths,
   });
 
   await prisma.yearlyProgramSubscription.update({

@@ -2,17 +2,31 @@
 /// з WFP callback (при кожній оплаті), при запуску cohort, при перенесенні підписки
 /// в інший cohort, при cron-у sync.
 ///
-/// Правила (узгоджені 2026-05-01):
-/// — YEARLY → expiresAt = cohort.endDate (фікс на весь період програми незалежно від часу оплати).
-/// — MONTHLY до старту cohort → cohort.startDate + N×30 днів, де N = успішних PAID платежів.
-/// — MONTHLY автоплатіж після старту cohort → перший платіж + N×30 днів. WFP-регулярка
-///   обмежується останнім повним місяцем до cohort.endDate (залишок днів — менеджер вручну).
-/// — MONTHLY разова після старту cohort → дата платежу + 30 днів.
+/// Правила (узгоджені 2026-05-01, оновлені 2026-06-03 — пост-доступ):
+/// — Дата завершення доступу базується на cohort.endDate + `postAccessMonths` місяців
+///   доступу до платформи ПІСЛЯ завершення програми (напр. 31.05.2027 + 6 міс = 30.11.2027).
+/// — YEARLY → expiresAt = cohort.endDate + postAccessMonths (фікс на весь період + пост-доступ).
+/// — MONTHLY до повної сплати → cohort.startDate + N×30 днів (N = успішних PAID), кеп cohort.endDate.
+/// — MONTHLY після повної сплати всіх totalMonthlyPayments → cohort.endDate + postAccessMonths
+///   (та сама логіка що й YEARLY — повноцінний доступ + пост-доступ).
 /// — Без cohort (legacy) → стара поведінка: yearlyDurationDays/monthlyDurationDays від оплати.
 
 import { YEARLY_PROGRAM_CONFIG } from './yearlyProgramConfig';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+/// Додає `months` календарних місяців до дати, клемпуючи день до останнього дня
+/// цільового місяця (31.05 + 6 міс = 30.11, а не 1.12). Час доби зберігається.
+function addCalendarMonths(date: Date, months: number): Date {
+  if (!months) return new Date(date);
+  const day = date.getDate();
+  const result = new Date(date);
+  result.setDate(1);
+  result.setMonth(result.getMonth() + months);
+  const lastDayOfTarget = new Date(result.getFullYear(), result.getMonth() + 1, 0).getDate();
+  result.setDate(Math.min(day, lastDayOfTarget));
+  return result;
+}
 
 export interface CohortLike {
   startDate: Date;
@@ -46,6 +60,9 @@ export function calculateAccessUntil(args: {
   /// Дата нового платежу, який ще НЕ записаний у `payments` (для in-tx розрахунків
   /// у WFP callback). Якщо null — рахуємо тільки з payments.
   newPaymentAt?: Date | null;
+  /// Місяців доступу до платформи після cohort.endDate. Default 0 (без пост-доступу).
+  /// Передається з runtime-налаштування (getYearlyPostAccessMonths).
+  postAccessMonths?: number;
 }): Date | null {
   const paymentDates = paidPaymentDates(args.payments);
   if (args.newPaymentAt) {
@@ -64,9 +81,13 @@ export function calculateAccessUntil(args: {
     return new Date(last.getTime() + days * MS_PER_DAY);
   }
 
-  // YEARLY завжди = endDate cohort.
+  // Дата завершення доступу = cohort.endDate + N місяців пост-доступу до платформи.
+  const months = args.postAccessMonths ?? 0;
+  const accessEnd = addCalendarMonths(args.cohort.endDate, months);
+
+  // YEARLY завжди = endDate cohort + пост-доступ.
   if (args.plan === 'YEARLY') {
-    return args.cohort.endDate;
+    return accessEnd;
   }
 
   // MONTHLY: береться first paid → визначає anchor (cohort.startDate vs paidAt).
@@ -75,14 +96,18 @@ export function calculateAccessUntil(args: {
   const cohortEnd = args.cohort.endDate;
   const paidCount = paymentDates.length;
 
+  // Повна сплата всіх місячних платежів → той самий повний доступ що й YEARLY (з пост-доступом).
+  if (paidCount >= YEARLY_PROGRAM_CONFIG.totalMonthlyPayments) {
+    return accessEnd;
+  }
+
   // Якщо перша оплата ДО старту cohort — anchor = cohort.startDate (всі покупці чекають старту).
   // Якщо ПІСЛЯ — anchor = першої оплати (доступ від моменту платежу).
   const anchor = firstPaid < cohortStart ? cohortStart : firstPaid;
   const expires = new Date(anchor.getTime() + paidCount * 30 * MS_PER_DAY);
 
-  // Hard cap: для autoRenew експайр не може перевалити cohort.endDate (запасний контроль —
-  // основне обмеження на стороні WFP через dateEnd регулярки). Для разової — теж кеп.
-  // Якщо обчислений expires виходить за endDate → клемпимо до endDate. Залишок — manual.
+  // Часткова сплата: hard cap на cohort.endDate (пост-доступ ще не нараховуємо — він
+  // вмикається лише після повної оплати, рядок вище). Залишок до повного — manual.
   if (expires > cohortEnd) {
     return cohortEnd;
   }

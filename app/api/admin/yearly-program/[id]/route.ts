@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { Prisma } from '@prisma/client';
 import prisma from '@/lib/prisma';
 import { isAdmin, getAdminActor } from '@/lib/adminAuth';
 import { closeAccessInCourse, lookupStudentIdByEmail, openAccessViaEvent } from '@/lib/sendpulse';
 import { kickSubscriptionFromChannel } from '@/lib/yearlyProgramTelegram';
 import { removeSubscriptionAutopay } from '@/lib/yearlyProgramAutopay';
 import { sendYearlyProgramAdminEndedEmail, type AdminEndKind } from '@/lib/yearlyProgramAdminEndedEmail';
-import { YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
+import { YEARLY_PROGRAM_CONFIG, getYearlyPostAccessMonths } from '@/lib/yearlyProgramConfig';
 import { getYearlyProgramSettings } from '@/lib/yearlyProgramSettings';
+import { parseTelegramUsername } from '@/lib/telegramUsername';
+import { calculateAccessUntil } from '@/lib/yearlyProgramAccess';
+import { runExtraLaunchForSubscription } from '@/lib/yearlyProgramLaunch';
 
 /// Admin actions над конкретною підпискою Річної програми.
 /// Body: { action: "cancel" | "close_access" | "reopen_access" | "extend" | "delete",
@@ -25,6 +29,11 @@ export async function POST(
     action?: string;
     daysToAdd?: number;
     reason?: string;
+    fields?: Record<string, unknown>;
+    amount?: number;
+    method?: string;
+    note?: string;
+    paidAt?: string;
   };
 
   const sub = await prisma.yearlyProgramSubscription.findUnique({
@@ -44,6 +53,15 @@ export async function POST(
       return handleReopenAccess(sub, actorLabel);
     case 'extend':
       return handleExtend(sub, body.daysToAdd ?? 30, actorLabel);
+    case 'edit':
+      return handleEdit(sub, body.fields ?? {}, actorLabel);
+    case 'manual_payment':
+      return handleManualPayment(sub, {
+        amount: body.amount,
+        method: body.method,
+        note: body.note,
+        paidAt: body.paidAt,
+      }, actorLabel);
     case 'delete':
       return handleDelete(sub, actorLabel);
     case 'tg_kick':
@@ -309,6 +327,273 @@ async function handleExtend(sub: NonNullable<SubWithUser>, daysToAdd: number, ac
   });
 
   return NextResponse.json({ ok: true, newExpiresAt: newExpires.toISOString() });
+}
+
+/// Способи ручної оплати, відомі UI. Backend приймає будь-який непустий рядок (forward-compat),
+/// але валідуємо довжину. Лейбли для логів — best-effort, незнайомий method іде «як є».
+const MANUAL_METHOD_LABELS: Record<string, string> = {
+  cash: 'Готівка',
+  transfer: 'Переказ',
+  direct: 'Напряму (ФОП)',
+};
+
+/// Ручне підтвердження оплати, яка пройшла поза WayForPay (готівка / переказ / ФОП).
+/// Створює Payment(PAID) прив'язаний до підписки → перераховує expiresAt по cohort-логіці →
+/// активує підписку. Якщо cohort уже launched — відкриває доступ у SendPulse + welcome-лист
+/// (через runExtraLaunchForSubscription, idempotent). Якщо ще ні — лишає PENDING (чекає запуску).
+/// Сума автоматично потрапляє в «Дохід» (агрегація PAID-платежів з yearlyProgramSubscriptionId).
+async function handleManualPayment(
+  sub: NonNullable<SubWithUser>,
+  input: { amount?: number; method?: string; note?: string; paidAt?: string },
+  actor: string,
+) {
+  if (sub.status === 'ARCHIVED') {
+    return NextResponse.json({ error: 'Підписка заархівована — оплату фіксувати не можна. Створіть нову.' }, { status: 400 });
+  }
+
+  const amount = Number(input.amount);
+  if (!Number.isFinite(amount) || amount <= 0 || amount > 1_000_000 || !Number.isInteger(amount)) {
+    return NextResponse.json({ error: 'Сума має бути цілим числом 1..1000000 (₴)' }, { status: 400 });
+  }
+
+  const method = (input.method ?? '').trim();
+  if (!method || method.length > 40) {
+    return NextResponse.json({ error: 'Не вказано спосіб оплати' }, { status: 400 });
+  }
+  const note = (input.note ?? '').trim().slice(0, 500) || null;
+
+  let paidAt = new Date();
+  if (input.paidAt) {
+    const parsed = new Date(input.paidAt);
+    if (Number.isNaN(parsed.getTime())) {
+      return NextResponse.json({ error: 'Невалідна дата оплати' }, { status: 400 });
+    }
+    if (parsed.getTime() > Date.now() + 24 * 60 * 60 * 1000) {
+      return NextResponse.json({ error: 'Дата оплати не може бути в майбутньому' }, { status: 400 });
+    }
+    paidAt = parsed;
+  }
+
+  // orderReference має бути унікальним — додаємо timestamp + короткий рандом на випадок
+  // двох ручних оплат в одну мілісекунду.
+  const orderReference = `manual-${method}_${Date.now()}_${sub.id.slice(-6)}`;
+
+  await prisma.payment.create({
+    data: {
+      userId: sub.userId,
+      orderReference,
+      amount,
+      currency: 'UAH',
+      status: 'PAID',
+      paidAt,
+      yearlyProgramSubscriptionId: sub.id,
+      manualMethod: method,
+      manualNote: note,
+    },
+  });
+
+  // Перерахунок expiresAt по cohort-логіці (single source of truth). Тягнемо актуальний
+  // стан з усіма платежами (включно з щойно створеним) + cohort.
+  const fresh = await prisma.yearlyProgramSubscription.findUnique({
+    where: { id: sub.id },
+    include: {
+      cohort: true,
+      payments: { select: { amount: true, status: true, paidAt: true, createdAt: true } },
+    },
+  });
+  const postAccessMonths = await getYearlyPostAccessMonths(prisma);
+  const newExpiresAt = calculateAccessUntil({
+    plan: sub.plan,
+    autoRenew: sub.autoRenew,
+    cohort: fresh?.cohort ? { startDate: fresh.cohort.startDate, endDate: fresh.cohort.endDate } : null,
+    payments: fresh?.payments ?? [],
+    postAccessMonths,
+  });
+
+  const cohortLaunched = !!fresh?.cohort?.launchedAt;
+  const hasCohort = !!fresh?.cohort;
+  // ACTIVE якщо cohort launched або взагалі без cohort (legacy). Якщо cohort є але ще не
+  // запущений — лишаємо PENDING: доступ відкриється на загальному запуску програми.
+  const newStatus = (cohortLaunched || !hasCohort) ? 'ACTIVE' : (sub.status === 'PENDING' ? 'PENDING' : sub.status);
+
+  await prisma.yearlyProgramSubscription.update({
+    where: { id: sub.id },
+    data: {
+      status: newStatus,
+      expiresAt: newExpiresAt,
+      lastPaymentAt: paidAt,
+    },
+  });
+
+  const methodLabel = MANUAL_METHOD_LABELS[method] ?? method;
+  await prisma.yearlyProgramSubscriptionEvent.create({
+    data: {
+      subscriptionId: sub.id,
+      type: 'admin_action',
+      message: `Ручна оплата ${amount}₴ (${methodLabel}) by ${actor}${note ? ` — ${note}` : ''} · expiresAt=${newExpiresAt?.toISOString().slice(0, 10) ?? 'null'}`,
+      metadata: { manualPayment: true, amount, method, note, paidAt: paidAt.toISOString(), orderReference, actor },
+    },
+  });
+
+  // Якщо cohort уже запущений — відкриваємо доступ у SendPulse + welcome-лист (idempotent:
+  // якщо доступ уже відкрито/лист уже надсилався — пропускає). Помилка SP не валить оплату:
+  // Payment уже створений і дохід зафіксований.
+  let extraLaunch: Awaited<ReturnType<typeof runExtraLaunchForSubscription>> | null = null;
+  if (cohortLaunched) {
+    extraLaunch = await runExtraLaunchForSubscription(sub.id, `${actor} · manual_payment`).catch((e) => ({
+      ok: false,
+      reason: (e as Error).message,
+      expiresAt: null,
+      sendpulseAccessOpened: false,
+      studentId: null,
+      email: { sent: false },
+    }));
+  }
+
+  return NextResponse.json({
+    ok: true,
+    paymentId: orderReference,
+    newStatus,
+    newExpiresAt: newExpiresAt?.toISOString() ?? null,
+    cohortLaunched,
+    extraLaunch,
+  });
+}
+
+/// Ручне редагування полів підписки прямо в адмінці. Змінює ТІЛЬКИ дані в нашій БД —
+/// НЕ чіпає SendPulse / Telegram / WFP. Приймає лише передані поля, валідує їх, оновлює
+/// запис і логує подію admin_action з переліком before→after по кожному зміненому полю.
+const EDIT_PLANS = new Set(['YEARLY', 'MONTHLY']);
+const EDIT_STATUSES = new Set(['PENDING', 'ACTIVE', 'GRACE', 'EXPIRED', 'CANCELLED']);
+
+function fmtLogValue(v: unknown): string {
+  if (v === null || v === undefined || v === '') return '∅';
+  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  return String(v);
+}
+
+async function handleEdit(
+  sub: NonNullable<SubWithUser>,
+  fields: Record<string, unknown>,
+  actor: string,
+) {
+  const data: Record<string, unknown> = {};
+  const changes: string[] = [];
+
+  // План
+  if ('plan' in fields) {
+    const v = fields.plan;
+    if (typeof v !== 'string' || !EDIT_PLANS.has(v)) {
+      return NextResponse.json({ error: 'Невалідний план (YEARLY|MONTHLY)' }, { status: 400 });
+    }
+    if (v !== sub.plan) {
+      data.plan = v;
+      changes.push(`план: ${sub.plan} → ${v}`);
+    }
+  }
+
+  // autoRenew
+  if ('autoRenew' in fields) {
+    const v = fields.autoRenew;
+    if (typeof v !== 'boolean') {
+      return NextResponse.json({ error: 'autoRenew має бути true/false' }, { status: 400 });
+    }
+    if (v !== sub.autoRenew) {
+      data.autoRenew = v;
+      changes.push(`autoRenew: ${sub.autoRenew} → ${v}`);
+    }
+  }
+
+  // Статус
+  if ('status' in fields) {
+    const v = fields.status;
+    if (typeof v !== 'string' || !EDIT_STATUSES.has(v)) {
+      return NextResponse.json({ error: 'Невалідний статус' }, { status: 400 });
+    }
+    if (v !== sub.status) {
+      data.status = v;
+      changes.push(`статус: ${sub.status} → ${v}`);
+    }
+  }
+
+  // Дати (ISO або null)
+  for (const key of ['startDate', 'expiresAt'] as const) {
+    if (!(key in fields)) continue;
+    const v = fields[key];
+    let next: Date | null;
+    if (v === null || v === '') {
+      next = null;
+    } else if (typeof v === 'string') {
+      const d = new Date(v);
+      if (Number.isNaN(d.getTime())) {
+        return NextResponse.json({ error: `Невалідна дата (${key})` }, { status: 400 });
+      }
+      next = d;
+    } else {
+      return NextResponse.json({ error: `Невалідна дата (${key})` }, { status: 400 });
+    }
+    const cur = sub[key] ?? null;
+    if ((cur?.getTime() ?? null) !== (next?.getTime() ?? null)) {
+      data[key] = next;
+      changes.push(`${key}: ${fmtLogValue(cur)} → ${fmtLogValue(next)}`);
+    }
+  }
+
+  // Telegram-нік — нормалізуємо до @username
+  if ('telegramUsername' in fields) {
+    const v = fields.telegramUsername;
+    let next: string | null;
+    if (v === null || (typeof v === 'string' && v.trim() === '')) {
+      next = null;
+    } else {
+      const parsed = parseTelegramUsername(v);
+      if (!parsed.ok) {
+        return NextResponse.json({ error: parsed.error ?? 'Невалідний Telegram username' }, { status: 400 });
+      }
+      next = parsed.normalized;
+    }
+    if (next !== (sub.telegramUsername ?? null)) {
+      data.telegramUsername = next;
+      changes.push(`Telegram: ${fmtLogValue(sub.telegramUsername)} → ${fmtLogValue(next)}`);
+    }
+  }
+
+  // Телефон / Країна — вільний текст
+  for (const key of ['phone', 'country'] as const) {
+    if (!(key in fields)) continue;
+    const v = fields[key];
+    let next: string | null;
+    if (v === null) {
+      next = null;
+    } else if (typeof v === 'string') {
+      next = v.trim() || null;
+    } else {
+      return NextResponse.json({ error: `Невалідне значення (${key})` }, { status: 400 });
+    }
+    if (next !== (sub[key] ?? null)) {
+      data[key] = next;
+      changes.push(`${key}: ${fmtLogValue(sub[key])} → ${fmtLogValue(next)}`);
+    }
+  }
+
+  if (changes.length === 0) {
+    return NextResponse.json({ ok: true, noChanges: true });
+  }
+
+  await prisma.yearlyProgramSubscription.update({
+    where: { id: sub.id },
+    data: data as Prisma.YearlyProgramSubscriptionUpdateInput,
+  });
+  await prisma.yearlyProgramSubscriptionEvent.create({
+    data: {
+      subscriptionId: sub.id,
+      type: 'admin_action',
+      message: `Ручне редагування (${actor}): ${changes.join('; ')}`,
+      metadata: { editedFields: Object.keys(data), changes },
+    },
+  });
+
+  return NextResponse.json({ ok: true, changes });
 }
 
 async function handleDelete(sub: NonNullable<SubWithUser>, actor: string) {

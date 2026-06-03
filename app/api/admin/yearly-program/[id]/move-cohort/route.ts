@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { isAdmin, getAdminActor } from '@/lib/adminAuth';
 import { calculateAccessUntil } from '@/lib/yearlyProgramAccess';
+import { getYearlyPostAccessMonths } from '@/lib/yearlyProgramConfig';
 
 /// POST — перенести підписку в інший cohort. Body: { cohortId: string | null }.
 /// Доступно лише для підписок, які ще НЕ запущені (cohort.launchedAt = null) — після
@@ -57,12 +58,14 @@ export async function POST(
     }
   }
 
+  const postAccessMonths = await getYearlyPostAccessMonths(prisma);
   const newExpiresAt = targetCohort
     ? calculateAccessUntil({
         plan: sub.plan,
         autoRenew: sub.autoRenew,
         cohort: { startDate: targetCohort.startDate, endDate: targetCohort.endDate },
         payments: sub.payments,
+        postAccessMonths,
       })
     : sub.expiresAt;
 

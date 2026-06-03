@@ -1,5 +1,5 @@
 import prisma from '@/lib/prisma';
-import { getYearlyGraceDays } from '@/lib/yearlyProgramConfig';
+import { getYearlyGraceDays, getYearlyPostAccessMonths } from '@/lib/yearlyProgramConfig';
 import {
   getYearlyProgramSettings,
   YEARLY_PROGRAM_DEFAULTS,
@@ -127,7 +127,7 @@ export default async function AdminYearlyProgramPage() {
   // Клієнт записує ці дані в module-level кеш модалок при mount → відкриття без skeleton.
   const launchedCohortIds = cohortList.filter((c) => c.launchedAt !== null).map((c) => c.id);
 
-  const [statusCounts, totalAggr, revenueAggr, graceDays, programSettings, tgSettings, prewarm, superAdmin, issuesPayload] = await Promise.all([
+  const [statusCounts, totalAggr, revenueAggr, graceDays, postAccessMonths, programSettings, tgSettings, prewarm, superAdmin, issuesPayload] = await Promise.all([
     prisma.yearlyProgramSubscription.groupBy({
       by: ['status'],
       _count: { _all: true },
@@ -138,6 +138,7 @@ export default async function AdminYearlyProgramPage() {
       _sum: { amount: true },
     }),
     getYearlyGraceDays(prisma),
+    getYearlyPostAccessMonths(prisma),
     getYearlyProgramSettings(prisma),
     getYearlyProgramTelegramSettings(),
     buildYearlyProgramAdminPrewarm(launchedCohortIds),
@@ -149,6 +150,7 @@ export default async function AdminYearlyProgramPage() {
 
   const summary: SummaryData = {
     total: totalAggr,
+    pending: countByStatus('PENDING'),
     active: countByStatus('ACTIVE'),
     grace: countByStatus('GRACE'),
     expired: countByStatus('EXPIRED'),
@@ -162,6 +164,7 @@ export default async function AdminYearlyProgramPage() {
       summary={summary}
       cohorts={cohortList}
       graceDays={graceDays}
+      postAccessMonths={postAccessMonths}
       programSettings={programSettings}
       programDefaults={YEARLY_PROGRAM_DEFAULTS}
       telegramSettings={{

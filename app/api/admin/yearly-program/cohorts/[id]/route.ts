@@ -3,6 +3,7 @@ import prisma from '@/lib/prisma';
 import { isAdmin } from '@/lib/adminAuth';
 import { revalidateLocalized } from '@/lib/revalidatePaths';
 import { calculateAccessUntil } from '@/lib/yearlyProgramAccess';
+import { getYearlyPostAccessMonths } from '@/lib/yearlyProgramConfig';
 import { DEFAULT_LAUNCH_EMAIL_BODY, DEFAULT_LAUNCH_EMAIL_SUBJECT } from '@/lib/yearlyProgramCohort';
 
 /// GET — деталі cohort-у з підписками й платежами для деталізованого view.
@@ -113,6 +114,7 @@ export async function PATCH(
 
     // Якщо дати змінились — перераховуємо expiresAt усіх ACTIVE/GRACE/PENDING підписок cohort-у.
     if (datesChanged) {
+      const postAccessMonths = await getYearlyPostAccessMonths(tx);
       const subs = await tx.yearlyProgramSubscription.findMany({
         where: {
           cohortId: id,
@@ -128,6 +130,7 @@ export async function PATCH(
           autoRenew: s.autoRenew,
           cohort: { startDate, endDate },
           payments: s.payments,
+          postAccessMonths,
         });
         if (newExpires && (!s.expiresAt || newExpires.getTime() !== s.expiresAt.getTime())) {
           await tx.yearlyProgramSubscription.update({

@@ -53,6 +53,7 @@ export interface Row {
 
 export interface SummaryData {
   total: number;
+  pending: number;
   active: number;
   grace: number;
   expired: number;

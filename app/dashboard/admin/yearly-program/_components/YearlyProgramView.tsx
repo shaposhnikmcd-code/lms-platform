@@ -20,6 +20,7 @@ import {
   HiOutlineNoSymbol,
   HiOutlineArchiveBoxXMark,
   HiOutlineInformationCircle,
+  HiOutlineCalendarDays,
 } from 'react-icons/hi2';
 import type { YearlyProgramSettings } from '@/lib/yearlyProgramSettings';
 import { useAdminTheme, type Theme } from '../../_components/adminTheme';
@@ -41,6 +42,7 @@ const CreateCohortModal = dynamic(() => import('./CreateCohortModal'), { ssr: fa
 // Звідси імпортувати модалки більше не потрібно — код модалок лишається у цій теці й
 // підтягується з /emails-сторінки.
 const IssuesModal = dynamic(() => import('./IssuesModal'), { ssr: false });
+const ManualPaymentModal = dynamic(() => import('./ManualPaymentModal'), { ssr: false });
 import ProgramSettingButton from './ProgramSettingButton';
 import { type TelegramSettingsState } from './TelegramChannelButton';
 import { getCountryName } from '@/lib/countries';
@@ -81,6 +83,8 @@ interface SubscriptionDetails {
     status: string;
     createdAt: string;
     paidAt: string | null;
+    manualMethod: string | null;
+    manualNote: string | null;
   }>;
   events: Array<{
     id: string;
@@ -127,6 +131,7 @@ export default function YearlyProgramView(props: {
   telegramSettings: TelegramSettingsState;
   cohorts: CohortListItem[];
   graceDays: number;
+  postAccessMonths: number;
   programSettings: YearlyProgramSettings;
   programDefaults: ProgramDefaults;
   /// SSR-prewarm-payload: templates lists і recipients для launched cohort-ів. Дозволяє
@@ -178,6 +183,7 @@ function YearlyProgramViewInner({
   summary,
   cohorts,
   graceDays,
+  postAccessMonths,
   programSettings,
   programDefaults,
   telegramSettings,
@@ -191,6 +197,7 @@ function YearlyProgramViewInner({
   summary: SummaryData;
   cohorts: CohortListItem[];
   graceDays: number;
+  postAccessMonths: number;
   programSettings: YearlyProgramSettings;
   programDefaults: ProgramDefaults;
   telegramSettings: TelegramSettingsState;
@@ -222,6 +229,7 @@ function YearlyProgramViewInner({
   const [pageSize, setPageSize] = useState<number>(25);
   const [page, setPage] = useState<number>(1);
   const [graceModalOpen, setGraceModalOpen] = useState(false);
+  const [postAccessModalOpen, setPostAccessModalOpen] = useState(false);
   const [pricingModalOpen, setPricingModalOpen] = useState(false);
   const [issuesOpen, setIssuesOpen] = useState(false);
   /// Лічильник active issues — оновлюється при відкритті/закритті модалки помилок,
@@ -263,6 +271,20 @@ function YearlyProgramViewInner({
     }
     setExpandedId(id);
     if (details[id] && details[id] !== 'error') return;
+    setDetails((d) => ({ ...d, [id]: 'loading' }));
+    try {
+      const res = await fetch(`/api/admin/yearly-program/${id}/details`);
+      if (!res.ok) throw new Error(`${res.status}`);
+      const data = (await res.json()) as SubscriptionDetails;
+      setDetails((d) => ({ ...d, [id]: data }));
+    } catch {
+      setDetails((d) => ({ ...d, [id]: 'error' }));
+    }
+  }
+
+  /// Перезавантажити деталі однієї підписки (після inline-редагування), щоб панель
+  /// «Технічні поля»/«Події» одразу показала свіжі значення без collapse→expand.
+  async function reloadDetails(id: string) {
     setDetails((d) => ({ ...d, [id]: 'loading' }));
     try {
       const res = await fetch(`/api/admin/yearly-program/${id}/details`);
@@ -346,7 +368,21 @@ function YearlyProgramViewInner({
         )}
         <div className={dark ? 'border-t border-white/[0.06]' : 'border-t border-stone-300/40'} />
         <div className="px-5 py-3 flex items-center gap-x-6 gap-y-2 flex-wrap">
-          <KpiInline theme={theme} icon={HiOutlineUserGroup} label="Активних" value={summary.active.toLocaleString()} tone="success" />
+          <KpiInline
+            theme={theme}
+            icon={HiOutlineUserGroup}
+            label="Всього"
+            value={summary.total.toLocaleString()}
+            hint="Усі записи Річної програми (окрім архіву)"
+          />
+          <KpiInline theme={theme} icon={HiOutlineCheckCircle} label="Активних" value={summary.active.toLocaleString()} tone="success" />
+          <KpiInline
+            theme={theme}
+            icon={HiOutlineClock}
+            label="В очікуванні"
+            value={summary.pending.toLocaleString()}
+            hint="PENDING — оформлення почато, оплата ще не пройшла"
+          />
           <KpiInline
             theme={theme}
             icon={HiOutlineClock}
@@ -405,6 +441,13 @@ function YearlyProgramViewInner({
               title="Налаштувати тривалість grace-періоду"
               onClick={() => setGraceModalOpen(true)}
             />
+            <ProgramSettingButton
+              theme={theme}
+              icon={<HiOutlineCalendarDays className="text-base" />}
+              label={`Доступ +${postAccessMonths} міс`}
+              title="Бонусний доступ до платформи після завершення навчання — скільки місяців"
+              onClick={() => setPostAccessModalOpen(true)}
+            />
           </div>
         </AdminPanel>
 
@@ -459,6 +502,13 @@ function YearlyProgramViewInner({
           theme={theme}
           initialDays={graceDays}
           onClose={() => setGraceModalOpen(false)}
+        />
+      )}
+      {postAccessModalOpen && (
+        <PostAccessSettingsModal
+          theme={theme}
+          initialMonths={postAccessMonths}
+          onClose={() => setPostAccessModalOpen(false)}
         />
       )}
       {pricingModalOpen && (
@@ -567,6 +617,7 @@ function YearlyProgramViewInner({
                     busy={busyId === r.id}
                     onToggle={() => toggleExpand(r.id)}
                     onAction={(action, payload, confirm) => runAction(r.id, action, payload, confirm)}
+                    onReload={() => reloadDetails(r.id)}
                     issueBadge={issueSeverityBySub[r.id]}
                     onOpenIssues={() => setIssuesOpen(true)}
                   />
@@ -715,6 +766,7 @@ function RowBlock({
   busy,
   onToggle,
   onAction,
+  onReload,
   issueBadge,
   onOpenIssues,
 }: {
@@ -726,6 +778,7 @@ function RowBlock({
   busy: boolean;
   onToggle: () => void;
   onAction: (action: string, payload?: Record<string, unknown>, confirm?: string) => void;
+  onReload: () => void;
   issueBadge?: { severity: 'critical' | 'warning' | 'info'; count: number };
   onOpenIssues: () => void;
 }) {
@@ -876,6 +929,7 @@ function RowBlock({
               row={r}
               busy={busy}
               onAction={onAction}
+              onReload={onReload}
             />
           </td>
         </tr>
@@ -891,6 +945,7 @@ function ExpandedRowContent({
   graceDays,
   busy,
   onAction,
+  onReload,
 }: {
   details: SubscriptionDetails | 'loading' | 'error' | undefined;
   row: Row;
@@ -898,6 +953,7 @@ function ExpandedRowContent({
   graceDays: number;
   busy: boolean;
   onAction: (action: string, payload?: Record<string, unknown>, confirm?: string) => void;
+  onReload: () => void;
 }) {
   const dark = theme === 'dark';
   const { toast, confirm, prompt } = useUIFeedback();
@@ -905,6 +961,8 @@ function ExpandedRowContent({
   const [helpOpen, setHelpOpen] = useState(false);
   const [extraLaunching, setExtraLaunching] = useState(false);
   const [tgInviting, setTgInviting] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [manualPayOpen, setManualPayOpen] = useState(false);
 
   async function sendTelegramInvite(force: boolean) {
     const studentLabel = row.userEmail ?? row.userName ?? 'цього студента';
@@ -1007,6 +1065,50 @@ function ExpandedRowContent({
           </button>
         </div>
         <div className="flex flex-col gap-2">
+          <button
+            type="button"
+            onClick={() => setEditOpen(true)}
+            disabled={busy}
+            className={`px-3 py-1.5 text-[11px] font-semibold rounded-lg border transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-left flex items-center gap-2 ${
+              dark ? 'bg-indigo-500/10 border-indigo-400/30 text-indigo-200 hover:bg-indigo-500/20' : 'bg-indigo-50 border-indigo-300/60 text-indigo-900 hover:bg-indigo-100'
+            }`}
+            title="Редагувати поля підписки вручну (тільки в нашій БД)"
+          >
+            <span className="text-base">✏️</span>
+            Редагувати
+          </button>
+          {editOpen && (
+            <EditSubscriptionModal
+              theme={theme}
+              row={row}
+              onClose={() => setEditOpen(false)}
+              onSaved={onReload}
+            />
+          )}
+          {row.status !== 'ARCHIVED' && (
+            <button
+              type="button"
+              onClick={() => setManualPayOpen(true)}
+              disabled={busy}
+              className={`px-3 py-1.5 text-[11px] font-semibold rounded-lg border transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-left flex items-center gap-2 ${
+                dark
+                  ? 'bg-emerald-500/10 border-emerald-400/30 text-emerald-200 hover:bg-emerald-500/20 hover:border-emerald-400/50'
+                  : 'bg-emerald-50 border-emerald-300/60 text-emerald-900 hover:bg-emerald-100 hover:border-emerald-400/70'
+              }`}
+              title="Зафіксувати оплату поза WayForPay (готівка / переказ / ФОП)"
+            >
+              <span className="text-base">💵</span>
+              Підтвердити оплату вручну
+            </button>
+          )}
+          {manualPayOpen && (
+            <ManualPaymentModal
+              row={row}
+              theme={theme}
+              onClose={() => setManualPayOpen(false)}
+              onDone={() => { onReload(); router.refresh(); }}
+            />
+          )}
           {row.cohortLaunched && !row.sendpulseAccessOpenedAt && row.status !== 'ARCHIVED' && row.status !== 'CANCELLED' && (
             <button
               type="button"
@@ -1196,8 +1298,21 @@ function ExpandedRowContent({
               {details.payments.map((p) => (
                 <div key={p.id} className="px-3 py-2 flex items-center justify-between gap-3 text-[11px]">
                   <div className="min-w-0">
-                    <div className={`font-mono text-[10px] truncate ${dark ? 'text-slate-400' : 'text-stone-600'}`}>{p.orderReference}</div>
-                    <div className={dark ? 'text-slate-600' : 'text-stone-500'}>{fmtDate(p.createdAt)}</div>
+                    {p.manualMethod ? (
+                      <div className="flex items-center gap-1.5">
+                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-semibold ${
+                          dark ? 'bg-amber-400/15 text-amber-200 border border-amber-400/25' : 'bg-amber-100 text-amber-900 border border-amber-300/50'
+                        }`}>
+                          💵 {manualMethodLabel(p.manualMethod)}
+                        </span>
+                      </div>
+                    ) : (
+                      <div className={`font-mono text-[10px] truncate ${dark ? 'text-slate-400' : 'text-stone-600'}`}>{p.orderReference}</div>
+                    )}
+                    <div className={dark ? 'text-slate-600' : 'text-stone-500'}>{fmtDate(p.paidAt ?? p.createdAt)}</div>
+                    {p.manualNote && (
+                      <div className={`text-[10px] mt-0.5 italic ${dark ? 'text-slate-500' : 'text-stone-500'}`}>«{p.manualNote}»</div>
+                    )}
                   </div>
                   <div className="flex items-center gap-2 whitespace-nowrap">
                     <span className={`px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wider ${
@@ -1244,6 +1359,17 @@ function ExpandedRowContent({
   );
 }
 
+/// Лейбл способу ручної оплати для списку платежів. Має збігатись з METHODS у ManualPaymentModal
+/// та MANUAL_METHOD_LABELS у [id]/route.ts. Незнайомий method показуємо «як є».
+function manualMethodLabel(method: string): string {
+  switch (method) {
+    case 'cash': return 'Готівка';
+    case 'transfer': return 'Переказ';
+    case 'direct': return 'Напряму (ФОП)';
+    default: return method;
+  }
+}
+
 function eventTypeColor(type: string, dark: boolean): string {
   if (type.startsWith('charge_failed') || type === 'access_closed') return dark ? 'text-rose-300' : 'text-rose-700';
   if (type === 'created' || type === 'access_opened' || type === 'reactivated') return dark ? 'text-emerald-300' : 'text-emerald-700';
@@ -1251,6 +1377,226 @@ function eventTypeColor(type: string, dark: boolean): string {
   if (type === 'cancelled') return dark ? 'text-slate-400' : 'text-stone-600';
   if (type.startsWith('reminder')) return dark ? 'text-amber-300' : 'text-amber-700';
   return dark ? 'text-slate-400' : 'text-stone-600';
+}
+
+/// Модалка ручного редагування полів підписки. Змінює ТІЛЬКИ дані в нашій БД
+/// (action:"edit"), НЕ чіпає SendPulse / Telegram / WFP. Після збереження викликає
+/// onReload, щоб панель деталей одразу показала свіжі значення + нову подію.
+function EditSubscriptionModal({
+  theme,
+  row,
+  onClose,
+  onSaved,
+}: {
+  theme: Theme;
+  row: Row;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const dark = theme === 'dark';
+  const { toast } = useUIFeedback();
+  const router = useRouter();
+  const [mounted, setMounted] = useState(false);
+  const isoToDateInput = (iso: string | null) => (iso ? iso.slice(0, 10) : '');
+
+  const [plan, setPlan] = useState<Plan>(row.plan);
+  const [autoRenew, setAutoRenew] = useState<boolean>(row.autoRenew);
+  const [status, setStatus] = useState<SubStatus>(row.status === 'ARCHIVED' ? 'EXPIRED' : row.status);
+  const [startDate, setStartDate] = useState<string>(isoToDateInput(row.startDate));
+  const [expiresAt, setExpiresAt] = useState<string>(isoToDateInput(row.expiresAt));
+  const [telegramUsername, setTelegramUsername] = useState<string>(row.telegramUsername ?? '');
+  const [phone, setPhone] = useState<string>(row.phone ?? '');
+  const [country, setCountry] = useState<string>(row.country ?? '');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => { setMounted(true); }, []);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !saving) onClose(); };
+    document.addEventListener('keydown', onKey);
+    document.body.style.overflow = 'hidden';
+    return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = ''; };
+  }, [onClose, saving]);
+
+  const STATUS_OPTIONS: { value: SubStatus; label: string }[] = [
+    { value: 'PENDING', label: 'Очікує' },
+    { value: 'ACTIVE', label: 'Активний' },
+    { value: 'GRACE', label: 'Grace' },
+    { value: 'EXPIRED', label: 'Доступ закрито' },
+    { value: 'CANCELLED', label: 'Скасовано' },
+  ];
+
+  // Чи реально щось змінилось — для дизейблу «Зберегти» й чесного UX.
+  const dirty =
+    plan !== row.plan ||
+    autoRenew !== row.autoRenew ||
+    status !== row.status ||
+    startDate !== isoToDateInput(row.startDate) ||
+    expiresAt !== isoToDateInput(row.expiresAt) ||
+    (telegramUsername.trim() || '') !== (row.telegramUsername ?? '') ||
+    (phone.trim() || '') !== (row.phone ?? '') ||
+    (country.trim() || '') !== (row.country ?? '');
+
+  async function submit() {
+    const fields: Record<string, unknown> = {
+      plan,
+      autoRenew,
+      status,
+      startDate: startDate ? new Date(`${startDate}T00:00:00.000Z`).toISOString() : null,
+      expiresAt: expiresAt ? new Date(`${expiresAt}T00:00:00.000Z`).toISOString() : null,
+      telegramUsername: telegramUsername.trim() || null,
+      phone: phone.trim() || null,
+      country: country.trim() || null,
+    };
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/admin/yearly-program/${row.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'edit', fields }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast('error', data.error ?? res.statusText);
+        return;
+      }
+      if (data.noChanges) {
+        toast('info', 'Без змін');
+      } else {
+        toast('success', `Збережено (${(data.changes?.length ?? 0)} змін)`);
+      }
+      onSaved();
+      router.refresh();
+      onClose();
+    } catch (e) {
+      toast('error', (e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const labelCls = `block text-[10px] uppercase tracking-wider font-semibold mb-1.5 ${dark ? 'text-slate-400' : 'text-stone-500'}`;
+  const fieldCls = `w-full h-9 px-2.5 text-[13px] rounded-lg border outline-none transition-colors ${
+    dark
+      ? 'bg-white/[0.04] border-white/[0.12] text-slate-100 focus:border-indigo-400/70 focus:bg-white/[0.06]'
+      : 'bg-white border-stone-300 text-stone-800 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/15'
+  }`;
+  const sectionCls = `text-[10px] uppercase tracking-[0.15em] font-semibold ${dark ? 'text-slate-500' : 'text-stone-400'}`;
+
+  if (!mounted) return null;
+  return createPortal(
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4" role="dialog" aria-modal="true">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-[1px]" onClick={() => { if (!saving) onClose(); }} />
+      <div className={`relative w-full max-w-[560px] max-h-[88vh] overflow-y-auto rounded-2xl shadow-2xl [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden ${dark ? 'bg-zinc-900 border border-white/10 text-slate-200' : 'bg-white border border-stone-200 text-stone-800'}`}>
+        {/* Header */}
+        <div className={`sticky top-0 z-10 flex items-center justify-between px-5 py-3.5 border-b ${dark ? 'bg-zinc-900 border-white/10' : 'bg-white border-stone-200'}`}>
+          <div className="min-w-0">
+            <h3 className="text-[15px] font-bold flex items-center gap-2"><span>✏️</span> Редагування підписки</h3>
+            <p className={`text-[11px] truncate ${dark ? 'text-slate-500' : 'text-stone-500'}`}>{row.userName ? `${row.userName} · ` : ''}{row.userEmail}</p>
+          </div>
+          <button onClick={() => { if (!saving) onClose(); }} aria-label="Закрити" className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center ${dark ? 'hover:bg-white/10' : 'hover:bg-stone-100'}`}>✕</button>
+        </div>
+
+        {/* Body */}
+        <div className="px-5 py-4 space-y-5">
+          {/* Підписка */}
+          <section className="space-y-3">
+            <h4 className={sectionCls}>Підписка</h4>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className={labelCls}>План</label>
+                <select className={fieldCls} value={plan} onChange={(e) => setPlan(e.target.value as Plan)}>
+                  <option value="YEARLY">Річний</option>
+                  <option value="MONTHLY">Місячний</option>
+                </select>
+              </div>
+              <div>
+                <label className={labelCls}>Автосписання</label>
+                <select className={fieldCls} value={autoRenew ? '1' : '0'} onChange={(e) => setAutoRenew(e.target.value === '1')}>
+                  <option value="0">Вимкнено</option>
+                  <option value="1">Увімкнено</option>
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className={labelCls}>Статус</label>
+              <select className={fieldCls} value={status} onChange={(e) => setStatus(e.target.value as SubStatus)}>
+                {STATUS_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+              <div className={`mt-2 flex items-start gap-2 px-2.5 py-2 rounded-lg text-[11px] leading-snug ${dark ? 'bg-amber-500/10 text-amber-200/90' : 'bg-amber-50 text-amber-800'}`}>
+                <span className="shrink-0">⚠️</span>
+                <span>Зміна статусу тут міняє лише запис у БД. Для реального відкриття/закриття доступу в SendPulse користуйтесь кнопками «Відкрити доступ» / «Закрити доступ».</span>
+              </div>
+            </div>
+          </section>
+
+          {/* Доступ */}
+          <section className="space-y-3">
+            <h4 className={sectionCls}>Доступ</h4>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className={labelCls}>Початок</label>
+                <input type="date" className={fieldCls} value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+              </div>
+              <div>
+                <label className={labelCls}>Доступ до</label>
+                <input type="date" className={fieldCls} value={expiresAt} onChange={(e) => setExpiresAt(e.target.value)} />
+              </div>
+            </div>
+            <p className={`text-[10.5px] leading-snug ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+              «Доступ до» — лише дата в нашій БД, доступ у SendPulse вона не закриває автоматично.
+            </p>
+          </section>
+
+          {/* Контакти */}
+          <section className="space-y-3">
+            <h4 className={sectionCls}>Контакти</h4>
+            <div>
+              <label className={labelCls}>Telegram-нік</label>
+              <input type="text" className={fieldCls} value={telegramUsername} onChange={(e) => setTelegramUsername(e.target.value)} placeholder="@username" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className={labelCls}>Телефон</label>
+                <input type="text" className={fieldCls} value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+380…" />
+              </div>
+              <div>
+                <label className={labelCls}>Країна (ISO-2)</label>
+                <input type="text" maxLength={2} className={`${fieldCls} uppercase`} value={country} onChange={(e) => setCountry(e.target.value)} placeholder="UA" />
+              </div>
+            </div>
+          </section>
+        </div>
+
+        {/* Footer */}
+        <div className={`sticky bottom-0 flex items-center justify-end gap-2.5 px-5 py-3.5 border-t ${dark ? 'bg-zinc-900 border-white/10' : 'bg-white border-stone-200'}`}>
+          <button
+            type="button"
+            onClick={() => { if (!saving) onClose(); }}
+            disabled={saving}
+            className={`px-4 py-2 text-[13px] font-medium rounded-lg border transition-colors disabled:opacity-50 ${
+              dark ? 'bg-white/[0.04] border-white/[0.1] text-slate-300 hover:bg-white/[0.08]' : 'bg-white border-stone-300 text-stone-700 hover:bg-stone-50'
+            }`}
+          >
+            Скасувати
+          </button>
+          <button
+            type="button"
+            onClick={submit}
+            disabled={saving || !dirty}
+            title={!dirty ? 'Немає змін для збереження' : undefined}
+            className={`px-5 py-2 text-[13px] font-semibold rounded-lg border transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-2 ${
+              dark ? 'bg-indigo-500 border-indigo-500 text-white hover:bg-indigo-400' : 'bg-indigo-600 border-indigo-600 text-white hover:bg-indigo-700'
+            }`}
+          >
+            {saving ? 'Зберігаю…' : '💾 Зберегти'}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
 }
 
 function ActionBtn({
@@ -2104,6 +2450,323 @@ function GraceSettingsModal({
             <p>
               Застосовується <strong>до нових переходів</strong> ACTIVE → GRACE.
               Уже активні GRACE-записи зберігають свою дату закриття.
+            </p>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className={`flex items-center justify-between gap-3 px-6 py-3 border-t ${dark ? 'border-white/10 bg-white/[0.02]' : 'border-stone-200 bg-stone-50/50'}`}>
+          <span className={`text-[11px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+            {dirty
+              ? <>Зміни <span className={dark ? 'text-amber-300' : 'text-amber-700'}>не збережено</span></>
+              : 'Без змін'}
+          </span>
+          <div className="flex gap-2">
+            <button
+              onClick={onClose}
+              className={`px-4 py-1.5 rounded-lg border text-[12px] font-medium transition-colors ${
+                dark
+                  ? 'bg-white/[0.04] border-white/[0.1] text-slate-300 hover:bg-white/[0.08]'
+                  : 'bg-white border-stone-300 text-stone-700 hover:bg-stone-50'
+              }`}
+            >
+              Скасувати
+            </button>
+            <button
+              onClick={save}
+              disabled={!dirty || saving}
+              className={`px-5 py-1.5 rounded-lg text-[12px] font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                dark
+                  ? 'bg-amber-400 text-stone-900 hover:bg-amber-300'
+                  : 'bg-stone-900 text-amber-100 hover:bg-stone-800'
+              }`}
+            >
+              {saving ? 'Збереження...' : 'Зберегти'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+function pluralizeMonths(n: number): string {
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return 'місяць';
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return 'місяці';
+  return 'місяців';
+}
+
+/// Додає N календарних місяців до дати (клемп дня до останнього дня цільового місяця).
+/// Дублює серверну логіку addCalendarMonths для прев'ю прикладу в модалці.
+function addCalendarMonthsClient(date: Date, months: number): Date {
+  if (!months) return new Date(date);
+  const day = date.getDate();
+  const r = new Date(date);
+  r.setDate(1);
+  r.setMonth(r.getMonth() + months);
+  const lastDay = new Date(r.getFullYear(), r.getMonth() + 1, 0).getDate();
+  r.setDate(Math.min(day, lastDay));
+  return r;
+}
+
+/// Налаштування тривалості доступу до платформи ПІСЛЯ завершення Річної програми (у місяцях).
+/// Зберігає у AppSetting і перераховує expiresAt усіх живих підписок (через PATCH .../settings).
+function PostAccessSettingsModal({
+  theme,
+  initialMonths,
+  onClose,
+}: {
+  theme: Theme;
+  initialMonths: number;
+  onClose: () => void;
+}) {
+  const router = useRouter();
+  const dark = theme === 'dark';
+  const [mounted, setMounted] = useState(false);
+  const [months, setMonths] = useState<string>(String(initialMonths));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const MIN = 0;
+  const MAX = 24;
+  const PRESETS = [3, 6, 9, 12];
+
+  useEffect(() => { setMounted(true); }, []);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    document.body.style.overflow = 'hidden';
+    return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = ''; };
+  }, [onClose]);
+
+  const parsed = Number(months);
+  const valid = Number.isInteger(parsed) && parsed >= MIN && parsed <= MAX;
+  const dirty = valid && parsed !== initialMonths;
+  const previewN = valid ? parsed : initialMonths;
+  const previewWord = pluralizeMonths(previewN);
+
+  // Приклад: програма завершується 31.05.2027 → дата закриття доступу.
+  const exampleEnd = new Date(2027, 4, 31);
+  const exampleAccess = addCalendarMonthsClient(exampleEnd, previewN);
+  const fmt = (d: Date) => `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`;
+
+  function bump(delta: number) {
+    const base = valid ? parsed : initialMonths;
+    const next = Math.min(MAX, Math.max(MIN, base + delta));
+    setMonths(String(next));
+    setError(null);
+  }
+
+  async function save() {
+    if (!dirty || saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/admin/yearly-program/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ postAccessMonths: parsed }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data?.error || 'Не вдалося зберегти');
+        return;
+      }
+      router.refresh();
+      onClose();
+    } catch (e) {
+      setError(`Помилка: ${(e as Error).message}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!mounted) return null;
+  return createPortal(
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4" role="dialog" aria-modal="true">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className={`relative max-w-lg w-full rounded-2xl shadow-2xl overflow-hidden ${
+        dark ? 'bg-zinc-900 border border-white/10 text-slate-200' : 'bg-white border border-stone-200 text-stone-800'
+      }`}>
+        {/* Header */}
+        <div className={`flex items-center justify-between px-6 py-4 border-b ${dark ? 'border-white/10' : 'border-stone-200'}`}>
+          <div className="flex items-center gap-3">
+            <span className={`w-9 h-9 rounded-xl flex items-center justify-center text-[18px] ${
+              dark
+                ? 'bg-amber-400/15 text-amber-300 ring-1 ring-amber-400/30'
+                : 'bg-amber-100 text-amber-700 ring-1 ring-amber-300/60'
+            }`} aria-hidden>
+              <HiOutlineCalendarDays className="w-[18px] h-[18px]" />
+            </span>
+            <div>
+              <h3 className="text-[15px] font-bold leading-tight">Доступ після завершення навчання</h3>
+              <p className={`text-[11px] mt-0.5 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
+                Скільки ще студент користується платформою, коли програма закінчилась
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            aria-label="Закрити"
+            className={`w-8 h-8 rounded-full flex items-center justify-center text-[14px] transition-colors ${
+              dark ? 'hover:bg-white/10 text-slate-400 hover:text-slate-200' : 'hover:bg-stone-100 text-stone-500 hover:text-stone-700'
+            }`}
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="px-6 py-5 space-y-5">
+          {/* Що це — простими словами */}
+          <p className={`text-[13px] leading-relaxed ${dark ? 'text-slate-300' : 'text-stone-700'}`}>
+            Навчання у Річній програмі триває до дати її завершення. Після цієї дати студент
+            ще певний час бачить матеріали на платформі — цей «бонусний» період ви задаєте тут.
+            Коли він спливає, доступ закривається автоматично.
+          </p>
+
+          {/* Hero — current vs new */}
+          <div className={`relative rounded-2xl px-5 py-4 overflow-hidden ${
+            dark
+              ? 'bg-gradient-to-br from-amber-500/[0.12] via-amber-500/[0.06] to-transparent ring-1 ring-amber-400/20'
+              : 'bg-gradient-to-br from-amber-50 via-amber-50/50 to-white ring-1 ring-amber-300/40'
+          }`}>
+            <div className="flex items-end justify-between gap-4">
+              <div>
+                <div className={`text-[10px] uppercase tracking-[0.14em] font-semibold ${dark ? 'text-amber-300/70' : 'text-amber-700/80'}`}>
+                  Зараз бонусний доступ
+                </div>
+                <div className="mt-1 flex items-baseline gap-2">
+                  <span className={`text-[42px] leading-none font-bold tabular-nums ${dark ? 'text-amber-200' : 'text-amber-800'}`}>
+                    {initialMonths}
+                  </span>
+                  <span className={`text-[15px] font-medium ${dark ? 'text-amber-300/80' : 'text-amber-700/90'}`}>
+                    {pluralizeMonths(initialMonths)}
+                  </span>
+                </div>
+              </div>
+              {dirty && (
+                <div className="text-right">
+                  <div className={`text-[10px] uppercase tracking-[0.14em] font-semibold ${dark ? 'text-emerald-300/80' : 'text-emerald-700/80'}`}>
+                    Стане
+                  </div>
+                  <div className="mt-1 flex items-baseline justify-end gap-2">
+                    <span className={`text-[28px] leading-none font-bold tabular-nums ${dark ? 'text-emerald-200' : 'text-emerald-700'}`}>
+                      {parsed}
+                    </span>
+                    <span className={`text-[12px] font-medium ${dark ? 'text-emerald-300/80' : 'text-emerald-700/90'}`}>
+                      {previewWord}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Stepper + presets */}
+          <div>
+            <label className={`block text-[11px] uppercase tracking-wider font-semibold mb-2 ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
+              Кількість місяців
+            </label>
+            <div className="flex items-stretch gap-2">
+              <button
+                type="button"
+                onClick={() => bump(-1)}
+                disabled={!valid || parsed <= MIN}
+                aria-label="Зменшити"
+                className={`w-10 rounded-xl border text-[18px] font-semibold transition-colors flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed ${
+                  dark
+                    ? 'bg-white/[0.04] border-white/[0.1] text-slate-300 hover:bg-white/[0.08]'
+                    : 'bg-white border-stone-300 text-stone-700 hover:bg-stone-50'
+                }`}
+              >−</button>
+              <div className="relative flex-1">
+                <input
+                  type="number"
+                  min={MIN}
+                  max={MAX}
+                  value={months}
+                  onChange={(e) => { setMonths(e.target.value); setError(null); }}
+                  className={`w-full h-10 px-3 pr-16 rounded-xl border text-[18px] font-semibold tabular-nums text-center outline-none transition-colors ${
+                    dark
+                      ? 'bg-white/[0.04] border-white/[0.1] text-slate-100 focus:border-amber-400/60 focus:bg-white/[0.06]'
+                      : 'bg-white border-stone-300 text-stone-900 focus:border-amber-500/70'
+                  }`}
+                />
+                <span className={`absolute right-3 top-1/2 -translate-y-1/2 text-[12px] font-medium pointer-events-none ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+                  {previewWord}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => bump(1)}
+                disabled={!valid || parsed >= MAX}
+                aria-label="Збільшити"
+                className={`w-10 rounded-xl border text-[18px] font-semibold transition-colors flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed ${
+                  dark
+                    ? 'bg-white/[0.04] border-white/[0.1] text-slate-300 hover:bg-white/[0.08]'
+                    : 'bg-white border-stone-300 text-stone-700 hover:bg-stone-50'
+                }`}
+              >+</button>
+            </div>
+
+            {/* Presets */}
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {PRESETS.map((p) => {
+                const active = valid && parsed === p;
+                return (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => { setMonths(String(p)); setError(null); }}
+                    className={`px-3 py-1 rounded-full text-[12px] font-semibold tabular-nums transition-colors ${
+                      active
+                        ? dark
+                          ? 'bg-amber-400 text-stone-900'
+                          : 'bg-stone-900 text-amber-100'
+                        : dark
+                          ? 'bg-white/[0.04] border border-white/[0.08] text-slate-300 hover:bg-white/[0.08]'
+                          : 'bg-white border border-stone-300 text-stone-600 hover:bg-stone-50'
+                    }`}
+                  >
+                    {p} {pluralizeMonths(p)}
+                  </button>
+                );
+              })}
+            </div>
+
+            {!valid && months !== '' && (
+              <p className={`mt-2 text-[11px] ${dark ? 'text-rose-400' : 'text-rose-700'}`}>
+                Ціле число від {MIN} до {MAX}
+              </p>
+            )}
+            {error && (
+              <p className={`mt-2 text-[11px] ${dark ? 'text-rose-400' : 'text-rose-700'}`}>{error}</p>
+            )}
+          </div>
+
+          {/* Live example */}
+          <div className={`rounded-xl px-4 py-3 ${
+            dark ? 'bg-white/[0.03] border border-white/[0.08]' : 'bg-stone-50 border border-stone-200'
+          }`}>
+            <div className={`text-[10px] uppercase tracking-[0.14em] font-semibold mb-1.5 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+              Як це рахується
+            </div>
+            <p className={`text-[13px] leading-relaxed ${dark ? 'text-slate-200' : 'text-stone-800'}`}>
+              Навчання завершується <strong>{fmt(exampleEnd)}</strong>, додаємо <strong className={dark ? 'text-amber-300' : 'text-amber-700'}>{previewN} {previewWord}</strong> бонусного доступу —{' '}
+              і платформа закриється <strong className={dark ? 'text-emerald-300' : 'text-emerald-700'}>{fmt(exampleAccess)}</strong>.
+            </p>
+          </div>
+
+          {/* Info */}
+          <div className={`flex gap-2 text-[11.5px] leading-relaxed ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
+            <span className={`flex-shrink-0 mt-0.5 ${dark ? 'text-slate-500' : 'text-stone-400'}`} aria-hidden>ℹ</span>
+            <p>
+              Діє для <strong>всіх студентів Річної</strong>: хто платив одразу за рік — бонус нараховується відразу;
+              хто платить помісячно — після сплати всіх платежів.
+              Щойно натиснете «Зберегти», нові дати закриття проставляться всім активним студентам автоматично.
             </p>
           </div>
         </div>

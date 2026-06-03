@@ -28,6 +28,11 @@ export const YEARLY_PROGRAM_CONFIG = {
   /// Grace-період після expiresAt, протягом якого доступ залишається відкритим.
   graceDays: 7,
 
+  /// Скільки місяців доступу до платформи студент отримує ПІСЛЯ дати завершення Річної
+  /// програми (cohort.endDate). Напр. програма завершується 31.05.2027 + 6 міс = доступ
+  /// до 30.11.2027. Стосується і YEARLY (одразу), і MONTHLY (після повної сплати всіх платежів).
+  postAccessMonths: 6,
+
   /// Нагадування — за скільки днів до expiresAt.
   reminderDaysBefore: [3, 1],
 } as const;
@@ -62,5 +67,25 @@ export async function getYearlyGraceDays(
   } catch {
     /// Якщо таблиця ще не мігрована (rare race перед deploy) — безпечний fallback.
     return YEARLY_PROGRAM_CONFIG.graceDays;
+  }
+}
+
+/// Ключ у `AppSetting` для runtime-конфігурованої тривалості доступу після завершення
+/// програми (у місяцях). Зміна з адмінки перераховує expiresAt усіх живих підписок.
+export const YEARLY_POST_ACCESS_SETTING_KEY = 'yearlyPostAccessMonths';
+export const YEARLY_POST_ACCESS_MIN_MONTHS = 0;
+export const YEARLY_POST_ACCESS_MAX_MONTHS = 24;
+
+/// Читає актуальну кількість місяців пост-доступу з БД. Fallback на константу з config.
+export async function getYearlyPostAccessMonths(
+  prismaClient: { appSetting: { findUnique: (args: { where: { key: string } }) => Promise<{ value: number } | null> } },
+): Promise<number> {
+  try {
+    const row = await prismaClient.appSetting.findUnique({
+      where: { key: YEARLY_POST_ACCESS_SETTING_KEY },
+    });
+    return row?.value ?? YEARLY_PROGRAM_CONFIG.postAccessMonths;
+  } catch {
+    return YEARLY_PROGRAM_CONFIG.postAccessMonths;
   }
 }

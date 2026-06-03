@@ -267,6 +267,11 @@ model Payment {
   enrollmentsCompletedAt      DateTime?
   sendpulseSentAt             DateTime?
   provisionError              String?
+  /// Ручне підтвердження оплати поза WayForPay (готівка / переказ / напряму ФОП).
+  /// `manualMethod` — спосіб ("cash" | "transfer" | "direct" | ...), `manualNote` — коментар менеджера.
+  /// Заповнюються лише для платежів, створених екшеном `manual_payment` у адмінці Річної програми.
+  manualMethod                String?
+  manualNote                  String?
   yearlyProgramSubscription   YearlyProgramSubscription? @relation("YearlyProgramPayments", fields: [yearlyProgramSubscriptionId], references: [id])
   user                        User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
   course                      Course?                    @relation(fields: [courseId], references: [id])
