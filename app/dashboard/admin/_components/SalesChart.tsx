@@ -164,7 +164,8 @@ export default function SalesChart({ series, theme }: Props) {
           boxShadow: dark ? '0 12px 32px rgba(0,0,0,0.5)' : '0 12px 32px rgba(68,64,60,0.18)',
           fontSize: 12,
           color: tooltipText,
-          minWidth: 220,
+          minWidth: 200,
+          maxWidth: 'calc(100vw - 32px)',
         }}
       >
         <div style={{ fontSize: 11, opacity: 0.6, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600 }}>
@@ -218,7 +219,7 @@ export default function SalesChart({ series, theme }: Props) {
           </div>
           <div className="flex items-baseline gap-3 flex-wrap">
             <span
-              className={`text-[44px] font-semibold tabular-nums leading-none tracking-tight ${
+              className={`text-[32px] sm:text-[44px] font-semibold tabular-nums leading-none tracking-tight ${
                 dark ? 'text-white' : 'text-stone-900'
               }`}
             >
@@ -249,7 +250,7 @@ export default function SalesChart({ series, theme }: Props) {
         </div>
 
         {/* Категорії — компактна мережа з кольоровою смугою прогресу */}
-        <div className="flex-1 min-w-[320px] max-w-[560px]">
+        <div className="w-full sm:flex-1 min-w-0 sm:min-w-[320px] max-w-full sm:max-w-[560px]">
           <div className={`text-[10.5px] uppercase tracking-[0.2em] font-semibold mb-2 text-right ${
             dark ? 'text-slate-500' : 'text-stone-500'
           }`}>

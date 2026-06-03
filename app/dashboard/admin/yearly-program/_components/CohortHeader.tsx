@@ -516,7 +516,7 @@ export default function CohortHeader({
 
           {open && (
             <div
-              className={`absolute left-0 top-full z-30 mt-2 max-h-[420px] overflow-y-auto rounded-lg border min-w-[400px] shadow-2xl ${
+              className={`absolute left-0 top-full z-30 mt-2 max-h-[420px] overflow-y-auto rounded-lg border w-[calc(100vw-32px)] sm:w-auto sm:min-w-[400px] shadow-2xl ${
                 dark ? 'bg-zinc-900 border-white/10' : 'bg-white border-stone-200'
               }`}
             >

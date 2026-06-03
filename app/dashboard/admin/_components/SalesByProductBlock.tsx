@@ -142,13 +142,13 @@ export default function SalesByProductBlock({ data, theme, activePeriod, periodO
                   )}
                 </div>
                 <div className="flex items-baseline gap-3 flex-shrink-0 relative">
-                  <div className="text-right">
+                  <div className="text-right hidden sm:block">
                     <div className={`text-[10px] uppercase tracking-[0.14em] font-medium ${muted}`}>Кількість</div>
                     <div className={`text-[14px] font-semibold tabular-nums ${titleClr}`}>
                       {r.count.toLocaleString('uk-UA')}
                     </div>
                   </div>
-                  <div className="text-right" style={{ minWidth: 110 }}>
+                  <div className="text-right sm:min-w-[110px]">
                     <div className={`text-[10px] uppercase tracking-[0.14em] font-medium ${muted}`}>Сума</div>
                     <div className={`text-[14px] font-semibold tabular-nums ${titleClr}`}>
                       {fmtUah(r.sum)} <span className={`text-[11px] font-normal ${muted}`}>₴</span>

@@ -131,8 +131,8 @@ export function AdminShell({
         }}
       />
 
-      <div className={`relative ${maxWidth} mx-auto px-6 py-10`}>
-        <header className="flex items-end justify-between gap-4 mb-10 flex-wrap">
+      <div className={`relative ${maxWidth} mx-auto px-4 py-6 sm:px-6 sm:py-10`}>
+        <header className="flex items-end justify-between gap-3 sm:gap-4 mb-6 sm:mb-10 flex-wrap">
           <div className="min-w-0">
             {eyebrow && (
               <div
@@ -160,7 +160,7 @@ export function AdminShell({
                 </Link>
               )}
               <h1
-                className={`text-[32px] font-semibold tracking-tight leading-none ${
+                className={`text-[24px] sm:text-[32px] font-semibold tracking-tight leading-none ${
                   dark ? 'text-white' : 'text-stone-900'
                 }`}
               >
