@@ -576,8 +576,51 @@ async function handleEdit(
     }
   }
 
+  // Поля користувача (User) — ім'я та email. Оновлюємо повʼязаний User-запис, НЕ підписку.
+  const userData: Record<string, unknown> = {};
+
+  if ('userName' in fields) {
+    const v = fields.userName;
+    let next: string | null;
+    if (v === null) {
+      next = null;
+    } else if (typeof v === 'string') {
+      next = v.trim() || null;
+    } else {
+      return NextResponse.json({ error: 'Невалідне ім\'я' }, { status: 400 });
+    }
+    if (next !== (sub.user?.name ?? null)) {
+      userData.name = next;
+      changes.push(`ім'я: ${fmtLogValue(sub.user?.name)} → ${fmtLogValue(next)}`);
+    }
+  }
+
+  if ('userEmail' in fields) {
+    const v = fields.userEmail;
+    if (typeof v !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim())) {
+      return NextResponse.json({ error: 'Невалідний email' }, { status: 400 });
+    }
+    const next = v.trim();
+    if (next !== (sub.user?.email ?? null)) {
+      userData.email = next;
+      changes.push(`email: ${fmtLogValue(sub.user?.email)} → ${fmtLogValue(next)}`);
+    }
+  }
+
   if (changes.length === 0) {
     return NextResponse.json({ ok: true, noChanges: true });
+  }
+
+  // Email унікальний — ловимо колізію окремо, щоб віддати зрозумілу помилку.
+  if (Object.keys(userData).length > 0) {
+    try {
+      await prisma.user.update({ where: { id: sub.userId }, data: userData as Prisma.UserUpdateInput });
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        return NextResponse.json({ error: 'Користувач з таким email уже існує' }, { status: 409 });
+      }
+      throw e;
+    }
   }
 
   await prisma.yearlyProgramSubscription.update({

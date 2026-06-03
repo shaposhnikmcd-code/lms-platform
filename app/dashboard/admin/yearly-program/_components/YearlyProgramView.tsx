@@ -21,6 +21,7 @@ import {
   HiOutlineArchiveBoxXMark,
   HiOutlineInformationCircle,
   HiOutlineCalendarDays,
+  HiOutlineUserPlus,
 } from 'react-icons/hi2';
 import type { YearlyProgramSettings } from '@/lib/yearlyProgramSettings';
 import { useAdminTheme, type Theme } from '../../_components/adminTheme';
@@ -43,9 +44,10 @@ const CreateCohortModal = dynamic(() => import('./CreateCohortModal'), { ssr: fa
 // підтягується з /emails-сторінки.
 const IssuesModal = dynamic(() => import('./IssuesModal'), { ssr: false });
 const ManualPaymentModal = dynamic(() => import('./ManualPaymentModal'), { ssr: false });
+const ManualAddStudentModal = dynamic(() => import('./ManualAddStudentModal'), { ssr: false });
 import ProgramSettingButton from './ProgramSettingButton';
 import { type TelegramSettingsState } from './TelegramChannelButton';
-import { getCountryName } from '@/lib/countries';
+import { getCountryName, COUNTRIES } from '@/lib/countries';
 import { telegramProfileUrl } from '@/lib/telegramUsername';
 
 export type { Row, SubStatus, Plan, SummaryData };
@@ -232,6 +234,7 @@ function YearlyProgramViewInner({
   const [postAccessModalOpen, setPostAccessModalOpen] = useState(false);
   const [pricingModalOpen, setPricingModalOpen] = useState(false);
   const [issuesOpen, setIssuesOpen] = useState(false);
+  const [manualAddOpen, setManualAddOpen] = useState(false);
   /// Лічильник active issues — оновлюється при відкритті/закритті модалки помилок,
   /// показується як red-badge на кнопці. Initial = 0; перший fetch виконує модалка
   /// при відкритті, а потім callback оновлює badge для toolbar-а без відкриття модалки.
@@ -452,6 +455,22 @@ function YearlyProgramViewInner({
         </AdminPanel>
 
         <AdminPanel theme={theme} padding="p-3" className="w-fit">
+          <button
+            type="button"
+            onClick={() => setManualAddOpen(true)}
+            title="Додати студента у Річну вручну, без нової оплати (перенесення з минулорічного набору)"
+            className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[12px] font-semibold transition-colors ${
+              dark
+                ? 'bg-sky-500/12 border-sky-400/35 text-sky-200 hover:bg-sky-500/20'
+                : 'bg-sky-50 border-sky-300/60 text-sky-900 hover:bg-sky-100'
+            }`}
+          >
+            <HiOutlineUserPlus className="text-base" />
+            Додати студента вручну
+          </button>
+        </AdminPanel>
+
+        <AdminPanel theme={theme} padding="p-3" className="w-fit">
           <div className="flex items-center gap-2 flex-wrap">
             <input
               type="search"
@@ -497,6 +516,15 @@ function YearlyProgramViewInner({
           </button>
         </AdminPanel>
       </div>
+      {manualAddOpen && (
+        <ManualAddStudentModal
+          theme={theme}
+          cohorts={cohorts}
+          defaultCohortId={activeCohortId}
+          onClose={() => setManualAddOpen(false)}
+          onDone={() => router.refresh()}
+        />
+      )}
       {graceModalOpen && (
         <GraceSettingsModal
           theme={theme}
@@ -963,6 +991,7 @@ function ExpandedRowContent({
   const [tgInviting, setTgInviting] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [manualPayOpen, setManualPayOpen] = useState(false);
+  const [extendOpen, setExtendOpen] = useState(false);
 
   async function sendTelegramInvite(force: boolean) {
     const studentLabel = row.userEmail ?? row.userName ?? 'цього студента';
@@ -1125,13 +1154,17 @@ function ExpandedRowContent({
               {extraLaunching ? 'Запускаю…' : 'Екстра Запуск нового студента'}
             </button>
           )}
-          <ActionBtn theme={theme} disabled={busy || row.status === 'EXPIRED' || row.status === 'ARCHIVED'} onClick={() => {
-            const days = window.prompt('На скільки днів продовжити?', '30');
-            const n = Number(days);
-            if (Number.isFinite(n) && n > 0) onAction('extend', { daysToAdd: n });
-          }}>
-            ⏱ Продовжити…
+          <ActionBtn theme={theme} disabled={busy || row.status === 'EXPIRED' || row.status === 'ARCHIVED'} onClick={() => setExtendOpen(true)}>
+            ⏱ Продовжити доступ до SendPulse
           </ActionBtn>
+          {extendOpen && (
+            <ExtendAccessModal
+              theme={theme}
+              row={row}
+              onClose={() => setExtendOpen(false)}
+              onConfirm={(days) => { setExtendOpen(false); onAction('extend', { daysToAdd: days }); }}
+            />
+          )}
           {row.plan === 'MONTHLY' && row.autoRenew && (
             <ActionBtn theme={theme} disabled={busy || row.status === 'CANCELLED' || row.status === 'ARCHIVED'} tone="warning" onClick={async () => {
               const reason = await prompt({
@@ -1379,6 +1412,9 @@ function eventTypeColor(type: string, dark: boolean): string {
   return dark ? 'text-slate-400' : 'text-stone-600';
 }
 
+/// Країни за абеткою (укр. колація) — для випадайки у формі редагування.
+const COUNTRIES_ALPHA = [...COUNTRIES].sort((a, b) => a.name.localeCompare(b.name, 'uk'));
+
 /// Модалка ручного редагування полів підписки. Змінює ТІЛЬКИ дані в нашій БД
 /// (action:"edit"), НЕ чіпає SendPulse / Telegram / WFP. Після збереження викликає
 /// onReload, щоб панель деталей одразу показала свіжі значення + нову подію.
@@ -1397,13 +1433,9 @@ function EditSubscriptionModal({
   const { toast } = useUIFeedback();
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
-  const isoToDateInput = (iso: string | null) => (iso ? iso.slice(0, 10) : '');
 
-  const [plan, setPlan] = useState<Plan>(row.plan);
-  const [autoRenew, setAutoRenew] = useState<boolean>(row.autoRenew);
-  const [status, setStatus] = useState<SubStatus>(row.status === 'ARCHIVED' ? 'EXPIRED' : row.status);
-  const [startDate, setStartDate] = useState<string>(isoToDateInput(row.startDate));
-  const [expiresAt, setExpiresAt] = useState<string>(isoToDateInput(row.expiresAt));
+  const [userName, setUserName] = useState<string>(row.userName ?? '');
+  const [userEmail, setUserEmail] = useState<string>(row.userEmail ?? '');
   const [telegramUsername, setTelegramUsername] = useState<string>(row.telegramUsername ?? '');
   const [phone, setPhone] = useState<string>(row.phone ?? '');
   const [country, setCountry] = useState<string>(row.country ?? '');
@@ -1417,32 +1449,18 @@ function EditSubscriptionModal({
     return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = ''; };
   }, [onClose, saving]);
 
-  const STATUS_OPTIONS: { value: SubStatus; label: string }[] = [
-    { value: 'PENDING', label: 'Очікує' },
-    { value: 'ACTIVE', label: 'Активний' },
-    { value: 'GRACE', label: 'Grace' },
-    { value: 'EXPIRED', label: 'Доступ закрито' },
-    { value: 'CANCELLED', label: 'Скасовано' },
-  ];
-
   // Чи реально щось змінилось — для дизейблу «Зберегти» й чесного UX.
   const dirty =
-    plan !== row.plan ||
-    autoRenew !== row.autoRenew ||
-    status !== row.status ||
-    startDate !== isoToDateInput(row.startDate) ||
-    expiresAt !== isoToDateInput(row.expiresAt) ||
+    (userName.trim() || '') !== (row.userName ?? '') ||
+    userEmail.trim() !== (row.userEmail ?? '') ||
     (telegramUsername.trim() || '') !== (row.telegramUsername ?? '') ||
     (phone.trim() || '') !== (row.phone ?? '') ||
     (country.trim() || '') !== (row.country ?? '');
 
   async function submit() {
     const fields: Record<string, unknown> = {
-      plan,
-      autoRenew,
-      status,
-      startDate: startDate ? new Date(`${startDate}T00:00:00.000Z`).toISOString() : null,
-      expiresAt: expiresAt ? new Date(`${expiresAt}T00:00:00.000Z`).toISOString() : null,
+      userName: userName.trim() || null,
+      userEmail: userEmail.trim(),
       telegramUsername: telegramUsername.trim() || null,
       phone: phone.trim() || null,
       country: country.trim() || null,
@@ -1498,55 +1516,17 @@ function EditSubscriptionModal({
 
         {/* Body */}
         <div className="px-5 py-4 space-y-5">
-          {/* Підписка */}
+          {/* Користувач */}
           <section className="space-y-3">
-            <h4 className={sectionCls}>Підписка</h4>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className={labelCls}>План</label>
-                <select className={fieldCls} value={plan} onChange={(e) => setPlan(e.target.value as Plan)}>
-                  <option value="YEARLY">Річний</option>
-                  <option value="MONTHLY">Місячний</option>
-                </select>
-              </div>
-              <div>
-                <label className={labelCls}>Автосписання</label>
-                <select className={fieldCls} value={autoRenew ? '1' : '0'} onChange={(e) => setAutoRenew(e.target.value === '1')}>
-                  <option value="0">Вимкнено</option>
-                  <option value="1">Увімкнено</option>
-                </select>
-              </div>
+            <h4 className={sectionCls}>Користувач</h4>
+            <div>
+              <label className={labelCls}>Ім'я</label>
+              <input type="text" className={fieldCls} value={userName} onChange={(e) => setUserName(e.target.value)} placeholder="Ім'я та прізвище" />
             </div>
             <div>
-              <label className={labelCls}>Статус</label>
-              <select className={fieldCls} value={status} onChange={(e) => setStatus(e.target.value as SubStatus)}>
-                {STATUS_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
-              <div className={`mt-2 flex items-start gap-2 px-2.5 py-2 rounded-lg text-[11px] leading-snug ${dark ? 'bg-amber-500/10 text-amber-200/90' : 'bg-amber-50 text-amber-800'}`}>
-                <span className="shrink-0">⚠️</span>
-                <span>Зміна статусу тут міняє лише запис у БД. Для реального відкриття/закриття доступу в SendPulse користуйтесь кнопками «Відкрити доступ» / «Закрити доступ».</span>
-              </div>
+              <label className={labelCls}>Ел. пошта</label>
+              <input type="email" className={fieldCls} value={userEmail} onChange={(e) => setUserEmail(e.target.value)} placeholder="email@example.com" />
             </div>
-          </section>
-
-          {/* Доступ */}
-          <section className="space-y-3">
-            <h4 className={sectionCls}>Доступ</h4>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className={labelCls}>Початок</label>
-                <input type="date" className={fieldCls} value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-              </div>
-              <div>
-                <label className={labelCls}>Доступ до</label>
-                <input type="date" className={fieldCls} value={expiresAt} onChange={(e) => setExpiresAt(e.target.value)} />
-              </div>
-            </div>
-            <p className={`text-[10.5px] leading-snug ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
-              «Доступ до» — лише дата в нашій БД, доступ у SendPulse вона не закриває автоматично.
-            </p>
           </section>
 
           {/* Контакти */}
@@ -1562,8 +1542,13 @@ function EditSubscriptionModal({
                 <input type="text" className={fieldCls} value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+380…" />
               </div>
               <div>
-                <label className={labelCls}>Країна (ISO-2)</label>
-                <input type="text" maxLength={2} className={`${fieldCls} uppercase`} value={country} onChange={(e) => setCountry(e.target.value)} placeholder="UA" />
+                <label className={labelCls}>Країна</label>
+                <select className={fieldCls} value={country} onChange={(e) => setCountry(e.target.value)}>
+                  <option value="">— не вказано —</option>
+                  {COUNTRIES_ALPHA.map((c) => (
+                    <option key={c.code} value={c.code}>{c.name}</option>
+                  ))}
+                </select>
               </div>
             </div>
           </section>
@@ -1591,6 +1576,144 @@ function EditSubscriptionModal({
             }`}
           >
             {saving ? 'Зберігаю…' : '💾 Зберегти'}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+/// Модалка «Продовжити доступ»: швидкий вибір кількості днів + прев'ю нової дати «Доступ до».
+/// Логіка прев'ю дзеркалить бекенд (handleExtend): база = max(поточний expiresAt, сьогодні),
+/// нова дата = база + N днів.
+function ExtendAccessModal({
+  theme,
+  row,
+  onClose,
+  onConfirm,
+}: {
+  theme: Theme;
+  row: Row;
+  onClose: () => void;
+  onConfirm: (days: number) => void;
+}) {
+  const dark = theme === 'dark';
+  const [mounted, setMounted] = useState(false);
+  const [days, setDays] = useState<string>('30');
+  const PRESETS = [1, 3, 5, 7, 14, 20, 30];
+
+  useEffect(() => { setMounted(true); }, []);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    document.body.style.overflow = 'hidden';
+    return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = ''; };
+  }, [onClose]);
+
+  const n = Number(days);
+  const valid = Number.isFinite(n) && n > 0 && n <= 3650;
+
+  const now = new Date();
+  const currentExpiry = row.expiresAt ? new Date(row.expiresAt) : null;
+  const base = currentExpiry && currentExpiry > now ? currentExpiry : now;
+  const newExpiry = valid ? new Date(base.getTime() + n * 24 * 60 * 60 * 1000) : null;
+  const fmt = (d: Date | null) => (d ? d.toLocaleDateString('uk-UA', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—');
+
+  if (!mounted) return null;
+  return createPortal(
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4" role="dialog" aria-modal="true">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-[1px]" onClick={onClose} />
+      <div className={`relative w-full max-w-[440px] rounded-2xl shadow-2xl ${dark ? 'bg-zinc-900 border border-white/10 text-slate-200' : 'bg-white border border-stone-200 text-stone-800'}`}>
+        {/* Header */}
+        <div className={`flex items-center justify-between px-5 py-3.5 border-b ${dark ? 'border-white/10' : 'border-stone-200'}`}>
+          <div className="min-w-0">
+            <h3 className="text-[15px] font-bold flex items-center gap-2"><span>⏱</span> Продовжити доступ</h3>
+            <p className={`text-[11px] truncate ${dark ? 'text-slate-500' : 'text-stone-500'}`}>{row.userName ? `${row.userName} · ` : ''}{row.userEmail}</p>
+          </div>
+          <button onClick={onClose} aria-label="Закрити" className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center ${dark ? 'hover:bg-white/10' : 'hover:bg-stone-100'}`}>✕</button>
+        </div>
+
+        {/* Body */}
+        <div className="px-5 py-4 space-y-4">
+          <div>
+            <label className={`block text-[10px] uppercase tracking-wider font-semibold mb-2 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>На скільки днів продовжити</label>
+            <div className="flex flex-wrap gap-1.5 mb-2.5">
+              {PRESETS.map((p) => {
+                const active = Number(days) === p;
+                return (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => setDays(String(p))}
+                    className={`px-3 py-1.5 text-[12px] font-semibold rounded-lg border transition-colors ${
+                      active
+                        ? (dark ? 'bg-indigo-500 border-indigo-500 text-white' : 'bg-indigo-600 border-indigo-600 text-white')
+                        : (dark ? 'bg-white/[0.04] border-white/[0.12] text-slate-300 hover:bg-white/[0.08]' : 'bg-white border-stone-300 text-stone-700 hover:bg-stone-50')
+                    }`}
+                  >
+                    {p}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min={1}
+                max={3650}
+                value={days}
+                onChange={(e) => setDays(e.target.value)}
+                className={`w-28 h-9 px-2.5 text-[13px] rounded-lg border outline-none transition-colors ${
+                  dark ? 'bg-white/[0.04] border-white/[0.12] text-slate-100 focus:border-indigo-400/70' : 'bg-white border-stone-300 text-stone-800 focus:border-indigo-500'
+                }`}
+              />
+              <span className={`text-[12px] ${dark ? 'text-slate-400' : 'text-stone-500'}`}>днів</span>
+            </div>
+          </div>
+
+          {/* Прев'ю */}
+          <div className={`rounded-xl border px-3.5 py-3 ${dark ? 'border-white/10 bg-white/[0.03]' : 'border-stone-200 bg-stone-50/70'}`}>
+            <div className="flex items-center justify-between text-[12px]">
+              <span className={dark ? 'text-slate-400' : 'text-stone-500'}>Зараз «Доступ до»</span>
+              <span className="font-semibold tabular-nums">{fmt(currentExpiry)}</span>
+            </div>
+            <div className="flex items-center justify-between text-[13px] mt-1.5">
+              <span className={dark ? 'text-slate-300' : 'text-stone-700'}>Стане</span>
+              <span className={`font-bold tabular-nums ${dark ? 'text-emerald-300' : 'text-emerald-700'}`}>{fmt(newExpiry)}</span>
+            </div>
+            {currentExpiry && currentExpiry <= now && valid && (
+              <p className={`mt-2 text-[10.5px] leading-snug ${dark ? 'text-amber-300/80' : 'text-amber-700'}`}>
+                Поточна дата вже минула — рахуємо від сьогодні, не від старої дати.
+              </p>
+            )}
+          </div>
+
+          <p className={`text-[10.5px] leading-snug ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+            Продовження ставить статус «Активний» і пересуває дату в нашій БД. Якщо доступ у SendPulse був закритий — окремо натисніть «✓ Відкрити доступ до SendPulse».
+          </p>
+        </div>
+
+        {/* Footer */}
+        <div className={`flex items-center justify-end gap-2.5 px-5 py-3.5 border-t ${dark ? 'border-white/10' : 'border-stone-200'}`}>
+          <button
+            type="button"
+            onClick={onClose}
+            className={`px-4 py-2 text-[13px] font-medium rounded-lg border transition-colors ${
+              dark ? 'bg-white/[0.04] border-white/[0.1] text-slate-300 hover:bg-white/[0.08]' : 'bg-white border-stone-300 text-stone-700 hover:bg-stone-50'
+            }`}
+          >
+            Скасувати
+          </button>
+          <button
+            type="button"
+            onClick={() => { if (valid) onConfirm(n); }}
+            disabled={!valid}
+            className={`px-5 py-2 text-[13px] font-semibold rounded-lg border transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+              dark ? 'bg-indigo-500 border-indigo-500 text-white hover:bg-indigo-400' : 'bg-indigo-600 border-indigo-600 text-white hover:bg-indigo-700'
+            }`}
+          >
+            Продовжити на {valid ? n : '—'} днів
           </button>
         </div>
       </div>
@@ -2108,7 +2231,7 @@ function HelpModal({ theme, graceDays, onClose }: { theme: Theme; graceDays: num
 
   const actions: { icon: string; name: string; desc: string }[] = [
     { icon: '🎯', name: 'Екстра Запуск нового студента', desc: 'З\'являється коли студент оплатив підписку ПІСЛЯ того, як cohort вже запущено. Звичайний "Запустити програму" відпрацював раніше і цього новачка пропустив. Кнопка точково відкриває йому доступ у SendPulse через event і шле welcome-лист (як і всім решта при загальному launch).' },
-    { icon: '⏱', name: 'Продовжити', desc: 'Додає вказану кількість днів до поточного терміну доступу. Корисно для бонусів, подарунків чи компенсацій.' },
+    { icon: '⏱', name: 'Продовжити доступ до SendPulse', desc: 'Додає вказану кількість днів до поточного терміну доступу. Корисно для бонусів, подарунків чи компенсацій.' },
     { icon: '🚫', name: 'Скасувати автосписання', desc: 'Зупиняє автоматичні списання з картки на боці WayForPay і ставить статус CANCELLED. Доступ зберігається до кінця оплаченого місяця. Кнопка з\'являється тільки для місячних підписок з активним автоплатежем — для річних і одноразових місячних її нема.' },
     { icon: '✕', name: 'Закрити доступ у SendPulse', desc: 'Миттєво забирає доступ до курсу в SendPulse. Підписка стає EXPIRED. Заодно вилучає студента з Telegram-каналу у returnable-режимі (invite-link лишається валідним — за потреби студент може повернутись через "Відкрити доступ до SendPulse"). Для MONTHLY-автоплатежів додатково знімає WFP-регулярки, щоб не йшли orphan-списання.' },
     { icon: '✓', name: 'Відкрити доступ до SendPulse', desc: 'Відновлює доступ у SendPulse через event + продовжує термін згідно плану (YEARLY +365д, MONTHLY +30д). Якщо студент був забанений у ТГ-каналі (через "Вилучити з ТГ та закрити доступ" або "Деактивувати") — окремо тисни 📨, тоді auto-unban зробить його придатним для нового invite. Не працює для статусу ARCHIVED.' },
