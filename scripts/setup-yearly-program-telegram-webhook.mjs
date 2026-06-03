@@ -8,8 +8,8 @@
  *
  *   node scripts/setup-yearly-program-telegram-webhook.mjs
  *
- * За замовчуванням реєструє webhook на:
- *   https://uimp.com.ua/api/telegram/yearly-program-webhook
+ * За замовчуванням реєструє webhook на (канонічний www, НЕ apex — apex робить 307→www):
+ *   https://www.uimp.com.ua/api/telegram/yearly-program-webhook
  *
  * Перевизначити URL можна змінною оточення:
  *   $env:YEARLY_TG_WEBHOOK_URL = "https://pre.uimp.com.ua/api/telegram/yearly-program-webhook"
@@ -35,7 +35,9 @@ config({ path: path.join(projectRoot, '.env.local'), override: true });
 
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const SECRET = process.env.TELEGRAM_YEARLY_WEBHOOK_SECRET;
-const WEBHOOK_URL = process.env.YEARLY_TG_WEBHOOK_URL || 'https://uimp.com.ua/api/telegram/yearly-program-webhook';
+// ВАЖЛИВО: канонічний хост — www. Apex `uimp.com.ua` робить 307→www, а Telegram
+// редіректи для webhook НЕ виконує → усі апдейти падають (last_error 307). Тому www.
+const WEBHOOK_URL = process.env.YEARLY_TG_WEBHOOK_URL || 'https://www.uimp.com.ua/api/telegram/yearly-program-webhook';
 
 if (!TOKEN || !TOKEN.trim()) {
   console.error('❌ TELEGRAM_BOT_TOKEN не заданий у .env / .env.local');
