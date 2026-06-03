@@ -19,6 +19,7 @@ import {
   HiOutlineExclamationTriangle,
   HiOutlineNoSymbol,
   HiOutlineArchiveBoxXMark,
+  HiOutlineInformationCircle,
 } from 'react-icons/hi2';
 import type { YearlyProgramSettings } from '@/lib/yearlyProgramSettings';
 import { useAdminTheme, type Theme } from '../../_components/adminTheme';
@@ -236,6 +237,8 @@ function YearlyProgramViewInner({
       if (planFilter === 'YEARLY' && r.plan !== 'YEARLY') return false;
       if (planFilter === 'MONTHLY_AUTO' && !(r.plan === 'MONTHLY' && r.autoRenew)) return false;
       if (planFilter === 'MONTHLY_ONCE' && !(r.plan === 'MONTHLY' && !r.autoRenew)) return false;
+      // Архів сховано з дефолтного вигляду — показуємо лише коли явно обрано фільтр «Архів».
+      if (statusFilter === 'ALL' && r.status === 'ARCHIVED') return false;
       if (statusFilter !== 'ALL' && r.status !== statusFilter) return false;
       if (q && !r.userEmail.toLowerCase().includes(q) && !(r.userName ?? '').toLowerCase().includes(q)) return false;
       return true;
@@ -524,14 +527,17 @@ function YearlyProgramViewInner({
                   />
                 </Th>
                 <Th theme={theme} align="center">
-                  <ColumnFilter
-                    theme={theme}
-                    label="Статус"
-                    align="center"
-                    options={buildStatusOptions(graceDays)}
-                    value={statusFilter}
-                    onChange={(v) => setStatusFilter(v as 'ALL' | SubStatus)}
-                  />
+                  <span className="inline-flex items-center gap-1.5">
+                    <ColumnFilter
+                      theme={theme}
+                      label="Статус"
+                      align="center"
+                      options={buildStatusOptions(graceDays)}
+                      value={statusFilter}
+                      onChange={(v) => setStatusFilter(v as 'ALL' | SubStatus)}
+                    />
+                    <StatusInfoButton theme={theme} graceDays={graceDays} />
+                  </span>
                 </Th>
                 <Th theme={theme}>Telegram</Th>
                 <Th theme={theme}>Дата оплати</Th>
@@ -1577,6 +1583,79 @@ function StatusBadge({ status, theme, graceDays }: { status: SubStatus; theme: T
     <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider border ${
       dark ? cls.dark : cls.light
     }`}>{cls.label}</span>
+  );
+}
+
+/// «i» біля колонки Статус — popover з поясненням кожного статусу підписки
+/// (аналог StatusInfoButton на /dashboard/admin/payments).
+function StatusInfoButton({ theme, graceDays }: { theme: Theme; graceDays: number }) {
+  const dark = theme === 'dark';
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  const items: { status: SubStatus; desc: string }[] = [
+    { status: 'PENDING', desc: 'Людина почала оформлення, але оплата ще не пройшла — доступу немає. Найчастіше: не завершила платіж, банк відхилив картку, або платіж ще в обробці. Якщо оплата не надходить понад 24 години — підписка автоматично переходить в Архів.' },
+    { status: 'ACTIVE', desc: 'Оплата пройшла, доступ до курсу відкрито — людина навчається.' },
+    { status: 'GRACE', desc: `Термін доступу закінчився, але триває пільговий період (${graceDays} ${pluralizeDays(graceDays)}) — щоб встигнути продовжити без втрати доступу.` },
+    { status: 'EXPIRED', desc: 'Доступ до курсу в SendPulse закрито — автоматично після grace-періоду або вручну менеджером.' },
+    { status: 'CANCELLED', desc: 'Платну підписку скасовано (користувачем або менеджером). Для місячної автосписання зупинено; доступ зберігається до кінця вже оплаченого періоду.' },
+    { status: 'ARCHIVED', desc: 'Відкладено як неактуальне: незавершені спроби оплати (авто-архів через 24 год) або заархівоване менеджером вручну. У списку за замовчуванням сховано — щоб побачити, оберіть фільтр «Архів».' },
+  ];
+
+  return (
+    <div ref={ref} className="relative inline-block normal-case tracking-normal">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-label="Що означають статуси"
+        className={`inline-flex items-center justify-center w-5 h-5 rounded-full border transition-colors ${
+          dark
+            ? 'text-amber-300 border-amber-400/40 bg-amber-500/15 hover:bg-amber-500/25'
+            : 'text-amber-800 border-amber-500/40 bg-amber-500/15 hover:bg-amber-500/25'
+        }`}
+      >
+        <HiOutlineInformationCircle className="text-[14px]" />
+      </button>
+      {open && (
+        <div
+          className={`absolute left-1/2 -translate-x-1/2 top-full mt-1.5 w-[440px] max-w-[calc(100vw-32px)] rounded-xl py-2 z-30 backdrop-blur-md border ${
+            dark
+              ? 'bg-[#161821]/95 border-white/[0.08] shadow-[0_12px_32px_rgba(0,0,0,0.5)]'
+              : 'bg-white/95 border-stone-300/60 shadow-[0_12px_32px_rgba(68,64,60,0.15)]'
+          }`}
+        >
+          <div className={`px-3 pb-2 mb-1 border-b text-[11px] font-semibold uppercase tracking-[0.18em] ${
+            dark ? 'border-white/[0.06] text-slate-400' : 'border-stone-200 text-stone-500'
+          }`}>
+            Статуси підписки
+          </div>
+          {items.map((it) => (
+            <div key={it.status} className="px-3 py-2 flex items-start gap-3">
+              <span className="shrink-0 w-[110px] flex justify-start mt-0.5">
+                <StatusBadge status={it.status} theme={theme} graceDays={graceDays} />
+              </span>
+              <p className={`min-w-0 flex-1 text-[12px] leading-snug ${dark ? 'text-slate-300' : 'text-stone-700'}`}>
+                {it.desc}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

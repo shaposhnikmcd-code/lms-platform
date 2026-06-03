@@ -56,6 +56,7 @@ export async function GET(req: NextRequest) {
   const results: StepResult[] = [];
 
   results.push(await runScheduledCohortLaunches());
+  results.push(await archiveStalePending());
   results.push(await transitionActiveToGrace());
   results.push(await expireGraceSubscriptions());
   results.push(await sendManualBeforeExpiryReminders());
@@ -156,6 +157,48 @@ async function sendScheduledCohortLaunchEmails(): Promise<StepResult> {
   }
 
   return { step: 'sendScheduledCohortLaunchEmails', processed, errors };
+}
+
+/// Авто-архів покинутих чекаутів: PENDING без жодної успішної оплати, старші за 24 год.
+/// Це незавершені спроби (закрив форму / картку відхилили й не повернувся) — не клієнти,
+/// лише засмічують список. Переводимо в ARCHIVED (зникає з дефолтного вигляду Річної,
+/// лишається доступним через фільтр «Архів»). Guard payments.none(PAID) у updateMany —
+/// захист від рейсу: якщо людина встигла оплатити саме в цей момент, підписку не чіпаємо.
+async function archiveStalePending(): Promise<StepResult> {
+  const errors: string[] = [];
+  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const subs = await prisma.yearlyProgramSubscription.findMany({
+    where: {
+      status: 'PENDING',
+      createdAt: { lt: cutoff },
+      payments: { none: { status: 'PAID' } },
+    },
+    select: { id: true },
+  });
+
+  let processed = 0;
+  await processInParallel(subs, async (s) => {
+    try {
+      const res = await prisma.yearlyProgramSubscription.updateMany({
+        where: { id: s.id, status: 'PENDING', payments: { none: { status: 'PAID' } } },
+        data: { status: 'ARCHIVED' },
+      });
+      if (res.count === 0) return; // встигли оплатити між вибіркою й апдейтом — не чіпаємо
+      await prisma.yearlyProgramSubscriptionEvent.create({
+        data: {
+          subscriptionId: s.id,
+          type: 'admin_action',
+          message: 'Авто-архів: незавершена спроба оплати без оплати понад 24 год',
+          metadata: { reason: 'stale-pending-autocleanup' },
+        },
+      });
+      processed++;
+    } catch (e) {
+      errors.push(`${s.id}: ${(e as Error).message}`);
+    }
+  });
+
+  return { step: 'archive_stale_pending', processed, errors };
 }
 
 async function transitionActiveToGrace(): Promise<StepResult> {
