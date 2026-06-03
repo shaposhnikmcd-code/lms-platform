@@ -269,19 +269,14 @@ export async function getSalesAnalytics(period: SalesPeriod): Promise<SalesSerie
   const { start, end, granularity } = pickRange(period, earliest);
 
   /// Тягнемо платежі. Виключаємо тестові (user.role ∉ ADMIN/MANAGER, connector amount > 1).
-  ///
-  /// Спецкейс — YEARLY-плани (15 000 ₴ разово): візуально розбиваємо суму рівномірно
-  /// на 9 місяців (по 15000/9 ≈ 1666.67 ₴) починаючи з дати оплати. Тому тягнемо
-  /// payment-и за РОЗШИРЕНИЙ window (start - 9 міс.) — щоб yearly з минулого
-  /// "розпилювався" і у поточний період теж. Non-yearly платежі лишаються as-is.
-  const YEARLY_SPREAD_MS = 9 * 30 * 86_400_000;
-  const yearlyExtendedStart = new Date(start.getTime() - YEARLY_SPREAD_MS);
-
+  /// Кожен платіж рахується ПОВНОЮ сумою в день оплати (реальний обіг/каса) —
+  /// включно з річними 15 000 ₴. Жодного розмазування на місяці: графік збігається
+  /// з тим, що видно в розділі Платежі.
   const [payments, connectorOrders] = await Promise.all([
     prisma.payment.findMany({
       where: {
         status: 'PAID',
-        createdAt: { gte: yearlyExtendedStart, lte: end },
+        createdAt: { gte: start, lte: end },
         user: { role: { notIn: ['ADMIN', 'MANAGER'] } },
       },
       select: {
@@ -369,33 +364,6 @@ export async function getSalesAnalytics(period: SalesPeriod): Promise<SalesSerie
   };
 
   for (const p of payments) {
-    const isYearlyPlan = p.yearlyProgramSubscriptionId
-      && p.yearlyProgramSubscription?.plan === 'YEARLY';
-
-    if (isYearlyPlan) {
-      /// Розпилюємо 15 000 ₴ на 9 рівних monthly-частин від дати оплати.
-      /// У поточний період потрапляють лише ті частини, чиї віртуальні дати в [start, end].
-      const monthly = p.amount / 9;
-      for (let m = 0; m < 9; m++) {
-        const virtualDate = new Date(p.createdAt.getTime() + m * 30 * 86_400_000);
-        if (virtualDate.getTime() < start.getTime() || virtualDate.getTime() > end.getTime()) continue;
-        const idx = bucketIndexFor(virtualDate);
-        if (idx == null) continue;
-        buckets[idx].yearly += monthly;
-        totals.yearly += monthly;
-        totals.all += monthly;
-      }
-      /// KPI лічимо лише якщо ОРИГІНАЛЬНИЙ платіж в [start, end] (бо це "що оплатили цього періоду").
-      if (p.createdAt.getTime() >= start.getTime() && p.createdAt.getTime() <= end.getTime()) {
-        kpiAcc.yearlyYearly.push(p.amount);
-      }
-      continue;
-    }
-
-    /// Non-yearly: рахуємо лише якщо платіж сам по собі в [start, end]
-    /// (ми тягнули wider window тільки заради yearly-spread).
-    if (p.createdAt.getTime() < start.getTime() || p.createdAt.getTime() > end.getTime()) continue;
-
     const idx = bucketIndexFor(p.createdAt);
     if (idx == null) continue;
     let cat: CategoryKey | null = null;
@@ -403,7 +371,8 @@ export async function getSalesAnalytics(period: SalesPeriod): Promise<SalesSerie
       cat = 'yearly';
       const plan = p.yearlyProgramSubscription?.plan;
       const auto = p.yearlyProgramSubscription?.autoRenew === true;
-      if (plan === 'MONTHLY' && auto) kpiAcc.yearlyMonthlyAuto.push(p.amount);
+      if (plan === 'YEARLY') kpiAcc.yearlyYearly.push(p.amount);
+      else if (plan === 'MONTHLY' && auto) kpiAcc.yearlyMonthlyAuto.push(p.amount);
       else if (plan === 'MONTHLY') kpiAcc.yearlyMonthlyOnce.push(p.amount);
     } else if (p.bundleId) {
       cat = 'bundles';
@@ -457,24 +426,19 @@ export async function getSalesAnalytics(period: SalesPeriod): Promise<SalesSerie
     }
   }
 
-  /// Порівняння з попереднім періодом такої ж тривалості. Yearly-плани розпилюємо
-  /// на 9 міс. так само як у головному циклі — інакше дельта була б некоректна.
+  /// Порівняння з попереднім періодом такої ж тривалості — повна сума кожного платежу
+  /// в день оплати (узгоджено з головним циклом, без розмазування).
   const periodMs = end.getTime() - start.getTime();
   const prevEnd = new Date(start.getTime() - 1);
   const prevStart = new Date(prevEnd.getTime() - periodMs);
-  const prevYearlyExtendedStart = new Date(prevStart.getTime() - YEARLY_SPREAD_MS);
 
-  const [prevPayments, prevConn] = await Promise.all([
-    prisma.payment.findMany({
+  const [prevAggr, prevConn] = await Promise.all([
+    prisma.payment.aggregate({
+      _sum: { amount: true },
       where: {
         status: 'PAID',
-        createdAt: { gte: prevYearlyExtendedStart, lte: prevEnd },
+        createdAt: { gte: prevStart, lte: prevEnd },
         user: { role: { notIn: ['ADMIN', 'MANAGER'] } },
-      },
-      select: {
-        amount: true,
-        createdAt: true,
-        yearlyProgramSubscription: { select: { plan: true } },
       },
     }),
     prisma.connectorOrder.aggregate({
@@ -487,21 +451,7 @@ export async function getSalesAnalytics(period: SalesPeriod): Promise<SalesSerie
     }),
   ]);
 
-  let previousTotal = prevConn._sum.amount ?? 0;
-  for (const p of prevPayments) {
-    const isYearly = p.yearlyProgramSubscription?.plan === 'YEARLY';
-    if (isYearly) {
-      const monthly = p.amount / 9;
-      for (let m = 0; m < 9; m++) {
-        const v = new Date(p.createdAt.getTime() + m * 30 * 86_400_000);
-        if (v.getTime() >= prevStart.getTime() && v.getTime() <= prevEnd.getTime()) {
-          previousTotal += monthly;
-        }
-      }
-    } else if (p.createdAt.getTime() >= prevStart.getTime() && p.createdAt.getTime() <= prevEnd.getTime()) {
-      previousTotal += p.amount;
-    }
-  }
+  const previousTotal = (prevAggr._sum.amount ?? 0) + (prevConn._sum.amount ?? 0);
   const previousLabel = fmtPreviousLabel(prevStart, prevEnd, granularity);
 
   /// Інсайти: найкращий бакет (день/тиждень/місяць) + найкращий тиждень (для day-вʼю).
