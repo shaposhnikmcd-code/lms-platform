@@ -108,6 +108,15 @@ const PLAN_OPTIONS: { value: PlanFilter; label: string }[] = [
   { value: 'MONTHLY_ONCE', label: 'Місячний на 1 міс.' },
 ];
 
+type MethodFilter = 'ALL' | 'applePay' | 'googlePay' | 'card';
+
+const METHOD_OPTIONS: { value: MethodFilter; label: string }[] = [
+  { value: 'ALL', label: 'Всі' },
+  { value: 'applePay', label: 'Apple Pay' },
+  { value: 'googlePay', label: 'Google Pay' },
+  { value: 'card', label: 'Картка' },
+];
+
 function buildStatusOptions(graceDays: number): { value: 'ALL' | SubStatus; label: string }[] {
   return [
     { value: 'ALL', label: 'Усі' },
@@ -226,6 +235,7 @@ function YearlyProgramViewInner({
 
   const [planFilter, setPlanFilter] = useState<PlanFilter>('ALL');
   const [statusFilter, setStatusFilter] = useState<'ALL' | SubStatus>('ALL');
+  const [methodFilter, setMethodFilter] = useState<MethodFilter>('ALL');
   const [search, setSearch] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [details, setDetails] = useState<Record<string, SubscriptionDetails | 'loading' | 'error'>>({});
@@ -253,15 +263,16 @@ function YearlyProgramViewInner({
       // Архів сховано з дефолтного вигляду — показуємо лише коли явно обрано фільтр «Архів».
       if (statusFilter === 'ALL' && r.status === 'ARCHIVED') return false;
       if (statusFilter !== 'ALL' && r.status !== statusFilter) return false;
+      if (methodFilter !== 'ALL' && r.paymentMethod !== methodFilter) return false;
       if (q && !r.userEmail.toLowerCase().includes(q) && !(r.userName ?? '').toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [rows, activeCohortId, planFilter, statusFilter, search]);
+  }, [rows, activeCohortId, planFilter, statusFilter, methodFilter, search]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   useEffect(() => {
     setPage(1);
-  }, [planFilter, statusFilter, search, pageSize]);
+  }, [planFilter, statusFilter, methodFilter, search, pageSize]);
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
   }, [page, totalPages]);
@@ -633,7 +644,15 @@ function YearlyProgramViewInner({
                 <Th theme={theme}>Доступ до</Th>
                 <Th theme={theme} align="center" className="px-2">№</Th>
                 <Th theme={theme}>Сплачено</Th>
-                <Th theme={theme}>Метод</Th>
+                <Th theme={theme} className="px-2">
+                  <ColumnFilter
+                    theme={theme}
+                    label="Метод"
+                    options={METHOD_OPTIONS}
+                    value={methodFilter}
+                    onChange={(v) => setMethodFilter(v as MethodFilter)}
+                  />
+                </Th>
                 <Th theme={theme}>SendPulse</Th>
               </tr>
             </thead>
