@@ -13,6 +13,27 @@ import type { Row, CohortListItem } from './_components/types';
 
 const MAX_ROWS = 500;
 
+/// Точна причина для PENDING-підписки на основі останньої спроби оплати (WFP reasonCode).
+/// Повертає коротку мітку + тон (neutral — лід/незавершено, reject — відмова банку/3DS).
+function derivePendingLabel(
+  attempt: { transactionStatus: string | null; reasonCode: string | null } | null,
+  manuallyAdded: boolean,
+): { label: string; tone: 'neutral' | 'reject' } | null {
+  if (!attempt) {
+    return manuallyAdded
+      ? { label: 'Очікує оплату', tone: 'neutral' }
+      : { label: 'Не платив', tone: 'neutral' };
+  }
+  const code = attempt.reasonCode;
+  const st = attempt.transactionStatus;
+  if (code === '1124' || st === 'Expired') return { label: 'Не завершив', tone: 'neutral' };
+  if (code === '1101') return { label: 'Банк відхилив', tone: 'reject' };
+  if (code === '1108') return { label: '3DS не пройдено', tone: 'reject' };
+  if (code === '1106') return { label: 'Ліміт картки', tone: 'reject' };
+  if (st === 'Declined') return { label: 'Відхилено', tone: 'reject' };
+  return null; // невідомо → лишаємо дефолтне «Очікує»
+}
+
 export default async function AdminYearlyProgramPage() {
   const [subs, cohorts] = await Promise.all([
     prisma.yearlyProgramSubscription.findMany({
@@ -20,7 +41,7 @@ export default async function AdminYearlyProgramPage() {
       take: MAX_ROWS,
       include: {
         user: { select: { id: true, name: true, email: true } },
-        payments: { select: { id: true, amount: true, status: true, createdAt: true, paidAt: true } },
+        payments: { select: { id: true, amount: true, status: true, createdAt: true, paidAt: true, paymentMethod: true, orderReference: true } },
         cohort: { select: { id: true, name: true, startDate: true, launchedAt: true } },
       },
     }),
@@ -74,6 +95,30 @@ export default async function AdminYearlyProgramPage() {
     return !liveUserIds.has(s.userId);
   });
 
+  // Для PENDING-підписок тягнемо останню спробу оплати з PaymentCallbackLog (одним запитом),
+  // щоб показати реальну причину замість загального «Очікує».
+  const pendingOrderRefs = visibleSubs
+    .filter((s) => s.status === 'PENDING')
+    .flatMap((s) => s.payments.map((p) => p.orderReference));
+  const pendingLogs = pendingOrderRefs.length > 0
+    ? await prisma.paymentCallbackLog.findMany({
+        where: { source: 'wayforpay', orderReference: { in: pendingOrderRefs } },
+        select: { orderReference: true, transactionStatus: true, rawPayload: true, createdAt: true },
+        orderBy: { createdAt: 'desc' },
+      })
+    : [];
+  // orderReference → найсвіжіша спроба (logs відсортовані desc → перша зустрінута і є остання).
+  const latestAttemptByRef = new Map<string, { transactionStatus: string | null; reasonCode: string | null; createdAt: Date }>();
+  for (const l of pendingLogs) {
+    if (!l.orderReference || latestAttemptByRef.has(l.orderReference)) continue;
+    const rc = (l.rawPayload as Record<string, unknown> | null)?.reasonCode;
+    latestAttemptByRef.set(l.orderReference, {
+      transactionStatus: l.transactionStatus,
+      reasonCode: rc != null ? String(rc) : null,
+      createdAt: l.createdAt,
+    });
+  }
+
   const rows: Row[] = visibleSubs.map((s) => {
     const paidPayments = s.payments.filter((p) => p.status === 'PAID');
     const totalPaid = paidPayments.reduce((sum, p) => sum + p.amount, 0);
@@ -83,6 +128,25 @@ export default async function AdminYearlyProgramPage() {
     const firstPaid = paidPayments
       .map((p) => p.paidAt ?? p.createdAt)
       .sort((a, b) => a.getTime() - b.getTime())[0];
+
+    // Метод оплати — беремо з найсвіжішого PAID-платежу (paidAt desc).
+    const latestPaid = [...paidPayments].sort(
+      (a, b) => (b.paidAt ?? b.createdAt).getTime() - (a.paidAt ?? a.createdAt).getTime(),
+    )[0];
+
+    // Для PENDING — реальна причина з останньої спроби оплати серед усіх платежів підписки.
+    let pendingLabel: string | null = null;
+    let pendingTone: 'neutral' | 'reject' | null = null;
+    if (s.status === 'PENDING') {
+      let best: { transactionStatus: string | null; reasonCode: string | null; createdAt: Date } | null = null;
+      for (const p of s.payments) {
+        const a = latestAttemptByRef.get(p.orderReference);
+        if (a && (!best || a.createdAt > best.createdAt)) best = a;
+      }
+      const info = derivePendingLabel(best, s.manuallyAddedAt != null);
+      pendingLabel = info?.label ?? null;
+      pendingTone = info?.tone ?? null;
+    }
 
     return {
       id: s.id,
@@ -110,6 +174,9 @@ export default async function AdminYearlyProgramPage() {
       sendpulseAccessClosedAt: s.sendpulseAccessClosedAt?.toISOString() ?? null,
       paymentsCount: paidPayments.length,
       totalPaid,
+      paymentMethod: latestPaid?.paymentMethod ?? null,
+      pendingLabel,
+      pendingTone,
       manuallyAddedAt: s.manuallyAddedAt?.toISOString() ?? null,
       manuallyAddedBy: s.manuallyAddedBy ?? null,
       country: s.country,

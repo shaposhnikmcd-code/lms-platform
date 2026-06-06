@@ -600,7 +600,7 @@ function YearlyProgramViewInner({
             <thead className={`border-b ${dark ? 'border-white/[0.06] bg-black/10' : 'border-stone-300/40 bg-stone-50/40'}`}>
               <tr>
                 <Th theme={theme}>{''}</Th>
-                <Th theme={theme}>Створено</Th>
+                <Th theme={theme} className="px-2">Створено</Th>
                 <Th theme={theme}>Користувач</Th>
                 <Th theme={theme}>Країна</Th>
                 <Th theme={theme} align="center">
@@ -627,18 +627,19 @@ function YearlyProgramViewInner({
                   </span>
                 </Th>
                 <Th theme={theme}>Telegram</Th>
-                <Th theme={theme}>Дата оплати</Th>
-                <Th theme={theme}>Початок програми</Th>
+                <Th theme={theme} className="px-2">Дата оплати</Th>
+                <Th theme={theme} className="px-2">Початок програми</Th>
                 <Th theme={theme}>Доступ до</Th>
                 <Th theme={theme} align="center" className="px-2">№</Th>
                 <Th theme={theme}>Сплачено</Th>
+                <Th theme={theme}>Метод</Th>
                 <Th theme={theme}>SendPulse</Th>
               </tr>
             </thead>
             <tbody className={dark ? 'divide-y divide-white/[0.04]' : 'divide-y divide-stone-200/60'}>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={13} className={`px-4 py-14 text-center text-sm ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+                  <td colSpan={14} className={`px-4 py-14 text-center text-sm ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
                     {rows.length === 0 ? 'Поки ніхто не підписався.' : 'Нічого не знайдено за фільтрами.'}
                   </td>
                 </tr>
@@ -835,10 +836,11 @@ function RowBlock({
             {expanded ? <HiOutlineChevronUp className="text-base" /> : <HiOutlineChevronDown className="text-base" />}
           </button>
         </td>
-        <td className={`px-4 py-2.5 whitespace-nowrap text-[11px] tabular-nums ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
-          {fmtDate(r.createdAt)}
+        <td className={`px-1.5 py-2.5 whitespace-nowrap text-[11px] tabular-nums leading-tight ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+          <div>{fmtDateCompact(r.createdAt)}</div>
+          <div className={dark ? 'text-slate-600' : 'text-stone-400'}>{fmtTime(r.createdAt)}</div>
         </td>
-        <td className="px-4 py-2.5">
+        <td className="px-2 py-2.5">
           <div className={`text-[12px] font-medium ${dark ? 'text-slate-200' : 'text-stone-800'}`}>{r.userName ?? '—'}</div>
           <div className={`text-[10px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>{r.userEmail}</div>
           {r.phone && (
@@ -891,7 +893,7 @@ function RowBlock({
             </button>
           )}
         </td>
-        <td className="px-4 py-2.5">
+        <td className="px-2 py-2.5">
           {r.country ? (
             <span className={`text-[11px] ${dark ? 'text-slate-300' : 'text-stone-700'}`} title={r.country}>
               {getCountryName(r.country, 'uk', r.country)}
@@ -900,27 +902,27 @@ function RowBlock({
             <span className={dark ? 'text-slate-600' : 'text-stone-400'}>—</span>
           )}
         </td>
-        <td className="px-4 py-2.5 text-center"><PlanBadge theme={theme} plan={r.plan} autoRenew={r.autoRenew} /></td>
-        <td className="px-4 py-2.5 text-center"><StatusBadge theme={theme} status={r.status} graceDays={graceDays} /></td>
-        <td className="px-4 py-2.5">
+        <td className="px-2 py-2.5 text-center"><PlanBadge theme={theme} plan={r.plan} autoRenew={r.autoRenew} /></td>
+        <td className="px-2 py-2.5 text-center"><StatusBadge theme={theme} status={r.status} graceDays={graceDays} pendingLabel={r.pendingLabel} pendingTone={r.pendingTone} /></td>
+        <td className="px-2 py-2.5">
           <TelegramAccessBadge theme={theme} row={r} />
         </td>
-        <td className={`px-4 py-2.5 text-[11px] tabular-nums whitespace-nowrap ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
+        <td className={`px-2 py-2.5 text-[11px] tabular-nums whitespace-nowrap ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
           {r.firstPaymentAt ? (
             <>
-              <div>{fmtDateShort(r.firstPaymentAt)}</div>
+              <div>{fmtDateCompact(r.firstPaymentAt)}</div>
               <div className={`text-[10px] ${dark ? 'text-slate-600' : 'text-stone-500'}`}>{fmtTime(r.firstPaymentAt)}</div>
             </>
           ) : (
             <span className={dark ? 'text-slate-600' : 'text-stone-400'}>—</span>
           )}
         </td>
-        <td className={`px-4 py-2.5 text-[11px] tabular-nums whitespace-nowrap ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
+        <td className={`px-2 py-2.5 text-[11px] tabular-nums whitespace-nowrap ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
           {r.cohortStartDate ? (
             <>
-              <div>{fmtDateShort(r.cohortStartDate)}</div>
+              <div>{fmtDateCompact(r.cohortStartDate)}</div>
               {r.cohortName && (
-                <div className={`text-[10px] truncate max-w-[140px] ${dark ? 'text-slate-600' : 'text-stone-500'}`} title={r.cohortName}>
+                <div className={`text-[10px] truncate max-w-[100px] ${dark ? 'text-slate-600' : 'text-stone-500'}`} title={r.cohortName}>
                   {r.cohortName}
                 </div>
               )}
@@ -929,7 +931,7 @@ function RowBlock({
             <span className={dark ? 'text-slate-600' : 'text-stone-400'}>—</span>
           )}
         </td>
-        <td className={`px-4 py-2.5 text-[11px] tabular-nums whitespace-nowrap ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
+        <td className={`px-2 py-2.5 text-[11px] tabular-nums whitespace-nowrap ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
           {r.expiresAt ? (
             <>
               <div>{fmtDateShort(r.expiresAt)}</div>
@@ -948,17 +950,20 @@ function RowBlock({
           )}
         </td>
         <td className={`px-2 py-2.5 text-[12px] tabular-nums text-center ${dark ? 'text-slate-300' : 'text-stone-700'}`}>{r.paymentsCount}</td>
-        <td className={`px-4 py-2.5 text-[12px] tabular-nums whitespace-nowrap ${dark ? 'text-slate-200' : 'text-stone-800'}`}>
+        <td className={`px-2 py-2.5 text-[12px] tabular-nums whitespace-nowrap ${dark ? 'text-slate-200' : 'text-stone-800'}`}>
           {r.totalPaid.toLocaleString()} ₴
         </td>
-        <td className="px-4 py-2.5">
+        <td className="px-2 py-2.5 whitespace-nowrap">
+          <PaymentMethodBadge theme={theme} method={r.paymentMethod} />
+        </td>
+        <td className="px-2 py-2.5">
           <SendpulseBadge theme={theme} openedAt={r.sendpulseAccessOpenedAt} closedAt={r.sendpulseAccessClosedAt} studentId={r.sendpulseStudentId} />
         </td>
       </tr>
 
       {expanded && (
         <tr className={dark ? 'bg-black/20' : 'bg-stone-50/80'}>
-          <td colSpan={12} className="px-6 py-5">
+          <td colSpan={13} className="px-6 py-5">
             <ExpandedRowContent
               theme={theme}
               graceDays={graceDays}
@@ -1818,6 +1823,17 @@ function fmtDateShort(iso: string): string {
   return KYIV_DATE_FMT.format(new Date(iso));
 }
 
+/// Компактна дата dd/MM/yy для вузької колонки «Створено».
+const KYIV_DATE_COMPACT_FMT = new Intl.DateTimeFormat('en-GB', {
+  timeZone: 'Europe/Kyiv',
+  day: '2-digit',
+  month: '2-digit',
+  year: '2-digit',
+});
+function fmtDateCompact(iso: string): string {
+  return KYIV_DATE_COMPACT_FMT.format(new Date(iso));
+}
+
 function fmtTime(iso: string): string {
   return KYIV_TIME_FMT.format(new Date(iso));
 }
@@ -1836,7 +1852,7 @@ function Th({
   const dark = theme === 'dark';
   const alignCls = align === 'center' ? 'text-center' : align === 'right' ? 'text-right' : 'text-left';
   return (
-    <th className={`${alignCls} px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.18em] whitespace-nowrap ${dark ? 'text-slate-500' : 'text-stone-500'} ${className}`}>
+    <th className={`${alignCls} px-2 py-3 text-[10px] font-semibold uppercase tracking-[0.06em] whitespace-nowrap ${dark ? 'text-slate-500' : 'text-stone-500'} ${className}`}>
       {children}
     </th>
   );
@@ -2046,7 +2062,20 @@ function PlanBadge({ plan, autoRenew, theme }: { plan: Plan; autoRenew: boolean;
   );
 }
 
-function StatusBadge({ status, theme, graceDays }: { status: SubStatus; theme: Theme; graceDays: number }) {
+function StatusBadge({
+  status,
+  theme,
+  graceDays,
+  pendingLabel = null,
+  pendingTone = null,
+}: {
+  status: SubStatus;
+  theme: Theme;
+  graceDays: number;
+  /// Для PENDING — реальна причина замість «Очікує» (Не завершив / Банк відхилив / 3DS не пройдено / ...).
+  pendingLabel?: string | null;
+  pendingTone?: 'neutral' | 'reject' | null;
+}) {
   const dark = theme === 'dark';
   const map: Record<SubStatus, { label: string; dark: string; light: string }> = {
     ACTIVE:    { label: 'Активний',    dark: 'bg-emerald-500/15 text-emerald-300 border-emerald-400/20', light: 'bg-emerald-100 text-emerald-800 border-emerald-300/50' },
@@ -2056,7 +2085,13 @@ function StatusBadge({ status, theme, graceDays }: { status: SubStatus; theme: T
     PENDING:   { label: 'Очікує',      dark: 'bg-slate-500/15 text-slate-400 border-slate-400/10',      light: 'bg-stone-100 text-stone-600 border-stone-300/50' },
     ARCHIVED:  { label: 'Архів',       dark: 'bg-zinc-700/30 text-zinc-400 border-zinc-500/20',         light: 'bg-zinc-200 text-zinc-600 border-zinc-300/60' },
   };
-  const cls = map[status];
+  let cls = map[status];
+  // PENDING із точною причиною: відмови банку/3DS підсвічуємо rose, ліди/незавершено — нейтрально.
+  if (status === 'PENDING' && pendingLabel) {
+    cls = pendingTone === 'reject'
+      ? { label: pendingLabel, dark: 'bg-rose-500/15 text-rose-300 border-rose-400/20', light: 'bg-rose-100 text-rose-800 border-rose-300/50' }
+      : { label: pendingLabel, dark: cls.dark, light: cls.light };
+  }
   return (
     <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider border ${
       dark ? cls.dark : cls.light
@@ -2086,12 +2121,23 @@ function StatusInfoButton({ theme, graceDays }: { theme: Theme; graceDays: numbe
   }, [open]);
 
   const items: { status: SubStatus; desc: string }[] = [
-    { status: 'PENDING', desc: 'Людина почала оформлення, але оплата ще не пройшла — доступу немає. Найчастіше: не завершила платіж, банк відхилив картку, або платіж ще в обробці. Якщо оплата не надходить понад 24 години — підписка автоматично переходить в Архів.' },
+    { status: 'PENDING', desc: 'Оплата ще не пройшла — доступу немає. У колонці статусу показано РЕАЛЬНУ причину з останньої спроби оплати (див. нижче). Якщо оплата не надходить понад 24 години — підписка автоматично переходить в Архів.' },
     { status: 'ACTIVE', desc: 'Оплата пройшла, доступ до курсу відкрито — людина навчається.' },
     { status: 'GRACE', desc: `Термін доступу закінчився, але триває пільговий період (${graceDays} ${pluralizeDays(graceDays)}) — щоб встигнути продовжити без втрати доступу.` },
     { status: 'EXPIRED', desc: 'Доступ до курсу в SendPulse закрито — автоматично після grace-періоду або вручну менеджером.' },
     { status: 'CANCELLED', desc: 'Платну підписку скасовано (користувачем або менеджером). Для місячної автосписання зупинено; доступ зберігається до кінця вже оплаченого періоду.' },
     { status: 'ARCHIVED', desc: 'Відкладено як неактуальне: незавершені спроби оплати (авто-архів через 24 год) або заархівоване менеджером вручну. У списку за замовчуванням сховано — щоб побачити, оберіть фільтр «Архів».' },
+  ];
+
+  // Точні причини, якими розкривається статус «Очікує» (PENDING) у рядку.
+  const pendingItems: { label: string; tone: 'neutral' | 'reject'; desc: string }[] = [
+    { label: 'Не завершив', tone: 'neutral', desc: 'Дійшов до сторінки оплати, але не довів до кінця — не ввів код із SMS або сесія протермінувалась. Найчастіший випадок. Варто нагадати й підказати Apple / Google Pay.' },
+    { label: 'Банк відхилив', tone: 'reject', desc: 'Банк-емітент відмовив у платежі (ліміт, антифрод, обмеження картки). Потрібна інша картка або зняти обмеження в банку.' },
+    { label: '3DS не пройдено', tone: 'reject', desc: 'Не пройдено підтвердження 3D-Secure (код із SMS чи застосунку банку).' },
+    { label: 'Ліміт картки', tone: 'reject', desc: 'Перевищено частоту або ліміт списань по картці.' },
+    { label: 'Відхилено', tone: 'reject', desc: 'Платіж відхилено з іншої причини.' },
+    { label: 'Не платив', tone: 'neutral', desc: 'Зареєструвався, але жодної спроби оплати не було — це просто лід.' },
+    { label: 'Очікує оплату', tone: 'neutral', desc: 'Доданий менеджером вручну, оплати ще не було.' },
   ];
 
   return (
@@ -2131,9 +2177,53 @@ function StatusInfoButton({ theme, graceDays }: { theme: Theme; graceDays: numbe
               </p>
             </div>
           ))}
+
+          <div className={`px-3 pt-2 pb-2 mt-1 border-t text-[11px] font-semibold uppercase tracking-[0.18em] ${
+            dark ? 'border-white/[0.06] text-slate-400' : 'border-stone-200 text-stone-500'
+          }`}>
+            Чому «Очікує» — деталі
+          </div>
+          {pendingItems.map((it) => (
+            <div key={it.label} className="px-3 py-2 flex items-start gap-3">
+              <span className="shrink-0 w-[110px] flex justify-start mt-0.5">
+                <StatusBadge status="PENDING" theme={theme} graceDays={graceDays} pendingLabel={it.label} pendingTone={it.tone} />
+              </span>
+              <p className={`min-w-0 flex-1 text-[12px] leading-snug ${dark ? 'text-slate-300' : 'text-stone-700'}`}>
+                {it.desc}
+              </p>
+            </div>
+          ))}
         </div>
       )}
     </div>
+  );
+}
+
+/// Pill методу оплати з WFP `paymentSystem`. ЕплПей / ГуглПей / Карта.
+function PaymentMethodBadge({ method, theme }: { method: string | null; theme: Theme }) {
+  const dark = theme === 'dark';
+  if (!method) {
+    return <span className={`text-[10px] ${dark ? 'text-slate-600' : 'text-stone-400'}`}>—</span>;
+  }
+  const m = method.toLowerCase();
+  let label = method;
+  let cls: string;
+  if (m === 'applepay') {
+    label = 'ЕплПей';
+    cls = dark ? 'bg-white/10 text-slate-100 border-white/15' : 'bg-stone-900/[0.06] text-stone-800 border-stone-300';
+  } else if (m === 'googlepay') {
+    label = 'ГуглПей';
+    cls = dark ? 'bg-sky-400/15 text-sky-200 border-sky-400/25' : 'bg-sky-50 text-sky-700 border-sky-200';
+  } else if (m === 'card') {
+    label = 'Карта';
+    cls = dark ? 'bg-amber-400/12 text-amber-200 border-amber-400/25' : 'bg-amber-50 text-amber-800 border-amber-200';
+  } else {
+    cls = dark ? 'bg-white/8 text-slate-300 border-white/12' : 'bg-stone-100 text-stone-600 border-stone-200';
+  }
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium border ${cls}`} title={`paymentSystem: ${method}`}>
+      {label}
+    </span>
   );
 }
 

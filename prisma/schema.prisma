@@ -246,6 +246,12 @@ model Payment {
   amount                      Int
   currency                    String                     @default("UAH")
   status                      PaymentStatus              @default(PENDING)
+  /// Платіжний провайдер: "wayforpay" (українці) | "paddle" (закордонні платежі через MoR).
+  /// За замовчуванням "wayforpay" — історичні записи й українські оплати.
+  paymentProvider             String                     @default("wayforpay")
+  /// Метод оплати з WFP callback `paymentSystem`: "applePay" | "googlePay" | "card" | ін.
+  /// null для старих/ручних платежів. Показується колонкою «Метод» в адмінці Річної.
+  paymentMethod               String?
   /// Для CHOICE_FREE bundle-ів: слаги курсів, які клієнт обрав як безкоштовні
   freeSlugs                   String[]                   @default([])
   createdAt                   DateTime                   @default(now())

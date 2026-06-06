@@ -183,7 +183,11 @@ export async function POST(req: NextRequest) {
           // === ФАЗА A: атомарний claim flip ===
           const claim = await prisma.payment.updateMany({
             where: { orderReference: orderReference!, status: { not: 'PAID' } },
-            data: { status: 'PAID', paidAt: new Date() },
+            data: {
+              status: 'PAID',
+              paidAt: new Date(),
+              paymentMethod: typeof body.paymentSystem === 'string' ? body.paymentSystem : undefined,
+            },
           });
 
           if (claim.count === 0) {
@@ -786,7 +790,11 @@ async function handleYearlyProgramCallback(args: {
     flipResult = await prisma.$transaction(async (tx): Promise<FlipResult> => {
       const claim = await tx.payment.updateMany({
         where: { id: payment!.id, status: { not: 'PAID' } },
-        data: { status: 'PAID', paidAt: new Date() },
+        data: {
+          status: 'PAID',
+          paidAt: new Date(),
+          paymentMethod: typeof args.body.paymentSystem === 'string' ? args.body.paymentSystem : undefined,
+        },
       });
       if (claim.count === 0) {
         return { kind: 'already_paid' };

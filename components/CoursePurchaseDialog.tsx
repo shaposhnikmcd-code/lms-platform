@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useSession } from 'next-auth/react';
-import { FaTimes, FaCheck, FaSpinner, FaTelegramPlane } from 'react-icons/fa';
+import { FaTimes, FaCheck, FaSpinner, FaTelegramPlane, FaApplePay, FaGooglePay } from 'react-icons/fa';
 import { useTranslations } from 'next-intl';
 import CoursePhoneInput, { PHONE_CONFIG } from './CoursePhoneInput';
 import CountryPicker from './CountryPicker';
@@ -841,6 +841,23 @@ export default function CoursePurchaseDialog({
                     Ви можете все одно купити пакет, щоб отримати решту курсів — доступ до вже наявних не зникне.
                   </p>
                 </div>
+              </div>
+            )}
+
+            {!alreadyPurchased && (
+              <div className="mb-3 rounded-xl bg-[#1C3A2E]/[0.06] border border-[#1C3A2E]/15 text-[#1C3A2E] overflow-hidden">
+                <div className="px-4 py-2.5 flex items-center gap-2.5 border-b border-[#1C3A2E]/10">
+                  <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-black text-white text-[12px] font-semibold">
+                    <FaApplePay className="text-lg" /> Pay
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-black text-white text-[12px] font-semibold">
+                    <FaGooglePay className="text-lg" /> Pay
+                  </span>
+                  <span className="text-[12.5px] font-bold">— оплата в один дотик</span>
+                </div>
+                <p className="px-4 py-2 text-[12px] leading-relaxed">
+                  <strong>Радимо Apple&nbsp;Pay або Google&nbsp;Pay</strong> — без SMS і зайвих кроків (кнопки внизу сторінки оплати). Якщо платите карткою вручну — банк попросить код із SMS, введіть його, щоб завершити.
+                </p>
               </div>
             )}
 

@@ -32,6 +32,11 @@ export interface Row {
   sendpulseAccessClosedAt: string | null;
   paymentsCount: number;
   totalPaid: number;
+  /// Метод останньої успішної оплати: "applePay" | "googlePay" | "card" | null.
+  paymentMethod: string | null;
+  /// Для PENDING — реальна причина з останньої спроби оплати (замість «Очікує»). null для не-PENDING.
+  pendingLabel: string | null;
+  pendingTone: 'neutral' | 'reject' | null;
   /// Manual-add: коли менеджер створив підписку через invite-link (замість звичайної реєстрації).
   /// Якщо != null → показуємо пілюлю "Додано вручну" + дозволяємо "Екстра Запуск".
   manuallyAddedAt: string | null;
