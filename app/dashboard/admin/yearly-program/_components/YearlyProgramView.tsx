@@ -23,6 +23,7 @@ import {
   HiOutlineCalendarDays,
   HiOutlineUserPlus,
 } from 'react-icons/hi2';
+import { FaApplePay, FaGooglePay, FaRegCreditCard } from 'react-icons/fa';
 import type { YearlyProgramSettings } from '@/lib/yearlyProgramSettings';
 import { useAdminTheme, type Theme } from '../../_components/adminTheme';
 import { AdminShell, AdminPanel } from '../../_components/AdminShell';
@@ -2199,30 +2200,41 @@ function StatusInfoButton({ theme, graceDays }: { theme: Theme; graceDays: numbe
   );
 }
 
-/// Pill методу оплати з WFP `paymentSystem`. ЕплПей / ГуглПей / Карта.
+/// Pill методу оплати з WFP `paymentSystem` — фірмові логотипи Apple Pay / Google Pay + «Картка».
 function PaymentMethodBadge({ method, theme }: { method: string | null; theme: Theme }) {
   const dark = theme === 'dark';
   if (!method) {
     return <span className={`text-[10px] ${dark ? 'text-slate-600' : 'text-stone-400'}`}>—</span>;
   }
   const m = method.toLowerCase();
-  let label = method;
-  let cls: string;
   if (m === 'applepay') {
-    label = 'ЕплПей';
-    cls = dark ? 'bg-white/10 text-slate-100 border-white/15' : 'bg-stone-900/[0.06] text-stone-800 border-stone-300';
-  } else if (m === 'googlepay') {
-    label = 'ГуглПей';
-    cls = dark ? 'bg-sky-400/15 text-sky-200 border-sky-400/25' : 'bg-sky-50 text-sky-700 border-sky-200';
-  } else if (m === 'card') {
-    label = 'Карта';
-    cls = dark ? 'bg-amber-400/12 text-amber-200 border-amber-400/25' : 'bg-amber-50 text-amber-800 border-amber-200';
-  } else {
-    cls = dark ? 'bg-white/8 text-slate-300 border-white/12' : 'bg-stone-100 text-stone-600 border-stone-200';
+    return (
+      <span title="Apple Pay" className="inline-flex items-center justify-center px-2 py-1 rounded-md bg-black border border-black/10 shadow-sm">
+        <FaApplePay className="text-white text-[26px]" />
+      </span>
+    );
+  }
+  if (m === 'googlepay') {
+    return (
+      <span title="Google Pay" className="inline-flex items-center justify-center px-2 py-1 rounded-md bg-white border border-stone-300 shadow-sm">
+        <FaGooglePay className="text-[26px] text-[#5f6368]" />
+      </span>
+    );
+  }
+  if (m === 'card') {
+    return (
+      <span title="Оплата карткою" className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-md border text-[11px] font-medium ${
+        dark ? 'bg-white/[0.06] text-slate-200 border-white/15' : 'bg-stone-50 text-stone-700 border-stone-300'
+      }`}>
+        <FaRegCreditCard className="text-[13px] opacity-70" /> Картка
+      </span>
+    );
   }
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium border ${cls}`} title={`paymentSystem: ${method}`}>
-      {label}
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium border ${
+      dark ? 'bg-white/8 text-slate-300 border-white/12' : 'bg-stone-100 text-stone-600 border-stone-200'
+    }`} title={`paymentSystem: ${method}`}>
+      {method}
     </span>
   );
 }
