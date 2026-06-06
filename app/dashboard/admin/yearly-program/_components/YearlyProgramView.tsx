@@ -117,14 +117,27 @@ const METHOD_OPTIONS: { value: MethodFilter; label: string }[] = [
   { value: 'card', label: 'Картка' },
 ];
 
-function buildStatusOptions(graceDays: number): { value: 'ALL' | SubStatus; label: string }[] {
+/// Точні причини PENDING (мають збігатися з derivePendingLabel у page.tsx).
+/// Значення фільтра для них — `pending:<label>`.
+const PENDING_REASON_LABELS = [
+  'Не завершив',
+  'Банк відхилив',
+  '3DS не пройдено',
+  'Ліміт картки',
+  'Відхилено',
+  'Не платив',
+  'Очікує оплату',
+] as const;
+
+function buildStatusOptions(graceDays: number): { value: string; label: string }[] {
   return [
     { value: 'ALL', label: 'Усі' },
     { value: 'ACTIVE', label: 'Активний' },
     { value: 'GRACE', label: `Grace (${graceDays} ${pluralizeDays(graceDays)})` },
     { value: 'EXPIRED', label: 'Доступ закрито' },
     { value: 'CANCELLED', label: 'Скасовано' },
-    { value: 'PENDING', label: 'Очікує' },
+    { value: 'PENDING', label: 'Очікує (усі)' },
+    ...PENDING_REASON_LABELS.map((l) => ({ value: `pending:${l}`, label: `↳ ${l}` })),
     { value: 'ARCHIVED', label: 'Архів' },
   ];
 }
@@ -234,7 +247,7 @@ function YearlyProgramViewInner({
   const activeCohort = cohorts.find((c) => c.id === activeCohortId) ?? null;
 
   const [planFilter, setPlanFilter] = useState<PlanFilter>('ALL');
-  const [statusFilter, setStatusFilter] = useState<'ALL' | SubStatus>('ALL');
+  const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [methodFilter, setMethodFilter] = useState<MethodFilter>('ALL');
   const [search, setSearch] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -261,8 +274,13 @@ function YearlyProgramViewInner({
       if (planFilter === 'MONTHLY_AUTO' && !(r.plan === 'MONTHLY' && r.autoRenew)) return false;
       if (planFilter === 'MONTHLY_ONCE' && !(r.plan === 'MONTHLY' && !r.autoRenew)) return false;
       // Архів сховано з дефолтного вигляду — показуємо лише коли явно обрано фільтр «Архів».
-      if (statusFilter === 'ALL' && r.status === 'ARCHIVED') return false;
-      if (statusFilter !== 'ALL' && r.status !== statusFilter) return false;
+      if (statusFilter === 'ALL') {
+        if (r.status === 'ARCHIVED') return false;
+      } else if (statusFilter.startsWith('pending:')) {
+        if (r.status !== 'PENDING' || r.pendingLabel !== statusFilter.slice('pending:'.length)) return false;
+      } else if (r.status !== statusFilter) {
+        return false;
+      }
       if (methodFilter !== 'ALL' && r.paymentMethod !== methodFilter) return false;
       if (q && !r.userEmail.toLowerCase().includes(q) && !(r.userName ?? '').toLowerCase().includes(q)) return false;
       return true;
@@ -633,7 +651,7 @@ function YearlyProgramViewInner({
                       align="center"
                       options={buildStatusOptions(graceDays)}
                       value={statusFilter}
-                      onChange={(v) => setStatusFilter(v as 'ALL' | SubStatus)}
+                      onChange={(v) => setStatusFilter(v)}
                     />
                     <StatusInfoButton theme={theme} graceDays={graceDays} />
                   </span>
