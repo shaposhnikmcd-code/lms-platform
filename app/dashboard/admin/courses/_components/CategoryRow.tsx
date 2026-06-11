@@ -35,6 +35,8 @@ export interface CategoryRowData {
   promo2Price: number | null;
   promo2StartsAt: string | null;
   promo2ExpiresAt: string | null;
+  /// SendPulse course ID. Редагований тільки для yearly (Річна підписка) — для інших null.
+  sendpulseCourseId: number | null;
 }
 
 function parsePriceInput(value: string): { ok: boolean; num: number | null } {
@@ -66,9 +68,19 @@ export default function CategoryRow({
   const router = useRouter();
   const dark = theme === 'dark';
   const hasPriceField = row.defaultPrice !== null;
+  // Yearly і Monthly — це той самий курс у SendPulse, тому SP ID спільний (один AppSetting).
+  const hasSpField = row.category === 'yearly' || row.category === 'monthly';
+
+  // SP course ID — окремий концерн (AppSetting), редагується тільки для yearly.
+  const [spIdStr, setSpIdStr] = useState(
+    row.sendpulseCourseId !== null ? String(row.sendpulseCourseId) : '',
+  );
 
   // Ціна / Стара ціна (тільки для connector / yearly / monthly).
-  const [priceStr, setPriceStr] = useState(row.price !== null ? String(row.price) : '');
+  // Як у курсах: показуємо ефективне значення (override ?? default) звичайним текстом,
+  // а не сірим placeholder-ом. defaultPrice=null (bundle) → лишається порожнім.
+  const initialPrice = row.price ?? row.defaultPrice;
+  const [priceStr, setPriceStr] = useState(initialPrice !== null ? String(initialPrice) : '');
   const [oldPriceStr, setOldPriceStr] = useState(row.oldPrice !== null ? String(row.oldPrice) : '');
 
   // БД-слот promo1 → UI "Промокод 2" (SECRETPASS)
@@ -139,6 +151,19 @@ export default function CategoryRow({
     !promo2CodeParsed.code ||
     promo1CodeParsed.code !== promo2CodeParsed.code;
 
+  // SP course ID валідація: порожньо OK (null) або позитивне ціле число.
+  const spIdParsed = (() => {
+    const t = spIdStr.trim();
+    if (t === '') return { ok: true, num: null as number | null };
+    const n = Number(t);
+    if (!Number.isFinite(n) || n <= 0 || !Number.isInteger(n)) {
+      return { ok: false, num: null as number | null };
+    }
+    return { ok: true, num: n };
+  })();
+  const spDirty =
+    hasSpField && spIdParsed.ok && (spIdParsed.num ?? null) !== (row.sendpulseCourseId ?? null);
+
   const formValid =
     priceParsed.ok &&
     oldPriceParsed.ok &&
@@ -148,12 +173,13 @@ export default function CategoryRow({
     promo2CodeParsed.ok &&
     promo2PriceParsed.ok &&
     promo2PairOk &&
-    codesDistinct;
+    codesDistinct &&
+    spIdParsed.ok;
 
-  const dirty =
+  const promoDirty =
     formValid &&
     (
-      (priceParsed.num ?? null) !== (row.price ?? null) ||
+      (priceParsed.num ?? null) !== (initialPrice ?? null) ||
       (oldPriceParsed.num ?? null) !== (row.oldPrice ?? null) ||
       (promo1CodeParsed.code ?? null) !== (row.promo1Code ?? null) ||
       (promo1PriceParsed.num ?? null) !== (row.promo1Price ?? null) ||
@@ -165,6 +191,9 @@ export default function CategoryRow({
       effPromo2Expires !== row.promo2ExpiresAt
     );
 
+  // Кнопка «Зберегти» активна якщо змінились промо АБО SP ID.
+  const anyDirty = (promoDirty || spDirty) && formValid;
+
   const hasOverride =
     row.price !== null ||
     row.oldPrice !== null ||
@@ -174,7 +203,7 @@ export default function CategoryRow({
   useEffect(() => {
     if (!draftHydrated) return;
     try {
-      if (!dirty) {
+      if (!promoDirty) {
         window.localStorage.removeItem(draftKey);
         return;
       }
@@ -199,7 +228,7 @@ export default function CategoryRow({
   }, [
     draftHydrated,
     draftKey,
-    dirty,
+    promoDirty,
     priceStr,
     oldPriceStr,
     promo1CodeStr,
@@ -213,31 +242,49 @@ export default function CategoryRow({
   ]);
 
   async function handleSave() {
-    if (!formValid) return;
+    if (!formValid || !anyDirty) return;
     setSaving(true);
     try {
-      const payload = {
-        price: priceParsed.num,
-        oldPrice: oldPriceParsed.num,
-        promo1Code: promo1CodeParsed.code,
-        promo1Price: promo1PriceParsed.num,
-        promo1StartsAt: effPromo1Starts,
-        promo1ExpiresAt: effPromo1Expires,
-        promo2Code: promo2CodeParsed.code,
-        promo2Price: promo2PriceParsed.num,
-        promo2StartsAt: effPromo2Starts,
-        promo2ExpiresAt: effPromo2Expires,
-      };
-      const res = await fetch(`/api/admin/category-promo/${row.category}`, {
-        method: 'PATCH',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        alert(data?.error || 'Не вдалося зберегти');
-        return;
+      // SP course ID — окремий endpoint (AppSetting), зберігаємо тільки якщо змінився.
+      if (spDirty) {
+        const spRes = await fetch('/api/admin/yearly-sp-course', {
+          method: 'PATCH',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sendpulseCourseId: spIdParsed.num }),
+        });
+        if (!spRes.ok) {
+          const data = await spRes.json().catch(() => ({}));
+          alert(data?.error || 'Не вдалося зберегти SP ID');
+          return;
+        }
+      }
+      // Промокоди / ціни — category-promo endpoint, тільки якщо змінились.
+      if (promoDirty) {
+        const payload = {
+          // Дефолтна ціна → null (не створюємо зайвий override), як у курсах.
+          price: priceParsed.num === row.defaultPrice ? null : priceParsed.num,
+          oldPrice: oldPriceParsed.num,
+          promo1Code: promo1CodeParsed.code,
+          promo1Price: promo1PriceParsed.num,
+          promo1StartsAt: effPromo1Starts,
+          promo1ExpiresAt: effPromo1Expires,
+          promo2Code: promo2CodeParsed.code,
+          promo2Price: promo2PriceParsed.num,
+          promo2StartsAt: effPromo2Starts,
+          promo2ExpiresAt: effPromo2Expires,
+        };
+        const res = await fetch(`/api/admin/category-promo/${row.category}`, {
+          method: 'PATCH',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          alert(data?.error || 'Не вдалося зберегти');
+          return;
+        }
       }
       router.refresh();
     } catch (err) {
@@ -259,7 +306,7 @@ export default function CategoryRow({
         alert(data?.error || 'Не вдалося скинути');
         return;
       }
-      setPriceStr('');
+      setPriceStr(row.defaultPrice !== null ? String(row.defaultPrice) : '');
       setOldPriceStr('');
       setPromo1CodeStr('');
       setPromo1PriceStr('');
@@ -288,6 +335,22 @@ export default function CategoryRow({
 
   const priceCls = `${inputBase} text-center ${priceParsed.ok ? inputOk : inputBad}`;
   const oldPriceCls = `${inputBase} text-center ${oldPriceParsed.ok ? inputOk : inputBad}`;
+
+  const spIdMuted = dark
+    ? 'bg-white/[0.02] border-white/[0.06] text-slate-500 focus:ring-amber-400/30 focus:border-amber-400/30 focus:text-slate-200 placeholder:text-slate-700'
+    : 'bg-stone-100/60 border-stone-200/60 text-stone-400 focus:ring-amber-500/30 focus:border-amber-500/40 focus:text-stone-700 placeholder:text-stone-300';
+  const spIdCls = `${inputBase} text-center ${spIdParsed.ok ? spIdMuted : inputBad}`;
+  const spIdCell = hasSpField ? (
+    <input
+      type="text"
+      inputMode="numeric"
+      placeholder="—"
+      className={spIdCls}
+      value={spIdStr}
+      onChange={e => setSpIdStr(e.target.value)}
+      title="ID курсу «Річна програма» у SendPulse Education. Без нього cron не закриє доступ автоматично. Пріоритет над env SENDPULSE_YEARLY_COURSE_ID. Зберігається кнопкою «Зберегти»."
+    />
+  ) : null;
 
   // Промо не діє коли є код, але вікно — pending або expired → нейтральний стиль + strike на ціні.
   const promo1State = getPromoWindowState(promo1StartsAt, promo1ExpiresAt);
@@ -431,7 +494,7 @@ export default function CategoryRow({
 
   const actionsCell = (
     <div className="flex flex-row gap-1.5 items-center justify-center">
-      <button type="button" onClick={handleSave} disabled={!dirty || saving} className={saveBtnCls}>
+      <button type="button" onClick={handleSave} disabled={!anyDirty || saving} className={saveBtnCls}>
         <FaCheck className="text-[10px]" />
         {saving ? '...' : 'Зберегти'}
       </button>
@@ -476,6 +539,14 @@ export default function CategoryRow({
             </div>
           </div>
         )}
+        {hasSpField && (
+          <div>
+            <div className={`text-[10px] uppercase tracking-[0.18em] font-medium mb-1 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+              SP ID
+            </div>
+            {spIdCell}
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-3">
           <div>
             <div className={`text-[10px] uppercase tracking-[0.18em] font-medium mb-1 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
@@ -512,8 +583,8 @@ export default function CategoryRow({
       <td className="px-3 py-2.5 align-middle">{titleCell}</td>
       <td className="px-2 py-2.5 align-middle">{priceCell}</td>
       <td className="px-2 py-2.5 align-middle">{oldPriceCell}</td>
-      {/* SP ID — пусте для категорій */}
-      <td className="px-2 py-2.5 align-middle" />
+      {/* SP ID — редагований для yearly (Річна підписка), пусто для інших категорій */}
+      <td className="px-2 py-2.5 align-middle">{spIdCell}</td>
       <td className="px-2 py-2.5 align-middle">{uiPromo1CodeCell}</td>
       <td className="px-2 py-2.5 align-middle">{uiPromo1PriceCell}</td>
       <td className="px-2 py-2.5 align-middle">{uiPromo2CodeCell}</td>

@@ -54,6 +54,8 @@ export type SalesSeries = {
   /// Сума за попередній період такого ж розміру (для % порівняння hero-метрики).
   previousTotal: number;
   previousLabel: string;
+  /// Підпис поточного періоду для порівняння (напр. "Останні 30 днів").
+  currentLabel: string;
   insights: SalesInsight;
 };
 
@@ -410,8 +412,10 @@ export async function getSalesAnalytics(period: SalesPeriod): Promise<SalesSerie
     connector: summarize(kpiAcc.connector),
   };
 
-  /// Для денного графіку — заповнюємо weekTotal на бакеті, що закриває тиждень (нд).
-  /// Це і є "акуратні цифри тижневих сум на місячному графіку".
+  /// Для денного графіку — заповнюємо weekTotal на бакеті, що закриває тиждень (нд)
+  /// АБО на останньому дні діапазону (обірваний тиждень). Ставимо ЗАВЖДИ, навіть якщо
+  /// сума 0 — це межа тижня для футера; без нього порожні тижні «зливалися» з сусідніми
+  /// і період показувався некоректно. Нульові тижні футер покаже як "0 ₴".
   if (granularity === 'day') {
     let acc = 0;
     for (let i = 0; i < buckets.length; i++) {
@@ -420,7 +424,7 @@ export async function getSalesAnalytics(period: SalesPeriod): Promise<SalesSerie
       const dow = dayOfWeekMon0(parseDayKey(b.key));
       const isLastDay = i === buckets.length - 1;
       if (dow === 6 || isLastDay) {
-        if (acc > 0) buckets[i].weekTotal = acc;
+        buckets[i].weekTotal = acc;
         acc = 0;
       }
     }
@@ -452,7 +456,9 @@ export async function getSalesAnalytics(period: SalesPeriod): Promise<SalesSerie
   ]);
 
   const previousTotal = (prevAggr._sum.amount ?? 0) + (prevConn._sum.amount ?? 0);
-  const previousLabel = fmtPreviousLabel(prevStart, prevEnd, granularity);
+  const { currentLabel, previousLabel } = fmtComparisonLabels(
+    start, end, prevStart, prevEnd, granularity, period,
+  );
 
   /// Інсайти: найкращий бакет (день/тиждень/місяць) + найкращий тиждень (для day-вʼю).
   let bestIdx = -1;
@@ -470,7 +476,8 @@ export async function getSalesAnalytics(period: SalesPeriod): Promise<SalesSerie
     let weekNum = 0;
     let weekStart = 0;
     buckets.forEach((b, i) => {
-      if (b.weekTotal && b.weekTotal > 0) {
+      /// Межа тижня = weekTotal заданий (навіть 0), щоб нумерація збігалася з футером.
+      if (b.weekTotal !== undefined) {
         weekNum++;
         if (b.weekTotal > bestWeekVal) {
           bestWeekVal = b.weekTotal;
@@ -509,6 +516,7 @@ export async function getSalesAnalytics(period: SalesPeriod): Promise<SalesSerie
     rangeLabel: fmtRange(start, end, granularity),
     previousTotal,
     previousLabel,
+    currentLabel,
     insights: {
       bestBucketKey: bestBucket?.key ?? null,
       bestBucketLabel,
@@ -520,13 +528,38 @@ export async function getSalesAnalytics(period: SalesPeriod): Promise<SalesSerie
   };
 }
 
-function fmtPreviousLabel(start: Date, end: Date, granularity: Granularity): string {
-  const a = tzParts(start);
-  const b = tzParts(end);
-  if (granularity === 'day') {
-    return `${UA_MONTH_NOMINATIVE[a.month - 1]} ${a.year}`;
+/// Підписи поточного та попереднього періодів для порівняння hero-метрики.
+function fmtComparisonLabels(
+  curStart: Date,
+  curEnd: Date,
+  prevStart: Date,
+  prevEnd: Date,
+  granularity: Granularity,
+  period: SalesPeriod,
+): { currentLabel: string; previousLabel: string } {
+  /// 30d — ковзне вікно: "Останні 30 днів vs попередніх 30 днів".
+  if (period === '30d') {
+    return { currentLabel: 'Останні 30 днів', previousLabel: 'попередніх 30 днів' };
   }
-  return `${UA_MONTH_NOMINATIVE[a.month - 1]} ${a.year} – ${UA_MONTH_NOMINATIVE[b.month - 1]} ${b.year}`;
+  /// 1m — календарні місяці: "Травень 2026 vs Квітень 2026".
+  if (granularity === 'day') {
+    const cur = tzParts(curStart);
+    const prev = tzParts(prevStart);
+    return {
+      currentLabel: `${UA_MONTH_NOMINATIVE[cur.month - 1]} ${cur.year}`,
+      previousLabel: `${UA_MONTH_NOMINATIVE[prev.month - 1]} ${prev.year}`,
+    };
+  }
+  /// week/month — діапазони місяців.
+  const ca = tzParts(curStart);
+  const cb = tzParts(curEnd);
+  const pa = tzParts(prevStart);
+  const pb = tzParts(prevEnd);
+  const range = (a: ReturnType<typeof tzParts>, b: ReturnType<typeof tzParts>) =>
+    a.month === b.month && a.year === b.year
+      ? `${UA_MONTH_NOMINATIVE[a.month - 1]} ${a.year}`
+      : `${UA_MONTH_SHORT[a.month - 1]} ${String(a.year).slice(2)} – ${UA_MONTH_SHORT[b.month - 1]} ${String(b.year).slice(2)}`;
+  return { currentLabel: range(ca, cb), previousLabel: range(pa, pb) };
 }
 
 function parseDayKey(key: string): Date {

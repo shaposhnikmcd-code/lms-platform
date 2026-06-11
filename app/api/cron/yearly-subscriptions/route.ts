@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Resend } from 'resend';
 import prisma from '@/lib/prisma';
-import { YEARLY_PROGRAM_CONFIG, getYearlyGraceDays } from '@/lib/yearlyProgramConfig';
+import { getYearlyGraceDays, getYearlySendpulseCourseId } from '@/lib/yearlyProgramConfig';
 import {
   closeAccessInCourse,
   lookupStudentIdByEmail,
@@ -266,6 +266,7 @@ async function expireGraceSubscriptions(): Promise<StepResult> {
   const now = new Date();
   const graceDays = await getYearlyGraceDays(prisma);
   const graceCutoff = new Date(now.getTime() - graceDays * 24 * 60 * 60 * 1000);
+  const yearlySpCourseId = await getYearlySendpulseCourseId(prisma);
   const errors: string[] = [];
 
   // Семантика: експайраємо коли grace-період вже завершився (gracePeriodEndsAt <= now).
@@ -287,7 +288,7 @@ async function expireGraceSubscriptions(): Promise<StepResult> {
   await processInParallel(subs, async (sub) => {
     try {
       // Закриваємо доступ у SendPulse (якщо можемо — є studentId і courseId).
-      const courseId = YEARLY_PROGRAM_CONFIG.sendpulseCourseId;
+      const courseId = yearlySpCourseId;
       let studentId = sub.sendpulseStudentId;
 
       if (courseId && !studentId && sub.user?.email) {

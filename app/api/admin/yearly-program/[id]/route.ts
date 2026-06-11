@@ -6,7 +6,7 @@ import { closeAccessInCourse, lookupStudentIdByEmail, openAccessViaEvent } from 
 import { kickSubscriptionFromChannel } from '@/lib/yearlyProgramTelegram';
 import { removeSubscriptionAutopay } from '@/lib/yearlyProgramAutopay';
 import { sendYearlyProgramAdminEndedEmail, type AdminEndKind } from '@/lib/yearlyProgramAdminEndedEmail';
-import { YEARLY_PROGRAM_CONFIG, getYearlyPostAccessMonths } from '@/lib/yearlyProgramConfig';
+import { YEARLY_PROGRAM_CONFIG, getYearlyPostAccessMonths, getYearlySendpulseCourseId } from '@/lib/yearlyProgramConfig';
 import { getYearlyProgramSettings } from '@/lib/yearlyProgramSettings';
 import { parseTelegramUsername } from '@/lib/telegramUsername';
 import { calculateAccessUntil } from '@/lib/yearlyProgramAccess';
@@ -165,7 +165,7 @@ async function handleCloseAccess(sub: NonNullable<SubWithUser>, actor: string) {
       error: 'Доступ у SendPulse ще не відкривався — нема що закривати. Використай "Деактивувати та Вилучити студента з програми".',
     }, { status: 400 });
   }
-  const courseId = YEARLY_PROGRAM_CONFIG.sendpulseCourseId;
+  const courseId = await getYearlySendpulseCourseId(prisma);
   if (!courseId) {
     return NextResponse.json({
       error: 'SENDPULSE_YEARLY_COURSE_ID не налаштовано — не можу закрити в SendPulse. Зроби EXPIRED без виклику API?',
@@ -650,7 +650,7 @@ async function handleDelete(sub: NonNullable<SubWithUser>, actor: string) {
   let sendpulseClosed = false;
   let sendpulseError: string | null = null;
 
-  const courseId = YEARLY_PROGRAM_CONFIG.sendpulseCourseId;
+  const courseId = await getYearlySendpulseCourseId(prisma);
   if (courseId && sub.user?.email) {
     try {
       let studentId = sub.sendpulseStudentId;

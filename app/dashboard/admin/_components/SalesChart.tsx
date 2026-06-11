@@ -80,7 +80,9 @@ export default function SalesChart({ series, theme }: Props) {
     let blockStart = 0;
     let weekNum = 0;
     series.buckets.forEach((b, i) => {
-      if (b.weekTotal && b.weekTotal > 0) {
+      /// Межа тижня = weekTotal заданий (включно з 0), щоб порожні тижні теж рахувались
+      /// окремими сегментами, а не зливались із сусідніми.
+      if (b.weekTotal !== undefined) {
         weekNum++;
         result.push({
           startKey: series.buckets[blockStart].key,
@@ -223,7 +225,7 @@ export default function SalesChart({ series, theme }: Props) {
           }`}>
             Загальний обіг
           </div>
-          <div className="flex items-baseline gap-3 flex-wrap">
+          <div className="flex items-center gap-3 flex-wrap">
             <span
               className={`text-[32px] sm:text-[44px] font-semibold tabular-nums leading-none tracking-tight ${
                 dark ? 'text-white' : 'text-stone-900'
@@ -234,21 +236,25 @@ export default function SalesChart({ series, theme }: Props) {
             </span>
             {previousTotal > 0 && (
               <span
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[12px] font-semibold tabular-nums"
+                className="inline-flex flex-col items-start px-3 py-1.5 rounded-xl leading-tight"
                 style={{
-                  color: deltaColor,
                   background: trendPositive
-                    ? (dark ? 'rgba(52,211,153,0.1)' : 'rgba(4,120,87,0.08)')
-                    : (dark ? 'rgba(251,113,133,0.1)' : 'rgba(190,18,60,0.08)'),
+                    ? (dark ? 'rgba(52,211,153,0.1)' : 'rgba(4,120,87,0.07)')
+                    : (dark ? 'rgba(251,113,133,0.1)' : 'rgba(190,18,60,0.07)'),
                   border: `1px solid ${trendPositive
-                    ? (dark ? 'rgba(52,211,153,0.2)' : 'rgba(4,120,87,0.18)')
-                    : (dark ? 'rgba(251,113,133,0.2)' : 'rgba(190,18,60,0.18)')}`,
+                    ? (dark ? 'rgba(52,211,153,0.22)' : 'rgba(4,120,87,0.18)')
+                    : (dark ? 'rgba(251,113,133,0.22)' : 'rgba(190,18,60,0.18)')}`,
                 }}
               >
-                <span style={{ fontSize: 14, lineHeight: 1 }}>{trendPositive ? '↗' : '↘'}</span>
-                {trendPositive ? '+' : ''}{deltaPct}%
-                <span className={`font-medium ${dark ? 'opacity-70' : 'opacity-65'}`}>
-                  vs {series.previousLabel}
+                <span
+                  className="inline-flex items-center gap-1 text-[14px] font-bold tabular-nums"
+                  style={{ color: deltaColor }}
+                >
+                  <span style={{ fontSize: 15, lineHeight: 1 }}>{trendPositive ? '↗' : '↘'}</span>
+                  {trendPositive ? '+' : ''}{deltaPct}%
+                </span>
+                <span className={`text-[10.5px] font-medium ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
+                  {series.currentLabel} vs {series.previousLabel}
                 </span>
               </span>
             )}
@@ -345,6 +351,9 @@ export default function SalesChart({ series, theme }: Props) {
             <Tooltip
               content={renderTooltip}
               cursor={{ stroke: dark ? 'rgba(212,168,67,0.4)' : 'rgba(180,83,9,0.32)', strokeWidth: 1, strokeDasharray: '3 4' }}
+              isAnimationActive={false}
+              animationDuration={0}
+              offset={16}
             />
 
             {STACKED_CATEGORIES.map(c => (

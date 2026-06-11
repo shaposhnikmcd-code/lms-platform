@@ -5,6 +5,7 @@
 
 import prisma from '@/lib/prisma';
 import { fetchAllStudentsProgressForCourse } from '@/lib/sendpulse';
+import { getYearlySendpulseCourseId } from '@/lib/yearlyProgramConfig';
 
 export type YearlyProgressSyncResult = {
   ok: boolean;
@@ -16,18 +17,10 @@ export type YearlyProgressSyncResult = {
 export async function syncYearlyProgress(): Promise<YearlyProgressSyncResult> {
   const errors: string[] = [];
 
-  const courseIdRaw = process.env.SENDPULSE_YEARLY_COURSE_ID;
-  if (!courseIdRaw) {
+  // Спершу з БД (AppSetting, редагується в адмінці), fallback на env SENDPULSE_YEARLY_COURSE_ID.
+  const courseId = await getYearlySendpulseCourseId(prisma);
+  if (!courseId || !Number.isFinite(courseId) || courseId <= 0) {
     return { ok: false, processed: 0, spStudents: 0, errors: ['SENDPULSE_YEARLY_COURSE_ID not set'] };
-  }
-  const courseId = Number(courseIdRaw);
-  if (!Number.isFinite(courseId) || courseId <= 0) {
-    return {
-      ok: false,
-      processed: 0,
-      spStudents: 0,
-      errors: [`Invalid SENDPULSE_YEARLY_COURSE_ID: ${courseIdRaw}`],
-    };
   }
 
   let students: Awaited<ReturnType<typeof fetchAllStudentsProgressForCourse>> = [];

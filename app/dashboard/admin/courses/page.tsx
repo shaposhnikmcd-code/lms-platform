@@ -5,6 +5,7 @@ import { MILITARY_PSYCHOLOGY_COURSE } from "@/app/[locale]/courses/military-psyc
 import { syncCatalogCourses } from "@/lib/syncCatalogCourses";
 import { CONNECTOR_DEFAULT_PRICE } from "@/lib/connectorPricing";
 import { YEARLY_DEFAULT_PRICE, MONTHLY_DEFAULT_PRICE } from "@/lib/yearlyPricing";
+import { getYearlySendpulseCourseId } from "@/lib/yearlyProgramConfig";
 import CoursesView from "./_components/CoursesView";
 
 export const revalidate = 30;
@@ -17,10 +18,11 @@ const FALLBACK_OLD_PRICE: Record<string, number | null> = {
 export default async function AdminCourses() {
   await syncCatalogCourses();
 
-  const [overrides, dbCourses, categoryPromos] = await Promise.all([
+  const [overrides, dbCourses, categoryPromos, yearlySpCourseId] = await Promise.all([
     prisma.coursePriceOverride.findMany(),
     prisma.course.findMany({ select: { slug: true, id: true, sendpulseCourseId: true } }),
     prisma.categoryPromoOverride.findMany(),
+    getYearlySendpulseCourseId(prisma),
   ]);
   const overridesBySlug = new Map(overrides.map((o) => [o.slug, o]));
   const dbBySlug = new Map(dbCourses.map((c) => [c.slug ?? c.id, c]));
@@ -82,13 +84,15 @@ export default async function AdminCourses() {
       promo2Price: p?.promo2Price ?? null,
       promo2StartsAt: p?.promo2StartsAt ? p.promo2StartsAt.toISOString() : null,
       promo2ExpiresAt: p?.promo2ExpiresAt ? p.promo2ExpiresAt.toISOString() : null,
+      /// SP ID — редагований для Річної (yearly + monthly спільний SP-курс); інші = null.
+      sendpulseCourseId: category === 'yearly' || category === 'monthly' ? yearlySpCourseId : null,
     };
   };
   const categoryRows = [
-    buildCategoryRow('connector', 'Гра Конектор', '🧩', '#7C9D7C', 'Промокод обнуляє доставку'),
-    buildCategoryRow('bundle', 'Пакети курсів', '📦', '#D4A843', 'Один промокод на всі пакети'),
     buildCategoryRow('yearly', 'Річна програма', '📅', '#9C6FB6', '(Річна підписка)'),
     buildCategoryRow('monthly', 'Річна програма', '🔁', '#6FA8B6', '(Місячний платіж)'),
+    buildCategoryRow('connector', 'Гра Конектор', '🧩', '#7C9D7C', 'Промокод обнуляє доставку'),
+    buildCategoryRow('bundle', 'Пакети курсів', '📦', '#D4A843', 'Один промокод на всі пакети'),
   ];
 
   return <CoursesView rows={rows} categoryRows={categoryRows} />;

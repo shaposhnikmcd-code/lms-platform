@@ -1,6 +1,6 @@
 import prisma from '@/lib/prisma';
 import { openAccessViaEvent, lookupStudentIdByEmail } from '@/lib/sendpulse';
-import { YEARLY_PROGRAM_CONFIG, getYearlyPostAccessMonths } from '@/lib/yearlyProgramConfig';
+import { YEARLY_PROGRAM_CONFIG, getYearlyPostAccessMonths, getYearlySendpulseCourseId } from '@/lib/yearlyProgramConfig';
 import { calculateAccessUntil } from '@/lib/yearlyProgramAccess';
 import { sendEmail } from '@/lib/mailer';
 import {
@@ -61,6 +61,7 @@ export async function executeLaunchLoop(
   });
 
   const postAccessMonths = await getYearlyPostAccessMonths(prisma);
+  const yearlySpCourseId = await getYearlySendpulseCourseId(prisma);
   const results: LaunchResult[] = [];
 
   for (const s of subs) {
@@ -89,10 +90,10 @@ export async function executeLaunchLoop(
           paidPayments[0]!.amount,
         );
         openedNow = true;
-        if (!s.sendpulseStudentId && YEARLY_PROGRAM_CONFIG.sendpulseCourseId) {
+        if (!s.sendpulseStudentId && yearlySpCourseId) {
           try {
             const studentId = await lookupStudentIdByEmail(
-              YEARLY_PROGRAM_CONFIG.sendpulseCourseId,
+              yearlySpCourseId,
               s.user.email,
             );
             if (studentId) {
@@ -202,13 +203,14 @@ export async function runExtraLaunchForSubscription(
   const paidPayments = sub.payments.filter((p) => p.status === 'PAID');
   if (paidPayments.length === 0) return { ok: false, reason: 'no_paid_payments', expiresAt: null, sendpulseAccessOpened: false, studentId: null, email: { sent: false } };
 
+  const yearlySpCourseId = await getYearlySendpulseCourseId(prisma);
   let openErr: string | null = null;
   let studentId: number | null = sub.sendpulseStudentId;
   try {
     await openAccessViaEvent(sub.user.email, YEARLY_PROGRAM_CONFIG.sendpulseEventSlug, paidPayments[0]!.amount);
-    if (!studentId && YEARLY_PROGRAM_CONFIG.sendpulseCourseId) {
+    if (!studentId && yearlySpCourseId) {
       try {
-        studentId = await lookupStudentIdByEmail(YEARLY_PROGRAM_CONFIG.sendpulseCourseId, sub.user.email);
+        studentId = await lookupStudentIdByEmail(yearlySpCourseId, sub.user.email);
       } catch {
         // ignore lookup err — досипається пізніше
       }

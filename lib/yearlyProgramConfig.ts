@@ -70,6 +70,27 @@ export async function getYearlyGraceDays(
   }
 }
 
+/// Ключ у `AppSetting` для runtime-конфігурованого SendPulse course ID Річної програми.
+/// Редагується з адмінки `/dashboard/admin/courses` (колонка SP ID у рядку «Річна підписка»).
+/// Має пріоритет над env `SENDPULSE_YEARLY_COURSE_ID` — env лишається fallback-ом.
+export const YEARLY_SP_COURSE_SETTING_KEY = 'yearlySendpulseCourseId';
+
+/// Читає актуальний SendPulse course ID Річної програми: спершу з БД (AppSetting),
+/// якщо не заданий — fallback на env `SENDPULSE_YEARLY_COURSE_ID`. null = не налаштовано ніде.
+export async function getYearlySendpulseCourseId(
+  prismaClient: { appSetting: { findUnique: (args: { where: { key: string } }) => Promise<{ value: number } | null> } },
+): Promise<number | null> {
+  try {
+    const row = await prismaClient.appSetting.findUnique({
+      where: { key: YEARLY_SP_COURSE_SETTING_KEY },
+    });
+    if (row?.value && row.value > 0) return row.value;
+  } catch {
+    /// Таблиця ще не мігрована / БД недоступна — безпечний fallback на env.
+  }
+  return YEARLY_PROGRAM_CONFIG.sendpulseCourseId;
+}
+
 /// Ключ у `AppSetting` для runtime-конфігурованої тривалості доступу після завершення
 /// програми (у місяцях). Зміна з адмінки перераховує expiresAt усіх живих підписок.
 export const YEARLY_POST_ACCESS_SETTING_KEY = 'yearlyPostAccessMonths';
