@@ -2,11 +2,14 @@
 /// з WFP callback (при кожній оплаті), при запуску cohort, при перенесенні підписки
 /// в інший cohort, при cron-у sync.
 ///
-/// Правила (узгоджені 2026-05-01, оновлені 2026-06-03 — пост-доступ):
+/// Правила (узгоджені 2026-05-01, оновлені 2026-06-03 — пост-доступ; 2026-07-03 — календарний графік):
 /// — Дата завершення доступу базується на cohort.endDate + `postAccessMonths` місяців
 ///   доступу до платформи ПІСЛЯ завершення програми (напр. 31.05.2027 + 6 міс = 30.11.2027).
 /// — YEARLY → expiresAt = cohort.endDate + postAccessMonths (фікс на весь період + пост-доступ).
-/// — MONTHLY до повної сплати → cohort.startDate + N×30 днів (N = успішних PAID), кеп cohort.endDate.
+/// — MONTHLY до повної сплати → anchor + N КАЛЕНДАРНИХ місяців (N = успішних PAID), кеп
+///   cohort.endDate. Графік платежів жорсткий і однаковий для разових та автоплатежу:
+///   01.10 → 01.11 → 01.12... від дати старту. Оплата РАНІШЕ чи ПІЗНІШЕ дедлайну графік
+///   НЕ зсуває — платіж «займає» свій слот (сплатив 20.09 = начебто сплатив 01.10).
 /// — MONTHLY після повної сплати всіх totalMonthlyPayments → cohort.endDate + postAccessMonths
 ///   (та сама логіка що й YEARLY — повноцінний доступ + пост-доступ).
 /// — Без cohort (legacy) → стара поведінка: yearlyDurationDays/monthlyDurationDays від оплати.
@@ -103,8 +106,10 @@ export function calculateAccessUntil(args: {
 
   // Якщо перша оплата ДО старту cohort — anchor = cohort.startDate (всі покупці чекають старту).
   // Якщо ПІСЛЯ — anchor = першої оплати (доступ від моменту платежу).
+  // Слоти — КАЛЕНДАРНІ місяці від anchor (01.10 → 01.11 → ...), день клемпується
+  // (31.10 + 1 міс = 30.11). Момент фактичної оплати на графік не впливає.
   const anchor = firstPaid < cohortStart ? cohortStart : firstPaid;
-  const expires = new Date(anchor.getTime() + paidCount * 30 * MS_PER_DAY);
+  const expires = addCalendarMonths(anchor, paidCount);
 
   // Часткова сплата: hard cap на cohort.endDate (пост-доступ ще не нараховуємо — він
   // вмикається лише після повної оплати, рядок вище). Залишок до повного — manual.
