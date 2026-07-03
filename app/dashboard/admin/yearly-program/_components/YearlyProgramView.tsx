@@ -989,7 +989,11 @@ function RowBlock({
           )}
         </td>
         <td className={`px-2 py-2.5 text-[11px] tabular-nums whitespace-nowrap ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
-          {r.plan === 'MONTHLY' && r.autoRenew && r.status !== 'CANCELLED' && r.status !== 'EXPIRED' ? (
+          {((r.plan === 'YEARLY' && r.paymentsCount >= 1) || (r.plan === 'MONTHLY' && r.paymentsCount >= 9))
+            && (r.status === 'ACTIVE' || r.status === 'GRACE') ? (
+            // Сплачено 100% (річний разово / місячний усі 9) — платити більше нічого.
+            <span className={dark ? 'text-emerald-300' : 'text-emerald-600'} title="Сплачено повністю">✓</span>
+          ) : r.plan === 'MONTHLY' && r.autoRenew && r.status !== 'CANCELLED' && r.status !== 'EXPIRED' ? (
             r.wfpNextChargeAt ? (
               <>
                 <div>{fmtDateShort(r.wfpNextChargeAt)}</div>
