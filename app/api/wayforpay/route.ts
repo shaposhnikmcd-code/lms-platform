@@ -498,21 +498,26 @@ export async function POST(req: NextRequest) {
       if (currentCohortId) {
         const cohort = await prisma.yearlyProgramCohort.findUnique({
           where: { id: currentCohortId },
-          select: { endDate: true },
+          select: { startDate: true, endDate: true },
         });
         if (cohort) {
           const now = new Date();
+          // Покупка ДО старту програми: перший (Purchase) платіж покриває перший місяць
+          // ВІД дати старту cohort-у, тому WFP-графік наступних списань якоримо на
+          // cohort.startDate, а не на дату покупки. Друге списання прийде через місяць
+          // після старту, а не через місяць після покупки. Після старту — як раніше (від now).
+          const anchor = cohort.startDate > now ? cohort.startDate : now;
           const totalPayments = maxAutopayChargeCount({
-            firstPaymentDate: now,
+            firstPaymentDate: anchor,
             cohortEndDate: cohort.endDate,
           });
           const dateEndCohort = lastAutopayChargeDate({
-            firstPaymentDate: now,
+            firstPaymentDate: anchor,
             cohortEndDate: cohort.endDate,
           });
           regularFlags = buildRegularPurchaseFlags({
             amount: finalAmount,
-            dateBegin: now,
+            dateBegin: anchor,
             dateEnd: dateEndCohort,
             totalPayments,
           });

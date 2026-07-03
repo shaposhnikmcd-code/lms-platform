@@ -42,6 +42,19 @@ async function processInParallel<T>(
   }
 }
 
+/// Запобіжник «не чіпати до запуску»: підписки cohort-у, який ще НЕ запущено
+/// (launchedAt=null), не отримують GRACE/нагадувань/закриття доступу — програма ще
+/// не стартувала, вимагати наступну оплату нема за що. Продажі йдуть заздалегідь,
+/// відлік місяців якориться на cohort.startDate (lib/yearlyProgramAccess.ts), а весь
+/// життєвий цикл протермінування вмикається лише після фактичного запуску.
+/// Підписки без cohort (legacy) проходять як раніше.
+const NOT_IN_UNLAUNCHED_COHORT = {
+  OR: [
+    { cohort: null },
+    { cohort: { launchedAt: { not: null } } },
+  ],
+};
+
 /// Щоденний cron Річної програми.
 /// — Переводить ACTIVE → GRACE коли expiresAt у минулому.
 /// — Закриває доступ (GRACE → EXPIRED) коли grace-період вийшов.
@@ -215,6 +228,7 @@ async function transitionActiveToGrace(): Promise<StepResult> {
     where: {
       status: 'ACTIVE',
       expiresAt: { lt: now },
+      ...NOT_IN_UNLAUNCHED_COHORT,
     },
     select: { id: true, userId: true, plan: true, autoRenew: true, failedChargeCount: true, expiresAt: true },
   });
@@ -277,9 +291,14 @@ async function expireGraceSubscriptions(): Promise<StepResult> {
   const subs = await prisma.yearlyProgramSubscription.findMany({
     where: {
       status: 'GRACE',
-      OR: [
-        { gracePeriodEndsAt: { lte: now } },
-        { gracePeriodEndsAt: null, expiresAt: { lt: graceCutoff } },
+      AND: [
+        NOT_IN_UNLAUNCHED_COHORT,
+        {
+          OR: [
+            { gracePeriodEndsAt: { lte: now } },
+            { gracePeriodEndsAt: null, expiresAt: { lt: graceCutoff } },
+          ],
+        },
       ],
     },
     include: { user: true },
@@ -402,6 +421,7 @@ async function sendManualBeforeExpiryReminders(): Promise<StepResult> {
       autoRenew: false,
       expiresAt: { gte: windowStart, lt: windowEnd },
       reminderSent3d: false,
+      ...NOT_IN_UNLAUNCHED_COHORT,
     },
     include: { user: true },
   });
@@ -447,6 +467,7 @@ async function sendManualOnExpiryReminders(): Promise<StepResult> {
       autoRenew: false,
       expiresAt: { gte: startOfToday, lt: startOfTomorrow },
       reminderSentOnExpiry: false,
+      ...NOT_IN_UNLAUNCHED_COHORT,
     },
     include: { user: true },
   });
@@ -491,6 +512,7 @@ async function sendGraceStartReminders(): Promise<StepResult> {
       plan: 'MONTHLY',
       reminderSentGraceStart: false,
       gracePeriodEndsAt: { not: null },
+      ...NOT_IN_UNLAUNCHED_COHORT,
     },
     include: { user: true },
   });
@@ -552,6 +574,7 @@ async function sendGraceMidReminders(): Promise<StepResult> {
       reminderSentGraceMid: false,
       graceStartedAt: { lte: cutoff },
       gracePeriodEndsAt: { not: null },
+      ...NOT_IN_UNLAUNCHED_COHORT,
     },
     include: { user: true },
   });
@@ -612,6 +635,7 @@ async function sendGraceLastReminders(): Promise<StepResult> {
       // Safety: не шлемо «завтра закриваємо» якщо grace вже фактично завершився
       // (рідкісний edge — cron не запускався і експайр пропустили).
       gracePeriodEndsAt: { gt: now },
+      ...NOT_IN_UNLAUNCHED_COHORT,
     },
     include: { user: true },
   });

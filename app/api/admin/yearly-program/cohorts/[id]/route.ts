@@ -115,6 +115,7 @@ export async function PATCH(
     // Якщо дати змінились — перераховуємо expiresAt усіх ACTIVE/GRACE/PENDING підписок cohort-у.
     if (datesChanged) {
       const postAccessMonths = await getYearlyPostAccessMonths(tx);
+      const now = new Date();
       const subs = await tx.yearlyProgramSubscription.findMany({
         where: {
           cohortId: id,
@@ -133,15 +134,37 @@ export async function PATCH(
           postAccessMonths,
         });
         if (newExpires && (!s.expiresAt || newExpires.getTime() !== s.expiresAt.getTime())) {
+          // Якщо новий expiresAt у майбутньому — підписка більше не протермінована:
+          // GRACE повертаємо в ACTIVE, скидаємо grace-дати і спожиті прапори нагадувань,
+          // щоб цикл попереджень коректно відпрацював уже для НОВОЇ дати завершення.
+          // (Кейс: cohort-у виправили дату старту з минулої на майбутню — підписки, яких
+          // cron встиг штовхнути в GRACE через стару дату, мають ожити без ручних дій.)
+          const backToLife = newExpires > now;
+          const revive = backToLife && s.status === 'GRACE';
           await tx.yearlyProgramSubscription.update({
             where: { id: s.id },
-            data: { expiresAt: newExpires },
+            data: {
+              expiresAt: newExpires,
+              ...(revive ? { status: 'ACTIVE' } : {}),
+              ...(backToLife
+                ? {
+                    graceStartedAt: null,
+                    gracePeriodEndsAt: null,
+                    reminderSent3d: false,
+                    reminderSentOnExpiry: false,
+                    reminderSentExpired: false,
+                    reminderSentGraceStart: false,
+                    reminderSentGraceMid: false,
+                    reminderSentGraceLast: false,
+                  }
+                : {}),
+            },
           });
           await tx.yearlyProgramSubscriptionEvent.create({
             data: {
               subscriptionId: s.id,
               type: 'admin_action',
-              message: `Cohort dates changed → expiresAt recomputed to ${newExpires.toISOString().slice(0, 10)}`,
+              message: `Cohort dates changed → expiresAt recomputed to ${newExpires.toISOString().slice(0, 10)}${revive ? ' · GRACE → ACTIVE (revived)' : ''}`,
               metadata: { reason: 'cohort_dates_changed', cohortId: id },
             },
           });
