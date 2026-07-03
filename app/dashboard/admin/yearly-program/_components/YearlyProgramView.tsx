@@ -1870,7 +1870,8 @@ function Dl({ theme, items }: { theme: Theme; items: [string, string][] }) {
   );
 }
 
-const KYIV_DATETIME_FMT = new Intl.DateTimeFormat('sv-SE', {
+// Єдиний формат дат в адмінці — дд.мм.рррр (uk-UA). НЕ повертати ISO (sv-SE) чи dd/MM/yy.
+const KYIV_DATETIME_FMT = new Intl.DateTimeFormat('uk-UA', {
   timeZone: 'Europe/Kyiv',
   year: 'numeric',
   month: '2-digit',
@@ -1880,7 +1881,7 @@ const KYIV_DATETIME_FMT = new Intl.DateTimeFormat('sv-SE', {
   hour12: false,
 });
 
-const KYIV_DATE_FMT = new Intl.DateTimeFormat('sv-SE', {
+const KYIV_DATE_FMT = new Intl.DateTimeFormat('uk-UA', {
   timeZone: 'Europe/Kyiv',
   year: 'numeric',
   month: '2-digit',
@@ -1902,12 +1903,12 @@ function fmtDateShort(iso: string): string {
   return KYIV_DATE_FMT.format(new Date(iso));
 }
 
-/// Компактна дата dd/MM/yy для вузької колонки «Створено».
-const KYIV_DATE_COMPACT_FMT = new Intl.DateTimeFormat('en-GB', {
+/// Дата для вузьких колонок «Створено»/«Дата оплати» — той самий дд.мм.рррр.
+const KYIV_DATE_COMPACT_FMT = new Intl.DateTimeFormat('uk-UA', {
   timeZone: 'Europe/Kyiv',
   day: '2-digit',
   month: '2-digit',
-  year: '2-digit',
+  year: 'numeric',
 });
 function fmtDateCompact(iso: string): string {
   return KYIV_DATE_COMPACT_FMT.format(new Date(iso));
