@@ -660,7 +660,7 @@ function YearlyProgramViewInner({
                 <Th theme={theme} className="px-2">Дата оплати</Th>
                 <Th theme={theme} className="px-2">Початок програми</Th>
                 <Th theme={theme}>Доступ до</Th>
-                <Th theme={theme} className="px-2">Наступний платіж</Th>
+                <Th theme={theme} align="center" className="px-2">Наступний платіж</Th>
                 <Th theme={theme} align="center" className="px-2">№</Th>
                 <Th theme={theme}>Сплачено</Th>
                 <Th theme={theme} className="px-2">
@@ -988,11 +988,11 @@ function RowBlock({
             <span className={dark ? 'text-slate-600' : 'text-stone-400'}>—</span>
           )}
         </td>
-        <td className={`px-2 py-2.5 text-[11px] tabular-nums whitespace-nowrap ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
+        <td className={`px-2 py-2.5 text-[11px] tabular-nums whitespace-nowrap text-center ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
           {((r.plan === 'YEARLY' && r.paymentsCount >= 1) || (r.plan === 'MONTHLY' && r.paymentsCount >= 9))
             && (r.status === 'ACTIVE' || r.status === 'GRACE') ? (
             // Сплачено 100% (річний разово / місячний усі 9) — платити більше нічого.
-            <span className={dark ? 'text-emerald-300' : 'text-emerald-600'} title="Сплачено повністю">✓</span>
+            <span className={`text-[17px] font-bold leading-none ${dark ? 'text-emerald-300' : 'text-emerald-600'}`} title="Сплачено повністю">✓</span>
           ) : r.plan === 'MONTHLY' && r.autoRenew && r.status !== 'CANCELLED' && r.status !== 'EXPIRED' ? (
             r.wfpNextChargeAt ? (
               <>
