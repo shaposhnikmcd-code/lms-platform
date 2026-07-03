@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import prisma from '@/lib/prisma';
-import { isYearlyProgramOrderRef, YEARLY_PROGRAM_CONFIG, getYearlyPostAccessMonths } from '@/lib/yearlyProgramConfig';
+import { isYearlyProgramOrderRef, YEARLY_PROGRAM_CONFIG, getYearlyPostAccessMonths, RESET_REMINDER_AND_GRACE_FIELDS } from '@/lib/yearlyProgramConfig';
+import { syncAutopaySchedule } from '@/lib/yearlyProgramScheduleSync';
 import { sendYearlyProgramWelcomeEmail } from '@/lib/yearlyProgramWelcomeEmail';
 import {
   generateInviteForSubscription,
@@ -846,14 +847,7 @@ async function handleYearlyProgramCallback(args: {
           // (особливо MONTHLY-автоплатіж після відновлення з GRACE) знову коректно
           // відпрацював попередження. Без скидання grace-прапорів на 2-му циклі студент
           // не отримував жодного grace-листа, а стара grace-дата псувала текст листа.
-          reminderSent3d: false,
-          reminderSentExpired: false,
-          reminderSentOnExpiry: false,
-          reminderSentGraceStart: false,
-          reminderSentGraceMid: false,
-          reminderSentGraceLast: false,
-          graceStartedAt: null,
-          gracePeriodEndsAt: null,
+          ...RESET_REMINDER_AND_GRACE_FIELDS,
         },
       });
 
@@ -921,6 +915,17 @@ async function handleYearlyProgramCallback(args: {
         ? 'monthly-autopay'
         : 'monthly-once';
   actions.push(`yearly:${planLabel}:+${flipResult.durationDays}d`);
+
+  // Оновлюємо кеш «Наступний платіж» (wfpNextChargeAt) з WFP після успішного списання.
+  // checkOnly: без CHANGE — WFP сам щойно перерахував свій графік. Помилка не блокує callback.
+  if (sub.plan === 'MONTHLY' && sub.autoRenew) {
+    try {
+      const syncRes = await syncAutopaySchedule(sub.id, { apply: false, source: 'callback' });
+      actions.push(`wfp_cache:${syncRes.outcome}`);
+    } catch (e) {
+      actions.push(`wfp_cache:err:${(e as Error).message.slice(0, 40)}`);
+    }
+  }
 
   // На оплату Річної програми SendPulse-event НЕ викликається в загальному випадку — доступ
   // до платформи (логін/пароль) відкривається централізовано в момент масової розсилки на

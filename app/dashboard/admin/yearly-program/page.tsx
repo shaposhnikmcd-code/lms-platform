@@ -174,6 +174,8 @@ export default async function AdminYearlyProgramPage() {
       sendpulseAccessClosedAt: s.sendpulseAccessClosedAt?.toISOString() ?? null,
       paymentsCount: paidPayments.length,
       totalPaid,
+      wfpNextChargeAt: s.wfpNextChargeAt?.toISOString() ?? null,
+      wfpScheduleCheckedAt: s.wfpScheduleCheckedAt?.toISOString() ?? null,
       paymentMethod: latestPaid?.paymentMethod ?? null,
       pendingLabel,
       pendingTone,

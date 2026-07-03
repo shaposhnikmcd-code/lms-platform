@@ -33,10 +33,12 @@ export async function getCurrentCohort(client: CohortClient): Promise<{ id: stri
 type SellableCohortClient = Pick<PrismaClient, 'yearlyProgramCohort'>;
 
 /// Cohort, у який ідуть нові оплати і який «відкриває» кнопки на публічній сторінці.
-/// Пріоритет: явно позначений «Поточний» (`isCurrent`). Якщо жодного не позначено —
-/// fallback на найближчий ще не завершений запуск (`endDate >= now`, за `startDate` зростанням).
-/// Так «Реєстрація відкрита + існує запуск» працює без ручного прапорця «Поточний»
-/// (менеджер не мусить про нього пам'ятати). null — лише коли запусків немає або всі завершені.
+/// Пріоритет: 1) явно позначений «Поточний» (`isCurrent`); 2) НЕзапущений майбутній
+/// набір (`launchedAt IS NULL AND endDate >= now`, найраніший за startDate) — щоб коли
+/// співіснують «2026 уже запущена й добігає» та «2027 створена під продажі», нові оплати
+/// йшли у 2027, навіть якщо менеджер забув перемкнути «Поточний»; 3) найближчий ще не
+/// завершений запуск (стара поведінка — дозволяє late-joiner-ам купувати у запущений
+/// cohort, поки наступного не існує). null — коли запусків немає або всі завершені.
 /// ВАЖЛИВО: публічний гейт (page.tsx) і прив'язка оплати (/api/wayforpay) мають викликати
 /// САМЕ цей резолвер — інакше кнопка може бути активна, а оплата падати (різні cohort-и).
 export async function resolveSellableCohort(
@@ -48,6 +50,12 @@ export async function resolveSellableCohort(
     select: { id: true, startDate: true, endDate: true },
   });
   if (current) return current;
+  const upcoming = await client.yearlyProgramCohort.findFirst({
+    where: { launchedAt: null, endDate: { gte: now } },
+    orderBy: { startDate: 'asc' },
+    select: { id: true, startDate: true, endDate: true },
+  });
+  if (upcoming) return upcoming;
   return client.yearlyProgramCohort.findFirst({
     where: { endDate: { gte: now } },
     orderBy: { startDate: 'asc' },

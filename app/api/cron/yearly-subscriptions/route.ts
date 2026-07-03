@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Resend } from 'resend';
 import prisma from '@/lib/prisma';
-import { getYearlyGraceDays, getYearlySendpulseCourseId } from '@/lib/yearlyProgramConfig';
+import { getYearlyGraceDays, getYearlySendpulseCourseId, YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
+import { syncAutopaySchedule } from '@/lib/yearlyProgramScheduleSync';
 import {
   closeAccessInCourse,
   lookupStudentIdByEmail,
@@ -79,6 +80,7 @@ export async function GET(req: NextRequest) {
   results.push(await sendGraceLastReminders());
   results.push(await sendScheduledCohortLaunchEmails());
   results.push(await syncYearlyCourseProgress());
+  results.push(await refreshWfpScheduleCache());
 
   return NextResponse.json({ ok: true, results, timestamp: new Date().toISOString() });
 }
@@ -407,6 +409,17 @@ async function expireGraceSubscriptions(): Promise<StepResult> {
   return { step: 'expire_grace', processed: subs.length, errors };
 }
 
+/// «Оплатіть далі»-нагадування не мають сенсу для повністю оплаченої підписки
+/// (усі 9/9 внесків зроблені — її expiresAt це кінець пост-доступу, платити нічого).
+/// Спільний фільтр для всіх manual-кроків нижче.
+function isFullyPaid(sub: { _count: { payments: number } }): boolean {
+  return sub._count.payments >= YEARLY_PROGRAM_CONFIG.totalMonthlyPayments;
+}
+
+const PAID_COUNT_INCLUDE = {
+  _count: { select: { payments: { where: { status: 'PAID' as const } } } },
+};
+
 /// MANUAL #1: за 3 дні до експайру. Тільки MANUAL (autoRenew=false) ACTIVE.
 async function sendManualBeforeExpiryReminders(): Promise<StepResult> {
   const errors: string[] = [];
@@ -423,13 +436,14 @@ async function sendManualBeforeExpiryReminders(): Promise<StepResult> {
       reminderSent3d: false,
       ...NOT_IN_UNLAUNCHED_COHORT,
     },
-    include: { user: true },
+    include: { user: true, ...PAID_COUNT_INCLUDE },
   });
 
   let processed = 0;
   await processInParallel(subs, async (sub) => {
     try {
       if (!sub.user?.email || !sub.expiresAt) return;
+      if (isFullyPaid(sub)) return;
       const { subject, html } = await manualBeforeExpiry({ name: sub.user.name, expiresAt: sub.expiresAt });
       await resend.emails.send({ from: FROM, to: sub.user.email, subject, html });
       await prisma.yearlyProgramSubscription.update({
@@ -469,13 +483,14 @@ async function sendManualOnExpiryReminders(): Promise<StepResult> {
       reminderSentOnExpiry: false,
       ...NOT_IN_UNLAUNCHED_COHORT,
     },
-    include: { user: true },
+    include: { user: true, ...PAID_COUNT_INCLUDE },
   });
 
   let processed = 0;
   await processInParallel(subs, async (sub) => {
     try {
       if (!sub.user?.email) return;
+      if (isFullyPaid(sub)) return;
       const { subject, html } = await manualOnExpiry({ name: sub.user.name });
       await resend.emails.send({ from: FROM, to: sub.user.email, subject, html });
       await prisma.yearlyProgramSubscription.update({
@@ -514,7 +529,7 @@ async function sendGraceStartReminders(): Promise<StepResult> {
       gracePeriodEndsAt: { not: null },
       ...NOT_IN_UNLAUNCHED_COHORT,
     },
-    include: { user: true },
+    include: { user: true, ...PAID_COUNT_INCLUDE },
   });
 
   let processed = 0;
@@ -522,9 +537,11 @@ async function sendGraceStartReminders(): Promise<StepResult> {
     try {
       if (!sub.user?.email || !sub.gracePeriodEndsAt) return;
       // Для cyclical (autoRenew=true) — шлемо тільки якщо були failed charge attempts.
-      // Для manual (autoRenew=false) — шлемо завжди (grace стартував).
+      // Для manual (autoRenew=false) — шлемо завжди (grace стартував), КРІМ повністю
+      // оплачених 9/9: їм платити нічого, «оплатіть»-текст брехливий (кінець програми).
       const isManual = !sub.autoRenew;
       if (!isManual && (sub.failedChargeCount ?? 0) === 0) return;
+      if (isManual && isFullyPaid(sub)) return;
 
       const { subject, html } = isManual
         ? await manualGraceStart({ name: sub.user.name, gracePeriodEndsAt: sub.gracePeriodEndsAt, graceDays })
@@ -576,7 +593,7 @@ async function sendGraceMidReminders(): Promise<StepResult> {
       gracePeriodEndsAt: { not: null },
       ...NOT_IN_UNLAUNCHED_COHORT,
     },
-    include: { user: true },
+    include: { user: true, ...PAID_COUNT_INCLUDE },
   });
 
   let processed = 0;
@@ -587,6 +604,7 @@ async function sendGraceMidReminders(): Promise<StepResult> {
       // Cyclical-mid шлемо тільки якщо був хоч один failed charge — інакше підписка не в реальному
       // grace-флоу autopay (це може бути CANCELLED-перехідний стан тощо).
       if (!isManual && (sub.failedChargeCount ?? 0) === 0) return;
+      if (isManual && isFullyPaid(sub)) return;
 
       const { subject, html } = isManual
         ? await manualGraceMid({ name: sub.user.name, gracePeriodEndsAt: sub.gracePeriodEndsAt })
@@ -637,7 +655,7 @@ async function sendGraceLastReminders(): Promise<StepResult> {
       gracePeriodEndsAt: { gt: now },
       ...NOT_IN_UNLAUNCHED_COHORT,
     },
-    include: { user: true },
+    include: { user: true, ...PAID_COUNT_INCLUDE },
   });
 
   let processed = 0;
@@ -646,6 +664,7 @@ async function sendGraceLastReminders(): Promise<StepResult> {
       if (!sub.user?.email || !sub.gracePeriodEndsAt) return;
       const isManual = !sub.autoRenew;
       if (!isManual && (sub.failedChargeCount ?? 0) === 0) return;
+      if (isManual && isFullyPaid(sub)) return;
 
       const { subject, html } = isManual
         ? await manualGraceLast({ name: sub.user.name, gracePeriodEndsAt: sub.gracePeriodEndsAt })
@@ -676,4 +695,36 @@ async function sendGraceLastReminders(): Promise<StepResult> {
 async function syncYearlyCourseProgress(): Promise<StepResult> {
   const result = await syncYearlyProgress();
   return { step: 'sync_progress', processed: result.processed, errors: result.errors };
+}
+
+/// Щоденна звірка кешу «Наступний платіж» з WFP (regularApi STATUS, БЕЗ CHANGE).
+/// Оновлює wfpNextChargeAt/wfpScheduleCheckedAt для всіх автоплатіжних ACTIVE/GRACE —
+/// колонка в адмінці завжди показує реальний графік WFP, розбіжність із «Доступ до»
+/// видно оком. Помилки конкретних підписок не зупиняють решту.
+async function refreshWfpScheduleCache(): Promise<StepResult> {
+  const errors: string[] = [];
+  const subs = await prisma.yearlyProgramSubscription.findMany({
+    where: {
+      plan: 'MONTHLY',
+      autoRenew: true,
+      status: { in: ['ACTIVE', 'GRACE'] },
+    },
+    select: { id: true },
+  });
+
+  let processed = 0;
+  await processInParallel(subs, async (s) => {
+    try {
+      const r = await syncAutopaySchedule(s.id, { apply: false, source: 'cron_check' });
+      if (r.outcome === 'error') {
+        errors.push(`${s.id}: ${r.reason ?? 'unknown'}`);
+      } else {
+        processed++;
+      }
+    } catch (e) {
+      errors.push(`${s.id}: ${(e as Error).message.slice(0, 120)}`);
+    }
+  });
+
+  return { step: 'wfp_schedule_cache', processed, errors };
 }

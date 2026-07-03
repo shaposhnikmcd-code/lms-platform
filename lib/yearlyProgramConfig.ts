@@ -37,6 +37,22 @@ export const YEARLY_PROGRAM_CONFIG = {
   reminderDaysBefore: [3, 1],
 } as const;
 
+/// Скидання «спожитих» прапорів нагадувань + grace-дат — приводить підписку в стан
+/// «свіжий цикл життя», щоб увесь ланцюг попереджень (3д → on-expiry → grace start/mid/last)
+/// коректно відпрацював для НОВОЇ дати завершення. Єдине джерело правди для трьох місць:
+/// успішна оплата (WFP callback), зміна дат cohort-у (PATCH recalc) і запуск програми.
+/// Додаєш новий reminderSent*-прапор у схему — додай його СЮДИ, і всі три місця підхоплять.
+export const RESET_REMINDER_AND_GRACE_FIELDS = {
+  reminderSent3d: false,
+  reminderSentOnExpiry: false,
+  reminderSentExpired: false,
+  reminderSentGraceStart: false,
+  reminderSentGraceMid: false,
+  reminderSentGraceLast: false,
+  graceStartedAt: null,
+  gracePeriodEndsAt: null,
+} as const;
+
 export function isYearlyProgramOrderRef(orderReference: string): 'yearly' | 'monthly' | null {
   // Увага: monthly префікс містить "yearly-program", тому перевіряємо його ПЕРШИМ.
   if (orderReference.startsWith(`${YEARLY_PROGRAM_CONFIG.monthlyOrderPrefix}_`)) return 'monthly';

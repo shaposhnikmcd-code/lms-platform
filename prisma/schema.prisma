@@ -867,8 +867,15 @@ model YearlyProgramSubscription {
   cancelledBy     String? // "user" | "admin" | "system"
   cancelledReason String?
 
-  /// Опційно: orderReference запису в regularApi (якщо колись перейдемо на server-managed schedule).
+  /// orderReference живого правила регулярки у WFP (знайдено через regularApi STATUS).
+  /// Кандидатів може бути кілька (карта + Apple Pay, апгрейд разова→автоплатіж) — тут перший Active.
+  /// Заповнюється syncAutopaySchedule і cron-звіркою.
   wfpRegularRef       String?
+  /// Кеш дати наступного автосписання з WFP (regularApi STATUS → nextPaymentDate).
+  /// Оновлюється щоденним cron-ом, після успішного callback-а та після синку графіка.
+  wfpNextChargeAt      DateTime?
+  /// Коли востаннє звіряли графік із WFP (STATUS). null = ще ніколи.
+  wfpScheduleCheckedAt DateTime?
   lastPaymentAt       DateTime?
   lastChargeAttemptAt DateTime?
   lastChargeError     String?

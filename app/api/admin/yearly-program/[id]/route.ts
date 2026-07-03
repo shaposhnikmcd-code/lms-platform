@@ -11,6 +11,7 @@ import { getYearlyProgramSettings } from '@/lib/yearlyProgramSettings';
 import { parseTelegramUsername } from '@/lib/telegramUsername';
 import { calculateAccessUntil } from '@/lib/yearlyProgramAccess';
 import { runExtraLaunchForSubscription } from '@/lib/yearlyProgramLaunch';
+import { syncAutopaySchedule } from '@/lib/yearlyProgramScheduleSync';
 
 /// Admin actions над конкретною підпискою Річної програми.
 /// Body: { action: "cancel" | "close_access" | "reopen_access" | "extend" | "delete",
@@ -68,6 +69,8 @@ export async function POST(
       return handleTelegramKick(sub, actorLabel, 'returnable');
     case 'tg_kick_revoke':
       return handleTelegramKick(sub, actorLabel, 'permanent');
+    case 'sync_wfp_schedule':
+      return handleSyncWfpSchedule(sub, actorLabel);
     default:
       return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
   }
@@ -115,6 +118,31 @@ async function notifyUserSubscriptionEnded(
       },
     });
   }
+}
+
+/// Ручна синхронізація WFP-графіка автосписань з датами cohort-у (кнопка в панелі Дії).
+/// Уся логіка і запобіжники — у syncAutopaySchedule; тут тільки виклик + людська відповідь.
+async function handleSyncWfpSchedule(sub: NonNullable<SubWithUser>, actor: string) {
+  if (sub.plan !== 'MONTHLY' || !sub.autoRenew) {
+    return NextResponse.json({
+      error: 'Синхронізація графіка доступна тільки для місячних підписок з автоплатежем.',
+    }, { status: 400 });
+  }
+  const r = await syncAutopaySchedule(sub.id, { apply: true, source: `admin:${actor}` });
+  const fmtD = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : '—');
+  const message = {
+    synced: `Графік оновлено: наступне списання ${fmtD(r.nextChargeAt)}`,
+    checked: `Графік уже коректний: наступне списання ${fmtD(r.nextChargeAt)}`,
+    no_rule: 'У WFP немає живої регулярки для цієї підписки (разова оплата або правило знято)',
+    skipped: `Пропущено: ${r.reason ?? ''}`,
+    error: `Помилка: ${r.reason ?? 'невідома'}`,
+  }[r.outcome];
+  return NextResponse.json({
+    ok: r.outcome !== 'error',
+    outcome: r.outcome,
+    message,
+    nextChargeAt: r.nextChargeAt?.toISOString() ?? null,
+  }, { status: r.outcome === 'error' ? 500 : 200 });
 }
 
 async function handleCancel(sub: NonNullable<SubWithUser>, actor: string, reason?: string) {

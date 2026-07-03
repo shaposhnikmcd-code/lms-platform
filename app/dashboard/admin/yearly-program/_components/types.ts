@@ -32,6 +32,11 @@ export interface Row {
   sendpulseAccessClosedAt: string | null;
   paymentsCount: number;
   totalPaid: number;
+  /// Кеш дати наступного автосписання з WFP (wfpNextChargeAt). Тільки для MONTHLY
+  /// автоплатежу з живою регулярку; null = разова/річна або правила у WFP немає.
+  wfpNextChargeAt: string | null;
+  /// Коли кеш востаннє звіряли з WFP (wfpScheduleCheckedAt).
+  wfpScheduleCheckedAt: string | null;
   /// Метод останньої успішної оплати: "applePay" | "googlePay" | "card" | null.
   paymentMethod: string | null;
   /// Для PENDING — реальна причина з останньої спроби оплати (замість «Очікує»). null для не-PENDING.

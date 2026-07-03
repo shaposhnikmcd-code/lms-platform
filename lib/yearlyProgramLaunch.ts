@@ -1,6 +1,7 @@
 import prisma from '@/lib/prisma';
 import { openAccessViaEvent, lookupStudentIdByEmail } from '@/lib/sendpulse';
-import { YEARLY_PROGRAM_CONFIG, getYearlyPostAccessMonths, getYearlySendpulseCourseId } from '@/lib/yearlyProgramConfig';
+import { YEARLY_PROGRAM_CONFIG, getYearlyPostAccessMonths, getYearlySendpulseCourseId, RESET_REMINDER_AND_GRACE_FIELDS } from '@/lib/yearlyProgramConfig';
+import { syncAutopaySchedule } from '@/lib/yearlyProgramScheduleSync';
 import { calculateAccessUntil } from '@/lib/yearlyProgramAccess';
 import { sendEmail } from '@/lib/mailer';
 import {
@@ -127,11 +128,25 @@ export async function executeLaunchLoop(
         status: 'ACTIVE',
         startDate: s.startDate ?? cohort.startDate,
         expiresAt: newExpiresAt,
+        // Запуск = початок свіжого циклу життя: гасимо спожиті до запуску прапори
+        // нагадувань і grace-залишки (могли лишитись від періоду з кривими датами),
+        // інакше перший реальний цикл після запуску пройде без жодного листа.
+        ...RESET_REMINDER_AND_GRACE_FIELDS,
         ...(openedNow && !s.sendpulseAccessOpenedAt
           ? { sendpulseAccessOpenedAt: new Date(), sendpulseAccessClosedAt: null }
           : {}),
       },
     });
+
+    // Переносимо WFP-графік автосписань під дати cohort-у (HTTP поза транзакцією — тут
+    // її і немає). Помилка не валить запуск: подія wfp_schedule_sync_failed у лозі підписки.
+    if (s.plan === 'MONTHLY' && s.autoRenew) {
+      try {
+        await syncAutopaySchedule(s.id, { apply: true, source: `launch:${actorLabel}` });
+      } catch {
+        // подія вже створена всередині syncAutopaySchedule або впав сам виклик — не блокуємо запуск
+      }
+    }
 
     // Тип події точно відображає семантику: success → "access_opened", failure → "access_open_failed".
     // Issue-tracker полюється на ці типи, плюс старі записи (legacy "admin_action" з FAILED у message)
@@ -245,11 +260,22 @@ export async function runExtraLaunchForSubscription(
       status: 'ACTIVE',
       startDate: sub.startDate ?? sub.cohort.startDate,
       expiresAt: newExpiresAt,
+      // Свіжий цикл життя після extra-launch — як і в executeLaunchLoop.
+      ...RESET_REMINDER_AND_GRACE_FIELDS,
       sendpulseAccessOpenedAt: new Date(),
       sendpulseAccessClosedAt: null,
       ...(studentId ? { sendpulseStudentId: studentId } : {}),
     },
   });
+
+  // WFP-графік автосписань → під дати cohort-у (не блокує extra-launch при помилці).
+  if (sub.plan === 'MONTHLY' && sub.autoRenew) {
+    try {
+      await syncAutopaySchedule(sub.id, { apply: true, source: `extra-launch:${actorLabel}` });
+    } catch {
+      // подія в лозі підписки вже створена / помилку видно в cron-звірці
+    }
+  }
 
   await prisma.yearlyProgramSubscriptionEvent.create({
     data: {

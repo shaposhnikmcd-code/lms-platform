@@ -125,3 +125,97 @@ export async function removeRegularSchedule(opts: {
     || raw.reasonCode === 1100;
   return { ok: res.ok && isSuccess, raw };
 }
+
+/// Стан правила регулярки у WFP. `found=false` (reasonCode 4102) — правила з таким
+/// orderReference не існує/не існувало: НЕ помилка, очікувано для разових оплат і
+/// child-refs рекурентних списань (`..._WFPREG-...`).
+/// Дати WFP повертає unix-секундами → конвертуємо в Date.
+export interface RegularStatus {
+  found: boolean;
+  /// 'Active' | 'Suspended' | 'Removed' | 'Completed' | ... (як повернув WFP)
+  status: string | null;
+  mode: string | null;
+  amount: number | null;
+  currency: string | null;
+  nextPaymentAt: Date | null;
+  dateEndAt: Date | null;
+  raw: Record<string, unknown>;
+}
+
+export async function getRegularStatus(opts: {
+  merchantAccount: string;
+  merchantPassword: string;
+  orderReference: string;
+}): Promise<RegularStatus> {
+  const res = await fetch('https://api.wayforpay.com/regularApi', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      requestType: 'STATUS',
+      merchantAccount: opts.merchantAccount,
+      merchantPassword: normalizeMerchantPassword(opts.merchantPassword),
+      orderReference: opts.orderReference,
+      apiVersion: 1,
+    }),
+  });
+  const raw = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  const found = res.ok && raw.reasonCode === 4100;
+  const toDate = (v: unknown): Date | null =>
+    typeof v === 'number' && v > 0 ? new Date(v * 1000) : null;
+  return {
+    found,
+    status: typeof raw.status === 'string' ? raw.status : null,
+    mode: typeof raw.mode === 'string' ? raw.mode : null,
+    amount: typeof raw.amount === 'number' ? raw.amount : null,
+    currency: typeof raw.currency === 'string' ? raw.currency : null,
+    nextPaymentAt: toDate(raw.nextPaymentDate),
+    dateEndAt: toDate(raw.dateEnd),
+    raw,
+  };
+}
+
+/// Перенос дат існуючого правила регулярки через regularApi CHANGE.
+/// УВАГА до неймінгу WFP: у regularApi дата НАСТУПНОГО списання передається полем
+/// `dateBegin` (у Purchase-віджеті те саме зветься `dateNext`). Перевірено живим
+/// експериментом 2026-07-03: CHANGE з dateBegin=15.10.2026 переніс nextPaymentDate,
+/// не зачепивши amount/dateEnd/mode.
+/// Суму і mode СВІДОМО передаємо ті, що правило має зараз (обов'язкові поля CHANGE):
+/// callback відкидає списання з сумою ≠ першому платежу, тому міняти суму не можна.
+export async function changeRegularSchedule(opts: {
+  merchantAccount: string;
+  merchantPassword: string;
+  orderReference: string;
+  /// Поточні параметри правила (з getRegularStatus) — передаються назад без змін.
+  currentAmount: number;
+  currentCurrency: string;
+  currentMode: string;
+  /// Нова дата наступного списання.
+  nextPaymentAt: Date;
+  /// Нова дата завершення графіка.
+  dateEndAt: Date;
+}): Promise<{ ok: boolean; raw: Record<string, unknown> }> {
+  const fmt = (d: Date) => {
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    return `${dd}.${mm}.${d.getFullYear()}`;
+  };
+  const res = await fetch('https://api.wayforpay.com/regularApi', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      requestType: 'CHANGE',
+      merchantAccount: opts.merchantAccount,
+      merchantPassword: normalizeMerchantPassword(opts.merchantPassword),
+      orderReference: opts.orderReference,
+      regularMode: opts.currentMode,
+      amount: opts.currentAmount,
+      currency: opts.currentCurrency,
+      dateBegin: fmt(opts.nextPaymentAt),
+      dateEnd: fmt(opts.dateEndAt),
+      apiVersion: 1,
+    }),
+  });
+  const raw = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  const isSuccess = raw.status === 'Accept' || raw.reasonCode === 4100 || raw.reasonCode === 1100;
+  return { ok: res.ok && isSuccess, raw };
+}

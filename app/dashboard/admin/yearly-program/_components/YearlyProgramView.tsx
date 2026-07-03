@@ -660,6 +660,7 @@ function YearlyProgramViewInner({
                 <Th theme={theme} className="px-2">Дата оплати</Th>
                 <Th theme={theme} className="px-2">Початок програми</Th>
                 <Th theme={theme}>Доступ до</Th>
+                <Th theme={theme} className="px-2">Наступний платіж</Th>
                 <Th theme={theme} align="center" className="px-2">№</Th>
                 <Th theme={theme}>Сплачено</Th>
                 <Th theme={theme} className="px-2">
@@ -677,7 +678,7 @@ function YearlyProgramViewInner({
             <tbody className={dark ? 'divide-y divide-white/[0.04]' : 'divide-y divide-stone-200/60'}>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={14} className={`px-4 py-14 text-center text-sm ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+                  <td colSpan={15} className={`px-4 py-14 text-center text-sm ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
                     {rows.length === 0 ? 'Поки ніхто не підписався.' : 'Нічого не знайдено за фільтрами.'}
                   </td>
                 </tr>
@@ -987,6 +988,29 @@ function RowBlock({
             <span className={dark ? 'text-slate-600' : 'text-stone-400'}>—</span>
           )}
         </td>
+        <td className={`px-2 py-2.5 text-[11px] tabular-nums whitespace-nowrap ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
+          {r.plan === 'MONTHLY' && r.autoRenew && r.status !== 'CANCELLED' && r.status !== 'EXPIRED' ? (
+            r.wfpNextChargeAt ? (
+              <>
+                <div>{fmtDateShort(r.wfpNextChargeAt)}</div>
+                {/* Розбіжність із «Доступ до» > 2 днів = графік WFP розійшовся з доступом — підсвічуємо. */}
+                {r.expiresAt && Math.abs(new Date(r.wfpNextChargeAt).getTime() - new Date(r.expiresAt).getTime()) > 2 * 24 * 60 * 60 * 1000 ? (
+                  <div className={`text-[10px] ${dark ? 'text-amber-300' : 'text-amber-700'}`}>≠ доступу</div>
+                ) : null}
+              </>
+            ) : (
+              // Автоплатіж без живої регулярки у WFP (ще не звірялось або правило зняте).
+              <span
+                className={dark ? 'text-slate-600' : 'text-stone-400'}
+                title={r.wfpScheduleCheckedAt ? 'У WFP немає живої регулярки' : 'Ще не звірялось із WFP'}
+              >
+                {r.wfpScheduleCheckedAt ? 'немає' : '—'}
+              </span>
+            )
+          ) : (
+            <span className={dark ? 'text-slate-600' : 'text-stone-400'}>—</span>
+          )}
+        </td>
         <td className={`px-2 py-2.5 text-[12px] tabular-nums text-center ${dark ? 'text-slate-300' : 'text-stone-700'}`}>{r.paymentsCount}</td>
         <td className={`px-2 py-2.5 text-[12px] tabular-nums whitespace-nowrap ${dark ? 'text-slate-200' : 'text-stone-800'}`}>
           {r.totalPaid.toLocaleString()} ₴
@@ -1001,7 +1025,7 @@ function RowBlock({
 
       {expanded && (
         <tr className={dark ? 'bg-black/20' : 'bg-stone-50/80'}>
-          <td colSpan={13} className="px-6 py-5">
+          <td colSpan={14} className="px-6 py-5">
             <ExpandedRowContent
               theme={theme}
               graceDays={graceDays}
@@ -1237,6 +1261,17 @@ function ExpandedRowContent({
               🚫 Скасувати автосписання
             </ActionBtn>
           )}
+          {row.plan === 'MONTHLY' && row.autoRenew && (
+            <ActionBtn theme={theme} disabled={busy || row.status === 'CANCELLED' || row.status === 'EXPIRED' || row.status === 'ARCHIVED'} tone="neutral" onClick={() =>
+              onAction(
+                'sync_wfp_schedule',
+                undefined,
+                'Синхронізувати графік автосписань у WFP з датами набору? Наступне списання стане на кінець уже оплаченого періоду; сума не змінюється.',
+              )
+            }>
+              🔄 Синхронізувати графік WFP
+            </ActionBtn>
+          )}
           {!!row.sendpulseAccessOpenedAt && (
             <ActionBtn theme={theme} disabled={busy || row.status === 'EXPIRED' || row.status === 'ARCHIVED' || !!row.sendpulseAccessClosedAt} tone="warning" onClick={() =>
               onAction('close_access', undefined, 'Закрити доступ до SendPulse курсу?')
@@ -1307,6 +1342,12 @@ function ExpandedRowContent({
           const items: [string, string][] = [];
           if (details.sendpulseStudentId != null) {
             items.push(['SP studentId', details.sendpulseStudentId.toString()]);
+          }
+          if (row.wfpNextChargeAt) {
+            items.push(['WFP наступне списання', fmtDateShort(row.wfpNextChargeAt)]);
+          }
+          if (row.wfpScheduleCheckedAt) {
+            items.push(['WFP звірено', fmtDate(row.wfpScheduleCheckedAt)]);
           }
           if (details.failedChargeCount > 0) {
             items.push(['fail count', `⚠ ${details.failedChargeCount}`]);

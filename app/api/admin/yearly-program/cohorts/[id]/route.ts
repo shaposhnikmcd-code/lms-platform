@@ -3,7 +3,8 @@ import prisma from '@/lib/prisma';
 import { isAdmin } from '@/lib/adminAuth';
 import { revalidateLocalized } from '@/lib/revalidatePaths';
 import { calculateAccessUntil } from '@/lib/yearlyProgramAccess';
-import { getYearlyPostAccessMonths } from '@/lib/yearlyProgramConfig';
+import { getYearlyPostAccessMonths, RESET_REMINDER_AND_GRACE_FIELDS } from '@/lib/yearlyProgramConfig';
+import { syncAutopaySchedule } from '@/lib/yearlyProgramScheduleSync';
 import { DEFAULT_LAUNCH_EMAIL_BODY, DEFAULT_LAUNCH_EMAIL_SUBJECT } from '@/lib/yearlyProgramCohort';
 
 /// GET — деталі cohort-у з підписками й платежами для деталізованого view.
@@ -93,6 +94,10 @@ export async function PATCH(
       ? undefined
       : (body.launchEmailBody?.trim() ? body.launchEmailBody : DEFAULT_LAUNCH_EMAIL_BODY);
 
+  // Автоплатіжні підписки cohort-у, чиї WFP-графіки треба синхронізувати ПІСЛЯ
+  // коміту транзакції (HTTP-виклики до WFP не можна тримати всередині $transaction).
+  const autopaySubIds: string[] = [];
+
   const updated = await prisma.$transaction(async (tx) => {
     if (body.makeCurrent === true && !existing.isCurrent) {
       await tx.yearlyProgramCohort.updateMany({
@@ -145,19 +150,11 @@ export async function PATCH(
             where: { id: s.id },
             data: {
               expiresAt: newExpires,
-              ...(revive ? { status: 'ACTIVE' } : {}),
-              ...(backToLife
-                ? {
-                    graceStartedAt: null,
-                    gracePeriodEndsAt: null,
-                    reminderSent3d: false,
-                    reminderSentOnExpiry: false,
-                    reminderSentExpired: false,
-                    reminderSentGraceStart: false,
-                    reminderSentGraceMid: false,
-                    reminderSentGraceLast: false,
-                  }
-                : {}),
+              // Revive = «звинувачення» у простроченні знято разом зі старою датою:
+              // скидаємо і лічильник невдалих списань, інакше наступний цикл одразу
+              // пропустить autopay-буфер і надішле «charge failed»-шаблон без реальної відмови.
+              ...(revive ? { status: 'ACTIVE', failedChargeCount: 0, lastChargeError: null } : {}),
+              ...(backToLife ? RESET_REMINDER_AND_GRACE_FIELDS : {}),
             },
           });
           await tx.yearlyProgramSubscriptionEvent.create({
@@ -169,6 +166,11 @@ export async function PATCH(
             },
           });
         }
+        // Кандидати на WFP-синк — усі автоплатіжні cohort-у, незалежно від того, чи
+        // змінився їхній expiresAt (графік у WFP міг розійтись і без зміни доступу).
+        if (s.plan === 'MONTHLY' && s.autoRenew) {
+          autopaySubIds.push(s.id);
+        }
       }
     }
 
@@ -178,10 +180,27 @@ export async function PATCH(
   // Зміна isCurrent / dates впливає на публічну сторінку → інвалідуємо ISR-кеш.
   revalidateLocalized('/yearly-program');
 
+  // Після коміту: переносимо WFP-графіки автосписань під нові дати. Кожен виклик сам
+  // пише подію в лог підписки; помилка одного не зупиняє решту і не валить PATCH.
+  const wfpSync = { synced: 0, checked: 0, noRule: 0, skipped: 0, failed: 0 };
+  for (const subId of autopaySubIds) {
+    try {
+      const r = await syncAutopaySchedule(subId, { apply: true, source: 'cohort_dates_changed' });
+      if (r.outcome === 'synced') wfpSync.synced++;
+      else if (r.outcome === 'checked') wfpSync.checked++;
+      else if (r.outcome === 'no_rule') wfpSync.noRule++;
+      else if (r.outcome === 'skipped') wfpSync.skipped++;
+      else wfpSync.failed++;
+    } catch {
+      wfpSync.failed++;
+    }
+  }
+
   return NextResponse.json({
     ok: true,
     launchEmailSubject: updated.launchEmailSubject,
     launchEmailBody: updated.launchEmailBody,
+    wfpSync: autopaySubIds.length > 0 ? wfpSync : null,
   });
 }
 
