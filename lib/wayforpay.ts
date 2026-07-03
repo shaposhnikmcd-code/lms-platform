@@ -41,16 +41,26 @@ export function signFields(fields: (string | number)[], secretKey: string): stri
 /// Використовується для ПЕРШОГО платежу Місячної підписки — WFP запамʼятає картку
 /// і почне щомісячно списувати автоматично. Кожне списання шле callback на serviceUrl.
 ///
+/// `anchor` — дата, яку «покриває» перший (Purchase) платіж: для покупки до старту
+/// програми це cohort.startDate, для звичайної покупки — момент оплати. Перше
+/// РЕГУЛЯРНЕ списання WFP ставиться через 1 місяць після якоря через поле `dateNext`
+/// (дата першого регулярного списання, ДД.ММ.РРРР, має бути в майбутньому).
+/// УВАГА: поля `dateBegin` у Purchase-запиті WFP НЕ існує (перевірено на проді
+/// 2026-07-03 + wiki.wayforpay.com/view/852102) — WFP його ігнорує і без `dateNext`
+/// списує просто через місяць після покупки. Тому тут САМЕ dateNext.
+///
 /// `totalPayments` задає скільки ВСЬОГО списань має бути (1 Purchase + (N-1) scheduled).
-/// Для Річної програми 9 місяців → 9 платежів → dateEnd = dateBegin + 8 місяців + 10 днів буфер.
+/// Для Річної програми 9 місяців → 9 платежів → dateEnd = anchor + 8 місяців + 10 днів буфер.
 /// Після dateEnd WFP припиняє автосписання автоматично.
 export function buildRegularPurchaseFlags(opts: {
   amount: number;
-  dateBegin?: Date;
+  anchor?: Date;
   dateEnd?: Date;
   totalPayments?: number;
 }) {
-  const begin = opts.dateBegin ?? new Date();
+  const begin = opts.anchor ?? new Date();
+  const next = new Date(begin);
+  next.setMonth(next.getMonth() + 1);
   let end: Date;
   if (opts.dateEnd) {
     end = opts.dateEnd;
@@ -71,7 +81,7 @@ export function buildRegularPurchaseFlags(opts: {
     regularOn: '1',
     regularMode: 'monthly',
     regularAmount: opts.amount,
-    dateBegin: fmt(begin),
+    dateNext: fmt(next),
     dateEnd: fmt(end),
   };
 }

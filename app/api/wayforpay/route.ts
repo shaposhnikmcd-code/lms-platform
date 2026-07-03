@@ -504,8 +504,9 @@ export async function POST(req: NextRequest) {
           const now = new Date();
           // Покупка ДО старту програми: перший (Purchase) платіж покриває перший місяць
           // ВІД дати старту cohort-у, тому WFP-графік наступних списань якоримо на
-          // cohort.startDate, а не на дату покупки. Друге списання прийде через місяць
-          // після старту, а не через місяць після покупки. Після старту — як раніше (від now).
+          // cohort.startDate, а не на дату покупки: dateNext = anchor + 1 місяць.
+          // Друге списання прийде через місяць після старту, а не через місяць після
+          // покупки. Після старту — як раніше (від now).
           const anchor = cohort.startDate > now ? cohort.startDate : now;
           const totalPayments = maxAutopayChargeCount({
             firstPaymentDate: anchor,
@@ -517,7 +518,7 @@ export async function POST(req: NextRequest) {
           });
           regularFlags = buildRegularPurchaseFlags({
             amount: finalAmount,
-            dateBegin: anchor,
+            anchor,
             dateEnd: dateEndCohort,
             totalPayments,
           });
