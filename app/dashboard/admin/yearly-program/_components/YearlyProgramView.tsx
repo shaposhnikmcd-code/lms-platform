@@ -1007,6 +1007,16 @@ function RowBlock({
                 {r.wfpScheduleCheckedAt ? 'немає' : '—'}
               </span>
             )
+          ) : r.plan === 'MONTHLY' && !r.autoRenew
+            && (r.status === 'ACTIVE' || r.status === 'GRACE')
+            && r.expiresAt
+            && r.paymentsCount < 9 ? (
+            // Разова місячна: автосписання немає — наступний платіж людина робить ВРУЧНУ
+            // до кінця оплаченого місяця (= «Доступ до»). 9/9 оплачених — платити нічого.
+            <>
+              <div>{fmtDateShort(r.expiresAt)}</div>
+              <div className={`text-[10px] ${dark ? 'text-slate-600' : 'text-stone-400'}`}>вручну</div>
+            </>
           ) : (
             <span className={dark ? 'text-slate-600' : 'text-stone-400'}>—</span>
           )}
