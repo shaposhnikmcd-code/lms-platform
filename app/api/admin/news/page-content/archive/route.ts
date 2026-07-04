@@ -32,16 +32,18 @@ export async function GET(req: NextRequest) {
     });
   }
 
+  // Метадані без важкого `content` (кожен snapshot — повний layout сторінки,
+  // десятки КБ). `take: 50` обмежує payload — архів росте безмежно, а список
+  // показує лише останні версії; повний content тягнеться лише по `?id=` для
+  // preview-модалки. `contentLength` прибрано — у UI не використовувався.
   const list = await prisma.newsPageArchive.findMany({
     where: { pageKey: KEY },
     orderBy: { archivedAt: "desc" },
+    take: 50,
     select: {
       id: true,
       wasPublished: true,
       archivedAt: true,
-      // Перші ~200 символів content-у — щоб у списку показати короткий «hint»
-      // (кількість блоків). Сам blocks-парсинг робить client.
-      content: true,
     },
   });
 
@@ -49,6 +51,5 @@ export async function GET(req: NextRequest) {
     id: e.id,
     wasPublished: e.wasPublished,
     archivedAt: e.archivedAt.toISOString(),
-    contentLength: e.content.length,
   })));
 }

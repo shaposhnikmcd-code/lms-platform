@@ -150,6 +150,10 @@ export default function TemplateConstructor({
   const titleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const persistTitle = useCallback((next: string) => {
     if (titleTimerRef.current) clearTimeout(titleTimerRef.current);
+    // Порожню назву НЕ персистимо: інакше очищення поля (select-all+delete під
+    // час перейменування) через 600ms зберігало title:"" в обхід required-гейта
+    // в Save → запис показувався без назви в списку. Зберігаємо лише непорожнє.
+    if (!next.trim()) return;
     titleTimerRef.current = setTimeout(() => {
       fetch(`/api/admin/news/${newsId}`, {
         method: "PATCH",

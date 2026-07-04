@@ -258,7 +258,7 @@ export default function AdminNewsPage() {
   const [stagedActionPending, setStagedActionPending] = useState<null | 'publishNow' | 'discard'>(null);
   // Архів замінених live-сторінок. Заповнюється з GET /api/admin/news/page-content/archive.
   // null до першого fetch-у; [] якщо архів порожній.
-  const [archive, setArchive] = useState<Array<{ id: string; archivedAt: string; wasPublished: boolean; contentLength: number }> | null>(null);
+  const [archive, setArchive] = useState<Array<{ id: string; archivedAt: string; wasPublished: boolean }> | null>(null);
   const refreshArchive = React.useCallback(() => {
     fetch('/api/admin/news/page-content/archive')
       .then(r => r.ok ? r.json() : [])
@@ -351,12 +351,21 @@ export default function AdminNewsPage() {
         if (d && d.hasStaged) {
           setStaged({ hasStaged: true, publishOn: d.publishOn, nextUpdatedAt: d.nextUpdatedAt });
           setScheduleInput(d.publishOn || '');
+          // Скидаємо dedupe-baseline до фактично збереженої дати цієї чернетки.
+          // Без цього після discard→recreate ref тримав стару дату і повторний
+          // вибір тієї ж дати короткозамикав auto-save → «заплановано», а
+          // nextPublishAt лишався null (авто-публікація не спрацьовувала).
+          lastSavedScheduleRef.current = d.publishOn || null;
         } else {
           setStaged({ hasStaged: false, publishOn: null, nextUpdatedAt: null });
           setScheduleInput('');
+          lastSavedScheduleRef.current = null;
         }
       })
-      .catch(() => setStaged({ hasStaged: false, publishOn: null, nextUpdatedAt: null }));
+      .catch(() => {
+        setStaged({ hasStaged: false, publishOn: null, nextUpdatedAt: null });
+        lastSavedScheduleRef.current = null;
+      });
   };
 
   // Auto-save scheduleInput з debounce 700мс. Тригериться лише при реальній

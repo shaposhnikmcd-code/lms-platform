@@ -205,7 +205,7 @@ export default async function NewsItemPage({ params, searchParams }: Props) {
             <div className="news-content" dangerouslySetInnerHTML={{ __html: sanitizeHtml(item.content || "") }} />
           )}
 
-          {!isTemplateNews && !isJson && !isOldHtml && (
+          {!isTemplateNews && !isOldHtml && !(isJson && blocks.length > 0) && (
             <div className="text-gray-400 italic">{c.emptyContent}</div>
           )}
         </div>
@@ -225,7 +225,7 @@ export default async function NewsItemPage({ params, searchParams }: Props) {
                       <Image src={r.imageUrl} alt={rTitle} fill className="object-cover" />
                     </div>
                   )}
-                  <span className={"text-xs px-2 py-0.5 rounded-full font-medium " + CATEGORY_COLORS[r.category]}>
+                  <span className={"text-xs px-2 py-0.5 rounded-full font-medium " + (CATEGORY_COLORS[r.category] || "bg-gray-100 text-gray-700")}>
                     {c.categories[r.category as keyof typeof c.categories] ?? r.category}
                   </span>
                   <h3 className="font-medium text-[#1C3A2E] mt-2 text-sm line-clamp-2 hover:text-[#D4A843] transition-colors">

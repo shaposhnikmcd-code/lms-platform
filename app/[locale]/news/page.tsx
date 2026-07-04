@@ -34,9 +34,9 @@ export default async function NewsPage({ params }: { params: Promise<{ locale: s
   await maybeAutoPublishStagedNewsPage();
 
   // Тягнемо паралельно: NewsPage layout + всі published новини (для join-у в newsCard блоках).
-  // Фільтр suspendedAt/resumeAt тут НЕ застосовуємо: видимість на /news listing визначає
-  // ЛИШЕ білдер сторінки (розміщення newsCard блока + per-block visibleFrom/Until). News-level
-  // suspendedAt — це окремий контроль для детальної сторінки /news/[slug] (чи доступна окрема стаття).
+  // У ЗАПИТІ suspendedAt/resumeAt не фільтруємо (повний набір потрібен для рендеру),
+  // але картки призупинених новин ховаємо нижче у visibleBlocks — інакше картка
+  // видима, а клік по ній веде на 404 (детальна /news/[slug] гейтить suspendedAt).
   const now = new Date();
   const [pageRow, publishedNews] = await Promise.all([
     prisma.newsPage.findUnique({ where: { key: "default" } }),
@@ -80,6 +80,15 @@ export default async function NewsPage({ params }: { params: Promise<{ locale: s
     templateCanvas: n.templateCanvas,
   }));
 
+  // Призупинені новини (suspendedAt настав, resumeAt ще не настав) — той самий
+  // інваріант, що гейтить детальну /news/[slug]. Їхні картки треба ховати з
+  // listing-у, інакше картка видима, а клік по ній → 404 (dead-end link).
+  const suspendedIds = new Set(
+    publishedNews
+      .filter(n => !!n.suspendedAt && n.suspendedAt <= now && (!n.resumeAt || n.resumeAt > now))
+      .map(n => n.id),
+  );
+
   // Сторінка публікується тільки якщо адмін активував її через toggle на /dashboard/admin/news.
   // Без цього /news показує empty state — навіть якщо layout є в БД (це чернетка).
   const isActive = !!pageRow?.published;
@@ -104,6 +113,7 @@ export default async function NewsPage({ params }: { params: Promise<{ locale: s
       const newsId = b.data.newsId || "";
       const item = newsItemsForBlocks.find((n) => n.id === newsId);
       if (!item) return false;
+      if (suspendedIds.has(newsId)) return false;
       if (hasUnfilledPlaceholders(item.templateData, item.templateBlocks)) return false;
 
       const fromStr = b.data.visibleFrom || "";
