@@ -497,6 +497,58 @@ export default function EditorCanvas({
     return candidates[0];
   }
 
+  // ── Anti-overlap барʼєри для РЕСАЙЗУ в template-режимі ──────────────────
+  // У template-режимі вся displacement-логіка свідомо вимкнена (блоки вільно
+  // позиціонуються), і єдиний шлях, яким блоки могли налазити один на одного, —
+  // ресайз: блок ріс у бік/вниз поверх сусіда. Ці два хелпери дають «стіну»:
+  // блок упирається у край найближчого сусіда і далі не росте (нічого не зсуває).
+  // Спецблоки (Імʼя/Ціна/CTA…) — НЕ барʼєри: вони лежать поверх Фото навмисне,
+  // і самі теж не клампляться (host-bounded окремою логікою).
+
+  // Макс. правий край (%), до якого блок може розтягнутись вшир, не наїхавши на
+  // non-spec сусіда праворуч у тому ж вертикальному діапазоні. 100 = без перешкод.
+  function templateRightBarrierX(b: Block): number {
+    const bx = b.x ?? 0;
+    const by = b.y ?? 0;
+    const bh = measureBlockHeight(b);
+    let barrier = 100;
+    for (const o of blocks) {
+      if (o.id === b.id) continue;
+      if (SPEC_BLOCK_TYPES_SET.has(o.type)) continue;
+      const ox = o.x ?? 0;
+      const oy = o.y ?? 0;
+      const oh = measureBlockHeight(o);
+      const yOverlap = oy < by + bh - 2 && oy + oh > by + 2;
+      if (!yOverlap) continue;
+      if (ox >= bx) barrier = Math.min(barrier, ox);
+    }
+    return barrier;
+  }
+
+  // Макс. нижній край (px), до якого блок може рости вниз, не наїхавши на
+  // non-spec сусіда нижче у тому ж горизонтальному діапазоні. canvasHeight = низ.
+  function templateBottomBarrierY(b: Block): number {
+    const bx = b.x ?? 0;
+    const bw = Number(b.width) || 100;
+    const by = b.y ?? 0;
+    let barrier = canvasHeight;
+    for (const o of blocks) {
+      if (o.id === b.id) continue;
+      if (SPEC_BLOCK_TYPES_SET.has(o.type)) continue;
+      const ox = o.x ?? 0;
+      const ow = Number(o.width) || 100;
+      const oy = o.y ?? 0;
+      const xOverlap = ox < bx + bw - 0.5 && ox + ow > bx + 0.5;
+      if (!xOverlap) continue;
+      if (oy >= by) barrier = Math.min(barrier, oy);
+    }
+    return barrier;
+  }
+
+  // Чи застосовувати anti-overlap clamp до ресайзу цього блока. Тільки в
+  // template-режимі і тільки для generic-блоків (спецблоки — host-bounded).
+  const useResizeBarrier = (b: Block) => templateMode && !SPEC_BLOCK_TYPES_SET.has(b.type);
+
   const MIN_NEIGHBOR_WIDTH = 10;
 
   // Округлення ширини блока до 0.1% — узгоджено з snapWidth у useBlockResize.
@@ -569,7 +621,9 @@ export default function EditorCanvas({
     }
     // Немає сусіда ПРАВОРУЧ (або template-режим) — звичайний setWidth, clamp до канвасу.
     const bx = b.x ?? 0;
-    const clampedW = Math.max(MIN_NEIGHBOR_WIDTH, Math.min(100 - bx, newW));
+    let cap = 100 - bx;
+    if (useResizeBarrier(b)) cap = Math.min(cap, templateRightBarrierX(b) - bx);
+    const clampedW = Math.max(MIN_NEIGHBOR_WIDTH, Math.min(cap, newW));
     setWidth(id, String(roundW(clampedW)));
   }, [blocks, onBlocksChange, setWidth, clearPreview, clearPreviewX, templateMode]);
 
@@ -618,7 +672,9 @@ export default function EditorCanvas({
         next = blocks.map(o => o.id === id ? applyUpdate(o, appliedW) : o);
       }
     } else {
-      appliedW = Math.max(MIN_NEIGHBOR_WIDTH, Math.min(100 - bx, newW));
+      let cap = 100 - bx;
+      if (useResizeBarrier(b)) cap = Math.min(cap, templateRightBarrierX(b) - bx);
+      appliedW = Math.max(MIN_NEIGHBOR_WIDTH, Math.min(cap, newW));
       next = blocks.map(o => o.id === id ? applyUpdate(o, appliedW) : o);
     }
 
@@ -759,7 +815,9 @@ export default function EditorCanvas({
     // (skip-фітa в handleDragEnd).
     if (templateMode) {
       const bx = b.x ?? 0;
-      appliedW = Math.max(MIN_NEIGHBOR_WIDTH, Math.min(100 - bx, pct));
+      let cap = 100 - bx;
+      if (useResizeBarrier(b)) cap = Math.min(cap, templateRightBarrierX(b) - bx);
+      appliedW = Math.max(MIN_NEIGHBOR_WIDTH, Math.min(cap, pct));
       setPreview(id, appliedW);
     } else if (delta > 0) {
       const neighbor = findRightNeighbor(id);
@@ -2394,7 +2452,13 @@ export default function EditorCanvas({
                       selected={selectedBlockId === block.id}
                       onSelect={(id) => setSelectedBlockId(id)}
                       scrollCompensation={activeId === block.id ? scrollCompensation : 0}
-                      maxBlockHeight={fixedHeight ? Math.max(60, canvasHeight - y) : undefined}
+                      maxBlockHeight={
+                        fixedHeight
+                          ? (useResizeBarrier(block)
+                              ? Math.max(60, Math.min(canvasHeight - y, templateBottomBarrierY(block) - y))
+                              : Math.max(60, canvasHeight - y))
+                          : undefined
+                      }
                       fixedHeight={fixedHeight}
                       templateMode={templateMode}
                       lockLayout={lockLayout}
@@ -2402,6 +2466,100 @@ export default function EditorCanvas({
                     />
                   );
                 })}
+
+                {/* Host-highlight під час перетягування спецблока: підсвічуємо
+                    валідні цілі (Фото / Пустий блок), щоб було ВИДНО куди можна
+                    покласти. Спецблок мовчки відхиляється на не-host блоках
+                    (Заголовок/Текст) — без цієї підказки менеджеру здається, що
+                    drag «не працює». Для «Текст на фото» валідне лише Фото з
+                    завантаженою картинкою; порожнє Фото підсвічуємо amber з
+                    підказкою «спершу завантажте фото». pointerEvents:none —
+                    оверлей не заважає drag-у й host-детекту. */}
+                {(() => {
+                  const dt = activeId && activeId.startsWith("palette:") ? activeId.slice("palette:".length) : null;
+                  const specDrag = !!dt && SPEC_BLOCK_TYPES_SET.has(dt as BlockType);
+                  const overlayDrag = activeId === "palette:image-overlay";
+                  if (!specDrag && !overlayDrag) return null;
+                  const hostTypes = specDrag ? ["image", "cardBody"] : ["image"];
+                  const targets = blocks.filter(b => hostTypes.includes(b.type));
+                  const anyValid = targets.some(b => specDrag || (b.type === "image" && !!b.data.url));
+                  return (
+                    <>
+                      {targets.map(b => {
+                        const bx = b.x ?? 0;
+                        const by = b.y ?? 0;
+                        const bw = Number(b.width) || 100;
+                        const bh = measureBlockHeight(b);
+                        const needsPhoto = overlayDrag && !b.data.url;
+                        const color = needsPhoto ? "#D4A843" : "#10B981";
+                        return (
+                          <div
+                            key={`host-hl-${b.id}`}
+                            style={{
+                              position: "absolute",
+                              left: `${bx}%`,
+                              top: `${by}px`,
+                              width: `${bw}%`,
+                              height: `${bh}px`,
+                              zIndex: 90,
+                              pointerEvents: "none",
+                              boxSizing: "border-box",
+                              border: `2px ${needsPhoto ? "dashed" : "solid"} ${color}`,
+                              borderRadius: 8,
+                              background: needsPhoto ? "rgba(212,168,67,0.06)" : "rgba(16,185,129,0.08)",
+                              boxShadow: needsPhoto ? "none" : `0 0 0 4px ${color}22, 0 0 18px -2px ${color}aa`,
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                            }}
+                          >
+                            <span
+                              style={{
+                                fontSize: 11,
+                                fontWeight: 700,
+                                color: "#fff",
+                                background: color,
+                                padding: "3px 8px",
+                                borderRadius: 6,
+                                fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
+                                boxShadow: "0 1px 4px rgba(0,0,0,0.25)",
+                              }}
+                            >
+                              {needsPhoto ? "↑ спершу завантажте фото" : "покласти сюди"}
+                            </span>
+                          </div>
+                        );
+                      })}
+                      <div
+                        style={{
+                          position: "absolute",
+                          left: "50%",
+                          top: 8,
+                          transform: "translateX(-50%)",
+                          zIndex: 95,
+                          pointerEvents: "none",
+                          whiteSpace: "nowrap",
+                          fontSize: 12,
+                          fontWeight: 600,
+                          color: "#fff",
+                          background: anyValid ? "rgba(16,185,129,0.92)" : "rgba(180,83,9,0.94)",
+                          padding: "6px 12px",
+                          borderRadius: 999,
+                          fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
+                          boxShadow: "0 2px 10px rgba(0,0,0,0.25)",
+                        }}
+                      >
+                        {anyValid
+                          ? (overlayDrag
+                              ? "Відпустіть на підсвіченому Фото"
+                              : "Спецблок кладеться на підсвічені блоки (Фото / Пустий блок)")
+                          : (overlayDrag
+                              ? "Немає Фото з картинкою — додайте Фото і завантажте зображення"
+                              : "Немає куди покласти — спершу додайте блок Фото або Пустий блок")}
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
 
               {/* Corner resize handle ВИНЕСЕНИЙ за межі canvas-grid — у білу

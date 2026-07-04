@@ -397,23 +397,22 @@ function CanvasSizeInputs({
   const pxSize = Math.max(8, fontSize * 0.7);
 
   const inputStyle: React.CSSProperties = {
-    width: Math.max(36, fontSize * 3.2),
-    background: "transparent",
-    border: "none",
-    borderBottom: "1px solid rgba(143,102,28,0.45)",
-    borderRadius: 0,
-    color: "rgba(110,76,22,1)",
+    width: Math.max(44, fontSize * 3.4),
+    background: "rgba(255,255,255,0.55)",
+    border: "1px solid rgba(143,102,28,0.5)",
+    borderRadius: 6,
+    color: "rgba(90,62,16,1)",
     fontSize,
-    fontWeight: 500,
-    fontStyle: "italic",
-    letterSpacing: "0.10em",
+    fontWeight: 600,
+    fontStyle: "normal",
+    letterSpacing: "0.04em",
     textAlign: "center",
-    padding: "2px 2px 3px",
+    padding: "3px 4px",
     fontFamily: "'Cormorant Garamond', 'Playfair Display', 'Times New Roman', serif",
     outline: "none",
     fontVariantNumeric: "tabular-nums",
-    boxShadow: "none",
-    textShadow: "0 1px 0 rgba(255,255,255,0.6)",
+    boxShadow: "inset 0 1px 2px rgba(143,102,28,0.12)",
+    cursor: "text",
   };
 
   return (
@@ -681,38 +680,131 @@ function CanvasHorizontalPresetsBar({
   const fontSize = Math.max(9, Math.min(14.5, width / 75));
   const gap = Math.max(8, Math.min(18, width / 60));
   return (
-    <div
-      style={{
-        display: "inline-flex",
-        alignItems: "baseline",
-        gap,
-      }}
-    >
-      <PresetGroupHorizontal
-        title=""
-        presets={CANVAS_PRESETS.horizontal}
-        width={width}
-        height={height}
-        onPick={onPick}
-        fontSize={fontSize}
-        gap={gap}
-      />
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+      <style>{`
+        input.tpl-canvas-slider { -webkit-appearance: none; appearance: none; height: 4px; border-radius: 3px; background: rgba(143,102,28,0.25); outline: none; cursor: pointer; }
+        input.tpl-canvas-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 14px; height: 14px; border-radius: 50%; background: #D4A843; border: 2px solid #fff; box-shadow: 0 1px 3px rgba(143,102,28,0.5); cursor: grab; }
+        input.tpl-canvas-slider::-webkit-slider-thumb:active { cursor: grabbing; }
+        input.tpl-canvas-slider::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: #D4A843; border: 2px solid #fff; box-shadow: 0 1px 3px rgba(143,102,28,0.5); cursor: grab; }
+      `}</style>
 
-      <span
-        aria-hidden
-        style={{
-          alignSelf: "center",
-          width: 3,
-          height: 3,
-          borderRadius: "50%",
-          background: "rgba(143,102,28,0.45)",
-        }}
-      />
+      <div style={{ display: "inline-flex", alignItems: "baseline", gap }}>
+        <PresetGroupHorizontal
+          title=""
+          presets={CANVAS_PRESETS.horizontal}
+          width={width}
+          height={height}
+          onPick={onPick}
+          fontSize={fontSize}
+          gap={gap}
+        />
 
-      <div style={{ flexShrink: 0 }}>
-        <CanvasSizeInputs width={width} height={height} onChange={onChangeSize} fontSize={fontSize + 0.5} />
+        <span
+          aria-hidden
+          style={{
+            alignSelf: "center",
+            width: 3,
+            height: 3,
+            borderRadius: "50%",
+            background: "rgba(143,102,28,0.45)",
+          }}
+        />
+
+        <div style={{ flexShrink: 0 }}>
+          <CanvasSizeInputs width={width} height={height} onChange={onChangeSize} fontSize={fontSize + 0.5} />
+        </div>
+      </div>
+
+      {/* Бігунки довільного розміру — тягни для плавної зміни ширини/висоти. */}
+      <div style={{ display: "inline-flex", alignItems: "center", gap: 18, flexShrink: 0 }}>
+        <CanvasSizeSlider
+          axis="w"
+          value={width}
+          min={CANVAS_MIN_W}
+          max={CANVAS_MAX_W}
+          onChange={v => onChangeSize(v, height)}
+        />
+        <CanvasSizeSlider
+          axis="h"
+          value={height}
+          min={CANVAS_MIN_H}
+          max={CANVAS_MAX_H}
+          onChange={v => onChangeSize(width, v)}
+        />
       </div>
     </div>
+  );
+}
+
+// Один бігунок осі канвасу (ширина або висота). Тягнеться плавно зі snap-кроком
+// CANVAS_SNAP; той самий шлях onChange (handleCanvasResize), що й у пресетів,
+// інпутів і кутової ручки — тож логіка масштабування блоків спільна.
+//
+// rAF-throttle: thumb рухається миттєво через локальний стан `local`, а важкий
+// onChange (resize канвасу + масштабування блоків) викликається МАКСИМУМ раз на
+// кадр. Без цього кожен mousemove (десятки/кадр) синхронно перемальовував увесь
+// канвас → видиме «тримтіння». `draggingRef` блокує зворотну синхронізацію
+// local←value під час drag, щоб thumb не стрибав на ще-не-оновлене controlled-value.
+function CanvasSizeSlider({
+  axis, value, min, max, onChange,
+}: {
+  axis: "w" | "h";
+  value: number;
+  min: number;
+  max: number;
+  onChange: (v: number) => void;
+}) {
+  const label = axis === "w" ? "Ш" : "В";
+  const [local, setLocal] = useState(value);
+  const draggingRef = useRef(false);
+  const rafRef = useRef(0);
+  const pendingRef = useRef(value);
+
+  // Зовнішні зміни (пресети / інпути / кутова ручка) синхронізуємо лише коли НЕ тягнемо.
+  useEffect(() => { if (!draggingRef.current) setLocal(value); }, [value]);
+  useEffect(() => () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); }, []);
+
+  const schedule = (v: number) => {
+    pendingRef.current = v;
+    if (!rafRef.current) {
+      rafRef.current = requestAnimationFrame(() => {
+        rafRef.current = 0;
+        onChange(pendingRef.current);
+      });
+    }
+  };
+  const endDrag = () => {
+    draggingRef.current = false;
+    if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = 0; }
+    onChange(pendingRef.current);
+  };
+
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
+      <span style={{
+        fontSize: 10,
+        fontWeight: 700,
+        color: "rgba(143,102,28,0.7)",
+        fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
+        width: 11,
+        textAlign: "center",
+        letterSpacing: "0.04em",
+      }}>{label}</span>
+      <input
+        type="range"
+        className="tpl-canvas-slider"
+        min={min}
+        max={max}
+        step={CANVAS_SNAP}
+        value={local}
+        onPointerDown={() => { draggingRef.current = true; }}
+        onChange={e => { const v = Number(e.target.value); setLocal(v); schedule(v); }}
+        onPointerUp={endDrag}
+        onBlur={endDrag}
+        aria-label={axis === "w" ? "Ширина канвасу" : "Висота канвасу"}
+        style={{ width: 110 }}
+      />
+    </span>
   );
 }
 
