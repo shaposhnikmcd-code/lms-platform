@@ -955,8 +955,10 @@ export function BlockInner({
         // не виходимо за ширину блока на канвасі — об'єдинюємо як maxWidth.
         const eventCardWidth = (tplData as { cardWidth?: number }).cardWidth || undefined;
         return (
+          // disableLinks — інакше внутрішня CTA EventTemplate рендериться як <a>
+          // всередині цього <a> → невалідний вкладений <a> та hydration-mismatch.
           <a href={`/${lc}/news/${item.slug}`} style={{ display: "block", textDecoration: "none", color: "inherit" }}>
-            <EventTemplate data={tplData} maxWidth={eventCardWidth} />
+            <EventTemplate data={tplData} maxWidth={eventCardWidth} disableLinks />
           </a>
         );
       }
