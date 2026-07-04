@@ -14,9 +14,12 @@ export interface PublishResult {
  * і чистить next*. Викликається ручною кнопкою "Опублікувати зараз" у адмінці
  * або хелпером `maybeAutoPublishStagedNewsPage` (read-time перевірка таймера).
  *
- * Безпека: НЕ змінює published-флаг — якщо сторінка не активна, після публікації
- * вона лишається не активною (адмін окремо вирішує коли активувати). Це навмисно:
- * scheduled publish не повинен раптово показувати чернетку публіці.
+ * Видимість: публікація непорожньої чернетки ВВІМКНЕ сторінку (`published=true`).
+ * «Опублікувати» і scheduled publish — це явний намір менеджера показати версію
+ * публіці, тож ми не лишаємо її прихованою (раніше published не чіпався, і
+ * запланована підміна тихо не зʼявлялась на /news — сторінка лишалась порожньою
+ * доки хтось окремо не тисне «Активувати»). Порожню чернетку (blank) НЕ активуємо
+ * — інакше показали б empty state.
  */
 export async function publishStagedNewsPage(): Promise<PublishResult> {
   const page = await prisma.newsPage.findUnique({ where: { key: KEY } });
@@ -26,6 +29,9 @@ export async function publishStagedNewsPage(): Promise<PublishResult> {
   }
 
   const now = new Date();
+  // Чи промотований контент непорожній — визначає, чи вмикати видимість.
+  const promotedHasContent =
+    !!page.nextContent && page.nextContent.trim().length > 0 && page.nextContent !== "[]";
   // Архівуємо поточну live-версію перед заміною. Якщо `content` порожнє —
   // не зберігаємо «нульовий» snapshot (це початкова порожня сторінка перед
   // першою публікацією).
@@ -53,6 +59,8 @@ export async function publishStagedNewsPage(): Promise<PublishResult> {
         contentPl: page.nextContentPl,
         pageBgColor: page.nextPageBgColor,
         pageWidth: page.nextPageWidth ?? page.pageWidth,
+        // Непорожня публікація вмикає видимість; порожню не активуємо.
+        ...(promotedHasContent ? { published: true } : {}),
         // Чистимо staged.
         nextContent: null,
         nextContentEn: null,

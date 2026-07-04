@@ -1920,6 +1920,12 @@ export default function AdminNewsPage() {
               return;
             }
             if (archiveConfirm.action === 'load') {
+              // Архів-load записав nextContent на бекенді → hasStaged=true, тож
+              // білдер /page-builder/next НЕ очистить локальну чернетку сам
+              // (він робить це лише коли staged немає). Прибираємо editor-draft
+              // тут, інакше стара локальна чернетка перекриє завантажену версію
+              // банером «відновити чернетку». Симетрично з discardStaged/publishStagedNow.
+              try { localStorage.removeItem('uimp_draft_page___news_page_next__'); } catch { /* ignore */ }
               router.push('/dashboard/admin/news/page-builder/next');
             } else {
               setToast({ type: 'success', message: `Версію від ${archiveConfirm.dateLabel} повернуто на live` });
