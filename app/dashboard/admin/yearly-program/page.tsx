@@ -82,17 +82,43 @@ export default async function AdminYearlyProgramPage() {
 
   const now = Date.now();
 
-  // Ховаємо «осиротілі» PENDING-підписки: якщо той самий юзер уже має живу
-  // (ACTIVE/GRACE) підписку, то його незавершена спроба «Очікує» — це покинутий
-  // чекаут, який лише дублює рядок. Самотні PENDING (юзер ще нічого не оплатив —
+  // Ховаємо «осиротілі» PENDING-підписки: якщо та сама людина вже має живу
+  // (ACTIVE/GRACE) підписку, то її незавершена спроба «Очікує» — це покинутий
+  // чекаут, який лише дублює рядок. Самотні PENDING (людина ще нічого не оплатила —
   // це лід) лишаються видимими. PENDING з реальним PAID-платежем (аномалія) теж не ховаємо.
-  const liveUserIds = new Set(
-    subs.filter((s) => s.status === 'ACTIVE' || s.status === 'GRACE').map((s) => s.userId),
-  );
+  //
+  // «Та сама людина» матчиться не лише по userId (акаунту), а й по нормалізованому
+  // телефону та Telegram-нікнейму. Це закриває кейс, коли клієнт оформив невдалу
+  // спробу з одним email, а вдалу оплату — з іншим (одруківка в домені тощо):
+  // акаунти різні, але телефон/Telegram збігаються → дубль ховаємо.
+  const normPhone = (v: string | null | undefined) => {
+    const digits = (v ?? '').replace(/\D/g, '');
+    return digits.length >= 7 ? digits : null;
+  };
+  const normTg = (v: string | null | undefined) => {
+    const h = (v ?? '').trim().toLowerCase().replace(/^@/, '');
+    return h.length > 0 ? h : null;
+  };
+  const liveUserIds = new Set<string>();
+  const livePhones = new Set<string>();
+  const liveTgs = new Set<string>();
+  for (const s of subs) {
+    if (s.status !== 'ACTIVE' && s.status !== 'GRACE') continue;
+    liveUserIds.add(s.userId);
+    const ph = normPhone(s.phone);
+    if (ph) livePhones.add(ph);
+    const tg = normTg(s.telegramUsername);
+    if (tg) liveTgs.add(tg);
+  }
   const visibleSubs = subs.filter((s) => {
     if (s.status !== 'PENDING') return true;
     if (s.payments.some((p) => p.status === 'PAID')) return true;
-    return !liveUserIds.has(s.userId);
+    if (liveUserIds.has(s.userId)) return false;
+    const ph = normPhone(s.phone);
+    if (ph && livePhones.has(ph)) return false;
+    const tg = normTg(s.telegramUsername);
+    if (tg && liveTgs.has(tg)) return false;
+    return true;
   });
 
   // Для PENDING-підписок тягнемо останню спробу оплати з PaymentCallbackLog (одним запитом),
