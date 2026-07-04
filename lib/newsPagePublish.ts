@@ -22,39 +22,30 @@ export interface PublishResult {
  * — інакше показали б empty state.
  */
 export async function publishStagedNewsPage(): Promise<PublishResult> {
-  const page = await prisma.newsPage.findUnique({ where: { key: KEY } });
-  if (!page) return { published: false, reason: "Сторінка ще не створена" };
-  if (page.nextContent === null) {
-    return { published: false, reason: "Немає чернетки для публікації" };
-  }
-
   const now = new Date();
-  // Чи промотований контент непорожній — визначає, чи вмикати видимість.
-  const promotedHasContent =
-    !!page.nextContent && page.nextContent.trim().length > 0 && page.nextContent !== "[]";
-  // Архівуємо поточну live-версію перед заміною. Якщо `content` порожнє —
-  // не зберігаємо «нульовий» snapshot (це початкова порожня сторінка перед
-  // першою публікацією).
-  const hasLiveContent = page.content && page.content.trim().length > 0 && page.content !== "[]";
-  await prisma.$transaction(async tx => {
-    if (hasLiveContent) {
-      await tx.newsPageArchive.create({
-        data: {
-          pageKey: KEY,
-          content: page.content,
-          contentEn: page.contentEn,
-          contentPl: page.contentPl,
-          pageBgColor: page.pageBgColor,
-          pageWidth: page.pageWidth,
-          wasPublished: page.published,
-          archivedAt: now,
-        },
-      });
+  const result = await prisma.$transaction(async (tx): Promise<PublishResult> => {
+    const page = await tx.newsPage.findUnique({ where: { key: KEY } });
+    if (!page) return { published: false, reason: "Сторінка ще не створена" };
+    if (page.nextContent === null) {
+      return { published: false, reason: "Немає чернетки для публікації" };
     }
-    await tx.newsPage.update({
-      where: { key: KEY },
+
+    // Чи промотований контент непорожній — визначає, чи вмикати видимість.
+    const promotedHasContent =
+      page.nextContent.trim().length > 0 && page.nextContent !== "[]";
+    // Чи є що архівувати (порожню/нульову live-сторінку не архівуємо).
+    const hasLiveContent = !!page.content && page.content.trim().length > 0 && page.content !== "[]";
+
+    // Атомарний claim-and-swap. WHERE nextContent != null серіалізує конкурентні
+    // виклики: publishStagedNewsPage фаериться з cron (05:00), read-time на КОЖНОМУ
+    // хіті /news і адмінських GET-ів — на маунті адмінки два GET-и стартують
+    // паралельно. Під Postgres row-lock-ом лише ОДИН updateMany матчить рядок
+    // (після першого swap nextContent=null → WHERE другого не проходить, count=0),
+    // тож архів і підміна виконуються рівно раз. Без цього — дублікати в Архіві.
+    const swap = await tx.newsPage.updateMany({
+      where: { key: KEY, nextContent: { not: null } },
       data: {
-        content: page.nextContent!,
+        content: page.nextContent,
         contentEn: page.nextContentEn,
         contentPl: page.nextContentPl,
         pageBgColor: page.nextPageBgColor,
@@ -71,21 +62,43 @@ export async function publishStagedNewsPage(): Promise<PublishResult> {
         nextUpdatedAt: null,
       },
     });
+    if (swap.count === 0) {
+      // Інший виклик уже опублікував цю чернетку — не архівуємо повторно.
+      return { published: false, reason: "Вже опубліковано (конкурентний виклик)" };
+    }
+
+    if (hasLiveContent) {
+      await tx.newsPageArchive.create({
+        data: {
+          pageKey: KEY,
+          content: page.content,
+          contentEn: page.contentEn,
+          contentPl: page.contentPl,
+          pageBgColor: page.pageBgColor,
+          pageWidth: page.pageWidth,
+          wasPublished: page.published,
+          archivedAt: now,
+        },
+      });
+    }
+    return { published: true, publishedAt: now.toISOString() };
   });
 
-  // Інвалідуємо ISR-кеш /news щоб новий контент з'явився одразу — і для cron
-  // (server context), і для read-time (request context). `revalidatePath`
-  // безпечно викликати з обох — Next.js no-op-ить за межами цих контекстів.
-  try {
-    revalidatePath("/uk/news");
-    revalidatePath("/en/news");
-    revalidatePath("/pl/news");
-    revalidatePath("/news");
-  } catch {
-    /* поза server-context — ок */
+  // Інвалідуємо ISR-кеш /news лише коли реально сталася підміна. `revalidatePath`
+  // безпечно викликати і з cron (server), і з read-time (request); поза цими
+  // контекстами Next.js кине — ловимо.
+  if (result.published) {
+    try {
+      revalidatePath("/uk/news");
+      revalidatePath("/en/news");
+      revalidatePath("/pl/news");
+      revalidatePath("/news");
+    } catch {
+      /* поза server-context — ок */
+    }
   }
 
-  return { published: true, publishedAt: now.toISOString() };
+  return result;
 }
 
 /**

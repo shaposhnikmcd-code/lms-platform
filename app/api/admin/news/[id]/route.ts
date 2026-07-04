@@ -41,7 +41,13 @@ export async function PATCH(
   // плейсхолдерами "[Назва події]" / "<p>Заголовок</p>" — інакше менеджер
   // випадково публікує template-«рибу» на /news. Перевіряємо ефективний стан
   // після PATCH (data поверх існуючого).
-  if (data.published === true || data.isTemplate === false) {
+  // Заходимо в гейт не лише при переході в published, а й коли редагують
+  // content-поля (templateBlocks/templateData/content) — інакше редагування
+  // ВЖЕ опублікованої новини з новими плейсхолдерами обходило перевірку і
+  // «риба» йшла на /news (effectivePublished нижче = current.published).
+  const editsContent =
+    "templateBlocks" in data || "templateData" in data || "content" in data;
+  if (data.published === true || data.isTemplate === false || editsContent) {
     const current = await prisma.news.findUnique({
       where: { id },
       select: { published: true, templateData: true, templateBlocks: true, isTemplate: true },
