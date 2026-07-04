@@ -1134,8 +1134,9 @@ export default function AdminNewsPage() {
           {/* Шаблони — зверстані заготовки «Превʼю + Новина», які менеджер
               наповнює інформацією. Структура попередньо професійно дизайнерська
               (editorial article + event announcement) — досить замінити плейсхолдери
-              на власний текст/фото. Edit-кнопки відкривають ті ж білдери, що й
-              у новин: /[id]/preview для превʼю-картки і /[id]/edit для контенту. */}
+              на власний текст/фото. Клік по blueprint-у або по створеній із нього
+              новині відкриває блоковий конструктор /[id]/template (TemplateConstructor):
+              для новини він у content-режимі, де Save = одразу публікація. */}
           <style>{NEWS_BLOCK_CSS}</style>
           <div className={`flex items-center gap-3 mb-4 h-[36px] ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
             <span className="text-[10px] font-bold tracking-[0.18em] uppercase whitespace-nowrap">

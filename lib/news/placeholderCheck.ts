@@ -65,16 +65,67 @@ function findBracketInValue(v: unknown): string | null {
 }
 
 /**
- * Шукає плейсхолдери у templateData (JSON string) і templateBlocks (JSON
- * string з масивом блоків). Повертає масив issue'ів — порожній якщо все
- * заповнено.
+ * Парсить templateBlocks у непорожній масив блоків або повертає null.
+ * Дзеркалить умову рендера (lib/news/render.tsx → newsCard: `tplBlocks.isJson &&
+ * tplBlocks.blocks.length > 0`) — саме за неї новина показується з блоків.
+ */
+function parseBlockArray(
+  templateBlocks: string | null | undefined
+): unknown[] | null {
+  if (!templateBlocks) return null;
+  try {
+    const parsed = JSON.parse(templateBlocks);
+    return Array.isArray(parsed) && parsed.length > 0 ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Шукає незаповнені (дефолтні) heading/text/quote-блоки у масиві блоків. */
+function collectBlockIssues(blocks: unknown[]): PlaceholderIssue[] {
+  const issues: PlaceholderIssue[] = [];
+  for (const b of blocks) {
+    if (!b || typeof b !== "object") continue;
+    const type = (b as { type?: string }).type;
+    const html = (b as { data?: { html?: string } }).data?.html;
+    if (!type || !html) continue;
+    const defaults = DEFAULT_BLOCK_HTMLS[type];
+    if (defaults?.has(html)) {
+      issues.push({ sample: html, source: "block" });
+      break; // одного достатньо
+    }
+  }
+  return issues;
+}
+
+/**
+ * Повертає незаповнені плейсхолдери новини — порожній масив якщо все заповнено.
+ *
+ * Пріоритет джерела ДЗЕРКАЛИТЬ рендер (lib/news/render.tsx → newsCard, а також
+ * app/[locale]/news/[slug]/page.tsx): `templateBlocks` (block-based) > `templateData`
+ * (legacy form-based). «Заповненість» новини судимо з ТОГО Ж джерела, що й
+ * рендериться:
+ *
+ *   • Є валідні блоки → новина показується саме з них. Legacy `templateData`
+ *     лишається копією placeholder-скелета шаблону (`[Назва події]` тощо) і
+ *     конструктором НЕ оновлюється, тож до рендеру не потрапляє — і його
+ *     плейсхолдери НЕ мають блокувати публікацію. Судимо виключно по блоках.
+ *   • Блоків немає → новина рендериться з `templateData`. Перевіряємо його.
+ *
+ * Без цього дзеркала валідація розсинхронізована з рендером: заповнена блокова
+ * новина вічно вважалася «незаповненою» через рудиментний templateData —
+ * не публікувалась (422), ховалась з /news і показувала «⚠ Незаповнено».
  */
 export function findUnfilledPlaceholders(
   templateData: string | null | undefined,
   templateBlocks: string | null | undefined
 ): PlaceholderIssue[] {
-  const issues: PlaceholderIssue[] = [];
+  const blocks = parseBlockArray(templateBlocks);
+  if (blocks) {
+    return collectBlockIssues(blocks);
+  }
 
+  const issues: PlaceholderIssue[] = [];
   if (templateData) {
     try {
       const parsed = JSON.parse(templateData);
@@ -84,28 +135,6 @@ export function findUnfilledPlaceholders(
       // Невалідний JSON — не наша проблема тут; інший validation його упіймає.
     }
   }
-
-  if (templateBlocks) {
-    try {
-      const parsed = JSON.parse(templateBlocks);
-      if (Array.isArray(parsed)) {
-        for (const b of parsed) {
-          if (!b || typeof b !== "object") continue;
-          const type = (b as { type?: string }).type;
-          const html = (b as { data?: { html?: string } }).data?.html;
-          if (!type || !html) continue;
-          const defaults = DEFAULT_BLOCK_HTMLS[type];
-          if (defaults?.has(html)) {
-            issues.push({ sample: html, source: "block" });
-            break; // одного достатньо
-          }
-        }
-      }
-    } catch {
-      // ignore
-    }
-  }
-
   return issues;
 }
 
