@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import { getAdminActor, isAdmin } from "@/lib/adminAuth";
 
@@ -64,30 +65,49 @@ export async function POST(req: NextRequest) {
     ? (blueprint.parentTemplateId || blueprint.id)
     : blueprint.id;
 
-  const created = await prisma.news.create({
-    data: {
-      title: cloneTitle,
-      slug: baseSlug,
-      excerpt: blueprint.excerpt,
-      category: blueprint.category,
-      isTemplate: asBlueprint,
-      parentTemplateId,
-      templateKind: blueprint.templateKind,
-      templateData: blueprint.templateData,
-      // Block-based template (Session 3+): копіюємо разом з legacy templateData,
-      // щоб новий запис мав і structured (для backward-compat рендеру), і
-      // block-based (для constructor-режиму) контент. Один з двох буде використано
-      // залежно від наявності templateBlocks при public render-у.
-      templateBlocks: blueprint.templateBlocks,
-      templateCanvas: blueprint.templateCanvas,
-      content: "",
-      previewContent: null,
-      imageUrl: blueprint.imageUrl,
-      pageBgColor: blueprint.pageBgColor,
-      published: false,
-      authorId: user?.id || null,
-    },
-  });
+  const baseData = {
+    title: cloneTitle,
+    excerpt: blueprint.excerpt,
+    category: blueprint.category,
+    isTemplate: asBlueprint,
+    parentTemplateId,
+    templateKind: blueprint.templateKind,
+    templateData: blueprint.templateData,
+    // Block-based template (Session 3+): копіюємо разом з legacy templateData,
+    // щоб новий запис мав і structured (для backward-compat рендеру), і
+    // block-based (для constructor-режиму) контент. Один з двох буде використано
+    // залежно від наявності templateBlocks при public render-у.
+    templateBlocks: blueprint.templateBlocks,
+    templateCanvas: blueprint.templateCanvas,
+    content: "",
+    previewContent: null,
+    imageUrl: blueprint.imageUrl,
+    pageBgColor: blueprint.pageBgColor,
+    published: false,
+    authorId: user?.id || null,
+  };
 
-  return NextResponse.json({ id: created.id, slug: created.slug, isTemplate: created.isTemplate });
+  // Slug базується на Date.now() — при подвійному кліку/паралельних менеджерах
+  // теоретично можлива колізія (P2002). Ретраїмо з рандомним суфіксом, а інші
+  // помилки повертаємо чистим 500 без витоку сирого Prisma-меседжу.
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const slug = attempt === 0
+      ? baseSlug
+      : `${baseSlug}-${Math.random().toString(36).slice(2, 6)}`;
+    try {
+      const created = await prisma.news.create({ data: { ...baseData, slug } });
+      return NextResponse.json({ id: created.id, slug: created.slug, isTemplate: created.isTemplate });
+    } catch (e) {
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === "P2002" &&
+        ((e.meta?.target as string[] | undefined) || []).includes("slug")
+      ) {
+        continue; // slug-колізія → новий суфікс
+      }
+      console.error("[POST /api/admin/news/from-template] create failed:", e);
+      return NextResponse.json({ error: "Не вдалося створити запис із шаблону" }, { status: 500 });
+    }
+  }
+  return NextResponse.json({ error: "Не вдалося згенерувати унікальний slug — спробуйте ще раз" }, { status: 409 });
 }

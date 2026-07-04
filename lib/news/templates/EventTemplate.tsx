@@ -17,6 +17,7 @@
 import React from "react";
 import type { EventData } from "./types";
 import { sanitizeHtml } from "@/lib/sanitizeHtml";
+import { safeHref } from "@/lib/news/safeUrl";
 import CoverImageBox from "./CoverImageBox";
 import { parseImageOverlays, renderImageOverlay } from "@/lib/news/render";
 
@@ -378,11 +379,11 @@ export default function EventTemplate({
               як <span> зі стилем кнопки — навігація піде через зовнішній <Link>. */}
           {!isHidden("cta") && data.ctaLabel && (
             <div style={{ marginTop: 16, ...h("cta") }}>
-              {data.ctaHref && !disableLinks ? (
+              {safeHref(data.ctaHref) && !disableLinks ? (
                 <a
-                  href={data.ctaHref}
-                  target={data.ctaHref.startsWith("http") ? "_blank" : undefined}
-                  rel={data.ctaHref.startsWith("http") ? "noopener noreferrer" : undefined}
+                  href={safeHref(data.ctaHref)}
+                  target={safeHref(data.ctaHref).startsWith("http") ? "_blank" : undefined}
+                  rel={safeHref(data.ctaHref).startsWith("http") ? "noopener noreferrer" : undefined}
                   style={{
                     display: "inline-flex",
                     alignItems: "center",

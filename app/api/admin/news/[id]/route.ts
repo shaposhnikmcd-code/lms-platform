@@ -91,7 +91,22 @@ export async function PATCH(
     }
   }
 
-  const patchData: Record<string, unknown> = { ...data, ...translations };
+  // Allow-list полів, які клієнт має право змінювати. Раніше сюди спредився весь
+  // body (`...data`) — mass-assignment: клієнт міг перезаписати isTemplate,
+  // parentTemplateId, templateKind, authorId, id, createdAt чи *En/*Pl-переклади
+  // (затерши DeepL-вивід). Пишемо лише безпечні поля; переклади (translations)
+  // додаються сервером окремо, suspendedAt/resumeAt — з Date-конверсією нижче.
+  const PATCHABLE_FIELDS = [
+    "title", "slug", "excerpt", "imageUrl", "category", "pageBgColor",
+    "content", "previewContent",
+    "templateData", "templateBlocks", "templateCanvas",
+    "published", "showAuthorMeta",
+  ] as const;
+  const patchData: Record<string, unknown> = {};
+  for (const k of PATCHABLE_FIELDS) {
+    if (k in data) patchData[k] = (data as Record<string, unknown>)[k];
+  }
+  Object.assign(patchData, translations);
   if (data.suspendedAt !== undefined) {
     patchData.suspendedAt = data.suspendedAt ? new Date(data.suspendedAt) : null;
   }
@@ -125,7 +140,7 @@ export async function PATCH(
     }
     console.error("[PATCH /api/admin/news/" + id + "] failed:", e);
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Помилка збереження" },
+      { error: "Помилка збереження" },
       { status: 500 }
     );
   }
