@@ -193,6 +193,10 @@ export default function EditorCanvas({
   const canvasColumnRef = useRef<HTMLDivElement>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [isOverCanvas, setIsOverCanvas] = useState(false);
+  // dropValid: чи ДІЙСНО спрацює drop у поточній позиції курсора. Для звичайних
+  // блоків = isOverCanvas; для спецблоків/«Текст на фото» — тільки коли курсор над
+  // валідним host-ом. Керує чесним станом drag-підказки (замість фальшивого «✓»).
+  const [dropValid, setDropValid] = useState(false);
   // dropPreview: позиція та слот, де новий блок з палітри сяде. У fixedHeight-режимі
   // (preview-картка) додатково містить `height`, обчислену через findAvailableFitInColumn —
   // щоб ghost рендерився точно тієї ж висоти, що й майбутній блок (не 80px-default).
@@ -1165,6 +1169,7 @@ export default function EditorCanvas({
     const idStr = String(event.active.id);
     setActiveId(idStr);
     setIsOverCanvas(false);
+    setDropValid(false);
     dropPreviewRef.current = null;
     setDropPreview(null);
     setAlignGuides([]);
@@ -1228,6 +1233,9 @@ export default function EditorCanvas({
     const cursorY = ev.clientY + (event.delta?.y || 0);
     const over = cursorX >= rect.left && cursorX <= rect.right && cursorY >= rect.top && cursorY <= rect.bottom + 200;
     setIsOverCanvas(over);
+    // Дефолт: звичайний блок можна кинути будь-де на канвасі. Гілки спецблоків/
+    // overlay нижче звужують це до «тільки над валідним host-ом».
+    setDropValid(over);
 
     const idStr = String(event.active.id);
     const isFromPalette = idStr.startsWith("palette:") || idStr.startsWith("news-card:") || idStr.startsWith("template-expand:");
@@ -1248,8 +1256,10 @@ export default function EditorCanvas({
         setDropPreview(null);
         setAlignGuides([]);
         setSizeMatches([]);
+        setDropValid(false);
         return;
       }
+      setDropValid(true);
     }
 
     // Спецблок (Імʼя/Tagline/CTA…) у template-режимі: ghost показуємо ТІЛЬКИ
@@ -1273,8 +1283,10 @@ export default function EditorCanvas({
           setDropPreview(null);
           setAlignGuides([]);
           setSizeMatches([]);
+          setDropValid(false);
           return;
         }
+        setDropValid(true);
         // Host знайдено — ghost preview = x/width host-а, Y у вільному gap-і
         // у межах host-а. Інші spec-блоки на тому ж host-і займають місце:
         // новий spec лягає поруч, а не поверх. findAvailableFitInColumn з
@@ -1690,6 +1702,7 @@ export default function EditorCanvas({
 
     setActiveId(null);
     setIsOverCanvas(false);
+    setDropValid(false);
     dropPreviewRef.current = null;
     setDropPreview(null);
     setAlignGuides([]);
@@ -2640,6 +2653,7 @@ export default function EditorCanvas({
           <OverlayItem
             activeId={activeId}
             isOverCanvas={isOverCanvas}
+            dropValid={dropValid}
             paletteBlock={paletteBlock}
           />
         </DragOverlay>
