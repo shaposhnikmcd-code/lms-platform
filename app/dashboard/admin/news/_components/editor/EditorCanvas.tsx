@@ -547,7 +547,10 @@ export default function EditorCanvas({
 
   // Чи застосовувати anti-overlap clamp до ресайзу цього блока. Тільки в
   // template-режимі і тільки для generic-блоків (спецблоки — host-bounded).
-  const useResizeBarrier = (b: Block) => templateMode && !SPEC_BLOCK_TYPES_SET.has(b.type);
+  // NB: назва БЕЗ `use`-префікса — це звичайний helper, не React-хук. Префікс
+  // `use*` тригерив би eslint react-hooks/rules-of-hooks (виклик у useCallback →
+  // build error), хоча тут немає жодного хука.
+  const resizeBarrierActive = (b: Block) => templateMode && !SPEC_BLOCK_TYPES_SET.has(b.type);
 
   const MIN_NEIGHBOR_WIDTH = 10;
 
@@ -622,7 +625,7 @@ export default function EditorCanvas({
     // Немає сусіда ПРАВОРУЧ (або template-режим) — звичайний setWidth, clamp до канвасу.
     const bx = b.x ?? 0;
     let cap = 100 - bx;
-    if (useResizeBarrier(b)) cap = Math.min(cap, templateRightBarrierX(b) - bx);
+    if (resizeBarrierActive(b)) cap = Math.min(cap, templateRightBarrierX(b) - bx);
     const clampedW = Math.max(MIN_NEIGHBOR_WIDTH, Math.min(cap, newW));
     setWidth(id, String(roundW(clampedW)));
   }, [blocks, onBlocksChange, setWidth, clearPreview, clearPreviewX, templateMode]);
@@ -673,7 +676,7 @@ export default function EditorCanvas({
       }
     } else {
       let cap = 100 - bx;
-      if (useResizeBarrier(b)) cap = Math.min(cap, templateRightBarrierX(b) - bx);
+      if (resizeBarrierActive(b)) cap = Math.min(cap, templateRightBarrierX(b) - bx);
       appliedW = Math.max(MIN_NEIGHBOR_WIDTH, Math.min(cap, newW));
       next = blocks.map(o => o.id === id ? applyUpdate(o, appliedW) : o);
     }
@@ -816,7 +819,7 @@ export default function EditorCanvas({
     if (templateMode) {
       const bx = b.x ?? 0;
       let cap = 100 - bx;
-      if (useResizeBarrier(b)) cap = Math.min(cap, templateRightBarrierX(b) - bx);
+      if (resizeBarrierActive(b)) cap = Math.min(cap, templateRightBarrierX(b) - bx);
       appliedW = Math.max(MIN_NEIGHBOR_WIDTH, Math.min(cap, pct));
       setPreview(id, appliedW);
     } else if (delta > 0) {
@@ -2454,7 +2457,7 @@ export default function EditorCanvas({
                       scrollCompensation={activeId === block.id ? scrollCompensation : 0}
                       maxBlockHeight={
                         fixedHeight
-                          ? (useResizeBarrier(block)
+                          ? (resizeBarrierActive(block)
                               ? Math.max(60, Math.min(canvasHeight - y, templateBottomBarrierY(block) - y))
                               : Math.max(60, canvasHeight - y))
                           : undefined
