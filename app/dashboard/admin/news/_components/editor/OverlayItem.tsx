@@ -12,20 +12,24 @@ interface Props {
    *  тільки над валідним host-ом). Коли over canvas, але invalid — підказка
    *  показує чесний стан «сюди не можна», а не фальшивий «✓». */
   dropValid?: boolean;
+  /** Шаблон-режим: «Текст на фото» лягає на порожнє Фото (плейсхолдер), тож
+   *  вимога — просто «Фото», без «з картинкою». */
+  templateMode?: boolean;
   paletteBlock: typeof PALETTE_BLOCKS[0] | null;
 }
 
-export default function OverlayItem({ activeId, isOverCanvas, dropValid = false, paletteBlock }: Props) {
+export default function OverlayItem({ activeId, isOverCanvas, dropValid = false, templateMode = false, paletteBlock }: Props) {
   if (paletteBlock) {
     // Три стани: (1) поза канвасом — нейтрально, (2) над канвасом і валідно — золото «✓»,
     // (3) над канвасом, але дроп не спрацює (спецблок не над host-ом) — червоне «✗».
     const invalid = isOverCanvas && !dropValid;
     const active = isOverCanvas && dropValid;
     const accent = invalid ? "#C0392B" : "#D4A843";
-    // Причина відмови залежить від типу: «Текст на фото» вимагає Фото із
-    // завантаженою картинкою; решта спецблоків — Фото або Пустий блок.
+    // Причина відмови залежить від типу: «Текст на фото» вимагає Фото (у режимі
+    // наповнення/сторінки — із завантаженою картинкою); решта спецблоків — Фото
+    // або Пустий блок.
     const invalidReason = activeId === "palette:image-overlay"
-      ? "✗ Сюди не можна — потрібне Фото з картинкою"
+      ? (templateMode ? "✗ Сюди не можна — потрібне Фото" : "✗ Сюди не можна — потрібне Фото з картинкою")
       : "✗ Сюди не можна — потрібне Фото або Пустий блок";
     return (
       <div style={{

@@ -1244,7 +1244,10 @@ export default function EditorCanvas({
     // image-блоком з url. Інакше drop буде silently відхилений у handleDragEnd,
     // не вводимо менеджера в оману.
     if (isFromPalette && idStr === "palette:image-overlay") {
-      const candidates = blocks.filter(b => b.type === "image" && b.data.url);
+      // У шаблон-режимі Фото — плейсхолдер (картинку туди не вантажать), тож
+      // «Текст на фото» лягає на порожнє Фото як слот (симетрично спецблокам).
+      // У режимі наповнення / сторінки — потрібне реальне завантажене фото.
+      const candidates = blocks.filter(b => b.type === "image" && (templateMode || b.data.url));
       const over = candidates.some(b => {
         const el = canvasRef.current?.querySelector<HTMLElement>(`[data-block-id="${b.id}"]`);
         if (!el) return false;
@@ -1799,7 +1802,7 @@ export default function EditorCanvas({
       // Спецкейс: image-overlay → drop ТІЛЬКИ у image-блок з url під курсором.
       // Якщо курсор не над таким блоком — drop тихо відхиляється (без alert).
       if (idStr === "palette:image-overlay") {
-        const candidates = blocks.filter(b => b.type === "image" && b.data.url);
+        const candidates = blocks.filter(b => b.type === "image" && (templateMode || b.data.url));
         let target: Block | null = null;
         let relX = 50, relY = 50;
         for (const b of candidates) {
@@ -2117,9 +2120,9 @@ export default function EditorCanvas({
             anchorTopPx={floatingSettingsPos?.top ?? null}
             onAddImageOverlay={() => {
             // Знаходимо ОСТАННІЙ image-блок з url. Якщо нема — нічого не робимо.
-            const targets = blocks.filter(b => b.type === "image" && b.data.url);
+            const targets = blocks.filter(b => b.type === "image" && (templateMode || b.data.url));
             if (targets.length === 0) {
-              alert("Спершу додайте блок Фото з картинкою");
+              alert(templateMode ? "Спершу додайте блок Фото" : "Спершу додайте блок Фото з картинкою");
               return;
             }
             const target = targets[targets.length - 1];
@@ -2498,7 +2501,7 @@ export default function EditorCanvas({
                   if (!specDrag && !overlayDrag) return null;
                   const hostTypes = specDrag ? ["image", "cardBody"] : ["image"];
                   const targets = blocks.filter(b => hostTypes.includes(b.type));
-                  const anyValid = targets.some(b => specDrag || (b.type === "image" && !!b.data.url));
+                  const anyValid = targets.some(b => specDrag || (b.type === "image" && (templateMode || !!b.data.url)));
                   return (
                     <>
                       {targets.map(b => {
@@ -2506,7 +2509,7 @@ export default function EditorCanvas({
                         const by = b.y ?? 0;
                         const bw = Number(b.width) || 100;
                         const bh = measureBlockHeight(b);
-                        const needsPhoto = overlayDrag && !b.data.url;
+                        const needsPhoto = overlayDrag && !templateMode && !b.data.url;
                         const color = needsPhoto ? "#D4A843" : "#10B981";
                         return (
                           <div
@@ -2654,6 +2657,7 @@ export default function EditorCanvas({
             activeId={activeId}
             isOverCanvas={isOverCanvas}
             dropValid={dropValid}
+            templateMode={templateMode}
             paletteBlock={paletteBlock}
           />
         </DragOverlay>

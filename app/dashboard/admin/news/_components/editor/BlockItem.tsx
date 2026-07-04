@@ -25,7 +25,7 @@ import {
 import BlockItemHeader from "./BlockItemHeader";
 import BlockItemSnapGuide from "./BlockItemSnapGuide";
 import { useBlockResize } from "./hooks/useBlockResize";
-import { canvasHeight as innerCanvasHeight, parseBlocks as parseInnerBlocks, PREVIEW_CARD_WIDTH, PREVIEW_CARD_HEIGHT, FrameOverlay } from "@/lib/news/render";
+import { canvasHeight as innerCanvasHeight, parseBlocks as parseInnerBlocks, PREVIEW_CARD_WIDTH, PREVIEW_CARD_HEIGHT, FrameOverlay, parseImageOverlays } from "@/lib/news/render";
 
 // Мінімально-корисна висота блока в px по типу. Дзеркало MIN_H_BY_TYPE з
 // EditorCanvas (узгоджено з auto-fit для нових блоків з палітри). Без цього
@@ -603,6 +603,7 @@ export default function BlockItem({
             type={block.type}
             blockWidthPx={(Number(block.width) || 100) / 100 * containerWidthPx}
             blockHeightPx={typeof block.height === "number" ? block.height : 80}
+            overlaysRaw={block.type === "image" ? block.data.overlays : undefined}
           />
         ) : (
           <>
@@ -737,13 +738,60 @@ const TEMPLATE_PLACEHOLDER_LABELS: Record<string, { icon: string; label: string;
 };
 
 function TemplatePlaceholder({
-  type, blockWidthPx, blockHeightPx,
+  type, blockWidthPx, blockHeightPx, overlaysRaw,
 }: {
   type: string;
   blockWidthPx: number;
   blockHeightPx: number;
+  /** JSON-overlays блоку Фото. У шаблон-режимі рендеримо їх як слоти «Текст на
+   *  фото» поверх плейсхолдера — щоб менеджер бачив, що слот додано (текст
+   *  наповниться при створенні новини). */
+  overlaysRaw?: string | null;
 }) {
   const info = TEMPLATE_PLACEHOLDER_LABELS[type] || { icon: "■", label: type, color: "#1C3A2E", bg: "rgba(28,58,46,0.04)" };
+  // Слоти «Текст на фото» поверх Фото-плейсхолдера (тільки image має overlays).
+  const overlays = type === "image" ? parseImageOverlays(overlaysRaw) : [];
+  const overlaySlots = overlays.length > 0 ? (
+    <>
+      {overlays.map(ov => {
+        const hasSize = typeof ov.w === "number" && typeof ov.h === "number";
+        return (
+          <div
+            key={ov.id}
+            style={{
+              position: "absolute",
+              left: `${ov.x}%`,
+              top: `${ov.y}%`,
+              width: hasSize ? `${ov.w}%` : "auto",
+              height: hasSize ? `${ov.h}%` : "auto",
+              minHeight: 16,
+              boxSizing: "border-box",
+              border: "1.5px dashed #D4A843",
+              borderRadius: 4,
+              background: "rgba(212,168,67,0.12)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 4,
+              padding: "2px 6px",
+              color: "#8A6A1E",
+              fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
+              fontSize: 10,
+              fontWeight: 700,
+              letterSpacing: "0.02em",
+              lineHeight: 1.1,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              pointerEvents: "none",
+            }}
+          >
+            <span style={{ fontSize: 11 }}>T</span>
+            <span>{ov.text?.trim() ? ov.text : "Текст на фото"}</span>
+          </div>
+        );
+      })}
+    </>
+  ) : null;
   // Шрифт лінійно прив'язаний до ШИРИНИ блока — менеджер одразу бачить, як
   // текст вписується у конкретний блок. Кожен тип має свій множник, щоб у
   // референсному блоці 300px heading був більший за text. Окремо — жорсткі
@@ -818,10 +866,12 @@ function TemplatePlaceholder({
         lineHeight: 1.2,
         whiteSpace: "nowrap",
         overflow: "hidden",
+        position: "relative",
       }}
     >
       <span style={{ fontSize: iconFontPx, lineHeight: 1 }}>{info.icon}</span>
       {!hideLabel && <span>{info.label}</span>}
+      {overlaySlots}
     </div>
   );
 }
