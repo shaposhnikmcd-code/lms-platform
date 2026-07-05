@@ -338,7 +338,10 @@ export default function EditorCanvas({
       if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
       if (typeof document !== "undefined" && document.querySelector("[data-overlay-selected]")) return;
       e.preventDefault();
-      deleteBlock(selectedBlockId);
+      // Через ref: deleteBlock перестворюється на кожну зміну blocks
+      // (deps [initial]). Прямий виклик зі stale-closure видаляв блок зі
+      // СТАРОГО масиву → зміщення сусідів (drag/resize) мовчки відкочувалось.
+      deleteBlockRef.current(selectedBlockId);
       setSelectedBlockId(null);
     };
     window.addEventListener("keydown", handler);
@@ -353,6 +356,12 @@ export default function EditorCanvas({
     setPreviewY, clearPreviewY,
     setPreviewHeight, clearPreviewHeight, reportHeight,
   } = useBlockManager(blocks, onBlocksChange);
+
+  // Завжди-свіже дзеркало deleteBlock для keydown-handler-а (Delete/Backspace),
+  // ефект якого підписаний лише на [selectedBlockId, lockLayout] і інакше тримав
+  // би stale deleteBlock з застарілим blocks-масивом.
+  const deleteBlockRef = useRef(deleteBlock);
+  deleteBlockRef.current = deleteBlock;
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
@@ -1300,18 +1309,24 @@ export default function EditorCanvas({
         const hostW = Number(host.width) || 100;
         const hostY = host.y ?? 0;
         const hostH = measureBlockHeight(host);
-        const rawY = snapPx(cursorY - rect.top);
+        // rect — visual-px (getBoundingClientRect зазнає CSS zoom канвасу).
+        // Y блока зберігається у ЛОГІЧНИХ px, тож ділимо на displayScale
+        // (visual→logical). При zoom=1 — no-op. X у % — уже scale-independent.
+        const rawY = snapPx((cursorY - rect.top) / displayScale);
         const fit = findAvailableFitInColumn(hostX, hostW, rawY, estH, minH, {
           ignoreIds: new Set([host.id]),
           minY: hostY,
           maxY: hostY + hostH,
         });
         if (!fit) {
-          // host повний — ghost ховаємо, drop буде відхилений
+          // host повний — ghost ховаємо, drop буде відхилений у handleDragEnd.
+          // Скидаємо dropValid (був true на 1301) — інакше індикатор показує
+          // «✓ Відпустіть щоб додати», хоча drop не відбудеться.
           dropPreviewRef.current = null;
           setDropPreview(null);
           setAlignGuides([]);
           setSizeMatches([]);
+          setDropValid(false);
           return;
         }
         const final = { x: hostX, y: fit.y, width: hostW, height: fit.h };
@@ -1339,7 +1354,9 @@ export default function EditorCanvas({
         (templateMode && paletteTypeForW !== "divider") ? 40 :
         100;
       const xPx = cursorX - rect.left;
-      const yPx = cursorY - rect.top;
+      // yPx у ЛОГІЧНИХ px: rect — visual (CSS zoom), ділимо на displayScale.
+      // xPx лишаємо visual — воно йде лише у cursorXPct (частка, scale-independent).
+      const yPx = (cursorY - rect.top) / displayScale;
       const cursorXPct = (xPx / rect.width) * 100;
       const slot = findDropSlot(null, cursorXPct, yPx, defaultW);
       const clamped = clampXY(slot.x, slot.y, slot.width);
@@ -1364,10 +1381,12 @@ export default function EditorCanvas({
           // У template-режимі немає куди класти (column повний) → ховаємо ghost.
           // Drop і так буде відхилений у handleDragEnd; не показуємо misleading
           // preview на позиції курсора (наприклад, поверх Фото).
+          // Скидаємо dropValid (був true на 1247) — інакше «✓» показується дарма.
           dropPreviewRef.current = null;
           setDropPreview(null);
           setAlignGuides([]);
           setSizeMatches([]);
+          setDropValid(false);
           return;
         }
       }
@@ -1589,7 +1608,7 @@ export default function EditorCanvas({
         }
       }
     }
-  }, [blocks, canvasWidthPx, setPreview, setPreviewX, setPreviewY, clearPreview, clearPreviewX, clearPreviewY, detectAlignmentsAt, templateMode]);
+  }, [blocks, canvasWidthPx, setPreview, setPreviewX, setPreviewY, clearPreview, clearPreviewX, clearPreviewY, detectAlignmentsAt, templateMode, displayScale]);
 
   // Перевіряє чи позиція x/y/width+height перекриває якийсь блок (крім excludeId).
   function hasCollision(x: number, y: number, width: number, height: number, excludeId: string | null): boolean {
@@ -1773,7 +1792,8 @@ export default function EditorCanvas({
 
         const newId = uid();
         const x = preview?.x ?? 0;
-        const y = preview?.y ?? snapPx(cursorY - rect.top);
+        // Fallback Y у логічних px (rect visual через CSS zoom → /displayScale).
+        const y = preview?.y ?? snapPx((cursorY - rect.top) / displayScale);
         const newBlock: Block = {
           id: newId,
           type: "templateInstance",
@@ -1876,7 +1896,7 @@ export default function EditorCanvas({
       // щоб уникнути повторного fit-у нижче. null = звичайний flow.
       let specFitH: number | null = null;
       if (type === "divider") {
-        x = 0; y = snapPx(cursorY - rect.top); width = 100;
+        x = 0; y = snapPx((cursorY - rect.top) / displayScale); width = 100;
       } else if (specImageHost) {
         // Спецблок дропнутий на host (Фото або Пустий блок) — успадковуємо
         // x і width host-а. Y знаходимо у вільному gap-і всередині host-а
@@ -1888,7 +1908,7 @@ export default function EditorCanvas({
         width = Number(specImageHost.width) || 100;
         const hostY = specImageHost.y ?? 0;
         const hostH = measureBlockHeight(specImageHost);
-        const rawY = snapPx(cursorY - rect.top);
+        const rawY = snapPx((cursorY - rect.top) / displayScale);
         const minH = MIN_H_BY_TYPE[type] ?? 20;
         const fit = findAvailableFitInColumn(x, width, rawY, estH, minH, {
           ignoreIds: new Set([specImageHost.id]),
@@ -2046,7 +2066,7 @@ export default function EditorCanvas({
       clearPreviewX(o.id);
       clearPreviewY(o.id);
     }
-  }, [blocks, onBlocksChange, clearPreview, clearPreviewX, clearPreviewY, canvasHeight]);
+  }, [blocks, onBlocksChange, clearPreview, clearPreviewX, clearPreviewY, canvasHeight, displayScale]);
 
   const paletteBlock = (activeId?.startsWith("palette:") || activeId?.startsWith("news-card:") || activeId?.startsWith("template-expand:"))
     ? activePaletteRef.current
