@@ -318,13 +318,22 @@ export function useBlockResize({
     e.stopPropagation();
     const startY = e.clientY;
 
+    // CSS-aspect-lock (newsCard preview) має пріоритет над img-aspect — інакше
+    // resize рахує висоту з natural-aspect фото всередині шаблону, що не співпадає
+    // з CSS aspect-ratio 360:400 на wrapper-і, і ламає detectAlignmentsAt.
+    const hasCssAspectLock = widthAspectFactor > 0;
+
     // Детектуємо image-блок через сам DOM (а не aspectRatio) — це надійніше для SVG-лого
     // та інших фото без natural dimensions, де aspectRatio може бути 0.
+    // ⚠️ ВАЖЛИВО: CSS-aspect-locked блоки (newsCard preview) містять <img> усередині
+    // шаблону, але НЕ є image-блоками — без цього гейта нижній хендл падав у
+    // image-гілку і розтягував ВНУТРІШНЄ фото картки (objectFit:fill дисторсія)
+    // замість resize самого блока. Правий/діагональний хендли мають той самий гейт.
     const imgEl = blockRef.current?.querySelector("img") as HTMLImageElement | null;
-    const isImage = !!imgEl;
+    const isImage = !!imgEl && !hasCssAspectLock;
     const innerEl = blockRef.current?.firstElementChild as HTMLDivElement | null;
 
-    const startH: number = imgEl
+    const startH: number = isImage && imgEl
       ? (imgEl.getBoundingClientRect().height || imgEl.offsetHeight || 100)
       : (blockRef.current?.offsetHeight ?? 100);
 
@@ -335,10 +344,6 @@ export function useBlockResize({
       const h = imgEl.naturalHeight || imgEl.offsetHeight;
       if (w > 0 && h > 0) effectiveAspect = w / h;
     }
-    // CSS-aspect-lock (newsCard preview) має пріоритет над img-aspect — інакше
-    // resize рахує висоту з natural-aspect фото всередині шаблону, що не співпадає
-    // з CSS aspect-ratio 360:400 на wrapper-і, і ламає detectAlignmentsAt.
-    const hasCssAspectLock = widthAspectFactor > 0;
     const hasImageAspect = isImage && effectiveAspect > 0 && !hasCssAspectLock;
 
     let currentH = startH;
@@ -353,7 +358,10 @@ export function useBlockResize({
 
     // Для image-aspect-режиму ставимо resizingW (а не resizingH) — це переключить
     // displayPct на livePct, щоб у хедері відображався preview ширини під час drag-у.
-    if (!isImage) {
+    // CSS-aspect-lock (newsCard): нижній хендл теж керує шириною (висота йде за нею).
+    if (hasCssAspectLock) {
+      setResizingW(true);
+    } else if (!isImage) {
       setResizingH(true);
       setSnapGuideH(null);
     } else if (hasImageAspect) {
@@ -372,6 +380,34 @@ export function useBlockResize({
         rawH = Math.min(rawH, maxBlockHeight);
       }
       const freeMode = ev.shiftKey;
+
+      // CSS-aspect-locked (newsCard preview): висота жорстко йде за шириною
+      // (aspect-ratio на wrapper-і). Нижній хендл = пропорційний resize через
+      // ширину — дзеркало width-handle, курсор задає висоту → рахуємо ширину.
+      if (hasCssAspectLock) {
+        const pctRaw = (rawH / widthAspectFactor);
+        let snapped = Number(snapWidth(pctRaw));
+        const projectH = (pct: number): number => pct * widthAspectFactor;
+        const invertW = (h: number): number => h / widthAspectFactor;
+        if (!freeMode) {
+          const edgeSnap = findEdgeSnap({
+            rawWidth: snapped,
+            rawHeight: projectH(snapped),
+            widthFixed: false,
+            heightFixed: false,
+            invertHeightFromWidth: invertW,
+            projectHeightFromWidth: projectH,
+          });
+          if (edgeSnap.width !== undefined) {
+            snapped = Number(snapWidth(edgeSnap.width));
+          }
+        }
+        currentSnappedPct = snapped;
+        currentH = projectH(snapped);
+        setLivePct(snapped);
+        onPreviewWidth(blockId, snapped);
+        return;
+      }
 
       if (isImage && imgEl) {
         if (hasImageAspect && !freeMode) {
@@ -454,6 +490,18 @@ export function useBlockResize({
     };
 
     const onUp = () => {
+      // CSS-aspect-locked: комітимо ШИРИНУ — onSetWidth → BlockItem
+      // onSetWidthMarked сам перевизначить height через computeNewsCardPreviewHeight
+      // (та сама семантика, що у width-handle для цих блоків).
+      if (hasCssAspectLock) {
+        onSetWidth(blockId, snapWidth(currentSnappedPct));
+        onClearPreview(blockId);
+        onClearPreviewHeight(blockId);
+        setResizingW(false);
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+        return;
+      }
       let finalH = currentH;
       if (!isImage) {
         // currentH вже snapped через findEdgeSnap у onMove — додаткова passa
@@ -502,7 +550,7 @@ export function useBlockResize({
 
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
-  }, [aspectRatio, blockId, blockData, blockWidth, containerWidthPx, onSetWidthAndData, onPreviewWidth, onClearPreview, onPreviewHeight, onClearPreviewHeight, findEdgeSnap, minH, maxBlockHeight, widthAspectFactor]);
+  }, [aspectRatio, blockId, blockData, blockWidth, containerWidthPx, onSetWidth, onSetWidthAndData, onPreviewWidth, onClearPreview, onPreviewHeight, onClearPreviewHeight, findEdgeSnap, minH, maxBlockHeight, widthAspectFactor]);
 
   const startResizeDiagonal = useCallback((e: React.MouseEvent) => {
     e.preventDefault();

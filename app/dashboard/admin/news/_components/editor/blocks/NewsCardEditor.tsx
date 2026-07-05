@@ -117,6 +117,14 @@ export default function NewsCardEditor({ block, onChange, onSelectBlock }: Props
     <div
       data-no-block-drag
       style={{ width: "100%", height: "100%" }}
+      title="Подвійний клік — редагувати контент новини"
+      // Контент новини НЕ редагується у Білдері Сторінки (тут лише компонування
+      // карток). Раніше це був dead-end без жодної підказки: менеджер клікав по
+      // блоках всередині картки і нічого не відбувалось. Подвійний клік відкриває
+      // content-редактор новини у новій вкладці (білдер сторінки не втрачає стан).
+      onDoubleClick={() => {
+        if (newsId) window.open(`/dashboard/admin/news/${newsId}/template`, "_blank", "noopener");
+      }}
       onClickCapture={(e) => {
         const t = e.target as HTMLElement;
         // Прибираємо навігацію <a> (preventDefault), АЛЕ паралельно явно
