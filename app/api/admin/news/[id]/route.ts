@@ -112,6 +112,12 @@ export async function PATCH(
   for (const k of PATCHABLE_FIELDS) {
     if (k in data) patchData[k] = (data as Record<string, unknown>)[k];
   }
+  // Нормалізуємо порожню назву: whitespace-only ("  ") → "" щоб фільтр безіменних
+  // чернеток (app/api/admin/news/route.ts) її ловив. Інакше назва з пробілів
+  // оминала `title === ""` і фантом-чернетка поверталась у listing.
+  if (typeof patchData.title === "string" && patchData.title.trim() === "") {
+    patchData.title = "";
+  }
   Object.assign(patchData, translations);
   if (data.suspendedAt !== undefined) {
     patchData.suspendedAt = data.suspendedAt ? new Date(data.suspendedAt) : null;
@@ -143,6 +149,11 @@ export async function PATCH(
         { error: `Новина з таким значенням уже існує (${targets.join(", ") || "поле"}).` },
         { status: 409 }
       );
+    }
+    // P2025 — запис для update не знайдено (видалили паралельно). Це 404,
+    // не 500 — клієнт має оновити список, а не бачити «Помилка збереження».
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2025") {
+      return NextResponse.json({ error: "Новину не знайдено" }, { status: 404 });
     }
     console.error("[PATCH /api/admin/news/" + id + "] failed:", e);
     return NextResponse.json(
