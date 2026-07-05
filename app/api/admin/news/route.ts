@@ -25,7 +25,12 @@ export async function GET(req: NextRequest) {
   const typeParam = url.searchParams.get("type");
   const where =
     typeParam === "templates"
-      ? { isTemplate: true }
+      // Безіменні кастомні чернетки (parentTemplateId != null + порожня назва) —
+      // це недостворені шаблони (кнопка «Створити Новий Шаблон» одразу персистить
+      // копію дефолту; якщо менеджер кинув її не назвавши — лишається фантом-копія,
+      // схожа на дефолт). Ховаємо з УСІХ listing-ів (адмінка + page-builder).
+      // Дефолт-блупринти (parentTemplateId=null) мають назву → лишаються.
+      ? { isTemplate: true, NOT: { parentTemplateId: { not: null }, title: "" } }
       : typeParam === "template-news"
         ? { isTemplate: false, templateKind: { not: null } }
         : { isTemplate: false, templateKind: null };
