@@ -229,50 +229,13 @@ export default function EventTemplate({
                 />
               )}
             </>
-          ) : (
-            // Soft "no photo yet" стан — diagonal pinstripe + центрований icon.
-            <div
-              style={{
-                position: "absolute",
-                inset: 0,
-                backgroundImage:
-                  "repeating-linear-gradient(135deg, rgba(212,168,67,0.05) 0 12px, rgba(212,168,67,0) 12px 24px)",
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 8,
-              }}
-              aria-hidden
-            >
-              <div
-                style={{
-                  width: 56,
-                  height: 56,
-                  borderRadius: "50%",
-                  border: "1.5px dashed rgba(245,225,164,0.45)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  color: "rgba(245,225,164,0.6)",
-                  fontSize: 24,
-                }}
-              >
-                👤
-              </div>
-              <div
-                style={{
-                  fontSize: 10,
-                  fontWeight: 700,
-                  letterSpacing: "0.14em",
-                  textTransform: "uppercase",
-                  color: "rgba(245,225,164,0.55)",
-                }}
-              >
-                Фото фахівця
-              </div>
-            </div>
-          )}
+          ) : null
+          /* Публічний рендер (photoSlot відсутній) БЕЗ фото: показуємо чистий
+             темний панель (bg #1C3A2E + gradient + knee-блок), а НЕ editor-only
+             плейсхолдер «👤 Фото фахівця». Раніше діагональний бокс-плейсхолдер
+             витікав на /news і /news/{slug}. Editor-mode фото не доходить сюди
+             (там завжди photoSlot=ImageEditor з власним upload-affordance). */
+          }
 
           {/* Gradient overlay для читабельності тексту в нижній частині */}
           <div
