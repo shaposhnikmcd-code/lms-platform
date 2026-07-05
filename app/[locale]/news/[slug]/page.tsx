@@ -15,9 +15,12 @@ import {
   hasCoords,
   NEWS_BLOCK_CSS,
   parseBlocks,
+  PREVIEW_CARD_WIDTH,
+  PREVIEW_CARD_HEIGHT,
   repairBlocks,
   SequentialBlockRender,
 } from "@/lib/news/render";
+import PreviewCardScale from "@/lib/news/PreviewCardScale";
 import ArticleTemplate from "@/lib/news/templates/ArticleTemplate";
 import EventTemplate from "@/lib/news/templates/EventTemplate";
 import { parseTemplateData, type TemplateKind, type EventData } from "@/lib/news/templates/types";
@@ -108,6 +111,30 @@ export default async function NewsItemPage({ params, searchParams }: Props) {
     ? parseTemplateData(item.templateKind as TemplateKind, item.templateData)
     : null;
 
+  // Block-based template body (конструктор наповнення зберігає templateBlocks +
+  // templateCanvas, але НЕ синкає templateData). Пріоритет templateBlocks >
+  // templateData — саме так рендериться картка на /news (lib/news/render newsCard).
+  // Деталь-сторінка теж має рендерити блоки, коли вони є, інакше показує
+  // дефолтний скелет templateData з плейсхолдерами.
+  const parsedTemplateBlocks = isTemplateNews
+    ? parseBlocks(item.templateBlocks || "")
+    : { isJson: false, blocks: [] };
+  const hasTemplateBlocks = parsedTemplateBlocks.isJson && parsedTemplateBlocks.blocks.length > 0;
+  // Розмір canvas-у "WxH" з templateCanvas; fallback за kind (як у newsCard render).
+  let tplCanvasW = item.templateKind === "EVENT" ? 600 : PREVIEW_CARD_WIDTH;
+  let tplCanvasH = item.templateKind === "EVENT" ? 400 : PREVIEW_CARD_HEIGHT;
+  if (hasTemplateBlocks && item.templateCanvas) {
+    const m = item.templateCanvas.match(/^(\d+)x(\d+)$/);
+    if (m) {
+      const w = Number(m[1]);
+      const hh = Number(m[2]);
+      if (Number.isFinite(w) && Number.isFinite(hh) && w >= 60 && hh >= 60) {
+        tplCanvasW = w;
+        tplCanvasH = hh;
+      }
+    }
+  }
+
   let { isJson, blocks } = parseBlocks(localizedContent);
   // Якщо локалізована версія взагалі зламана — падаємо на UK-оригінал
   if (locale !== 'uk' && !isJson) {
@@ -160,7 +187,10 @@ export default async function NewsItemPage({ params, searchParams }: Props) {
         const eventCardWidth = isTemplateNews && item.templateKind === "EVENT" && templateData
           ? (templateData as EventData).cardWidth || 0
           : 0;
-        const pageMaxWidth = Math.max(CANVAS_WIDTH, eventCardWidth) + 64;
+        // Block-based шаблон рендериться у нативній ширині canvas-у (tplCanvasW),
+        // тож контейнер сторінки має її вмістити (як для legacy EVENT cardWidth).
+        const nativeTemplateWidth = hasTemplateBlocks ? tplCanvasW : eventCardWidth;
+        const pageMaxWidth = Math.max(CANVAS_WIDTH, nativeTemplateWidth) + 64;
         return (
       <div className="mx-auto py-10 px-4 md:px-0" style={{ maxWidth: `${pageMaxWidth}px` }}>
         <div
@@ -170,10 +200,35 @@ export default async function NewsItemPage({ params, searchParams }: Props) {
           {/* Template-render branch: рендериться повністю окремим компонентом
               з фіксованими слотами (object-fit:cover) — нічого не зміщується,
               hero/title/lead вже в розмітці шаблона. */}
-          {isTemplateNews && templateData && item.templateKind === "ARTICLE" && (
+          {/* Block-based шаблон (пріоритет): рендеримо templateBlocks через той
+              самий двіжок, що й картка на /news — точний WYSIWYG з білдером
+              наповнення. Native canvas WxH, PreviewCardScale масштабує під
+              ширину контейнера (і вниз на мобільному). */}
+          {isTemplateNews && hasTemplateBlocks && (
+            <div style={{ maxWidth: `${tplCanvasW}px`, marginLeft: "auto", marginRight: "auto" }}>
+              <PreviewCardScale baseWidth={tplCanvasW} baseHeight={tplCanvasH} initialScale={1}>
+                <div
+                  style={{
+                    position: "relative",
+                    width: tplCanvasW,
+                    height: tplCanvasH,
+                    background: item.pageBgColor || "#FFFFFF",
+                    overflow: "hidden",
+                  }}
+                >
+                  {parsedTemplateBlocks.blocks.map(b => (
+                    <AbsoluteBlockRender key={b.id} block={b} />
+                  ))}
+                </div>
+              </PreviewCardScale>
+            </div>
+          )}
+          {/* Legacy structured-render (fallback): лише коли block-based body
+              немає — старі шаблонні новини на templateData. */}
+          {isTemplateNews && !hasTemplateBlocks && templateData && item.templateKind === "ARTICLE" && (
             <ArticleTemplate data={templateData as import("@/lib/news/templates/types").ArticleData} />
           )}
-          {isTemplateNews && templateData && item.templateKind === "EVENT" && (
+          {isTemplateNews && !hasTemplateBlocks && templateData && item.templateKind === "EVENT" && (
             <EventTemplate
               data={templateData as EventData}
               maxWidth={(templateData as EventData).cardWidth || undefined}
