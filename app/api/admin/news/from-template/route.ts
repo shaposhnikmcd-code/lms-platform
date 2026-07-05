@@ -92,13 +92,17 @@ export async function POST(req: NextRequest) {
   // якщо менеджер кинув попередню не назвавши (Save заблоковано без назви), вона
   // лишалась фантом-копією й накопичувалась. Чистимо лише порожні (title="")
   // кастомні чернетки цього автора — названі/збережені не чіпаємо.
-  if (asBlueprint) {
+  // ⚠️ Recycle — ТІЛЬКИ author-scoped. Токен-ADMIN без email дає user=null; без
+  // фільтра authorId deleteMany знесла б УСІ безіменні чернетки під шаблоном
+  // (у т.ч. чужі, у т.ч. відкриту зараз кимось). Якщо автора не встановлено —
+  // не видаляємо нічого (краще лишити фантом-чернетку, ніж чужу втратити).
+  if (asBlueprint && user?.id) {
     await prisma.news.deleteMany({
       where: {
         isTemplate: true,
         parentTemplateId,
         title: "",
-        ...(user?.id ? { authorId: user.id } : {}),
+        authorId: user.id,
       },
     });
   }
@@ -120,6 +124,18 @@ export async function POST(req: NextRequest) {
         ((e.meta?.target as string[] | undefined) || []).includes("slug")
       ) {
         continue; // slug-колізія → новий суфікс
+      }
+      // FK-порушення (P2003) — parentTemplateId/authorId вказує на неіснуючий
+      // запис (напр. blueprint видалили паралельно). Це клієнтська помилка
+      // вхідних даних, не 500 — повертаємо 409 з чітким меседжем.
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === "P2003"
+      ) {
+        return NextResponse.json(
+          { error: "Шаблон-джерело більше не існує — оновіть сторінку" },
+          { status: 409 }
+        );
       }
       console.error("[POST /api/admin/news/from-template] create failed:", e);
       return NextResponse.json({ error: "Не вдалося створити запис із шаблону" }, { status: 500 });
