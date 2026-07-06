@@ -11,9 +11,14 @@ const isDev = process.env.NODE_ENV !== "production";
 const cspDirectives = [
   "default-src 'self'",
   `script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob:${isDev ? " 'unsafe-eval'" : ""} https://*.googletagmanager.com https://*.google-analytics.com https://vercel.live`,
-  "style-src 'self' 'unsafe-inline'",
+  // fonts.googleapis.com — stylesheet вибраних у білдері Google-шрифтів (Playfair/
+  // Lora/Oswald…). Рендериться і в admin-білдері, і на public /news
+  // (app/[locale]/news/layout.tsx). Без цього домену CSP блокував stylesheet і
+  // шрифт падав на fallback навіть у самому білдері.
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "img-src 'self' data: blob: https://res.cloudinary.com https://lh3.googleusercontent.com https://*.googletagmanager.com https://*.google-analytics.com https://flagcdn.com https://vercel.live",
-  "font-src 'self' data: https://vercel.live https://assets.vercel.com",
+  // fonts.gstatic.com — самі файли шрифтів (woff2), на які посилається stylesheet.
+  "font-src 'self' data: https://fonts.gstatic.com https://vercel.live https://assets.vercel.com",
   "connect-src 'self' blob: data: https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com https://res.cloudinary.com https://staticimgly.com https://vercel.live wss://ws-us3.pusher.com",
   "worker-src 'self' blob:",
   "child-src 'self' blob:",
