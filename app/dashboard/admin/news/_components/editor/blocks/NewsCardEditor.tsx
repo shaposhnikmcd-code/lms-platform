@@ -65,7 +65,7 @@ function toNewsListItem(it: LibraryNewsItem): NewsListItemForBlock {
   };
 }
 
-export default function NewsCardEditor({ block, onChange, onSelectBlock }: Props) {
+export default function NewsCardEditor({ block, onChange, selected, onSelectBlock }: Props) {
   void onChange; // sidebar прибрано — onChange не використовується
   const newsId = block.data.newsId || "";
   const [items, setItems] = useState<LibraryNewsItem[] | null>(null);
@@ -116,7 +116,7 @@ export default function NewsCardEditor({ block, onChange, onSelectBlock }: Props
     // Drag блока лишається доступний через виділений ⋮⋮ handle у top-left.
     <div
       data-no-block-drag
-      style={{ width: "100%", height: "100%" }}
+      style={{ width: "100%", height: "100%", position: "relative" }}
       title="Подвійний клік — редагувати контент новини"
       // Контент новини НЕ редагується у Білдері Сторінки (тут лише компонування
       // карток). Раніше це був dead-end без жодної підказки: менеджер клікав по
@@ -136,6 +136,42 @@ export default function NewsCardEditor({ block, onChange, onSelectBlock }: Props
         if (onSelectBlock) onSelectBlock(block.id);
       }}
     >
+      {/* Помітна кнопка редагування контенту новини — зʼявляється коли картку
+          виділено. Раніше єдиний спосіб (подвійний клік) був прихований у
+          тултипі. Відкриває content-редактор новини у новій вкладці (білдер
+          сторінки не втрачає стан). stopPropagation — щоб клік не знімав селект. */}
+      {selected && newsId && (
+        <button
+          type="button"
+          data-no-block-drag
+          onClick={(e) => { e.stopPropagation(); window.open(`/dashboard/admin/news/${newsId}/template`, "_blank", "noopener"); }}
+          onPointerDown={(e) => e.stopPropagation()}
+          title="Відкрити редактор контенту цієї новини"
+          style={{
+            position: "absolute",
+            top: 8,
+            right: 8,
+            zIndex: 20,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            height: 30,
+            padding: "0 12px",
+            borderRadius: 8,
+            border: "1px solid rgba(212,168,67,0.55)",
+            background: "#1C3A2E",
+            color: "#FAF6F0",
+            fontSize: 12,
+            fontWeight: 700,
+            fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
+            cursor: "pointer",
+            boxShadow: "0 2px 10px rgba(0,0,0,0.28)",
+            whiteSpace: "nowrap",
+          }}
+        >
+          ✏️ Редагувати новину
+        </button>
+      )}
       {isLoading ? (
         <div
           aria-label="Завантаження новини"
