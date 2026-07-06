@@ -30,7 +30,15 @@ async function translateString(text, lang) {
   return out;
 }
 
-const SKIP_KEYS = ['color', 'image', 'href', 'icon', 'number', 'rating', 'step', 'value', 'currency'];
+// Дзеркало lib/translate.ts SKIP_KEYS: структурні/enum/id/url-поля НЕ перекладаємо
+// (інакше DeepL псує PL-вирівнювання, enum-и, JSON-рядки, ламає URL/color/href).
+const SKIP_KEYS = [
+  'color', 'image', 'href', 'icon', 'number', 'rating', 'step', 'value', 'currency',
+  'url', 'src', 'embedUrl', 'videoUrl', 'imageUrl',
+  'align', 'vAlign', 'displayMode', 'objectFit', 'fontFamily', 'frameStyle', 'frameEffect',
+  'borderRadiusCorners', 'imgRadiusCorners', 'aspectRatio', 'level', 'templateKind',
+  'newsId', 'overlays', 'templateBlocks', 'templateData', 'templateCanvas',
+];
 function shouldSkip(_k, v) {
   if (typeof v !== 'string') return true;
   if (/^(https?:\/\/|\/|from-\[|#[0-9A-Fa-f]|\.webp|\.jpg|\.png|\.jpeg)/.test(v)) return true;
@@ -96,6 +104,28 @@ async function translateNewsContent(content, lang) {
   return JSON.stringify(applyTranslations(blocks, '', map, 'root'));
 }
 
+// Як translateNewsContent, але приймає array (templateBlocks) АБО object
+// (legacy templateData EventData/ArticleData).
+async function translateNewsJson(json, lang) {
+  if (!json) return json;
+  let parsed;
+  try { parsed = JSON.parse(json); } catch { return json; }
+  if (parsed === null || typeof parsed !== 'object') return json;
+  const strings = [];
+  const paths = [];
+  collectStrings(parsed, '', strings, paths, 'root');
+  if (!strings.length) return json;
+  const out = [];
+  const BATCH = 50;
+  for (let i = 0; i < strings.length; i += BATCH) {
+    const t = await translateBatch(strings.slice(i, i + BATCH), lang, true);
+    out.push(...t);
+  }
+  const map = new Map();
+  paths.forEach((p, i) => map.set(p, out[i]));
+  return JSON.stringify(applyTranslations(parsed, '', map, 'root'));
+}
+
 async function main() {
   const news = await prisma.news.findMany({
     where: {
@@ -105,6 +135,11 @@ async function main() {
         // previewContent: перекладаємо тільки якщо оригінал заданий і EN/PL ще нема.
         { AND: [{ NOT: { previewContent: null } }, { previewContentEn: null }] },
         { AND: [{ NOT: { previewContent: null } }, { previewContentPl: null }] },
+        // Шаблонний контент (лише публічні новини, не blueprints).
+        { AND: [{ isTemplate: false }, { NOT: { templateBlocks: null } }, { templateBlocksEn: null }] },
+        { AND: [{ isTemplate: false }, { NOT: { templateBlocks: null } }, { templateBlocksPl: null }] },
+        { AND: [{ isTemplate: false }, { NOT: { templateData: null } }, { templateDataEn: null }] },
+        { AND: [{ isTemplate: false }, { NOT: { templateData: null } }, { templateDataPl: null }] },
       ],
     },
   });
@@ -126,12 +161,25 @@ async function main() {
         ? await translateNewsContent(n.previewContent, 'pl')
         : (n.previewContentPl ?? null);
 
+      // Шаблонний контент — тільки для публічних новин (не blueprints).
+      const doTpl = !n.isTemplate;
+      const templateBlocksEn = doTpl && n.templateBlocks && !n.templateBlocksEn
+        ? await translateNewsJson(n.templateBlocks, 'en') : (n.templateBlocksEn ?? null);
+      const templateBlocksPl = doTpl && n.templateBlocks && !n.templateBlocksPl
+        ? await translateNewsJson(n.templateBlocks, 'pl') : (n.templateBlocksPl ?? null);
+      const templateDataEn = doTpl && n.templateData && !n.templateDataEn
+        ? await translateNewsJson(n.templateData, 'en') : (n.templateDataEn ?? null);
+      const templateDataPl = doTpl && n.templateData && !n.templateDataPl
+        ? await translateNewsJson(n.templateData, 'pl') : (n.templateDataPl ?? null);
+
       await prisma.news.update({
         where: { id: n.id },
         data: {
           titleEn, titlePl, excerptEn, excerptPl,
           contentEn, contentPl,
           previewContentEn, previewContentPl,
+          templateBlocksEn, templateBlocksPl,
+          templateDataEn, templateDataPl,
         },
       });
       console.log(`  ✓ updated`);

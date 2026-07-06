@@ -80,19 +80,27 @@ export async function PATCH(
     typeof data.title === "string" ||
     typeof data.excerpt === "string" ||
     typeof data.content === "string" ||
-    typeof data.previewContent === "string";
+    typeof data.previewContent === "string" ||
+    // Шаблонний контент теж перекладаємо: templateBlocks (block-based) — головне
+    // джерело тексту EVENT/ARTICLE-карток, templateData — legacy fallback. Без
+    // цього EN/PL-відвідувач бачив укр. текст картки (translateNewsAllLocales
+    // раніше не чіпав ці поля).
+    typeof data.templateBlocks === "string" ||
+    typeof data.templateData === "string";
 
   let translations = {};
   if (needsRetranslate) {
     const current = await prisma.news.findUnique({ where: { id } });
-    // Шаблони не публікуються — переклади їм не потрібні (та й placeholder-тексти
-    // у дужках типу "[Заголовок]" не варто гонити через DeepL).
+    // Шаблони (blueprints) не публікуються — переклади їм не потрібні (та й
+    // placeholder-тексти у дужках типу "[Заголовок]" не варто гонити через DeepL).
     if (current && !current.isTemplate) {
       translations = await translateNewsAllLocales({
         title: data.title ?? current.title,
         excerpt: data.excerpt ?? current.excerpt,
         content: data.content ?? current.content,
         previewContent: data.previewContent ?? current.previewContent,
+        templateBlocks: data.templateBlocks ?? current.templateBlocks,
+        templateData: data.templateData ?? current.templateData,
       });
     }
   }

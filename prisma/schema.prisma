@@ -628,12 +628,21 @@ model News {
   /// у lib/news/templates/types.ts (ArticleData / EventData). Якщо null —
   /// fallback на дефолти з blueprint-у того ж kind.
   templateData  String?
+  /// EN/PL-переклади templateData (DeepL, структуру обходить translateNewsJson,
+  /// зберігаючи url/color/href/value). null = fallback на UK-оригінал.
+  templateDataEn String?
+  templateDataPl String?
   /// Block-based template content (Session 3+ refactor). JSON-масив Block[]
   /// (типи у editor/types.ts + render.tsx). Заповнено у нових шаблонах-
   /// конструкторах; null = legacy form-based templateData.
   /// Public render: якщо є — рендериться через AbsoluteBlockRender в
   /// рамках canvas-у шаблону (600×400 EVENT / 360×400 ARTICLE).
   templateBlocks String?
+  /// EN/PL-переклади templateBlocks (текст блоків heading/text/quote/спецблоки).
+  /// Пріоритет рендера: templateBlocks(локаль) > templateData(локаль). null =
+  /// fallback на UK. Генеруються у translateNewsAllLocales при save новини.
+  templateBlocksEn String?
+  templateBlocksPl String?
   /// Розміри canvas-у шаблону (ширина × висота у px), зберігаються разом з
   /// templateBlocks щоб public render відтворював таку ж рамку як редактор.
   /// Формат: "WxH" (наприклад "600x400"). null = дефолт за templateKind.

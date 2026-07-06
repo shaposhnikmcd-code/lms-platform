@@ -107,8 +107,16 @@ export default async function NewsItemPage({ params, searchParams }: Props) {
   // Template-based news: render through dedicated template component instead
   // of free-canvas blocks. Skip the gradient hero (template has its own cover).
   const isTemplateNews = !!item.templateKind;
+  // Локалізований шаблонний контент (EN/PL переклади від translateNewsAllLocales;
+  // fallback на UK-оригінал). Без цього EN/PL-відвідувач бачив укр. текст картки.
+  const lcTemplateData = locale === "en" && item.templateDataEn ? item.templateDataEn
+    : locale === "pl" && item.templateDataPl ? item.templateDataPl
+    : item.templateData;
+  const lcTemplateBlocks = locale === "en" && item.templateBlocksEn ? item.templateBlocksEn
+    : locale === "pl" && item.templateBlocksPl ? item.templateBlocksPl
+    : item.templateBlocks;
   const templateData = isTemplateNews && item.templateKind
-    ? parseTemplateData(item.templateKind as TemplateKind, item.templateData)
+    ? parseTemplateData(item.templateKind as TemplateKind, lcTemplateData)
     : null;
 
   // Block-based template body (конструктор наповнення зберігає templateBlocks +
@@ -117,7 +125,7 @@ export default async function NewsItemPage({ params, searchParams }: Props) {
   // Деталь-сторінка теж має рендерити блоки, коли вони є, інакше показує
   // дефолтний скелет templateData з плейсхолдерами.
   const parsedTemplateBlocks = isTemplateNews
-    ? parseBlocks(item.templateBlocks || "")
+    ? parseBlocks(lcTemplateBlocks || "")
     : { isJson: false, blocks: [] };
   const hasTemplateBlocks = parsedTemplateBlocks.isJson && parsedTemplateBlocks.blocks.length > 0;
   // Розмір canvas-у "WxH" з templateCanvas; fallback за kind (як у newsCard render).

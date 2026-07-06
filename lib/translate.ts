@@ -81,7 +81,16 @@ function shouldSkip(key: string, value: string): boolean {
   return false;
 }
 
-const SKIP_KEYS = ['color', 'image', 'href', 'icon', 'number', 'rating', 'step', 'value', 'currency', 'url', 'src', 'embedUrl', 'videoUrl', 'imageUrl'];
+const SKIP_KEYS = [
+  'color', 'image', 'href', 'icon', 'number', 'rating', 'step', 'value', 'currency', 'url', 'src', 'embedUrl', 'videoUrl', 'imageUrl',
+  // News-block структурні/enum/id-поля — НЕ лінгвістичний контент. Без цього
+  // DeepL псував PL-рендер (align "center"→"środek" ламав вирівнювання,
+  // displayMode/objectFit-enum, fontFamily), а JSON-рядки (overlays, вкладені
+  // templateBlocks/templateData у templateInstance) перетворювались на сміття.
+  'align', 'vAlign', 'displayMode', 'objectFit', 'fontFamily', 'frameStyle', 'frameEffect',
+  'borderRadiusCorners', 'imgRadiusCorners', 'aspectRatio', 'level', 'templateKind',
+  'newsId', 'overlays', 'templateBlocks', 'templateData', 'templateCanvas',
+];
 
 function collectStrings(obj: unknown, key: string, strings: string[], paths: string[], currentPath: string): void {
   if (typeof obj === 'string') {
@@ -177,6 +186,25 @@ export async function translateNewsContent(content: string, targetLang: string):
     return JSON.stringify(translated);
   } catch {
     return content;
+  }
+}
+
+/**
+ * Translate an arbitrary JSON blob (array OR object) into the target locale.
+ * Used for template news: `templateBlocks` (Block[] array) and legacy
+ * `templateData` (EventData/ArticleData object). Walks the parsed structure with
+ * the same SKIP_KEYS/tag-handling logic as `translateNewsContent`, preserving
+ * url/color/href/value/enum fields. Returns the original on parse/DeepL failure.
+ */
+export async function translateNewsJson(json: string, targetLang: string): Promise<string> {
+  if (targetLang === 'uk' || !json) return json;
+  try {
+    const parsed = JSON.parse(json);
+    if (parsed === null || typeof parsed !== 'object') return json;
+    const translated = await translateObject(parsed, targetLang, true);
+    return JSON.stringify(translated);
+  } catch {
+    return json;
   }
 }
 

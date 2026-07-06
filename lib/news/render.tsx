@@ -334,11 +334,29 @@ export interface NewsListItemForBlock {
   /** Якщо задано — render-имо preview через TemplatePreviewCard замість блокового. */
   templateKind?: "ARTICLE" | "EVENT" | null;
   templateData?: string | null;
+  templateDataEn?: string | null;
+  templateDataPl?: string | null;
   /** Block-based template content (Session 3+). Якщо задано — рендериться
    *  через AbsoluteBlockRender у рамках templateCanvas, інакше fallback на
    *  legacy TemplatePreviewCard (structured EventData/ArticleData). */
   templateBlocks?: string | null;
+  templateBlocksEn?: string | null;
+  templateBlocksPl?: string | null;
   templateCanvas?: string | null;
+}
+
+/** Локалізований templateBlocks за locale з fallback на UK-оригінал. */
+export function localizedTemplateBlocks(item: NewsListItemForBlock, lc?: string): string | null | undefined {
+  return lc === "en" && item.templateBlocksEn ? item.templateBlocksEn
+    : lc === "pl" && item.templateBlocksPl ? item.templateBlocksPl
+    : item.templateBlocks;
+}
+
+/** Локалізований templateData за locale з fallback на UK-оригінал. */
+export function localizedTemplateData(item: NewsListItemForBlock, lc?: string): string | null | undefined {
+  return lc === "en" && item.templateDataEn ? item.templateDataEn
+    : lc === "pl" && item.templateDataPl ? item.templateDataPl
+    : item.templateData;
 }
 
 export interface OverlayShape {
@@ -935,10 +953,11 @@ export function BlockInner({
       }
 
       // ── EXPANDED (template-based) ──
-      if (displayMode === "expanded" && item.templateKind && item.templateData) {
+      const lcTplDataExpanded = localizedTemplateData(item, lc);
+      if (displayMode === "expanded" && item.templateKind && lcTplDataExpanded) {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { parseTemplateData } = require("./templates/types");
-        const tplData = parseTemplateData(item.templateKind, item.templateData);
+        const tplData = parseTemplateData(item.templateKind, lcTplDataExpanded);
         if (item.templateKind === "ARTICLE") {
           // eslint-disable-next-line @typescript-eslint/no-require-imports
           const ArticleTemplate = require("./templates/ArticleTemplate").default;
@@ -1010,8 +1029,9 @@ export function BlockInner({
       // Новий формат шаблонів: blocks JSON у item.templateBlocks + canvas
       // dimensions у item.templateCanvas. Рендериться через AbsoluteBlockRender
       // у рамках canvas-у — той самий двіжок що в білдері, тож точний WYSIWYG.
-      if (item.templateKind && item.templateBlocks) {
-        const tplBlocks = parseBlocks(item.templateBlocks);
+      const lcTemplateBlocks = localizedTemplateBlocks(item, lc);
+      if (item.templateKind && lcTemplateBlocks) {
+        const tplBlocks = parseBlocks(lcTemplateBlocks);
         if (tplBlocks.isJson && tplBlocks.blocks.length > 0) {
           // Розбираємо "WxH" з item.templateCanvas; fallback на дефолти за kind.
           const defaultDims = item.templateKind === "EVENT"
@@ -1090,14 +1110,15 @@ export function BlockInner({
       // TemplatePreviewCard (auto з templateData). Жодних блоків — фіксована форма.
       // Розміри картки: ARTICLE — портретна 360×400, EVENT — `data.cardWidth`×400
       // (горизонтальна 2-кол з фото фахівця + інфо; менеджер контролює ширину).
-      if (item.templateKind && item.templateData) {
+      const lcTplDataPreview = localizedTemplateData(item, lc);
+      if (item.templateKind && lcTplDataPreview) {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const TemplatePreviewCard = require("./templates/TemplatePreviewCard").default;
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { parseTemplateData } = require("./templates/types");
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { TEMPLATE_PREVIEW_DIMS: DIMS, getEventPreviewDims } = require("./templates/TemplatePreviewCard");
-        const data = parseTemplateData(item.templateKind, item.templateData);
+        const data = parseTemplateData(item.templateKind, lcTplDataPreview);
         const dims = item.templateKind === "EVENT"
           ? getEventPreviewDims(data)
           : (DIMS[item.templateKind] || { width: PREVIEW_CARD_WIDTH, height: PREVIEW_CARD_HEIGHT });

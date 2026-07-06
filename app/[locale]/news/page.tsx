@@ -73,10 +73,15 @@ export default async function NewsPage({ params }: { params: Promise<{ locale: s
     // lib/news/templates замість блокового renderer-а.
     templateKind: n.templateKind,
     templateData: n.templateData,
+    templateDataEn: n.templateDataEn,
+    templateDataPl: n.templateDataPl,
     // Block-based template render (Session 4): якщо templateBlocks непустий,
     // картка рендериться через AbsoluteBlockRender у рамках templateCanvas;
     // інакше fallback на legacy templateData → TemplatePreviewCard.
+    // *En/*Pl — локалізований текст карток (render обирає за locale).
     templateBlocks: n.templateBlocks,
+    templateBlocksEn: n.templateBlocksEn,
+    templateBlocksPl: n.templateBlocksPl,
     templateCanvas: n.templateCanvas,
   }));
 
