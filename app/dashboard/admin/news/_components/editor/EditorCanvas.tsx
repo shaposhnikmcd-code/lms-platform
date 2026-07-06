@@ -170,6 +170,14 @@ export default function EditorCanvas({
   // У fixedHeight-режимі drop-zone під контентом не потрібен — канвас не росте.
   const BOTTOM_SLACK_PX = fixedHeight ? 0 : (bottomSlack ?? 240);
   const [lastAddedId, setLastAddedId] = useState<string | null>(null);
+  // Контекстний фото-тулбар (🖼 Фото/Розгорнути/Заповнити/Розмір) порталиться у
+  // slot над канвасом (ImageEditor→PhotoFitControls). Для високих фото канвас
+  // довгий, і при скролі тулбар ішов угору за екран — менеджер думав, що його
+  // взагалі немає. toolbarPinned → фіксуємо його top-center, щоб завжди був під
+  // рукою. CSS sticky тут не працює: слот у контейнері з overflowX:auto
+  // (→ overflowY:auto), який стає нескрольним sticky-контекстом.
+  const toolbarSentinelRef = useRef<HTMLDivElement>(null);
+  const [toolbarPinned, setToolbarPinned] = useState(false);
   const setSelectedBlockId = (next: string | null | ((prev: string | null) => string | null)) => {
     if (typeof next === "function") {
       onSelectBlock(next(selectedBlockId));
@@ -318,6 +326,30 @@ export default function EditorCanvas({
       window.removeEventListener("resize", updateCanvasRect);
     };
   }, [updateCanvasRect]);
+
+  // Пін фото-тулбара: коли sentinel (природна позиція слота) виходить за верх
+  // в'юпорта І слот має контент (вибрано фото) — фіксуємо тулбар угорі екрана.
+  // scroll з capture=true ловить скрол будь-якого контейнера; MutationObserver —
+  // появу/зникнення порталеного тулбара при зміні виділення.
+  useEffect(() => {
+    const slot = document.getElementById("news-canvas-context-toolbar-slot");
+    const check = () => {
+      const sentinel = toolbarSentinelRef.current;
+      const has = !!slot && slot.childElementCount > 0;
+      if (!sentinel || !has) { setToolbarPinned(false); return; }
+      setToolbarPinned(sentinel.getBoundingClientRect().top < 8);
+    };
+    check();
+    window.addEventListener("scroll", check, true);
+    window.addEventListener("resize", check);
+    const mo = slot ? new MutationObserver(check) : null;
+    if (mo && slot) mo.observe(slot, { childList: true });
+    return () => {
+      window.removeEventListener("scroll", check, true);
+      window.removeEventListener("resize", check);
+      mo?.disconnect();
+    };
+  }, []);
 
   useEffect(() => {
     if (!lastAddedId) return;
@@ -2225,19 +2257,29 @@ export default function EditorCanvas({
                 {canvasTopToolbar}
               </div>
             )}
+            {/* Sentinel — маркер природної позиції тулбар-слота. Коли він іде за
+                верх екрана (скрол високого фото) → пін тулбара. */}
+            <div ref={toolbarSentinelRef} style={{ width: "100%", height: 0 }} />
             {/* Слот для контекстного toolbar-а виділеного блока (наприклад,
                 контролі fit/scale у image-блоку). Блок-редактор портал-ить сюди
-                свій toolbar — він зʼявляється над канвасом, по його ширині. */}
+                свій toolbar — він зʼявляється над канвасом, по його ширині.
+                toolbarPinned → фіксуємо top-center щоб не зникав при скролі. */}
             <div
               id="news-canvas-context-toolbar-slot"
               style={{
-                width: `${VISIBLE_WRAPPER_W}px`,
+                width: toolbarPinned ? "auto" : `${VISIBLE_WRAPPER_W}px`,
                 minHeight: 0,
                 display: "flex",
                 justifyContent: "center",
-                marginBottom: 8,
+                marginBottom: toolbarPinned ? 0 : 8,
+                ...(toolbarPinned
+                  ? { position: "fixed", top: 8, left: "50%", transform: "translateX(-50%)", zIndex: 45 }
+                  : {}),
               }}
             />
+            {/* Спейсер — коли тулбар зафіксовано (out of flow), тримає висоту,
+                щоб канвас не стрибнув угору на висоту тулбара (44 + 8 margin). */}
+            {toolbarPinned && <div style={{ height: 52, flexShrink: 0 }} />}
             <div
               onClick={(e) => { if (e.target === e.currentTarget) setSelectedBlockId(null); }}
               style={{
