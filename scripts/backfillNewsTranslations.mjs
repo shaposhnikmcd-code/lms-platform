@@ -1,6 +1,23 @@
-// One-shot backfill: translate every existing news row that is missing
-// EN/PL fields. Run with: node scripts/backfillNewsTranslations.mjs
-import prisma from './_db.mjs';
+// One-shot backfill: translate every existing news row that is missing EN/PL
+// fields (title/excerpt/content/previewContent + templateBlocks/templateData).
+//
+// Targets the DEV Neon branch by default (як усі scripts/ через .env.local override).
+//   node scripts/backfillNewsTranslations.mjs
+// Для ПРОДА (свідома мутація) — прапор --prod: НЕ вантажимо .env.local, тож
+// лишається .env, який @prisma/client auto-load-ить = прод-URL:
+//   node scripts/backfillNewsTranslations.mjs --prod
+// Скрипт ЗАВЖДИ друкує хост цільової БД перед роботою — щоб не сплутати dev/pre/prod.
+import { PrismaClient } from '@prisma/client';
+import { config } from 'dotenv';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
+
+const USE_PROD = process.argv.includes('--prod');
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+// dev default: .env.local override (як scripts/_db.mjs). --prod: пропускаємо
+// .env.local → @prisma/client auto-loaded .env (прод) лишається чинним.
+if (!USE_PROD) config({ path: resolve(root, '.env.local'), override: true });
+const prisma = new PrismaClient();
 
 const DEEPL_API_URL = 'https://api-free.deepl.com/v2/translate';
 
@@ -127,6 +144,9 @@ async function translateNewsJson(json, lang) {
 }
 
 async function main() {
+  const dbHost = (process.env.DATABASE_URL || '').match(/@([^/:?]+)/)?.[1] || 'unknown';
+  console.log(`[backfill] target DB host: ${dbHost} ${USE_PROD ? '(--prod)' : '(dev default)'}`);
+
   const news = await prisma.news.findMany({
     where: {
       OR: [
