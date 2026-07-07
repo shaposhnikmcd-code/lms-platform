@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { NewsMeta } from "../_components/editor/types";
 import { TEMPLATE_PALETTE_BLOCKS } from "../_components/editor/BlockPalette";
+import { bustNewsLibraryCache } from "../_components/editor/blocks/NewsCardEditor";
 
 // Білдер сторінки /news. Reuses NewsEditor у режимі mode="page":
 //  - права колонка — NewsLibrarySidebar (драг-картки опублікованих новин)
@@ -98,6 +99,16 @@ export default function NewsPageBuilder() {
   const [pageWidth, setPageWidth] = useState<number>(DEFAULT_PAGE_WIDTH);
 
   // Header-hide логіка перенесена у NewsEditor (централізовано для всіх білдерів).
+
+  // Повернулись із редактора контенту новини (?refresh=1) — скидаємо module-level
+  // кеш бібліотеки, щоб newsCard-блоки перефетчили свіжі дані й одразу показали
+  // щойно збережений контент (без 30s TTL-затримки). Робимо ДО mount блоків
+  // (page ще у loading-стані), тож перший фетч блока вже піде за свіжими даними.
+  useEffect(() => {
+    if (typeof window !== "undefined" && new URLSearchParams(window.location.search).has("refresh")) {
+      bustNewsLibraryCache();
+    }
+  }, []);
 
   useEffect(() => {
     fetch("/api/admin/news/page-content")

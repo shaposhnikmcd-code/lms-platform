@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Block } from "../types";
 import { BlockInner, type NewsListItemForBlock } from "@/lib/news/render";
 import type { LibraryNewsItem } from "../NewsLibrarySidebar";
@@ -31,6 +32,13 @@ interface Props {
 // Простий cache на рівні модуля — щоб не фетчити library двічі для кожного блока.
 let libCache: { items: LibraryNewsItem[]; ts: number } | null = null;
 const LIB_TTL = 30_000;
+
+// Скидання module-level кешу бібліотеки. Викликається page-builder-ом при
+// поверненні з редактора новини (?refresh=1) — щоб картка одразу показала
+// щойно збережений контент, не чекаючи 30s TTL.
+export function bustNewsLibraryCache() {
+  libCache = null;
+}
 
 async function fetchLibrary(opts?: { bypassCache?: boolean }): Promise<LibraryNewsItem[]> {
   if (!opts?.bypassCache && libCache && Date.now() - libCache.ts < LIB_TTL) return libCache.items;
@@ -67,7 +75,14 @@ function toNewsListItem(it: LibraryNewsItem): NewsListItemForBlock {
 
 export default function NewsCardEditor({ block, onChange, selected, onSelectBlock }: Props) {
   void onChange; // sidebar прибрано — onChange не використовується
+  const router = useRouter();
   const newsId = block.data.newsId || "";
+  // Перехід у редактор контенту новини — тією ж вкладкою, з міткою return, щоб
+  // «назад» (DashboardBackButton) і авто-повернення після Збереження вели саме
+  // на Білдер Сторінки, а не на список новин.
+  const openNewsEditor = () => {
+    if (newsId) router.push(`/dashboard/admin/news/${newsId}/template?return=page-builder`);
+  };
   const [items, setItems] = useState<LibraryNewsItem[] | null>(null);
   // retryDone — true після додаткового bypass-cache фетча, коли newsId не
   // знайдено у першому resolve. Без цього стало можливо, що newsCard drag-ався
@@ -121,10 +136,8 @@ export default function NewsCardEditor({ block, onChange, selected, onSelectBloc
       // Контент новини НЕ редагується у Білдері Сторінки (тут лише компонування
       // карток). Раніше це був dead-end без жодної підказки: менеджер клікав по
       // блоках всередині картки і нічого не відбувалось. Подвійний клік відкриває
-      // content-редактор новини у новій вкладці (білдер сторінки не втрачає стан).
-      onDoubleClick={() => {
-        if (newsId) window.open(`/dashboard/admin/news/${newsId}/template`, "_blank", "noopener");
-      }}
+      // content-редактор новини тією ж вкладкою; після Збереження — авто-повернення.
+      onDoubleClick={openNewsEditor}
       onClickCapture={(e) => {
         const t = e.target as HTMLElement;
         // Прибираємо навігацію <a> (preventDefault), АЛЕ паралельно явно
@@ -138,13 +151,14 @@ export default function NewsCardEditor({ block, onChange, selected, onSelectBloc
     >
       {/* Помітна кнопка редагування контенту новини — зʼявляється коли картку
           виділено. Раніше єдиний спосіб (подвійний клік) був прихований у
-          тултипі. Відкриває content-редактор новини у новій вкладці (білдер
-          сторінки не втрачає стан). stopPropagation — щоб клік не знімав селект. */}
+          тултипі. Відкриває content-редактор новини тією ж вкладкою; після
+          Збереження — авто-повернення на Білдер Сторінки. stopPropagation —
+          щоб клік не знімав селект. */}
       {selected && newsId && (
         <button
           type="button"
           data-no-block-drag
-          onClick={(e) => { e.stopPropagation(); window.open(`/dashboard/admin/news/${newsId}/template`, "_blank", "noopener"); }}
+          onClick={(e) => { e.stopPropagation(); openNewsEditor(); }}
           onPointerDown={(e) => e.stopPropagation()}
           title="Відкрити редактор контенту цієї новини"
           style={{

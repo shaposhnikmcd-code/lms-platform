@@ -96,6 +96,10 @@ export default function TemplateConstructor({
   // НАПОВНЮЄ блоки контентом (inline editors замість placeholder-ів). Canvas
   // не змінюється (успадковує розмір шаблону). Default=false (blueprint design).
   isContentMode = false,
+  // Куди повертати після Збереження / «назад». Передається коли редактор
+  // відкрито з Білдера Сторінки — тоді після Save одразу повертаємось туди
+  // (авто-повернення), а не лишаємось у редакторі. undefined = дефолт (список).
+  returnHref,
 }: {
   newsId: string;
   templateKind: "ARTICLE" | "EVENT";
@@ -105,10 +109,14 @@ export default function TemplateConstructor({
   initialCanvas: { width: number; height: number };
   pageBgColor: string;
   isContentMode?: boolean;
+  returnHref?: string;
 }) {
   const router = useRouter();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  // id блоків, які сервер позначив як незаповнені (422 UNFILLED_PLACEHOLDERS) —
+  // EditorCanvas підсвітить їх червоним. Очищається при успішному Save.
+  const [unfilledBlockIds, setUnfilledBlockIds] = useState<string[]>([]);
   // Live-стан розмірів канвасу. Змінюється і через corner drag-handle (EditorCanvas),
   // і через інпути W/H у верхньому label-у. Зберігається debounce-нуто 600ms.
   const [canvasSize, setCanvasSize] = useState(initialCanvas);
@@ -126,7 +134,10 @@ export default function TemplateConstructor({
   // initialMeta.title, бо meta-сайдбар прихований).
   const [title, setTitle] = useState(initialTitle);
 
-  const onBack = useCallback(() => router.push("/dashboard/admin/news"), [router]);
+  const onBack = useCallback(
+    () => router.push(returnHref || "/dashboard/admin/news"),
+    [router, returnHref],
+  );
 
   // Debounced persist розміру канвасу — окремий PATCH тільки `templateCanvas`.
   // Запит шлеться лише через 600ms тиші, щоб live drag не спамив сервер.
@@ -228,8 +239,23 @@ export default function TemplateConstructor({
         });
         if (!res.ok) {
           const j = await res.json().catch(() => ({}));
+          // 422 UNFILLED_PLACEHOLDERS повертає issues з blockId — підсвічуємо ці
+          // блоки червоним на канвасі, щоб менеджер одразу побачив який заповнити.
+          if (j?.code === "UNFILLED_PLACEHOLDERS" && Array.isArray(j.issues)) {
+            setUnfilledBlockIds(
+              j.issues
+                .map((i: { blockId?: string }) => i.blockId)
+                .filter((id: unknown): id is string => typeof id === "string")
+            );
+          }
           throw new Error(j?.error || `HTTP ${res.status}`);
         }
+        // Успіх — прибираємо підсвічування незаповнених блоків.
+        setUnfilledBlockIds([]);
+        // Відкрито з Білдера Сторінки — після успішного Save одразу повертаємось
+        // туди (?refresh=1 скине кеш бібліотеки → картка покаже свіжий контент).
+        // Це і є «вніс правки → одним кроком назад».
+        if (returnHref) router.push(returnHref);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Помилка збереження");
         throw e;
@@ -237,7 +263,7 @@ export default function TemplateConstructor({
         setSaving(false);
       }
     },
-    [newsId, canvasSize, title, isContentMode]
+    [newsId, canvasSize, title, isContentMode, returnHref, router]
   );
 
   return (
@@ -288,6 +314,7 @@ export default function TemplateConstructor({
         // тільки наповнює існуючі блоки контентом. Кнопка «Розблокувати блоки»
         // знімає блокування тимчасово — менеджер може вільно тягати/ресайзити.
         lockLayout={isContentMode && !layoutUnlocked}
+        unfilledBlockIds={unfilledBlockIds}
         onCanvasResize={(isContentMode && !layoutUnlocked) ? undefined : handleCanvasResize}
         canvasMinWidth={CANVAS_MIN_W}
         canvasMaxWidth={CANVAS_MAX_W}

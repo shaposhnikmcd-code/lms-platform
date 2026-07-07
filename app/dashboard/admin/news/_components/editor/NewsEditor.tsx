@@ -142,6 +142,10 @@ interface BaseProps {
    *  заданий шаблоном. Включається у TemplateConstructor для News з блочного
    *  шаблону (isContentMode=true). */
   lockLayout?: boolean;
+  /** id блоків, які треба підсвітити як «незаповнені» (після невдалої публікації
+   *  через unfilled-плейсхолдери). Пробрасується до EditorCanvas → AbsoluteBlock,
+   *  який малює червоний outline. Очищається на наступному успішному Save. */
+  unfilledBlockIds?: string[];
   /** Live-callback при ресайзі канвасу через corner-handle. Якщо задано —
    *  EditorCanvas рендерить bottom-right handle. Використовується TemplateConstructor-ом
    *  для зберігання нового розміру в `News.templateCanvas`. */
@@ -760,6 +764,7 @@ export default function NewsEditor(props: Props) {
                 extraPaletteBlocksTitle={props.extraPaletteBlocksTitle}
                 templateMode={props.templateMode}
                 lockLayout={props.lockLayout}
+                unfilledBlockIds={props.unfilledBlockIds}
                 onCanvasResize={props.onCanvasResize}
                 canvasMinWidth={props.canvasMinWidth}
                 canvasMaxWidth={props.canvasMaxWidth}

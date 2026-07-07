@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import { translateNewsAllLocales } from "@/lib/translateNews";
 import { isAdmin } from "@/lib/adminAuth";
-import { findUnfilledPlaceholders } from "@/lib/news/placeholderCheck";
+import { findUnfilledPlaceholders, describeUnfilled } from "@/lib/news/placeholderCheck";
 
 export async function GET(
   req: NextRequest,
@@ -59,10 +59,12 @@ export async function PATCH(
         const tb = data.templateBlocks ?? current.templateBlocks;
         const issues = findUnfilledPlaceholders(td, tb);
         if (issues.length > 0) {
-          const samples = issues.slice(0, 3).map(i => `«${i.sample}»`).join(", ");
+          // describeUnfilled групує issues у читабельний текст БЕЗ HTML
+          // («2 «Заголовок», 1 «Цитата»») — єдине джерело тексту помилки.
+          const samples = describeUnfilled(issues);
           return NextResponse.json(
             {
-              error: `Не можу опублікувати — у новині залишились незаповнені плейсхолдери шаблону: ${samples}. Заповніть поля у формі-редакторі.`,
+              error: `Не можу опублікувати — є незаповнені блоки: ${samples}. Заповніть їх власним текстом або видаліть (кнопка «Розблокувати блоки» → виділити блок → Delete), тоді збережіть знову.`,
               code: "UNFILLED_PLACEHOLDERS",
               issues,
             },

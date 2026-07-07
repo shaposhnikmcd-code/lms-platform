@@ -77,6 +77,18 @@ export default function TemplateEditorPage() {
   const [row, setRow] = useState<NewsRow | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
+  // Куди повертати після Збереження / «назад». Заповнюється коли редактор
+  // відкрито з Білдера Сторінки (?return=page-builder) — тоді і back-button, і
+  // авто-повернення ведуть на page-builder (з ?refresh=1 щоб картка оновилась),
+  // а не на список новин. undefined = дефолтна поведінка (список).
+  const [returnHref, setReturnHref] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    if (typeof window !== "undefined"
+      && new URLSearchParams(window.location.search).get("return") === "page-builder") {
+      setReturnHref("/dashboard/admin/news/page-builder?refresh=1");
+    }
+  }, []);
 
   useEffect(() => {
     if (!id) return;
@@ -124,6 +136,7 @@ export default function TemplateEditorPage() {
         initialCanvas={canvas}
         pageBgColor={row.pageBgColor || ""}
         isContentMode={!row.isTemplate}
+        returnHref={returnHref}
       />
     );
   }

@@ -90,6 +90,12 @@ const SKIP_KEYS = [
   'align', 'vAlign', 'displayMode', 'objectFit', 'fontFamily', 'frameStyle', 'frameEffect',
   'borderRadiusCorners', 'imgRadiusCorners', 'aspectRatio', 'level', 'templateKind',
   'newsId', 'overlays', 'templateBlocks', 'templateData', 'templateCanvas',
+  // Block identity/enum: без 'type' DeepL перекладав тип блока ("heading"→
+  // "nagłówek") → PL-рендер не впізнавав блок і не показував його. 'id' —
+  // структурний ключ блока. 'cardAlign' — enum вирівнювання картки.
+  'type', 'id', 'cardAlign',
+  // Кольори (hex) та URL-поля card/спецблоків — не лінгвістичний контент.
+  'bgColor', 'textColor', 'buttonBg', 'buttonColor', 'buttonHref', 'ctaHref', 'bgImage',
 ];
 
 function collectStrings(obj: unknown, key: string, strings: string[], paths: string[], currentPath: string): void {

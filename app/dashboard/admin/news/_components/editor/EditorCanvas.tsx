@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useRef, useState, useEffect, useCallback, useContext } from "react";
+import React, { useRef, useState, useEffect, useCallback, useContext, useMemo } from "react";
 import { NewsEditorUIContext } from "./NewsEditor";
 import { DndContext, DragOverlay, useDraggable } from "@dnd-kit/core";
 import { PointerSensor, useSensor, useSensors, DragStartEvent, DragEndEvent, DragMoveEvent } from "@dnd-kit/core";
@@ -99,6 +99,9 @@ interface Props {
   /** Layout lock: drag-and-resize вимкнено. Блоки заморожені у позиціях/розмірах
    *  заданих шаблоном; менеджер тільки наповнює контентом (текст/фото). */
   lockLayout?: boolean;
+  /** id блоків, які треба підсвітити як «незаповнені» (після невдалої публікації).
+   *  AbsoluteBlock малює червоний outline навколо таких блоків. */
+  unfilledBlockIds?: string[];
   /** Live-callback при ресайзі канвасу (corner drag-handle). Викликається з
    *  кінцевими розмірами (snapped, clamped) під час руху. Якщо не задано —
    *  handle не рендериться. Використовується TemplateConstructor-ом. */
@@ -143,6 +146,7 @@ export default function EditorCanvas({
   fixedHeight,
   templateMode,
   lockLayout,
+  unfilledBlockIds,
   onCanvasResize,
   canvasMinWidth = 240,
   canvasMaxWidth = 1200,
@@ -155,6 +159,8 @@ export default function EditorCanvas({
   displayBaseWidth,
 }: Props) {
   const { hideFrames } = useContext(NewsEditorUIContext);
+  // Set id-шників незаповнених блоків — для червоного outline у AbsoluteBlock.
+  const unfilledSet = useMemo(() => new Set(unfilledBlockIds || []), [unfilledBlockIds]);
   // Локальні константи (були module-scope) тепер залежать від props.
   const PAGE_WIDTH = canvasWidth ?? CANVAS_WIDTH;
   // Базова видима ширина «паперу» в білдері. Якщо caller не передав — рендеримо
@@ -2531,6 +2537,7 @@ export default function EditorCanvas({
                       }}
                       isActive={activeId === block.id}
                       selected={selectedBlockId === block.id}
+                      unfilled={unfilledSet.has(block.id)}
                       onSelect={(id) => setSelectedBlockId(id)}
                       scrollCompensation={activeId === block.id ? scrollCompensation : 0}
                       maxBlockHeight={
@@ -2941,6 +2948,9 @@ function AbsoluteBlock(props: {
    *  до найближчого краю сусіда. rowHeights — окремо, для legacy "= H" badge. */
   getEdgeSnapTargets: () => { yEdges: number[]; xEdges: number[]; rowHeights: number[] };
   selected: boolean;
+  /** Блок незаповнений (unfilled-плейсхолдер) — малюємо червоний outline навколо
+   *  нього після невдалої публікації, щоб менеджер одразу побачив який заповнити. */
+  unfilled?: boolean;
   onSelect: (id: string) => void;
   /** Пікс. компенсація скролу під час drag — додається до transform.y щоб блок
    *  залишався під курсором коли юзер скролить колесом без руху мишки. */
@@ -2965,7 +2975,7 @@ function AbsoluteBlock(props: {
    *  від курсора у режимах де canvas-grid має zoom!=1 (page-builder slider). */
   zoomScale?: number;
 }) {
-  const { block, x, y, widthPct, lastAddedId, previewHeight, isActive, canvasWidthPx, selected, scrollCompensation = 0, maxBlockHeight, fixedHeight, isResizing = false, templateMode = false, lockLayout = false, zoomScale = 1 } = props;
+  const { block, x, y, widthPct, lastAddedId, previewHeight, isActive, canvasWidthPx, selected, unfilled = false, scrollCompensation = 0, maxBlockHeight, fixedHeight, isResizing = false, templateMode = false, lockLayout = false, zoomScale = 1 } = props;
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: block.id });
 
   // Компенсація CSS zoom предка: screen-px delta від dnd-kit → логічні-px
@@ -3112,7 +3122,14 @@ function AbsoluteBlock(props: {
         // абсолютні діви). Outline + borderRadius прибрані, бо рамка з власним
         // радіусом 12px заважала зчитати фактичну форму блока (наприклад, коли
         // у блока заокруглені лише ліві кути — рамка лишалася круглою з усіх).
-        outline: "none",
+        //
+        // Виняток — «незаповнений» блок (unfilled): після невдалої публікації
+        // малюємо червоний outline + м'яке світіння навколо, щоб менеджер одразу
+        // побачив який блок треба заповнити. Тимчасовий error-стан (зникає на
+        // наступному Save), тож прямокутний outline (без урахування радіусу) — ок.
+        outline: unfilled ? "2px solid #DC2626" : "none",
+        outlineOffset: unfilled ? 3 : 0,
+        boxShadow: unfilled ? "0 0 0 4px rgba(220,38,38,0.14)" : undefined,
         borderRadius: 0,
         // Cursor "grab" як affordance що блок можна тягати з будь-якого місця.
         // Дочірні contenteditable/input/button мають свої cursors → не перекривається.

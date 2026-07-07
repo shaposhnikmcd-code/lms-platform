@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { HiArrowUturnLeft } from "react-icons/hi2";
@@ -20,6 +21,16 @@ export default function DashboardBackButton() {
   const role = session?.user?.role;
   const roleHome = role ? ROLE_HOME[role] : null;
 
+  // Контекстне повернення: якщо редактор новини відкрито з Білдера Сторінки
+  // (?return=page-builder), «назад» веде саме туди (з ?refresh=1 щоб картка
+  // оновилась), а не на список новин. Читаємо з window.location у effect
+  // (не useSearchParams) — щоб не тягти Suspense-межу в layout.
+  const [returnTarget, setReturnTarget] = useState<string | null>(null);
+  useEffect(() => {
+    const r = new URLSearchParams(window.location.search).get("return");
+    setReturnTarget(r === "page-builder" ? "/dashboard/admin/news/page-builder?refresh=1" : null);
+  }, [pathname]);
+
   const ROLE_ROOTS = ["/dashboard", "/dashboard/admin", "/dashboard/manager"];
   const normalized = pathname.replace(/\/$/, "");
   const isRoot = ROLE_ROOTS.includes(normalized);
@@ -29,6 +40,10 @@ export default function DashboardBackButton() {
     isRoot && !!roleHome && normalized !== "/dashboard" && normalized !== roleHome;
 
   const handleClick = () => {
+    if (returnTarget) {
+      router.push(returnTarget);
+      return;
+    }
     if (isRoot) {
       if (onForeignRoleRoot) {
         router.push(roleHome!);
@@ -53,7 +68,9 @@ export default function DashboardBackButton() {
     router.push(parentPath);
   };
 
-  const label = isRoot
+  const label = returnTarget
+    ? "До Білдера Сторінки"
+    : isRoot
     ? onForeignRoleRoot
       ? role === "ADMIN"
         ? "До адмінки"
