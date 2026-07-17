@@ -166,8 +166,9 @@ export default async function AdminYearlyProgramPage() {
     let pendingLabel: string | null = null;
     let pendingTone: 'neutral' | 'reject' | null = null;
     if (s.status === 'PENDING') {
-      if (isCarryover) {
-        // Перенесений студент нічого не винен — чекає лише загального запуску, а не оплати.
+      if (isCarryover || paidPayments.length > 0) {
+        // Людина вже заплатила (звичайна ручна оплата чи перенесення) — вона нічого не винна,
+        // чекає лише загального запуску програми, а не оплати. Пріоритет над derivePendingLabel.
         pendingLabel = 'Чекає запуску';
         pendingTone = 'neutral';
       } else {

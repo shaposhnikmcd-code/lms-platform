@@ -45,6 +45,7 @@ const CreateCohortModal = dynamic(() => import('./CreateCohortModal'), { ssr: fa
 // підтягується з /emails-сторінки.
 const IssuesModal = dynamic(() => import('./IssuesModal'), { ssr: false });
 const ManualPaymentModal = dynamic(() => import('./ManualPaymentModal'), { ssr: false });
+const EditPaymentModal = dynamic(() => import('./EditPaymentModal'), { ssr: false });
 const ManualAddStudentModal = dynamic(() => import('./ManualAddStudentModal'), { ssr: false });
 import ManualAddHelpButton from './ManualAddHelpButton';
 import ProgramSettingButton from './ProgramSettingButton';
@@ -1087,6 +1088,7 @@ function ExpandedRowContent({
   const [tgInviting, setTgInviting] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [manualPayOpen, setManualPayOpen] = useState(false);
+  const [editPaymentId, setEditPaymentId] = useState<string | null>(null);
   const [extendOpen, setExtendOpen] = useState(false);
 
   async function sendTelegramInvite(force: boolean) {
@@ -1469,12 +1471,37 @@ function ExpandedRowContent({
                           : (dark ? 'bg-rose-500/20 text-rose-300' : 'bg-rose-100 text-rose-800')
                     }`}>{p.status}</span>
                     <span className={`tabular-nums font-semibold ${dark ? 'text-slate-200' : 'text-stone-800'}`}>{p.amount.toLocaleString()}₴</span>
+                    {/* Редагувати можна лише РУЧНІ платежі (WFP — без кнопки). */}
+                    {p.manualMethod && (
+                      <button
+                        type="button"
+                        onClick={() => setEditPaymentId(p.id)}
+                        aria-label="Редагувати платіж"
+                        title="Редагувати платіж"
+                        className={`shrink-0 w-6 h-6 rounded-md flex items-center justify-center text-[11px] border transition-colors ${
+                          dark ? 'border-white/10 text-slate-400 hover:bg-white/[0.08] hover:text-indigo-300' : 'border-stone-300 text-stone-500 hover:bg-stone-100 hover:text-indigo-700'
+                        }`}
+                      >✏️</button>
+                    )}
                   </div>
                 </div>
               ))}
             </div>
           )}
         </div>
+        {editPaymentId && (() => {
+          const p = details.payments.find((x) => x.id === editPaymentId);
+          if (!p) return null;
+          return (
+            <EditPaymentModal
+              theme={theme}
+              subscriptionId={row.id}
+              payment={p}
+              onClose={() => setEditPaymentId(null)}
+              onSaved={() => { setEditPaymentId(null); onReload(); router.refresh(); }}
+            />
+          );
+        })()}
       </div>
 
       <div className="md:col-span-1">

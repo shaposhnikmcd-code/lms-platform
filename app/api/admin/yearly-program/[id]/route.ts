@@ -31,6 +31,7 @@ export async function POST(
     daysToAdd?: number;
     reason?: string;
     fields?: Record<string, unknown>;
+    paymentId?: string;
     amount?: number;
     method?: string;
     note?: string;
@@ -58,6 +59,14 @@ export async function POST(
       return handleEdit(sub, body.fields ?? {}, actorLabel);
     case 'manual_payment':
       return handleManualPayment(sub, {
+        amount: body.amount,
+        method: body.method,
+        note: body.note,
+        paidAt: body.paidAt,
+      }, actorLabel);
+    case 'edit_payment':
+      return handleEditPayment(sub, {
+        paymentId: body.paymentId,
         amount: body.amount,
         method: body.method,
         note: body.note,
@@ -462,6 +471,118 @@ async function handleManualPayment(
     newExpiresAt: newExpiresAt?.toISOString() ?? null,
     cohortLaunched,
     extraLaunch,
+  });
+}
+
+/// Дозволені способи для РУЧНИХ платежів (WFP-платежі сюди не входять — їх редагувати не можна).
+/// 'carryover' = перенесення з минулого набору (сума 0, дохід не рахується).
+const EDIT_PAYMENT_METHODS = new Set(['cash', 'transfer', 'direct', 'carryover']);
+
+/// Редагування РУЧНОГО платежу (готівка / переказ / ФОП / перенесення). WFP-платежі
+/// (manualMethod=null) редагувати ЗАБОРОНЕНО. Дозволяє, зокрема, перетворити старий ручний
+/// платіж з минулорічною сумою на «Перенесення» (0 ₴) — тоді сума виходить з «Доходу».
+/// Після зміни перераховує підписку через applyPaymentActivation (expiresAt/статус/дохід
+/// підтягуються самі). НЕ чіпає SendPulse / Telegram / WFP.
+async function handleEditPayment(
+  sub: NonNullable<SubWithUser>,
+  input: { paymentId?: string; amount?: number; method?: string; note?: string; paidAt?: string },
+  actor: string,
+) {
+  const paymentId = typeof input.paymentId === 'string' ? input.paymentId.trim() : '';
+  if (!paymentId) {
+    return NextResponse.json({ error: 'Не вказано платіж' }, { status: 400 });
+  }
+
+  const payment = await prisma.payment.findUnique({ where: { id: paymentId } });
+  if (!payment || payment.yearlyProgramSubscriptionId !== sub.id) {
+    return NextResponse.json({ error: 'Платіж не знайдено для цієї підписки' }, { status: 404 });
+  }
+  if (!payment.manualMethod) {
+    return NextResponse.json({ error: 'Платежі WayForPay редагувати не можна — тільки ручні' }, { status: 400 });
+  }
+
+  const data: Record<string, unknown> = {};
+  const changes: string[] = [];
+
+  // Сума — ціле 0..1_000_000. На відміну від manual_payment, 0 ДОЗВОЛЕНИЙ (перенесення).
+  if (input.amount !== undefined) {
+    const amount = Number(input.amount);
+    if (!Number.isFinite(amount) || amount < 0 || amount > 1_000_000 || !Number.isInteger(amount)) {
+      return NextResponse.json({ error: 'Сума має бути цілим числом 0..1000000 (₴)' }, { status: 400 });
+    }
+    if (amount !== payment.amount) {
+      data.amount = amount;
+      changes.push(`сума: ${payment.amount}₴ → ${amount}₴`);
+    }
+  }
+
+  // Спосіб — один з дозволених ручних (включно з carryover).
+  if (input.method !== undefined) {
+    const method = String(input.method).trim();
+    if (!EDIT_PAYMENT_METHODS.has(method)) {
+      return NextResponse.json({ error: 'Спосіб: cash | transfer | direct | carryover' }, { status: 400 });
+    }
+    if (method !== payment.manualMethod) {
+      data.manualMethod = method;
+      changes.push(`спосіб: ${payment.manualMethod} → ${method}`);
+    }
+  }
+
+  // Дата оплати — не в майбутньому (+24 год толеранс, як у manual_payment).
+  let effectivePaidAt = payment.paidAt ?? payment.createdAt;
+  if (input.paidAt !== undefined) {
+    const parsed = new Date(input.paidAt);
+    if (Number.isNaN(parsed.getTime())) {
+      return NextResponse.json({ error: 'Невалідна дата оплати' }, { status: 400 });
+    }
+    if (parsed.getTime() > Date.now() + 24 * 60 * 60 * 1000) {
+      return NextResponse.json({ error: 'Дата оплати не може бути в майбутньому' }, { status: 400 });
+    }
+    if ((payment.paidAt?.getTime() ?? null) !== parsed.getTime()) {
+      data.paidAt = parsed;
+      changes.push(`дата: ${fmtLogValue(payment.paidAt)} → ${fmtLogValue(parsed)}`);
+    }
+    effectivePaidAt = parsed;
+  }
+
+  // Коментар — ≤500.
+  if (input.note !== undefined) {
+    const note = (input.note ?? '').trim().slice(0, 500) || null;
+    if (note !== (payment.manualNote ?? null)) {
+      data.manualNote = note;
+      changes.push(`коментар: ${fmtLogValue(payment.manualNote)} → ${fmtLogValue(note)}`);
+    }
+  }
+
+  if (changes.length === 0) {
+    return NextResponse.json({ ok: true, noChanges: true });
+  }
+
+  await prisma.payment.update({ where: { id: paymentId }, data });
+
+  // Перерахунок підписки по актуальних платежах (expiresAt/статус; дохід — агрегат amount).
+  const { newStatus, newExpiresAt } = await applyPaymentActivation({
+    subscriptionId: sub.id,
+    plan: sub.plan,
+    autoRenew: sub.autoRenew,
+    prevStatus: sub.status,
+    lastPaymentAt: effectivePaidAt,
+  });
+
+  await prisma.yearlyProgramSubscriptionEvent.create({
+    data: {
+      subscriptionId: sub.id,
+      type: 'admin_action',
+      message: `Редагування платежу (${actor}): ${changes.join('; ')}`,
+      metadata: { editPayment: true, paymentId, actor, changes },
+    },
+  });
+
+  return NextResponse.json({
+    ok: true,
+    changes,
+    newStatus,
+    newExpiresAt: newExpiresAt?.toISOString() ?? null,
   });
 }
 
