@@ -10,6 +10,7 @@ import { YEARLY_PROGRAM_CONFIG, getYearlySendpulseCourseId } from '@/lib/yearlyP
 import { getYearlyProgramSettings } from '@/lib/yearlyProgramSettings';
 import { parseTelegramUsername } from '@/lib/telegramUsername';
 import { applyPaymentActivation } from '@/lib/yearlyProgramActivation';
+import { runManualPreLaunchWelcome, type ManualPreLaunchWelcomeResult } from '@/lib/yearlyProgramManualWelcome';
 import { runExtraLaunchForSubscription } from '@/lib/yearlyProgramLaunch';
 import { syncAutopaySchedule } from '@/lib/yearlyProgramScheduleSync';
 
@@ -429,14 +430,22 @@ async function handleManualPayment(
     },
   });
 
+  // Це перший PAID-платіж підписки? (визначає, чи слати pre-launch welcome). Платіж уже
+  // створений вище, тож перший = рівно 1 PAID у підписки.
+  const paidCount = await prisma.payment.count({
+    where: { yearlyProgramSubscriptionId: sub.id, status: 'PAID' },
+  });
+  const wasFirstPayment = paidCount === 1;
+
   // Перерахунок expiresAt по cohort-логіці + активація статусу (single source of truth,
-  // спільний helper з carryover-флоу manual-add).
+  // спільний helper з carryover-флоу manual-add). Реальна оплата воскрешає мертву підписку.
   const { newStatus, newExpiresAt, cohortLaunched } = await applyPaymentActivation({
     subscriptionId: sub.id,
     plan: sub.plan,
     autoRenew: sub.autoRenew,
     prevStatus: sub.status,
     lastPaymentAt: paidAt,
+    allowRevive: true,
   });
 
   const methodLabel = MANUAL_METHOD_LABELS[method] ?? method;
@@ -452,7 +461,10 @@ async function handleManualPayment(
   // Якщо cohort уже запущений — відкриваємо доступ у SendPulse + welcome-лист (idempotent:
   // якщо доступ уже відкрито/лист уже надсилався — пропускає). Помилка SP не валить оплату:
   // Payment уже створений і дохід зафіксований.
+  // Якщо cohort ще НЕ запущений і це перший платіж — шлемо pre-launch welcome + TG-invite
+  // (як реальний покупець у callback-у, гілка «не launched»). Креди — на запуску.
   let extraLaunch: Awaited<ReturnType<typeof runExtraLaunchForSubscription>> | null = null;
+  let welcome: ManualPreLaunchWelcomeResult | null = null;
   if (cohortLaunched) {
     extraLaunch = await runExtraLaunchForSubscription(sub.id, `${actor} · manual_payment`).catch((e) => ({
       ok: false,
@@ -462,6 +474,12 @@ async function handleManualPayment(
       studentId: null,
       email: { sent: false },
     }));
+  } else if (wasFirstPayment) {
+    welcome = await runManualPreLaunchWelcome(sub.id, `${actor} · manual_payment`)
+      .catch((e) => ({
+        inviteGenerated: false, inviteLink: null, inviteError: null,
+        welcomeSent: false, welcomeSkipped: false, welcomeError: (e as Error).message,
+      }));
   }
 
   return NextResponse.json({
@@ -471,6 +489,7 @@ async function handleManualPayment(
     newExpiresAt: newExpiresAt?.toISOString() ?? null,
     cohortLaunched,
     extraLaunch,
+    welcome,
   });
 }
 
@@ -561,12 +580,14 @@ async function handleEditPayment(
   await prisma.payment.update({ where: { id: paymentId }, data });
 
   // Перерахунок підписки по актуальних платежах (expiresAt/статус; дохід — агрегат amount).
+  // allowRevive:false — правка платежу НЕ воскрешає закриту (EXPIRED/CANCELLED/ARCHIVED) підписку.
   const { newStatus, newExpiresAt } = await applyPaymentActivation({
     subscriptionId: sub.id,
     plan: sub.plan,
     autoRenew: sub.autoRenew,
     prevStatus: sub.status,
     lastPaymentAt: effectivePaidAt,
+    allowRevive: false,
   });
 
   await prisma.yearlyProgramSubscriptionEvent.create({

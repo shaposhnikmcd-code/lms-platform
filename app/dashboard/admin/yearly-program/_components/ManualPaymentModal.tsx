@@ -95,7 +95,11 @@ export default function ManualPaymentModal({
           note2 = ` · ⚠ доступ НЕ відкрито: ${el.reason ?? 'помилка'}`;
         }
       } else {
-        note2 = ' · підписка чекає запуску програми';
+        // Cohort ще не запущений: підписка одразу ACTIVE + generic welcome-лист (креди на запуску).
+        const w = data.welcome;
+        if (w?.welcomeSent) note2 = ' · активовано + welcome-лист надіслано';
+        else if (w?.welcomeSkipped) note2 = ' · активовано (лист не надіслано — мейлер off)';
+        else note2 = ' · активовано (креди прийдуть на запуску)';
       }
       toast('success', `Оплату ${amountNum}₴ зафіксовано${note2}`);
       onDone();

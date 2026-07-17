@@ -81,13 +81,18 @@ export default function ManualAddStudentModal({
         suffix += ' · лист для пароля надіслано';
       }
       if (mode === 'carryover') {
-        const opened = data.newStatus === 'ACTIVE';
-        if (data.extraLaunch && data.extraLaunch.ok === false && data.cohortLaunched) {
+        // Статус тепер завжди ACTIVE — розрізняємо повідомлення по факту запуску cohort-а.
+        const launched = !!data.cohortLaunched;
+        if (launched && data.extraLaunch && data.extraLaunch.ok === false) {
           suffix += ` · ⚠ відкриття доступу: ${data.extraLaunch.reason ?? 'помилка'}`;
         }
-        const head = opened
+        if (!launched) {
+          if (data.welcome?.welcomeSent) suffix += ' · welcome-лист надіслано';
+          else if (data.welcome?.welcomeSkipped) suffix += ' · ⚠ лист не надіслано (мейлер off)';
+        }
+        const head = launched
           ? `Студента ${em} перенесено · доступ відкрито`
-          : `Студента ${em} перенесено · чекає запуску програми`;
+          : `Студента ${em} перенесено · активовано, креди на запуску`;
         toast('success', `${head}${suffix}`);
       } else {
         toast('success', `Студента ${em} додано${suffix} · статус «Очікує» (підтвердьте оплату вручну для активації)`);

@@ -8,6 +8,7 @@ import { createPasswordResetToken } from '@/lib/passwordResetToken';
 import { sendEmail, appBaseUrl, esc } from '@/lib/mailer';
 import { getPaymentTemplate, renderTemplate } from '@/lib/emailTemplates/paymentTemplates';
 import { applyPaymentActivation } from '@/lib/yearlyProgramActivation';
+import { runManualPreLaunchWelcome, type ManualPreLaunchWelcomeResult } from '@/lib/yearlyProgramManualWelcome';
 import { runExtraLaunchForSubscription } from '@/lib/yearlyProgramLaunch';
 import { generateInviteForSubscription, getYearlyProgramTelegramSettings } from '@/lib/yearlyProgramTelegram';
 
@@ -187,6 +188,7 @@ export async function POST(req: NextRequest) {
       autoRenew: false,
       prevStatus: 'PENDING',
       lastPaymentAt: now,
+      allowRevive: true,
     });
 
     await prisma.yearlyProgramSubscriptionEvent.create({
@@ -205,10 +207,13 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    // Якщо cohort уже запущений — відкриваємо доступ одразу (SendPulse + welcome-лист).
-    // Спершу генеруємо Telegram-invite (як у WFP callback), щоб вкласти його в лист.
+    // Якщо cohort уже запущений — відкриваємо доступ одразу (SendPulse + welcome-лист) через
+    // extra-launch. Спершу генеруємо Telegram-invite (як у WFP callback), щоб вкласти в лист.
+    // Якщо cohort ще НЕ запущений — pre-launch welcome + TG-invite (як реальний покупець:
+    // студент одразу ACTIVE, дістає generic welcome-лист, креди приходять на запуску).
     // Помилки цих кроків не валять запит — повертаємо їх у відповіді.
     let extraLaunch: Awaited<ReturnType<typeof runExtraLaunchForSubscription>> | null = null;
+    let welcome: ManualPreLaunchWelcomeResult | null = null;
     if (activation.cohortLaunched) {
       let tgInviteLink: string | null = null;
       try {
@@ -235,6 +240,13 @@ export async function POST(req: NextRequest) {
         studentId: null,
         email: { sent: false },
       }));
+    } else {
+      // Carryover — завжди перший (і єдиний) PAID-платіж підписки.
+      welcome = await runManualPreLaunchWelcome(sub.id, `${managerLabel} · carryover`)
+        .catch((e) => ({
+          inviteGenerated: false, inviteLink: null, inviteError: null,
+          welcomeSent: false, welcomeSkipped: false, welcomeError: (e as Error).message,
+        }));
     }
 
     let passwordEmail: { sent: boolean; error?: string } | null = null;
@@ -250,6 +262,7 @@ export async function POST(req: NextRequest) {
       newStatus: activation.newStatus,
       cohortLaunched: activation.cohortLaunched,
       extraLaunch,
+      welcome,
       passwordEmail,
     });
   }
