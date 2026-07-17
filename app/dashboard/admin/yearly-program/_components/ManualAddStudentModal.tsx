@@ -26,9 +26,11 @@ export default function ManualAddStudentModal({
   const dark = theme === 'dark';
   const { toast } = useUIFeedback();
   const [mounted, setMounted] = useState(false);
+  const [mode, setMode] = useState<'pending' | 'carryover'>('pending');
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [plan, setPlan] = useState<Plan>('YEARLY');
+  const [note, setNote] = useState('');
   const [cohortId, setCohortId] = useState<string>(defaultCohortId ?? cohorts[0]?.id ?? '');
   const [telegram, setTelegram] = useState('');
   const [sendPasswordEmail, setSendPasswordEmail] = useState(true);
@@ -58,10 +60,12 @@ export default function ManualAddStudentModal({
         body: JSON.stringify({
           email: email.trim().toLowerCase(),
           name: name.trim() || undefined,
-          plan,
+          mode,
+          plan: mode === 'carryover' ? 'YEARLY' : plan,
           cohortId,
           telegramUsername: telegram.trim() || undefined,
           sendPasswordEmail,
+          ...(mode === 'carryover' ? { note: note.trim() || undefined } : {}),
         }),
       });
       const data = await res.json();
@@ -69,14 +73,25 @@ export default function ManualAddStudentModal({
         setError(data.error ?? res.statusText);
         return;
       }
-      let note = data.userCreated ? ' · акаунт створено' : '';
-      note += ' · статус «Очікує» (підтвердьте оплату вручну для активації)';
+      const em = email.trim().toLowerCase();
+      let suffix = data.userCreated ? ' · акаунт створено' : '';
       if (data.passwordEmail && !data.passwordEmail.sent) {
-        note += ` · ⚠ лист пароля FAILED: ${data.passwordEmail.error ?? 'помилка'}`;
+        suffix += ` · ⚠ лист пароля FAILED: ${data.passwordEmail.error ?? 'помилка'}`;
       } else if (data.passwordEmail?.sent) {
-        note += ' · лист для пароля надіслано';
+        suffix += ' · лист для пароля надіслано';
       }
-      toast('success', `Студента ${email.trim().toLowerCase()} додано${note}`);
+      if (mode === 'carryover') {
+        const opened = data.newStatus === 'ACTIVE';
+        if (data.extraLaunch && data.extraLaunch.ok === false && data.cohortLaunched) {
+          suffix += ` · ⚠ відкриття доступу: ${data.extraLaunch.reason ?? 'помилка'}`;
+        }
+        const head = opened
+          ? `Студента ${em} перенесено · доступ відкрито`
+          : `Студента ${em} перенесено · чекає запуску програми`;
+        toast('success', `${head}${suffix}`);
+      } else {
+        toast('success', `Студента ${em} додано${suffix} · статус «Очікує» (підтвердьте оплату вручну для активації)`);
+      }
       onDone();
       onClose();
     } catch (e) {
@@ -110,7 +125,9 @@ export default function ManualAddStudentModal({
             <div className="min-w-0">
               <h3 className="text-[16px] font-bold leading-tight">Додати студента вручну</h3>
               <p className={`text-[11.5px] leading-tight mt-0.5 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
-                Створює запис «Очікує» — активація після підтвердження оплати
+                {mode === 'carryover'
+                  ? 'Переносить студента з минулого набору — доступ без оплати'
+                  : 'Створює запис «Очікує» — активація після підтвердження оплати'}
               </p>
             </div>
           </div>
@@ -125,15 +142,51 @@ export default function ManualAddStudentModal({
 
         {/* BODY */}
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
-          <div className={`flex items-start gap-2.5 px-4 py-3 rounded-xl border text-[12px] leading-relaxed ${
-            dark ? 'bg-sky-500/[0.05] border-sky-400/20 text-sky-100/90' : 'bg-sky-50/60 border-sky-200/70 text-sky-900'
-          }`}>
-            <span className="shrink-0">ℹ️</span>
-            <span>
-              Заводить студента у вибраний запуск зі статусом «Очікує» (без доступу). Щоб
-              активувати — на рядку студента натисніть 💵 «Підтвердити оплату вручну».
-            </span>
-          </div>
+          <Field theme={theme} label="Тип додавання" required>
+            <div className="grid grid-cols-2 gap-2">
+              {([['pending', '⏳ Очікує оплату'], ['carryover', '🔄 Перенесення з минулого року']] as const).map(([v, label]) => {
+                const active = mode === v;
+                return (
+                  <button
+                    key={v}
+                    type="button"
+                    onClick={() => setMode(v)}
+                    className={`px-3 py-2.5 rounded-lg border text-[12px] font-semibold transition-colors leading-tight ${
+                      active
+                        ? dark ? 'bg-sky-500/15 border-sky-400/40 text-sky-200' : 'bg-sky-50 border-sky-400/70 text-sky-900'
+                        : dark ? 'bg-zinc-800 border-white/10 text-slate-300 hover:bg-white/[0.06]' : 'bg-white border-stone-300 text-stone-700 hover:bg-stone-50'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          </Field>
+
+          {mode === 'carryover' ? (
+            <div className={`flex items-start gap-2.5 px-4 py-3 rounded-xl border text-[12px] leading-relaxed ${
+              dark ? 'bg-violet-500/[0.06] border-violet-400/20 text-violet-100/90' : 'bg-violet-50/70 border-violet-200/70 text-violet-900'
+            }`}>
+              <span className="shrink-0">🔄</span>
+              <span>
+                Студент, який оплатив минулорічний набір. Заводимо в новий запуск <b>без оплати</b>,
+                але з повним доступом як після реальної оплати. Створюється платіж <b>0 ₴</b> з міткою
+                «Перенесення» — <b>дохід не змінюється</b>. Якщо запуск уже відбувся — доступ
+                відкривається одразу; якщо ще ні — студент чекатиме загального запуску програми.
+              </span>
+            </div>
+          ) : (
+            <div className={`flex items-start gap-2.5 px-4 py-3 rounded-xl border text-[12px] leading-relaxed ${
+              dark ? 'bg-sky-500/[0.05] border-sky-400/20 text-sky-100/90' : 'bg-sky-50/60 border-sky-200/70 text-sky-900'
+            }`}>
+              <span className="shrink-0">ℹ️</span>
+              <span>
+                Заводить студента у вибраний запуск зі статусом «Очікує» (без доступу). Щоб
+                активувати — на рядку студента натисніть 💵 «Підтвердити оплату вручну».
+              </span>
+            </div>
+          )}
 
           <Field theme={theme} label="Email" required>
             <input
@@ -156,27 +209,40 @@ export default function ManualAddStudentModal({
             />
           </Field>
 
-          <Field theme={theme} label="План" required>
-            <div className="grid grid-cols-2 gap-2">
-              {([['YEARLY', '📅 Річний'], ['MONTHLY', '🗓 Місячний']] as const).map(([v, label]) => {
-                const active = plan === v;
-                return (
-                  <button
-                    key={v}
-                    type="button"
-                    onClick={() => setPlan(v)}
-                    className={`px-3 py-2.5 rounded-lg border text-[12px] font-semibold transition-colors ${
-                      active
-                        ? dark ? 'bg-sky-500/15 border-sky-400/40 text-sky-200' : 'bg-sky-50 border-sky-400/70 text-sky-900'
-                        : dark ? 'bg-zinc-800 border-white/10 text-slate-300 hover:bg-white/[0.06]' : 'bg-white border-stone-300 text-stone-700 hover:bg-stone-50'
-                    }`}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
-            </div>
-          </Field>
+          {mode === 'carryover' ? (
+            <Field theme={theme} label="Коментар">
+              <input
+                type="text"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="Оплатив 15000 ₴ у наборі 2025"
+                maxLength={500}
+                className={inputCls(dark)}
+              />
+            </Field>
+          ) : (
+            <Field theme={theme} label="План" required>
+              <div className="grid grid-cols-2 gap-2">
+                {([['YEARLY', '📅 Річний'], ['MONTHLY', '🗓 Місячний']] as const).map(([v, label]) => {
+                  const active = plan === v;
+                  return (
+                    <button
+                      key={v}
+                      type="button"
+                      onClick={() => setPlan(v)}
+                      className={`px-3 py-2.5 rounded-lg border text-[12px] font-semibold transition-colors ${
+                        active
+                          ? dark ? 'bg-sky-500/15 border-sky-400/40 text-sky-200' : 'bg-sky-50 border-sky-400/70 text-sky-900'
+                          : dark ? 'bg-zinc-800 border-white/10 text-slate-300 hover:bg-white/[0.06]' : 'bg-white border-stone-300 text-stone-700 hover:bg-stone-50'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            </Field>
+          )}
 
           <Field theme={theme} label="Запуск (cohort)" required>
             <select
@@ -246,7 +312,9 @@ export default function ManualAddStudentModal({
             }`}
           >
             <HiOutlineCheck className="text-[14px]" />
-            {submitting ? 'Додаю…' : 'Додати студента'}
+            {submitting
+              ? (mode === 'carryover' ? 'Переношу…' : 'Додаю…')
+              : (mode === 'carryover' ? 'Перенести студента' : 'Додати студента')}
           </button>
         </footer>
       </div>

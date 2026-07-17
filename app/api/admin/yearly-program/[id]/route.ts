@@ -6,10 +6,10 @@ import { closeAccessInCourse, lookupStudentIdByEmail, openAccessViaEvent } from 
 import { kickSubscriptionFromChannel } from '@/lib/yearlyProgramTelegram';
 import { removeSubscriptionAutopay } from '@/lib/yearlyProgramAutopay';
 import { sendYearlyProgramAdminEndedEmail, type AdminEndKind } from '@/lib/yearlyProgramAdminEndedEmail';
-import { YEARLY_PROGRAM_CONFIG, getYearlyPostAccessMonths, getYearlySendpulseCourseId } from '@/lib/yearlyProgramConfig';
+import { YEARLY_PROGRAM_CONFIG, getYearlySendpulseCourseId } from '@/lib/yearlyProgramConfig';
 import { getYearlyProgramSettings } from '@/lib/yearlyProgramSettings';
 import { parseTelegramUsername } from '@/lib/telegramUsername';
-import { calculateAccessUntil } from '@/lib/yearlyProgramAccess';
+import { applyPaymentActivation } from '@/lib/yearlyProgramActivation';
 import { runExtraLaunchForSubscription } from '@/lib/yearlyProgramLaunch';
 import { syncAutopaySchedule } from '@/lib/yearlyProgramScheduleSync';
 
@@ -420,37 +420,14 @@ async function handleManualPayment(
     },
   });
 
-  // Перерахунок expiresAt по cohort-логіці (single source of truth). Тягнемо актуальний
-  // стан з усіма платежами (включно з щойно створеним) + cohort.
-  const fresh = await prisma.yearlyProgramSubscription.findUnique({
-    where: { id: sub.id },
-    include: {
-      cohort: true,
-      payments: { select: { amount: true, status: true, paidAt: true, createdAt: true } },
-    },
-  });
-  const postAccessMonths = await getYearlyPostAccessMonths(prisma);
-  const newExpiresAt = calculateAccessUntil({
+  // Перерахунок expiresAt по cohort-логіці + активація статусу (single source of truth,
+  // спільний helper з carryover-флоу manual-add).
+  const { newStatus, newExpiresAt, cohortLaunched } = await applyPaymentActivation({
+    subscriptionId: sub.id,
     plan: sub.plan,
     autoRenew: sub.autoRenew,
-    cohort: fresh?.cohort ? { startDate: fresh.cohort.startDate, endDate: fresh.cohort.endDate } : null,
-    payments: fresh?.payments ?? [],
-    postAccessMonths,
-  });
-
-  const cohortLaunched = !!fresh?.cohort?.launchedAt;
-  const hasCohort = !!fresh?.cohort;
-  // ACTIVE якщо cohort launched або взагалі без cohort (legacy). Якщо cohort є але ще не
-  // запущений — лишаємо PENDING: доступ відкриється на загальному запуску програми.
-  const newStatus = (cohortLaunched || !hasCohort) ? 'ACTIVE' : (sub.status === 'PENDING' ? 'PENDING' : sub.status);
-
-  await prisma.yearlyProgramSubscription.update({
-    where: { id: sub.id },
-    data: {
-      status: newStatus,
-      expiresAt: newExpiresAt,
-      lastPaymentAt: paidAt,
-    },
+    prevStatus: sub.status,
+    lastPaymentAt: paidAt,
   });
 
   const methodLabel = MANUAL_METHOD_LABELS[method] ?? method;

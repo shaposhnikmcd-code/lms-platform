@@ -32,6 +32,9 @@ export interface Row {
   sendpulseAccessClosedAt: string | null;
   paymentsCount: number;
   totalPaid: number;
+  /// Перенесення з минулого набору: є PAID-платіж 0₴ з manualMethod='carryover'.
+  /// Показуємо бейдж «🔄 Перенесення» замість «Річний»/суми/методу; дохід не рахує.
+  isCarryover: boolean;
   /// Кеш дати наступного автосписання з WFP (wfpNextChargeAt). Тільки для MONTHLY
   /// автоплатежу з живою регулярку; null = разова/річна або правила у WFP немає.
   wfpNextChargeAt: string | null;

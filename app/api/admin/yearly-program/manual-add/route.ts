@@ -7,16 +7,26 @@ import { parseTelegramUsername } from '@/lib/telegramUsername';
 import { createPasswordResetToken } from '@/lib/passwordResetToken';
 import { sendEmail, appBaseUrl, esc } from '@/lib/mailer';
 import { getPaymentTemplate, renderTemplate } from '@/lib/emailTemplates/paymentTemplates';
+import { applyPaymentActivation } from '@/lib/yearlyProgramActivation';
+import { runExtraLaunchForSubscription } from '@/lib/yearlyProgramLaunch';
+import { generateInviteForSubscription, getYearlyProgramTelegramSettings } from '@/lib/yearlyProgramTelegram';
 
 /// POST /api/admin/yearly-program/manual-add
-/// Body: { email, name?, plan, cohortId, telegramUsername?, sendPasswordEmail? }
+/// Body: { email, name?, plan, cohortId, telegramUsername?, sendPasswordEmail?, mode?, note? }
 ///
-/// Менеджер заводить студента у Річну програму ВРУЧНУ. Створює запис у статусі PENDING
-/// (очікує підтвердження оплати) — БЕЗ доступу й без впливу на дохід. Активується підписка
-/// окремо: менеджер тисне 💵 «Підтвердити оплату вручну» на рядку → створюється Payment(PAID),
-/// статус стає ACTIVE, відкривається SendPulse + welcome-лист (через існуючий manual_payment-флоу).
+/// Менеджер заводить студента у Річну програму ВРУЧНУ. Два режими (`mode`):
 ///
-/// Кроки:
+/// • `pending` (дефолт, зворотна сумісність) — створює запис у статусі PENDING (очікує
+///   підтвердження оплати), БЕЗ доступу й без впливу на дохід. Активується окремо: менеджер
+///   тисне 💵 «Підтвердити оплату вручну» → Payment(PAID), ACTIVE, SendPulse + welcome-лист.
+///
+/// • `carryover` — «🔄 Перенесення з минулого року»: студент оплатив минулорічний набір,
+///   але не навчався. Заводимо в новий cohort БЕЗ оплати, але з повним доступом як після
+///   реальної оплати. Створюється Payment(amount=0, manualMethod='carryover'), доступ
+///   відкривається одразу (якщо cohort запущений) або на загальному запуску (якщо ще ні).
+///   План завжди YEARLY, дохід/KPI не змінюються (сума 0).
+///
+/// Кроки (pending):
 /// 1. Знайти User за email; якщо нема — створити (рандомний пароль). За прапорцем
 ///    sendPasswordEmail — надіслати лист для встановлення пароля (INVITE-токен, 7 днів).
 /// 2. Створити YearlyProgramSubscription у вибраному cohort зі статусом PENDING
@@ -39,16 +49,29 @@ export async function POST(req: NextRequest) {
     cohortId?: string;
     telegramUsername?: string;
     sendPasswordEmail?: boolean;
+    mode?: string;
+    note?: string;
   };
+
+  const mode: 'pending' | 'carryover' = body.mode === 'carryover' ? 'carryover' : 'pending';
+  const note = typeof body.note === 'string' ? body.note.trim().slice(0, 500) || null : null;
 
   const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return NextResponse.json({ error: 'Email обовʼязковий і має бути валідним' }, { status: 400 });
   }
 
-  const plan = body.plan === 'YEARLY' || body.plan === 'MONTHLY' ? body.plan : null;
-  if (!plan) {
-    return NextResponse.json({ error: 'План має бути YEARLY або MONTHLY' }, { status: 400 });
+  // Перенесення завжди YEARLY (повний доступ до кінця програми). У pending-режимі план
+  // обирає менеджер.
+  let plan: 'YEARLY' | 'MONTHLY';
+  if (mode === 'carryover') {
+    plan = 'YEARLY';
+  } else {
+    const p = body.plan === 'YEARLY' || body.plan === 'MONTHLY' ? body.plan : null;
+    if (!p) {
+      return NextResponse.json({ error: 'План має бути YEARLY або MONTHLY' }, { status: 400 });
+    }
+    plan = p;
   }
 
   const cohortId = typeof body.cohortId === 'string' ? body.cohortId.trim() : '';
@@ -139,7 +162,99 @@ export async function POST(req: NextRequest) {
     select: { id: true },
   });
 
-  // 3) Лог події.
+  // ── Гілка ПЕРЕНЕСЕННЯ (carryover) ────────────────────────────────────────────────
+  // Створюємо Payment(0₴, PAID, manualMethod='carryover') → активуємо доступ через спільний
+  // helper (той самий, що й ручна оплата). Сума 0 → дохід/KPI не змінюються.
+  if (mode === 'carryover') {
+    const orderReference = `carryover_${Date.now()}_${sub.id.slice(-6)}`;
+    await prisma.payment.create({
+      data: {
+        userId: user.id,
+        orderReference,
+        amount: 0,
+        currency: 'UAH',
+        status: 'PAID',
+        paidAt: now,
+        yearlyProgramSubscriptionId: sub.id,
+        manualMethod: 'carryover',
+        manualNote: note,
+      },
+    });
+
+    const activation = await applyPaymentActivation({
+      subscriptionId: sub.id,
+      plan: 'YEARLY',
+      autoRenew: false,
+      prevStatus: 'PENDING',
+      lastPaymentAt: now,
+    });
+
+    await prisma.yearlyProgramSubscriptionEvent.create({
+      data: {
+        subscriptionId: sub.id,
+        type: 'admin_action',
+        message: `Перенесено з минулого набору by ${managerLabel}${note ? ` — ${note}` : ''} · expiresAt=${activation.newExpiresAt?.toISOString().slice(0, 10) ?? 'null'}`,
+        metadata: {
+          carryover: true,
+          note,
+          orderReference,
+          actor: managerLabel,
+          cohortId: cohort.id,
+          userCreated: createdUser,
+        },
+      },
+    });
+
+    // Якщо cohort уже запущений — відкриваємо доступ одразу (SendPulse + welcome-лист).
+    // Спершу генеруємо Telegram-invite (як у WFP callback), щоб вкласти його в лист.
+    // Помилки цих кроків не валять запит — повертаємо їх у відповіді.
+    let extraLaunch: Awaited<ReturnType<typeof runExtraLaunchForSubscription>> | null = null;
+    if (activation.cohortLaunched) {
+      let tgInviteLink: string | null = null;
+      try {
+        const tgSettings = await getYearlyProgramTelegramSettings();
+        if (tgSettings.autoAdd && tgSettings.chatId && telegramUsername) {
+          const tgRes = await generateInviteForSubscription({
+            subscriptionId: sub.id,
+            triggeredBy: `${managerLabel}:carryover`,
+          });
+          if (tgRes.ok) tgInviteLink = tgRes.inviteLink;
+        }
+      } catch {
+        // помилка invite не блокує carryover — доступ важливіший за link у листі
+      }
+      extraLaunch = await runExtraLaunchForSubscription(
+        sub.id,
+        `${managerLabel} · carryover`,
+        { telegramInviteLink: tgInviteLink },
+      ).catch((e) => ({
+        ok: false,
+        reason: (e as Error).message,
+        expiresAt: null,
+        sendpulseAccessOpened: false,
+        studentId: null,
+        email: { sent: false },
+      }));
+    }
+
+    let passwordEmail: { sent: boolean; error?: string } | null = null;
+    if (createdUser && body.sendPasswordEmail) {
+      passwordEmail = await sendPasswordSetupEmail(user.id, user.email, user.name);
+    }
+
+    return NextResponse.json({
+      ok: true,
+      subscriptionId: sub.id,
+      userCreated: createdUser,
+      mode: 'carryover',
+      newStatus: activation.newStatus,
+      cohortLaunched: activation.cohortLaunched,
+      extraLaunch,
+      passwordEmail,
+    });
+  }
+
+  // 3) Лог події (pending).
   await prisma.yearlyProgramSubscriptionEvent.create({
     data: {
       subscriptionId: sub.id,
@@ -165,6 +280,7 @@ export async function POST(req: NextRequest) {
     ok: true,
     subscriptionId: sub.id,
     userCreated: createdUser,
+    mode: 'pending',
     status: 'PENDING',
     passwordEmail,
   });

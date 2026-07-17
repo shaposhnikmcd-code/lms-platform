@@ -41,7 +41,7 @@ export default async function AdminYearlyProgramPage() {
       take: MAX_ROWS,
       include: {
         user: { select: { id: true, name: true, email: true } },
-        payments: { select: { id: true, amount: true, status: true, createdAt: true, paidAt: true, paymentMethod: true, orderReference: true } },
+        payments: { select: { id: true, amount: true, status: true, createdAt: true, paidAt: true, paymentMethod: true, manualMethod: true, orderReference: true } },
         cohort: { select: { id: true, name: true, startDate: true, launchedAt: true } },
       },
     }),
@@ -148,6 +148,8 @@ export default async function AdminYearlyProgramPage() {
   const rows: Row[] = visibleSubs.map((s) => {
     const paidPayments = s.payments.filter((p) => p.status === 'PAID');
     const totalPaid = paidPayments.reduce((sum, p) => sum + p.amount, 0);
+    // Перенесення з минулого набору: PAID-платіж 0₴ з manualMethod='carryover'.
+    const isCarryover = paidPayments.some((p) => p.manualMethod === 'carryover');
     const msLeft = s.expiresAt ? s.expiresAt.getTime() - now : null;
     const daysLeft = msLeft !== null ? Math.ceil(msLeft / (24 * 60 * 60 * 1000)) : null;
 
@@ -164,14 +166,20 @@ export default async function AdminYearlyProgramPage() {
     let pendingLabel: string | null = null;
     let pendingTone: 'neutral' | 'reject' | null = null;
     if (s.status === 'PENDING') {
-      let best: { transactionStatus: string | null; reasonCode: string | null; createdAt: Date } | null = null;
-      for (const p of s.payments) {
-        const a = latestAttemptByRef.get(p.orderReference);
-        if (a && (!best || a.createdAt > best.createdAt)) best = a;
+      if (isCarryover) {
+        // Перенесений студент нічого не винен — чекає лише загального запуску, а не оплати.
+        pendingLabel = 'Чекає запуску';
+        pendingTone = 'neutral';
+      } else {
+        let best: { transactionStatus: string | null; reasonCode: string | null; createdAt: Date } | null = null;
+        for (const p of s.payments) {
+          const a = latestAttemptByRef.get(p.orderReference);
+          if (a && (!best || a.createdAt > best.createdAt)) best = a;
+        }
+        const info = derivePendingLabel(best, s.manuallyAddedAt != null);
+        pendingLabel = info?.label ?? null;
+        pendingTone = info?.tone ?? null;
       }
-      const info = derivePendingLabel(best, s.manuallyAddedAt != null);
-      pendingLabel = info?.label ?? null;
-      pendingTone = info?.tone ?? null;
     }
 
     return {
@@ -200,6 +208,7 @@ export default async function AdminYearlyProgramPage() {
       sendpulseAccessClosedAt: s.sendpulseAccessClosedAt?.toISOString() ?? null,
       paymentsCount: paidPayments.length,
       totalPaid,
+      isCarryover,
       wfpNextChargeAt: s.wfpNextChargeAt?.toISOString() ?? null,
       wfpScheduleCheckedAt: s.wfpScheduleCheckedAt?.toISOString() ?? null,
       paymentMethod: latestPaid?.paymentMethod ?? null,

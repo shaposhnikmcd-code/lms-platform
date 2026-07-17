@@ -885,7 +885,7 @@ function RowBlock({
           {r.phone && (
             <a
               href={`tel:${r.phone.replace(/[^\d+]/g, '')}`}
-              className={`mt-0.5 inline-flex items-center gap-1 text-[10px] tabular-nums ${dark ? 'text-slate-400 hover:text-slate-200' : 'text-stone-600 hover:text-stone-900'}`}
+              className={`mt-0.5 flex w-fit items-center gap-1 text-[10px] tabular-nums ${dark ? 'text-slate-400 hover:text-slate-200' : 'text-stone-600 hover:text-stone-900'}`}
               title={`Телефон: ${r.phone}`}
             >
               <span aria-hidden>📞</span>
@@ -897,7 +897,7 @@ function RowBlock({
               href={telegramProfileUrl(r.telegramUsername) ?? '#'}
               target="_blank"
               rel="noopener noreferrer"
-              className={`mt-0.5 inline-flex items-center gap-1 text-[10px] ${dark ? 'text-sky-300 hover:text-sky-200' : 'text-sky-700 hover:text-sky-900'}`}
+              className={`mt-0.5 flex w-fit items-center gap-1 text-[10px] ${dark ? 'text-sky-300 hover:text-sky-200' : 'text-sky-700 hover:text-sky-900'}`}
               title={`Telegram: ${r.telegramUsername}`}
             >
               <span aria-hidden>📨</span>
@@ -941,7 +941,11 @@ function RowBlock({
             <span className={dark ? 'text-slate-600' : 'text-stone-400'}>—</span>
           )}
         </td>
-        <td className="px-2 py-2.5 text-center"><PlanBadge theme={theme} plan={r.plan} autoRenew={r.autoRenew} /></td>
+        <td className="px-2 py-2.5 text-center">
+          {r.isCarryover
+            ? <CarryoverBadge theme={theme} />
+            : <PlanBadge theme={theme} plan={r.plan} autoRenew={r.autoRenew} />}
+        </td>
         <td className="px-2 py-2.5 text-center"><StatusBadge theme={theme} status={r.status} graceDays={graceDays} pendingLabel={r.pendingLabel} pendingTone={r.pendingTone} /></td>
         <td className="px-2 py-2.5">
           <TelegramAccessBadge theme={theme} row={r} />
@@ -1027,10 +1031,12 @@ function RowBlock({
         </td>
         <td className={`px-2 py-2.5 text-[12px] tabular-nums text-center ${dark ? 'text-slate-300' : 'text-stone-700'}`}>{r.paymentsCount}</td>
         <td className={`px-2 py-2.5 text-[12px] tabular-nums whitespace-nowrap ${dark ? 'text-slate-200' : 'text-stone-800'}`}>
-          {r.totalPaid.toLocaleString()} ₴
+          {r.isCarryover && r.totalPaid === 0
+            ? <span className={dark ? 'text-slate-500' : 'text-stone-400'}>Перенесення</span>
+            : <>{r.totalPaid.toLocaleString()} ₴</>}
         </td>
         <td className="px-2 py-2.5 whitespace-nowrap">
-          <PaymentMethodBadge theme={theme} method={r.paymentMethod} />
+          <PaymentMethodBadge theme={theme} method={r.paymentMethod} isCarryover={r.isCarryover} />
         </td>
         <td className="px-2 py-2.5">
           <SendpulseBadge theme={theme} openedAt={r.sendpulseAccessOpenedAt} closedAt={r.sendpulseAccessClosedAt} studentId={r.sendpulseStudentId} />
@@ -1506,6 +1512,7 @@ function manualMethodLabel(method: string): string {
     case 'cash': return 'Готівка';
     case 'transfer': return 'Переказ';
     case 'direct': return 'Напряму (ФОП)';
+    case 'carryover': return 'Перенесення';
     default: return method;
   }
 }
@@ -2133,6 +2140,20 @@ function KpiDot({ dark }: { dark: boolean }) {
   return <span className={`shrink-0 select-none text-[10px] ${dark ? 'text-white/[0.15]' : 'text-stone-300'}`}>•</span>;
 }
 
+/// Бейдж «🔄 Перенесення» замість плану для carryover-підписок (перенесення з минулого
+/// набору). Нейтральний violet-стиль у тон існуючих бейджів, доступ як у Річного.
+function CarryoverBadge({ theme }: { theme: Theme }) {
+  const dark = theme === 'dark';
+  return (
+    <span
+      title="Перенесено з минулого набору · доступ як у Річного"
+      className={`inline-block px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider ${
+        dark ? 'bg-violet-500/15 text-violet-300 border border-violet-400/25' : 'bg-violet-100 text-violet-800 border border-violet-300/50'
+      }`}
+    >🔄 Перенесення</span>
+  );
+}
+
 function PlanBadge({ plan, autoRenew, theme }: { plan: Plan; autoRenew: boolean; theme: Theme }) {
   const dark = theme === 'dark';
   if (plan === 'YEARLY') {
@@ -2294,9 +2315,18 @@ function StatusInfoButton({ theme, graceDays }: { theme: Theme; graceDays: numbe
 }
 
 /// Pill методу оплати з WFP `paymentSystem` — фірмові логотипи Apple Pay / Google Pay + «Картка».
-function PaymentMethodBadge({ method, theme }: { method: string | null; theme: Theme }) {
+function PaymentMethodBadge({ method, theme, isCarryover = false }: { method: string | null; theme: Theme; isCarryover?: boolean }) {
   const dark = theme === 'dark';
   if (!method) {
+    if (isCarryover) {
+      return (
+        <span title="Перенесено з минулого набору" className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold border ${
+          dark ? 'bg-violet-500/12 text-violet-300 border-violet-400/25' : 'bg-violet-100 text-violet-800 border-violet-300/50'
+        }`}>
+          🔄 Перенесення
+        </span>
+      );
+    }
     return <span className={`text-[10px] ${dark ? 'text-slate-600' : 'text-stone-400'}`}>—</span>;
   }
   const m = method.toLowerCase();
