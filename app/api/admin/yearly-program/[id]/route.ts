@@ -3,7 +3,11 @@ import { Prisma } from '@prisma/client';
 import prisma from '@/lib/prisma';
 import { isAdmin, getAdminActor } from '@/lib/adminAuth';
 import { closeAccessInCourse, lookupStudentIdByEmail, openAccessViaEvent } from '@/lib/sendpulse';
-import { kickSubscriptionFromChannel } from '@/lib/yearlyProgramTelegram';
+import {
+  kickSubscriptionFromChannel,
+  generateInviteForSubscription,
+  getYearlyProgramTelegramSettings,
+} from '@/lib/yearlyProgramTelegram';
 import { removeSubscriptionAutopay } from '@/lib/yearlyProgramAutopay';
 import { sendYearlyProgramAdminEndedEmail, type AdminEndKind } from '@/lib/yearlyProgramAdminEndedEmail';
 import { YEARLY_PROGRAM_CONFIG, getYearlySendpulseCourseId } from '@/lib/yearlyProgramConfig';
@@ -15,8 +19,8 @@ import { runExtraLaunchForSubscription } from '@/lib/yearlyProgramLaunch';
 import { syncAutopaySchedule } from '@/lib/yearlyProgramScheduleSync';
 
 /// Admin actions над конкретною підпискою Річної програми.
-/// Body: { action: "cancel" | "close_access" | "reopen_access" | "extend" | "delete",
-///         daysToAdd?: number, reason?: string }
+/// Body: { action: "cancel" | "close_access" | "reopen_access" | "extend" | "carryover" | "delete",
+///         daysToAdd?: number, reason?: string, note?: string, sendWelcome?: boolean }
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -37,6 +41,7 @@ export async function POST(
     method?: string;
     note?: string;
     paidAt?: string;
+    sendWelcome?: boolean;
   };
 
   const sub = await prisma.yearlyProgramSubscription.findUnique({
@@ -65,6 +70,8 @@ export async function POST(
         note: body.note,
         paidAt: body.paidAt,
       }, actorLabel);
+    case 'carryover':
+      return handleCarryover(sub, { note: body.note, sendWelcome: body.sendWelcome }, actorLabel);
     case 'edit_payment':
       return handleEditPayment(sub, {
         paymentId: body.paymentId,
@@ -488,6 +495,133 @@ async function handleManualPayment(
     newStatus,
     newExpiresAt: newExpiresAt?.toISOString() ?? null,
     cohortLaunched,
+    extraLaunch,
+    welcome,
+  });
+}
+
+/// «🔄 Перенесення з минулого року» для ІСНУЮЧОЇ підписки (дзеркало carryover-гілки
+/// manual-add/route.ts, але для студента, якого вже завели вручну в режимі «Очікує оплату»).
+/// Кейс: студентів заводили вручну ДО появи перенесення — тепер їх треба зарахувати як
+/// перенесених, без нової картки в адмінці.
+///
+/// Умова: у підписки НЕМАЄ жодного PAID-платежу (інакше правити треба олівцем у «Платежах»,
+/// щоб не було двох джерел правди про оплату).
+/// Кроки: план→YEARLY + autoRenew=false → Payment(0₴, PAID, manualMethod='carryover') →
+/// applyPaymentActivation(allowRevive) → подія → side-effects (запущений cohort: TG-invite +
+/// extra-launch; не запущений: pre-launch welcome, якщо менеджер не зняв галочку).
+/// Сума 0 → дохід/KPI не змінюються. SendPulse-помилки не валять запит (повертаємо у відповіді).
+async function handleCarryover(
+  sub: NonNullable<SubWithUser>,
+  input: { note?: string; sendWelcome?: boolean },
+  actor: string,
+) {
+  if (sub.status === 'ARCHIVED') {
+    return NextResponse.json(
+      { error: 'Підписка заархівована — перенесення зафіксувати не можна. Створіть нову.' },
+      { status: 400 },
+    );
+  }
+
+  const paidCount = await prisma.payment.count({
+    where: { yearlyProgramSubscriptionId: sub.id, status: 'PAID' },
+  });
+  if (paidCount > 0) {
+    return NextResponse.json(
+      { error: 'У підписки вже є оплати — відредагуйте платіж олівцем у панелі "Платежі"' },
+      { status: 400 },
+    );
+  }
+
+  const note = (input.note ?? '').trim().slice(0, 500) || null;
+  // Дефолт — слати welcome. Менеджер знімає галочку, якщо студент уже отримав запрошення.
+  const sendWelcome = input.sendWelcome !== false;
+  const now = new Date();
+
+  // Перенесення = завжди річний доступ без автосписання.
+  await prisma.yearlyProgramSubscription.update({
+    where: { id: sub.id },
+    data: { plan: 'YEARLY', autoRenew: false },
+  });
+
+  const orderReference = `carryover_${Date.now()}_${sub.id.slice(-6)}`;
+  await prisma.payment.create({
+    data: {
+      userId: sub.userId,
+      orderReference,
+      amount: 0,
+      currency: 'UAH',
+      status: 'PAID',
+      paidAt: now,
+      yearlyProgramSubscriptionId: sub.id,
+      manualMethod: 'carryover',
+      manualNote: note,
+    },
+  });
+
+  const activation = await applyPaymentActivation({
+    subscriptionId: sub.id,
+    plan: 'YEARLY',
+    autoRenew: false,
+    prevStatus: sub.status,
+    lastPaymentAt: now,
+    allowRevive: true,
+  });
+
+  await prisma.yearlyProgramSubscriptionEvent.create({
+    data: {
+      subscriptionId: sub.id,
+      type: 'admin_action',
+      message: `Перенесено з минулого набору (існуюча підписка) by ${actor}${note ? ` — ${note}` : ''} · expiresAt=${activation.newExpiresAt?.toISOString().slice(0, 10) ?? 'null'}`,
+      metadata: { carryover: true, note, orderReference, actor },
+    },
+  });
+
+  // Side-effects — дзеркало manual-add. Помилки не валять запит: платіж і доступ уже в БД.
+  let extraLaunch: Awaited<ReturnType<typeof runExtraLaunchForSubscription>> | null = null;
+  let welcome: ManualPreLaunchWelcomeResult | null = null;
+  if (activation.cohortLaunched) {
+    // Спершу TG-invite (щоб вкласти посилання в лист extra-launch-у), як у WFP callback-у.
+    let tgInviteLink: string | null = null;
+    try {
+      const tgSettings = await getYearlyProgramTelegramSettings();
+      if (tgSettings.autoAdd && tgSettings.chatId && sub.telegramUsername) {
+        const tgRes = await generateInviteForSubscription({
+          subscriptionId: sub.id,
+          triggeredBy: `${actor}:carryover`,
+        });
+        if (tgRes.ok) tgInviteLink = tgRes.inviteLink;
+      }
+    } catch {
+      // помилка invite не блокує carryover — доступ важливіший за link у листі
+    }
+    extraLaunch = await runExtraLaunchForSubscription(
+      sub.id,
+      `${actor} · carryover`,
+      { telegramInviteLink: tgInviteLink },
+    ).catch((e) => ({
+      ok: false,
+      reason: (e as Error).message,
+      expiresAt: null,
+      sendpulseAccessOpened: false,
+      studentId: null,
+      email: { sent: false },
+    }));
+  } else if (sendWelcome) {
+    // Carryover тут — завжди перший PAID-платіж підписки (перевірено вище).
+    welcome = await runManualPreLaunchWelcome(sub.id, `${actor} · carryover`)
+      .catch((e) => ({
+        inviteGenerated: false, inviteLink: null, inviteError: null,
+        welcomeSent: false, welcomeSkipped: false, welcomeError: (e as Error).message,
+      }));
+  }
+
+  return NextResponse.json({
+    ok: true,
+    orderReference,
+    newStatus: activation.newStatus,
+    newExpiresAt: activation.newExpiresAt?.toISOString() ?? null,
+    cohortLaunched: activation.cohortLaunched,
     extraLaunch,
     welcome,
   });

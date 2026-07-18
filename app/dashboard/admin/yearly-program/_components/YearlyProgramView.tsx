@@ -46,6 +46,7 @@ const CreateCohortModal = dynamic(() => import('./CreateCohortModal'), { ssr: fa
 const IssuesModal = dynamic(() => import('./IssuesModal'), { ssr: false });
 const ManualPaymentModal = dynamic(() => import('./ManualPaymentModal'), { ssr: false });
 const EditPaymentModal = dynamic(() => import('./EditPaymentModal'), { ssr: false });
+const CarryoverModal = dynamic(() => import('./CarryoverModal'), { ssr: false });
 const ManualAddStudentModal = dynamic(() => import('./ManualAddStudentModal'), { ssr: false });
 import ManualAddHelpButton from './ManualAddHelpButton';
 import ProgramSettingButton from './ProgramSettingButton';
@@ -1088,6 +1089,7 @@ function ExpandedRowContent({
   const [tgInviting, setTgInviting] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [manualPayOpen, setManualPayOpen] = useState(false);
+  const [carryoverOpen, setCarryoverOpen] = useState(false);
   const [editPaymentId, setEditPaymentId] = useState<string | null>(null);
   const [extendOpen, setExtendOpen] = useState(false);
 
@@ -1233,6 +1235,32 @@ function ExpandedRowContent({
               row={row}
               theme={theme}
               onClose={() => setManualPayOpen(false)}
+              onDone={() => { onReload(); router.refresh(); }}
+            />
+          )}
+          {/* Перенесення доступне тільки поки платежів немає (інакше — правка платежу олівцем
+              у панелі «Платежі»), і тільки для «Очікує оплату». */}
+          {row.status === 'PENDING' && row.paymentsCount === 0 && (
+            <button
+              type="button"
+              onClick={() => setCarryoverOpen(true)}
+              disabled={busy}
+              className={`px-3 py-1.5 text-[11px] font-semibold rounded-lg border transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-left flex items-center gap-2 ${
+                dark
+                  ? 'bg-violet-500/10 border-violet-400/30 text-violet-200 hover:bg-violet-500/20 hover:border-violet-400/50'
+                  : 'bg-violet-50 border-violet-300/60 text-violet-900 hover:bg-violet-100 hover:border-violet-400/70'
+              }`}
+              title="Зарахувати як перенесення з минулого набору: платіж 0 ₴, доступ як у Річного"
+            >
+              <span className="text-base">🔄</span>
+              Перенесення з минулого року
+            </button>
+          )}
+          {carryoverOpen && (
+            <CarryoverModal
+              row={row}
+              theme={theme}
+              onClose={() => setCarryoverOpen(false)}
               onDone={() => { onReload(); router.refresh(); }}
             />
           )}
