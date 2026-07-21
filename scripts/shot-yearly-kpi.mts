@@ -34,9 +34,14 @@ await ctx.addCookies([
 ]);
 const page = await ctx.newPage();
 
+const THEMES = (process.env.SHOT_THEMES ?? 'light').split(',');
+
+for (const theme of THEMES) {
 for (const width of [1519, 1366]) {
   await page.setViewportSize({ width, height: 960 });
   await page.goto('http://localhost:3000/dashboard/admin/yearly-program', { waitUntil: 'networkidle' });
+  await page.evaluate((t) => localStorage.setItem('admin-theme-v1', t), theme);
+  await page.reload({ waitUntil: 'networkidle' });
   await page.waitForTimeout(1200);
 
   const info = await page.evaluate(() => {
@@ -61,7 +66,7 @@ for (const width of [1519, 1366]) {
   console.log(`\n=== ${width}px ===`);
   console.log(JSON.stringify(info, null, 1));
 
-  await page.screenshot({ path: resolve(root, `yearly-kpi-${width}.png`), clip: { x: 0, y: 0, width, height: 560 } });
+  await page.screenshot({ path: resolve(root, `yearly-kpi-${theme}-${width}.png`), clip: { x: 0, y: 0, width, height: 560 } });
 
   // Stress-тест: підставляємо «прод-масштабні» числа (3-значні лічильники + 7-значний дохід)
   // і перевіряємо, що рядок усе одно не переноситься.
@@ -75,8 +80,9 @@ for (const width of [1519, 1366]) {
     return { lines: [...new Set(tops)].length, width: Math.round(row.getBoundingClientRect().width) };
   });
   console.log('stress (128 × 6 + 1 250 000 ₴):', stressed);
-  await page.screenshot({ path: resolve(root, `yearly-kpi-${width}-stress.png`), clip: { x: 0, y: 0, width, height: 560 } });
+  await page.screenshot({ path: resolve(root, `yearly-kpi-${theme}-${width}-stress.png`), clip: { x: 0, y: 0, width, height: 560 } });
 }
 
+}
 await browser.close();
 await prisma.$disconnect();

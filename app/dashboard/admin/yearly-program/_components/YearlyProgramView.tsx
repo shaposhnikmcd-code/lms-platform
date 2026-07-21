@@ -23,6 +23,7 @@ import {
   HiOutlineCalendarDays,
   HiOutlineUserPlus,
   HiOutlineArrowPathRoundedSquare,
+  HiOutlineCalendar,
 } from 'react-icons/hi2';
 import { FaApplePay, FaGooglePay, FaRegCreditCard } from 'react-icons/fa';
 import type { YearlyProgramSettings } from '@/lib/yearlyProgramSettings';
@@ -457,29 +458,7 @@ function YearlyProgramViewInner({
         <div className={dark ? 'border-t border-white/[0.06]' : 'border-t border-stone-300/40'} />
         {/* Другий рядок панелі — розбивка живих студентів (ACTIVE+GRACE) по видах підписки.
             Назви ідентичні колонці «Вид» в адмінці Платежів. Сума трьох = Активних + Grace. */}
-        <div data-kpi-row="plans" className="px-5 py-3 flex items-center gap-x-5 gap-y-2 flex-wrap">
-          <KpiInline
-            theme={theme}
-            icon={HiOutlineCalendarDays}
-            label="Річна підписка"
-            value={summary.planYearly.toLocaleString()}
-            hint="План YEARLY — одна оплата за весь рік. Рахуються студенти в програмі (ACTIVE + Grace)."
-          />
-          <KpiInline
-            theme={theme}
-            icon={HiOutlineArrowPathRoundedSquare}
-            label="Місячна Автоплатіж"
-            value={summary.planMonthlyAuto.toLocaleString()}
-            hint="MONTHLY з автосписанням через WayForPay. Рахуються студенти в програмі (ACTIVE + Grace)."
-          />
-          <KpiInline
-            theme={theme}
-            icon={HiOutlineCalendarDays}
-            label="Місячна на 1 міс."
-            value={summary.planMonthlyOnce.toLocaleString()}
-            hint="MONTHLY разова оплата за один місяць, без автосписання. Рахуються студенти в програмі (ACTIVE + Grace)."
-          />
-        </div>
+        <PlanBreakdownRow theme={theme} summary={summary} />
       </AdminPanel>
       {createCohortOpen && (
         <CreateCohortModal
@@ -2218,6 +2197,112 @@ function KpiInline({
           · {suffix}
         </span>
       )}
+    </div>
+  );
+}
+
+/// Другий рядок workspace-панелі: розбивка живих студентів (ACTIVE+GRACE) по видах підписки.
+/// Візуально відділений від стрічки статусів — власний тонований фон + картки-чипи замість
+/// плоских KpiInline, щоб цифри не зливались з рядком вище. Ліворуч — підпис «Студенти в
+/// програмі» із загальною сумою, яка за побудовою = Активних + Grace. У кожного чипа —
+/// частка у відсотках і тонка смужка-індикатор цієї частки (амбер, палітра сторінки).
+function PlanBreakdownRow({ theme, summary }: { theme: Theme; summary: SummaryData }) {
+  const dark = theme === 'dark';
+  const total = summary.planYearly + summary.planMonthlyAuto + summary.planMonthlyOnce;
+  const items = [
+    {
+      icon: HiOutlineCalendarDays,
+      label: 'Річна підписка',
+      value: summary.planYearly,
+      hint: 'План YEARLY — одна оплата за весь рік. Рахуються студенти в програмі (ACTIVE + Grace).',
+    },
+    {
+      icon: HiOutlineArrowPathRoundedSquare,
+      label: 'Місячна Автоплатіж',
+      value: summary.planMonthlyAuto,
+      hint: 'MONTHLY з автосписанням через WayForPay. Рахуються студенти в програмі (ACTIVE + Grace).',
+    },
+    {
+      icon: HiOutlineCalendar,
+      label: 'Місячна на 1 міс.',
+      value: summary.planMonthlyOnce,
+      hint: 'MONTHLY разова оплата за один місяць, без автосписання. Рахуються студенти в програмі (ACTIVE + Grace).',
+    },
+  ];
+
+  // rounded-b-2xl — рядок останній у панелі, тонований фон має повторювати її нижні кути.
+  return (
+    <div
+      data-kpi-row="plans"
+      className={`px-5 py-3.5 flex items-stretch gap-x-3 gap-y-3 flex-wrap rounded-b-2xl ${
+        dark ? 'bg-white/[0.04]' : 'bg-amber-500/[0.09]'
+      }`}
+    >
+      <div className="flex flex-col justify-center pr-3 mr-1">
+        <span
+          className={`text-[10px] uppercase tracking-[0.16em] font-semibold leading-tight ${
+            dark ? 'text-slate-400' : 'text-stone-500'
+          }`}
+        >
+          Студенти
+          <br />в програмі
+        </span>
+        <span
+          className={`mt-0.5 tabular-nums text-[19px] font-semibold leading-none ${
+            dark ? 'text-slate-100' : 'text-stone-900'
+          }`}
+          title="Активні + Grace. Дорівнює сумі трьох видів підписки праворуч."
+        >
+          {total.toLocaleString()}
+        </span>
+      </div>
+      {items.map((it) => {
+        const share = total > 0 ? Math.round((it.value / total) * 100) : 0;
+        return (
+          <div
+            key={it.label}
+            title={it.hint}
+            className={`min-w-[186px] rounded-xl border px-3.5 py-2 ${
+              dark
+                ? 'border-white/[0.10] bg-white/[0.05]'
+                : 'border-stone-300/70 bg-white/85 shadow-[0_1px_3px_rgba(120,113,108,0.08)]'
+            }`}
+          >
+            <div className="flex items-center gap-1.5">
+              <it.icon className={`shrink-0 text-[13px] ${dark ? 'text-amber-300/75' : 'text-amber-600/85'}`} />
+              <span
+                className={`text-[10px] uppercase tracking-[0.13em] font-medium whitespace-nowrap ${
+                  dark ? 'text-slate-300' : 'text-stone-600'
+                }`}
+              >
+                {it.label}
+              </span>
+            </div>
+            <div className="mt-1.5 flex items-baseline gap-2">
+              <span
+                className={`tabular-nums text-[21px] font-semibold leading-none ${
+                  dark ? 'text-slate-50' : 'text-stone-900'
+                }`}
+              >
+                {it.value.toLocaleString()}
+              </span>
+              <span className={`tabular-nums text-[10px] ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
+                {share}%
+              </span>
+              <span
+                className={`ml-auto self-center h-1.5 w-14 overflow-hidden rounded-full ${
+                  dark ? 'bg-white/[0.09]' : 'bg-stone-300/60'
+                }`}
+              >
+                <span
+                  className={`block h-full rounded-full ${dark ? 'bg-amber-300/65' : 'bg-amber-500/75'}`}
+                  style={{ width: `${share}%` }}
+                />
+              </span>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
