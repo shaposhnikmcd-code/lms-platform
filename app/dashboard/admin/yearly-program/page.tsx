@@ -59,6 +59,8 @@ export default async function AdminYearlyProgramPage() {
         id: true,
         userId: true,
         status: true,
+        plan: true,
+        autoRenew: true,
         phone: true,
         telegramUsername: true,
         manuallyAddedAt: true,
@@ -281,6 +283,12 @@ export default async function AdminYearlyProgramPage() {
     ),
   );
 
+  // Розбивка живих студентів (ACTIVE + GRACE) по видах підписки — неймінг збігається з
+  // «Тип/Вид» адмінки Платежів: «Річна підписка» / «Місячна Автоплатіж» / «Місячна на 1 міс.».
+  // Фільтр видимості на ACTIVE/GRACE не впливає (він ховає лише осиротілі PENDING), тож
+  // інваріанта «сума трьох = Активних + Grace» виконується за побудовою.
+  const liveSubs = allSubsLite.filter((s) => s.status === 'ACTIVE' || s.status === 'GRACE');
+
   const summary: SummaryData = {
     total: visibleAll.filter((s) => s.status !== 'ARCHIVED').length,
     pending: visibleAll.filter((s) => s.status === 'PENDING').length,
@@ -289,6 +297,9 @@ export default async function AdminYearlyProgramPage() {
     expired: countByStatus('EXPIRED'),
     cancelled: countByStatus('CANCELLED'),
     revenueTotal: revenueAggr._sum.amount ?? 0,
+    planYearly: liveSubs.filter((s) => s.plan === 'YEARLY').length,
+    planMonthlyAuto: liveSubs.filter((s) => s.plan === 'MONTHLY' && s.autoRenew).length,
+    planMonthlyOnce: liveSubs.filter((s) => s.plan === 'MONTHLY' && !s.autoRenew).length,
   };
 
   return (

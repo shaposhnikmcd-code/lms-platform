@@ -72,6 +72,11 @@ export interface SummaryData {
   expired: number;
   cancelled: number;
   revenueTotal: number;
+  /// Розбивка живих студентів (ACTIVE + GRACE) по видах підписки. Неймінг — як у
+  /// «Тип/Вид» адмінки Платежів. Інваріанта: сума трьох = active + grace.
+  planYearly: number;
+  planMonthlyAuto: number;
+  planMonthlyOnce: number;
 }
 
 export interface CohortListItem {

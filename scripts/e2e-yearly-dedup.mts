@@ -47,7 +47,8 @@ async function mkUser(email: string) {
 async function summarize() {
   const all = await prisma.yearlyProgramSubscription.findMany({
     select: {
-      id: true, userId: true, status: true, phone: true, telegramUsername: true, manuallyAddedAt: true,
+      id: true, userId: true, status: true, plan: true, autoRenew: true,
+      phone: true, telegramUsername: true, manuallyAddedAt: true,
       payments: { where: { status: 'PAID' }, select: { id: true }, take: 1 },
     },
   });
@@ -61,9 +62,16 @@ async function summarize() {
   }));
   const index = buildLiveIdentityIndex(shape);
   const visible = all.filter((_, i) => isVisibleYearlySubscription(shape[i], index));
+  // Розбивка по видах підписки — та сама формула, що в page.tsx.
+  const live = all.filter((s) => s.status === 'ACTIVE' || s.status === 'GRACE');
   return {
     total: visible.filter((s) => s.status !== 'ARCHIVED').length,
     pending: visible.filter((s) => s.status === 'PENDING').length,
+    active: all.filter((s) => s.status === 'ACTIVE').length,
+    grace: all.filter((s) => s.status === 'GRACE').length,
+    planYearly: live.filter((s) => s.plan === 'YEARLY').length,
+    planMonthlyAuto: live.filter((s) => s.plan === 'MONTHLY' && s.autoRenew).length,
+    planMonthlyOnce: live.filter((s) => s.plan === 'MONTHLY' && !s.autoRenew).length,
     // Те, що адмін бачить у дефолтному вигляді таблиці: видимі й не в архіві.
     visibleIds: new Set(visible.filter((s) => s.status !== 'ARCHIVED').map((s) => s.id)),
   };
@@ -130,6 +138,16 @@ check('дубль зник з видимих', !after.visibleIds.has(subA.id));
 check('ACTIVE-підписка видима', after.visibleIds.has(subB.id));
 check('KPI «В очікуванні» не змінилось (мінус дубль, плюс нічого)', after.pending === before.pending - 1, `${before.pending} → ${after.pending}`);
 check('KPI «Всього» не змінилось (дубль пішов, з`явилась ACTIVE)', after.total === before.total, `${before.total} → ${after.total}`);
+
+// Інваріанта розбивки по видах підписки: сума трьох = Активних + Grace.
+for (const [label, s] of [['до оплати', before], ['після', after]] as const) {
+  const sum = s.planYearly + s.planMonthlyAuto + s.planMonthlyOnce;
+  check(
+    `розбивка планів сходиться (${label})`,
+    sum === s.active + s.grace,
+    `${s.planYearly}+${s.planMonthlyAuto}+${s.planMonthlyOnce}=${sum} vs active ${s.active} + grace ${s.grace}`,
+  );
+}
 
 // Друга перевірка: ідемпотентність (повторний виклик нічого не архівує).
 const again = await archiveDuplicatePendingSubscriptions({

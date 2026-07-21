@@ -22,6 +22,7 @@ import {
   HiOutlineInformationCircle,
   HiOutlineCalendarDays,
   HiOutlineUserPlus,
+  HiOutlineArrowPathRoundedSquare,
 } from 'react-icons/hi2';
 import { FaApplePay, FaGooglePay, FaRegCreditCard } from 'react-icons/fa';
 import type { YearlyProgramSettings } from '@/lib/yearlyProgramSettings';
@@ -382,7 +383,10 @@ function YearlyProgramViewInner({
       {/* Workspace card: cohort header + actions + KPI strip — об'єднані в один блок з
           внутрішніми розділювачами, щоб не виглядали як 3 окремі картки. Program-налаштування
           (Вартість/Grace/Email) — в правому верхньому куті workspace, окремо від фільтрів таблиці. */}
-      <AdminPanel theme={theme} padding="p-0" className="mb-5 w-fit max-w-5xl">
+      {/* max-w підняте з 5xl (1024px) до 1200px: стрічка з 7 показників в один рядок має
+          запас для 3-значних лічильників і 7-значного доходу на проді. Панель `w-fit` —
+          ширшою за свій контент вона не стає. */}
+      <AdminPanel theme={theme} padding="p-0" className="mb-5 w-fit max-w-[1200px]">
         <CohortHeader
           cohorts={cohorts}
           activeCohortId={activeCohortId}
@@ -403,7 +407,9 @@ function YearlyProgramViewInner({
           </>
         )}
         <div className={dark ? 'border-t border-white/[0.06]' : 'border-t border-stone-300/40'} />
-        <div className="px-5 py-3 flex items-center gap-x-6 gap-y-2 flex-wrap">
+        {/* Стрічка статусів — усі 7 показників в один рядок (Дохід останній). gap-x-5 підібрано
+            так, щоб рядок вміщався на 1366px без переносу; на вужчих екранах flex-wrap лишається. */}
+        <div data-kpi-row="status" className="px-5 py-3 flex items-center gap-x-5 gap-y-2 flex-wrap">
           <KpiInline
             theme={theme}
             icon={HiOutlineUserGroup}
@@ -446,7 +452,32 @@ function YearlyProgramViewInner({
             label="Дохід"
             value={`${summary.revenueTotal.toLocaleString()} ₴`}
             tone="success"
-            big
+          />
+        </div>
+        <div className={dark ? 'border-t border-white/[0.06]' : 'border-t border-stone-300/40'} />
+        {/* Другий рядок панелі — розбивка живих студентів (ACTIVE+GRACE) по видах підписки.
+            Назви ідентичні колонці «Вид» в адмінці Платежів. Сума трьох = Активних + Grace. */}
+        <div data-kpi-row="plans" className="px-5 py-3 flex items-center gap-x-5 gap-y-2 flex-wrap">
+          <KpiInline
+            theme={theme}
+            icon={HiOutlineCalendarDays}
+            label="Річна підписка"
+            value={summary.planYearly.toLocaleString()}
+            hint="План YEARLY — одна оплата за весь рік. Рахуються студенти в програмі (ACTIVE + Grace)."
+          />
+          <KpiInline
+            theme={theme}
+            icon={HiOutlineArrowPathRoundedSquare}
+            label="Місячна Автоплатіж"
+            value={summary.planMonthlyAuto.toLocaleString()}
+            hint="MONTHLY з автосписанням через WayForPay. Рахуються студенти в програмі (ACTIVE + Grace)."
+          />
+          <KpiInline
+            theme={theme}
+            icon={HiOutlineCalendarDays}
+            label="Місячна на 1 міс."
+            value={summary.planMonthlyOnce.toLocaleString()}
+            hint="MONTHLY разова оплата за один місяць, без автосписання. Рахуються студенти в програмі (ACTIVE + Grace)."
           />
         </div>
       </AdminPanel>
