@@ -10,6 +10,7 @@
     "build": "node scripts/wake-neon.mjs && prisma migrate deploy && prisma generate && next build",
     "start": "next start",
     "lint": "next lint",
+    "test:visibility": "node --import tsx --test lib/yearlyProgramVisibility.test.ts",
     "postinstall": "prisma generate",
     "db:status": "dotenv -e .env.local -- prisma migrate status",
     "db:migrate": "dotenv -e .env.local -- prisma migrate dev",

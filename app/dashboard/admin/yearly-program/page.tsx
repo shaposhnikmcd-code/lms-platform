@@ -8,6 +8,10 @@ import { getYearlyProgramTelegramSettings } from '@/lib/yearlyProgramTelegram';
 import { buildYearlyProgramAdminPrewarm } from '@/lib/yearlyProgramAdminPrefetch';
 import { isSuperAdmin } from '@/lib/superAdmin';
 import { collectAllIssues, buildSubscriptionSeverityMap } from '@/lib/yearlyProgramIssues';
+import {
+  buildLiveIdentityIndex,
+  isVisibleYearlySubscription,
+} from '@/lib/yearlyProgramVisibility';
 import YearlyProgramView, { type SummaryData } from './_components/YearlyProgramView';
 import type { Row, CohortListItem } from './_components/types';
 
@@ -35,7 +39,7 @@ function derivePendingLabel(
 }
 
 export default async function AdminYearlyProgramPage() {
-  const [subs, cohorts] = await Promise.all([
+  const [subs, cohorts, allSubsLite] = await Promise.all([
     prisma.yearlyProgramSubscription.findMany({
       orderBy: { createdAt: 'desc' },
       take: MAX_ROWS,
@@ -47,6 +51,19 @@ export default async function AdminYearlyProgramPage() {
     }),
     prisma.yearlyProgramCohort.findMany({
       orderBy: { startDate: 'desc' },
+    }),
+    // Легка вибірка ПО ВСІЙ БД (без take) — саме на ній рахуються KPI і будується індекс
+    // «живих» ідентичностей. Тягнемо лише поля, потрібні предикату видимості.
+    prisma.yearlyProgramSubscription.findMany({
+      select: {
+        id: true,
+        userId: true,
+        status: true,
+        phone: true,
+        telegramUsername: true,
+        manuallyAddedAt: true,
+        payments: { where: { status: 'PAID' }, select: { id: true }, take: 1 },
+      },
     }),
   ]);
 
@@ -84,42 +101,36 @@ export default async function AdminYearlyProgramPage() {
 
   // Ховаємо «осиротілі» PENDING-підписки: якщо та сама людина вже має живу
   // (ACTIVE/GRACE) підписку, то її незавершена спроба «Очікує» — це покинутий
-  // чекаут, який лише дублює рядок. Самотні PENDING (людина ще нічого не оплатила —
-  // це лід) лишаються видимими. PENDING з реальним PAID-платежем (аномалія) теж не ховаємо.
+  // чекаут, який лише дублює рядок. Предикат і нормалізація телефону/Telegram —
+  // у спільному модулі lib/yearlyProgramVisibility.ts (той самий код працює в
+  // авто-архіві дублів у WFP-callback), деталі правил — там у коментарях.
   //
-  // «Та сама людина» матчиться не лише по userId (акаунту), а й по нормалізованому
-  // телефону та Telegram-нікнейму. Це закриває кейс, коли клієнт оформив невдалу
-  // спробу з одним email, а вдалу оплату — з іншим (одруківка в домені тощо):
-  // акаунти різні, але телефон/Telegram збігаються → дубль ховаємо.
-  const normPhone = (v: string | null | undefined) => {
-    const digits = (v ?? '').replace(/\D/g, '');
-    return digits.length >= 7 ? digits : null;
-  };
-  const normTg = (v: string | null | undefined) => {
-    const h = (v ?? '').trim().toLowerCase().replace(/^@/, '');
-    return h.length > 0 ? h : null;
-  };
-  const liveUserIds = new Set<string>();
-  const livePhones = new Set<string>();
-  const liveTgs = new Set<string>();
-  for (const s of subs) {
-    if (s.status !== 'ACTIVE' && s.status !== 'GRACE') continue;
-    liveUserIds.add(s.userId);
-    const ph = normPhone(s.phone);
-    if (ph) livePhones.add(ph);
-    const tg = normTg(s.telegramUsername);
-    if (tg) liveTgs.add(tg);
-  }
-  const visibleSubs = subs.filter((s) => {
-    if (s.status !== 'PENDING') return true;
-    if (s.payments.some((p) => p.status === 'PAID')) return true;
-    if (liveUserIds.has(s.userId)) return false;
-    const ph = normPhone(s.phone);
-    if (ph && livePhones.has(ph)) return false;
-    const tg = normTg(s.telegramUsername);
-    if (tg && liveTgs.has(tg)) return false;
-    return true;
-  });
+  // Індекс живих ідентичностей будуємо з ПОВНОГО набору (`allSubsLite`), а не з
+  // обрізаних MAX_ROWS рядків — інакше дубль не зматчився б з ACTIVE-підпискою,
+  // що не потрапила у вибірку, і KPI розійшлись би з таблицею.
+  const liveIndex = buildLiveIdentityIndex(
+    allSubsLite.map((s) => ({
+      userId: s.userId,
+      status: s.status,
+      phone: s.phone,
+      telegramUsername: s.telegramUsername,
+      manuallyAddedAt: s.manuallyAddedAt,
+      hasPaidPayment: s.payments.length > 0,
+    })),
+  );
+  const visibleSubs = subs.filter((s) =>
+    isVisibleYearlySubscription(
+      {
+        userId: s.userId,
+        status: s.status,
+        phone: s.phone,
+        telegramUsername: s.telegramUsername,
+        manuallyAddedAt: s.manuallyAddedAt,
+        hasPaidPayment: s.payments.some((p) => p.status === 'PAID'),
+      },
+      liveIndex,
+    ),
+  );
 
   // Для PENDING-підписок тягнемо останню спробу оплати з PaymentCallbackLog (одним запитом),
   // щоб показати реальну причину замість загального «Очікує».
@@ -232,12 +243,11 @@ export default async function AdminYearlyProgramPage() {
   // Клієнт записує ці дані в module-level кеш модалок при mount → відкриття без skeleton.
   const launchedCohortIds = cohortList.filter((c) => c.launchedAt !== null).map((c) => c.id);
 
-  const [statusCounts, totalAggr, revenueAggr, graceDays, postAccessMonths, programSettings, tgSettings, prewarm, superAdmin, issuesPayload] = await Promise.all([
+  const [statusCounts, revenueAggr, graceDays, postAccessMonths, programSettings, tgSettings, prewarm, superAdmin, issuesPayload] = await Promise.all([
     prisma.yearlyProgramSubscription.groupBy({
       by: ['status'],
       _count: { _all: true },
     }),
-    prisma.yearlyProgramSubscription.count({ where: { status: { not: 'ARCHIVED' } } }),
     prisma.payment.aggregate({
       where: { status: 'PAID', yearlyProgramSubscriptionId: { not: null } },
       _sum: { amount: true },
@@ -253,9 +263,27 @@ export default async function AdminYearlyProgramPage() {
   const countByStatus = (st: string) =>
     statusCounts.find((s) => s.status === st)?._count._all ?? 0;
 
+  // «Всього» і «В очікуванні» рахуються за тими самими правилами, що й рядки таблиці:
+  // повний набір підписок → фільтр видимості (осиротілі PENDING-дублі не рахуються) →
+  // «Всього» без архіву (у дефолтному вигляді таблиці ARCHIVED теж прихований).
+  // active/grace/expired/cancelled/revenue фільтр не зачіпає — їхня семантика без змін.
+  const visibleAll = allSubsLite.filter((s) =>
+    isVisibleYearlySubscription(
+      {
+        userId: s.userId,
+        status: s.status,
+        phone: s.phone,
+        telegramUsername: s.telegramUsername,
+        manuallyAddedAt: s.manuallyAddedAt,
+        hasPaidPayment: s.payments.length > 0,
+      },
+      liveIndex,
+    ),
+  );
+
   const summary: SummaryData = {
-    total: totalAggr,
-    pending: countByStatus('PENDING'),
+    total: visibleAll.filter((s) => s.status !== 'ARCHIVED').length,
+    pending: visibleAll.filter((s) => s.status === 'PENDING').length,
     active: countByStatus('ACTIVE'),
     grace: countByStatus('GRACE'),
     expired: countByStatus('EXPIRED'),

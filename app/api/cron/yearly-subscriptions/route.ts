@@ -183,6 +183,10 @@ async function sendScheduledCohortLaunchEmails(): Promise<StepResult> {
 /// ВАЖЛИВО: ручно додані студенти (manuallyAddedAt != null) НЕ архівуються — менеджер
 /// свідомо завів їх у статусі «Очікує» і може підтверджувати оплату (готівка/переказ/ФОП)
 /// будь-коли пізніше. Без цього винятку студент зник би в архів через добу.
+///
+/// Це safety net для тих, хто так і не оплатив. Дублі-спроби клієнтів, які ВЖЕ оплатили,
+/// архівуються одразу в момент успішного платежу — `archiveDuplicatePendingSubscriptions`
+/// (lib/yearlyProgramDedup.ts) з WFP-callback-у, без очікування доби.
 async function archiveStalePending(): Promise<StepResult> {
   const errors: string[] = [];
   const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);

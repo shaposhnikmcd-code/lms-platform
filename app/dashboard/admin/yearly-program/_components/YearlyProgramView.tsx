@@ -417,7 +417,7 @@ function YearlyProgramViewInner({
             icon={HiOutlineClock}
             label="В очікуванні"
             value={summary.pending.toLocaleString()}
-            hint="PENDING — оформлення почато, оплата ще не пройшла"
+            hint="PENDING — оформлення почато, оплата ще не пройшла. Рахуються тільки видимі в таблиці: дублі-спроби клієнтів, які вже оплатили (той самий акаунт / телефон / Telegram), сюди не входять."
           />
           <KpiInline
             theme={theme}

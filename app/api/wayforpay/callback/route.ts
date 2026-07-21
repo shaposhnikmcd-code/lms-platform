@@ -16,6 +16,7 @@ import { provisionPayment } from '@/lib/paymentProvisioning';
 import { sendBundlePurchaseEmail } from '@/lib/bundlePurchaseEmail';
 import { getWayforpayCreds } from '@/lib/wayforpay';
 import { calculateAccessUntil, maxAutopayChargeCount } from '@/lib/yearlyProgramAccess';
+import { archiveDuplicatePendingSubscriptions } from '@/lib/yearlyProgramDedup';
 import { notifyManagers as notifyConnectorManagers } from '@/lib/connectorNotifications';
 
 function getClientIp(req: NextRequest): string {
@@ -908,6 +909,24 @@ async function handleYearlyProgramCallback(args: {
     };
   }
   actions.push('payment:paid');
+
+  // Підписка щойно стала ACTIVE — одразу прибираємо осиротілі PENDING-дублі тієї самої
+  // людини (невдала спроба перед успішною оплатою, можливо з іншим email, але тим самим
+  // телефоном/Telegram). Без цього дубль жив би до нічного cron-а і KPI «В очікуванні»
+  // показувало б фантомний +1. Помилки лише логуються — платіж уже проведено.
+  try {
+    const dedup = await archiveDuplicatePendingSubscriptions({
+      id: sub.id,
+      userId: sub.userId,
+      phone: sub.phone,
+      telegramUsername: sub.telegramUsername,
+    });
+    if (dedup.archived.length > 0) actions.push(`dedup:archived_pending:${dedup.archived.length}`);
+    if (dedup.errors.length > 0) actions.push(`dedup:err:${dedup.errors[0].slice(0, 40)}`);
+  } catch (e) {
+    actions.push(`dedup:err:${(e as Error).message.slice(0, 40)}`);
+  }
+
   const planLabel =
     sub.plan === 'YEARLY'
       ? 'yearly'
