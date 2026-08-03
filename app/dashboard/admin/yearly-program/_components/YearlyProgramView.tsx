@@ -155,9 +155,31 @@ interface ProgramDefaults {
   registrationOpen: boolean;
 }
 
+/// Нульовий зріз KPI — коли для вибраного cohort-у ще нема порахованих даних
+/// (щойно створений набір до router.refresh()).
+const EMPTY_SUMMARY: SummaryData = {
+  total: 0,
+  pending: 0,
+  active: 0,
+  grace: 0,
+  expired: 0,
+  cancelled: 0,
+  revenueTotal: 0,
+  planYearly: 0,
+  planMonthlyAuto: 0,
+  planMonthlyOnce: 0,
+};
+
 export default function YearlyProgramView(props: {
   rows: Row[];
+  /// KPI зрізу «усі набори» — показуються, коли в CohortHeader не вибрано жодного cohort-у.
   summary: SummaryData;
+  /// KPI по кожному cohort-у окремо (`cohortId → SummaryData`). Стрічка бере той зріз,
+  /// який зараз вибраний у таблиці, щоб цифри описували саме її вміст.
+  summaryByCohort: Record<string, SummaryData>;
+  /// Не null, якщо вибірка рядків уперлась у серверний ліміт — тоді над таблицею
+  /// показуємо банер «Показано X з Y».
+  truncation: { shown: number; total: number } | null;
   telegramSettings: TelegramSettingsState;
   cohorts: CohortListItem[];
   graceDays: number;
@@ -211,6 +233,8 @@ export default function YearlyProgramView(props: {
 function YearlyProgramViewInner({
   rows,
   summary,
+  summaryByCohort,
+  truncation,
   cohorts,
   graceDays,
   postAccessMonths,
@@ -225,6 +249,8 @@ function YearlyProgramViewInner({
 }: {
   rows: Row[];
   summary: SummaryData;
+  summaryByCohort: Record<string, SummaryData>;
+  truncation: { shown: number; total: number } | null;
   cohorts: CohortListItem[];
   graceDays: number;
   postAccessMonths: number;
@@ -249,6 +275,13 @@ function YearlyProgramViewInner({
   const [activeCohortId, setActiveCohortId] = useState<string | null>(initialCohortId);
   const [createCohortOpen, setCreateCohortOpen] = useState(false);
   const activeCohort = cohorts.find((c) => c.id === activeCohortId) ?? null;
+
+  // KPI-стрічка описує рівно той зріз, який зараз показує таблиця: вибраний cohort або
+  // «усі набори» (activeCohortId === null). Fallback на EMPTY_SUMMARY — для щойно
+  // створеного cohort-у, якого ще нема в SSR-мапі до router.refresh().
+  const activeSummary = activeCohortId === null
+    ? summary
+    : summaryByCohort[activeCohortId] ?? EMPTY_SUMMARY;
 
   const [planFilter, setPlanFilter] = useState<PlanFilter>('ALL');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
@@ -415,50 +448,55 @@ function YearlyProgramViewInner({
             theme={theme}
             icon={HiOutlineUserGroup}
             label="Всього"
-            value={summary.total.toLocaleString()}
-            hint="Усі записи Річної програми (окрім архіву)"
+            value={activeSummary.total.toLocaleString()}
+            hint={
+              activeCohort
+                ? `Записи набору «${activeCohort.name}» (окрім архіву)`
+                : 'Усі записи Річної програми (окрім архіву)'
+            }
           />
-          <KpiInline theme={theme} icon={HiOutlineCheckCircle} label="Активних" value={summary.active.toLocaleString()} tone="success" />
+          <KpiInline theme={theme} icon={HiOutlineCheckCircle} label="Активних" value={activeSummary.active.toLocaleString()} tone="success" />
           <KpiInline
             theme={theme}
             icon={HiOutlineClock}
             label="В очікуванні"
-            value={summary.pending.toLocaleString()}
+            value={activeSummary.pending.toLocaleString()}
             hint="PENDING — оформлення почато, оплата ще не пройшла. Рахуються тільки видимі в таблиці: дублі-спроби клієнтів, які вже оплатили (той самий акаунт / телефон / Telegram), сюди не входять."
           />
           <KpiInline
             theme={theme}
             icon={HiOutlineClock}
             label={`Grace (${graceDays} ${pluralizeDays(graceDays)})`}
-            value={summary.grace.toLocaleString()}
+            value={activeSummary.grace.toLocaleString()}
             tone="warning"
           />
           <KpiInline
             theme={theme}
             icon={HiOutlineArchiveBoxXMark}
             label="Доступ закрито"
-            value={summary.expired.toLocaleString()}
+            value={activeSummary.expired.toLocaleString()}
             hint="EXPIRED — термін підписки закінчився"
           />
           <KpiInline
             theme={theme}
             icon={HiOutlineNoSymbol}
             label="Скасовано"
-            value={summary.cancelled.toLocaleString()}
+            value={activeSummary.cancelled.toLocaleString()}
             hint="CANCELLED — студент/адмін перервав підписку"
           />
           <KpiInline
             theme={theme}
             icon={HiOutlineBanknotes}
             label="Дохід"
-            value={`${summary.revenueTotal.toLocaleString()} ₴`}
+            value={`${activeSummary.revenueTotal.toLocaleString()} ₴`}
             tone="success"
+            hint={`Сума успішних оплат${activeCohort ? ` набору «${activeCohort.name}»` : ''}. Не входять: тестові оплати адмінів/менеджерів (1–2 ₴) і платежі скасованих та архівних підписок.`}
           />
         </div>
         <div className={dark ? 'border-t border-white/[0.06]' : 'border-t border-stone-300/40'} />
         {/* Другий рядок панелі — розбивка живих студентів (ACTIVE+GRACE) по видах підписки.
             Назви ідентичні колонці «Вид» в адмінці Платежів. Сума трьох = Активних + Grace. */}
-        <PlanBreakdownRow theme={theme} summary={summary} />
+        <PlanBreakdownRow theme={theme} summary={activeSummary} />
       </AdminPanel>
       {createCohortOpen && (
         <CreateCohortModal
@@ -634,6 +672,26 @@ function YearlyProgramViewInner({
             }, 150);
           }}
         />
+      )}
+
+      {/* Серверна вибірка обрізана лімітом — попереджаємо, що в таблиці не всі записи.
+          KPI-стрічка рахується по повному набору підписок, тож без банера її цифри
+          виглядали б «зламаними» відносно вкороченого списку. */}
+      {truncation && (
+        <div
+          data-truncation-banner
+          className={`mb-3 flex items-center gap-2 rounded-lg border px-4 py-2.5 text-[13px] ${
+            dark
+              ? 'border-amber-400/25 bg-amber-400/[0.07] text-amber-200'
+              : 'border-amber-500/30 bg-amber-50 text-amber-800'
+          }`}
+        >
+          <HiOutlineExclamationTriangle className="shrink-0 text-base" />
+          <span>
+            Показано <b className="tabular-nums">{truncation.shown.toLocaleString()}</b> з{' '}
+            <b className="tabular-nums">{truncation.total.toLocaleString()}</b> — уточніть фільтри
+          </span>
+        </div>
       )}
 
       <AdminPanel theme={theme} padding="p-0">

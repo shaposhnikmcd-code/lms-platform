@@ -53,18 +53,20 @@ export default async function AdminYearlyProgramPage() {
       orderBy: { startDate: 'desc' },
     }),
     // Легка вибірка ПО ВСІЙ БД (без take) — саме на ній рахуються KPI і будується індекс
-    // «живих» ідентичностей. Тягнемо лише поля, потрібні предикату видимості.
+    // «живих» ідентичностей. Тягнемо лише поля, потрібні предикату видимості + cohortId
+    // і суми PAID-платежів (KPI рахуються по вибраному cohort-у, дохід — у JS).
     prisma.yearlyProgramSubscription.findMany({
       select: {
         id: true,
         userId: true,
+        cohortId: true,
         status: true,
         plan: true,
         autoRenew: true,
         phone: true,
         telegramUsername: true,
         manuallyAddedAt: true,
-        payments: { where: { status: 'PAID' }, select: { id: true }, take: 1 },
+        payments: { where: { status: 'PAID' }, select: { amount: true } },
       },
     }),
   ]);
@@ -245,15 +247,7 @@ export default async function AdminYearlyProgramPage() {
   // Клієнт записує ці дані в module-level кеш модалок при mount → відкриття без skeleton.
   const launchedCohortIds = cohortList.filter((c) => c.launchedAt !== null).map((c) => c.id);
 
-  const [statusCounts, revenueAggr, graceDays, postAccessMonths, programSettings, tgSettings, prewarm, superAdmin, issuesPayload] = await Promise.all([
-    prisma.yearlyProgramSubscription.groupBy({
-      by: ['status'],
-      _count: { _all: true },
-    }),
-    prisma.payment.aggregate({
-      where: { status: 'PAID', yearlyProgramSubscriptionId: { not: null } },
-      _sum: { amount: true },
-    }),
+  const [graceDays, postAccessMonths, programSettings, tgSettings, prewarm, superAdmin, issuesPayload] = await Promise.all([
     getYearlyGraceDays(prisma),
     getYearlyPostAccessMonths(prisma),
     getYearlyProgramSettings(prisma),
@@ -262,13 +256,11 @@ export default async function AdminYearlyProgramPage() {
     isSuperAdmin(),
     collectAllIssues(),
   ]);
-  const countByStatus = (st: string) =>
-    statusCounts.find((s) => s.status === st)?._count._all ?? 0;
 
-  // «Всього» і «В очікуванні» рахуються за тими самими правилами, що й рядки таблиці:
-  // повний набір підписок → фільтр видимості (осиротілі PENDING-дублі не рахуються) →
-  // «Всього» без архіву (у дефолтному вигляді таблиці ARCHIVED теж прихований).
-  // active/grace/expired/cancelled/revenue фільтр не зачіпає — їхня семантика без змін.
+  // KPI рахуються за тими самими правилами, що й рядки таблиці: повний набір підписок →
+  // фільтр видимості (осиротілі PENDING-дублі не рахуються) → «Всього» без архіву
+  // (у дефолтному вигляді таблиці ARCHIVED теж прихований). На ACTIVE/GRACE/EXPIRED/
+  // CANCELLED фільтр видимості не впливає — він ховає лише осиротілі PENDING.
   const visibleAll = allSubsLite.filter((s) =>
     isVisibleYearlySubscription(
       {
@@ -283,29 +275,61 @@ export default async function AdminYearlyProgramPage() {
     ),
   );
 
-  // Розбивка живих студентів (ACTIVE + GRACE) по видах підписки — неймінг збігається з
-  // «Тип/Вид» адмінки Платежів: «Річна підписка» / «Місячна Автоплатіж» / «Місячна на 1 міс.».
-  // Фільтр видимості на ACTIVE/GRACE не впливає (він ховає лише осиротілі PENDING), тож
-  // інваріанта «сума трьох = Активних + Grace» виконується за побудовою.
-  const liveSubs = allSubsLite.filter((s) => s.status === 'ACTIVE' || s.status === 'GRACE');
+  // Дохід рахуємо тільки з «чесних» платежів:
+  //   • amount <= 2 — символічні тест-оплати ADMIN/MANAGER (1 ₴ курс/пакет, 2 ₴ Річна),
+  //     див. правило тестової ціни в CLAUDE.md;
+  //   • підписки в ARCHIVED/CANCELLED не дають доходу програми (архів — дублі-спроби,
+  //     скасовані — гроші або повернені, або підписка обірвана).
+  const REVENUE_MIN_AMOUNT = 3;
+  const REVENUE_EXCLUDED_STATUSES = new Set(['ARCHIVED', 'CANCELLED']);
 
-  const summary: SummaryData = {
-    total: visibleAll.filter((s) => s.status !== 'ARCHIVED').length,
-    pending: visibleAll.filter((s) => s.status === 'PENDING').length,
-    active: countByStatus('ACTIVE'),
-    grace: countByStatus('GRACE'),
-    expired: countByStatus('EXPIRED'),
-    cancelled: countByStatus('CANCELLED'),
-    revenueTotal: revenueAggr._sum.amount ?? 0,
-    planYearly: liveSubs.filter((s) => s.plan === 'YEARLY').length,
-    planMonthlyAuto: liveSubs.filter((s) => s.plan === 'MONTHLY' && s.autoRenew).length,
-    planMonthlyOnce: liveSubs.filter((s) => s.plan === 'MONTHLY' && !s.autoRenew).length,
+  // Один сумаризатор на будь-який зріз підписок — щоб KPI «всіх наборів» і KPI
+  // конкретного cohort-у рахувались абсолютно однаковими правилами.
+  // Розбивка живих студентів (ACTIVE + GRACE) по видах — неймінг збігається з «Тип/Вид»
+  // адмінки Платежів; інваріанта «сума трьох = Активних + Grace» виконується за побудовою.
+  const buildSummary = (slice: typeof visibleAll): SummaryData => {
+    const byStatus = (st: string) => slice.filter((s) => s.status === st).length;
+    const liveSubs = slice.filter((s) => s.status === 'ACTIVE' || s.status === 'GRACE');
+    const revenueTotal = slice.reduce((sum, s) => {
+      if (REVENUE_EXCLUDED_STATUSES.has(s.status)) return sum;
+      return sum + s.payments.reduce((acc, p) => (p.amount >= REVENUE_MIN_AMOUNT ? acc + p.amount : acc), 0);
+    }, 0);
+    return {
+      total: slice.filter((s) => s.status !== 'ARCHIVED').length,
+      pending: byStatus('PENDING'),
+      active: byStatus('ACTIVE'),
+      grace: byStatus('GRACE'),
+      expired: byStatus('EXPIRED'),
+      cancelled: byStatus('CANCELLED'),
+      revenueTotal,
+      planYearly: liveSubs.filter((s) => s.plan === 'YEARLY').length,
+      planMonthlyAuto: liveSubs.filter((s) => s.plan === 'MONTHLY' && s.autoRenew).length,
+      planMonthlyOnce: liveSubs.filter((s) => s.plan === 'MONTHLY' && !s.autoRenew).length,
+    };
   };
+
+  // `summary` — зріз «усі набори» (коли в таблиці не вибрано жодного cohort-у).
+  // `summaryByCohort` — по одному зрізу на кожен cohort; клієнт бере той, що зараз
+  // вибраний у CohortHeader, тому KPI завжди описують саме вміст таблиці.
+  const summary = buildSummary(visibleAll);
+  const summaryByCohort: Record<string, SummaryData> = {};
+  for (const c of cohortList) {
+    summaryByCohort[c.id] = buildSummary(visibleAll.filter((s) => s.cohortId === c.id));
+  }
+
+  // Таблиця тягне максимум MAX_ROWS рядків. Якщо ліміт вичерпано — попереджаємо явно,
+  // інакше «Показано N» читалось би як «це всі записи».
+  const truncation =
+    subs.length >= MAX_ROWS
+      ? { shown: rows.length, total: visibleAll.length }
+      : null;
 
   return (
     <YearlyProgramView
       rows={rows}
       summary={summary}
+      summaryByCohort={summaryByCohort}
+      truncation={truncation}
       cohorts={cohortList}
       graceDays={graceDays}
       postAccessMonths={postAccessMonths}
