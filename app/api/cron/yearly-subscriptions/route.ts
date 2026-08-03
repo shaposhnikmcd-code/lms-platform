@@ -28,6 +28,14 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 const FROM = MAILER_FROM_EMAIL;
 const CONCURRENCY = 5;
 
+/// Денний прохід — довга послідовна робота (SendPulse + WFP + Resend на кожну підписку).
+/// Дефолтних 10-60с не вистачає на великий cohort → Fluid Compute-ліміт 300с.
+export const maxDuration = 300;
+
+/// Скільки підписок максимум лікуємо за один прохід heal_unopened — щоб крок не з'їв
+/// увесь бюджет maxDuration і не заблокував решту кроків cron-у. Залишок підбереться завтра.
+const HEAL_UNOPENED_BATCH = 30;
+
 interface StepResult {
   step: string;
   processed: number;
@@ -70,6 +78,7 @@ export async function GET(req: NextRequest) {
   const results: StepResult[] = [];
 
   results.push(await runScheduledCohortLaunches());
+  results.push(await healUnopenedAccess());
   results.push(await archiveStalePending());
   results.push(await transitionActiveToGrace());
   results.push(await expireGraceSubscriptions());
@@ -128,6 +137,46 @@ async function runScheduledCohortLaunches(): Promise<StepResult> {
   }
 
   return { step: 'runScheduledCohortLaunches', processed, errors };
+}
+
+/// Self-healing «доступ не відкрився». Ловить дві дірки:
+///   (а) запуск cohort-у обірвався по таймауту — launchedAt уже виставлений, тож повторного
+///       проходу executeLaunchLoop не буде, і решта студентів лишились без доступу;
+///   (б) студент оплатив після запуску, а SendPulse у той момент збійнув — ніхто не повторить.
+/// Критерій: cohort launched, є PAID-платіж, sendpulseAccessOpenedAt=null, статус не
+/// ARCHIVED/CANCELLED (там доступ закритий свідомо). `runExtraLaunchForSubscription`
+/// ідемпотентний — повторне відкриття вже відкритого поверне already_opened без побічних дій.
+async function healUnopenedAccess(): Promise<StepResult> {
+  const errors: string[] = [];
+  const subs = await prisma.yearlyProgramSubscription.findMany({
+    where: {
+      sendpulseAccessOpenedAt: null,
+      status: { notIn: ['ARCHIVED', 'CANCELLED'] },
+      cohort: { launchedAt: { not: null } },
+      payments: { some: { status: 'PAID' } },
+    },
+    select: { id: true },
+    orderBy: { createdAt: 'asc' },
+    take: HEAL_UNOPENED_BATCH,
+  });
+  if (subs.length === 0) return { step: 'heal_unopened', processed: 0, errors };
+
+  const { runExtraLaunchForSubscription } = await import('@/lib/yearlyProgramLaunch');
+
+  let processed = 0;
+  for (const s of subs) {
+    try {
+      const res = await runExtraLaunchForSubscription(s.id, 'heal-cron');
+      if (res.ok) processed++;
+      else if (res.reason && res.reason !== 'already_opened') {
+        errors.push(`${s.id}: ${res.reason.slice(0, 200)}`);
+      }
+    } catch (e) {
+      errors.push(`${s.id}: ${(e as Error).message.slice(0, 200)}`);
+    }
+  }
+
+  return { step: 'heal_unopened', processed, errors };
 }
 
 /// Запланована welcome-розсилка cohort-у. Менеджер міг (а) при запуску LaunchProgramModal

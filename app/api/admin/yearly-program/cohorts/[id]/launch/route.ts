@@ -5,6 +5,11 @@ import { executeLaunchLoop } from '@/lib/yearlyProgramLaunch';
 import { sendCohortLaunchEmails } from '@/lib/yearlyProgramSendEmails';
 import { revalidateLocalized } from '@/lib/revalidatePaths';
 
+/// Запуск cohort-у — послідовний цикл SendPulse + WFP + Resend на кожного студента.
+/// Дефолтний ліміт функції на великому cohort-і обриває роботу вже після claim-у `launchedAt`
+/// (решта студентів лишається без доступу) → Fluid Compute-ліміт 300с.
+export const maxDuration = 300;
+
 /// 🚀 Запустити програму. Дія менеджера в адмінці. Об'єднує два кроки в один:
 /// відкриття доступу + (опціонально) розсилка welcome-листа.
 ///
