@@ -33,7 +33,8 @@ export async function getCurrentCohort(client: CohortClient): Promise<{ id: stri
 type SellableCohortClient = Pick<PrismaClient, 'yearlyProgramCohort'>;
 
 /// Cohort, у який ідуть нові оплати і який «відкриває» кнопки на публічній сторінці.
-/// Пріоритет: 1) явно позначений «Поточний» (`isCurrent`); 2) НЕзапущений майбутній
+/// Пріоритет: 1) явно позначений «Поточний» (`isCurrent`, ще не завершений — `endDate >= now`);
+/// 2) НЕзапущений майбутній
 /// набір (`launchedAt IS NULL AND endDate >= now`, найраніший за startDate) — щоб коли
 /// співіснують «2026 уже запущена й добігає» та «2027 створена під продажі», нові оплати
 /// йшли у 2027, навіть якщо менеджер забув перемкнути «Поточний»; 3) найближчий ще не
@@ -45,8 +46,12 @@ export async function resolveSellableCohort(
   client: SellableCohortClient,
   now: Date = new Date(),
 ): Promise<{ id: string; startDate: Date; endDate: Date } | null> {
+  // `endDate >= now` обов'язковий і тут (як у гілках нижче): менеджер часто лишає прапорець
+  // «Поточний» на минулорічному наборі. Без цієї умови продажі не закривались би після
+  // завершення програми, а нова оплата рахувала б дати доступу по вже закінченому cohort-у
+  // (доступ «народжується» простроченим).
   const current = await client.yearlyProgramCohort.findFirst({
-    where: { isCurrent: true },
+    where: { isCurrent: true, endDate: { gte: now } },
     select: { id: true, startDate: true, endDate: true },
   });
   if (current) return current;

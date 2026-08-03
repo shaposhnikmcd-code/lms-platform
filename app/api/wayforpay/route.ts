@@ -249,13 +249,19 @@ export async function POST(req: NextRequest) {
           orderBy: { createdAt: 'desc' },
         });
         // PENDING без PAID-платежу = абандон (відкрив форму, не оплатив) → не блокуємо retry.
-        const subIsPaid = async (s: { id: string; status: string }) => {
+        const subIsPaid = async (s: { id: string; status: string; expiresAt: Date | null }) => {
           if (s.status === 'ACTIVE' || s.status === 'GRACE') return true;
           const p = await prisma.payment.findFirst({
             where: { yearlyProgramSubscriptionId: s.id, status: 'PAID' },
             select: { id: true },
           });
-          return !!p;
+          if (!p) return false;
+          // PENDING з PAID-платежами, але з простроченим expiresAt — це «оживлена» мертва
+          // підписка (revive нижче), за яку людина так і не доплатила: доступу вона не дає,
+          // тому й блокувати повторну спробу оплати не має. Інакше один абандон після
+          // revive назавжди замикав би людину в 409 (Rule 1 / Rule 2).
+          if (s.status === 'PENDING' && s.expiresAt && s.expiresAt.getTime() < Date.now()) return false;
+          return true;
         };
         const yearlySub = activeSubs.find((s) => s.plan === 'YEARLY') ?? null;
         const monthlySub = activeSubs.find((s) => s.plan === 'MONTHLY') ?? null;
@@ -288,34 +294,60 @@ export async function POST(req: NextRequest) {
 
         // Reuse абандонованої PENDING-спроби або того ж same-plan-у. YEARLY-paid вже відсіяний
         // Rule 1, тут лишається лише YEARLY-PENDING-без-PAID (retry) і MONTHLY same-plan.
-        const existing = plan === 'YEARLY' ? yearlySub : monthlySub;
+        let existing = plan === 'YEARLY' ? yearlySub : monthlySub;
+        // Живої підписки нема → перш ніж заводити нову, шукаємо «мертву» (EXPIRED/CANCELLED)
+        // того ж плану В ТОМУ Ж поточному cohort-і й реюзаємо її. Інакше людина, у якої
+        // місячна протермінувалась посеред програми, при повторній покупці отримувала б
+        // підписку з нуля: сплачені місяці згорають (calculateAccessUntil рахує PAID-платежі
+        // саме цієї підписки), а графік доступу стартує заново. Обмеження по cohort-у
+        // принципове — підписка минулорічного набору не має воскресати у новому.
+        let revivedFromStatus: string | null = null;
+        if (!existing) {
+          const dead = await prisma.yearlyProgramSubscription.findFirst({
+            where: {
+              userId: user.id,
+              plan,
+              status: { in: ['EXPIRED', 'CANCELLED'] },
+              cohortId: currentCohortId,
+            },
+            orderBy: { createdAt: 'desc' },
+          });
+          if (dead) {
+            existing = dead;
+            revivedFromStatus = dead.status;
+          }
+        }
         if (existing) {
           yearlyProgramSubscriptionId = existing.id;
-          // Invite-flow: перенаправляємо reused PENDING-підписку на cohort із invite-token-у
-          // + позначаємо manuallyAdded. Без цього абандонована PENDING-спроба (напр. студент
-          // раніше відкривав форму під час тестування) лишається прив'язаною до старого cohort-у,
-          // і callback не бачить оплату як «у launched-cohort» → пропускає авто-відкриття
-          // SendPulse-доступу (студент отримує лише generic welcome без логіну). Тільки для
-          // PENDING — щоб не зачепити cohort/expiresAt уже оплаченої MONTHLY-підписки при renewal.
-          const repointToInviteCohort = !!invitePayload && existing.status === 'PENDING';
-          if (parsedCountry || normalizedTelegramUsername || normalizedPhone || repointToInviteCohort) {
+          // Cohort re-point: підписка, яка ще не має оплаченого доступу (PENDING або щойно
+          // оживлена мертва), завжди прив'язується до АКТУАЛЬНОГО cohort-у. Без цього
+          // абандонована спроба лишається на старому наборі, і дати доступу рахуються по
+          // минулій програмі — оплачений доступ «народжується» вже простроченим, а callback
+          // не бачить оплату як «у launched-cohort» (студент не отримує SendPulse-доступ).
+          // ACTIVE/GRACE не чіпаємо — це renewal у своєму cohort-і.
+          const isPendingLike = existing.status === 'PENDING' || revivedFromStatus !== null;
+          const repointCohort = isPendingLike && existing.cohortId !== currentCohortId;
+          // Invite-flow додатково позначає підписку як manually added.
+          const markManualAdd = !!invitePayload && isPendingLike;
+          if (parsedCountry || normalizedTelegramUsername || normalizedPhone || repointCohort || markManualAdd || revivedFromStatus) {
             await prisma.yearlyProgramSubscription.update({
               where: { id: existing.id },
               data: {
                 ...(parsedCountry ? { country: parsedCountry } : {}),
                 ...(normalizedTelegramUsername ? { telegramUsername: normalizedTelegramUsername } : {}),
                 ...(normalizedPhone ? { phone: normalizedPhone } : {}),
-                ...(repointToInviteCohort
-                  ? {
-                      cohortId: currentCohortId,
-                      ...(existing.manuallyAddedAt
-                        ? {}
-                        : { manuallyAddedAt: new Date(), manuallyAddedBy: invitePayload!.invitedBy }),
-                    }
+                ...(repointCohort ? { cohortId: currentCohortId } : {}),
+                // Мертву підписку повертаємо в PENDING ще до редіректу на WFP: callback
+                // відмовляється продовжувати EXPIRED/CANCELLED-підписку (guard у
+                // handleYearlyProgramCallback), тож без цього людина заплатила б, а доступ
+                // не відкрився. Після успішної оплати callback сам виставить ACTIVE.
+                ...(revivedFromStatus ? { status: 'PENDING' as const } : {}),
+                ...(markManualAdd && !existing.manuallyAddedAt
+                  ? { manuallyAddedAt: new Date(), manuallyAddedBy: invitePayload!.invitedBy }
                   : {}),
               },
             });
-            if (repointToInviteCohort && existing.cohortId !== currentCohortId) {
+            if (markManualAdd && repointCohort) {
               await prisma.yearlyProgramSubscriptionEvent.create({
                 data: {
                   subscriptionId: existing.id,
@@ -328,7 +360,35 @@ export async function POST(req: NextRequest) {
                   },
                 },
               });
+            } else if (repointCohort) {
+              await prisma.yearlyProgramSubscriptionEvent.create({
+                data: {
+                  subscriptionId: existing.id,
+                  type: 'admin_action',
+                  message: `Нова оплата ${orderReference} · cohort перепризначено → ${currentCohortId}`,
+                  metadata: {
+                    orderReference,
+                    cohortId: currentCohortId,
+                    repointedFromCohortId: existing.cohortId,
+                  },
+                },
+              });
             }
+          }
+          if (revivedFromStatus) {
+            await prisma.yearlyProgramSubscriptionEvent.create({
+              data: {
+                subscriptionId: existing.id,
+                type: 'reactivated',
+                message: `Повторна покупка (${orderReference}): ${revivedFromStatus} → PENDING, підписка реюзається (сплачені платежі збережено)`,
+                metadata: {
+                  previousStatus: revivedFromStatus,
+                  orderReference,
+                  plan,
+                  cohortId: currentCohortId,
+                },
+              },
+            });
           }
           // Sync autoRenew з recurring у обидва боки. Без цього БД залишається "разова"
           // навіть коли юзер апгрейдиться на АВТОПЛАТІЖ (callback пише monthly-once у логи).
