@@ -27,7 +27,9 @@ type IssueKind =
   | 'TG_KICK_FAILED'
   | 'SP_CLOSE_FAILED'
   | 'SP_REOPEN_FAILED'
-  | 'ORPHAN_NO_PAYMENT';
+  | 'ORPHAN_NO_PAYMENT'
+  | 'ORPHAN_RECURRING_CHARGE'
+  | 'RECURRING_CALLBACK_SKIPPED';
 
 const ALL_KINDS: IssueKind[] = [
   'LAUNCH_ACCESS_FAILED',
@@ -37,6 +39,8 @@ const ALL_KINDS: IssueKind[] = [
   'SP_CLOSE_FAILED',
   'SP_REOPEN_FAILED',
   'ORPHAN_NO_PAYMENT',
+  'ORPHAN_RECURRING_CHARGE',
+  'RECURRING_CALLBACK_SKIPPED',
 ];
 
 type Severity = 'critical' | 'warning' | 'info';
@@ -200,6 +204,51 @@ const CATALOG: Record<IssueKind, CatalogEntry> = {
     ],
     hasRetry: false,
   },
+  ORPHAN_RECURRING_CHARGE: {
+    severity: 'critical',
+    icon: '💸',
+    shortTitle: 'Списання після закриття',
+    title: 'Гроші списані після закриття підписки',
+    whatHappened:
+      'WayForPay провів чергове автосписання по підписці, яка вже закрита (Доступ закрито / Скасовано / Видалена). Платіж записаний і прив’язаний до підписки, але доступ автоматично НЕ продовжено.',
+    sideEffects:
+      'Гроші зі студента списані. Поки менеджер не прийме рішення — доступу він не має, а кошти вже в нас.',
+    causes: [
+      'Правило регулярки у WayForPay не було знято при скасуванні/закінченні підписки.',
+      'Підписку скасували вручну між двома списаннями, а WFP уже поставив платіж у чергу.',
+      'Студент прострочив оплату, підписка встигла закритись, і платіж прийшов навздогін.',
+    ],
+    actions: [
+      'Відкрийте підписку і подивіться «Платежі» — платіж уже там, зі своєю сумою і датою.',
+      'Рішення 1 — поновити студенту доступ («Відкрити знову» / «Продовжити») і зняти issue.',
+      'Рішення 2 — повернути кошти в кабінеті WayForPay і зняти правило автосписання.',
+      'У будь-якому разі перевірте, чи регулярка у WFP більше не активна, інакше списання повторяться.',
+    ],
+    hasRetry: false,
+  },
+  RECURRING_CALLBACK_SKIPPED: {
+    severity: 'critical',
+    icon: '🕳️',
+    shortTitle: 'Callback пропущено',
+    title: 'Автосписання не зараховано',
+    whatHappened:
+      'WayForPay повідомив про успішне списання, але система не змогла зарахувати платіж: не знайшла ані користувача, ані підписки, або сума не збіглась з очікуваною, або вичерпано ліміт списань.',
+    sideEffects:
+      'Гроші списані зі студента, але Payment не створений і доступ не продовжений. WayForPay такий callback більше не повторить — розібратись треба вручну.',
+    causes: [
+      'На платіжній сторінці WayForPay вказано email, якого немає в системі (інша адреса, друкарська помилка).',
+      'Підписку видалили/заархівували, а правило регулярки у WFP залишилось активним.',
+      'Сума списання відрізняється від суми першого платежу (змінилась ціна або списано частково).',
+      'Усі 9 місячних платежів уже сплачені, а WFP списав 10-й.',
+    ],
+    actions: [
+      'Відкрийте «Логи платежів» і знайдіть цей orderReference — там повний payload від WayForPay.',
+      'Звіртесь із кабінетом WayForPay: чи справді гроші списані і за ким закріплена карта.',
+      'Знайдіть підписку студента вручну і проведіть платіж через «Ручний платіж», або поверніть кошти у WFP.',
+      'Зніміть правило регулярки у WayForPay, якщо підписки більше не існує.',
+    ],
+    hasRetry: false,
+  },
 };
 
 const SEVERITY_ORDER: Record<Severity, number> = { critical: 0, warning: 1, info: 2 };
@@ -229,7 +278,11 @@ const SEVERITY_META: Record<Severity, { label: string; chipLight: string; chipDa
 };
 
 interface IssueRecord {
-  subscriptionId: string;
+  /// null — issue не привʼязаний до підписки (нерозпізнаний callback). Такі рядки
+  /// не можна ані відкрити в таблиці, ані заглушити — розбір лише вручну.
+  subscriptionId: string | null;
+  /// Ключ для issue-ів без підписки (orderReference лог-запису).
+  sourceId: string | null;
   kind: IssueKind;
   lastOccurredAt: string;
   occurrenceCount: number;
@@ -251,6 +304,11 @@ interface IssuesPayload {
 
 type Tab = 'active' | 'dismissed';
 type PlanFilter = 'ALL' | 'YEARLY' | 'MONTHLY';
+
+/// Стабільний ключ рядка: для issue-ів без підписки беремо sourceId (orderReference).
+function recKey(rec: IssueRecord): string {
+  return `${rec.subscriptionId ?? rec.sourceId ?? 'unknown'}::${rec.kind}`;
+}
 
 export default function IssuesModal({
   theme,
@@ -338,6 +396,8 @@ export default function IssuesModal({
   }, [payload]);
 
   async function handleDismiss(rec: IssueRecord) {
+    if (!rec.subscriptionId) return;
+    const subscriptionId = rec.subscriptionId;
     const reason = await prompt({
       title: `Заглушити issue: ${CATALOG[rec.kind].title}?`,
       description: `Студент: ${rec.user.email}. Issue знову зʼявиться, якщо для цієї підписки виникне нова помилка цього типу після заглушення.`,
@@ -348,13 +408,13 @@ export default function IssuesModal({
       cancelLabel: 'Не заглушувати',
     });
     if (reason === null) return;
-    const key = `${rec.subscriptionId}::${rec.kind}::dismiss`;
+    const key = `${recKey(rec)}::dismiss`;
     setBusyKey(key);
     try {
       const res = await fetch('/api/admin/yearly-program/issues/dismiss', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ subscriptionId: rec.subscriptionId, kind: rec.kind, reason }),
+        body: JSON.stringify({ subscriptionId, kind: rec.kind, reason }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -372,7 +432,8 @@ export default function IssuesModal({
   }
 
   async function handleUndismiss(rec: IssueRecord) {
-    const key = `${rec.subscriptionId}::${rec.kind}::undismiss`;
+    if (!rec.subscriptionId) return;
+    const key = `${recKey(rec)}::undismiss`;
     setBusyKey(key);
     try {
       const res = await fetch('/api/admin/yearly-program/issues/undismiss', {
@@ -396,8 +457,8 @@ export default function IssuesModal({
   }
 
   async function handleRetry(rec: IssueRecord) {
-    if (!CATALOG[rec.kind].hasRetry) return;
-    const key = `${rec.subscriptionId}::${rec.kind}::retry`;
+    if (!CATALOG[rec.kind].hasRetry || !rec.subscriptionId) return;
+    const key = `${recKey(rec)}::retry`;
     setBusyKey(key);
     try {
       if (rec.kind === 'TG_INVITE_FAILED') {
@@ -546,12 +607,12 @@ export default function IssuesModal({
             <div className="space-y-2.5">
               {list.map((rec) => (
                 <IssueRow
-                  key={`${rec.subscriptionId}::${rec.kind}`}
+                  key={recKey(rec)}
                   rec={rec}
                   tab={tab}
                   dark={dark}
                   busyKey={busyKey}
-                  onOpenSubscription={() => { onOpenSubscription(rec.subscriptionId); onClose(); }}
+                  onOpenSubscription={() => { if (rec.subscriptionId) { onOpenSubscription(rec.subscriptionId); onClose(); } }}
                   onDismiss={() => handleDismiss(rec)}
                   onUndismiss={() => handleUndismiss(rec)}
                   onRetry={() => handleRetry(rec)}
@@ -635,10 +696,13 @@ function IssueRow({
   onUndismiss: () => void;
   onRetry: () => void;
 }) {
-  const dismissBusy = busyKey === `${rec.subscriptionId}::${rec.kind}::dismiss`;
-  const undismissBusy = busyKey === `${rec.subscriptionId}::${rec.kind}::undismiss`;
-  const retryBusy = busyKey === `${rec.subscriptionId}::${rec.kind}::retry`;
-  const anyBusy = !!busyKey && busyKey.startsWith(`${rec.subscriptionId}::${rec.kind}::`);
+  const dismissBusy = busyKey === `${recKey(rec)}::dismiss`;
+  const undismissBusy = busyKey === `${recKey(rec)}::undismiss`;
+  const retryBusy = busyKey === `${recKey(rec)}::retry`;
+  const anyBusy = !!busyKey && busyKey.startsWith(`${recKey(rec)}::`);
+  /// Issue без підписки (нерозпізнаний callback) — нема куди вести і нема що заглушувати:
+  /// dismissal зберігається парою (підписка, kind). Лишається тільки інформація в рядку.
+  const linked = rec.subscriptionId !== null;
 
   const entry = CATALOG[rec.kind];
   const sev = SEVERITY_META[entry.severity];
@@ -709,18 +773,29 @@ function IssueRow({
           </div>
         </div>
       <div className="flex flex-col items-stretch gap-1.5 shrink-0">
-        <button
-          type="button"
-          onClick={onOpenSubscription}
-          disabled={anyBusy}
-          className={`inline-flex items-center gap-1 px-2.5 py-1 text-[11px] rounded-md border transition-colors disabled:opacity-50 ${
-            dark ? 'bg-white/[0.04] border-white/[0.08] text-slate-200 hover:bg-white/[0.08]' : 'bg-white border-stone-300/60 text-stone-700 hover:bg-stone-50'
-          }`}
-          title="Відкрити підписку у таблиці"
-        >
-          <HiOutlineArrowTopRightOnSquare /> Відкрити
-        </button>
-        {tab === 'active' && CATALOG[rec.kind].hasRetry && (
+        {linked ? (
+          <button
+            type="button"
+            onClick={onOpenSubscription}
+            disabled={anyBusy}
+            className={`inline-flex items-center gap-1 px-2.5 py-1 text-[11px] rounded-md border transition-colors disabled:opacity-50 ${
+              dark ? 'bg-white/[0.04] border-white/[0.08] text-slate-200 hover:bg-white/[0.08]' : 'bg-white border-stone-300/60 text-stone-700 hover:bg-stone-50'
+            }`}
+            title="Відкрити підписку у таблиці"
+          >
+            <HiOutlineArrowTopRightOnSquare /> Відкрити
+          </button>
+        ) : (
+          <span
+            className={`inline-flex items-center gap-1 px-2.5 py-1 text-[10px] rounded-md border text-center ${
+              dark ? 'bg-white/[0.02] border-white/[0.06] text-slate-500' : 'bg-stone-50 border-stone-300/40 text-stone-500'
+            }`}
+            title="Цей платіж не вдалося привʼязати до жодної підписки"
+          >
+            Без підписки
+          </span>
+        )}
+        {linked && tab === 'active' && CATALOG[rec.kind].hasRetry && (
           <button
             type="button"
             onClick={onRetry}
@@ -732,7 +807,7 @@ function IssueRow({
             <HiOutlineArrowPath className={retryBusy ? 'animate-spin' : ''} /> Спробувати ще
           </button>
         )}
-        {tab === 'active' ? (
+        {!linked ? null : tab === 'active' ? (
           <button
             type="button"
             onClick={onDismiss}

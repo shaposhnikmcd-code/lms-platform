@@ -17,6 +17,7 @@ import { sendBundlePurchaseEmail } from '@/lib/bundlePurchaseEmail';
 import { getWayforpayCreds } from '@/lib/wayforpay';
 import { calculateAccessUntil, maxAutopayChargeCount } from '@/lib/yearlyProgramAccess';
 import { archiveDuplicatePendingSubscriptions } from '@/lib/yearlyProgramDedup';
+import { CALLBACK_LOG_SUB_ACTION_PREFIX } from '@/lib/yearlyProgramIssues';
 import { notifyManagers as notifyConnectorManagers } from '@/lib/connectorNotifications';
 
 function getClientIp(req: NextRequest): string {
@@ -421,6 +422,184 @@ interface YearlyResult {
   sendpulseSlugs: string[];
 }
 
+/// Статуси, у яких підписка вже закрита: доступ по ній не продовжуємо автоматично,
+/// але гроші, що прийшли, ОБОВʼЯЗКОВО фіксуємо (див. `recordOrphanRecurringCharge`).
+const CLOSED_SUB_STATUSES = new Set(['EXPIRED', 'CANCELLED', 'ARCHIVED']);
+
+interface ResolvedRecurring {
+  sub: { id: string; userId: string; status: string; plan: string } | null;
+  /// Користувач, знайдений за email із платіжної сторінки (або власник підписки).
+  /// Потрібен щоб відрізнити `user_not_found` від `subscription_not_found`.
+  user: { id: string; email: string } | null;
+  via: 'parent_order' | 'email' | null;
+}
+
+/// Пошук підписки для рекурентного (WFP-ініційованого) callback-а.
+///
+/// Порядок навмисний:
+/// 1. **Parent orderReference.** WFP формує child-ref автосписання як `<батьківський>_WFPREG-<n>`.
+///    Це єдиний 100% надійний звʼязок: він не залежить від того, який email людина ввела
+///    на платіжній сторінці WFP (інша адреса / інший регістр / share-cart).
+/// 2. **Email** — fallback для історичних/нестандартних ref-ів. Case-insensitive: WFP віддає
+///    email так, як його набрали, і `Ivan@x.ua` не мав знаходити акаунт `ivan@x.ua`.
+///
+/// Закриті підписки (EXPIRED/CANCELLED) теж повертаються — рішення, що з ними робити,
+/// приймає викликач. Мовчазний `subscription_not_found` на списаних грошах неприпустимий.
+async function resolveRecurringSubscription(args: {
+  orderReference: string;
+  clientEmail: string | null;
+}): Promise<ResolvedRecurring> {
+  const subSelect = {
+    id: true,
+    userId: true,
+    status: true,
+    plan: true,
+    user: { select: { id: true, email: true } },
+  } as const;
+
+  const wfpregAt = args.orderReference.indexOf('_WFPREG');
+  if (wfpregAt > 0) {
+    const parentRef = args.orderReference.slice(0, wfpregAt);
+    const parent = await prisma.payment.findUnique({
+      where: { orderReference: parentRef },
+      select: { yearlyProgramSubscriptionId: true },
+    });
+    if (parent?.yearlyProgramSubscriptionId) {
+      const sub = await prisma.yearlyProgramSubscription.findUnique({
+        where: { id: parent.yearlyProgramSubscriptionId },
+        select: subSelect,
+      });
+      if (sub) {
+        return {
+          sub: { id: sub.id, userId: sub.userId, status: sub.status, plan: sub.plan },
+          user: sub.user,
+          via: 'parent_order',
+        };
+      }
+    }
+  }
+
+  const email = args.clientEmail?.trim().toLowerCase();
+  if (!email) return { sub: null, user: null, via: null };
+
+  const user = await prisma.user.findFirst({
+    where: { email: { equals: email, mode: 'insensitive' } },
+    select: { id: true, email: true },
+  });
+  if (!user) return { sub: null, user: null, via: null };
+
+  // Спершу жива підписка, і лише якщо такої немає — закрита.
+  const live = await prisma.yearlyProgramSubscription.findFirst({
+    where: { userId: user.id, plan: 'MONTHLY', status: { in: ['ACTIVE', 'GRACE'] } },
+    orderBy: { createdAt: 'desc' },
+    select: subSelect,
+  });
+  const found = live ?? (await prisma.yearlyProgramSubscription.findFirst({
+    where: { userId: user.id, plan: 'MONTHLY', status: { in: ['EXPIRED', 'CANCELLED'] } },
+    orderBy: { createdAt: 'desc' },
+    select: subSelect,
+  }));
+
+  if (!found) return { sub: null, user, via: null };
+  return {
+    sub: { id: found.id, userId: found.userId, status: found.status, plan: found.plan },
+    user,
+    via: 'email',
+  };
+}
+
+/// Мітка `sub:<id>` в `actionsTaken` — за нею `lib/yearlyProgramIssues.ts` привʼязує
+/// пропущений callback-лог до підписки (без окремої колонки в PaymentCallbackLog).
+function subRefAction(subscriptionId: string): string {
+  return `${CALLBACK_LOG_SUB_ACTION_PREFIX}${subscriptionId}`;
+}
+
+/// Подія «callback пропущено» в підписці — щоб причина була видна прямо у вкладці
+/// «Події» конкретного студента, а не лише в загальних логах платежів.
+/// Best-effort: помилка запису не має ламати відповідь WFP.
+async function logCallbackSkipEvent(args: {
+  subscriptionId: string;
+  orderReference: string;
+  skipReason: string;
+  message: string;
+  amount: number;
+}): Promise<void> {
+  try {
+    await prisma.yearlyProgramSubscriptionEvent.create({
+      data: {
+        subscriptionId: args.subscriptionId,
+        type: 'callback_skipped',
+        message: `Callback пропущено (${args.skipReason}) · ${args.message}`,
+        metadata: {
+          orderReference: args.orderReference,
+          skipReason: args.skipReason,
+          amount: args.amount,
+        },
+      },
+    });
+  } catch (e) {
+    console.error('⚠️ Не вдалося записати callback_skipped event:', args.orderReference, e);
+  }
+}
+
+/// Рекурентне списання прийшло на вже закриту підписку (WFP не встиг зняти правило,
+/// або підписку скасували між списаннями). Гроші реально списані — фіксуємо Payment
+/// із лінком на підписку і піднімаємо critical-issue. Статус підписки НЕ чіпаємо:
+/// повернути кошти чи поновити доступ — рішення менеджера.
+async function recordOrphanRecurringCharge(args: {
+  subscriptionId: string;
+  userId: string;
+  subscriptionStatus: string;
+  orderReference: string;
+  amountInt: number;
+  paymentSystem: string | undefined;
+}): Promise<string[]> {
+  const actions: string[] = [];
+  try {
+    await prisma.$transaction(async (tx) => {
+      const existing = await tx.payment.findUnique({
+        where: { orderReference: args.orderReference },
+        select: { id: true },
+      });
+      if (existing) {
+        actions.push('yearly:orphan_charge_already_recorded');
+        return;
+      }
+      await tx.payment.create({
+        data: {
+          userId: args.userId,
+          courseId: null,
+          bundleId: null,
+          orderReference: args.orderReference,
+          amount: args.amountInt || 0,
+          status: 'PAID',
+          paidAt: new Date(),
+          paymentMethod: args.paymentSystem,
+          yearlyProgramSubscriptionId: args.subscriptionId,
+        },
+      });
+      await tx.yearlyProgramSubscriptionEvent.create({
+        data: {
+          subscriptionId: args.subscriptionId,
+          type: 'orphan_recurring_charge',
+          message: `Автосписання ${args.amountInt} грн надійшло на підписку у статусі ${args.subscriptionStatus}. Платіж записано, доступ НЕ продовжено — потрібне рішення: повернути кошти або поновити підписку.`,
+          metadata: {
+            orderReference: args.orderReference,
+            amount: args.amountInt,
+            subscriptionStatus: args.subscriptionStatus,
+          },
+        },
+      });
+      actions.push('yearly:orphan_charge_recorded');
+    }, { isolationLevel: 'Serializable' });
+  } catch (e) {
+    // UNIQUE на orderReference: паралельний колбек уже записав цей платіж — idempotent.
+    console.error('⚠️ orphan recurring charge write conflict:', args.orderReference, e);
+    actions.push('yearly:orphan_charge_race');
+  }
+  return actions;
+}
+
 /// Обробка failed (Declined/Expired) callback для MONTHLY plan.
 /// — Якщо Payment з orderReference знайдений (це failed initial autopay платіж) — flip у FAILED.
 /// — Якщо orderReference новий (failed cyclical від WFP, sub існує) — знаходимо sub за email,
@@ -489,52 +668,59 @@ async function handleYearlyProgramFailedCallback(args: {
   }
 
   // Path 2: Payment не існує — це cyclical FAILED від WFP з новим orderRef.
-  // Шукаємо sub за email (як у Approved recurring branch).
-  if (!clientEmail) {
+  // Шукаємо sub тим самим резолвером, що й Approved-гілка: спершу по батьківському
+  // orderReference (`_WFPREG`), потім по email case-insensitive.
+  const resolved = await resolveRecurringSubscription({
+    orderReference: args.orderReference,
+    clientEmail,
+  });
+  if (!resolved.sub) {
     return {
       skipped: true,
-      skipReason: 'cyclical_failed_no_email',
-      errorMsg: `Failed cyclical for ${args.orderReference}: no email in callback`,
+      skipReason: resolved.user ? 'cyclical_failed_no_sub' : 'cyclical_failed_user_not_found',
+      errorMsg: resolved.user
+        ? `Failed cyclical for ${args.orderReference}: no MONTHLY sub for ${resolved.user.email}`
+        : `Failed cyclical for ${args.orderReference}: no user with email ${clientEmail ?? '—'}`,
       actions,
     };
   }
-  const user = await prisma.user.findUnique({ where: { email: clientEmail } });
-  if (!user) {
+  const targetSub = resolved.sub;
+  actions.push(subRefAction(targetSub.id));
+
+  // Невдале списання по вже закритій підписці — грошей не рухалось, ескалювати нічого.
+  // Пишемо лише подію для аудиту, лічильник фейлів не чіпаємо (підписка вже не жива).
+  if (CLOSED_SUB_STATUSES.has(targetSub.status)) {
+    await logCallbackSkipEvent({
+      subscriptionId: targetSub.id,
+      orderReference: args.orderReference,
+      skipReason: 'cyclical_failed_sub_closed',
+      message: `${reasonStr} · статус підписки ${targetSub.status}`,
+      amount: amountInt,
+    });
     return {
       skipped: true,
-      skipReason: 'cyclical_failed_user_not_found',
-      errorMsg: `Failed cyclical for ${args.orderReference}: no user with email ${clientEmail}`,
+      skipReason: 'cyclical_failed_sub_closed',
+      errorMsg: null,
       actions,
     };
   }
 
   try {
-    const result = await prisma.$transaction(async (tx) => {
-      const sub = await tx.yearlyProgramSubscription.findFirst({
-        where: {
-          userId: user.id,
-          plan: 'MONTHLY',
-          status: { in: ['ACTIVE', 'GRACE'] },
-        },
-        orderBy: { createdAt: 'desc' },
-      });
-      if (!sub) {
-        return { ok: false as const, skipReason: 'cyclical_failed_no_sub', errorMsg: `No active MONTHLY sub for ${clientEmail}` };
-      }
+    await prisma.$transaction(async (tx) => {
       // Створюємо Payment FAILED лінкований до sub (на майбутні аудити і admin UI).
       await tx.payment.create({
         data: {
-          userId: user.id,
+          userId: targetSub.userId,
           courseId: null,
           bundleId: null,
           orderReference: args.orderReference,
           amount: amountInt || 0,
           status: 'FAILED',
-          yearlyProgramSubscriptionId: sub.id,
+          yearlyProgramSubscriptionId: targetSub.id,
         },
       });
       await tx.yearlyProgramSubscription.update({
-        where: { id: sub.id },
+        where: { id: targetSub.id },
         data: {
           failedChargeCount: { increment: 1 },
           lastChargeAttemptAt: new Date(),
@@ -543,18 +729,13 @@ async function handleYearlyProgramFailedCallback(args: {
       });
       await tx.yearlyProgramSubscriptionEvent.create({
         data: {
-          subscriptionId: sub.id,
+          subscriptionId: targetSub.id,
           type: 'charge_failed',
           message: `Cyclical FAILED · ${reasonStr}`,
           metadata: { orderReference: args.orderReference, transactionStatus: args.transactionStatus, reason: args.body.reason ?? null, source: 'cyclical' },
         },
       });
-      return { ok: true as const };
     }, { isolationLevel: 'Serializable' });
-
-    if (!result.ok) {
-      return { skipped: true, skipReason: result.skipReason, errorMsg: result.errorMsg, actions };
-    }
     actions.push('yearly:cyclical_failed_recorded');
     return { skipped: false, skipReason: null, errorMsg: null, actions };
   } catch (e) {
@@ -566,8 +747,10 @@ async function handleYearlyProgramFailedCallback(args: {
 
 /// Обробка callback-а для Річної програми (yearly або monthly plan).
 /// — Перший платіж: Payment із orderReference знайдений у БД → PAID, активуємо підписку.
-/// — Наступний регулярний (WFP автосписання): Payment не знайдений, шукаємо підписку по email
-///   користувача → створюємо новий Payment, продовжуємо expiresAt.
+/// — Наступний регулярний (WFP автосписання): Payment не знайдений, резолвимо підписку через
+///   `resolveRecurringSubscription` (батьківський orderReference → email case-insensitive)
+///   → створюємо новий Payment, продовжуємо expiresAt. Якщо підписка вже закрита —
+///   платіж усе одно фіксуємо (orphan charge), але доступ не продовжуємо.
 ///
 /// Atomicity guarantees (100% no double-charge, no partial state):
 /// 1. Recurring Payment creation: Serializable $transaction (sub lookup + cap check + create)
@@ -602,32 +785,69 @@ async function handleYearlyProgramCallback(args: {
 
   if (!payment) {
     // 2) Це WFP авто-списання по регулярному платежу. orderReference новий.
-    //    Валідуємо kind/email, потім атомарно створюємо Payment у Serializable tx
-    //    (щоб два одночасних recurring-колбеки з різними orderRef не подвоїли списання).
-    if (args.kind !== 'monthly' || !clientEmail) {
+    //    Резолвимо підписку (parent orderReference → email), потім атомарно створюємо
+    //    Payment у Serializable tx (щоб два одночасних recurring-колбеки з різними
+    //    orderRef не подвоїли списання).
+    if (args.kind !== 'monthly') {
       return {
         prevStatus: null,
         skipped: true,
         skipReason: 'payment_not_found',
-        errorMsg: `Payment not found for ${args.orderReference}${clientEmail ? '' : ' (no email)'}`,
+        errorMsg: `Payment not found for ${args.orderReference}`,
         actions,
         sendpulseSlugs,
       };
     }
-    const user = await prisma.user.findUnique({ where: { email: clientEmail } });
-    if (!user) {
+
+    const resolved = await resolveRecurringSubscription({
+      orderReference: args.orderReference,
+      clientEmail,
+    });
+
+    if (!resolved.sub) {
+      // Гроші списані, а прив'язати нема до чого. Мовчазним цей кейс не лишається:
+      // skipReason потрапляє в PaymentCallbackLog, звідки його піднімає детектор
+      // RECURRING_CALLBACK_SKIPPED у вкладку «Помилки» адмінки.
       return {
         prevStatus: null,
         skipped: true,
-        skipReason: 'user_not_found',
-        errorMsg: `User not found for email ${clientEmail}`,
+        skipReason: resolved.user ? 'subscription_not_found' : 'user_not_found',
+        errorMsg: resolved.user
+          ? `No MONTHLY subscription for ${resolved.user.email} (order ${args.orderReference})`
+          : `User not found for email ${clientEmail ?? '—'} (order ${args.orderReference})`,
         actions,
         sendpulseSlugs,
       };
     }
+
+    const targetSub = resolved.sub;
+    actions.push(subRefAction(targetSub.id));
+    actions.push(`yearly:resolved_via_${resolved.via}`);
+
+    // Підписка вже закрита (EXPIRED/CANCELLED/ARCHIVED), але WFP усе одно списав.
+    // Платіж фіксуємо з лінком на підписку + critical-issue; статус НЕ міняємо.
+    if (CLOSED_SUB_STATUSES.has(targetSub.status)) {
+      const orphanActions = await recordOrphanRecurringCharge({
+        subscriptionId: targetSub.id,
+        userId: targetSub.userId,
+        subscriptionStatus: targetSub.status,
+        orderReference: args.orderReference,
+        amountInt,
+        paymentSystem: typeof args.body.paymentSystem === 'string' ? args.body.paymentSystem : undefined,
+      });
+      actions.push(...orphanActions);
+      return {
+        prevStatus: null,
+        skipped: true,
+        skipReason: 'orphan_recurring_charge',
+        errorMsg: `Recurring charge ${amountInt} on ${targetSub.status} subscription ${targetSub.id} (order ${args.orderReference})`,
+        actions,
+        sendpulseSlugs,
+      };
+    }
+
     // Для recurring callback довіряємо merchantSignature (вже валідовано вище).
-    // Шукаємо sub за email+plan+active. Якщо є — створюємо новий Payment лінкований
-    // до неї. Захист від двох одночасних recurring-колбеків — Serializable transaction
+    // Захист від двох одночасних recurring-колбеків — Serializable transaction
     // + UNIQUE constraint на Payment.orderReference.
     type RecurringCreateResult =
       | { kind: 'ok'; payment: NonNullable<typeof existingPayment> }
@@ -636,19 +856,14 @@ async function handleYearlyProgramCallback(args: {
     let createResult: RecurringCreateResult;
     try {
       createResult = await prisma.$transaction(async (tx) => {
-        const sub = await tx.yearlyProgramSubscription.findFirst({
-          where: {
-            userId: user.id,
-            plan: 'MONTHLY',
-            status: { in: ['ACTIVE', 'GRACE'] },
-          },
-          orderBy: { createdAt: 'desc' },
+        const sub = await tx.yearlyProgramSubscription.findUnique({
+          where: { id: targetSub.id },
         });
         if (!sub) {
           return {
             kind: 'error',
             skipReason: 'subscription_not_found',
-            errorMsg: `No active MONTHLY subscription for ${clientEmail}`,
+            errorMsg: `Subscription ${targetSub.id} disappeared mid-callback (order ${args.orderReference})`,
           } as RecurringCreateResult;
         }
         // Очікувана сума для рекурент-списання = сума першого PAID платежу
@@ -678,9 +893,11 @@ async function handleYearlyProgramCallback(args: {
             errorMsg: `MONTHLY already has ${paidCount} paid (cap ${YEARLY_PROGRAM_CONFIG.totalMonthlyPayments})`,
           } as RecurringCreateResult;
         }
+        // userId беремо з ПІДПИСКИ, а не з email платіжної сторінки: якщо людина
+        // оплатила з іншої адреси, платіж усе одно має належати власнику підписки.
         const created = await tx.payment.create({
           data: {
-            userId: user.id,
+            userId: sub.userId,
             courseId: null,
             bundleId: null,
             orderReference: args.orderReference,
@@ -708,6 +925,16 @@ async function handleYearlyProgramCallback(args: {
     }
 
     if (createResult.kind === 'error') {
+      // Підписку ідентифікували, але платіж не зарахували (сума не збіглась / вичерпано
+      // ліміт списань). Пишемо подію прямо в підписку — менеджер бачить причину у
+      // «Подіях» студента; сам лог-запис підніметься як critical-issue.
+      await logCallbackSkipEvent({
+        subscriptionId: targetSub.id,
+        orderReference: args.orderReference,
+        skipReason: createResult.skipReason,
+        message: createResult.errorMsg,
+        amount: amountInt,
+      });
       return {
         prevStatus: null,
         skipped: true,

@@ -31,7 +31,9 @@ export type IssueKind =
   | 'TG_KICK_FAILED'
   | 'SP_CLOSE_FAILED'
   | 'SP_REOPEN_FAILED'
-  | 'ORPHAN_NO_PAYMENT';
+  | 'ORPHAN_NO_PAYMENT'
+  | 'ORPHAN_RECURRING_CHARGE'
+  | 'RECURRING_CALLBACK_SKIPPED';
 
 export const ISSUE_KIND_VALUES: IssueKind[] = [
   'LAUNCH_ACCESS_FAILED',
@@ -41,6 +43,8 @@ export const ISSUE_KIND_VALUES: IssueKind[] = [
   'SP_CLOSE_FAILED',
   'SP_REOPEN_FAILED',
   'ORPHAN_NO_PAYMENT',
+  'ORPHAN_RECURRING_CHARGE',
+  'RECURRING_CALLBACK_SKIPPED',
 ];
 
 export type IssueSeverity = 'critical' | 'warning' | 'info';
@@ -57,6 +61,8 @@ export const ISSUE_KIND_SEVERITY: Record<IssueKind, IssueSeverity> = {
   SP_CLOSE_FAILED: 'info',
   SP_REOPEN_FAILED: 'warning',
   ORPHAN_NO_PAYMENT: 'critical',
+  ORPHAN_RECURRING_CHARGE: 'critical',
+  RECURRING_CALLBACK_SKIPPED: 'critical',
 };
 
 const SEVERITY_RANK: Record<IssueSeverity, number> = { critical: 0, warning: 1, info: 2 };
@@ -66,6 +72,8 @@ const SEVERITY_RANK: Record<IssueSeverity, number> = { critical: 0, warning: 1, 
 export function buildSubscriptionSeverityMap(payload: IssuesPayload): Record<string, { severity: IssueSeverity; count: number }> {
   const acc: Record<string, { severity: IssueSeverity; count: number }> = {};
   for (const rec of payload.active) {
+    // Issue без прив'язки до підписки (нерозпізнаний callback) не має рядка в таблиці — пропускаємо.
+    if (!rec.subscriptionId) continue;
     const sev = ISSUE_KIND_SEVERITY[rec.kind];
     const prev = acc[rec.subscriptionId];
     if (!prev) {
@@ -86,6 +94,8 @@ export const ISSUE_KIND_LABELS: Record<IssueKind, string> = {
   SP_CLOSE_FAILED: 'SendPulse: close-access помилка',
   SP_REOPEN_FAILED: 'SendPulse: reopen-access помилка',
   ORPHAN_NO_PAYMENT: 'Цілісність: активна підписка без жодної оплати',
+  ORPHAN_RECURRING_CHARGE: 'Гроші списані після закриття підписки',
+  RECURRING_CALLBACK_SKIPPED: 'Автосписання не зараховано (callback пропущено)',
 };
 
 /// Чи є retry-action для kind-у — впливає на UI (показ кнопки «Спробувати ще»).
@@ -98,10 +108,38 @@ export const ISSUE_HAS_RETRY: Record<IssueKind, boolean> = {
   SP_CLOSE_FAILED: false,       // менеджер натискає "Закрити доступ" знову вручну
   SP_REOPEN_FAILED: false,      // менеджер натискає "Відкрити доступ" знову вручну
   ORPHAN_NO_PAYMENT: false,     // ручний розбір: видалити сироту або знайти втрачений платіж
+  ORPHAN_RECURRING_CHARGE: false, // ручне рішення: повернути гроші або поновити підписку
+  RECURRING_CALLBACK_SKIPPED: false, // ручний розбір: звірити з кабінетом WFP
 };
 
+/// Skip-причини WFP-callback-а, за яких гроші реально списані, а платіж НЕ зарахований.
+/// `PaymentCallbackLog` з такою причиною за останні `CALLBACK_LOG_WINDOW_DAYS` днів
+/// піднімається у вкладку «Помилки» (kind `RECURRING_CALLBACK_SKIPPED`).
+/// Джерело запису — `app/api/wayforpay/callback/route.ts`; рядки мають збігатись.
+export const YEARLY_CALLBACK_SKIP_REASONS = [
+  'subscription_not_found',
+  'amount_mismatch',
+  'monthly_cap_reached',
+  'user_not_found',
+] as const;
+
+/// Префікс `actionsTaken`-мітки, якою callback позначає розпізнану підписку
+/// (`sub:<subscriptionId>`). Дає змогу привʼязати лог-запис до підписки без окремої колонки.
+/// Пишеться в callback-route, читається тут — міняти можна лише в обох місцях одночасно.
+export const CALLBACK_LOG_SUB_ACTION_PREFIX = 'sub:';
+
+/// Вікно, у якому «завислі» callback-и вважаються актуальною проблемою.
+const CALLBACK_LOG_WINDOW_DAYS = 30;
+/// Стеля вибірки лог-записів — захист від разового сплеску (нормою є одиниці рядків).
+const CALLBACK_LOG_MAX_ROWS = 500;
+
 export interface IssueRecord {
-  subscriptionId: string;
+  /// null — issue не вдалось привʼязати до підписки (нерозпізнаний рекурентний callback).
+  /// Такі записи не можна ані «Відкрити», ані «Заглушити» (dismissal має FK на підписку).
+  subscriptionId: string | null;
+  /// Стабільний ключ для issue-ів без підписки (orderReference або id лог-запису).
+  /// Для звичайних issue-ів — null (ключ = subscriptionId::kind).
+  sourceId: string | null;
   kind: IssueKind;
   /// Час останнього прояву (для event-based: createdAt останнього failure;
   /// для state-based: updatedAt підписки).
@@ -175,6 +213,9 @@ function classifyEvent(e: RawEvent): {
   // Failure events (видні в активних):
   if (e.type === 'access_open_failed') return { kind: 'LAUNCH_ACCESS_FAILED' };
   if (e.type === 'launch_email_failed') return { kind: 'LAUNCH_EMAIL_FAILED' };
+  // Рекурентне списання прийшло на закриту (EXPIRED/CANCELLED/ARCHIVED) підписку:
+  // Payment створено і залінковано, але доступ НЕ продовжено — рішення за менеджером.
+  if (e.type === 'orphan_recurring_charge') return { kind: 'ORPHAN_RECURRING_CHARGE' };
 
   // Legacy: до явних `*_failed` типів ми писали failure-події з type='admin_action'
   // або 'access_opened' з мітками FAILED у message. Ловимо їх по тексту.
@@ -213,7 +254,8 @@ function stateBasedIssues(sub: RawSubscription): { kind: IssueKind; errorExcerpt
 /// запитів, далі агрегація в пам'яті. Не залежить від адмін-сесії — викликається з API
 /// route, який сам гейтується isAdmin.
 export async function collectAllIssues(): Promise<IssuesPayload> {
-  const [subs, events, dismissals, paidRows] = await Promise.all([
+  const callbackLogSince = new Date(Date.now() - CALLBACK_LOG_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+  const [subs, events, dismissals, paidRows, callbackLogs] = await Promise.all([
     prisma.yearlyProgramSubscription.findMany({
       where: { status: { not: 'ARCHIVED' } },
       select: {
@@ -236,7 +278,7 @@ export async function collectAllIssues(): Promise<IssuesPayload> {
     prisma.yearlyProgramSubscriptionEvent.findMany({
       where: {
         OR: [
-          { type: { in: ['access_open_failed', 'launch_email_failed', 'access_opened', 'launch_email_sent'] } },
+          { type: { in: ['access_open_failed', 'launch_email_failed', 'access_opened', 'launch_email_sent', 'orphan_recurring_charge'] } },
           { type: 'admin_action' },
         ],
       },
@@ -266,11 +308,64 @@ export async function collectAllIssues(): Promise<IssuesPayload> {
       select: { yearlyProgramSubscriptionId: true },
       distinct: ['yearlyProgramSubscriptionId'],
     }),
+    /// «Гроші списані — не зараховані»: callback Річної, який ми свідомо пропустили
+    /// (не знайшли підписку/користувача, сума не збіглась, ліміт списань вичерпано).
+    /// WFP такий callback більше не повторить — без цього блоку кейс залишався б
+    /// видимим лише в сирих логах платежів.
+    prisma.paymentCallbackLog.findMany({
+      where: {
+        kind: { in: ['monthly', 'yearly'] },
+        skipped: true,
+        skipReason: { in: [...YEARLY_CALLBACK_SKIP_REASONS] },
+        createdAt: { gt: callbackLogSince },
+      },
+      select: {
+        id: true,
+        orderReference: true,
+        clientEmail: true,
+        kind: true,
+        skipReason: true,
+        actionsTaken: true,
+        error: true,
+        amount: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: 'desc' },
+      take: CALLBACK_LOG_MAX_ROWS,
+    }),
   ]);
 
   const paidSubIds = new Set(paidRows.map((r) => r.yearlyProgramSubscriptionId).filter(Boolean) as string[]);
 
   const subById = new Map<string, RawSubscription>(subs.map((s) => [s.id, s]));
+
+  /// ARCHIVED-підписки свідомо не входять у вибірку (їхні старі failure — історія).
+  /// Єдиний виняток: орфанне рекурентне списання — гроші прийшли ПІСЛЯ архівації,
+  /// і це треба показати менеджеру. Дотягуємо такі підписки точково.
+  const orphanChargeSubIds = new Set(
+    events.filter((e) => e.type === 'orphan_recurring_charge').map((e) => e.subscriptionId),
+  );
+  const missingSubIds = [...orphanChargeSubIds].filter((id) => !subById.has(id));
+  if (missingSubIds.length > 0) {
+    const archivedWithCharge = await prisma.yearlyProgramSubscription.findMany({
+      where: { id: { in: missingSubIds } },
+      select: {
+        id: true,
+        plan: true,
+        status: true,
+        updatedAt: true,
+        telegramInviteError: true,
+        telegramInvitedAt: true,
+        lastChargeError: true,
+        failedChargeCount: true,
+        lastChargeAttemptAt: true,
+        manuallyAddedAt: true,
+        user: { select: { id: true, name: true, email: true } },
+        cohort: { select: { name: true } },
+      },
+    });
+    for (const s of archivedWithCharge) subById.set(s.id, s);
+  }
 
   // Мапа: subId → kind → найсвіжіший resolved-час (з success-events).
   const resolvedAt = new Map<string, Map<IssueKind, Date>>();
@@ -322,6 +417,7 @@ export async function collectAllIssues(): Promise<IssuesPayload> {
       const dismissal = dismissalMap.get(dismissalKey(subId, kind));
       records.push({
         subscriptionId: subId,
+        sourceId: null,
         kind,
         lastOccurredAt: agg.latestAt.toISOString(),
         occurrenceCount: agg.count,
@@ -347,6 +443,7 @@ export async function collectAllIssues(): Promise<IssuesPayload> {
       const dismissal = dismissalMap.get(dismissalKey(sub.id, stateIssue.kind));
       records.push({
         subscriptionId: sub.id,
+        sourceId: null,
         kind: stateIssue.kind,
         lastOccurredAt: stateIssue.lastOccurredAt.toISOString(),
         occurrenceCount: 1,
@@ -377,6 +474,7 @@ export async function collectAllIssues(): Promise<IssuesPayload> {
     const dismissal = dismissalMap.get(dismissalKey(sub.id, 'ORPHAN_NO_PAYMENT'));
     records.push({
       subscriptionId: sub.id,
+      sourceId: null,
       kind: 'ORPHAN_NO_PAYMENT',
       lastOccurredAt: sub.updatedAt.toISOString(),
       occurrenceCount: 1,
@@ -388,6 +486,97 @@ export async function collectAllIssues(): Promise<IssuesPayload> {
       dismissedBy: dismissal?.dismissedBy ?? null,
       dismissedReason: dismissal?.reason ?? null,
     });
+  }
+
+  // Детектор «гроші списані — не зараховані» з PaymentCallbackLog.
+  // Callback уже відповів WFP «accept» (інакше WFP ретраїть 24 год і задвоїть), тому
+  // єдиний слід такого платежу — лог-запис. Групуємо: розпізнані — по підписці (щоб
+  // менеджер міг заглушити), нерозпізнані — по orderReference.
+  if (callbackLogs.length > 0) {
+    // Auto-resolve: якщо для цього orderReference платіж уже існує в статусі PAID
+    // (менеджер провів вручну або пізніший ретрай спрацював) — проблеми більше немає.
+    const loggedRefs = callbackLogs.map((l) => l.orderReference).filter(Boolean) as string[];
+    const settledRefs = new Set(
+      loggedRefs.length === 0
+        ? []
+        : (
+            await prisma.payment.findMany({
+              where: { orderReference: { in: loggedRefs }, status: 'PAID' },
+              select: { orderReference: true },
+            })
+          ).map((p) => p.orderReference),
+    );
+
+    type LogGroup = {
+      subscriptionId: string | null;
+      sourceId: string | null;
+      latestAt: Date;
+      count: number;
+      excerpt: string;
+      email: string | null;
+      plan: 'YEARLY' | 'MONTHLY';
+    };
+    const logGroups = new Map<string, LogGroup>();
+    for (const log of callbackLogs) {
+      if (log.orderReference && settledRefs.has(log.orderReference)) continue;
+      const subRef = log.actionsTaken
+        ?.split(',')
+        .find((a) => a.startsWith(CALLBACK_LOG_SUB_ACTION_PREFIX))
+        ?.slice(CALLBACK_LOG_SUB_ACTION_PREFIX.length) ?? null;
+      const groupKey = subRef ?? `log::${log.orderReference ?? log.id}`;
+      const excerpt = [
+        log.skipReason,
+        log.orderReference,
+        log.amount != null ? `${log.amount} грн` : null,
+        log.clientEmail,
+        log.error,
+      ]
+        .filter(Boolean)
+        .join(' · ')
+        .slice(0, 200);
+      const prev = logGroups.get(groupKey);
+      if (!prev) {
+        logGroups.set(groupKey, {
+          subscriptionId: subRef,
+          sourceId: subRef ? null : groupKey,
+          latestAt: log.createdAt,
+          count: 1,
+          excerpt,
+          email: log.clientEmail,
+          plan: log.kind === 'yearly' ? 'YEARLY' : 'MONTHLY',
+        });
+      } else {
+        prev.count += 1;
+        if (log.createdAt > prev.latestAt) {
+          prev.latestAt = log.createdAt;
+          prev.excerpt = excerpt;
+          prev.email = log.clientEmail;
+        }
+      }
+    }
+
+    for (const group of logGroups.values()) {
+      const sub = group.subscriptionId ? subById.get(group.subscriptionId) : undefined;
+      const dismissal = group.subscriptionId
+        ? dismissalMap.get(dismissalKey(group.subscriptionId, 'RECURRING_CALLBACK_SKIPPED'))
+        : undefined;
+      records.push({
+        subscriptionId: group.subscriptionId,
+        sourceId: group.sourceId,
+        kind: 'RECURRING_CALLBACK_SKIPPED',
+        lastOccurredAt: group.latestAt.toISOString(),
+        occurrenceCount: group.count,
+        errorExcerpt: group.excerpt,
+        // Підписки може не бути взагалі (нерозпізнаний callback) — тоді все, що ми
+        // знаємо про людину, це email із платіжної сторінки WFP.
+        user: sub?.user ?? { id: '', name: null, email: group.email ?? '—' },
+        plan: sub?.plan ?? group.plan,
+        cohortName: sub?.cohort?.name ?? null,
+        dismissedAt: dismissal?.dismissedAt.toISOString() ?? null,
+        dismissedBy: dismissal?.dismissedBy ?? null,
+        dismissedReason: dismissal?.reason ?? null,
+      });
+    }
   }
 
   // Розділяємо active vs dismissed. Issue active якщо:
