@@ -10,7 +10,8 @@ import {
 } from '@/lib/yearlyProgramTelegram';
 import { removeSubscriptionAutopay } from '@/lib/yearlyProgramAutopay';
 import { sendYearlyProgramAdminEndedEmail, type AdminEndKind } from '@/lib/yearlyProgramAdminEndedEmail';
-import { YEARLY_PROGRAM_CONFIG, getYearlySendpulseCourseId } from '@/lib/yearlyProgramConfig';
+import { YEARLY_PROGRAM_CONFIG, getYearlySendpulseCourseId, getYearlyPostAccessMonths } from '@/lib/yearlyProgramConfig';
+import { calculateAccessUntil } from '@/lib/yearlyProgramAccess';
 import { getYearlyProgramSettings } from '@/lib/yearlyProgramSettings';
 import { parseTelegramUsername } from '@/lib/telegramUsername';
 import { applyPaymentActivation } from '@/lib/yearlyProgramActivation';
@@ -319,36 +320,97 @@ async function handleReopenAccess(sub: NonNullable<SubWithUser>, actor: string) 
   }
 
   const now = new Date();
-  // Plan-aware buffer: YEARLY → +365д, MONTHLY → +30д.
+
+  // expiresAt рахуємо ТИМ САМИМ правилом, що й активація платежу (cohort + PAID-платежі),
+  // а не «now + буфер» — інакше reopen видавав доступ поза межами програми
+  // (напр. YEARLY отримував now+365д замість cohort.endDate + пост-доступ).
+  const fresh = await prisma.yearlyProgramSubscription.findUnique({
+    where: { id: sub.id },
+    include: {
+      cohort: { select: { startDate: true, endDate: true } },
+      payments: { select: { amount: true, status: true, paidAt: true, createdAt: true } },
+    },
+  });
+  const postAccessMonths = await getYearlyPostAccessMonths(prisma);
+  const cohortExpiresAt = fresh?.cohort
+    ? calculateAccessUntil({
+      plan: sub.plan,
+      autoRenew: sub.autoRenew,
+      cohort: { startDate: fresh.cohort.startDate, endDate: fresh.cohort.endDate },
+      payments: fresh.payments,
+      postAccessMonths,
+    })
+    : null;
+
+  // Fallback для legacy-підписок (без cohort-у або без жодного PAID-платежу):
+  // стара поведінка — майбутній expiresAt лишаємо, інакше буфер за планом.
   const bufferDays = sub.plan === 'YEARLY'
     ? YEARLY_PROGRAM_CONFIG.yearlyDurationDays
     : YEARLY_PROGRAM_CONFIG.monthlyDurationDays;
+  const fallbackExpiresAt = sub.expiresAt && sub.expiresAt > now
+    ? sub.expiresAt
+    : new Date(now.getTime() + bufferDays * 24 * 60 * 60 * 1000);
+
+  const newExpiresAt = cohortExpiresAt ?? fallbackExpiresAt;
+  const source = cohortExpiresAt ? 'cohort' : 'fallback';
+  // Правило cohort-у може дати вже минулу дату (програма завершилась) — не мовчимо,
+  // віддаємо попередження, щоб менеджер розумів, чому доступ одразу протермінований.
+  const warning = cohortExpiresAt && cohortExpiresAt <= now
+    ? 'Доступ за правилом набору вже завершився — expiresAt у минулому. За потреби продовжте вручну через «Продовжити доступ».'
+    : undefined;
+
   await prisma.yearlyProgramSubscription.update({
     where: { id: sub.id },
     data: {
       status: 'ACTIVE',
       sendpulseAccessOpenedAt: now,
       sendpulseAccessClosedAt: null,
-      // Якщо expiresAt у майбутньому — лишаємо. Інакше даємо буфер згідно плану.
-      expiresAt: sub.expiresAt && sub.expiresAt > now
-        ? sub.expiresAt
-        : new Date(now.getTime() + bufferDays * 24 * 60 * 60 * 1000),
+      expiresAt: newExpiresAt,
     },
   });
   await prisma.yearlyProgramSubscriptionEvent.create({
     data: {
       subscriptionId: sub.id,
       type: 'reactivated',
-      message: `Reopened by ${actor}`,
+      message: `Reopened by ${actor} · expiresAt=${newExpiresAt.toISOString().slice(0, 10)} (${source})`,
+      metadata: { expiresAtSource: source, expiresAt: newExpiresAt.toISOString() },
     },
   });
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({
+    ok: true,
+    newExpiresAt: newExpiresAt.toISOString(),
+    expiresAtSource: source,
+    ...(warning ? { warning } : {}),
+  });
 }
 
 async function handleExtend(sub: NonNullable<SubWithUser>, daysToAdd: number, actor: string) {
   if (!Number.isFinite(daysToAdd) || daysToAdd <= 0 || daysToAdd > 3650) {
     return NextResponse.json({ error: 'Invalid daysToAdd (1..3650)' }, { status: 400 });
+  }
+  // Guard як у решти дій: архівна підписка не воскресає продовженням доступу.
+  if (sub.status === 'ARCHIVED') {
+    return NextResponse.json(
+      { error: 'Підписка заархівована — продовжити доступ не можна. Створіть нову.' },
+      { status: 400 },
+    );
+  }
+  // PENDING без жодної оплати — «продовження» зробило б з неоплаченої підписки ACTIVE.
+  // Спершу треба зафіксувати оплату («Внести оплату» / «Перенесення з минулого року»).
+  if (sub.status === 'PENDING') {
+    const paidCount = await prisma.payment.count({
+      where: { yearlyProgramSubscriptionId: sub.id, status: 'PAID' },
+    });
+    if (paidCount === 0) {
+      return NextResponse.json(
+        {
+          error: 'Підписка ще не оплачена — продовження доступу зробило б її активною без оплати. '
+            + 'Спершу зафіксуйте оплату («Внести оплату») або перенесення з минулого року.',
+        },
+        { status: 400 },
+      );
+    }
   }
 
   const now = new Date();
@@ -419,6 +481,40 @@ async function handleManualPayment(
     paidAt = parsed;
   }
 
+  // Ідемпотентність: два сабміти підряд (дві вкладки, повтор після таймауту) створювали
+  // два PAID-платежі = зайвий місяць доступу. Той самий (сума + спосіб) у межах 60 секунд
+  // вважаємо дублем і відхиляємо — свідомий повтор менеджер зробить через хвилину.
+  const DUPLICATE_WINDOW_MS = 60 * 1000;
+  const recentDuplicate = await prisma.payment.findFirst({
+    where: {
+      yearlyProgramSubscriptionId: sub.id,
+      status: 'PAID',
+      manualMethod: method,
+      amount,
+      createdAt: { gte: new Date(Date.now() - DUPLICATE_WINDOW_MS) },
+    },
+    orderBy: { createdAt: 'desc' },
+    select: { id: true, orderReference: true, createdAt: true },
+  });
+  if (recentDuplicate) {
+    return NextResponse.json({
+      error: `Таку саму оплату (${amount}₴, ${MANUAL_METHOD_LABELS[method] ?? method}) вже зафіксовано менше хвилини тому. `
+        + 'Якщо це справді друга оплата — повторіть через хвилину.',
+      duplicateOf: recentDuplicate.orderReference,
+    }, { status: 409 });
+  }
+
+  // Сума на кілька місяців усе одно зараховується як ОДИН місячний слот
+  // (calculateAccessUntil рахує кількість PAID-платежів, не суму). Не блокуємо —
+  // менеджер може так зафіксувати передоплату, — але віддаємо попередження для UI.
+  let warning: string | undefined;
+  if (sub.plan === 'MONTHLY') {
+    const { monthlyPrice } = await getYearlyProgramSettings(prisma);
+    if (monthlyPrice > 0 && amount >= 2 * monthlyPrice) {
+      warning = 'сума схожа на оплату кількох місяців — буде зараховано як 1 місяць';
+    }
+  }
+
   // orderReference має бути унікальним — додаємо timestamp + короткий рандом на випадок
   // двох ручних оплат в одну мілісекунду.
   const orderReference = `manual-${method}_${Date.now()}_${sub.id.slice(-6)}`;
@@ -461,7 +557,10 @@ async function handleManualPayment(
       subscriptionId: sub.id,
       type: 'admin_action',
       message: `Ручна оплата ${amount}₴ (${methodLabel}) by ${actor}${note ? ` — ${note}` : ''} · expiresAt=${newExpiresAt?.toISOString().slice(0, 10) ?? 'null'}`,
-      metadata: { manualPayment: true, amount, method, note, paidAt: paidAt.toISOString(), orderReference, actor },
+      metadata: {
+        manualPayment: true, amount, method, note, paidAt: paidAt.toISOString(), orderReference, actor,
+        ...(warning ? { warning } : {}),
+      },
     },
   });
 
@@ -497,6 +596,7 @@ async function handleManualPayment(
     cohortLaunched,
     extraLaunch,
     welcome,
+    ...(warning ? { warning } : {}),
   });
 }
 
