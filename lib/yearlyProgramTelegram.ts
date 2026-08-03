@@ -101,9 +101,44 @@ export async function setJoinRequestModeFlag(joinRequestMode: boolean, updatedBy
   };
 }
 
+/// `true` для рядка виду "-1001234567890" / "123" — тобто вже numeric chat_id.
+export function isNumericChatId(chatId: string | null | undefined): boolean {
+  return typeof chatId === 'string' && /^-?\d+$/.test(chatId);
+}
+
+/// Резолвить збережений `@username` у numeric chat.id і перезаписує в settings.
+/// Потрібно, бо webhook звіряє chat.id з update-у ТІЛЬКИ як число (див. `chatMatches`):
+/// `@username` не дає змоги відрізнити наш канал від будь-якого іншого чату, де бот адмін.
+/// Нові збереження одразу пишуть numeric (`validateAndSaveChatId`); ця функція — self-heal
+/// для рядків, збережених до цієї зміни. Best-effort: якщо Telegram недоступний → null.
+export async function ensureNumericChatId(chatId: string | null): Promise<string | null> {
+  if (!chatId) return null;
+  if (isNumericChatId(chatId)) return chatId;
+  try {
+    const chat = await getChat(chatId);
+    const numeric = String(chat.id);
+    await prisma.yearlyProgramTelegramSetting.update({
+      where: { id: SINGLETON_ID },
+      data: {
+        chatId: numeric,
+        chatTitle: chat.title ?? chat.username ?? null,
+        chatType: chat.type,
+      },
+    });
+    return numeric;
+  } catch (e) {
+    const msg = e instanceof TelegramApiError ? e.message : (e instanceof Error ? e.message : String(e));
+    console.error(`[yearly-tg] ensureNumericChatId("${chatId}") failed: ${msg}`);
+    return null;
+  }
+}
+
 /// Валідує chatId через Bot API getChat (бот має бути учасником каналу/групи)
 /// і зберігає в settings разом з friendly title/type. Повертає помилку для UI
 /// якщо resolve падає (бот не доданий, неправильний username, токена немає).
+///
+/// Зберігаємо ЗАВЖДИ numeric `chat.id` (навіть якщо адмін увів `@username`) — саме його
+/// присилає Telegram в update-ах, тож webhook може строго звірити «це наш канал».
 export async function validateAndSaveChatId(
   rawChatId: string,
   updatedBy: string | null,
@@ -133,17 +168,19 @@ export async function validateAndSaveChatId(
     };
   }
 
+  // getChat повернув справжній chat.id → зберігаємо його, а не введений @username.
+  const resolvedChatId = String(chat.id);
   const row = await prisma.yearlyProgramTelegramSetting.upsert({
     where: { id: SINGLETON_ID },
     create: {
       id: SINGLETON_ID,
-      chatId: normalized,
+      chatId: resolvedChatId,
       chatTitle: chat.title ?? chat.username ?? null,
       chatType: chat.type,
       updatedBy,
     },
     update: {
-      chatId: normalized,
+      chatId: resolvedChatId,
       chatTitle: chat.title ?? chat.username ?? null,
       chatType: chat.type,
       updatedBy,
