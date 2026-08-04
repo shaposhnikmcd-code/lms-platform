@@ -428,13 +428,24 @@ function YearlyProgramViewInner({
         });
         // Сервер може виконати дію і при цьому повернути `warning` (напр. «доступ за
         // правилом набору вже завершився»). Мовчазне «Дію виконано» ховало б це від
-        // менеджера — показуємо саме попередження замість green-тосту.
+        // менеджера — показуємо саме попередження замість green-тосту. У reopen_access
+        // таких повідомлень буває кілька, склеєних через « · » — виводимо весь рядок,
+        // нічого не обрізаючи: кожен пункт вимагає окремої ручної дії.
         if (data.wfpError) {
           toast('warning', `Виконано, але: ${data.wfpError}`);
         } else if (data.warning) {
-          toast('warning', data.warning);
+          // Кілька пунктів розкладаємо в рядки (тост рендериться з whitespace-pre-line),
+          // щоб «новий invite створено…» і «не вдалось повернути в канал…» не зливались.
+          const parts = String(data.warning).split(' · ').filter(Boolean);
+          toast('warning', parts.length > 1 ? parts.map((p) => `• ${p}`).join('\n') : String(data.warning));
         } else {
           toast('success', 'Дію виконано');
+        }
+        // Провал повернення в Telegram — окремим тостом з текстом помилки: у зведеному
+        // `warning` є лише «перевірте вручну», а причина (бан, немає прав, невірний
+        // username) видна тільки тут.
+        if (data.telegram && data.telegram.inviteRegenerated === false && data.telegram.error) {
+          toast('warning', `Telegram: ${data.telegram.error}`);
         }
       }
     } catch (e) {
@@ -3214,15 +3225,18 @@ function pluralizeMonths(n: number): string {
 }
 
 /// Додає N календарних місяців до дати (клемп дня до останнього дня цільового місяця).
-/// Дублює серверну логіку addCalendarMonths для прев'ю прикладу в модалці.
+/// Дублює серверну логіку `addCalendarMonths` з lib/yearlyProgramAccess.ts — тому ЛИШЕ
+/// UTC-геттери: сервер рахує доступ у UTC, і на 31-х числах локальні геттери давали б
+/// інший місяць-донор (31.05 у браузері UTC+3 читається як 30.05 у UTC), а прев'ю в
+/// модалці показувало б дату, якої студент насправді не отримає.
 function addCalendarMonthsClient(date: Date, months: number): Date {
   if (!months) return new Date(date);
-  const day = date.getDate();
+  const day = date.getUTCDate();
   const r = new Date(date);
-  r.setDate(1);
-  r.setMonth(r.getMonth() + months);
-  const lastDay = new Date(r.getFullYear(), r.getMonth() + 1, 0).getDate();
-  r.setDate(Math.min(day, lastDay));
+  r.setUTCDate(1);
+  r.setUTCMonth(r.getUTCMonth() + months);
+  const lastDay = new Date(Date.UTC(r.getUTCFullYear(), r.getUTCMonth() + 1, 0)).getUTCDate();
+  r.setUTCDate(Math.min(day, lastDay));
   return r;
 }
 
@@ -3262,9 +3276,11 @@ function PostAccessSettingsModal({
   const previewWord = pluralizeMonths(previewN);
 
   // Приклад: програма завершується 31.05.2027 → дата закриття доступу.
-  const exampleEnd = new Date(2027, 4, 31);
+  // Дата й формат — у UTC, як і сама формула: інакше в браузері на схід від Гринвіча
+  // прев'ю зсувалось би на день і розходилось із розрахунком сервера.
+  const exampleEnd = new Date(Date.UTC(2027, 4, 31));
   const exampleAccess = addCalendarMonthsClient(exampleEnd, previewN);
-  const fmt = (d: Date) => `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`;
+  const fmt = (d: Date) => `${String(d.getUTCDate()).padStart(2, '0')}.${String(d.getUTCMonth() + 1).padStart(2, '0')}.${d.getUTCFullYear()}`;
 
   function bump(delta: number) {
     const base = valid ? parsed : initialMonths;
