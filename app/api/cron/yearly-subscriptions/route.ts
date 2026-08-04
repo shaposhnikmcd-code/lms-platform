@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { Resend } from 'resend';
+import { Prisma } from '@prisma/client';
 import prisma from '@/lib/prisma';
 import { getYearlyGraceDays, getYearlySendpulseCourseId, YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
 import { syncAutopaySchedule } from '@/lib/yearlyProgramScheduleSync';
@@ -22,10 +22,13 @@ import {
   accessClosed,
 } from '@/lib/emailTemplates/yearlyProgram';
 
-import { MAILER_FROM_EMAIL } from '@/lib/mailer';
+import { sendEmail } from '@/lib/mailer';
+import {
+  getYearlyProgramTelegramSettings,
+  generateInviteForSubscription,
+  kickSubscriptionFromChannel,
+} from '@/lib/yearlyProgramTelegram';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
-const FROM = MAILER_FROM_EMAIL;
 const CONCURRENCY = 5;
 
 /// Денний прохід — довга послідовна робота (SendPulse + WFP + Resend на кожну підписку).
@@ -45,6 +48,94 @@ interface StepResult {
   step: string;
   processed: number;
   errors: string[];
+  /// Set лише коли крок упав цілком (unhandled throw). Решта кроків усе одно виконується —
+  /// раніше будь-який виняток (напр. недоступний SendPulse) зривав увесь денний прохід.
+  error?: string;
+}
+
+/// Ізолятор кроку: падіння одного кроку не має зупиняти решту денного проходу.
+async function runStep(step: string, fn: () => Promise<StepResult>): Promise<StepResult> {
+  try {
+    return await fn();
+  } catch (e) {
+    console.error(`[cron/yearly-subscriptions] step ${step} failed:`, e);
+    return { step, processed: 0, errors: [], error: (e as Error).message.slice(0, 300) };
+  }
+}
+
+/// Прапорці «лист надіслано» — по одному на кожен лист життєвого циклу підписки.
+type ReminderFlag =
+  | 'reminderSent3d'
+  | 'reminderSentOnExpiry'
+  | 'reminderSentGraceStart'
+  | 'reminderSentGraceMid'
+  | 'reminderSentGraceLast'
+  | 'reminderSentExpired';
+
+function flagData(flag: ReminderFlag, value: boolean): Prisma.YearlyProgramSubscriptionUpdateManyMutationInput {
+  return { [flag]: value } as Prisma.YearlyProgramSubscriptionUpdateManyMutationInput;
+}
+
+function flagWhere(flag: ReminderFlag, value: boolean): Prisma.YearlyProgramSubscriptionWhereInput {
+  return { [flag]: value } as Prisma.YearlyProgramSubscriptionWhereInput;
+}
+
+/// Єдина точка відправки cron-листів: claim прапорця → відправка → лог.
+///
+/// Чому claim ПЕРЕД відправкою: два паралельні проходи (ретрай Vercel-cron, ручний виклик)
+/// інакше надішлють лист двічі. `updateMany` з умовою `flag: false` атомарний — виграє один.
+/// Чому відкат прапорця при фейлі: Resend SDK v6 не кидає виняток, а повертає `{error}`.
+/// Раніше прапорець ставився беззастережно, тож недоставлений лист назавжди вважався
+/// надісланим — людина мовчки не отримувала жодного попередження. Тепер невдала спроба
+/// відкочує прапорець (завтра спробуємо ще) і лишає подію `reminder_email_failed`.
+async function sendReminderOnce(args: {
+  subscriptionId: string;
+  flag: ReminderFlag;
+  to: string;
+  render: () => Promise<{ subject: string; html: string }>;
+  eventType: string;
+  eventMessage?: string;
+}): Promise<{ outcome: 'sent' | 'already_claimed' | 'failed'; error?: string }> {
+  const { subscriptionId, flag, to, render, eventType, eventMessage } = args;
+
+  const claim = await prisma.yearlyProgramSubscription.updateMany({
+    where: { id: subscriptionId, ...flagWhere(flag, false) },
+    data: flagData(flag, true),
+  });
+  if (claim.count === 0) return { outcome: 'already_claimed' };
+
+  let error: string | null = null;
+  try {
+    const { subject, html } = await render();
+    const res = await sendEmail({ to, subject, html });
+    if (!res.ok) error = res.error ?? 'send failed';
+    // skipped === true → RESEND_API_KEY не заданий, лист лише в консолі. Це НЕ доставка:
+    // прапорець відкочуємо, інакше на проді з тимчасово знятим ключем листи б «згоріли».
+    else if (res.skipped) error = 'mailer_not_configured';
+  } catch (e) {
+    error = (e as Error).message;
+  }
+
+  if (error) {
+    await prisma.yearlyProgramSubscription.updateMany({
+      where: { id: subscriptionId },
+      data: flagData(flag, false),
+    });
+    await prisma.yearlyProgramSubscriptionEvent.create({
+      data: {
+        subscriptionId,
+        type: 'reminder_email_failed',
+        message: `${eventType} не надіслано: ${error.slice(0, 200)}`,
+        metadata: { flag, eventType, error: error.slice(0, 500) },
+      },
+    });
+    return { outcome: 'failed', error };
+  }
+
+  await prisma.yearlyProgramSubscriptionEvent.create({
+    data: { subscriptionId, type: eventType, message: eventMessage },
+  });
+  return { outcome: 'sent' };
 }
 
 async function processInParallel<T>(
@@ -82,21 +173,32 @@ export async function GET(req: NextRequest) {
 
   const results: StepResult[] = [];
 
-  results.push(await runScheduledCohortLaunches());
-  results.push(await healUnopenedAccess());
-  results.push(await archiveStalePending());
-  results.push(await transitionActiveToGrace());
-  results.push(await expireGraceSubscriptions());
-  results.push(await sendManualBeforeExpiryReminders());
-  results.push(await sendManualOnExpiryReminders());
-  results.push(await sendGraceStartReminders());
-  results.push(await sendGraceMidReminders());
-  results.push(await sendGraceLastReminders());
-  results.push(await sendScheduledCohortLaunchEmails());
-  results.push(await syncYearlyCourseProgress());
-  results.push(await refreshWfpScheduleCache());
+  results.push(await runStep('runScheduledCohortLaunches', runScheduledCohortLaunches));
+  results.push(await runStep('heal_unopened', healUnopenedAccess));
+  results.push(await runStep('archive_stale_pending', archiveStalePending));
+  // ВАЖЛИВО: обидва manual-нагадування йдуть ДО transitionActiveToGrace. Вони шукають
+  // підписки в статусі ACTIVE, а grace-перехід у той самий прохід забирає з ACTIVE усе,
+  // що протермінувалось — при зворотному порядку лист «сьогодні останній день» не міг
+  // піти взагалі (підписка вже була в GRACE).
+  results.push(await runStep('manual_before_expiry', sendManualBeforeExpiryReminders));
+  results.push(await runStep('manual_on_expiry', sendManualOnExpiryReminders));
+  results.push(await runStep('active_to_grace', transitionActiveToGrace));
+  results.push(await runStep('expire_grace', expireGraceSubscriptions));
+  results.push(await runStep('grace_start', sendGraceStartReminders));
+  results.push(await runStep('grace_mid', sendGraceMidReminders));
+  results.push(await runStep('grace_last', sendGraceLastReminders));
+  results.push(await runStep('sendScheduledCohortLaunchEmails', sendScheduledCohortLaunchEmails));
+  results.push(await runStep('sync_progress', syncYearlyCourseProgress));
+  results.push(await runStep('wfp_schedule_cache', refreshWfpScheduleCache));
 
-  return NextResponse.json({ ok: true, results, timestamp: new Date().toISOString() });
+  // ok=false якщо хоча б один крок упав цілком — видно і в логах Vercel-cron, і при ручному виклику.
+  const failedSteps = results.filter((r) => r.error).map((r) => r.step);
+  return NextResponse.json({
+    ok: failedSteps.length === 0,
+    ...(failedSteps.length > 0 ? { failedSteps } : {}),
+    results,
+    timestamp: new Date().toISOString(),
+  });
 }
 
 /// Запланований запуск cohort-у. Менеджер міг натиснути 🚀 Запустити з відстрочкою —
@@ -193,7 +295,6 @@ async function healUnopenedAccess(): Promise<StepResult> {
   if (subs.length === 0) return { step: 'heal_unopened', processed: 0, errors };
 
   const { runExtraLaunchForSubscription } = await import('@/lib/yearlyProgramLaunch');
-  const { getYearlyProgramTelegramSettings, generateInviteForSubscription } = await import('@/lib/yearlyProgramTelegram');
 
   // Налаштування каналу однакові для всього проходу — читаємо один раз.
   let tgSettings: Awaited<ReturnType<typeof getYearlyProgramTelegramSettings>> | null = null;
@@ -506,21 +607,33 @@ async function expireGraceSubscriptions(): Promise<StepResult> {
         });
       }
 
-      // Шлемо лист про закриття доступу, якщо ще не слали
-      if (sub.user?.email && !sub.reminderSentExpired) {
-        try {
-          const { subject, html } = await accessClosed({ name: sub.user.name });
-          await resend.emails.send({ from: FROM, to: sub.user.email, subject, html });
-          await prisma.yearlyProgramSubscription.update({
-            where: { id: sub.id },
-            data: { reminderSentExpired: true },
-          });
-          await prisma.yearlyProgramSubscriptionEvent.create({
-            data: { subscriptionId: sub.id, type: 'reminder_expired' },
-          });
-        } catch (e) {
-          errors.push(`${sub.id} email_expired: ${(e as Error).message}`);
+      // Доступ закрито → прибираємо студента з платного Telegram-каналу. Без цього
+      // неплатник лишався в каналі назавжди (SP-доступ закритий, а контент у ТГ — ні).
+      // Permanent: ban + відкликання invite, щоб не повернувся по збереженому лінку.
+      // Best-effort — помилка не відкочує EXPIRED; сам kick пише подію в підписку.
+      try {
+        const kick = await kickSubscriptionFromChannel({
+          subscriptionId: sub.id,
+          mode: 'permanent',
+          triggeredBy: 'cron:expire-grace',
+        });
+        if (!kick.ok && !kick.skipped) {
+          errors.push(`${sub.id} tg_kick: ${(kick.error ?? 'unknown').slice(0, 120)}`);
         }
+      } catch (e) {
+        errors.push(`${sub.id} tg_kick: ${(e as Error).message.slice(0, 120)}`);
+      }
+
+      // Лист про закриття доступу (claim прапорця + відкат при недоставці — всередині helper-а).
+      if (sub.user?.email) {
+        const r = await sendReminderOnce({
+          subscriptionId: sub.id,
+          flag: 'reminderSentExpired',
+          to: sub.user.email,
+          render: () => accessClosed({ name: sub.user!.name }),
+          eventType: 'reminder_expired',
+        });
+        if (r.outcome === 'failed') errors.push(`${sub.id} email_expired: ${r.error}`);
       }
     } catch (e) {
       errors.push(`${sub.id}: ${(e as Error).message}`);
@@ -540,6 +653,16 @@ function isFullyPaid(sub: { _count: { payments: number } }): boolean {
 const PAID_COUNT_INCLUDE = {
   _count: { select: { payments: { where: { status: 'PAID' as const } } } },
 };
+
+/// Чи попереджати автоплатіжника (autoRenew=true), що доступ ось-ось закриється.
+/// Дві причини для листа:
+///   • `failedChargeCount > 0` — списання реально провалилось (картка/ліміт);
+///   • `wfpRegularRef == null` — правила регулярки у WFP взагалі немає (зняли вручну,
+///     не створилось при токенізації, підписку переносили). Списання не буде ніколи,
+///     тому мовчати не можна: без цієї гілки людина втрачала доступ без жодного листа.
+function cyclicalNeedsWarning(sub: { failedChargeCount: number | null; wfpRegularRef: string | null }): boolean {
+  return (sub.failedChargeCount ?? 0) > 0 || sub.wfpRegularRef === null;
+}
 
 /// MANUAL #1: за 3 дні до експайру. Тільки MANUAL (autoRenew=false) ACTIVE.
 async function sendManualBeforeExpiryReminders(): Promise<StepResult> {
@@ -565,20 +688,17 @@ async function sendManualBeforeExpiryReminders(): Promise<StepResult> {
     try {
       if (!sub.user?.email || !sub.expiresAt) return;
       if (isFullyPaid(sub)) return;
-      const { subject, html } = await manualBeforeExpiry({ name: sub.user.name, expiresAt: sub.expiresAt });
-      await resend.emails.send({ from: FROM, to: sub.user.email, subject, html });
-      await prisma.yearlyProgramSubscription.update({
-        where: { id: sub.id },
-        data: { reminderSent3d: true },
+      const expiresAt = sub.expiresAt;
+      const r = await sendReminderOnce({
+        subscriptionId: sub.id,
+        flag: 'reminderSent3d',
+        to: sub.user.email,
+        render: () => manualBeforeExpiry({ name: sub.user!.name, expiresAt }),
+        eventType: 'reminder_manual_before',
+        eventMessage: `Manual 3d-before · expires ${expiresAt.toISOString().slice(0, 10)}`,
       });
-      await prisma.yearlyProgramSubscriptionEvent.create({
-        data: {
-          subscriptionId: sub.id,
-          type: 'reminder_manual_before',
-          message: `Manual 3d-before · expires ${sub.expiresAt.toISOString().slice(0, 10)}`,
-        },
-      });
-      processed++;
+      if (r.outcome === 'failed') errors.push(`${sub.id}: ${r.error}`);
+      if (r.outcome === 'sent') processed++;
     } catch (e) {
       errors.push(`${sub.id}: ${(e as Error).message}`);
     }
@@ -612,20 +732,16 @@ async function sendManualOnExpiryReminders(): Promise<StepResult> {
     try {
       if (!sub.user?.email) return;
       if (isFullyPaid(sub)) return;
-      const { subject, html } = await manualOnExpiry({ name: sub.user.name });
-      await resend.emails.send({ from: FROM, to: sub.user.email, subject, html });
-      await prisma.yearlyProgramSubscription.update({
-        where: { id: sub.id },
-        data: { reminderSentOnExpiry: true },
+      const r = await sendReminderOnce({
+        subscriptionId: sub.id,
+        flag: 'reminderSentOnExpiry',
+        to: sub.user.email,
+        render: () => manualOnExpiry({ name: sub.user!.name }),
+        eventType: 'reminder_manual_on_expiry',
+        eventMessage: 'Manual on-expiry (last day)',
       });
-      await prisma.yearlyProgramSubscriptionEvent.create({
-        data: {
-          subscriptionId: sub.id,
-          type: 'reminder_manual_on_expiry',
-          message: 'Manual on-expiry (last day)',
-        },
-      });
-      processed++;
+      if (r.outcome === 'failed') errors.push(`${sub.id}: ${r.error}`);
+      if (r.outcome === 'sent') processed++;
     } catch (e) {
       errors.push(`${sub.id}: ${(e as Error).message}`);
     }
@@ -657,29 +773,25 @@ async function sendGraceStartReminders(): Promise<StepResult> {
   await processInParallel(subs, async (sub) => {
     try {
       if (!sub.user?.email || !sub.gracePeriodEndsAt) return;
-      // Для cyclical (autoRenew=true) — шлемо тільки якщо були failed charge attempts.
       // Для manual (autoRenew=false) — шлемо завжди (grace стартував), КРІМ повністю
       // оплачених 9/9: їм платити нічого, «оплатіть»-текст брехливий (кінець програми).
       const isManual = !sub.autoRenew;
-      if (!isManual && (sub.failedChargeCount ?? 0) === 0) return;
+      if (!isManual && !cyclicalNeedsWarning(sub)) return;
       if (isManual && isFullyPaid(sub)) return;
 
-      const { subject, html } = isManual
-        ? await manualGraceStart({ name: sub.user.name, gracePeriodEndsAt: sub.gracePeriodEndsAt, graceDays })
-        : await cyclicalChargeFailed1({ name: sub.user.name, gracePeriodEndsAt: sub.gracePeriodEndsAt, graceDays });
-      await resend.emails.send({ from: FROM, to: sub.user.email, subject, html });
-      await prisma.yearlyProgramSubscription.update({
-        where: { id: sub.id },
-        data: { reminderSentGraceStart: true },
+      const gracePeriodEndsAt = sub.gracePeriodEndsAt;
+      const r = await sendReminderOnce({
+        subscriptionId: sub.id,
+        flag: 'reminderSentGraceStart',
+        to: sub.user.email,
+        render: () => (isManual
+          ? manualGraceStart({ name: sub.user!.name, gracePeriodEndsAt, graceDays })
+          : cyclicalChargeFailed1({ name: sub.user!.name, gracePeriodEndsAt, graceDays })),
+        eventType: isManual ? 'reminder_manual_grace_start' : 'reminder_cyclical_failed1',
+        eventMessage: `Grace ends ${gracePeriodEndsAt.toISOString().slice(0, 10)}`,
       });
-      await prisma.yearlyProgramSubscriptionEvent.create({
-        data: {
-          subscriptionId: sub.id,
-          type: isManual ? 'reminder_manual_grace_start' : 'reminder_cyclical_failed1',
-          message: `Grace ends ${sub.gracePeriodEndsAt.toISOString().slice(0, 10)}`,
-        },
-      });
-      processed++;
+      if (r.outcome === 'failed') errors.push(`${sub.id}: ${r.error}`);
+      if (r.outcome === 'sent') processed++;
     } catch (e) {
       errors.push(`${sub.id}: ${(e as Error).message}`);
     }
@@ -722,27 +834,24 @@ async function sendGraceMidReminders(): Promise<StepResult> {
     try {
       if (!sub.user?.email || !sub.gracePeriodEndsAt) return;
       const isManual = !sub.autoRenew;
-      // Cyclical-mid шлемо тільки якщо був хоч один failed charge — інакше підписка не в реальному
-      // grace-флоу autopay (це може бути CANCELLED-перехідний стан тощо).
-      if (!isManual && (sub.failedChargeCount ?? 0) === 0) return;
+      // Cyclical-mid — тільки коли є про що попереджати (провалене списання або зникле
+      // WFP-правило); інакше підписка не в реальному grace-флоу autopay.
+      if (!isManual && !cyclicalNeedsWarning(sub)) return;
       if (isManual && isFullyPaid(sub)) return;
 
-      const { subject, html } = isManual
-        ? await manualGraceMid({ name: sub.user.name, gracePeriodEndsAt: sub.gracePeriodEndsAt })
-        : await cyclicalGraceMid({ name: sub.user.name, gracePeriodEndsAt: sub.gracePeriodEndsAt });
-      await resend.emails.send({ from: FROM, to: sub.user.email, subject, html });
-      await prisma.yearlyProgramSubscription.update({
-        where: { id: sub.id },
-        data: { reminderSentGraceMid: true },
+      const gracePeriodEndsAt = sub.gracePeriodEndsAt;
+      const r = await sendReminderOnce({
+        subscriptionId: sub.id,
+        flag: 'reminderSentGraceMid',
+        to: sub.user.email,
+        render: () => (isManual
+          ? manualGraceMid({ name: sub.user!.name, gracePeriodEndsAt })
+          : cyclicalGraceMid({ name: sub.user!.name, gracePeriodEndsAt })),
+        eventType: isManual ? 'reminder_manual_grace_mid' : 'reminder_cyclical_grace_mid',
+        eventMessage: `Grace ends ${gracePeriodEndsAt.toISOString().slice(0, 10)} · midDay=${midDay} · graceDays=${graceDays}`,
       });
-      await prisma.yearlyProgramSubscriptionEvent.create({
-        data: {
-          subscriptionId: sub.id,
-          type: isManual ? 'reminder_manual_grace_mid' : 'reminder_cyclical_grace_mid',
-          message: `Grace ends ${sub.gracePeriodEndsAt.toISOString().slice(0, 10)} · midDay=${midDay} · graceDays=${graceDays}`,
-        },
-      });
-      processed++;
+      if (r.outcome === 'failed') errors.push(`${sub.id}: ${r.error}`);
+      if (r.outcome === 'sent') processed++;
     } catch (e) {
       errors.push(`${sub.id}: ${(e as Error).message}`);
     }
@@ -784,25 +893,22 @@ async function sendGraceLastReminders(): Promise<StepResult> {
     try {
       if (!sub.user?.email || !sub.gracePeriodEndsAt) return;
       const isManual = !sub.autoRenew;
-      if (!isManual && (sub.failedChargeCount ?? 0) === 0) return;
+      if (!isManual && !cyclicalNeedsWarning(sub)) return;
       if (isManual && isFullyPaid(sub)) return;
 
-      const { subject, html } = isManual
-        ? await manualGraceLast({ name: sub.user.name, gracePeriodEndsAt: sub.gracePeriodEndsAt })
-        : await cyclicalGraceLast({ name: sub.user.name, gracePeriodEndsAt: sub.gracePeriodEndsAt });
-      await resend.emails.send({ from: FROM, to: sub.user.email, subject, html });
-      await prisma.yearlyProgramSubscription.update({
-        where: { id: sub.id },
-        data: { reminderSentGraceLast: true },
+      const gracePeriodEndsAt = sub.gracePeriodEndsAt;
+      const r = await sendReminderOnce({
+        subscriptionId: sub.id,
+        flag: 'reminderSentGraceLast',
+        to: sub.user.email,
+        render: () => (isManual
+          ? manualGraceLast({ name: sub.user!.name, gracePeriodEndsAt })
+          : cyclicalGraceLast({ name: sub.user!.name, gracePeriodEndsAt })),
+        eventType: isManual ? 'reminder_manual_grace_last' : 'reminder_cyclical_grace_last',
+        eventMessage: `Grace ends ${gracePeriodEndsAt.toISOString().slice(0, 10)} · graceDays=${graceDays}`,
       });
-      await prisma.yearlyProgramSubscriptionEvent.create({
-        data: {
-          subscriptionId: sub.id,
-          type: isManual ? 'reminder_manual_grace_last' : 'reminder_cyclical_grace_last',
-          message: `Grace ends ${sub.gracePeriodEndsAt.toISOString().slice(0, 10)} · graceDays=${graceDays}`,
-        },
-      });
-      processed++;
+      if (r.outcome === 'failed') errors.push(`${sub.id}: ${r.error}`);
+      if (r.outcome === 'sent') processed++;
     } catch (e) {
       errors.push(`${sub.id}: ${(e as Error).message}`);
     }
