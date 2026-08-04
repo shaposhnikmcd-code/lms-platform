@@ -220,16 +220,22 @@ export default function CohortHeader({
 
       if (failed > 0 || wfpFailed > 0) {
         setRecalcReport({ scanned, recalculated, failed, warning: data.warning ?? null, wfpFailed });
-        toast('warning', data.warning
-          ?? `Дати збережено, але ${failed || wfpFailed} підписок оброблено з помилкою — деталі під датами.`);
+        // Два різні збої — і поради різні. Дати не перерахувались → має сенс зберегти
+        // ще раз. А от коли дати вже правильні й впав лише синк графіка у WayForPay,
+        // повторне «Зберегти» нічого не дасть: без зміни дат сервер синк не запускає.
+        toast('warning', failed > 0
+          ? (data.warning ?? `Дати збережено, але ${failed} підписок не перерахувались — деталі під датами.`)
+          : `Дати збережено, але графік автосписань не оновився у ${wfpFailed} підписок — деталі під датами.`);
         router.refresh();
         return;
       }
 
+      // Формулювання навмисне без «X із Y»: решта підписок не «не вдалась», а просто
+      // не потребувала зміни (їхній «Доступ до» і так збігається з новим графіком).
       toast('success', recalculated > 0
-        ? `Період оновлено — «Доступ до» перераховано у ${recalculated} із ${scanned} підписок`
+        ? `Період оновлено — дати змінено у ${recalculated} підписок (решта без змін)`
         : active.launchedAt
-          ? 'Період оновлено — перераховувати не було чого'
+          ? 'Період оновлено — жодну дату доступу міняти не довелось'
           : 'Період навчання оновлено');
       setEditingPeriod(false);
       router.refresh();
@@ -555,9 +561,13 @@ export default function CohortHeader({
             >
               <HiOutlineExclamationTriangle className="text-base shrink-0 mt-0.5" />
               <div className="min-w-0 flex-1 space-y-1">
-                <div>{recalcReport.warning ?? 'Дати збережено, але не всі підписки вдалось перерахувати.'}</div>
+                <div>
+                  {recalcReport.failed > 0
+                    ? (recalcReport.warning ?? 'Дати збережено, але не всі підписки вдалось перерахувати.')
+                    : `Дати збережено і перераховано, але графік автосписань у WayForPay не оновився у ${recalcReport.wfpFailed} підписок.`}
+                </div>
                 <div className={dark ? 'text-amber-200/70' : 'text-amber-800/80'}>
-                  Перераховано: <b className="tabular-nums">{recalcReport.recalculated}</b> ·
+                  Дати змінено: <b className="tabular-nums">{recalcReport.recalculated}</b> ·
                   {' '}не вдалось: <b className="tabular-nums">{recalcReport.failed}</b> ·
                   {' '}усього в наборі: <b className="tabular-nums">{recalcReport.scanned}</b>
                   {recalcReport.wfpFailed > 0 && (
@@ -565,7 +575,11 @@ export default function CohortHeader({
                   )}
                 </div>
                 <div className={dark ? 'text-amber-200/70' : 'text-amber-800/80'}>
-                  Ці підписки лишились зі старими датами — натисніть «Зберегти» ще раз.
+                  {recalcReport.failed > 0
+                    ? 'Ці підписки лишились зі старими датами — натисніть «Зберегти» ще раз.'
+                    // Повторне збереження тут — no-op: сервер запускає WFP-синк лише коли
+                    // дати реально змінились. Тому підказка веде в підписку, де є ручна дія.
+                    : 'Повторне збереження не допоможе — відкрийте підписки з позначкою помилки і натисніть «🔄 Синхронізувати графік WFP».'}
                 </div>
               </div>
               <button

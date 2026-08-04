@@ -1222,9 +1222,12 @@ function ExpandedRowContent({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ force, sendEmail: true }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({} as Record<string, unknown>));
       if (!res.ok) {
-        toast('error', data.error ?? res.statusText);
+        const message = typeof data.error === 'string' && data.error.trim()
+          ? data.error
+          : httpFallbackMessage(res.status, res.statusText);
+        toast(res.status === 409 ? 'warning' : 'error', message);
         return;
       }
       const emailNote = data.email?.sent
@@ -1232,7 +1235,14 @@ function ExpandedRowContent({
         : data.email?.error
           ? ` · лист FAILED: ${data.email.error}`
           : '';
-      toast('success', `Telegram-запрошення згенеровано${emailNote}`);
+      // Запрошення для PENDING сервер генерує, але повертає `warning`: webhook пустить
+      // у канал лише власника чинної підписки. Без цього менеджер думав би, що студент
+      // уже зайде в канал по надісланому лінку.
+      if (typeof data.warning === 'string' && data.warning.trim()) {
+        toast('warning', `Telegram-запрошення згенеровано${emailNote}. Увага: ${data.warning}`);
+      } else {
+        toast('success', `Telegram-запрошення згенеровано${emailNote}`);
+      }
       router.refresh();
     } catch (e) {
       toast('error', (e as Error).message);
@@ -1258,9 +1268,15 @@ function ExpandedRowContent({
     setExtraLaunching(true);
     try {
       const res = await fetch(`/api/admin/yearly-program/${row.id}/extra-launch`, { method: 'POST' });
-      const data = await res.json();
+      // Сервер пояснює причину відмови текстом (`status_blocked`, `cohort_not_launched`,
+      // `no_paid_payments`…) — показуємо саме його, а не «Bad Request». 409 (доступ уже
+      // відкрито) — це стан, а не збій, тому амбером.
+      const data = await res.json().catch(() => ({} as Record<string, unknown>));
       if (!res.ok) {
-        toast('error', data.error ?? res.statusText);
+        const message = typeof data.error === 'string' && data.error.trim()
+          ? data.error
+          : httpFallbackMessage(res.status, res.statusText);
+        toast(res.status === 409 ? 'warning' : 'error', message);
         return;
       }
       const emailNote = data.email?.sent
