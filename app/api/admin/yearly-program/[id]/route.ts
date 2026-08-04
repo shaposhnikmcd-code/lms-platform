@@ -453,7 +453,10 @@ async function handleReopenAccess(sub: NonNullable<SubWithUser>, actor: string) 
       triggeredBy: `admin:${actor} · reopen_access`,
     }).catch((e) => ({ ok: false, inviteLink: null, error: (e as Error).message, subscriptionId: sub.id }));
     telegram = { inviteRegenerated: tgRes.ok, ...(tgRes.error ? { error: tgRes.error } : {}) };
-    if (!tgRes.ok) {
+    if (tgRes.ok) {
+      // Лінк лежить у підписці, але сам до студента не потрапить — його треба надіслати.
+      warnings.push('новий invite створено — надішліть студенту welcome-лист кнопкою 📨');
+    } else {
       // Успішну генерацію лог пише сам helper; провал — фіксуємо тут, щоб менеджер
       // бачив у стрічці підписки, що людину треба повернути в канал руками.
       await prisma.yearlyProgramSubscriptionEvent.create({
@@ -466,8 +469,9 @@ async function handleReopenAccess(sub: NonNullable<SubWithUser>, actor: string) 
       });
       warnings.push('Не вдалось повернути студента в Telegram-канал — перевірте вручну.');
     }
-  } else {
-    // Ні каналу, ні @username — автоматично повернути нікого не можемо.
+  } else if (tgSettings?.chatId) {
+    // Канал у роботі, але автоматично повернути не можемо (немає @username або
+    // вимкнено autoAdd). Якщо каналу немає взагалі — мовчимо, це не про цей проєкт.
     warnings.push('студент міг бути вилучений з Telegram-каналу — перевірте вручну');
   }
 
