@@ -409,9 +409,16 @@ function YearlyProgramViewInner({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, ...payload }),
       });
-      const data = await res.json();
+      // Відповідь може бути і не-JSON (502/HTML від проксі) — тоді `data` порожній і
+      // повідомлення збираємо зі статусу, аби менеджер не бачив «Unexpected token <».
+      const data = await res.json().catch(() => ({} as Record<string, unknown>));
       if (!res.ok) {
-        toast('error', data.error ?? res.statusText);
+        const message = typeof data.error === 'string' && data.error.trim()
+          ? data.error
+          : httpFallbackMessage(res.status, res.statusText);
+        // 409 — не збій, а конфлікт стану («за графіком доступ уже вичерпано»,
+        // «такий самий платіж щойно зафіксовано»): показуємо амбером, а не червоним.
+        toast(res.status === 409 ? 'warning' : 'error', message);
       } else {
         router.refresh();
         setDetails((d) => {
@@ -1669,10 +1676,23 @@ function ExpandedRowContent({
             <div className={`px-3 py-4 text-center text-[11px] ${dark ? 'text-slate-600' : 'text-stone-400'}`}>Подій нема</div>
           ) : (
             <ul className="divide-y divide-stone-200/30 dark:divide-white/[0.04]">
-              {details.events.map((ev) => (
-                <li key={ev.id} className="px-3 py-2 text-[11px]">
+              {details.events.map((ev) => {
+                const meta = EVENT_LABELS[ev.type];
+                return (
+                <li
+                  key={ev.id}
+                  data-event-type={ev.type}
+                  className={`px-3 py-2 text-[11px] ${
+                    ev.type === 'revived_with_debt'
+                      ? dark ? 'bg-rose-500/[0.07]' : 'bg-rose-50/70'
+                      : ''
+                  }`}
+                >
                   <div className="flex items-start justify-between gap-2">
-                    <span className={`font-mono text-[10px] font-semibold ${eventTypeColor(ev.type, dark)}`}>{ev.type}</span>
+                    <span className={`font-mono text-[10px] font-semibold ${eventTypeColor(ev.type, dark)}`}>
+                      {meta?.icon && <span className="mr-1 font-sans not-italic">{meta.icon}</span>}
+                      {meta ? meta.label : ev.type}
+                    </span>
                     <span className={`text-[9px] tabular-nums shrink-0 ${dark ? 'text-slate-600' : 'text-stone-400'}`}>
                       {fmtDate(ev.createdAt)}
                     </span>
@@ -1681,7 +1701,8 @@ function ExpandedRowContent({
                     <div className={`mt-1 text-[10px] ${dark ? 'text-slate-400' : 'text-stone-600'}`}>{ev.message}</div>
                   )}
                 </li>
-              ))}
+                );
+              })}
             </ul>
           )}
         </div>
@@ -1704,12 +1725,34 @@ function manualMethodLabel(method: string): string {
 
 function eventTypeColor(type: string, dark: boolean): string {
   if (type.startsWith('charge_failed') || type === 'access_closed') return dark ? 'text-rose-300' : 'text-rose-700';
+  // Оплата зайшла, але розрахований доступ уже прострочений — потрібне рішення менеджера
+  // (допродати місяці / скоригувати дати). У «Помилках» це critical, тому й тут — червоним.
+  if (type === 'revived_with_debt') return dark ? 'text-rose-300' : 'text-rose-700';
   if (type === 'created' || type === 'access_opened' || type === 'reactivated') return dark ? 'text-emerald-300' : 'text-emerald-700';
   if (type === 'renewed') return dark ? 'text-sky-300' : 'text-sky-700';
   if (type === 'cancelled') return dark ? 'text-slate-400' : 'text-stone-600';
   if (type.startsWith('reminder')) return dark ? 'text-amber-300' : 'text-amber-700';
   return dark ? 'text-slate-400' : 'text-stone-600';
 }
+
+/// Людський текст для HTTP-помилки, коли сервер не дав свого `error` (проксі, 502,
+/// порожня відповідь). Без цього менеджер бачив би «Internal Server Error» або парс-помилку.
+function httpFallbackMessage(status: number, statusText: string): string {
+  if (status === 400) return 'Дію відхилено — перевірте статус підписки та дані форми.';
+  if (status === 401 || status === 403) return 'Немає доступу до цієї дії — увійдіть під адміном.';
+  if (status === 404) return 'Підписку не знайдено — можливо, її вже видалили. Оновіть сторінку.';
+  if (status === 409) return 'Дію не виконано: стан підписки змінився. Оновіть сторінку і спробуйте ще раз.';
+  if (status >= 500) return `Сервер не зміг обробити запит (${status}). Спробуйте ще раз за хвилину.`;
+  return statusText || `Помилка ${status}`;
+}
+
+/// Оформлення події у стрічці: іконка + людський лейбл. Для більшості типів лейбл — це
+/// сам machine-name (менеджери вже до нього звикли, а тех-підтримці так простіше шукати
+/// у логах); озаглавлюємо лише ті події, де machine-name нічого не пояснює.
+const EVENT_LABELS: Record<string, { label: string; icon?: string }> = {
+  revived_with_debt: { label: 'оплата з боргом — потрібне рішення', icon: '⚠️' },
+  repurchase_initiated: { label: 'повторна покупка — очікує оплату', icon: '🔁' },
+};
 
 /// Країни за абеткою (укр. колація) — для випадайки у формі редагування.
 const COUNTRIES_ALPHA = [...COUNTRIES].sort((a, b) => a.name.localeCompare(b.name, 'uk'));

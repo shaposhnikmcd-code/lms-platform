@@ -3,7 +3,7 @@
 import { forwardRef, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
-import { HiOutlineSparkles, HiOutlinePlus, HiOutlineChevronDown, HiOutlineCheck, HiOutlineRocketLaunch, HiOutlineStar, HiOutlinePencilSquare, HiOutlineXMark, HiOutlineCalendarDays } from 'react-icons/hi2';
+import { HiOutlineSparkles, HiOutlinePlus, HiOutlineChevronDown, HiOutlineCheck, HiOutlineRocketLaunch, HiOutlineStar, HiOutlinePencilSquare, HiOutlineXMark, HiOutlineCalendarDays, HiOutlineExclamationTriangle } from 'react-icons/hi2';
 import type { Theme } from '../../_components/adminTheme';
 import type { CohortListItem } from './types';
 import { useUIFeedback, HoverInfo } from './UIFeedback';
@@ -42,6 +42,13 @@ export default function CohortHeader({
   // Координати попапа у viewport-і (portal до body, fixed) + напрямок (вгору/вниз).
   const [calPos, setCalPos] = useState<{ left: number; top: number; up: boolean } | null>(null);
   const [savingPeriod, setSavingPeriod] = useState(false);
+  /// Звіт про перерахунок «Доступ до» після зміни дат набору. Сервер зберігає дати завжди,
+  /// а підписки перераховує батчами — частина батчів може впасти. Тримаємо звіт на екрані
+  /// (а не тільки в тості), щоб менеджер побачив, що частина підписок лишилась зі старими
+  /// датами, і міг повторити збереження.
+  const [recalcReport, setRecalcReport] = useState<
+    { scanned: number; recalculated: number; failed: number; warning: string | null; wfpFailed: number } | null
+  >(null);
   const periodRef = useRef<HTMLDivElement | null>(null);
   const calRef = useRef<HTMLDivElement | null>(null);
   const startChipRef = useRef<HTMLButtonElement | null>(null);
@@ -187,6 +194,7 @@ export default function CohortHeader({
       return;
     }
     setSavingPeriod(true);
+    setRecalcReport(null);
     try {
       const res = await fetch(`/api/admin/yearly-program/cohorts/${active.id}`, {
         method: 'PATCH',
@@ -196,14 +204,33 @@ export default function CohortHeader({
           endDate: new Date(endDraft).toISOString(),
         }),
       });
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
         toast('error', data.error ?? `Помилка ${res.status}`);
         return;
       }
-      toast('success', active.launchedAt
-        ? 'Період оновлено — «Доступ до» підписок перераховано'
-        : 'Період навчання оновлено');
+
+      // Дати збережено в будь-якому разі. Далі — чесний звіт по перерахунку підписок:
+      // якщо частина батчів впала, редактор лишаємо відкритим з амбер-блоком, щоб
+      // менеджер міг одразу повторити збереження.
+      const failed: number = data.failed ?? 0;
+      const recalculated: number = data.recalculated ?? 0;
+      const scanned: number = data.scanned ?? 0;
+      const wfpFailed: number = data.wfpSync?.failed ?? 0;
+
+      if (failed > 0 || wfpFailed > 0) {
+        setRecalcReport({ scanned, recalculated, failed, warning: data.warning ?? null, wfpFailed });
+        toast('warning', data.warning
+          ?? `Дати збережено, але ${failed || wfpFailed} підписок оброблено з помилкою — деталі під датами.`);
+        router.refresh();
+        return;
+      }
+
+      toast('success', recalculated > 0
+        ? `Період оновлено — «Доступ до» перераховано у ${recalculated} із ${scanned} підписок`
+        : active.launchedAt
+          ? 'Період оновлено — перераховувати не було чого'
+          : 'Період навчання оновлено');
       setEditingPeriod(false);
       router.refresh();
     } catch (e) {
@@ -513,6 +540,46 @@ export default function CohortHeader({
               </div>
             )}
           </div>
+
+          {/* Частковий перерахунок після зміни дат: дати збережені, але не всі підписки
+              отримали новий «Доступ до». Без цього блоку менеджер бачив би просто
+              «збережено» і не знав би, що частина студентів лишилась зі старими датами. */}
+          {recalcReport && (
+            <div
+              data-recalc-report
+              className={`mt-2.5 rounded-lg border px-3.5 py-2.5 text-[12px] leading-snug flex items-start gap-2 ${
+                dark
+                  ? 'bg-amber-500/10 border-amber-400/25 text-amber-100/90'
+                  : 'bg-amber-50 border-amber-300/70 text-amber-900'
+              }`}
+            >
+              <HiOutlineExclamationTriangle className="text-base shrink-0 mt-0.5" />
+              <div className="min-w-0 flex-1 space-y-1">
+                <div>{recalcReport.warning ?? 'Дати збережено, але не всі підписки вдалось перерахувати.'}</div>
+                <div className={dark ? 'text-amber-200/70' : 'text-amber-800/80'}>
+                  Перераховано: <b className="tabular-nums">{recalcReport.recalculated}</b> ·
+                  {' '}не вдалось: <b className="tabular-nums">{recalcReport.failed}</b> ·
+                  {' '}усього в наборі: <b className="tabular-nums">{recalcReport.scanned}</b>
+                  {recalcReport.wfpFailed > 0 && (
+                    <> · графік автосписань не оновився у <b className="tabular-nums">{recalcReport.wfpFailed}</b></>
+                  )}
+                </div>
+                <div className={dark ? 'text-amber-200/70' : 'text-amber-800/80'}>
+                  Ці підписки лишились зі старими датами — натисніть «Зберегти» ще раз.
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRecalcReport(null)}
+                aria-label="Сховати"
+                className={`shrink-0 w-6 h-6 rounded-md flex items-center justify-center transition-colors ${
+                  dark ? 'hover:bg-white/10 text-amber-200/70' : 'hover:bg-amber-100 text-amber-800/70'
+                }`}
+              >
+                <HiOutlineXMark className="text-[13px]" />
+              </button>
+            </div>
+          )}
 
           {open && (
             <div
