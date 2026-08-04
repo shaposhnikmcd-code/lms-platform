@@ -116,7 +116,7 @@ export default function ManualPaymentModal({
       // кілька місяців, але зарахується як один) — тоді замість зеленого «зафіксовано»
       // показуємо попередження, інакше менеджер його ніколи не побачить.
       if (data.warning) {
-        toast('info', `⚠️ Оплату ${amountNum}₴ зафіксовано${note2} — ${data.warning}`);
+        toast('warning', `Оплату ${amountNum}₴ зафіксовано${note2} — ${data.warning}`);
       } else {
         toast('success', `Оплату ${amountNum}₴ зафіксовано${note2}`);
       }

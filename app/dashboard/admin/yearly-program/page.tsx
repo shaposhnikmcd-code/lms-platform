@@ -325,12 +325,20 @@ export default async function AdminYearlyProgramPage() {
   // Таблиця тягне максимум MAX_ROWS рядків. Щоб банер «Показано X з Y» не змішував зрізи,
   // віддаємо клієнту повні кількості видимих підписок у тому ж розрізі, у якому таблиця
   // фільтрується (усі набори / конкретний cohort). Скільки з них реально завантажено —
-  // клієнт рахує зі своїх `rows` тим самим cohort-фільтром.
-  const rowsScope = {
-    totalAll: visibleAll.length,
-    totalByCohort: Object.fromEntries(
-      cohortList.map((c) => [c.id, visibleAll.filter((s) => s.cohortId === c.id).length]),
+  // клієнт рахує зі своїх `rows` тими самими правилами.
+  //
+  // Два набори лічильників: `withArchived` — для увімкненого фільтра «Архів», `default` —
+  // для решти виглядів (архів у таблиці схований, тож і в знаменнику банера його бути не
+  // повинно, інакше «Показано 3 з 9» суперечило б KPI «Всього 8»).
+  const countScope = (predicate: (s: (typeof visibleAll)[number]) => boolean) => ({
+    all: visibleAll.filter(predicate).length,
+    byCohort: Object.fromEntries(
+      cohortList.map((c) => [c.id, visibleAll.filter((s) => s.cohortId === c.id && predicate(s)).length]),
     ) as Record<string, number>,
+  });
+  const rowsScope = {
+    default: countScope((s) => s.status !== 'ARCHIVED'),
+    withArchived: countScope(() => true),
   };
 
   return (

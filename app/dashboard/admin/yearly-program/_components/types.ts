@@ -71,7 +71,13 @@ export interface SummaryData {
   grace: number;
   expired: number;
   cancelled: number;
+  /// Сума реально отриманих оплат зрізу. Відсіяні лише символічні тест-оплати
+  /// ADMIN/MANAGER (<= 2 ₴) — скасування підписки грошей не повертає, тому платежі
+  /// CANCELLED/ARCHIVED звідси НЕ віднімаються.
   revenueTotal: number;
+  /// Скільки з `revenueTotal` принесли підписки, які вже не діють (CANCELLED/ARCHIVED).
+  /// Довідкове поле для tooltip-у «Доходу», з основної цифри не віднімається.
+  revenueCancelled: number;
   /// Розбивка живих студентів (ACTIVE + GRACE) по видах підписки. Неймінг — як у
   /// «Тип/Вид» адмінки Платежів. Інваріанта: сума трьох = active + grace.
   planYearly: number;

@@ -5,7 +5,9 @@ import { createPortal } from 'react-dom';
 import { HiOutlineCheckCircle, HiOutlineExclamationTriangle, HiOutlineInformationCircle, HiOutlineXMark } from 'react-icons/hi2';
 import type { Theme } from '../../_components/adminTheme';
 
-export type ToastVariant = 'success' | 'error' | 'info';
+/// `warning` — дія виконалась, але сервер повернув застереження (напр. сума схожа на кілька
+/// місяців, доступ за правилом набору вже минув). Візуально між success і error: амбер.
+export type ToastVariant = 'success' | 'error' | 'warning' | 'info';
 
 interface ToastItem {
   id: number;
@@ -64,7 +66,8 @@ export function UIFeedbackProvider({ theme, children }: { theme: Theme; children
     setToasts((arr) => [...arr, { id, variant, message }]);
     setTimeout(() => {
       setToasts((arr) => arr.filter((t) => t.id !== id));
-    }, variant === 'error' ? 7000 : 4500);
+      // error і warning тримаємо довше — їх треба встигнути прочитати.
+    }, variant === 'error' || variant === 'warning' ? 7000 : 4500);
   }, []);
 
   const confirm = useCallback((opts: ConfirmOptions) => {
@@ -292,6 +295,15 @@ function variantConfig(v: ToastVariant, dark: boolean) {
         ? 'bg-rose-500/12 border-rose-400/30 text-rose-100'
         : 'bg-rose-50 border-rose-300/70 text-rose-900',
       iconCls: dark ? 'text-rose-300' : 'text-rose-700',
+    };
+  }
+  if (v === 'warning') {
+    return {
+      Icon: HiOutlineExclamationTriangle,
+      cls: dark
+        ? 'bg-amber-500/12 border-amber-400/30 text-amber-100'
+        : 'bg-amber-50 border-amber-300/70 text-amber-900',
+      iconCls: dark ? 'text-amber-300' : 'text-amber-700',
     };
   }
   return {

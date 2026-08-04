@@ -29,7 +29,7 @@ import { FaApplePay, FaGooglePay, FaRegCreditCard } from 'react-icons/fa';
 import type { YearlyProgramSettings } from '@/lib/yearlyProgramSettings';
 import { useAdminTheme, type Theme } from '../../_components/adminTheme';
 import { AdminShell, AdminPanel } from '../../_components/AdminShell';
-import type { Row, SubStatus, Plan, SummaryData as BaseSummaryData, CohortListItem } from './types';
+import type { Row, SubStatus, Plan, SummaryData, CohortListItem } from './types';
 import CohortHeader from './CohortHeader';
 import CohortActions from './CohortActions';
 import MoveCohortBtn from './MoveCohortBtn';
@@ -56,12 +56,7 @@ import { type TelegramSettingsState } from './TelegramChannelButton';
 import { getCountryName, COUNTRIES } from '@/lib/countries';
 import { telegramProfileUrl } from '@/lib/telegramUsername';
 
-/// KPI-зріз сторінки = базовий SummaryData + довідкове поле для tooltip-у «Доходу»:
-/// скільки з цієї суми принесли підписки, які вже не діють (CANCELLED/ARCHIVED).
-/// Гроші за ними отримані й з основної цифри не віднімаються — це лише пояснення.
-export type SummaryData = BaseSummaryData & { revenueCancelled: number };
-
-export type { Row, SubStatus, Plan };
+export type { Row, SubStatus, Plan, SummaryData };
 
 interface SubscriptionDetails {
   id: string;
@@ -160,6 +155,13 @@ interface ProgramDefaults {
   registrationOpen: boolean;
 }
 
+/// Скільки видимих підписок реально існує в кожному зрізі таблиці — окремо без архіву
+/// (дефолтний вигляд) і з архівом (фільтр «Архів»). Використовується банером обрізання.
+export interface RowsScope {
+  default: { all: number; byCohort: Record<string, number> };
+  withArchived: { all: number; byCohort: Record<string, number> };
+}
+
 /// Нульовий зріз KPI — коли для вибраного cohort-у ще нема порахованих даних
 /// (щойно створений набір до router.refresh()).
 const EMPTY_SUMMARY: SummaryData = {
@@ -185,7 +187,9 @@ export default function YearlyProgramView(props: {
   summaryByCohort: Record<string, SummaryData>;
   /// Скільки видимих підписок існує в кожному зрізі таблиці (усі набори / конкретний
   /// cohort). Разом зі завантаженими `rows` дає банер «Показано X з Y» в ОДНОМУ зрізі.
-  rowsScope: { totalAll: number; totalByCohort: Record<string, number> };
+  /// `default` — без архіву (як у дефолтному вигляді таблиці), `withArchived` — з ним
+  /// (коли увімкнено фільтр «Архів»).
+  rowsScope: RowsScope;
   telegramSettings: TelegramSettingsState;
   cohorts: CohortListItem[];
   graceDays: number;
@@ -256,7 +260,7 @@ function YearlyProgramViewInner({
   rows: Row[];
   summary: SummaryData;
   summaryByCohort: Record<string, SummaryData>;
-  rowsScope: { totalAll: number; totalByCohort: Record<string, number> };
+  rowsScope: RowsScope;
   cohorts: CohortListItem[];
   graceDays: number;
   postAccessMonths: number;
@@ -288,20 +292,6 @@ function YearlyProgramViewInner({
   const activeSummary = activeCohortId === null
     ? summary
     : summaryByCohort[activeCohortId] ?? EMPTY_SUMMARY;
-
-  // Банер обрізання рахується в ТОМУ САМОМУ зрізі, що й таблиця: скільки рядків
-  // вибраного набору реально приїхало з сервера проти того, скільки їх там усього.
-  // Інші клієнтські фільтри (статус/план/пошук) сюди не входять — вони звужують уже
-  // завантажений набір і не є причиною обрізання.
-  const truncation = useMemo(() => {
-    const loaded = activeCohortId === null
-      ? rows.length
-      : rows.filter((r) => r.cohortId === activeCohortId).length;
-    const total = activeCohortId === null
-      ? rowsScope.totalAll
-      : rowsScope.totalByCohort[activeCohortId] ?? loaded;
-    return loaded < total ? { shown: loaded, total } : null;
-  }, [rows, activeCohortId, rowsScope]);
 
   const [planFilter, setPlanFilter] = useState<PlanFilter>('ALL');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
@@ -343,6 +333,23 @@ function YearlyProgramViewInner({
       return true;
     });
   }, [rows, activeCohortId, planFilter, statusFilter, methodFilter, search]);
+
+  // Банер обрізання рахується в ТОМУ САМОМУ зрізі, що й таблиця: скільки рядків
+  // вибраного набору реально приїхало з сервера проти того, скільки їх там усього.
+  // Архів входить у знаменник тільки коли увімкнено фільтр «Архів» — інакше банер
+  // суперечив би KPI «Всього» (воно архів не рахує).
+  // Решта клієнтських фільтрів (план/пошук/статус) сюди не входять — вони звужують уже
+  // завантажений набір і не є причиною обрізання.
+  const truncation = useMemo(() => {
+    const withArchived = statusFilter === 'ARCHIVED';
+    const scope = withArchived ? rowsScope.withArchived : rowsScope.default;
+    const loaded = rows.filter((r) => {
+      if (activeCohortId !== null && r.cohortId !== activeCohortId) return false;
+      return withArchived || r.status !== 'ARCHIVED';
+    }).length;
+    const total = activeCohortId === null ? scope.all : scope.byCohort[activeCohortId] ?? loaded;
+    return loaded < total ? { shown: loaded, total } : null;
+  }, [rows, activeCohortId, statusFilter, rowsScope]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   useEffect(() => {
@@ -416,9 +423,9 @@ function YearlyProgramViewInner({
         // правилом набору вже завершився»). Мовчазне «Дію виконано» ховало б це від
         // менеджера — показуємо саме попередження замість green-тосту.
         if (data.wfpError) {
-          toast('info', `⚠️ Виконано, але: ${data.wfpError}`);
+          toast('warning', `Виконано, але: ${data.wfpError}`);
         } else if (data.warning) {
-          toast('info', `⚠️ ${data.warning}`);
+          toast('warning', data.warning);
         } else {
           toast('success', 'Дію виконано');
         }
