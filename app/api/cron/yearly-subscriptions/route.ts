@@ -33,8 +33,8 @@ const CONCURRENCY = 5;
 export const maxDuration = 300;
 
 /// Скільки підписок максимум лікуємо за один прохід heal_unopened — щоб крок не з'їв
-/// увесь бюджет maxDuration і не заблокував решту кроків cron-у. Залишок підбереться завтра.
-const HEAL_UNOPENED_BATCH = 30;
+/// увесь бюджет maxDuration (300с на 13 кроків) і не заблокував решту. Залишок підбереться завтра.
+const HEAL_UNOPENED_BATCH = 15;
 
 interface StepResult {
   step: string;
@@ -143,30 +143,75 @@ async function runScheduledCohortLaunches(): Promise<StepResult> {
 ///   (а) запуск cohort-у обірвався по таймауту — launchedAt уже виставлений, тож повторного
 ///       проходу executeLaunchLoop не буде, і решта студентів лишились без доступу;
 ///   (б) студент оплатив після запуску, а SendPulse у той момент збійнув — ніхто не повторить.
-/// Критерій: cohort launched, є PAID-платіж, sendpulseAccessOpenedAt=null, статус не
-/// ARCHIVED/CANCELLED (там доступ закритий свідомо). `runExtraLaunchForSubscription`
-/// ідемпотентний — повторне відкриття вже відкритого поверне already_opened без побічних дій.
+///
+/// Критерій навмисно вузький — «лікуємо живих у живому наборі»:
+///   • статус тільки PENDING/ACTIVE/GRACE. EXPIRED/CANCELLED/ARCHIVED НЕ чіпаємо: там доступ
+///     закритий свідомо, а heal воскресив би підписку (ACTIVE + SP-доступ + welcome-лист по
+///     давно завершеному навчанню), і завтрашній cron знову гнав би її через GRACE-цикл з листами.
+///   • cohort має бути не лише launched, а й незавершений (`endDate >= now`) — інакше в heal
+///     потрапляли б минулорічні набори.
+/// `runExtraLaunchForSubscription` ідемпотентний — повторне відкриття вже відкритого
+/// поверне already_opened без побічних дій.
+///
+/// Telegram-prestep дзеркалить WFP-callback: якщо канал у режимі autoAdd і студент лишив
+/// @username — генеруємо (ідемпотентно) invite-link ДО листа, щоб у welcome була кнопка
+/// вступу в канал. Помилка генерації не блокує відкриття доступу.
 async function healUnopenedAccess(): Promise<StepResult> {
   const errors: string[] = [];
+  const now = new Date();
   const subs = await prisma.yearlyProgramSubscription.findMany({
     where: {
       sendpulseAccessOpenedAt: null,
-      status: { notIn: ['ARCHIVED', 'CANCELLED'] },
-      cohort: { launchedAt: { not: null } },
+      status: { in: ['PENDING', 'ACTIVE', 'GRACE'] },
+      cohort: { launchedAt: { not: null }, endDate: { gte: now } },
       payments: { some: { status: 'PAID' } },
     },
-    select: { id: true },
+    select: {
+      id: true,
+      telegramUsername: true,
+      telegramInviteLink: true,
+      user: { select: { email: true, name: true } },
+    },
     orderBy: { createdAt: 'asc' },
     take: HEAL_UNOPENED_BATCH,
   });
   if (subs.length === 0) return { step: 'heal_unopened', processed: 0, errors };
 
   const { runExtraLaunchForSubscription } = await import('@/lib/yearlyProgramLaunch');
+  const { getYearlyProgramTelegramSettings, generateInviteForSubscription } = await import('@/lib/yearlyProgramTelegram');
+
+  // Налаштування каналу однакові для всього проходу — читаємо один раз.
+  let tgSettings: Awaited<ReturnType<typeof getYearlyProgramTelegramSettings>> | null = null;
+  try {
+    tgSettings = await getYearlyProgramTelegramSettings();
+  } catch (e) {
+    errors.push(`telegram_settings: ${(e as Error).message.slice(0, 200)}`);
+  }
 
   let processed = 0;
   for (const s of subs) {
+    let inviteLink = s.telegramInviteLink ?? null;
+    if (tgSettings?.autoAdd && tgSettings.chatId && s.telegramUsername) {
+      try {
+        const tgRes = await generateInviteForSubscription({
+          subscriptionId: s.id,
+          triggeredBy: 'system:heal-cron',
+          prefetched: {
+            id: s.id,
+            telegramInviteLink: s.telegramInviteLink ?? null,
+            userEmail: s.user?.email ?? null,
+            userName: s.user?.name ?? null,
+          },
+        });
+        if (tgRes.ok) inviteLink = tgRes.inviteLink;
+        else errors.push(`${s.id} telegram: ${(tgRes.error ?? 'unknown').slice(0, 120)}`);
+      } catch (e) {
+        errors.push(`${s.id} telegram: ${(e as Error).message.slice(0, 120)}`);
+      }
+    }
+
     try {
-      const res = await runExtraLaunchForSubscription(s.id, 'heal-cron');
+      const res = await runExtraLaunchForSubscription(s.id, 'heal-cron', { telegramInviteLink: inviteLink });
       if (res.ok) processed++;
       else if (res.reason && res.reason !== 'already_opened') {
         errors.push(`${s.id}: ${res.reason.slice(0, 200)}`);

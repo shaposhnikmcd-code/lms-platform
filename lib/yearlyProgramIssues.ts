@@ -27,6 +27,7 @@ import prisma from '@/lib/prisma';
 export type IssueKind =
   | 'LAUNCH_ACCESS_FAILED'
   | 'LAUNCH_EMAIL_FAILED'
+  | 'LAUNCH_OVERDUE'
   | 'TG_INVITE_FAILED'
   | 'TG_KICK_FAILED'
   | 'SP_CLOSE_FAILED'
@@ -38,6 +39,7 @@ export type IssueKind =
 export const ISSUE_KIND_VALUES: IssueKind[] = [
   'LAUNCH_ACCESS_FAILED',
   'LAUNCH_EMAIL_FAILED',
+  'LAUNCH_OVERDUE',
   'TG_INVITE_FAILED',
   'TG_KICK_FAILED',
   'SP_CLOSE_FAILED',
@@ -56,6 +58,7 @@ export type IssueSeverity = 'critical' | 'warning' | 'info';
 export const ISSUE_KIND_SEVERITY: Record<IssueKind, IssueSeverity> = {
   LAUNCH_ACCESS_FAILED: 'critical',
   LAUNCH_EMAIL_FAILED: 'warning',
+  LAUNCH_OVERDUE: 'critical',
   TG_INVITE_FAILED: 'warning',
   TG_KICK_FAILED: 'info',
   SP_CLOSE_FAILED: 'info',
@@ -89,6 +92,7 @@ export function buildSubscriptionSeverityMap(payload: IssuesPayload): Record<str
 export const ISSUE_KIND_LABELS: Record<IssueKind, string> = {
   LAUNCH_ACCESS_FAILED: 'Запуск: SP-доступ не відкрито',
   LAUNCH_EMAIL_FAILED: 'Запуск: welcome-лист не доставлено',
+  LAUNCH_OVERDUE: 'Запуск прострочено',
   TG_INVITE_FAILED: 'Telegram: invite-link не згенеровано',
   TG_KICK_FAILED: 'Telegram: вилучення/ban не виконано',
   SP_CLOSE_FAILED: 'SendPulse: close-access помилка',
@@ -103,6 +107,7 @@ export const ISSUE_KIND_LABELS: Record<IssueKind, string> = {
 export const ISSUE_HAS_RETRY: Record<IssueKind, boolean> = {
   LAUNCH_ACCESS_FAILED: true,   // POST /cohorts/[id]/launch?retry=1
   LAUNCH_EMAIL_FAILED: false,   // через окрему "Дослати лист" модалку (per-recipient)
+  LAUNCH_OVERDUE: false,        // issue на рівні набору — менеджер тисне 🚀 Запустити в шапці cohort-у
   TG_INVITE_FAILED: true,       // POST /yearly-program/[id]/telegram-invite (force=true)
   TG_KICK_FAILED: false,        // одноразова дія, повторювати не варто
   SP_CLOSE_FAILED: false,       // менеджер натискає "Закрити доступ" знову вручну
@@ -254,8 +259,9 @@ function stateBasedIssues(sub: RawSubscription): { kind: IssueKind; errorExcerpt
 /// запитів, далі агрегація в пам'яті. Не залежить від адмін-сесії — викликається з API
 /// route, який сам гейтується isAdmin.
 export async function collectAllIssues(): Promise<IssuesPayload> {
+  const now = new Date();
   const callbackLogSince = new Date(Date.now() - CALLBACK_LOG_WINDOW_DAYS * 24 * 60 * 60 * 1000);
-  const [subs, events, dismissals, paidRows, callbackLogs] = await Promise.all([
+  const [subs, events, dismissals, paidRows, callbackLogs, overdueCohorts] = await Promise.all([
     prisma.yearlyProgramSubscription.findMany({
       where: { status: { not: 'ARCHIVED' } },
       select: {
@@ -332,6 +338,18 @@ export async function collectAllIssues(): Promise<IssuesPayload> {
       },
       orderBy: { createdAt: 'desc' },
       take: CALLBACK_LOG_MAX_ROWS,
+    }),
+    /// «Запуск прострочено»: набір, дата старту якого вже настала, але його ніхто не
+    /// запустив і не поставив у чергу (`launchScheduledFor` теж порожній). Наявність
+    /// оплачених підписок перевіряємо нижче — без них це просто порожня заготовка.
+    prisma.yearlyProgramCohort.findMany({
+      where: {
+        startDate: { lte: now },
+        launchedAt: null,
+        launchScheduledFor: null,
+      },
+      select: { id: true, name: true, startDate: true },
+      orderBy: { startDate: 'asc' },
     }),
   ]);
 
@@ -486,6 +504,47 @@ export async function collectAllIssues(): Promise<IssuesPayload> {
       dismissedBy: dismissal?.dismissedBy ?? null,
       dismissedReason: dismissal?.reason ?? null,
     });
+  }
+
+  // Детектор «Запуск прострочено» (рівень набору, не підписки). Набір, у якого вже
+  // настала дата старту, але launchedAt порожній і запуск навіть не запланований, при
+  // цьому люди вже заплатили — студенти сидять без доступу, а система нічого не зробить
+  // сама (cron запускає лише те, що має launchScheduledFor).
+  if (overdueCohorts.length > 0) {
+    const paidRowsInOverdue = await prisma.yearlyProgramSubscription.findMany({
+      where: {
+        cohortId: { in: overdueCohorts.map((c) => c.id) },
+        payments: { some: { status: 'PAID' } },
+      },
+      select: { cohortId: true },
+    });
+    const paidPerCohort = new Map<string, number>();
+    for (const r of paidRowsInOverdue) {
+      if (!r.cohortId) continue;
+      paidPerCohort.set(r.cohortId, (paidPerCohort.get(r.cohortId) ?? 0) + 1);
+    }
+
+    for (const c of overdueCohorts) {
+      const paidCount = paidPerCohort.get(c.id) ?? 0;
+      // Без жодної оплаченої підписки прострочений запуск нікому не шкодить — не шумимо.
+      if (paidCount === 0) continue;
+      records.push({
+        // Issue належить набору, а не конкретній підписці: у таблиці рядка немає,
+        // заглушити (dismissal має FK на підписку) не можна — тільки запустити набір.
+        subscriptionId: null,
+        sourceId: `cohort::${c.id}`,
+        kind: 'LAUNCH_OVERDUE',
+        lastOccurredAt: c.startDate.toISOString(),
+        occurrenceCount: 1,
+        errorExcerpt: `Старт ${c.startDate.toISOString().slice(0, 10)} · оплачених підписок: ${paidCount} · запуск не виконано і не заплановано.`,
+        user: { id: '', name: `Набір «${c.name}»`, email: '—' },
+        plan: 'YEARLY',
+        cohortName: c.name,
+        dismissedAt: null,
+        dismissedBy: null,
+        dismissedReason: null,
+      });
+    }
   }
 
   // Детектор «гроші списані — не зараховані» з PaymentCallbackLog.

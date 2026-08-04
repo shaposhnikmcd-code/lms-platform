@@ -23,6 +23,7 @@ import { useUIFeedback } from './UIFeedback';
 type IssueKind =
   | 'LAUNCH_ACCESS_FAILED'
   | 'LAUNCH_EMAIL_FAILED'
+  | 'LAUNCH_OVERDUE'
   | 'TG_INVITE_FAILED'
   | 'TG_KICK_FAILED'
   | 'SP_CLOSE_FAILED'
@@ -34,6 +35,7 @@ type IssueKind =
 const ALL_KINDS: IssueKind[] = [
   'LAUNCH_ACCESS_FAILED',
   'LAUNCH_EMAIL_FAILED',
+  'LAUNCH_OVERDUE',
   'TG_INVITE_FAILED',
   'TG_KICK_FAILED',
   'SP_CLOSE_FAILED',
@@ -104,6 +106,27 @@ const CATALOG: Record<IssueKind, CatalogEntry> = {
       'Перевірте написання email у профілі студента.',
       'Подивіться статус доставки у дашборді Resend (deliverability tab).',
       'Якщо адреса неробоча — звʼяжіться зі студентом іншим каналом і попросіть оновити email.',
+    ],
+    hasRetry: false,
+  },
+  LAUNCH_OVERDUE: {
+    severity: 'critical',
+    icon: '⏰',
+    shortTitle: 'Запуск прострочено',
+    title: 'Набір не запущено, хоча дата старту минула',
+    whatHappened:
+      'У наборі вже настала дата старту і є оплачені студенти, але програму ніхто не запустив — і запуск навіть не поставлений у чергу. Доступ до SendPulse не відкрито, welcome-листи не пішли.',
+    sideEffects:
+      'Студенти заплатили, але навчатись не можуть. Сама система цього не виправить: cron запускає лише набори із запланованою датою запуску.',
+    causes: [
+      'Менеджер забув натиснути «🚀 Запустити програму» у шапці набору.',
+      'Заплановану дату запуску скасували і не поставили нову.',
+      'Набір створили з датою старту в минулому (перенесення / виправлення дат).',
+    ],
+    actions: [
+      'Відкрийте потрібний набір угорі сторінки і натисніть «🚀 Запустити програму» (з розсилкою welcome-листа).',
+      'Якщо старт свідомо переноситься — змініть дату старту набору, і повідомлення зникне.',
+      'Після запуску перевірте вкладку «Помилки» ще раз: окремі студенти могли впасти на SP-доступі.',
     ],
     hasRetry: false,
   },
@@ -790,9 +813,13 @@ function IssueRow({
             className={`inline-flex items-center gap-1 px-2.5 py-1 text-[10px] rounded-md border text-center ${
               dark ? 'bg-white/[0.02] border-white/[0.06] text-slate-500' : 'bg-stone-50 border-stone-300/40 text-stone-500'
             }`}
-            title="Цей платіж не вдалося привʼязати до жодної підписки"
+            title={
+              rec.kind === 'LAUNCH_OVERDUE'
+                ? 'Проблема стосується всього набору, а не окремої підписки'
+                : 'Цей платіж не вдалося привʼязати до жодної підписки'
+            }
           >
-            Без підписки
+            {rec.kind === 'LAUNCH_OVERDUE' ? 'Весь набір' : 'Без підписки'}
           </span>
         )}
         {linked && tab === 'active' && CATALOG[rec.kind].hasRetry && (
