@@ -45,6 +45,10 @@ const LOG_PREFIX = '[yearly-tg-webhook]';
 /// Використовується для дедупу повторних кліків по тому самому лінку.
 const JOIN_DECLINED_EVENT_KIND = 'tg_join_declined_identity';
 
+/// Незмінна частина мітки про висячу заявку — за нею впізнаємо власний запис
+/// у `telegramInviteError`, щоб не дублювати його і не затирати чужий текст.
+const PENDING_JOIN_MARK = 'Є нерозглянута заявка на вступ';
+
 interface TgUser {
   id: number;
   is_bot?: boolean;
@@ -368,18 +372,25 @@ async function flagPendingJoinRequest(from: TgUser): Promise<void> {
       ],
     },
     orderBy: { createdAt: 'desc' },
-    select: { id: true },
+    select: { id: true, telegramInviteError: true },
   });
   if (!sub) return;
 
-  const message = `Є нерозглянута заявка на вступ від @${handle} — перевірте вручну в каналі`;
+  // Мітка ніколи не затирає попередній текст: у полі може лежати справжня помилка Bot API
+  // («бот не адмін», «chat not found»), яка і є ПРИЧИНОЮ висячої заявки — стерти її означає
+  // прибрати з «Помилок» те, що менеджеру треба лагодити. Порожньо → пишемо; вже є наша
+  // мітка → нічого не робимо (і це ж дає дедуп повторних заявок); інша помилка → дописуємо.
+  const current = sub.telegramInviteError;
+  if (current?.includes(PENDING_JOIN_MARK)) return;
+
+  const message = `${PENDING_JOIN_MARK} від @${handle} — перевірте вручну в каналі`;
+  const next = current?.trim() ? `${current.trim()} · ${message}`.slice(0, 500) : message;
+
+  // Умова на where — захист від гонки: якщо між читанням і записом поле змінилось
+  // (напр. паралельна генерація інвайта записала свою помилку), UPDATE просто не спрацює.
   const res = await prisma.yearlyProgramSubscription.updateMany({
-    where: {
-      id: sub.id,
-      // `not` на nullable-полі не ловить NULL — тому NULL перелічений окремо.
-      OR: [{ telegramInviteError: null }, { telegramInviteError: { not: message } }],
-    },
-    data: { telegramInviteError: message },
+    where: { id: sub.id, telegramInviteError: current },
+    data: { telegramInviteError: next },
   });
   if (res.count > 0) {
     console.log(`${LOG_PREFIX} висяча заявка позначена у підписці sub=${sub.id} (@${handle})`);
