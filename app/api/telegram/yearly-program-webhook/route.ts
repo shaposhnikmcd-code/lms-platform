@@ -181,6 +181,11 @@ async function handleChatJoinRequest(joinReq: TgChatJoinRequest): Promise<void> 
     console.log(
       `${LOG_PREFIX} невідома заявка — розглянути вручну: user=(${userDesc}) invite=${inviteUrl ?? 'none'} chat=${chatId}`,
     );
+    // Найімовірніший власник заявки — студент з таким же username у чинній підписці
+    // (лінк протермінувався, або він зайшов через primary-лінк каналу). Це лише здогад,
+    // тому НІЧОГО не підтверджуємо і не прив'язуємо `telegramTgUserId` — просто лишаємо
+    // слід у «Помилках», щоб менеджер побачив висячу заявку і розглянув її вручну.
+    await flagPendingJoinRequest(joinReq.from);
     return;
   }
 
@@ -345,6 +350,40 @@ function checkJoinIdentity(
     kind: 'username',
     reason: `username не збігається (очікували @${sub.telegramUsername?.replace(/^@/, '')}, заявка від ${fromHandle ? `@${fromHandle}` : `id=${from.id} без username`})`,
   };
+}
+
+/// Read-only слід про висячу заявку: шукає ЧИННУ підписку за username автора і пише їй
+/// `telegramInviteError` (видно у вкладці «Помилки»). Нічого не підтверджує і не прив'язує.
+/// `updateMany` з `not: message` — щоб десяток повторних кліків не давав десяток UPDATE-ів.
+async function flagPendingJoinRequest(from: TgUser): Promise<void> {
+  const handle = (from.username ?? '').replace(/^@/, '');
+  if (!handle) return;
+
+  const sub = await prisma.yearlyProgramSubscription.findFirst({
+    where: {
+      status: { in: ['ACTIVE', 'GRACE'] },
+      OR: [
+        { telegramUsername: { equals: `@${handle}`, mode: 'insensitive' } },
+        { telegramUsername: { equals: handle, mode: 'insensitive' } },
+      ],
+    },
+    orderBy: { createdAt: 'desc' },
+    select: { id: true },
+  });
+  if (!sub) return;
+
+  const message = `Є нерозглянута заявка на вступ від @${handle} — перевірте вручну в каналі`;
+  const res = await prisma.yearlyProgramSubscription.updateMany({
+    where: {
+      id: sub.id,
+      // `not` на nullable-полі не ловить NULL — тому NULL перелічений окремо.
+      OR: [{ telegramInviteError: null }, { telegramInviteError: { not: message } }],
+    },
+    data: { telegramInviteError: message },
+  });
+  if (res.count > 0) {
+    console.log(`${LOG_PREFIX} висяча заявка позначена у підписці sub=${sub.id} (@${handle})`);
+  }
 }
 
 async function declineJoin(chatId: number, userId: number, context: string): Promise<void> {

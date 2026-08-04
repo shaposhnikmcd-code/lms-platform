@@ -44,7 +44,10 @@ const MUTATING_METHODS = new Set([
 /// б'є по реальному каналу і реальних людях. На будь-якому не-production Vercel-середовищі
 /// мутуючі виклики не виконуємо — логуємо і повертаємо правдоподібну заглушку.
 /// Localhost (`VERCEL_ENV` не заданий) поводиться як раніше: там своя dev-БД і свідомі тести.
-function isReadOnlyEnv(): boolean {
+///
+/// Експортується, щоб `lib/telegramConnector.ts` (окремий бот @connectorgame_bot зі своїм
+/// токеном) поводився ідентично — інакше pre шле повідомлення реальним менеджерам.
+export function isReadOnlyEnv(): boolean {
   const vercelEnv = process.env.VERCEL_ENV;
   return Boolean(vercelEnv) && vercelEnv !== 'production';
 }
@@ -52,9 +55,11 @@ function isReadOnlyEnv(): boolean {
 /// Правдоподібна «успішна» відповідь без походу в Telegram.
 function stubResult<T>(method: string, payload: Record<string, unknown>): T {
   if (method === 'createChatInviteLink') {
+    // Лінк навмисно НЕ схожий на робочий: він осідає в pre-БД і потрапляє у welcome-лист
+    // як звичайна кнопка — з нього має бути одразу видно, що це заглушка, а не інвайт.
     const suffix = Math.random().toString(36).slice(2, 10);
     return {
-      invite_link: `https://t.me/+preview-stub-${suffix}`,
+      invite_link: `https://t.me/+PREVIEW-STUB-NOT-A-REAL-LINK-${suffix}`,
       name: payload.name as string | undefined,
       expire_date: payload.expire_date as number | undefined,
       member_limit: payload.member_limit as number | undefined,

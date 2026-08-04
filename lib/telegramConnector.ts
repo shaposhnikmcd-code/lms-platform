@@ -5,7 +5,13 @@
 ///   TELEGRAM_CONNECTOR_BOT_TOKEN — токен бота, отриманий від @BotFather.
 ///   TELEGRAM_CONNECTOR_WEBHOOK_SECRET — секрет для верифікації webhook-запитів.
 
+import { isReadOnlyEnv } from '@/lib/telegram';
+
 const API_BASE = 'https://api.telegram.org';
+
+/// Методи, які реально доходять до людей. `setWebhook`/`getMe` сюди не входять:
+/// перший запускається разово зі скрипта локально, другий — read-only діагностика.
+const MUTATING_METHODS = new Set(['sendMessage']);
 
 export class ConnectorTelegramError extends Error {
   errorCode: number | null;
@@ -36,6 +42,15 @@ export function isConnectorBotConfigured(): boolean {
 }
 
 async function call<T>(method: string, payload: Record<string, unknown>): Promise<T> {
+  // Той самий guard, що й у lib/telegram.ts: pre.uimp має той самий токен бота, тож
+  // тестове замовлення на pre інакше дзвонило б реальним менеджерам конектора.
+  if (MUTATING_METHODS.has(method) && isReadOnlyEnv()) {
+    console.log(
+      `[telegram-connector] SKIP ${method} — середовище ${process.env.VERCEL_ENV} не має писати реальним менеджерам. payload=${JSON.stringify(payload).slice(0, 200)}`,
+    );
+    return { message_id: 0 } as T;
+  }
+
   const token = getBotToken();
   const res = await fetch(`${API_BASE}/bot${token}/${method}`, {
     method: 'POST',

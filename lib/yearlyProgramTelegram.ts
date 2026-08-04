@@ -452,7 +452,14 @@ export async function kickSubscriptionFromChannel(args: {
     });
   }
 
-  // 4) Лог події.
+  // 4) Лог події — тільки коли справді щось робили або щось зламалось.
+  //    Чистий skip (людина ніколи не була в каналі / канал не налаштовано) подію НЕ пише:
+  //    інакше кожна закрита підписка отримує безглузде «TG kick — kicked=no».
+  const cleanSkip = Boolean(skipped) && errors.length === 0;
+  if (cleanSkip) {
+    return { ok: true, kicked, inviteRevoked, skipped, error: null };
+  }
+
   const summary = [
     `mode=${mode}`,
     kicked ? 'kicked=yes' : 'kicked=no',
