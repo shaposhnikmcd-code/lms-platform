@@ -18,7 +18,7 @@
 import { Prisma } from '@prisma/client';
 import prisma from '@/lib/prisma';
 import { calculateAccessUntil } from '@/lib/yearlyProgramAccess';
-import { getYearlyPostAccessMonths } from '@/lib/yearlyProgramConfig';
+import { getYearlyPostAccessMonths, YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
 
 export interface PaymentActivationResult {
   newStatus: string;
@@ -29,6 +29,9 @@ export interface PaymentActivationResult {
   revived: boolean;
   /// true — SendPulse-маркери скинуто, щоб наступний extra-launch реально відкрив доступ.
   spMarkersReset: boolean;
+  /// true — підписка активна, але розрахований expiresAt уже в минулому (записано
+  /// подію `revived_with_debt`, у «Помилках» з'явиться critical-issue).
+  debt: boolean;
 }
 
 /// Статуси «живої» підписки, які завжди активуються після оплати.
@@ -76,9 +79,8 @@ export async function applyPaymentActivation(args: {
     : (args.allowRevive ? 'ACTIVE' : args.prevStatus);
 
   // Реальне оживлення = підписку підняли в ACTIVE з мертвого статусу АБО вона несла
-  // слід скасування. Друга умова важлива, бо мертву підписку могли вже перевести в
-  // PENDING (так робить `/api/wayforpay` перед повторною покупкою) — за статусом
-  // revive тоді не видно, а `cancelledAt` лишається.
+  // слід скасування. Друга умова важлива, бо статус могли вже поправити вручну в
+  // адмінці — тоді revive за статусом не видно, а `cancelledAt` лишається.
   const wasDead = !REVIVABLE_STATUSES.has(args.prevStatus);
   const revived = newStatus === 'ACTIVE' && (wasDead || !!fresh?.cancelledAt);
 
@@ -104,5 +106,30 @@ export async function applyPaymentActivation(args: {
     },
   });
 
-  return { newStatus, newExpiresAt, cohortLaunched, hasCohort, revived, spMarkersReset };
+  // Борг: підписку активували, але оплачених місяців не вистачає навіть до сьогодні.
+  // Дзеркало WFP-callback-а — без цього ручна оплата боржника («Внести оплату» за один
+  // із трьох пропущених місяців) проходила тихо: у нас ACTIVE, а доступ уже закінчився.
+  // Пишемо лише коли підписка реально стала ACTIVE: edit_payment по закритій підписці
+  // (allowRevive:false) не має піднімати critical-issue на рівному місці.
+  const paidCount = (fresh?.payments ?? []).filter((p) => p.status === 'PAID').length;
+  const debt = newStatus === 'ACTIVE' && !!newExpiresAt && newExpiresAt.getTime() <= Date.now();
+  if (debt) {
+    const totalSlots = args.plan === 'MONTHLY' ? YEARLY_PROGRAM_CONFIG.totalMonthlyPayments : 1;
+    await prisma.yearlyProgramSubscriptionEvent.create({
+      data: {
+        subscriptionId: args.subscriptionId,
+        type: 'revived_with_debt',
+        message: `⚠️ Оплата зарахована, але доступ уже прострочений: сплачено ${paidCount} з ${totalSlots} — розрахована дата завершення ${newExpiresAt!.toISOString().slice(0, 10)} вже в минулому.${revived ? ' Підписку оживлено.' : ''} Потрібне рішення менеджера: допродати місяці або скоригувати дати.`,
+        metadata: {
+          source: 'manual_activation',
+          expiresAt: newExpiresAt!.toISOString(),
+          paidPayments: paidCount,
+          totalSlots,
+          revived,
+        },
+      },
+    });
+  }
+
+  return { newStatus, newExpiresAt, cohortLaunched, hasCohort, revived, spMarkersReset, debt };
 }

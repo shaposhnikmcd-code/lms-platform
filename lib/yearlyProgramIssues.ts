@@ -242,7 +242,14 @@ function classifyEvent(e: RawEvent): {
     // Адмін вручну змінив термін доступу — «Продовжити +Nд» або «Ручна оплата» з перерахунком
     // expiresAt. Обидва означають, що борг опрацьовано і рішення прийнято.
     if (/^Extended \+\d+d\b/i.test(e.message)) return { kind: null, resolvesKind: 'REVIVED_WITH_DEBT' };
-    if (/^Ручна оплата .*expiresAt=/i.test(e.message)) return { kind: null, resolvesKind: 'REVIVED_WITH_DEBT' };
+    // Ручна оплата гасить борг ТІЛЬКИ якщо після неї доступ реально дотягнувся до
+    // майбутнього. Внесення одного місяця з трьох пропущених — це часткове погашення:
+    // студент і далі без доступу, тож critical-issue має лишитись висіти.
+    if (/^Ручна оплата .*expiresAt=/i.test(e.message)) {
+      const at = /expiresAt=(\d{4}-\d{2}-\d{2})/.exec(e.message)?.[1];
+      const resolvedForward = !!at && new Date(`${at}T23:59:59.999Z`).getTime() > Date.now();
+      return resolvedForward ? { kind: null, resolvesKind: 'REVIVED_WITH_DEBT' } : { kind: null };
+    }
   }
 
   // TG-kick events із масивом помилок у metadata.errors:

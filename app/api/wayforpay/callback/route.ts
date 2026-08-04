@@ -17,6 +17,7 @@ import { provisionPayment } from '@/lib/paymentProvisioning';
 import { sendBundlePurchaseEmail } from '@/lib/bundlePurchaseEmail';
 import { getWayforpayCreds } from '@/lib/wayforpay';
 import { calculateAccessUntil, maxAutopayChargeCount } from '@/lib/yearlyProgramAccess';
+import { removeSubscriptionAutopay } from '@/lib/yearlyProgramAutopay';
 import { archiveDuplicatePendingSubscriptions } from '@/lib/yearlyProgramDedup';
 import { CALLBACK_LOG_SUB_ACTION_PREFIX } from '@/lib/yearlyProgramIssues';
 import { notifyManagers as notifyConnectorManagers } from '@/lib/connectorNotifications';
@@ -28,6 +29,11 @@ function getClientIp(req: NextRequest): string {
 }
 
 type CallbackKind = 'course' | 'bundle' | 'connector' | 'yearly' | 'monthly' | 'unknown';
+
+/// Статуси повернення коштів у WFP. `RefundInProcessing` — рефанд ініційований і вже
+/// незворотний з нашого боку, тому обробляємо так само як завершений: краще зупинити
+/// автосписання на день раніше, ніж зняти з людини ще один платіж після заявки.
+const REFUND_STATUSES = new Set(['Refunded', 'Voided', 'RefundInProcessing']);
 
 function detectKind(orderReference: string | undefined): CallbackKind {
   if (!orderReference) return 'unknown';
@@ -278,14 +284,44 @@ export async function POST(req: NextRequest) {
         errorMsg = result.errorMsg;
         actions.push(...result.actions);
       } else {
-        // course / bundle / yearly (single-shot) — простий flip існуючого Payment у FAILED.
-        await prisma.payment.updateMany({
-          where: { orderReference: orderReference! },
+        // course / bundle / yearly (single-shot) — flip існуючого Payment у FAILED,
+        // але НІКОЛИ поверх PAID. WFP присилає запізнілі Declined уже після успішної
+        // оплати (ретрай першої спроби, дубль-callback) — без guard-а такий пакет
+        // «розплачував» куплений курс: студент лишався з доступом, а платіж у звіті
+        // ставав FAILED. Для Річної це ще й з'їдало місяць при перерахунку доступу.
+        const failFlip = await prisma.payment.updateMany({
+          where: { orderReference: orderReference!, status: { not: 'PAID' } },
           data: { status: 'FAILED' },
         });
-        actions.push('payment:failed');
+        if (failFlip.count > 0) {
+          actions.push('payment:failed');
+        } else {
+          const paid = await prisma.payment.findUnique({
+            where: { orderReference: orderReference! },
+            select: { status: true },
+          });
+          prevStatus = paid?.status ?? null;
+          skipped = true;
+          skipReason = paid?.status === 'PAID' ? 'late_declined_after_paid' : 'payment_not_found';
+          errorMsg = paid?.status === 'PAID'
+            ? `Late ${transactionStatus} for already PAID ${orderReference} — статус не змінено`
+            : `Payment not found for ${orderReference}`;
+          actions.push(`skip:${skipReason}`);
+          console.warn('⚠️ Запізнілий Declined по оплаченому платежу:', orderReference);
+        }
       }
       console.log('❌ Оплата відхилена для:', orderReference);
+    } else if (REFUND_STATUSES.has(transactionStatus ?? '')) {
+      const result = await handleRefundCallback({
+        orderReference: orderReference!,
+        kind,
+        transactionStatus: transactionStatus!,
+      });
+      prevStatus = result.prevStatus;
+      skipped = result.skipped;
+      skipReason = result.skipReason;
+      errorMsg = result.errorMsg;
+      actions.push(...result.actions);
     } else {
       actions.push(`status:${transactionStatus || 'unknown'}`);
     }
@@ -493,8 +529,8 @@ async function resolveRecurringSubscription(args: {
   // Без тирів свіжа абандонована PENDING-спроба перебивала б ACTIVE-підписку
   // (orderBy createdAt desc), і місячне списання пішло б не на ту підписку.
   //   ACTIVE/GRACE — нормальний рекурент.
-  //   PENDING — підписка, яку оживили під повторну покупку, але доступ ще не відкрито
-  //             (WFP уже має правило регулярки → списання належить саме їй).
+  //   PENDING — незавершений чекаут (WFP уже має правило регулярки → списання належить
+  //             саме цій підписці, доступ по ній ще не відкривався).
   //   EXPIRED/CANCELLED/ARCHIVED — закрита: платіж фіксуємо як orphan (див. викликач).
   const STATUS_TIERS: YearlyProgramSubscriptionStatus[][] = [
     ['ACTIVE', 'GRACE'],
@@ -613,6 +649,134 @@ async function recordOrphanRecurringCharge(args: {
   return actions;
 }
 
+/// Обробка повернення коштів (Refunded / Voided / RefundInProcessing).
+///
+/// Що робимо:
+///   — Payment → REFUNDED (claim-then-act, ідемпотентно);
+///   — для платежу Річної: знімаємо ВСІ WFP-регулярки підписки і перераховуємо expiresAt.
+///     REFUNDED випадає з PAID-набору, тому `calculateAccessUntil` сам скорочує доступ
+///     на повернений місяць — окремої арифметики не треба;
+///   — подія в підписку, щоб менеджер бачив факт і нову дату.
+///
+/// Чого свідомо НЕ робимо: не чіпаємо Enrollment звичайних курсів/пакетів. Відкликання
+/// доступу до курсу — рішення людини, а не автоматичний наслідок рефанду (буває
+/// частковий рефанд, компенсація, помилковий платіж). Слід лишається в логу і у статусі
+/// платежу. ConnectorOrder теж не чіпаємо — там свій ручний флоу в адмінці.
+async function handleRefundCallback(args: {
+  orderReference: string;
+  kind: CallbackKind;
+  transactionStatus: string;
+}): Promise<{
+  prevStatus: string | null;
+  skipped: boolean;
+  skipReason: string | null;
+  errorMsg: string | null;
+  actions: string[];
+}> {
+  const actions: string[] = [];
+
+  // Конектор живе в окремій таблиці ConnectorOrder зі своїм ручним флоу в адмінці —
+  // автоматом статус не перебиваємо, лишаємо слід у логу callback-ів.
+  if (args.kind === 'connector') {
+    return {
+      prevStatus: null,
+      skipped: true,
+      skipReason: 'refund_connector_manual',
+      errorMsg: `Refund (${args.transactionStatus}) для конектора ${args.orderReference} — обробити вручну в адмінці`,
+      actions: [...actions, 'skip:refund_connector_manual'],
+    };
+  }
+
+  const payment = await prisma.payment.findUnique({
+    where: { orderReference: args.orderReference },
+    select: { id: true, status: true, amount: true, yearlyProgramSubscriptionId: true },
+  });
+  if (!payment) {
+    return {
+      prevStatus: null,
+      skipped: true,
+      skipReason: 'refund_payment_not_found',
+      errorMsg: `Refund (${args.transactionStatus}) for unknown payment ${args.orderReference}`,
+      actions,
+    };
+  }
+  if (payment.status === 'REFUNDED') {
+    return { prevStatus: 'REFUNDED', skipped: true, skipReason: 'already_refunded', errorMsg: null, actions: ['skip:already_refunded'] };
+  }
+
+  const sub = payment.yearlyProgramSubscriptionId
+    ? await prisma.yearlyProgramSubscription.findUnique({
+        where: { id: payment.yearlyProgramSubscriptionId },
+        include: { cohort: { select: { startDate: true, endDate: true } } },
+      })
+    : null;
+
+  // Регулярку знімаємо ДО flip-а статусу: `removeSubscriptionAutopay` ітерує PAID-платежі,
+  // а правило у WFP прив'язане саме до orderReference одного з них — можливо цього.
+  let autopayRemoved = 0;
+  if (sub && sub.plan === 'MONTHLY') {
+    try {
+      const res = await removeSubscriptionAutopay(sub.id);
+      autopayRemoved = res.removed;
+      actions.push(`autopay:removed(${res.removed}/${res.attempted})`);
+      if (res.error) actions.push(`autopay:err:${res.error.slice(0, 40)}`);
+    } catch (e) {
+      actions.push(`autopay:err:${(e as Error).message.slice(0, 40)}`);
+    }
+  }
+
+  const claim = await prisma.payment.updateMany({
+    where: { id: payment.id, status: { not: 'REFUNDED' } },
+    data: { status: 'REFUNDED' },
+  });
+  if (claim.count === 0) {
+    return { prevStatus: payment.status, skipped: true, skipReason: 'already_refunded', errorMsg: null, actions: [...actions, 'skip:already_refunded_claim_lost'] };
+  }
+  actions.push('payment:refunded');
+
+  if (sub) {
+    const postAccessMonths = await getYearlyPostAccessMonths(prisma);
+    const remaining = await prisma.payment.findMany({
+      where: { yearlyProgramSubscriptionId: sub.id, status: 'PAID' },
+      select: { amount: true, status: true, paidAt: true, createdAt: true },
+    });
+    const newExpiresAt = calculateAccessUntil({
+      plan: sub.plan,
+      autoRenew: false,
+      cohort: sub.cohort ? { startDate: sub.cohort.startDate, endDate: sub.cohort.endDate } : null,
+      payments: remaining,
+      postAccessMonths,
+    });
+    await prisma.yearlyProgramSubscription.update({
+      where: { id: sub.id },
+      data: {
+        expiresAt: newExpiresAt,
+        // Прапорець має відповідати реальності: правил у WFP більше немає.
+        ...(sub.plan === 'MONTHLY' ? { autoRenew: false } : {}),
+      },
+    });
+    await prisma.yearlyProgramSubscriptionEvent.create({
+      data: {
+        subscriptionId: sub.id,
+        type: 'refunded',
+        message: `Повернення ${payment.amount}₴ (WFP ${args.transactionStatus}) · оплачених платежів лишилось ${remaining.length} · доступ до ${newExpiresAt ? newExpiresAt.toISOString().slice(0, 10) : '—'}${sub.plan === 'MONTHLY' ? ` · автосписання знято (${autopayRemoved})` : ''}`,
+        metadata: {
+          orderReference: args.orderReference,
+          transactionStatus: args.transactionStatus,
+          amount: payment.amount,
+          paidPaymentsLeft: remaining.length,
+          expiresAt: newExpiresAt?.toISOString() ?? null,
+          autopayRemoved,
+        },
+      },
+    });
+    actions.push(`yearly:refund_recalc:${newExpiresAt ? newExpiresAt.toISOString().slice(0, 10) : 'null'}`);
+  }
+
+  console.log('💸 Повернення коштів:', args.orderReference, args.transactionStatus);
+  return { prevStatus: payment.status, skipped: false, skipReason: null, errorMsg: null, actions };
+}
+
 /// Обробка failed (Declined/Expired) callback для MONTHLY plan.
 /// — Якщо Payment з orderReference знайдений (це failed initial autopay платіж) — flip у FAILED.
 /// — Якщо orderReference новий (failed cyclical від WFP, sub існує) — знаходимо sub за email,
@@ -648,15 +812,27 @@ async function handleYearlyProgramFailedCallback(args: {
   });
 
   if (existing) {
-    // Idempotent: оновлюємо тільки якщо ще не FAILED.
-    if (existing.status !== 'FAILED') {
+    // Запізнілий Declined по вже оплаченому (чи поверненому) платежу НЕ чіпаємо: WFP шле
+    // такі пакети після успішної оплати (ретрай першої спроби), а flip PAID→FAILED
+    // викидав платіж з розрахунку доступу — студент миттєво втрачав оплачений місяць.
+    // Лічильник невдалих списань теж не рухаємо: списання відбулось, а не провалилось.
+    if (existing.status !== 'PENDING' && existing.status !== 'FAILED') {
+      return {
+        skipped: true,
+        skipReason: 'late_declined_after_paid',
+        errorMsg: `Late ${args.transactionStatus} for ${existing.status} payment ${args.orderReference} — статус не змінено`,
+        actions: [...actions, 'skip:late_declined_after_paid'],
+      };
+    }
+    // Idempotent: оновлюємо тільки якщо ще PENDING.
+    if (existing.status === 'PENDING') {
       await prisma.payment.update({
         where: { id: existing.id },
         data: { status: 'FAILED' },
       });
       actions.push('payment:failed');
     } else {
-      actions.push('skip:already_failed');
+      actions.push(`skip:already_${existing.status.toLowerCase()}`);
     }
     if (existing.yearlyProgramSubscriptionId) {
       await prisma.yearlyProgramSubscription.update({
@@ -1070,6 +1246,8 @@ async function handleYearlyProgramCallback(args: {
         revivedFrom: string | null;
         /// true — SendPulse-доступ був закритий і ми скинули маркери, щоб відкрити його заново.
         accessReset: boolean;
+        /// Скільки PAID-платежів у підписки ПІСЛЯ зарахування цього (для 9/9-перевірки).
+        paidCount: number;
       };
 
   const SUB_MISSING_SENTINEL = '__SUB_MISSING_ROLLBACK__';
@@ -1149,8 +1327,8 @@ async function handleYearlyProgramCallback(args: {
           // не отримував жодного grace-листа, а стара grace-дата псувала текст листа.
           ...RESET_REMINDER_AND_GRACE_FIELDS,
           // Оживлення: слід скасування більше не актуальний. Прив'язано до самого
-          // `cancelledAt`, а не до статусу: `/api/wayforpay` встигає перевести мертву
-          // підписку в PENDING ще до редіректу, і за статусом revive вже не видно.
+          // `cancelledAt`, а не до статусу — скасована підписка може дійти сюди і не з
+          // CANCELLED (напр. після ручних правок статусу в адмінці).
           ...(sub.cancelledAt ? { cancelledAt: null, cancelledBy: null, cancelledReason: null } : {}),
           // Доступ закривали → відкриваємо заново (шлях відкриття нижче по коду).
           ...(accessReset ? { sendpulseAccessOpenedAt: null, sendpulseAccessClosedAt: null } : {}),
@@ -1193,7 +1371,7 @@ async function handleYearlyProgramCallback(args: {
         });
       }
 
-      return { kind: 'ok', sub: sub as SubWithCohort, newExpiresAt, durationDays, wasFirstPayment, revivedFrom, accessReset };
+      return { kind: 'ok', sub: sub as SubWithCohort, newExpiresAt, durationDays, wasFirstPayment, revivedFrom, accessReset, paidCount: allPayments.length };
     });
   } catch (e) {
     if (e instanceof Error && e.message === SUB_MISSING_SENTINEL) {
@@ -1276,11 +1454,16 @@ async function handleYearlyProgramCallback(args: {
   actions.push(`yearly:${planLabel}:+${flipResult.durationDays}d`);
 
   // Оновлюємо кеш «Наступний платіж» (wfpNextChargeAt) з WFP після успішного списання.
-  // checkOnly: без CHANGE — WFP сам щойно перерахував свій графік. Помилка не блокує callback.
+  // Звичайне списання — checkOnly: без CHANGE, бо WFP сам щойно перерахував свій графік.
+  // 9/9 — навпаки, apply:true: гілка `fullyPaid` у sync-у знімає правило регулярки (REMOVE).
+  // Без цього WFP пробує 10-те списання, ми його відхиляємо по monthly_cap_reached, а гроші
+  // доводиться повертати вручну. Помилка не блокує callback.
+  const fullyPaid = flipResult.paidCount >= YEARLY_PROGRAM_CONFIG.totalMonthlyPayments;
   if (sub.plan === 'MONTHLY' && sub.autoRenew) {
     try {
-      const syncRes = await syncAutopaySchedule(sub.id, { apply: false, source: 'callback' });
+      const syncRes = await syncAutopaySchedule(sub.id, { apply: fullyPaid, source: fullyPaid ? 'callback:fully-paid' : 'callback' });
       actions.push(`wfp_cache:${syncRes.outcome}`);
+      if (fullyPaid) actions.push(`autopay:final_sync:${syncRes.outcome}`);
     } catch (e) {
       actions.push(`wfp_cache:err:${(e as Error).message.slice(0, 40)}`);
     }
