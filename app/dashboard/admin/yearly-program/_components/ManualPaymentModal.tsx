@@ -44,6 +44,10 @@ export default function ManualPaymentModal({
   const [paidAt, setPaidAt] = useState(localNowValue());
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /// Не помилка сервера, а інформація для менеджера: анти-дубль (HTTP 409) — оплата з такою
+  /// самою сумою й способом уже зафіксована хвилину тому. Показуємо амбером, а не червоним,
+  /// бо це очікуваний захист від подвійного сабміту, а не збій.
+  const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => { setMounted(true); }, []);
   useEffect(() => {
@@ -63,6 +67,7 @@ export default function ManualPaymentModal({
     if (!canSubmit) return;
     setSubmitting(true);
     setError(null);
+    setNotice(null);
     try {
       const res = await fetch(`/api/admin/yearly-program/${row.id}`, {
         method: 'POST',
@@ -79,7 +84,13 @@ export default function ManualPaymentModal({
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error ?? res.statusText);
+        // 409 — спрацював анти-дубль. Це не збій сервера: показуємо як інформацію
+        // («Схоже на дубль…»), модалку не закриваємо, введені дані лишаються.
+        if (res.status === 409) {
+          setNotice(`Схоже на дубль: ${data.error ?? 'таку саму оплату вже зафіксовано щойно.'}`);
+        } else {
+          setError(data.error ?? res.statusText);
+        }
         return;
       }
       const el = data.extraLaunch;
@@ -101,7 +112,14 @@ export default function ManualPaymentModal({
         else if (w?.welcomeSkipped) note2 = ' · активовано (лист не надіслано — мейлер off)';
         else note2 = ' · активовано (креди прийдуть на запуску)';
       }
-      toast('success', `Оплату ${amountNum}₴ зафіксовано${note2}`);
+      // Сервер міг зафіксувати оплату і водночас повернути `warning` (напр. сума схожа на
+      // кілька місяців, але зарахується як один) — тоді замість зеленого «зафіксовано»
+      // показуємо попередження, інакше менеджер його ніколи не побачить.
+      if (data.warning) {
+        toast('info', `⚠️ Оплату ${amountNum}₴ зафіксовано${note2} — ${data.warning}`);
+      } else {
+        toast('success', `Оплату ${amountNum}₴ зафіксовано${note2}`);
+      }
       onDone();
       onClose();
     } catch (e) {
@@ -217,6 +235,15 @@ export default function ManualPaymentModal({
               className={`${inputCls(dark)} resize-none`}
             />
           </Field>
+
+          {notice && (
+            <div className={`text-[12.5px] px-4 py-3 rounded-xl flex items-start gap-2.5 ${
+              dark ? 'bg-amber-500/10 border border-amber-400/25 text-amber-100/90' : 'bg-amber-50 border border-amber-300/70 text-amber-900'
+            }`}>
+              <HiOutlineExclamationTriangle className="text-base shrink-0 mt-0.5" />
+              <span>{notice}</span>
+            </div>
+          )}
 
           {error && (
             <div className={`text-[12.5px] px-4 py-3 rounded-xl flex items-start gap-2.5 ${

@@ -29,7 +29,7 @@ import { FaApplePay, FaGooglePay, FaRegCreditCard } from 'react-icons/fa';
 import type { YearlyProgramSettings } from '@/lib/yearlyProgramSettings';
 import { useAdminTheme, type Theme } from '../../_components/adminTheme';
 import { AdminShell, AdminPanel } from '../../_components/AdminShell';
-import type { Row, SubStatus, Plan, SummaryData, CohortListItem } from './types';
+import type { Row, SubStatus, Plan, SummaryData as BaseSummaryData, CohortListItem } from './types';
 import CohortHeader from './CohortHeader';
 import CohortActions from './CohortActions';
 import MoveCohortBtn from './MoveCohortBtn';
@@ -56,7 +56,12 @@ import { type TelegramSettingsState } from './TelegramChannelButton';
 import { getCountryName, COUNTRIES } from '@/lib/countries';
 import { telegramProfileUrl } from '@/lib/telegramUsername';
 
-export type { Row, SubStatus, Plan, SummaryData };
+/// KPI-зріз сторінки = базовий SummaryData + довідкове поле для tooltip-у «Доходу»:
+/// скільки з цієї суми принесли підписки, які вже не діють (CANCELLED/ARCHIVED).
+/// Гроші за ними отримані й з основної цифри не віднімаються — це лише пояснення.
+export type SummaryData = BaseSummaryData & { revenueCancelled: number };
+
+export type { Row, SubStatus, Plan };
 
 interface SubscriptionDetails {
   id: string;
@@ -165,6 +170,7 @@ const EMPTY_SUMMARY: SummaryData = {
   expired: 0,
   cancelled: 0,
   revenueTotal: 0,
+  revenueCancelled: 0,
   planYearly: 0,
   planMonthlyAuto: 0,
   planMonthlyOnce: 0,
@@ -177,9 +183,9 @@ export default function YearlyProgramView(props: {
   /// KPI по кожному cohort-у окремо (`cohortId → SummaryData`). Стрічка бере той зріз,
   /// який зараз вибраний у таблиці, щоб цифри описували саме її вміст.
   summaryByCohort: Record<string, SummaryData>;
-  /// Не null, якщо вибірка рядків уперлась у серверний ліміт — тоді над таблицею
-  /// показуємо банер «Показано X з Y».
-  truncation: { shown: number; total: number } | null;
+  /// Скільки видимих підписок існує в кожному зрізі таблиці (усі набори / конкретний
+  /// cohort). Разом зі завантаженими `rows` дає банер «Показано X з Y» в ОДНОМУ зрізі.
+  rowsScope: { totalAll: number; totalByCohort: Record<string, number> };
   telegramSettings: TelegramSettingsState;
   cohorts: CohortListItem[];
   graceDays: number;
@@ -234,7 +240,7 @@ function YearlyProgramViewInner({
   rows,
   summary,
   summaryByCohort,
-  truncation,
+  rowsScope,
   cohorts,
   graceDays,
   postAccessMonths,
@@ -250,7 +256,7 @@ function YearlyProgramViewInner({
   rows: Row[];
   summary: SummaryData;
   summaryByCohort: Record<string, SummaryData>;
-  truncation: { shown: number; total: number } | null;
+  rowsScope: { totalAll: number; totalByCohort: Record<string, number> };
   cohorts: CohortListItem[];
   graceDays: number;
   postAccessMonths: number;
@@ -282,6 +288,20 @@ function YearlyProgramViewInner({
   const activeSummary = activeCohortId === null
     ? summary
     : summaryByCohort[activeCohortId] ?? EMPTY_SUMMARY;
+
+  // Банер обрізання рахується в ТОМУ САМОМУ зрізі, що й таблиця: скільки рядків
+  // вибраного набору реально приїхало з сервера проти того, скільки їх там усього.
+  // Інші клієнтські фільтри (статус/план/пошук) сюди не входять — вони звужують уже
+  // завантажений набір і не є причиною обрізання.
+  const truncation = useMemo(() => {
+    const loaded = activeCohortId === null
+      ? rows.length
+      : rows.filter((r) => r.cohortId === activeCohortId).length;
+    const total = activeCohortId === null
+      ? rowsScope.totalAll
+      : rowsScope.totalByCohort[activeCohortId] ?? loaded;
+    return loaded < total ? { shown: loaded, total } : null;
+  }, [rows, activeCohortId, rowsScope]);
 
   const [planFilter, setPlanFilter] = useState<PlanFilter>('ALL');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
@@ -392,8 +412,13 @@ function YearlyProgramViewInner({
           delete copy[id];
           return copy;
         });
+        // Сервер може виконати дію і при цьому повернути `warning` (напр. «доступ за
+        // правилом набору вже завершився»). Мовчазне «Дію виконано» ховало б це від
+        // менеджера — показуємо саме попередження замість green-тосту.
         if (data.wfpError) {
-          toast('info', `Виконано, але: ${data.wfpError}`);
+          toast('info', `⚠️ Виконано, але: ${data.wfpError}`);
+        } else if (data.warning) {
+          toast('info', `⚠️ ${data.warning}`);
         } else {
           toast('success', 'Дію виконано');
         }
@@ -490,7 +515,13 @@ function YearlyProgramViewInner({
             label="Дохід"
             value={`${activeSummary.revenueTotal.toLocaleString()} ₴`}
             tone="success"
-            hint={`Сума успішних оплат${activeCohort ? ` набору «${activeCohort.name}»` : ''}. Не входять: тестові оплати адмінів/менеджерів (1–2 ₴) і платежі скасованих та архівних підписок.`}
+            hint={[
+              `Сума реально отриманих оплат${activeCohort ? ` набору «${activeCohort.name}»` : ''}.`,
+              'Не входять тестові оплати адмінів/менеджерів (1–2 ₴).',
+              activeSummary.revenueCancelled > 0
+                ? `З них по скасованих/вилучених: ${activeSummary.revenueCancelled.toLocaleString()} ₴ — гроші отримані, підписка вже не діє.`
+                : null,
+            ].filter(Boolean).join('\n')}
           />
         </div>
         <div className={dark ? 'border-t border-white/[0.06]' : 'border-t border-stone-300/40'} />
@@ -1348,9 +1379,33 @@ function ExpandedRowContent({
               {extraLaunching ? 'Запускаю…' : 'Екстра Запуск нового студента'}
             </button>
           )}
-          <ActionBtn theme={theme} disabled={busy || row.status === 'EXPIRED' || row.status === 'ARCHIVED'} onClick={() => setExtendOpen(true)}>
-            ⏱ Продовжити доступ до SendPulse
-          </ActionBtn>
+          {/* Сервер відхиляє extend для ARCHIVED і для PENDING без жодної оплати (400) —
+              дизейблимо кнопку тут, щоб вона не була «мертвою» без пояснення. */}
+          {(() => {
+            const unpaidPending = row.status === 'PENDING' && row.paymentsCount === 0;
+            const blockReason = row.status === 'ARCHIVED'
+              ? 'Підписка заархівована — продовжити доступ не можна. Створіть нову.'
+              : unpaidPending
+                ? 'Спершу зафіксуйте оплату («Підтвердити оплату вручну») або перенесення з минулого року.'
+                : null;
+            return (
+              <>
+                <ActionBtn
+                  theme={theme}
+                  disabled={busy || row.status === 'EXPIRED' || blockReason !== null}
+                  onClick={() => setExtendOpen(true)}
+                  title={blockReason ?? undefined}
+                >
+                  ⏱ Продовжити доступ до SendPulse
+                </ActionBtn>
+                {blockReason && (
+                  <span className={`text-[10px] leading-snug -mt-1 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+                    {blockReason}
+                  </span>
+                )}
+              </>
+            );
+          })()}
           {extendOpen && (
             <ExtendAccessModal
               theme={theme}
@@ -1965,12 +2020,15 @@ function ActionBtn({
   disabled,
   tone = 'neutral',
   theme,
+  title,
 }: {
   children: React.ReactNode;
   onClick: () => void;
   disabled?: boolean;
   tone?: 'neutral' | 'warning' | 'danger' | 'success';
   theme: Theme;
+  /// Native-tooltip — зокрема пояснення, чому кнопка задизейблена.
+  title?: string;
 }) {
   const dark = theme === 'dark';
   const toneClasses = {
@@ -1984,6 +2042,7 @@ function ActionBtn({
       type="button"
       onClick={onClick}
       disabled={disabled}
+      title={title}
       className={`px-3 py-1.5 text-[11px] font-medium rounded-lg border transition-colors disabled:opacity-40 disabled:cursor-not-allowed text-left ${toneClasses}`}
     >
       {children}

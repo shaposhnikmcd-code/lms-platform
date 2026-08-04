@@ -275,13 +275,14 @@ export default async function AdminYearlyProgramPage() {
     ),
   );
 
-  // Дохід рахуємо тільки з «чесних» платежів:
-  //   • amount <= 2 — символічні тест-оплати ADMIN/MANAGER (1 ₴ курс/пакет, 2 ₴ Річна),
-  //     див. правило тестової ціни в CLAUDE.md;
-  //   • підписки в ARCHIVED/CANCELLED не дають доходу програми (архів — дублі-спроби,
-  //     скасовані — гроші або повернені, або підписка обірвана).
+  // Дохід — це реально отримані гроші, тому з основної цифри відсіюємо ЛИШЕ символічні
+  // тест-оплати ADMIN/MANAGER (1 ₴ курс/пакет, 2 ₴ Річна — правило тестової ціни в CLAUDE.md).
+  // Скасування/архівація підписки не повертає гроші: якщо студент платив пів року і в березні
+  // скасував автосписання, ці платежі лишаються доходом. Їх сума йде окремим рядком
+  // (`revenueCancelled`) у tooltip «Доходу», щоб менеджер бачив, скільки з суми — по
+  // підписках, які вже не діють.
   const REVENUE_MIN_AMOUNT = 3;
-  const REVENUE_EXCLUDED_STATUSES = new Set(['ARCHIVED', 'CANCELLED']);
+  const REVENUE_INACTIVE_STATUSES = new Set(['ARCHIVED', 'CANCELLED']);
 
   // Один сумаризатор на будь-який зріз підписок — щоб KPI «всіх наборів» і KPI
   // конкретного cohort-у рахувались абсолютно однаковими правилами.
@@ -290,10 +291,13 @@ export default async function AdminYearlyProgramPage() {
   const buildSummary = (slice: typeof visibleAll): SummaryData => {
     const byStatus = (st: string) => slice.filter((s) => s.status === st).length;
     const liveSubs = slice.filter((s) => s.status === 'ACTIVE' || s.status === 'GRACE');
-    const revenueTotal = slice.reduce((sum, s) => {
-      if (REVENUE_EXCLUDED_STATUSES.has(s.status)) return sum;
-      return sum + s.payments.reduce((acc, p) => (p.amount >= REVENUE_MIN_AMOUNT ? acc + p.amount : acc), 0);
-    }, 0);
+    const realPaid = (s: (typeof slice)[number]) =>
+      s.payments.reduce((acc, p) => (p.amount >= REVENUE_MIN_AMOUNT ? acc + p.amount : acc), 0);
+    const revenueTotal = slice.reduce((sum, s) => sum + realPaid(s), 0);
+    const revenueCancelled = slice.reduce(
+      (sum, s) => (REVENUE_INACTIVE_STATUSES.has(s.status) ? sum + realPaid(s) : sum),
+      0,
+    );
     return {
       total: slice.filter((s) => s.status !== 'ARCHIVED').length,
       pending: byStatus('PENDING'),
@@ -302,6 +306,7 @@ export default async function AdminYearlyProgramPage() {
       expired: byStatus('EXPIRED'),
       cancelled: byStatus('CANCELLED'),
       revenueTotal,
+      revenueCancelled,
       planYearly: liveSubs.filter((s) => s.plan === 'YEARLY').length,
       planMonthlyAuto: liveSubs.filter((s) => s.plan === 'MONTHLY' && s.autoRenew).length,
       planMonthlyOnce: liveSubs.filter((s) => s.plan === 'MONTHLY' && !s.autoRenew).length,
@@ -317,19 +322,23 @@ export default async function AdminYearlyProgramPage() {
     summaryByCohort[c.id] = buildSummary(visibleAll.filter((s) => s.cohortId === c.id));
   }
 
-  // Таблиця тягне максимум MAX_ROWS рядків. Якщо ліміт вичерпано — попереджаємо явно,
-  // інакше «Показано N» читалось би як «це всі записи».
-  const truncation =
-    subs.length >= MAX_ROWS
-      ? { shown: rows.length, total: visibleAll.length }
-      : null;
+  // Таблиця тягне максимум MAX_ROWS рядків. Щоб банер «Показано X з Y» не змішував зрізи,
+  // віддаємо клієнту повні кількості видимих підписок у тому ж розрізі, у якому таблиця
+  // фільтрується (усі набори / конкретний cohort). Скільки з них реально завантажено —
+  // клієнт рахує зі своїх `rows` тим самим cohort-фільтром.
+  const rowsScope = {
+    totalAll: visibleAll.length,
+    totalByCohort: Object.fromEntries(
+      cohortList.map((c) => [c.id, visibleAll.filter((s) => s.cohortId === c.id).length]),
+    ) as Record<string, number>,
+  };
 
   return (
     <YearlyProgramView
       rows={rows}
       summary={summary}
       summaryByCohort={summaryByCohort}
-      truncation={truncation}
+      rowsScope={rowsScope}
       cohorts={cohortList}
       graceDays={graceDays}
       postAccessMonths={postAccessMonths}
