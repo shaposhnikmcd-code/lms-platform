@@ -40,6 +40,10 @@ import { ensureNumericChatId, getYearlyProgramTelegramSettings } from '@/lib/yea
 
 const LOG_PREFIX = '[yearly-tg-webhook]';
 
+/// Маркер у `metadata.kind` для подій «заявку відхилено через невідповідність особи».
+/// Використовується для дедупу повторних кліків по тому самому лінку.
+const JOIN_DECLINED_EVENT_KIND = 'tg_join_declined_identity';
+
 interface TgUser {
   id: number;
   is_bot?: boolean;
@@ -182,12 +186,48 @@ async function handleChatJoinRequest(joinReq: TgChatJoinRequest): Promise<void> 
   const identity = checkJoinIdentity(sub, joinReq.from);
   if (!identity.ok) {
     await declineJoin(chatId, userId, `identity mismatch sub=${sub.id} · ${identity.reason}`);
+
+    // Найчастіша причина mismatch — не витік лінка, а друкарська помилка в username
+    // на платіжній формі. Без сліду в адмінці студент клікав би вічно і мовчки.
+    // `telegramInviteError` показується у вкладці «Помилки» → менеджер бачить і виправляє.
+    await prisma.yearlyProgramSubscription.update({
+      where: { id: sub.id },
+      data: {
+        telegramInviteError: `Заявка від ${joinReq.from.username ? `@${joinReq.from.username}` : `id=${userId}`} відхилена: ${identity.reason} — ${
+          identity.kind === 'username'
+            ? 'перевір username у підписці (можлива друкарська помилка у формі оплати)'
+            : 'посиланням скористалась інша людина; згенеруй новий інвайт для студента'
+        }`.slice(0, 500),
+      },
+    });
+
+    // Дедуп: людина може тиснути «Приєднатись» десятки разів поспіль — не засмічуємо
+    // стрічку подій. Одна подія на (підписка, tg-користувач) за годину.
+    const hourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    const dupe = await prisma.yearlyProgramSubscriptionEvent.findFirst({
+      where: {
+        subscriptionId: sub.id,
+        type: 'admin_action',
+        createdAt: { gte: hourAgo },
+        AND: [
+          { metadata: { path: ['kind'], equals: JOIN_DECLINED_EVENT_KIND } },
+          { metadata: { path: ['tgUserId'], equals: String(userId) } },
+        ],
+      },
+      select: { id: true },
+    });
+    if (dupe) {
+      console.log(`${LOG_PREFIX} decline event deduped sub=${sub.id} user=${userId}`);
+      return;
+    }
+
     await prisma.yearlyProgramSubscriptionEvent.create({
       data: {
         subscriptionId: sub.id,
         type: 'admin_action',
         message: `Telegram: заявка відхилена — ${identity.reason}`,
         metadata: {
+          kind: JOIN_DECLINED_EVENT_KIND,
           tgUserId: String(userId),
           tgUserDesc: userDesc,
           tgUsername: joinReq.from.username ? `@${joinReq.from.username}` : null,
@@ -235,6 +275,13 @@ async function handleChatJoinRequest(joinReq: TgChatJoinRequest): Promise<void> 
     try {
       await revokeChatInviteLink(settingsChatId, inviteUrl);
       inviteRevoked = true;
+      // Відкликаний лінк мертвий — прибираємо з БД, інакше ідемпотентний
+      // generateInviteForSubscription віддав би його у наступні листи, а «повернути
+      // в канал» з адмінки обіцяло б вхід по посиланню, яке вже не працює.
+      await prisma.yearlyProgramSubscription.update({
+        where: { id: sub.id },
+        data: { telegramInviteLink: null },
+      });
     } catch (e) {
       revokeError = e instanceof TelegramApiError ? `[${e.errorCode}] ${e.message}` : (e instanceof Error ? e.message : String(e));
       console.warn(`${LOG_PREFIX} revoke failed sub=${sub.id} invite=${inviteUrl}: ${revokeError}`);
@@ -271,13 +318,14 @@ async function handleChatJoinRequest(joinReq: TgChatJoinRequest): Promise<void> 
 function checkJoinIdentity(
   sub: { telegramTgUserId: bigint | null; telegramUsername: string | null },
   from: TgUser,
-): { ok: true; unverified: boolean } | { ok: false; reason: string } {
+): { ok: true; unverified: boolean } | { ok: false; reason: string; kind: 'tg_id' | 'username' } {
   const fromHandle = (from.username ?? '').replace(/^@/, '').toLowerCase();
 
   if (sub.telegramTgUserId !== null) {
     if (sub.telegramTgUserId === BigInt(from.id)) return { ok: true, unverified: false };
     return {
       ok: false,
+      kind: 'tg_id',
       reason: `tg id не збігається (підписка: ${sub.telegramTgUserId}, заявка: ${from.id}${fromHandle ? `, @${fromHandle}` : ''})`,
     };
   }
@@ -287,6 +335,7 @@ function checkJoinIdentity(
   if (expected === fromHandle) return { ok: true, unverified: false };
   return {
     ok: false,
+    kind: 'username',
     reason: `username не збігається (очікували @${sub.telegramUsername?.replace(/^@/, '')}, заявка від ${fromHandle ? `@${fromHandle}` : `id=${from.id} без username`})`,
   };
 }

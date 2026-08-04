@@ -13,6 +13,11 @@
 /// Перед надсиланням перевіряємо, чи такий event уже існує — якщо так, пропускаємо.
 /// `force=true` ігнорує dedup (per-recipient resend або bulk-override від менеджера).
 ///
+/// Telegram: якщо канал налаштований і autoAdd увімкнено, до кожного листа додається блок
+/// з invite-кнопкою (`renderTelegramInviteEmailBlock`). Лінк перегенеровується, якщо його
+/// немає або він старший за 25 днів — інакше покупці, що оплатили за місяці до запуску,
+/// отримали б протермінований (30 днів) лінк.
+///
 /// Контракт `emailSentAt`: оновлюємо тільки коли була повна bulk-розсилка (без `targetIds`).
 /// Per-recipient resend не зачіпає cohort-таймстемп — він репрезентує "коли по cohort-у
 /// пройшла масова розсилка".
@@ -24,6 +29,16 @@ import {
   DEFAULT_LAUNCH_EMAIL_BODY,
   DEFAULT_LAUNCH_EMAIL_SUBJECT,
 } from '@/lib/yearlyProgramCohort';
+import {
+  generateInviteForSubscription,
+  getYearlyProgramTelegramSettings,
+  renderTelegramInviteEmailBlock,
+} from '@/lib/yearlyProgramTelegram';
+
+/// Invite-лінк живе 30 днів (`createChatInviteLink`, expireSeconds). Все, що старше 25 днів,
+/// у масовій розсилці перегенеровуємо: покупці квітня–червня інакше отримали б на дату
+/// запуску мертве посилання.
+const INVITE_MAX_AGE_MS = 25 * 24 * 60 * 60 * 1000;
 
 export interface SendLaunchEmailsCohort {
   id: string;
@@ -44,7 +59,10 @@ export interface SendLaunchEmailsResult {
   ///   no_email          → у юзера відсутній email
   ///   already_sent      → welcome-лист цього cohort-у вже надсилався (dedup)
   ///   no_paid_payments  → підписка є, але платіж ще не пройшов
-  skipped?: 'no_email' | 'already_sent' | 'no_paid_payments';
+  ///   no_access_opened  → доступ у SendPulse ще не відкрито (лист стверджує зворотнє)
+  skipped?: 'no_email' | 'already_sent' | 'no_paid_payments' | 'no_access_opened';
+  /// `true` якщо в лист вкладено кнопку Telegram-каналу зі свіжим invite-лінком.
+  telegramInvite?: boolean;
 }
 
 export interface SendLaunchEmailsSummary {
@@ -100,6 +118,10 @@ export async function sendCohortLaunchEmails(
   const subjectTpl = cohort.launchEmailSubject ?? DEFAULT_LAUNCH_EMAIL_SUBJECT;
   const bodyTpl = cohort.launchEmailBody ?? DEFAULT_LAUNCH_EMAIL_BODY;
 
+  // Telegram-налаштування читаємо один раз на всю розсилку (singleton-рядок).
+  const tgSettings = await getYearlyProgramTelegramSettings();
+  const tgActive = Boolean(tgSettings.autoAdd && tgSettings.chatId);
+
   const results: SendLaunchEmailsResult[] = [];
 
   for (const s of subs) {
@@ -114,6 +136,15 @@ export async function sendCohortLaunchEmails(
     const hasPaid = s.payments.some((p) => p.status === 'PAID');
     if (!hasPaid) {
       results.push({ subscriptionId: s.id, email: s.user.email, sent: false, skipped: 'no_paid_payments' });
+      continue;
+    }
+
+    // Skip-чек № 2: доступ у SendPulse ще не відкрито. Текст листа стверджує «доступ
+    // відкрито» і веде на платформу — відправити його раніше за реальне відкриття означає
+    // послати людину в нікуди. Force (targeted resend) це НЕ обходить: спершу треба
+    // полагодити відкриття доступу («Екстра Запуск»), потім слати лист.
+    if (!s.sendpulseAccessOpenedAt) {
+      results.push({ subscriptionId: s.id, email: s.user.email, sent: false, skipped: 'no_access_opened' });
       continue;
     }
 
@@ -138,18 +169,48 @@ export async function sendCohortLaunchEmails(
       },
     });
 
+    // Telegram-кнопка у лист. Лінк має бути ЖИВИЙ на момент відправки: якщо його немає
+    // або він старший за 25 днів — перегенеровуємо (force сам відкликає старий).
+    // Помилка генерації не валить лист: він піде без кнопки, а причина осяде в
+    // `telegramInviteError` підписки (вкладка «Помилки»).
+    let telegramInviteLink: string | null = null;
+    if (tgActive && s.telegramUsername) {
+      const stale =
+        !s.telegramInviteLink ||
+        !s.telegramInvitedAt ||
+        Date.now() - s.telegramInvitedAt.getTime() > INVITE_MAX_AGE_MS;
+      const invite = await generateInviteForSubscription({
+        subscriptionId: s.id,
+        prefetched: {
+          id: s.id,
+          telegramInviteLink: s.telegramInviteLink,
+          userEmail: s.user.email,
+          userName: s.user.name,
+        },
+        force: stale,
+        triggeredBy: `cohort-launch-email:${opts.actorLabel}`,
+      });
+      telegramInviteLink = invite.inviteLink;
+    }
+
     try {
-      const res = await sendEmail({ to: s.user.email, subject, html: body });
+      const html = body + renderTelegramInviteEmailBlock(telegramInviteLink);
+      const res = await sendEmail({ to: s.user.email, subject, html });
       if (!res.ok) throw new Error(res.error ?? 'send failed');
       await prisma.yearlyProgramSubscriptionEvent.create({
         data: {
           subscriptionId: s.id,
           type: 'launch_email_sent',
           message: `Welcome email sent by ${opts.actorLabel}`,
-          metadata: { cohortId: cohort.id, messageId: res.messageId, source: opts.source },
+          metadata: {
+            cohortId: cohort.id,
+            messageId: res.messageId,
+            source: opts.source,
+            telegramInvite: Boolean(telegramInviteLink),
+          },
         },
       });
-      results.push({ subscriptionId: s.id, email: s.user.email, sent: true });
+      results.push({ subscriptionId: s.id, email: s.user.email, sent: true, telegramInvite: Boolean(telegramInviteLink) });
     } catch (e) {
       const errMsg = (e as Error).message.slice(0, 200);
       // Persistent failure event — потрібно для issue-tracker-а, щоб збій дійшов

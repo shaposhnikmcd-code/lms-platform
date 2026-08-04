@@ -300,6 +300,18 @@ export async function generateInviteForSubscription(args: {
     }
   }
 
+  // force → старий лінк більше не потрібен: відкликаємо, щоб він не лишався робочим
+  // «дублікатом» у вже надісланих листах. Best-effort — фейл не блокує генерацію нового
+  // (лінк міг бути вже відкликаний webhook-ом після approve або протермінований).
+  if (force && sub.telegramInviteLink) {
+    try {
+      await revokeChatInviteLink(settings.chatId, sub.telegramInviteLink);
+    } catch (e) {
+      const msg = e instanceof TelegramApiError ? e.message : (e instanceof Error ? e.message : String(e));
+      console.warn(`[yearly-tg] revoke old invite failed sub=${subscriptionId}: ${msg}`);
+    }
+  }
+
   try {
     const link = await createChatInviteLink({
       chatId: settings.chatId,
