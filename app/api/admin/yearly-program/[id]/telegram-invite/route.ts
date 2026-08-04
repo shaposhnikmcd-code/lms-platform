@@ -38,6 +38,7 @@ export async function POST(
     where: { id },
     select: {
       id: true,
+      status: true,
       telegramInviteLink: true,
       telegramUsername: true,
       user: { select: { email: true, name: true } },
@@ -46,6 +47,19 @@ export async function POST(
   if (!sub) {
     return NextResponse.json({ error: 'Subscription not found' }, { status: 404 });
   }
+  // Закритій підписці invite не потрібен: посилання одноразове й персональне, а видане
+  // після скасування/архіву відкриває канал людині, яка вже не в програмі.
+  if (['ARCHIVED', 'CANCELLED', 'EXPIRED'].includes(sub.status)) {
+    return NextResponse.json(
+      { error: 'Підписка неактивна — invite не надсилається. Спочатку поновіть доступ.' },
+      { status: 400 },
+    );
+  }
+  // PENDING дозволяємо (менеджер часто шле запрошення разом з рахунком), але чесно
+  // попереджаємо: webhook пустить у канал лише власника ЧИННОЇ підписки.
+  const statusWarning = sub.status === 'PENDING'
+    ? 'підписка ще не оплачена — заявку в канал буде відхилено до оплати'
+    : undefined;
 
   const result = await generateInviteForSubscription({
     subscriptionId: id,
@@ -103,5 +117,6 @@ export async function POST(
     ok: true,
     inviteLink: result.inviteLink,
     email: emailResult,
+    ...(statusWarning ? { warning: statusWarning } : {}),
   });
 }

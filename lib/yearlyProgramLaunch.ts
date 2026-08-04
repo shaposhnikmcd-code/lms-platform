@@ -23,7 +23,12 @@ import { renderTelegramInviteEmailBlock } from '@/lib/yearlyProgramTelegram';
 ///   accessOpened=true                   → opened
 ///   accessOpened=false + skipReason     → skipped (очікуваний пропуск, не помилка)
 ///   accessOpened=false + error          → failed (справжній збій SP/мережі)
-export type LaunchSkipReason = 'no_paid_payments';
+export type LaunchSkipReason = 'no_paid_payments' | 'pending_access_expired';
+
+/// Статуси, для яких відкривати доступ не можна ЖОДНИМ шляхом: підписку закрито
+/// адміністративно або вона вичерпалась. Старі PAID-платежі в такої підписки лишаються,
+/// тож без цього guard-а прямий POST на extra-launch «воскрешав» би її в ACTIVE.
+const ACCESS_BLOCKED_STATUSES = ['ARCHIVED', 'CANCELLED', 'EXPIRED'];
 
 export interface LaunchResult {
   subscriptionId: string;
@@ -64,6 +69,7 @@ export async function executeLaunchLoop(
   const postAccessMonths = await getYearlyPostAccessMonths(prisma);
   const yearlySpCourseId = await getYearlySendpulseCourseId(prisma);
   const results: LaunchResult[] = [];
+  const now = new Date();
 
   for (const s of subs) {
     if (!s.user?.email) continue;
@@ -77,6 +83,20 @@ export async function executeLaunchLoop(
         accessOpened: false,
         expiresAt: null,
         skipReason: 'no_paid_payments',
+      });
+      continue;
+    }
+
+    // PENDING зі старими PAID-платежами, але вичерпаним (або невизначеним) доступом —
+    // не оплачений цикл, а залишок минулого. Критерій той самий, що в heal-cron-і:
+    // PENDING допускається тільки з чинним expiresAt. ACTIVE/GRACE — без змін.
+    if (s.status === 'PENDING' && !(s.expiresAt && s.expiresAt >= now)) {
+      results.push({
+        subscriptionId: s.id,
+        email: s.user.email,
+        accessOpened: false,
+        expiresAt: s.expiresAt?.toISOString() ?? null,
+        skipReason: 'pending_access_expired',
       });
       continue;
     }
@@ -210,6 +230,11 @@ export async function runExtraLaunchForSubscription(
     },
   });
   if (!sub) return { ok: false, reason: 'sub_not_found', expiresAt: null, sendpulseAccessOpened: false, studentId: null, email: { sent: false } };
+  // Закрита підписка не воскресає з бічних дверей. PENDING лишається дозволеним:
+  // heal-cron і callback штатно доводять до ACTIVE щойно оплачені підписки.
+  if (ACCESS_BLOCKED_STATUSES.includes(sub.status)) {
+    return { ok: false, reason: 'status_blocked', expiresAt: sub.expiresAt?.toISOString() ?? null, sendpulseAccessOpened: false, studentId: sub.sendpulseStudentId, email: { sent: false } };
+  }
   if (!sub.user?.email) return { ok: false, reason: 'no_user_email', expiresAt: null, sendpulseAccessOpened: false, studentId: null, email: { sent: false } };
   if (!sub.cohort) return { ok: false, reason: 'no_cohort', expiresAt: null, sendpulseAccessOpened: false, studentId: null, email: { sent: false } };
   if (!sub.cohort.launchedAt) return { ok: false, reason: 'cohort_not_launched', expiresAt: null, sendpulseAccessOpened: false, studentId: null, email: { sent: false } };

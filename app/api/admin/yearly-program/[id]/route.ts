@@ -177,6 +177,9 @@ async function handleCancel(sub: NonNullable<SubWithUser>, actor: string, reason
     where: { id: sub.id },
     data: {
       status: 'CANCELLED',
+      // Регулярку у WFP уже знято — гасимо і прапор у себе, інакше підписка виглядає
+      // як «з автоплатежем» і UI/крон-звірки продовжують чекати списань.
+      autoRenew: false,
       cancelledAt: new Date(),
       cancelledBy: actor,
       cancelledReason: reason ?? null,
@@ -195,6 +198,26 @@ async function handleCancel(sub: NonNullable<SubWithUser>, actor: string, reason
     },
   });
 
+  // Best-effort вилучення з ТГ-каналу у permanent-режимі (ban + revoke invite) — як у
+  // «Деактивувати та Вилучити». Скасована підписка не має лишати людину в каналі, а її
+  // invite-link — робочим. Помилка TG не блокує скасування: статус уже CANCELLED у БД.
+  const tg = await kickSubscriptionFromChannel({
+    subscriptionId: sub.id,
+    mode: 'permanent',
+    triggeredBy: `admin:${actor} · cancel`,
+  }).catch((e) => ({ ok: false, kicked: false, inviteRevoked: false, skipped: null, error: (e as Error).message }));
+  if (!tg.ok) {
+    // Сам kick пише подію лише коли дійшов до Telegram API; ранні виходи й throw — ні.
+    await prisma.yearlyProgramSubscriptionEvent.create({
+      data: {
+        subscriptionId: sub.id,
+        type: 'admin_action',
+        message: `TG kick (cancel) не виконано: ${(tg.error ?? tg.skipped ?? 'unknown').slice(0, 200)}`,
+        metadata: { cancelKick: true, ...tg },
+      },
+    });
+  }
+
   await notifyUserSubscriptionEnded(sub, 'cancelled', hadAutoRenew, sub.expiresAt ?? null);
 
   return NextResponse.json({
@@ -202,6 +225,7 @@ async function handleCancel(sub: NonNullable<SubWithUser>, actor: string, reason
     wfpRemovedCount,
     wfpAttemptedCount,
     wfpError,
+    telegram: tg,
   });
 }
 

@@ -29,6 +29,7 @@ export async function POST(
       cohort_not_launched: 400,
       already_opened: 409,
       no_paid_payments: 400,
+      status_blocked: 400,
     };
     const errorByReason: Record<string, string> = {
       sub_not_found: 'Підписка не знайдена',
@@ -37,6 +38,7 @@ export async function POST(
       cohort_not_launched: 'Cohort ще не запущений. Звичайний запуск через 🚀 Запустити програму.',
       already_opened: 'Доступ у SendPulse вже відкрито',
       no_paid_payments: 'У підписки ще немає оплачених платежів — лінк ще не використано або callback не прийшов',
+      status_blocked: 'Підписка скасована, заархівована або протермінована — відкрити доступ через запуск не можна. Зафіксуйте оплату або створіть нову підписку.',
     };
     const status = statusByReason[reason] ?? (reason.startsWith('sendpulse_open_failed') ? 502 : 400);
     const error = errorByReason[reason] ?? (reason.startsWith('sendpulse_open_failed') ? `SendPulse: ${reason.slice('sendpulse_open_failed:'.length)}` : reason);
