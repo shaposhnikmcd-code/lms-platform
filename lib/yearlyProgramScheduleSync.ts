@@ -84,37 +84,65 @@ export async function syncAutopaySchedule(
   const paidCount = sub.payments.length;
   const fullyPaid = paidCount >= YEARLY_PROGRAM_CONFIG.totalMonthlyPayments;
 
-  // ── Крок 1: знайти живі правила серед усіх PAID orderRef-ів (їх може бути кілька:
+  // ── Крок 1: знайти живі правила серед PAID orderRef-ів (їх може бути кілька:
   // картка + Apple Pay, апгрейд разова→автоплатіж; child-refs WFPREG дадуть 4102 = not found).
+  //
+  // Швидкий шлях: якщо кеш уже знає живе правило (`wfpRegularRef`) — робимо STATUS ТІЛЬКИ
+  // по ньому. Інакше нічна звірка била по одному запиту на кожен платіж кожної підписки
+  // (з ростом платежів — сотні запитів за прогін). Повний перебір лишається, коли:
+  //   • ref порожній (перша звірка / правило щойно знято);
+  //   • STATUS по ref дав ЧЕСНУ відповідь «правила нема/не активне» (4102) — кеш застарів;
+  //   • підписка вже 9/9 — там треба зняти ВСІ правила, тож маємо знати про кожне.
   const activeRules: { ref: string; amount: number; currency: string; mode: string; nextPaymentAt: Date | null; dateEndAt: Date | null }[] = [];
   const statusErrors: string[] = [];
   /// Хоч один STATUS не дав чесної відповіді (5xx/timeout/битий JSON) → ми НЕ знаємо,
   /// чи є правило. Кеш у такому разі не чіпаємо взагалі.
   let inconclusive = false;
-  for (const p of sub.payments) {
-    try {
-      const st = await getRegularStatus({
-        merchantAccount: creds.merchantAccount,
-        merchantPassword,
-        orderReference: p.orderReference,
-      });
-      if (st.inconclusive) {
-        inconclusive = true;
-        statusErrors.push(`${p.orderReference}: невизначена відповідь WFP (reasonCode=${String(st.raw.reasonCode ?? '—')})`);
-      } else if (st.found && st.status === 'Active') {
-        activeRules.push({
-          ref: p.orderReference,
-          amount: st.amount ?? p.amount,
-          currency: st.currency ?? 'UAH',
-          mode: st.mode ?? 'monthly',
-          nextPaymentAt: st.nextPaymentAt,
-          dateEndAt: st.dateEndAt,
+  const amountByRef = new Map(sub.payments.map((p) => [p.orderReference, p.amount]));
+  const fallbackAmount = sub.payments[sub.payments.length - 1]!.amount;
+  const probed = new Set<string>();
+
+  const probeRefs = async (refs: string[]) => {
+    for (const ref of refs) {
+      if (probed.has(ref)) continue;
+      probed.add(ref);
+      try {
+        const st = await getRegularStatus({
+          merchantAccount: creds.merchantAccount,
+          merchantPassword,
+          orderReference: ref,
         });
+        if (st.inconclusive) {
+          inconclusive = true;
+          statusErrors.push(`${ref}: невизначена відповідь WFP (reasonCode=${String(st.raw.reasonCode ?? '—')})`);
+        } else if (st.found && st.status === 'Active') {
+          activeRules.push({
+            ref,
+            amount: st.amount ?? amountByRef.get(ref) ?? fallbackAmount,
+            currency: st.currency ?? 'UAH',
+            mode: st.mode ?? 'monthly',
+            nextPaymentAt: st.nextPaymentAt,
+            dateEndAt: st.dateEndAt,
+          });
+        }
+      } catch (e) {
+        inconclusive = true;
+        statusErrors.push(`${ref}: ${(e as Error).message.slice(0, 80)}`);
       }
-    } catch (e) {
-      inconclusive = true;
-      statusErrors.push(`${p.orderReference}: ${(e as Error).message.slice(0, 80)}`);
     }
+  };
+
+  const allRefs = sub.payments.map((p) => p.orderReference);
+  const cachedRef = !fullyPaid && sub.wfpRegularRef ? sub.wfpRegularRef : null;
+  if (cachedRef) {
+    await probeRefs([cachedRef]);
+    // Правило чесно померло (без жодної невизначеної відповіді) → кеш застарів,
+    // добираємо решту orderRef-ів: могло лишитись інше живе правило.
+    if (activeRules.length === 0 && !inconclusive) {
+      await probeRefs(allRefs);
+    }
+  } else {
+    await probeRefs(allRefs);
   }
 
   const cacheUpdate = async (ruleRef: string | null, nextChargeAt: Date | null) => {

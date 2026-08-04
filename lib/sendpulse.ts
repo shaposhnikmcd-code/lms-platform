@@ -51,16 +51,28 @@ async function getAccessToken(): Promise<string> {
 }
 
 /// @param base — `API_BASE` для класичних ендпоінтів або `EDU_API_BASE` для Education API.
+///
+/// 401 → скидаємо кеш токена і повторюємо запит РІВНО один раз. Без цього після ротації
+/// кредів (або дострокового відкликання токена на боці SendPulse) усі виклики падали до
+/// кінця години кешування. Другий 401 повертаємо як є — це вже чесна помилка авторизації,
+/// а не протухлий токен.
 async function authedFetch(path: string, init?: RequestInit, base: string = EDU_API_BASE): Promise<Response> {
-  const token = await getAccessToken();
-  return fetch(`${base}${path}`, {
-    ...init,
-    headers: {
-      ...(init?.headers ?? {}),
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-  });
+  const call = async () => {
+    const token = await getAccessToken();
+    return fetch(`${base}${path}`, {
+      ...init,
+      headers: {
+        ...(init?.headers ?? {}),
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+  };
+
+  const res = await call();
+  if (res.status !== 401) return res;
+  cachedToken = null;
+  return call();
 }
 
 /// Повертає список студентів курсу, які повністю завершили навчання (прогрес 100%).

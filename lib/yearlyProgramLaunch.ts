@@ -3,6 +3,7 @@ import { openAccessViaEvent, lookupStudentIdByEmail } from '@/lib/sendpulse';
 import { YEARLY_PROGRAM_CONFIG, getYearlyPostAccessMonths, getYearlySendpulseCourseId, RESET_REMINDER_AND_GRACE_FIELDS } from '@/lib/yearlyProgramConfig';
 import { syncAutopaySchedule } from '@/lib/yearlyProgramScheduleSync';
 import { calculateAccessUntil } from '@/lib/yearlyProgramAccess';
+import { getYearlyProgramSettings } from '@/lib/yearlyProgramSettings';
 import { sendEmail } from '@/lib/mailer';
 import {
   renderLaunchEmailTemplate,
@@ -68,6 +69,9 @@ export async function executeLaunchLoop(
 
   const postAccessMonths = await getYearlyPostAccessMonths(prisma);
   const yearlySpCourseId = await getYearlySendpulseCourseId(prisma);
+  // Ціна плану, а НЕ сума першого платежу: перенесення з минулого набору лежить як 0 ₴,
+  // адмін-тести — як 1-2 ₴, і саме це число потрапляло в угоду SP-CRM.
+  const programSettings = await getYearlyProgramSettings(prisma);
   const results: LaunchResult[] = [];
   const now = new Date();
 
@@ -108,7 +112,7 @@ export async function executeLaunchLoop(
         await openAccessViaEvent(
           s.user.email,
           YEARLY_PROGRAM_CONFIG.sendpulseEventSlug,
-          paidPayments[0]!.amount,
+          s.plan === 'YEARLY' ? programSettings.yearlyPrice : programSettings.monthlyPrice,
         );
         openedNow = true;
         if (!s.sendpulseStudentId && yearlySpCourseId) {
@@ -244,10 +248,14 @@ export async function runExtraLaunchForSubscription(
   if (paidPayments.length === 0) return { ok: false, reason: 'no_paid_payments', expiresAt: null, sendpulseAccessOpened: false, studentId: null, email: { sent: false } };
 
   const yearlySpCourseId = await getYearlySendpulseCourseId(prisma);
+  // Та сама причина, що й у executeLaunchLoop: в SP-CRM має йти ціна плану, а не
+  // сума першого платежу (carryover = 0 ₴, адмін-тест = 1-2 ₴).
+  const programSettings = await getYearlyProgramSettings(prisma);
+  const planPrice = sub.plan === 'YEARLY' ? programSettings.yearlyPrice : programSettings.monthlyPrice;
   let openErr: string | null = null;
   let studentId: number | null = sub.sendpulseStudentId;
   try {
-    await openAccessViaEvent(sub.user.email, YEARLY_PROGRAM_CONFIG.sendpulseEventSlug, paidPayments[0]!.amount);
+    await openAccessViaEvent(sub.user.email, YEARLY_PROGRAM_CONFIG.sendpulseEventSlug, planPrice);
     if (!studentId && yearlySpCourseId) {
       try {
         studentId = await lookupStudentIdByEmail(yearlySpCourseId, sub.user.email);

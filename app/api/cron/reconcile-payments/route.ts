@@ -10,7 +10,8 @@
 ///   2) Обмежує вікно: createdAt > 30 днів тому (щоб не сканувати всю історію).
 ///   3) Для кожного — викликає `provisionPayment` (idempotent).
 ///
-/// Запускається раз на 15 хвилин (vercel.json cron). Авторизація: `Authorization: Bearer ${CRON_SECRET}`.
+/// Запускається раз на добу о 04:45 (`45 4 * * *` у vercel.json — Hobby-план дозволяє
+/// лише добові cron-и). Авторизація: `Authorization: Bearer ${CRON_SECRET}`.
 
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
