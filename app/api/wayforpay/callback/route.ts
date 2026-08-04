@@ -2,12 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import type { YearlyProgramSubscriptionStatus } from '@prisma/client';
 import prisma from '@/lib/prisma';
-import { isYearlyProgramOrderRef, YEARLY_PROGRAM_CONFIG, getYearlyPostAccessMonths, RESET_REMINDER_AND_GRACE_FIELDS } from '@/lib/yearlyProgramConfig';
+import { isYearlyProgramOrderRef, YEARLY_PROGRAM_CONFIG, getYearlyPostAccessMonths, getYearlySendpulseCourseId, RESET_REMINDER_AND_GRACE_FIELDS } from '@/lib/yearlyProgramConfig';
 import { syncAutopaySchedule } from '@/lib/yearlyProgramScheduleSync';
 import { sendYearlyProgramWelcomeEmail } from '@/lib/yearlyProgramWelcomeEmail';
+import { closeAccessInCourse, lookupStudentIdByEmail } from '@/lib/sendpulse';
 import {
   generateInviteForSubscription,
   getYearlyProgramTelegramSettings,
+  kickSubscriptionFromChannel,
 } from '@/lib/yearlyProgramTelegram';
 import { sendYearlyProgramPlanChangedEmail } from '@/lib/yearlyProgramPlanChangedEmail';
 import { sendYearlyProgramPaymentReceiptEmail } from '@/lib/yearlyProgramPaymentReceiptEmail';
@@ -289,33 +291,45 @@ export async function POST(req: NextRequest) {
         // оплати (ретрай першої спроби, дубль-callback) — без guard-а такий пакет
         // «розплачував» куплений курс: студент лишався з доступом, а платіж у звіті
         // ставав FAILED. Для Річної це ще й з'їдало місяць при перерахунку доступу.
+        // REFUNDED теж недоторканний: повернений платіж не має ставати FAILED — інакше
+        // втрачається слід «гроші приходили і повернулись» і ламається звітність.
         const failFlip = await prisma.payment.updateMany({
-          where: { orderReference: orderReference!, status: { not: 'PAID' } },
+          where: { orderReference: orderReference!, status: { notIn: ['PAID', 'REFUNDED'] } },
           data: { status: 'FAILED' },
         });
         if (failFlip.count > 0) {
           actions.push('payment:failed');
         } else {
-          const paid = await prisma.payment.findUnique({
+          const existingPay = await prisma.payment.findUnique({
             where: { orderReference: orderReference! },
             select: { status: true },
           });
-          prevStatus = paid?.status ?? null;
+          const settled = existingPay?.status === 'PAID' || existingPay?.status === 'REFUNDED';
+          prevStatus = existingPay?.status ?? null;
           skipped = true;
-          skipReason = paid?.status === 'PAID' ? 'late_declined_after_paid' : 'payment_not_found';
-          errorMsg = paid?.status === 'PAID'
-            ? `Late ${transactionStatus} for already PAID ${orderReference} — статус не змінено`
+          skipReason = settled ? 'late_declined_after_paid' : 'payment_not_found';
+          errorMsg = settled
+            ? `Late ${transactionStatus} for ${existingPay!.status} payment ${orderReference} — статус не змінено`
             : `Payment not found for ${orderReference}`;
           actions.push(`skip:${skipReason}`);
-          console.warn('⚠️ Запізнілий Declined по оплаченому платежу:', orderReference);
+          if (settled) console.warn('⚠️ Запізнілий Declined по завершеному платежу:', orderReference);
         }
       }
       console.log('❌ Оплата відхилена для:', orderReference);
     } else if (REFUND_STATUSES.has(transactionStatus ?? '')) {
+      // У рефанд-callback-у `amount` — це сума, яку WFP реально повернув. Вона може бути
+      // меншою за суму платежу (частковий рефанд), тому передаємо її в хендлер, а не
+      // припускаємо, що повернули все.
+      const refundRaw = body.amount;
+      const refundedAmount =
+        typeof refundRaw === 'number' ? Math.round(refundRaw)
+        : typeof refundRaw === 'string' && refundRaw.trim() !== '' && Number.isFinite(Number(refundRaw)) ? Math.round(Number(refundRaw))
+        : null;
       const result = await handleRefundCallback({
         orderReference: orderReference!,
         kind,
         transactionStatus: transactionStatus!,
+        refundedAmount,
       });
       prevStatus = result.prevStatus;
       skipped = result.skipped;
@@ -649,14 +663,80 @@ async function recordOrphanRecurringCharge(args: {
   return actions;
 }
 
+/// Закриття доступу після повного рефанду останнього платежу Річної: SendPulse + Telegram.
+/// Дзеркалить крок `expire` денного cron-а, але з однією відмінністю: cron при помилці SP
+/// НЕ ставить EXPIRED і пробує завтра, а тут відкладати нікуди — гроші вже повернені, і
+/// підписка не має лишатись живою. Тому статус ставимо в будь-якому разі, а невдале
+/// закриття фіксуємо подією `access_close_failed`.
+/// Обидва кроки best-effort: помилка не валить callback (WFP має отримати accept).
+async function closeAccessAfterFullRefund(args: {
+  subscriptionId: string;
+  userEmail: string | null;
+  sendpulseStudentId: number | null;
+}): Promise<{ actions: string[]; spClosed: boolean; spError: string | null }> {
+  const actions: string[] = [];
+  let spClosed = false;
+  let spError: string | null = null;
+
+  try {
+    const courseId = await getYearlySendpulseCourseId(prisma);
+    let studentId = args.sendpulseStudentId;
+    if (courseId && !studentId && args.userEmail) {
+      studentId = await lookupStudentIdByEmail(courseId, args.userEmail);
+      if (studentId) {
+        await prisma.yearlyProgramSubscription.update({
+          where: { id: args.subscriptionId },
+          data: { sendpulseStudentId: studentId },
+        });
+      }
+    }
+    if (!courseId) {
+      spError = 'SENDPULSE_YEARLY_COURSE_ID не налаштовано';
+    } else if (!studentId) {
+      // Студента в курсі немає — закривати нічого, це не помилка.
+      spClosed = true;
+    } else {
+      await closeAccessInCourse(studentId, courseId);
+      spClosed = true;
+    }
+  } catch (e) {
+    spError = (e as Error).message.slice(0, 300);
+  }
+  actions.push(spClosed ? 'sp:access_closed' : `sp:close_err:${(spError ?? 'unknown').slice(0, 40)}`);
+
+  try {
+    const kick = await kickSubscriptionFromChannel({
+      subscriptionId: args.subscriptionId,
+      mode: 'permanent',
+      triggeredBy: 'system:full-refund',
+    });
+    actions.push(kick.ok ? 'telegram:kicked' : `telegram:kick_err:${(kick.error ?? kick.skipped ?? 'unknown').slice(0, 40)}`);
+  } catch (e) {
+    actions.push(`telegram:kick_err:${(e as Error).message.slice(0, 40)}`);
+  }
+
+  return { actions, spClosed, spError };
+}
+
 /// Обробка повернення коштів (Refunded / Voided / RefundInProcessing).
 ///
-/// Що робимо:
+/// Обробляємо ТІЛЬКИ платіж у статусі PAID. Voided по PENDING/FAILED — це «скасовано
+/// неоплачену спробу», а не повернення грошей: якщо на ньому спрацювати, ми б знімали
+/// живу регулярку і псували цілком здорову підписку.
+///
+/// Що робимо для повного рефанду:
 ///   — Payment → REFUNDED (claim-then-act, ідемпотентно);
 ///   — для платежу Річної: знімаємо ВСІ WFP-регулярки підписки і перераховуємо expiresAt.
 ///     REFUNDED випадає з PAID-набору, тому `calculateAccessUntil` сам скорочує доступ
 ///     на повернений місяць — окремої арифметики не треба;
-///   — подія в підписку, щоб менеджер бачив факт і нову дату.
+///   — якщо PAID-платежів не лишилось ЖОДНОГО: підписка → EXPIRED з `expiresAt = now`,
+///     плюс закриття SendPulse і кік із Telegram. Без цього `calculateAccessUntil` віддає
+///     null, підписка з null-датою випадає з усіх cron-фільтрів (`expiresAt < now`) і живе
+///     вічно: доступ відкритий, а купити заново людина не може (Rule 1 у /api/wayforpay);
+///   — подія в підписку з фактично поверненою сумою і новою датою.
+///
+/// Частковий рефанд (повернено менше, ніж сума платежу) автоматично НЕ обробляємо:
+/// скільки доступу лишити — рішення менеджера. Пишемо подію і лишаємо платіж PAID.
 ///
 /// Чого свідомо НЕ робимо: не чіпаємо Enrollment звичайних курсів/пакетів. Відкликання
 /// доступу до курсу — рішення людини, а не автоматичний наслідок рефанду (буває
@@ -666,6 +746,9 @@ async function handleRefundCallback(args: {
   orderReference: string;
   kind: CallbackKind;
   transactionStatus: string;
+  /// Сума з callback-а WFP — для рефанду це те, скільки реально повернули.
+  /// null — у пакеті суми не було (тоді вважаємо рефанд повним).
+  refundedAmount: number | null;
 }): Promise<{
   prevStatus: string | null;
   skipped: boolean;
@@ -703,13 +786,61 @@ async function handleRefundCallback(args: {
   if (payment.status === 'REFUNDED') {
     return { prevStatus: 'REFUNDED', skipped: true, skipReason: 'already_refunded', errorMsg: null, actions: ['skip:already_refunded'] };
   }
+  // Повертати можна лише те, що було оплачене. Voided/Refunded по PENDING чи FAILED —
+  // це закриття неоплаченої спроби: нічого не флипаємо і НЕ чіпаємо регулярку.
+  if (payment.status !== 'PAID') {
+    return {
+      prevStatus: payment.status,
+      skipped: true,
+      skipReason: 'refund_on_unpaid',
+      errorMsg: `${args.transactionStatus} for ${payment.status} payment ${args.orderReference} — нічого не змінено`,
+      actions: [...actions, 'skip:refund_on_unpaid'],
+    };
+  }
 
   const sub = payment.yearlyProgramSubscriptionId
     ? await prisma.yearlyProgramSubscription.findUnique({
         where: { id: payment.yearlyProgramSubscriptionId },
-        include: { cohort: { select: { startDate: true, endDate: true } } },
+        include: {
+          cohort: { select: { startDate: true, endDate: true } },
+          user: { select: { email: true } },
+        },
       })
     : null;
+
+  // Частковий рефанд: суму платежу не «згорає» цілком, тож автоматично зменшити доступ
+  // ми не можемо — скільки місяців лишити, вирішує менеджер. Толеранс 1 ₴ на округлення.
+  const isPartial =
+    args.refundedAmount !== null
+    && args.refundedAmount > 0
+    && args.refundedAmount < payment.amount - 1;
+  if (isPartial) {
+    if (sub) {
+      await prisma.yearlyProgramSubscriptionEvent.create({
+        data: {
+          subscriptionId: sub.id,
+          type: 'admin_action',
+          message: `⚠️ Частковий рефанд ${args.refundedAmount}₴ з ${payment.amount}₴ (WFP ${args.transactionStatus}, ${args.orderReference}) — платіж лишено PAID, доступ не змінено. Потрібне ручне рішення: скоригувати дати або оформити повний рефанд.`,
+          metadata: {
+            orderReference: args.orderReference,
+            transactionStatus: args.transactionStatus,
+            refundedAmount: args.refundedAmount,
+            paymentAmount: payment.amount,
+            partialRefund: true,
+          },
+        },
+      });
+    }
+    return {
+      prevStatus: payment.status,
+      skipped: true,
+      skipReason: 'partial_refund_manual',
+      errorMsg: `Partial refund ${args.refundedAmount} of ${payment.amount} for ${args.orderReference} — потребує ручного рішення`,
+      actions: [...actions, 'skip:partial_refund_manual'],
+    };
+  }
+
+  const refundedAmount = args.refundedAmount && args.refundedAmount > 0 ? args.refundedAmount : payment.amount;
 
   // Регулярку знімаємо ДО flip-а статусу: `removeSubscriptionAutopay` ітерує PAID-платежі,
   // а правило у WFP прив'язане саме до orderReference одного з них — можливо цього.
@@ -726,7 +857,7 @@ async function handleRefundCallback(args: {
   }
 
   const claim = await prisma.payment.updateMany({
-    where: { id: payment.id, status: { not: 'REFUNDED' } },
+    where: { id: payment.id, status: 'PAID' },
     data: { status: 'REFUNDED' },
   });
   if (claim.count === 0) {
@@ -740,37 +871,82 @@ async function handleRefundCallback(args: {
       where: { yearlyProgramSubscriptionId: sub.id, status: 'PAID' },
       select: { amount: true, status: true, paidAt: true, createdAt: true },
     });
-    const newExpiresAt = calculateAccessUntil({
+    const now = new Date();
+    const nothingLeftPaid = remaining.length === 0;
+    const recalculated = calculateAccessUntil({
       plan: sub.plan,
       autoRenew: false,
       cohort: sub.cohort ? { startDate: sub.cohort.startDate, endDate: sub.cohort.endDate } : null,
       payments: remaining,
       postAccessMonths,
     });
+    // Без жодного PAID підписка не має на що спиратись: `calculateAccessUntil` віддає null,
+    // а null-дата робить підписку невидимою для cron-ів. Закриваємо явно.
+    const newExpiresAt = nothingLeftPaid ? now : recalculated;
+
+    let closeResult: Awaited<ReturnType<typeof closeAccessAfterFullRefund>> | null = null;
+    if (nothingLeftPaid) {
+      closeResult = await closeAccessAfterFullRefund({
+        subscriptionId: sub.id,
+        userEmail: sub.user?.email ?? null,
+        sendpulseStudentId: sub.sendpulseStudentId,
+      });
+      actions.push(...closeResult.actions);
+    }
+
     await prisma.yearlyProgramSubscription.update({
       where: { id: sub.id },
       data: {
         expiresAt: newExpiresAt,
         // Прапорець має відповідати реальності: правил у WFP більше немає.
         ...(sub.plan === 'MONTHLY' ? { autoRenew: false } : {}),
+        ...(nothingLeftPaid
+          ? {
+              status: 'EXPIRED' as const,
+              ...(closeResult?.spClosed ? { sendpulseAccessClosedAt: now } : {}),
+            }
+          : {}),
       },
     });
+
+    if (nothingLeftPaid && closeResult && !closeResult.spClosed) {
+      await prisma.yearlyProgramSubscriptionEvent.create({
+        data: {
+          subscriptionId: sub.id,
+          type: 'access_close_failed',
+          message: `SendPulse: не вдалося закрити доступ після повного рефанду — ${closeResult.spError ?? 'невідома помилка'}. Підписка все одно EXPIRED, закрити доступ треба вручну.`,
+          metadata: { orderReference: args.orderReference, spError: closeResult.spError },
+        },
+      });
+      actions.push('sp:close_failed_logged');
+    }
+
     await prisma.yearlyProgramSubscriptionEvent.create({
       data: {
         subscriptionId: sub.id,
         type: 'refunded',
-        message: `Повернення ${payment.amount}₴ (WFP ${args.transactionStatus}) · оплачених платежів лишилось ${remaining.length} · доступ до ${newExpiresAt ? newExpiresAt.toISOString().slice(0, 10) : '—'}${sub.plan === 'MONTHLY' ? ` · автосписання знято (${autopayRemoved})` : ''}`,
+        message: `Повернення ${refundedAmount}₴ з ${payment.amount}₴ (WFP ${args.transactionStatus}) · оплачених платежів лишилось ${remaining.length} · ${
+          nothingLeftPaid
+            ? `оплат не лишилось → підписку закрито (EXPIRED), доступ у SendPulse ${closeResult?.spClosed ? 'закрито' : 'ЗАКРИТИ ВРУЧНУ'}, з Telegram-каналу вилучено`
+            : `доступ до ${newExpiresAt ? newExpiresAt.toISOString().slice(0, 10) : '—'}`
+        }${sub.plan === 'MONTHLY' ? ` · автосписання знято (${autopayRemoved})` : ''}`,
         metadata: {
           orderReference: args.orderReference,
           transactionStatus: args.transactionStatus,
-          amount: payment.amount,
+          refundedAmount,
+          paymentAmount: payment.amount,
           paidPaymentsLeft: remaining.length,
           expiresAt: newExpiresAt?.toISOString() ?? null,
           autopayRemoved,
+          subscriptionClosed: nothingLeftPaid,
         },
       },
     });
-    actions.push(`yearly:refund_recalc:${newExpiresAt ? newExpiresAt.toISOString().slice(0, 10) : 'null'}`);
+    actions.push(
+      nothingLeftPaid
+        ? 'yearly:refund_closed_subscription'
+        : `yearly:refund_recalc:${newExpiresAt ? newExpiresAt.toISOString().slice(0, 10) : 'null'}`,
+    );
   }
 
   console.log('💸 Повернення коштів:', args.orderReference, args.transactionStatus);
@@ -824,17 +1000,21 @@ async function handleYearlyProgramFailedCallback(args: {
         actions: [...actions, 'skip:late_declined_after_paid'],
       };
     }
-    // Idempotent: оновлюємо тільки якщо ще PENDING.
-    if (existing.status === 'PENDING') {
-      await prisma.payment.update({
-        where: { id: existing.id },
-        data: { status: 'FAILED' },
-      });
+    // Idempotent claim: у FAILED переводимо тільки з PENDING, і рівно один раз.
+    // count важливий — від нього залежить, чи рухати лічильник невдалих списань.
+    const failFlip = await prisma.payment.updateMany({
+      where: { id: existing.id, status: 'PENDING' },
+      data: { status: 'FAILED' },
+    });
+    const flipped = failFlip.count > 0;
+    if (flipped) {
       actions.push('payment:failed');
     } else {
-      actions.push(`skip:already_${existing.status.toLowerCase()}`);
+      actions.push('skip:already_failed');
     }
-    if (existing.yearlyProgramSubscriptionId) {
+    // Дубль-Declined по вже FAILED-платежу не має накручувати failedChargeCount:
+    // на ньому зав'язані grace-листи і рішення cron-а, а WFP шле такі пакети повторно.
+    if (existing.yearlyProgramSubscriptionId && flipped) {
       await prisma.yearlyProgramSubscription.update({
         where: { id: existing.yearlyProgramSubscriptionId },
         data: {
