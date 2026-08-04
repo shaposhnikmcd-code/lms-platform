@@ -6,6 +6,9 @@
 ///
 /// Канал/група для додавання студентів — у БД (`YearlyProgramTelegramSetting.chatId`),
 /// це user-editable налаштування.
+///
+/// ⚠️ Мутуючі виклики (ban/unban/invite/revoke/approve/decline) виконуються ТІЛЬКИ на
+/// production і localhost. На pre/preview вони заглушуються — див. `isReadOnlyEnv`.
 
 const API_BASE = 'https://api.telegram.org';
 
@@ -24,7 +27,54 @@ interface TgResponse<T> {
   error_code?: number;
 }
 
+/// Методи, які МІНЯЮТЬ стан реального каналу (когось банять, комусь відкривають вхід).
+/// Read-only (`getChat`, `getChatMember`, `getMe`, `getWebhookInfo`) сюди не входять —
+/// вони безпечні на будь-якому середовищі.
+const MUTATING_METHODS = new Set([
+  'banChatMember',
+  'unbanChatMember',
+  'createChatInviteLink',
+  'revokeChatInviteLink',
+  'approveChatJoinRequest',
+  'declineChatJoinRequest',
+]);
+
+/// pre.uimp працює з ТИМ САМИМ ботом і скопійованим chatId, що й прод (див. CLAUDE.md —
+/// «Зовнішні інтеграції — спільні між pre і prod»). Тому тестовий кік/invite/revoke на pre
+/// б'є по реальному каналу і реальних людях. На будь-якому не-production Vercel-середовищі
+/// мутуючі виклики не виконуємо — логуємо і повертаємо правдоподібну заглушку.
+/// Localhost (`VERCEL_ENV` не заданий) поводиться як раніше: там своя dev-БД і свідомі тести.
+function isReadOnlyEnv(): boolean {
+  const vercelEnv = process.env.VERCEL_ENV;
+  return Boolean(vercelEnv) && vercelEnv !== 'production';
+}
+
+/// Правдоподібна «успішна» відповідь без походу в Telegram.
+function stubResult<T>(method: string, payload: Record<string, unknown>): T {
+  if (method === 'createChatInviteLink') {
+    const suffix = Math.random().toString(36).slice(2, 10);
+    return {
+      invite_link: `https://t.me/+preview-stub-${suffix}`,
+      name: payload.name as string | undefined,
+      expire_date: payload.expire_date as number | undefined,
+      member_limit: payload.member_limit as number | undefined,
+      creates_join_request: payload.creates_join_request as boolean | undefined,
+    } as T;
+  }
+  if (method === 'revokeChatInviteLink') {
+    return { invite_link: String(payload.invite_link ?? ''), creates_join_request: true } as T;
+  }
+  return true as T;
+}
+
 async function call<T>(method: string, payload: Record<string, unknown>): Promise<T> {
+  if (MUTATING_METHODS.has(method) && isReadOnlyEnv()) {
+    console.log(
+      `[telegram] SKIP ${method} — середовище ${process.env.VERCEL_ENV} не має чіпати бойовий канал. payload=${JSON.stringify(payload).slice(0, 200)}`,
+    );
+    return stubResult<T>(method, payload);
+  }
+
   const token = getBotToken();
   const res = await fetch(`${API_BASE}/bot${token}/${method}`, {
     method: 'POST',

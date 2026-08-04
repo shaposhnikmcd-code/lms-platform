@@ -28,16 +28,16 @@ export interface YearlyProgramTelegramSettings {
   updatedBy: string | null;
 }
 
-/// Дефолти — використовуються коли запис у БД ще не створений.
-/// autoAdd + joinRequestMode за замовчуванням ON: пара працює разом — генерувати
-/// invite автоматично + фільтрувати чужих по заявках на вступ. Менеджер може
-/// вимкнути будь-який toggle, якщо канал тимчасово приймає всіх.
+/// Дефолти — використовуються коли запис у БД ще не створений, тобто канал ще НЕ
+/// налаштовано. Обидва toggle-и OFF: «autoAdd ON без chatId» — неконсистентний стан
+/// (те саме, що ставить `clearChatId`). Реальні ON-дефолти вмикаються схемою
+/// (`@default(true)`) у момент, коли менеджер зберігає канал.
 const DEFAULTS: YearlyProgramTelegramSettings = {
   chatId: null,
   chatTitle: null,
   chatType: null,
-  autoAdd: true,
-  joinRequestMode: true,
+  autoAdd: false,
+  joinRequestMode: false,
   updatedAt: null,
   updatedBy: null,
 };
