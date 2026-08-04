@@ -730,8 +730,15 @@ const DateChip = forwardRef<HTMLButtonElement, {
   );
 });
 
+/// Дати набору — календарні, а не моменти часу: сервер зберігає початок як 00:00:00.000Z,
+/// а кінець нормалізує в 23:59:59.999Z того ж дня (`normalizeCohortEndDate` → `endOfUtcDay`).
+/// Тому форматуємо ЗАВЖДИ в UTC: у київському браузері (UTC+2/+3) локальні геттери
+/// показували б кінець набору 31.05 як «01.06» — і збереження без змін тихо зсувало б
+/// дату на +1 день щоразу. Плюс SSR (UTC) і клієнт дали б різний текст → hydration mismatch.
 function fmtDate(iso: string): string {
-  return new Intl.DateTimeFormat('uk-UA', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(iso));
+  return new Intl.DateTimeFormat('uk-UA', {
+    day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC',
+  }).format(new Date(iso));
 }
 
 /// 'YYYY-MM-DD' старту → 'YYYY-MM-DD' завершення = +9 місяців −1 день
@@ -747,12 +754,14 @@ function addNineMonths(dateStr: string): string {
   return `${yyyy}-${mm}-${dd}`;
 }
 
-/// ISO → 'YYYY-MM-DD' для <input type="date"> (локальна дата, без зсуву на UTC).
+/// ISO → 'YYYY-MM-DD' для календаря-редактора. Читаємо UTC-геттерами, бо саме в UTC
+/// зберігаються межі набору (див. коментар до fmtDate). Назад драфт іде як
+/// `new Date('YYYY-MM-DD')` — це UTC-північ, тож round-trip не зсуває день.
 function toDateInput(iso: string): string {
   const d = new Date(iso);
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
+  const yyyy = d.getUTCFullYear();
+  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(d.getUTCDate()).padStart(2, '0');
   return `${yyyy}-${mm}-${dd}`;
 }
 
