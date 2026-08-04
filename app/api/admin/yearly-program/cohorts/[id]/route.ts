@@ -98,6 +98,10 @@ export async function PATCH(
   // коміту транзакції (HTTP-виклики до WFP не можна тримати всередині $transaction).
   const autopaySubIds: string[] = [];
 
+  // У транзакції — ТІЛЬКИ сам cohort (2 короткі запити). Перерахунок підписок винесено
+  // за її межі: на 150+ підписках по 2 запити кожна interactive-транзакція впиралась у
+  // 5-секундний timeout Prisma (P2028) і відкочувала вже збережені дати — менеджер
+  // бачив помилку, хоча правка була коректна.
   const updated = await prisma.$transaction(async (tx) => {
     if (body.makeCurrent === true && !existing.isCurrent) {
       await tx.yearlyProgramCohort.updateMany({
@@ -105,7 +109,7 @@ export async function PATCH(
         data: { isCurrent: false },
       });
     }
-    const u = await tx.yearlyProgramCohort.update({
+    return tx.yearlyProgramCohort.update({
       where: { id },
       data: {
         name: body.name?.trim() ? body.name.trim() : undefined,
@@ -116,69 +120,92 @@ export async function PATCH(
         launchEmailBody,
       },
     });
-
-    // Якщо дати змінились — перераховуємо expiresAt усіх ACTIVE/GRACE/PENDING підписок cohort-у.
-    if (datesChanged) {
-      const postAccessMonths = await getYearlyPostAccessMonths(tx);
-      const now = new Date();
-      const subs = await tx.yearlyProgramSubscription.findMany({
-        where: {
-          cohortId: id,
-          status: { in: ['ACTIVE', 'GRACE', 'PENDING'] },
-        },
-        include: {
-          payments: { select: { amount: true, status: true, paidAt: true, createdAt: true } },
-        },
-      });
-      for (const s of subs) {
-        const newExpires = calculateAccessUntil({
-          plan: s.plan,
-          autoRenew: s.autoRenew,
-          cohort: { startDate, endDate },
-          payments: s.payments,
-          postAccessMonths,
-        });
-        if (newExpires && (!s.expiresAt || newExpires.getTime() !== s.expiresAt.getTime())) {
-          // Якщо новий expiresAt у майбутньому — підписка більше не протермінована:
-          // GRACE повертаємо в ACTIVE, скидаємо grace-дати і спожиті прапори нагадувань,
-          // щоб цикл попереджень коректно відпрацював уже для НОВОЇ дати завершення.
-          // (Кейс: cohort-у виправили дату старту з минулої на майбутню — підписки, яких
-          // cron встиг штовхнути в GRACE через стару дату, мають ожити без ручних дій.)
-          const backToLife = newExpires > now;
-          const revive = backToLife && s.status === 'GRACE';
-          await tx.yearlyProgramSubscription.update({
-            where: { id: s.id },
-            data: {
-              expiresAt: newExpires,
-              // Revive = «звинувачення» у простроченні знято разом зі старою датою:
-              // скидаємо і лічильник невдалих списань, інакше наступний цикл одразу
-              // пропустить autopay-буфер і надішле «charge failed»-шаблон без реальної відмови.
-              ...(revive ? { status: 'ACTIVE', failedChargeCount: 0, lastChargeError: null } : {}),
-              ...(backToLife ? RESET_REMINDER_AND_GRACE_FIELDS : {}),
-            },
-          });
-          await tx.yearlyProgramSubscriptionEvent.create({
-            data: {
-              subscriptionId: s.id,
-              type: 'admin_action',
-              message: `Cohort dates changed → expiresAt recomputed to ${newExpires.toISOString().slice(0, 10)}${revive ? ' · GRACE → ACTIVE (revived)' : ''}`,
-              metadata: { reason: 'cohort_dates_changed', cohortId: id },
-            },
-          });
-        }
-        // Кандидати на WFP-синк — усі автоплатіжні cohort-у, незалежно від того, чи
-        // змінився їхній expiresAt (графік у WFP міг розійтись і без зміни доступу).
-        if (s.plan === 'MONTHLY' && s.autoRenew) {
-          autopaySubIds.push(s.id);
-        }
-      }
-    }
-
-    return u;
   });
 
   // Зміна isCurrent / dates впливає на публічну сторінку → інвалідуємо ISR-кеш.
   revalidateLocalized('/yearly-program');
+
+  // Дати вже збережені. Перераховуємо expiresAt усіх ACTIVE/GRACE/PENDING підписок
+  // cohort-у батчами по 25: кожен батч — окрема коротка транзакція (апдейти + createMany
+  // подій). Фейл батчу логуємо і йдемо далі — краще частковий перерахунок з чесним
+  // звітом, ніж відкат правки дат.
+  const RECALC_BATCH_SIZE = 25;
+  const recalc = { scanned: 0, recalculated: 0, failed: 0 };
+  if (datesChanged) {
+    const postAccessMonths = await getYearlyPostAccessMonths(prisma);
+    const now = new Date();
+    const subs = await prisma.yearlyProgramSubscription.findMany({
+      where: {
+        cohortId: id,
+        status: { in: ['ACTIVE', 'GRACE', 'PENDING'] },
+      },
+      include: {
+        payments: { select: { amount: true, status: true, paidAt: true, createdAt: true } },
+      },
+    });
+    recalc.scanned = subs.length;
+
+    // Кандидати на WFP-синк — усі автоплатіжні cohort-у, незалежно від того, чи
+    // змінився їхній expiresAt (графік у WFP міг розійтись і без зміни доступу).
+    for (const s of subs) {
+      if (s.plan === 'MONTHLY' && s.autoRenew) autopaySubIds.push(s.id);
+    }
+
+    // Готуємо зміни в пам'яті (без запитів), щоб батч тримав БД мінімальний час.
+    const pending = subs.flatMap((s) => {
+      const newExpires = calculateAccessUntil({
+        plan: s.plan,
+        autoRenew: s.autoRenew,
+        cohort: { startDate, endDate },
+        payments: s.payments,
+        postAccessMonths,
+      });
+      if (!newExpires || (s.expiresAt && newExpires.getTime() === s.expiresAt.getTime())) return [];
+      // Якщо новий expiresAt у майбутньому — підписка більше не протермінована:
+      // GRACE повертаємо в ACTIVE, скидаємо grace-дати і спожиті прапори нагадувань,
+      // щоб цикл попереджень коректно відпрацював уже для НОВОЇ дати завершення.
+      // (Кейс: cohort-у виправили дату старту з минулої на майбутню — підписки, яких
+      // cron встиг штовхнути в GRACE через стару дату, мають ожити без ручних дій.)
+      const backToLife = newExpires > now;
+      const revive = backToLife && s.status === 'GRACE';
+      return [{ id: s.id, newExpires, backToLife, revive }];
+    });
+
+    for (let i = 0; i < pending.length; i += RECALC_BATCH_SIZE) {
+      const batch = pending.slice(i, i + RECALC_BATCH_SIZE);
+      const writes = batch.map((p) => prisma.yearlyProgramSubscription.update({
+        where: { id: p.id },
+        data: {
+          expiresAt: p.newExpires,
+          // Revive = «звинувачення» у простроченні знято разом зі старою датою:
+          // скидаємо і лічильник невдалих списань, інакше наступний цикл одразу
+          // пропустить autopay-буфер і надішле «charge failed»-шаблон без реальної відмови.
+          ...(p.revive ? { status: 'ACTIVE' as const, failedChargeCount: 0, lastChargeError: null } : {}),
+          ...(p.backToLife ? RESET_REMINDER_AND_GRACE_FIELDS : {}),
+        },
+      }));
+      try {
+        await prisma.$transaction([
+          ...writes,
+          prisma.yearlyProgramSubscriptionEvent.createMany({
+            data: batch.map((p) => ({
+              subscriptionId: p.id,
+              type: 'admin_action',
+              message: `Cohort dates changed → expiresAt recomputed to ${p.newExpires.toISOString().slice(0, 10)}${p.revive ? ' · GRACE → ACTIVE (revived)' : ''}`,
+              metadata: { reason: 'cohort_dates_changed', cohortId: id },
+            })),
+          }),
+        ]);
+        recalc.recalculated += batch.length;
+      } catch (e) {
+        recalc.failed += batch.length;
+        console.error(
+          `[cohort ${id}] recalc batch ${i / RECALC_BATCH_SIZE + 1} failed (${batch.length} підписок): ${(e as Error).message}`,
+          batch.map((p) => p.id),
+        );
+      }
+    }
+  }
 
   // Після коміту: переносимо WFP-графіки автосписань під нові дати. Кожен виклик сам
   // пише подію в лог підписки; помилка одного не зупиняє решту і не валить PATCH.
@@ -201,6 +228,13 @@ export async function PATCH(
     launchEmailSubject: updated.launchEmailSubject,
     launchEmailBody: updated.launchEmailBody,
     wfpSync: autopaySubIds.length > 0 ? wfpSync : null,
+    // Дати збережені завжди; тут — чесний звіт по перерахунку підписок.
+    recalculated: datesChanged ? recalc.recalculated : null,
+    failed: datesChanged ? recalc.failed : null,
+    scanned: datesChanged ? recalc.scanned : null,
+    ...(recalc.failed > 0
+      ? { warning: `Дати збережено, але ${recalc.failed} із ${recalc.scanned} підписок не перерахувались — повторіть збереження або перевірте лог.` }
+      : {}),
   });
 }
 

@@ -522,25 +522,35 @@ async function handleManualPayment(
   // два PAID-платежі = зайвий місяць доступу. Дублем вважаємо збіг суми + способу + ДНЯ
   // оплати у межах 60 секунд. День у ключі обов'язковий: занесення кількох місяців
   // (3 × 2200 ₴ з різними paidAt) — легітимний сценарій і має проходити підряд.
+  // День рахуємо в київському календарі (менеджер вводить свій час): оплата о 01:30
+  // за Києвом — це ще UTC-«вчора», і в UTC-порівнянні дубль проскакував.
   const DUPLICATE_WINDOW_MS = 60 * 1000;
-  const dayStart = new Date(paidAt.getFullYear(), paidAt.getMonth(), paidAt.getDate());
-  const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
-  const recentDuplicate = await prisma.payment.findFirst({
+  const kyivDay = (d: Date) => d.toLocaleDateString('uk-UA', { timeZone: 'Europe/Kyiv' });
+  const paidAtKyivDay = kyivDay(paidAt);
+  // ±1 доба навколо paidAt покриває будь-який зсув київського дня відносно UTC;
+  // точний збіг дня перевіряємо в JS. Вікно createdAt < 60с тримає вибірку крихітною.
+  const recentSameAmount = await prisma.payment.findMany({
     where: {
       yearlyProgramSubscriptionId: sub.id,
       status: 'PAID',
       manualMethod: method,
       amount,
-      paidAt: { gte: dayStart, lt: dayEnd },
+      paidAt: {
+        gte: new Date(paidAt.getTime() - 24 * 60 * 60 * 1000),
+        lte: new Date(paidAt.getTime() + 24 * 60 * 60 * 1000),
+      },
       createdAt: { gte: new Date(Date.now() - DUPLICATE_WINDOW_MS) },
     },
     orderBy: { createdAt: 'desc' },
-    select: { id: true, orderReference: true, createdAt: true },
+    select: { id: true, orderReference: true, createdAt: true, paidAt: true },
   });
+  const recentDuplicate = recentSameAmount.find(
+    (p) => p.paidAt && kyivDay(p.paidAt) === paidAtKyivDay,
+  );
   if (recentDuplicate) {
     return NextResponse.json({
       error: `Таку саму оплату (${amount}₴, ${MANUAL_METHOD_LABELS[method] ?? method}, `
-        + `${paidAt.toISOString().slice(0, 10)}) вже зафіксовано менше хвилини тому. `
+        + `${paidAtKyivDay}) вже зафіксовано менше хвилини тому. `
         + 'Якщо це справді друга оплата за той самий день — повторіть через хвилину; '
         + 'для іншого місяця вкажіть свою дату оплати.',
       duplicateOf: recentDuplicate.orderReference,
