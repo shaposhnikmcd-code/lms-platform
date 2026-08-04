@@ -19,16 +19,36 @@ import { YEARLY_PROGRAM_CONFIG } from './yearlyProgramConfig';
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 /// Додає `months` календарних місяців до дати, клемпуючи день до останнього дня
-/// цільового місяця (31.05 + 6 міс = 30.11, а не 1.12). Час доби зберігається.
-function addCalendarMonths(date: Date, months: number): Date {
+/// цільового місяця (31.05 + 6 міс = 30.11, а не 1.12; 31.10 + 1 міс = 30.11).
+/// Час доби зберігається.
+///
+/// SINGLE SOURCE OF TRUTH для «плюс N місяців» у всій Річній програмі: доступ,
+/// графік WFP-регулярки, звірка графіка, валідація дат набору. Не дублювати formulu —
+/// імпортувати звідси (винятки, які фізично не можуть імпортувати TS, перелічені
+/// в коментарях біля своїх копій).
+///
+/// UTC-геттери свідомо: дати набору зберігаються як UTC-інстанти (00:00:00Z старт,
+/// 23:59:59.999Z кінець доби). З локальними геттерами на машині у UTC+3 дата
+/// «31.05.2027 23:59:59.999Z» читалась би як 1 червня — і клемп місяця з'їжджав би
+/// на добу. На Vercel (UTC) різниці немає, тож поведінка проду не змінюється.
+export function addCalendarMonths(date: Date, months: number): Date {
   if (!months) return new Date(date);
-  const day = date.getDate();
+  const day = date.getUTCDate();
   const result = new Date(date);
-  result.setDate(1);
-  result.setMonth(result.getMonth() + months);
-  const lastDayOfTarget = new Date(result.getFullYear(), result.getMonth() + 1, 0).getDate();
-  result.setDate(Math.min(day, lastDayOfTarget));
+  result.setUTCDate(1);
+  result.setUTCMonth(result.getUTCMonth() + months);
+  const lastDayOfTarget = new Date(Date.UTC(result.getUTCFullYear(), result.getUTCMonth() + 1, 0)).getUTCDate();
+  result.setUTCDate(Math.min(day, lastDayOfTarget));
   return result;
+}
+
+/// Кінець доби (23:59:59.999 UTC) — межа набору включає останній день цілком.
+/// Застосовується і до вже збережених рядків, у яких endDate лежить як 00:00Z:
+/// без цього останній місячний слот «не влазив» і графік коротшав на списання.
+export function endOfUtcDay(date: Date): Date {
+  const d = new Date(date);
+  d.setUTCHours(23, 59, 59, 999);
+  return d;
 }
 
 export interface CohortLike {
@@ -119,50 +139,53 @@ export function calculateAccessUntil(args: {
   return expires;
 }
 
-/// Дата останнього автосписання WFP-регулярки, щоб доступ не виходив за cohort.endDate.
-/// Використовується для встановлення `dateEnd` у buildRegularPurchaseFlags.
+/// Скільки списань (включно з першим Purchase) вміщується між першим платежем і кінцем
+/// набору. Слоти — КАЛЕНДАРНІ місяці (та сама сітка, що й у calculateAccessUntil), а не
+/// «по 30 днів»: 30-денне наближення дрейфує (9 × 30 = 270 днів проти 273 у 9 місяців)
+/// і з'їдало останні слоти на довгих наборах.
 ///
-/// Логіка: знаючи, що кожне списання дає +30 днів, останній платіж має бути таким, щоб
-/// access (lastCharge + 30 днів) ≤ cohortEndDate. Тобто lastCharge ≤ cohortEndDate − 30 днів.
-/// Регулярка списує помісячно з anchor-у — приймаємо anchor = firstPaymentDate і додаємо
-/// рівно стільки місяців, щоб не вийти за межу.
-export function lastAutopayChargeDate(args: {
-  firstPaymentDate: Date;
-  cohortEndDate: Date;
-}): Date {
-  const cap = new Date(args.cohortEndDate.getTime() - 30 * MS_PER_DAY);
-  const candidate = new Date(args.firstPaymentDate);
-  // Поки додавання ще одного місяця не виходить за cap — додаємо.
-  // Стартуємо з 0 додаткових місяців (тобто перший платіж = останній, що небажано),
-  // тому додаємо мінімум 1 і збільшуємо допоки можна.
-  const result = new Date(args.firstPaymentDate);
-  for (let i = 1; i <= YEARLY_PROGRAM_CONFIG.totalMonthlyPayments - 1; i++) {
-    const next = new Date(args.firstPaymentDate);
-    next.setMonth(next.getMonth() + i);
-    if (next > cap) break;
-    result.setTime(next.getTime());
-  }
-  // Якщо firstPaymentDate сам уже після cap — взагалі не маємо що автосписувати; повертаємо
-  // дату першого платежу (WFP regularApi прийме її як останню, регулярка не запуститься).
-  void candidate;
-  return result;
-}
-
-/// Скільки списань (включно з першим Purchase) може реально пройти, поки доступ не вийде
-/// за cohort.endDate. Використовується для коректного `totalPayments` у WFP flags.
+/// Слот `i` (0-based) списується `anchor + i місяців` і покриває доступ до
+/// `anchor + (i+1) місяців − 1 день`. Слот рахується, лише якщо весь його місяць влазить
+/// у набір: `покриття ≤ кінець доби endDate`.
+///
+/// Приклади (anchor 01.09.2026): endDate 31.05.2027 → 9; endDate 30.05.2027 → 8;
+/// anchor 15.09.2026 + endDate 31.05.2027 → 8 (списання по 15-х числах).
 export function maxAutopayChargeCount(args: {
   firstPaymentDate: Date;
   cohortEndDate: Date;
 }): number {
-  // Перший платіж — це 1 (Purchase). Далі додаємо по 1 за кожен місяць, що влазить.
-  let count = 1;
-  for (let i = 1; i <= YEARLY_PROGRAM_CONFIG.totalMonthlyPayments - 1; i++) {
-    const next = new Date(args.firstPaymentDate);
-    next.setMonth(next.getMonth() + i);
-    // Платіж на дату X дає доступ до X+30. Якщо X+30 > cohortEndDate — цей платіж зайвий.
-    const accessEnd = new Date(next.getTime() + 30 * MS_PER_DAY);
-    if (accessEnd > args.cohortEndDate) break;
-    count++;
+  const fits = countMonthlySlots(
+    args.firstPaymentDate,
+    args.cohortEndDate,
+    YEARLY_PROGRAM_CONFIG.totalMonthlyPayments,
+  );
+  // Перший платіж (Purchase) відбувається завжди, навіть якщо його місяць вилазить за
+  // межу набору — інакше повернули б 0 списань на реальну оплату.
+  return Math.max(1, fits);
+}
+
+/// Скільки повних календарних місячних слотів від `anchor` вміщується до `until`
+/// (включно з останнім днем: межа — кінець доби). Слот `i` покриває доступ до
+/// `anchor + (i+1) місяців − 1 день`.
+/// Базова лічилка сітки — на ній стоять і графік списань, і валідація дат набору.
+export function countMonthlySlots(anchor: Date, until: Date, maxSlots = 240): number {
+  const limit = endOfUtcDay(until);
+  let n = 0;
+  while (n < maxSlots) {
+    const coveredUntil = new Date(addCalendarMonths(anchor, n + 1).getTime() - MS_PER_DAY);
+    if (coveredUntil > limit) break;
+    n++;
   }
-  return count;
+  return n;
+}
+
+/// Дата останнього автосписання WFP-регулярки, щоб графік не виходив за cohort.endDate.
+/// Використовується для `dateEnd` у buildRegularPurchaseFlags. Та сама календарна сітка,
+/// що й `maxAutopayChargeCount`: останнє списання = anchor + (кількість слотів − 1) місяців.
+export function lastAutopayChargeDate(args: {
+  firstPaymentDate: Date;
+  cohortEndDate: Date;
+}): Date {
+  const count = maxAutopayChargeCount(args);
+  return addCalendarMonths(args.firstPaymentDate, count - 1);
 }

@@ -26,23 +26,14 @@ import {
   getWayforpayCreds,
   removeRegularSchedule,
 } from '@/lib/wayforpay';
-import { calculateAccessUntil } from '@/lib/yearlyProgramAccess';
+import { addCalendarMonths, calculateAccessUntil } from '@/lib/yearlyProgramAccess';
 import { getYearlyPostAccessMonths, YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
-
-/// + `months` календарних місяців із клемпом дня до останнього дня цільового місяця
-/// (31.10 + 1 міс = 30.11, а не 01.12). Дзеркалить addCalendarMonths з yearlyProgramAccess.
-function addMonthsClamped(date: Date, months: number): Date {
-  if (!months) return new Date(date);
-  const day = date.getDate();
-  const result = new Date(date);
-  result.setDate(1);
-  result.setMonth(result.getMonth() + months);
-  const lastDay = new Date(result.getFullYear(), result.getMonth() + 1, 0).getDate();
-  result.setDate(Math.min(day, lastDay));
-  return result;
-}
+/// Той самий буфер, що й у buildRegularPurchaseFlags: dateEnd ставимо на 10 днів пізніше
+/// за останнє списання, щоб WFP його не зрізав. Без цього кожна перша звірка після покупки
+/// бачила б «дрейф» у 10 днів і слала зайвий CHANGE.
+const REGULAR_DATE_END_BUFFER_DAYS = 10;
 
 export interface ScheduleSyncResult {
   /// synced — CHANGE відправлено (або знято правило для 9/9); checked — звірено, змін не треба;
@@ -190,7 +181,10 @@ export async function syncAutopaySchedule(
   const tomorrow = new Date(now.getTime() + MS_PER_DAY);
   const desiredNext = recomputedExpires > tomorrow ? recomputedExpires : tomorrow;
   const remaining = YEARLY_PROGRAM_CONFIG.totalMonthlyPayments - paidCount;
-  const desiredEnd = addMonthsClamped(desiredNext, remaining - 1);
+  const desiredEnd = new Date(
+    addCalendarMonths(desiredNext, remaining - 1).getTime()
+    + REGULAR_DATE_END_BUFFER_DAYS * MS_PER_DAY,
+  );
 
   const driftDays = (a: Date | null, b: Date) => (a ? Math.abs(a.getTime() - b.getTime()) / MS_PER_DAY : Infinity);
   const needsChange = activeRules.some(

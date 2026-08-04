@@ -2,8 +2,50 @@
 /// рендеринг welcome-листа.
 
 import type { PrismaClient } from '@prisma/client';
+import { addCalendarMonths, countMonthlySlots, endOfUtcDay } from './yearlyProgramAccess';
+import { YEARLY_PROGRAM_CONFIG } from './yearlyProgramConfig';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+/// Нормалізація дати завершення набору до КІНЦЯ доби (23:59:59.999 UTC).
+/// Менеджер вводить «31.05.2027» — і має на увазі весь цей день. Якщо зберегти 00:00,
+/// останній місячний слот не влазить у набір і графік списань коротшає на платіж.
+export function normalizeCohortEndDate(date: Date): Date {
+  return endOfUtcDay(date);
+}
+
+/// Скільки календарних місячних слотів вміщується у набір + рекомендована дата завершення
+/// для рівно `totalMonthlyPayments` слотів. Та сама сітка, що й у графіку списань.
+export function describeCohortSchedule(startDate: Date, endDate: Date): {
+  slots: number;
+  required: number;
+  recommendedEndDate: Date;
+} {
+  const required = YEARLY_PROGRAM_CONFIG.totalMonthlyPayments;
+  return {
+    // На один більше за потрібне — щоб побачити й «задовгий» період, а не лише короткий.
+    slots: countMonthlySlots(startDate, endDate, required + 1),
+    required,
+    // Останній слот покриває доступ до `start + N місяців − 1 день`.
+    recommendedEndDate: new Date(
+      addCalendarMonths(startDate, YEARLY_PROGRAM_CONFIG.totalMonthlyPayments).getTime() - MS_PER_DAY,
+    ),
+  };
+}
+
+/// Валідація періоду набору: між startDate і endDate має вміщуватись РІВНО
+/// `totalMonthlyPayments` місячних слотів. Захист від «зсунули дату на день — і всі
+/// клієнти втратили останнє списання» (або навпаки, отримали зайве).
+/// Повертає текст помилки або null, якщо все гаразд.
+export function validateCohortSchedule(startDate: Date, endDate: Date): string | null {
+  const { slots, required, recommendedEndDate } = describeCohortSchedule(startDate, endDate);
+  if (slots === required) return null;
+  const fmt = (d: Date) => d.toISOString().slice(0, 10).split('-').reverse().join('.');
+  // countMonthlySlots обмежений required+1, тож «required+1» означає «стільки або більше».
+  const fits = slots > required ? `більше ніж ${required}` : String(slots);
+  return `Період набору має вміщувати рівно ${required} місячних слотів, а вміщує ${fits}. `
+    + `Для старту ${fmt(startDate)} коректна дата завершення — ${fmt(recommendedEndDate)}.`;
+}
 
 type CohortClient = {
   yearlyProgramCohort: {
@@ -70,17 +112,20 @@ export async function resolveSellableCohort(
 
 /// Дефолти для форми створення нового cohort.
 /// startDate за замовчуванням = 01.09 поточного або наступного року (залежить від today).
-/// endDate = startDate + 9 місяців − 1 день (програма триває 9 повних місяців).
+/// endDate = startDate + 9 місяців − 1 день, кінець доби (рівно 9 місячних слотів —
+/// саме те, що вимагає validateCohortSchedule).
+/// Все в UTC, як і решта дат Річної: інакше на машині у UTC+3 «01.09 00:00 локально»
+/// зберігалось би як 31.08 21:00Z і з'їдало добу з графіка.
 export function getDefaultCohortValues(now: Date = new Date()): {
   name: string;
   startDate: Date;
   endDate: Date;
 } {
-  const year = now.getMonth() >= 8 /* Sep+ */ && now.getDate() > 1 ? now.getFullYear() + 1 : now.getFullYear();
-  const startDate = new Date(year, 8, 1, 0, 0, 0, 0); // 01.09.{year} 00:00
-  const endDate = new Date(year + 1, 5, 1, 0, 0, 0, 0); // 01.06.{year+1} 00:00 — приблизно +9 міс
-  // Округлюємо endDate на 1 день назад щоб дати були "до кінця 31.05".
-  endDate.setTime(endDate.getTime() - MS_PER_DAY);
+  const year = now.getUTCMonth() >= 8 /* Sep+ */ && now.getUTCDate() > 1 ? now.getUTCFullYear() + 1 : now.getUTCFullYear();
+  const startDate = new Date(Date.UTC(year, 8, 1, 0, 0, 0, 0)); // 01.09.{year} 00:00 UTC
+  const endDate = normalizeCohortEndDate(
+    new Date(addCalendarMonths(startDate, YEARLY_PROGRAM_CONFIG.totalMonthlyPayments).getTime() - MS_PER_DAY),
+  );
   return {
     name: `Річна програма ${year}`,
     startDate,

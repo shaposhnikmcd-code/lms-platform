@@ -1,6 +1,13 @@
 /// WayForPay helpers — підписи + параметри регулярних платежів + REMOVE на скасування.
 
 import crypto from 'crypto';
+import { addCalendarMonths } from './yearlyProgramAccess';
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+/// Буфер до дати завершення регулярки. WFP припиняє списання після `dateEnd`, тож якщо
+/// поставити її рівно на день останнього списання — банківська затримка на добу зрізала б
+/// останній платіж. 10 днів — той самий запас, що історично був у безкогортній гілці.
+const REGULAR_DATE_END_BUFFER_DAYS = 10;
 
 /// Тестовий мерчант WFP (з офіційної доки https://wiki.wayforpay.com/view/852472).
 /// Активується через env `WAYFORPAY_TEST_MODE=1` — переключає всі платежі в тестовий
@@ -59,22 +66,28 @@ export function buildRegularPurchaseFlags(opts: {
   totalPayments?: number;
 }) {
   const begin = opts.anchor ?? new Date();
-  const next = new Date(begin);
-  next.setMonth(next.getMonth() + 1);
+  // Клемпований календарний місяць (спільна формула з розрахунком доступу): 31.10 + 1 міс
+  // = 30.11, а не 01.12 — інакше графік WFP розходився з нашими датами доступу.
+  const next = addCalendarMonths(begin, 1);
   let end: Date;
   if (opts.dateEnd) {
-    end = opts.dateEnd;
+    // Cohort-гілка: передана дата — це день ОСТАННЬОГО списання. Додаємо той самий
+    // 10-денний буфер, що й нижче, щоб WFP не зрізав останній платіж.
+    end = new Date(opts.dateEnd.getTime() + REGULAR_DATE_END_BUFFER_DAYS * MS_PER_DAY);
   } else if (opts.totalPayments && opts.totalPayments > 1) {
-    end = new Date(begin);
-    end.setMonth(end.getMonth() + (opts.totalPayments - 1));
-    end.setDate(end.getDate() + 10);
+    end = new Date(
+      addCalendarMonths(begin, opts.totalPayments - 1).getTime()
+      + REGULAR_DATE_END_BUFFER_DAYS * MS_PER_DAY,
+    );
   } else {
-    end = new Date(begin.getTime() + 10 * 365 * 24 * 60 * 60 * 1000);
+    end = new Date(begin.getTime() + 10 * 365 * MS_PER_DAY);
   }
+  // UTC-форматування (як і вся математика дат Річної): на Vercel локальний час = UTC,
+  // тож поведінка проду не змінюється, а локальні прогони перестають з'їжджати на добу.
   const fmt = (d: Date) => {
-    const dd = String(d.getDate()).padStart(2, '0');
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    const yyyy = d.getFullYear();
+    const dd = String(d.getUTCDate()).padStart(2, '0');
+    const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const yyyy = d.getUTCFullYear();
     return `${dd}.${mm}.${yyyy}`;
   };
   return {
@@ -204,9 +217,9 @@ export async function changeRegularSchedule(opts: {
   dateEndAt: Date;
 }): Promise<{ ok: boolean; raw: Record<string, unknown> }> {
   const fmt = (d: Date) => {
-    const dd = String(d.getDate()).padStart(2, '0');
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    return `${dd}.${mm}.${d.getFullYear()}`;
+    const dd = String(d.getUTCDate()).padStart(2, '0');
+    const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+    return `${dd}.${mm}.${d.getUTCFullYear()}`;
   };
   const res = await fetch('https://api.wayforpay.com/regularApi', {
     method: 'POST',

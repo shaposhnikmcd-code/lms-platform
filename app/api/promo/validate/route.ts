@@ -131,7 +131,14 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 2) Global PromoCode fallback
+    // 2) Global PromoCode fallback.
+    // Річна програма СВІДОМО виключена — дзеркалить серверний guard у
+    // `applyPromoServerSide` (lib/paymentPricing.ts). Без цього форма показувала б
+    // знижку, а WFP списував повну ціну: у Річної власний механізм знижок —
+    // категорійні промо (гілка 1b вище) з фіксованою ціною.
+    if (typeof courseId === 'string' && courseId.startsWith(YEARLY_PROGRAM_CONFIG.yearlyOrderPrefix)) {
+      return NextResponse.json({ valid: false, message: 'Промокод не діє на Річну програму' });
+    }
     const promo = await prisma.promoCode.findUnique({
       where: { code: upper },
     });

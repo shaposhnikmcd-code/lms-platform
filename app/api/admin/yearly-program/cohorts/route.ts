@@ -2,7 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { isAdmin } from '@/lib/adminAuth';
 import { revalidateLocalized } from '@/lib/revalidatePaths';
-import { getDefaultCohortValues, DEFAULT_LAUNCH_EMAIL_BODY, DEFAULT_LAUNCH_EMAIL_SUBJECT } from '@/lib/yearlyProgramCohort';
+import {
+  getDefaultCohortValues,
+  normalizeCohortEndDate,
+  validateCohortSchedule,
+  DEFAULT_LAUNCH_EMAIL_BODY,
+  DEFAULT_LAUNCH_EMAIL_SUBJECT,
+} from '@/lib/yearlyProgramCohort';
 
 /// GET — список усіх cohort-ів (Річних програм) з агрегованими лічильниками підписок.
 /// Сортовано за startDate DESC. Поточний (`isCurrent=true`) — позначено окремим прапором.
@@ -66,13 +72,20 @@ export async function POST(req: NextRequest) {
 
   const defaults = getDefaultCohortValues();
   const startDate = body.startDate ? new Date(body.startDate) : defaults.startDate;
-  const endDate = body.endDate ? new Date(body.endDate) : defaults.endDate;
+  const rawEndDate = body.endDate ? new Date(body.endDate) : defaults.endDate;
 
-  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(rawEndDate.getTime())) {
     return NextResponse.json({ error: 'Невірний формат дат' }, { status: 400 });
   }
+  // Останній день набору зараховується цілком (23:59:59.999 UTC) — інакше останній
+  // місячний слот не влазить і графік списань коротшає на платіж.
+  const endDate = normalizeCohortEndDate(rawEndDate);
   if (endDate <= startDate) {
     return NextResponse.json({ error: 'Дата завершення має бути пізніше дати старту' }, { status: 400 });
+  }
+  const scheduleError = validateCohortSchedule(startDate, endDate);
+  if (scheduleError) {
+    return NextResponse.json({ error: scheduleError }, { status: 400 });
   }
 
   const name = (body.name ?? '').trim() || `Річна програма ${startDate.getFullYear()}`;

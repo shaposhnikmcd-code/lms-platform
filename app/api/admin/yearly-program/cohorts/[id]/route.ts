@@ -5,7 +5,12 @@ import { revalidateLocalized } from '@/lib/revalidatePaths';
 import { calculateAccessUntil } from '@/lib/yearlyProgramAccess';
 import { getYearlyPostAccessMonths, RESET_REMINDER_AND_GRACE_FIELDS } from '@/lib/yearlyProgramConfig';
 import { syncAutopaySchedule } from '@/lib/yearlyProgramScheduleSync';
-import { DEFAULT_LAUNCH_EMAIL_BODY, DEFAULT_LAUNCH_EMAIL_SUBJECT } from '@/lib/yearlyProgramCohort';
+import {
+  normalizeCohortEndDate,
+  validateCohortSchedule,
+  DEFAULT_LAUNCH_EMAIL_BODY,
+  DEFAULT_LAUNCH_EMAIL_SUBJECT,
+} from '@/lib/yearlyProgramCohort';
 
 /// GET — деталі cohort-у з підписками й платежами для деталізованого view.
 export async function GET(
@@ -71,16 +76,28 @@ export async function PATCH(
   }
 
   const startDate = body.startDate ? new Date(body.startDate) : existing.startDate;
-  const endDate = body.endDate ? new Date(body.endDate) : existing.endDate;
-  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+  const rawEndDate = body.endDate ? new Date(body.endDate) : existing.endDate;
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(rawEndDate.getTime())) {
     return NextResponse.json({ error: 'Невірний формат дат' }, { status: 400 });
   }
+  // Останній день набору зараховується цілком (23:59:59.999 UTC). Нормалізуємо і збережені
+  // рядки теж — старі cohort-и лежать з 00:00 і через це втрачали останній місячний слот.
+  const endDate = normalizeCohortEndDate(rawEndDate);
   if (endDate <= startDate) {
     return NextResponse.json({ error: 'Дата завершення має бути пізніше дати старту' }, { status: 400 });
   }
 
   const datesChanged = startDate.getTime() !== existing.startDate.getTime()
     || endDate.getTime() !== existing.endDate.getTime();
+
+  // Валідуємо лише коли дати справді змінюються: правка назви/листа в legacy-наборі
+  // з «неправильним» періодом не має падати в 400.
+  if (datesChanged) {
+    const scheduleError = validateCohortSchedule(startDate, endDate);
+    if (scheduleError) {
+      return NextResponse.json({ error: scheduleError }, { status: 400 });
+    }
+  }
 
   // Welcome-лист: порожній рядок або null трактуємо як «скинути до дефолту» — записуємо
   // канонічний текст з коду, щоб менеджер не отримав порожнього листа в адмінці й щоб
