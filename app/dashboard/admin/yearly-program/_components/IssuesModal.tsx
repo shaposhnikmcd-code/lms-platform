@@ -31,7 +31,8 @@ type IssueKind =
   | 'ORPHAN_NO_PAYMENT'
   | 'ORPHAN_RECURRING_CHARGE'
   | 'RECURRING_CALLBACK_SKIPPED'
-  | 'REVIVED_WITH_DEBT';
+  | 'REVIVED_WITH_DEBT'
+  | 'EMAIL_FAILED';
 
 const ALL_KINDS: IssueKind[] = [
   'LAUNCH_ACCESS_FAILED',
@@ -45,6 +46,7 @@ const ALL_KINDS: IssueKind[] = [
   'ORPHAN_RECURRING_CHARGE',
   'RECURRING_CALLBACK_SKIPPED',
   'REVIVED_WITH_DEBT',
+  'EMAIL_FAILED',
 ];
 
 type Severity = 'critical' | 'warning' | 'info';
@@ -69,6 +71,27 @@ interface CatalogEntry {
 }
 
 const CATALOG: Record<IssueKind, CatalogEntry> = {
+  EMAIL_FAILED: {
+    severity: 'warning',
+    icon: '📭',
+    shortTitle: 'Лист не дійшов',
+    title: 'Лист-нагадування не доставлено',
+    whatHappened:
+      'Система не змогла доставити студенту лист-нагадування (про наступну оплату, пільговий період або закриття доступу). Нічний процес повторює спробу щодня, поки лист не піде.',
+    sideEffects:
+      'Доступ і платежі не зачеплені — студент просто не отримав попередження і може не знати, що доступ добігає кінця.',
+    causes: [
+      'Невалідна або неіснуюча адреса в профілі студента (друкарська помилка).',
+      'Адреса потрапила у bounce-лист Resend після попередніх невдач.',
+      'Resend тимчасово недоступний або вичерпана квота акаунту.',
+    ],
+    actions: [
+      'Перевірте написання email у профілі студента і виправте за потреби.',
+      'Звʼяжіться зі студентом іншим каналом (телефон, Telegram) і візьміть актуальну адресу.',
+      'Після виправлення адреси лист піде сам наступної ночі — робити нічого не треба.',
+    ],
+    hasRetry: false,
+  },
   LAUNCH_ACCESS_FAILED: {
     severity: 'critical',
     icon: '🚀',
@@ -298,6 +321,26 @@ const CATALOG: Record<IssueKind, CatalogEntry> = {
   },
 };
 
+/// Фолбек для kind-у, якого ще немає в каталозі. Сервер (lib/yearlyProgramIssues.ts) —
+/// джерело правди для переліку issue-ів, і він може випередити цей клієнтський каталог
+/// (новий детектор задеплоєний, картку ще не додали). Без фолбеку `CATALOG[kind]` давав
+/// undefined і падав увесь рендер сторінки Річної на першому ж такому issue.
+function entryFor(kind: IssueKind | string): CatalogEntry {
+  const known = (CATALOG as Record<string, CatalogEntry | undefined>)[kind];
+  if (known) return known;
+  return {
+    severity: 'warning',
+    icon: '❔',
+    shortTitle: String(kind),
+    title: `Невідомий тип проблеми: ${String(kind)}`,
+    whatHappened:
+      'Система зафіксувала проблему, опису якої ще немає в цій версії інтерфейсу. Деталі — у полі «Технічні дані» нижче та у «Подіях» підписки.',
+    causes: ['Новий детектор проблем уже працює на сервері, а картка з поясненням ще не додана в інтерфейс.'],
+    actions: ['Відкрийте підписку і подивіться «Події» — там повний технічний опис.', 'Передайте розробнику назву типу, щоб додати нормальний опис.'],
+    hasRetry: false,
+  };
+}
+
 const SEVERITY_ORDER: Record<Severity, number> = { critical: 0, warning: 1, info: 2 };
 
 const SEVERITY_META: Record<Severity, { label: string; chipLight: string; chipDark: string; railLight: string; railDark: string }> = {
@@ -427,8 +470,8 @@ export default function IssuesModal({
     /// зберігаємо сервер-сторонній порядок (за dismissedAt desc).
     if (tab !== 'active') return filtered;
     return [...filtered].sort((a, b) => {
-      const sa = SEVERITY_ORDER[CATALOG[a.kind].severity];
-      const sb = SEVERITY_ORDER[CATALOG[b.kind].severity];
+      const sa = SEVERITY_ORDER[entryFor(a.kind).severity];
+      const sb = SEVERITY_ORDER[entryFor(b.kind).severity];
       if (sa !== sb) return sa - sb;
       return new Date(b.lastOccurredAt).getTime() - new Date(a.lastOccurredAt).getTime();
     });
@@ -438,7 +481,7 @@ export default function IssuesModal({
   const severityBreakdown = useMemo(() => {
     const acc: Record<Severity, number> = { critical: 0, warning: 0, info: 0 };
     if (!payload) return acc;
-    for (const r of payload.active) acc[CATALOG[r.kind].severity] += 1;
+    for (const r of payload.active) acc[entryFor(r.kind).severity] += 1;
     return acc;
   }, [payload]);
 
@@ -446,7 +489,7 @@ export default function IssuesModal({
     if (!rec.subscriptionId) return;
     const subscriptionId = rec.subscriptionId;
     const reason = await prompt({
-      title: `Заглушити issue: ${CATALOG[rec.kind].title}?`,
+      title: `Заглушити issue: ${entryFor(rec.kind).title}?`,
       description: `Студент: ${rec.user.email}. Issue знову зʼявиться, якщо для цієї підписки виникне нова помилка цього типу після заглушення.`,
       inputLabel: 'Причина (опційно)',
       placeholder: 'Напр.: студент передзвонив, проблему вирішено вручну',
@@ -504,7 +547,7 @@ export default function IssuesModal({
   }
 
   async function handleRetry(rec: IssueRecord) {
-    if (!CATALOG[rec.kind].hasRetry || !rec.subscriptionId) return;
+    if (!entryFor(rec.kind).hasRetry || !rec.subscriptionId) return;
     const key = `${recKey(rec)}::retry`;
     setBusyKey(key);
     try {
@@ -620,7 +663,7 @@ export default function IssuesModal({
               return (
                 <KindPill
                   key={k}
-                  label={`${CATALOG[k].icon} ${CATALOG[k].shortTitle}${count !== null ? ` · ${count}` : ''}`}
+                  label={`${entryFor(k).icon} ${entryFor(k).shortTitle}${count !== null ? ` · ${count}` : ''}`}
                   active={kindFilter === k}
                   onClick={() => setKindFilter(k)}
                   dark={dark}
@@ -751,7 +794,7 @@ function IssueRow({
   /// dismissal зберігається парою (підписка, kind). Лишається тільки інформація в рядку.
   const linked = rec.subscriptionId !== null;
 
-  const entry = CATALOG[rec.kind];
+  const entry = entryFor(rec.kind);
   const sev = SEVERITY_META[entry.severity];
   /// Активні розкриваємо за замовчуванням (менеджер прийшов сюди діяти),
   /// заглушені — згорнутими (це довідник).
@@ -846,7 +889,7 @@ function IssueRow({
             {rec.kind === 'LAUNCH_OVERDUE' ? 'Весь набір' : 'Без підписки'}
           </span>
         )}
-        {linked && tab === 'active' && CATALOG[rec.kind].hasRetry && (
+        {linked && tab === 'active' && entryFor(rec.kind).hasRetry && (
           <button
             type="button"
             onClick={onRetry}

@@ -10,6 +10,8 @@ import { getYearlySendpulseCourseId } from '@/lib/yearlyProgramConfig';
 export type YearlyProgressSyncResult = {
   ok: boolean;
   processed: number;
+  /// Скільки підписок отримали відсутній `sendpulseStudentId` із ростера курсу.
+  studentIdsFilled?: number;
   spStudents: number;
   errors: string[];
 };
@@ -38,11 +40,18 @@ export async function syncYearlyProgress(): Promise<YearlyProgressSyncResult> {
   const progressByEmail = new Map(
     students.map((s) => [s.email, Math.max(0, Math.min(100, Math.round(s.progressPercent)))]),
   );
+  /// Побічний, але цінний продукт цього ж ростера: email → studentId у SendPulse.
+  /// Ним добиваємо підписки, у яких `sendpulseStudentId` порожній (реєстрація сталась
+  /// поза нашим флоу, lookup у момент оплати впав тощо). Без цього id закриття доступу
+  /// в кінці grace робить зайвий пошук по всьому курсу, а якщо той не спрацює —
+  /// підписка експайриться без реального закриття в SP.
+  const idByEmail = new Map(students.map((s) => [s.email, s.studentId]));
 
   const subs = await prisma.yearlyProgramSubscription.findMany({
     where: { status: { not: 'CANCELLED' } },
     select: {
       id: true,
+      sendpulseStudentId: true,
       user: { select: { email: true, deletedAt: true } },
     },
   });
@@ -61,17 +70,23 @@ export async function syncYearlyProgress(): Promise<YearlyProgressSyncResult> {
   }
 
   let processed = 0;
+  let studentIdsFilled = 0;
   for (const sub of subs) {
     if (sub.user.deletedAt) continue;
     const email = sub.user.email.toLowerCase();
     const pct = progressByEmail.get(email);
-    if (pct == null) continue;
+    const spId = sub.sendpulseStudentId == null ? idByEmail.get(email) ?? null : null;
+    if (pct == null && spId == null) continue;
     try {
       await prisma.yearlyProgramSubscription.update({
         where: { id: sub.id },
-        data: { spProgressPercent: pct },
+        data: {
+          ...(pct != null ? { spProgressPercent: pct } : {}),
+          ...(spId != null ? { sendpulseStudentId: spId } : {}),
+        },
       });
-      processed += 1;
+      if (pct != null) processed += 1;
+      if (spId != null) studentIdsFilled += 1;
     } catch (e) {
       errors.push(`${sub.id}: ${(e as Error).message}`);
     }
@@ -80,6 +95,7 @@ export async function syncYearlyProgress(): Promise<YearlyProgressSyncResult> {
   return {
     ok: errors.length === 0,
     processed,
+    studentIdsFilled,
     spStudents: students.length,
     errors,
   };

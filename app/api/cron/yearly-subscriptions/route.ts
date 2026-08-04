@@ -576,7 +576,21 @@ async function expireGraceSubscriptions(): Promise<StepResult> {
             });
           }
         } catch (e) {
-          errors.push(`${sub.id} lookup: ${(e as Error).message}`);
+          // Пошук ВПАВ (SP 5xx / timeout) — це не «студента немає», а «ми не знаємо».
+          // Раніше ми йшли далі й позначали EXPIRED без реального закриття доступу:
+          // 15 хвилин недоступності SP лишали людині безкоштовний доступ назавжди.
+          // Тепер лишаємо підписку в GRACE і пробуємо завтра; подія — у «Помилках».
+          const msg = (e as Error).message;
+          errors.push(`${sub.id} lookup: ${msg}`);
+          await prisma.yearlyProgramSubscriptionEvent.create({
+            data: {
+              subscriptionId: sub.id,
+              type: 'access_close_failed',
+              message: `Пошук studentId у SendPulse не вдався — доступ не закрито, статус лишається GRACE: ${msg.slice(0, 200)}`,
+              metadata: { stage: 'lookup', courseId, error: msg.slice(0, 500) },
+            },
+          }).catch(() => { /* лог не має валити крок */ });
+          return;
         }
       }
 
@@ -612,7 +626,16 @@ async function expireGraceSubscriptions(): Promise<StepResult> {
             },
           });
         } catch (e) {
-          errors.push(`${sub.id} close: ${(e as Error).message}`);
+          const msg = (e as Error).message;
+          errors.push(`${sub.id} close: ${msg}`);
+          await prisma.yearlyProgramSubscriptionEvent.create({
+            data: {
+              subscriptionId: sub.id,
+              type: 'access_close_failed',
+              message: `SendPulse DELETE /students/${studentId}/${courseId} не вдався — статус лишається GRACE: ${msg.slice(0, 200)}`,
+              metadata: { stage: 'close', courseId, studentId, error: msg.slice(0, 500) },
+            },
+          }).catch(() => { /* лог не має валити крок */ });
           // Не скидаємо на EXPIRED якщо не змогли закрити — спробуємо знову завтра.
           return;
         }

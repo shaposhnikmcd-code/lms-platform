@@ -249,14 +249,26 @@ interface RawDismissal {
 /// тип failure-події — додай тут, щоб він автоматично підхопився trekker-ом.
 function classifyEvent(e: RawEvent): {
   kind: IssueKind | null;
-  /// Чи це success-подія, що "закриває" issue. Повертаємо kind, який вона resolve-ить.
-  resolvesKind?: IssueKind;
+  /// Чи це success-подія, що "закриває" issue. Повертаємо kind (або кілька), які вона
+  /// resolve-ить: одна дія менеджера може знімати одразу два різні issue.
+  resolvesKind?: IssueKind | IssueKind[];
 } {
   // Success events (resolve відповідного failure):
   if (e.type === 'access_opened') return { kind: null, resolvesKind: 'LAUNCH_ACCESS_FAILED' };
   if (e.type === 'launch_email_sent') return { kind: null, resolvesKind: 'LAUNCH_EMAIL_FAILED' };
-  // Менеджер розібрався з боргом: «Відкрити знову» (reactivated) — доступ і дати виставлені вручну.
-  if (e.type === 'reactivated') return { kind: null, resolvesKind: 'REVIVED_WITH_DEBT' };
+  // Менеджер розібрався з боргом: «Відкрити знову» (reactivated) — доступ і дати виставлені
+  // вручну. Та сама подія знімає і невдале повторне відкриття доступу в SP.
+  if (e.type === 'reactivated') return { kind: null, resolvesKind: ['REVIVED_WITH_DEBT', 'SP_REOPEN_FAILED'] };
+
+  // Доступ таки закрито (cron дотиснув наступного дня або менеджер закрив вручну) —
+  // знімає попередній `access_close_failed`.
+  if (e.type === 'access_closed') return { kind: null, resolvesKind: 'SP_CLOSE_FAILED' };
+
+  // Збої SendPulse на закритті/повторному відкритті доступу. Пишуться cron-ом (крок
+  // expire), рефанд-гілкою WFP-callback-а та адмін-діями. Без цього мапінгу kind-и
+  // SP_CLOSE_FAILED / SP_REOPEN_FAILED були «мертвими» — подія в лозі є, у «Помилках» пусто.
+  if (e.type === 'access_close_failed') return { kind: 'SP_CLOSE_FAILED' };
+  if (e.type === 'access_reopen_failed') return { kind: 'SP_REOPEN_FAILED' };
 
   // Оплата оживила мертву підписку, але за графіком набору доступ уже вичерпано:
   // гроші зайшли, а скільки саме доступу давати — рішення менеджера (callback лише фіксує факт).
@@ -352,7 +364,7 @@ export async function collectAllIssues(): Promise<IssuesPayload> {
     prisma.yearlyProgramSubscriptionEvent.findMany({
       where: {
         OR: [
-          { type: { in: ['access_open_failed', 'launch_email_failed', 'access_opened', 'launch_email_sent', 'orphan_recurring_charge', 'revived_with_debt', 'reactivated', 'reminder_email_failed'] } },
+          { type: { in: ['access_open_failed', 'launch_email_failed', 'access_opened', 'launch_email_sent', 'orphan_recurring_charge', 'revived_with_debt', 'reactivated', 'reminder_email_failed', 'access_close_failed', 'access_reopen_failed'] } },
           { type: 'admin_action' },
         ],
       },
@@ -472,8 +484,10 @@ export async function collectAllIssues(): Promise<IssuesPayload> {
     if (c.resolvesKind) {
       let map = resolvedAt.get(e.subscriptionId);
       if (!map) { map = new Map(); resolvedAt.set(e.subscriptionId, map); }
-      const prev = map.get(c.resolvesKind);
-      if (!prev || e.createdAt > prev) map.set(c.resolvesKind, e.createdAt);
+      for (const resolved of Array.isArray(c.resolvesKind) ? c.resolvesKind : [c.resolvesKind]) {
+        const prev = map.get(resolved);
+        if (!prev || e.createdAt > prev) map.set(resolved, e.createdAt);
+      }
     }
     if (c.kind) {
       let map = failureAgg.get(e.subscriptionId);
