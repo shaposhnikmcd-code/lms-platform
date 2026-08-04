@@ -18,7 +18,9 @@
 /// немає або він старший за 25 днів — інакше покупці, що оплатили за місяці до запуску,
 /// отримали б протермінований (30 днів) лінк.
 ///
-/// Контракт `emailSentAt`: оновлюємо тільки коли була повна bulk-розсилка (без `targetIds`).
+/// Контракт `emailSentAt`: оновлюємо тільки коли була повна bulk-розсилка (без `targetIds`)
+/// І реально пішов хоча б один лист — інакше запланована розсилка «згоріла» б, нічого не
+/// надіславши.
 /// Per-recipient resend не зачіпає cohort-таймстемп — він репрезентує "коли по cohort-у
 /// пройшла масова розсилка".
 
@@ -171,26 +173,32 @@ export async function sendCohortLaunchEmails(
 
     // Telegram-кнопка у лист. Лінк має бути ЖИВИЙ на момент відправки: якщо його немає
     // або він старший за 25 днів — перегенеровуємо (force сам відкликає старий).
-    // Помилка генерації не валить лист: він піде без кнопки, а причина осяде в
-    // `telegramInviteError` підписки (вкладка «Помилки»).
+    // Жодна проблема з Telegram не має валити розсилку: `generateInviteForSubscription`
+    // повертає {ok:false} на помилки Bot API, але може й кинути (збій БД при записі
+    // події/лінка) — тоді без catch обірвалась би вся ітерація по підписках.
+    // Будь-який збій → лист іде без кнопки, причина осідає в `telegramInviteError`.
     let telegramInviteLink: string | null = null;
     if (tgActive && s.telegramUsername) {
       const stale =
         !s.telegramInviteLink ||
         !s.telegramInvitedAt ||
         Date.now() - s.telegramInvitedAt.getTime() > INVITE_MAX_AGE_MS;
-      const invite = await generateInviteForSubscription({
-        subscriptionId: s.id,
-        prefetched: {
-          id: s.id,
-          telegramInviteLink: s.telegramInviteLink,
-          userEmail: s.user.email,
-          userName: s.user.name,
-        },
-        force: stale,
-        triggeredBy: `cohort-launch-email:${opts.actorLabel}`,
-      });
-      telegramInviteLink = invite.inviteLink;
+      try {
+        const invite = await generateInviteForSubscription({
+          subscriptionId: s.id,
+          prefetched: {
+            id: s.id,
+            telegramInviteLink: s.telegramInviteLink,
+            userEmail: s.user.email,
+            userName: s.user.name,
+          },
+          force: stale,
+          triggeredBy: `cohort-launch-email:${opts.actorLabel}`,
+        });
+        telegramInviteLink = invite.inviteLink;
+      } catch (e) {
+        console.error(`[yearly-launch-email] invite generation threw sub=${s.id}:`, e);
+      }
     }
 
     try {
@@ -232,10 +240,16 @@ export async function sendCohortLaunchEmails(
     }
   }
 
+  const sentCount = results.filter((r) => r.sent).length;
+
   // Bulk-розсилка фіксує `emailSentAt` (і чистить `emailScheduledFor` — план виконано).
   // Per-recipient resend (`targetIds`) не оновлює таймстемп: він репрезентує
   // "коли востаннє пройшла bulk-розсилка по cohort-у", а не одиничну ручну дію.
-  if (!targetIds) {
+  //
+  // Якщо не пішов ЖОДЕН лист (усі скіпнуті — напр. доступ ще не відкрито, або всі впали) —
+  // таймстемпи не чіпаємо: інакше запланована розсилка «згоряє» (emailScheduledFor
+  // обнулений, cron більше не спробує), а в UI світиться «розіслано», хоч листів не було.
+  if (!targetIds && sentCount > 0) {
     await prisma.yearlyProgramCohort.update({
       where: { id: cohort.id },
       data: { emailSentAt: new Date(), emailScheduledFor: null },
@@ -244,7 +258,7 @@ export async function sendCohortLaunchEmails(
 
   return {
     total: results.length,
-    sent: results.filter((r) => r.sent).length,
+    sent: sentCount,
     skipped: results.filter((r) => r.skipped).length,
     failed: results.filter((r) => !r.sent && !r.skipped).length,
     results,

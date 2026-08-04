@@ -187,22 +187,9 @@ async function handleChatJoinRequest(joinReq: TgChatJoinRequest): Promise<void> 
   if (!identity.ok) {
     await declineJoin(chatId, userId, `identity mismatch sub=${sub.id} · ${identity.reason}`);
 
-    // Найчастіша причина mismatch — не витік лінка, а друкарська помилка в username
-    // на платіжній формі. Без сліду в адмінці студент клікав би вічно і мовчки.
-    // `telegramInviteError` показується у вкладці «Помилки» → менеджер бачить і виправляє.
-    await prisma.yearlyProgramSubscription.update({
-      where: { id: sub.id },
-      data: {
-        telegramInviteError: `Заявка від ${joinReq.from.username ? `@${joinReq.from.username}` : `id=${userId}`} відхилена: ${identity.reason} — ${
-          identity.kind === 'username'
-            ? 'перевір username у підписці (можлива друкарська помилка у формі оплати)'
-            : 'посиланням скористалась інша людина; згенеруй новий інвайт для студента'
-        }`.slice(0, 500),
-      },
-    });
-
     // Дедуп: людина може тиснути «Приєднатись» десятки разів поспіль — не засмічуємо
-    // стрічку подій. Одна подія на (підписка, tg-користувач) за годину.
+    // ні стрічку подій, ні БД зайвими UPDATE-ами. Одна подія + один запис помилки
+    // на (підписка, tg-користувач) за годину.
     const hourAgo = new Date(Date.now() - 60 * 60 * 1000);
     const dupe = await prisma.yearlyProgramSubscriptionEvent.findFirst({
       where: {
@@ -220,6 +207,21 @@ async function handleChatJoinRequest(joinReq: TgChatJoinRequest): Promise<void> 
       console.log(`${LOG_PREFIX} decline event deduped sub=${sub.id} user=${userId}`);
       return;
     }
+
+    // Найчастіша причина mismatch — не витік лінка, а друкарська помилка в username
+    // на платіжній формі. Без сліду в адмінці студент клікав би вічно і мовчки.
+    // `telegramInviteError` показується у вкладці «Помилки» → менеджер бачить і виправляє.
+    // Очищається сам при наступній успішній генерації інвайта (generateInviteForSubscription).
+    await prisma.yearlyProgramSubscription.update({
+      where: { id: sub.id },
+      data: {
+        telegramInviteError: `Заявка від ${joinReq.from.username ? `@${joinReq.from.username}` : `id=${userId}`} відхилена: ${identity.reason} — ${
+          identity.kind === 'username'
+            ? 'перевір username у підписці (можлива друкарська помилка у формі оплати)'
+            : 'посиланням скористалась інша людина; згенеруй новий інвайт для студента'
+        }`.slice(0, 500),
+      },
+    });
 
     await prisma.yearlyProgramSubscriptionEvent.create({
       data: {
