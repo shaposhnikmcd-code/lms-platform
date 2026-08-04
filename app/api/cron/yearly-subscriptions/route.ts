@@ -36,6 +36,11 @@ export const maxDuration = 300;
 /// увесь бюджет maxDuration (300с на 13 кроків) і не заблокував решту. Залишок підбереться завтра.
 const HEAL_UNOPENED_BATCH = 15;
 
+/// Telegram invite-лінк живе 30 днів (`createChatInviteLink`, expireSeconds). Усе, що старше
+/// 25 днів, у heal-кроці перегенеровуємо — інакше в welcome-лист потрапить мертве посилання.
+/// Дубль константи з lib/yearlyProgramSendEmails.ts (INVITE_MAX_AGE_MS) — тримати синхронно.
+const HEAL_INVITE_MAX_AGE_MS = 25 * 24 * 60 * 60 * 1000;
+
 interface StepResult {
   step: string;
   processed: number;
@@ -145,9 +150,15 @@ async function runScheduledCohortLaunches(): Promise<StepResult> {
 ///   (б) студент оплатив після запуску, а SendPulse у той момент збійнув — ніхто не повторить.
 ///
 /// Критерій навмисно вузький — «лікуємо живих у живому наборі»:
-///   • статус тільки PENDING/ACTIVE/GRACE. EXPIRED/CANCELLED/ARCHIVED НЕ чіпаємо: там доступ
-///     закритий свідомо, а heal воскресив би підписку (ACTIVE + SP-доступ + welcome-лист по
-///     давно завершеному навчанню), і завтрашній cron знову гнав би її через GRACE-цикл з листами.
+///   • ACTIVE/GRACE — беремо як є (доступ оплачений, просто не відкрився).
+///   • PENDING — тільки якщо оплачений доступ чинний ЗАРАЗ (`expiresAt >= now`). Це
+///     закриває дірку з повторною покупкою: при ініціації нового чекауту мертва підписка
+///     (EXPIRED/CANCELLED) реюзається і переводиться в PENDING ще ДО оплати, а старі
+///     PAID-платежі лишаються на ній. Без перевірки expiresAt нічний heal бачив би
+///     «PENDING + PAID + доступ не відкрито» і відкривав людині навчання безкоштовно.
+///   • EXPIRED/CANCELLED/ARCHIVED НЕ чіпаємо взагалі: там доступ закритий свідомо, а heal
+///     воскресив би підписку (ACTIVE + SP-доступ + welcome-лист по давно завершеному
+///     навчанню), і завтрашній cron знову гнав би її через GRACE-цикл з листами.
 ///   • cohort має бути не лише launched, а й незавершений (`endDate >= now`) — інакше в heal
 ///     потрапляли б минулорічні набори.
 /// `runExtraLaunchForSubscription` ідемпотентний — повторне відкриття вже відкритого
@@ -162,7 +173,10 @@ async function healUnopenedAccess(): Promise<StepResult> {
   const subs = await prisma.yearlyProgramSubscription.findMany({
     where: {
       sendpulseAccessOpenedAt: null,
-      status: { in: ['PENDING', 'ACTIVE', 'GRACE'] },
+      OR: [
+        { status: { in: ['ACTIVE', 'GRACE'] } },
+        { status: 'PENDING', expiresAt: { gte: now } },
+      ],
       cohort: { launchedAt: { not: null }, endDate: { gte: now } },
       payments: { some: { status: 'PAID' } },
     },
@@ -170,6 +184,7 @@ async function healUnopenedAccess(): Promise<StepResult> {
       id: true,
       telegramUsername: true,
       telegramInviteLink: true,
+      telegramInvitedAt: true,
       user: { select: { email: true, name: true } },
     },
     orderBy: { createdAt: 'asc' },
@@ -192,10 +207,18 @@ async function healUnopenedAccess(): Promise<StepResult> {
   for (const s of subs) {
     let inviteLink = s.telegramInviteLink ?? null;
     if (tgSettings?.autoAdd && tgSettings.chatId && s.telegramUsername) {
+      // Протухлий лінк гірший за його відсутність: людина клікає в листі й отримує
+      // «Invite link is invalid». Старший за HEAL_INVITE_MAX_AGE_MS (або без дати
+      // генерації) — перегенеровуємо через force, як це робить масова розсилка.
+      const stale =
+        !s.telegramInviteLink ||
+        !s.telegramInvitedAt ||
+        now.getTime() - s.telegramInvitedAt.getTime() > HEAL_INVITE_MAX_AGE_MS;
       try {
         const tgRes = await generateInviteForSubscription({
           subscriptionId: s.id,
           triggeredBy: 'system:heal-cron',
+          force: stale,
           prefetched: {
             id: s.id,
             telegramInviteLink: s.telegramInviteLink ?? null,

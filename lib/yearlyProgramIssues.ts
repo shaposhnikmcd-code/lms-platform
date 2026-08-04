@@ -34,7 +34,8 @@ export type IssueKind =
   | 'SP_REOPEN_FAILED'
   | 'ORPHAN_NO_PAYMENT'
   | 'ORPHAN_RECURRING_CHARGE'
-  | 'RECURRING_CALLBACK_SKIPPED';
+  | 'RECURRING_CALLBACK_SKIPPED'
+  | 'REVIVED_WITH_DEBT';
 
 export const ISSUE_KIND_VALUES: IssueKind[] = [
   'LAUNCH_ACCESS_FAILED',
@@ -47,6 +48,7 @@ export const ISSUE_KIND_VALUES: IssueKind[] = [
   'ORPHAN_NO_PAYMENT',
   'ORPHAN_RECURRING_CHARGE',
   'RECURRING_CALLBACK_SKIPPED',
+  'REVIVED_WITH_DEBT',
 ];
 
 export type IssueSeverity = 'critical' | 'warning' | 'info';
@@ -66,6 +68,7 @@ export const ISSUE_KIND_SEVERITY: Record<IssueKind, IssueSeverity> = {
   ORPHAN_NO_PAYMENT: 'critical',
   ORPHAN_RECURRING_CHARGE: 'critical',
   RECURRING_CALLBACK_SKIPPED: 'critical',
+  REVIVED_WITH_DEBT: 'critical',
 };
 
 const SEVERITY_RANK: Record<IssueSeverity, number> = { critical: 0, warning: 1, info: 2 };
@@ -100,6 +103,7 @@ export const ISSUE_KIND_LABELS: Record<IssueKind, string> = {
   ORPHAN_NO_PAYMENT: 'Цілісність: активна підписка без жодної оплати',
   ORPHAN_RECURRING_CHARGE: 'Гроші списані після закриття підписки',
   RECURRING_CALLBACK_SKIPPED: 'Автосписання не зараховано (callback пропущено)',
+  REVIVED_WITH_DEBT: 'Оплата з боргом — потрібне рішення менеджера',
 };
 
 /// Чи є retry-action для kind-у — впливає на UI (показ кнопки «Спробувати ще»).
@@ -115,6 +119,7 @@ export const ISSUE_HAS_RETRY: Record<IssueKind, boolean> = {
   ORPHAN_NO_PAYMENT: false,     // ручний розбір: видалити сироту або знайти втрачений платіж
   ORPHAN_RECURRING_CHARGE: false, // ручне рішення: повернути гроші або поновити підписку
   RECURRING_CALLBACK_SKIPPED: false, // ручний розбір: звірити з кабінетом WFP
+  REVIVED_WITH_DEBT: false,          // рішення менеджера: «Продовжити» / «Ручна оплата» / повернення
 };
 
 /// Skip-причини WFP-callback-а, за яких гроші реально списані, а платіж НЕ зарахований.
@@ -214,6 +219,12 @@ function classifyEvent(e: RawEvent): {
   // Success events (resolve відповідного failure):
   if (e.type === 'access_opened') return { kind: null, resolvesKind: 'LAUNCH_ACCESS_FAILED' };
   if (e.type === 'launch_email_sent') return { kind: null, resolvesKind: 'LAUNCH_EMAIL_FAILED' };
+  // Менеджер розібрався з боргом: «Відкрити знову» (reactivated) — доступ і дати виставлені вручну.
+  if (e.type === 'reactivated') return { kind: null, resolvesKind: 'REVIVED_WITH_DEBT' };
+
+  // Оплата оживила мертву підписку, але за графіком набору доступ уже вичерпано:
+  // гроші зайшли, а скільки саме доступу давати — рішення менеджера (callback лише фіксує факт).
+  if (e.type === 'revived_with_debt') return { kind: 'REVIVED_WITH_DEBT' };
 
   // Failure events (видні в активних):
   if (e.type === 'access_open_failed') return { kind: 'LAUNCH_ACCESS_FAILED' };
@@ -228,6 +239,10 @@ function classifyEvent(e: RawEvent): {
     if (/Cohort launch · access open FAILED/i.test(e.message)) return { kind: 'LAUNCH_ACCESS_FAILED' };
     if (/Extra-launch FAILED \(SendPulse\)/i.test(e.message)) return { kind: 'LAUNCH_ACCESS_FAILED' };
     if (/Extra-launch email FAILED/i.test(e.message)) return { kind: 'LAUNCH_EMAIL_FAILED' };
+    // Адмін вручну змінив термін доступу — «Продовжити +Nд» або «Ручна оплата» з перерахунком
+    // expiresAt. Обидва означають, що борг опрацьовано і рішення прийнято.
+    if (/^Extended \+\d+d\b/i.test(e.message)) return { kind: null, resolvesKind: 'REVIVED_WITH_DEBT' };
+    if (/^Ручна оплата .*expiresAt=/i.test(e.message)) return { kind: null, resolvesKind: 'REVIVED_WITH_DEBT' };
   }
 
   // TG-kick events із масивом помилок у metadata.errors:
@@ -284,7 +299,7 @@ export async function collectAllIssues(): Promise<IssuesPayload> {
     prisma.yearlyProgramSubscriptionEvent.findMany({
       where: {
         OR: [
-          { type: { in: ['access_open_failed', 'launch_email_failed', 'access_opened', 'launch_email_sent', 'orphan_recurring_charge'] } },
+          { type: { in: ['access_open_failed', 'launch_email_failed', 'access_opened', 'launch_email_sent', 'orphan_recurring_charge', 'revived_with_debt', 'reactivated'] } },
           { type: 'admin_action' },
         ],
       },
@@ -342,9 +357,12 @@ export async function collectAllIssues(): Promise<IssuesPayload> {
     /// «Запуск прострочено»: набір, дата старту якого вже настала, але його ніхто не
     /// запустив і не поставив у чергу (`launchScheduledFor` теж порожній). Наявність
     /// оплачених підписок перевіряємо нижче — без них це просто порожня заготовка.
+    /// `endDate >= now` відсікає історію: незапущений набір минулих років уже нікого не
+    /// врятує, а вічний critical-бейдж у «Помилках» лише притупляє увагу до свіжих проблем.
     prisma.yearlyProgramCohort.findMany({
       where: {
         startDate: { lte: now },
+        endDate: { gte: now },
         launchedAt: null,
         launchScheduledFor: null,
       },
