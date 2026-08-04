@@ -302,25 +302,11 @@ async function handleReopenAccess(sub: NonNullable<SubWithUser>, actor: string) 
     }, { status: 400 });
   }
 
-  // Передаємо реальну суму плану — щоб у CRM SendPulse запис мав коректну ціну
-  // (а не 0 ₴ після ручного reopen). Ціни редаговані з адмінки (YearlyProgramSetting).
-  const programSettings = await getYearlyProgramSettings(prisma);
-  const planPrice = sub.plan === 'YEARLY'
-    ? programSettings.yearlyPrice
-    : programSettings.monthlyPrice;
-
-  try {
-    await openAccessViaEvent(
-      sub.user.email,
-      YEARLY_PROGRAM_CONFIG.sendpulseEventSlug,
-      planPrice,
-    );
-  } catch (e) {
-    return NextResponse.json({ error: `SendPulse event: ${(e as Error).message}` }, { status: 500 });
-  }
-
   const now = new Date();
 
+  // Дати рахуємо ДО виклику SendPulse — якщо доступ уже вичерпаний за графіком,
+  // дію не виконуємо взагалі (жодного event-у в SendPulse і жодних змін у БД).
+  //
   // expiresAt рахуємо ТИМ САМИМ правилом, що й активація платежу (cohort + PAID-платежі),
   // а не «now + буфер» — інакше reopen видавав доступ поза межами програми
   // (напр. YEARLY отримував now+365д замість cohort.endDate + пост-доступ).
@@ -342,22 +328,73 @@ async function handleReopenAccess(sub: NonNullable<SubWithUser>, actor: string) 
     })
     : null;
 
-  // Fallback для legacy-підписок (без cohort-у або без жодного PAID-платежу):
-  // стара поведінка — майбутній expiresAt лишаємо, інакше буфер за планом.
-  const bufferDays = sub.plan === 'YEARLY'
-    ? YEARLY_PROGRAM_CONFIG.yearlyDurationDays
-    : YEARLY_PROGRAM_CONFIG.monthlyDurationDays;
-  const fallbackExpiresAt = sub.expiresAt && sub.expiresAt > now
-    ? sub.expiresAt
-    : new Date(now.getTime() + bufferDays * 24 * 60 * 60 * 1000);
+  // Ніколи не вкорочуємо доступ: беремо ПІЗНІШУ з двох дат — поточної (може містити
+  // ручне продовження) і розрахованої за графіком набору.
+  const currentExpiresAt = sub.expiresAt ?? null;
+  let newExpiresAt: Date | null = null;
+  let source: 'cohort' | 'current' | 'fallback' = 'fallback';
+  if (cohortExpiresAt && currentExpiresAt) {
+    newExpiresAt = cohortExpiresAt > currentExpiresAt ? cohortExpiresAt : currentExpiresAt;
+    source = cohortExpiresAt > currentExpiresAt ? 'cohort' : 'current';
+  } else if (cohortExpiresAt) {
+    newExpiresAt = cohortExpiresAt;
+    source = 'cohort';
+  } else if (currentExpiresAt) {
+    newExpiresAt = currentExpiresAt;
+    source = 'current';
+  }
 
-  const newExpiresAt = cohortExpiresAt ?? fallbackExpiresAt;
-  const source = cohortExpiresAt ? 'cohort' : 'fallback';
-  // Правило cohort-у може дати вже минулу дату (програма завершилась) — не мовчимо,
-  // віддаємо попередження, щоб менеджер розумів, чому доступ одразу протермінований.
-  const warning = cohortExpiresAt && cohortExpiresAt <= now
-    ? 'Доступ за правилом набору вже завершився — expiresAt у минулому. За потреби продовжте вручну через «Продовжити доступ».'
+  // Legacy-підписки (без cohort-у або без жодного PAID-платежу) — стара поведінка:
+  // майбутній expiresAt лишаємо, інакше даємо буфер за планом.
+  if (!cohortExpiresAt && (!newExpiresAt || newExpiresAt <= now)) {
+    const bufferDays = sub.plan === 'YEARLY'
+      ? YEARLY_PROGRAM_CONFIG.yearlyDurationDays
+      : YEARLY_PROGRAM_CONFIG.monthlyDurationDays;
+    newExpiresAt = new Date(now.getTime() + bufferDays * 24 * 60 * 60 * 1000);
+    source = 'fallback';
+  }
+
+  // Доступ уже вичерпаний за графіком набору. Відкрити його зараз = поставити дату в
+  // минулому: підписка стала б ACTIVE, а нічний cron за добу загнав би її в GRACE і
+  // надіслав «оплатіть». Тому дію не виконуємо і пояснюємо, що робити.
+  if (!newExpiresAt || newExpiresAt <= now) {
+    const paidCount = (fresh?.payments ?? []).filter((p) => p.status === 'PAID').length;
+    const totalMonths = YEARLY_PROGRAM_CONFIG.totalMonthlyPayments;
+    const detail = sub.plan === 'MONTHLY'
+      ? `сплачено ${paidCount} з ${totalMonths} місяців`
+      : `набір завершився ${newExpiresAt?.toISOString().slice(0, 10) ?? '—'}`;
+    return NextResponse.json({
+      error: `За графіком набору доступ уже вичерпано (${detail}). `
+        + 'Зафіксуйте наступний платіж («Внести оплату») або продовжте доступ вручну («Продовжити доступ») — і тоді відкривайте знову.',
+      computedExpiresAt: newExpiresAt?.toISOString() ?? null,
+      paidCount,
+      totalMonths,
+    }, { status: 409 });
+  }
+
+  // Правило cohort-у може дати дату раніше за поточну (часткова оплата при ручному
+  // продовженні) — доступ ми не вкоротили, але менеджер має розуміти, що за графіком
+  // місяці ще не викуплені.
+  const warning = cohortExpiresAt && currentExpiresAt && cohortExpiresAt < currentExpiresAt
+    ? 'За графіком набору доступ коротший за поточний — залишили довшу (поточну) дату. Перевірте, чи всі місяці оплачені.'
     : undefined;
+
+  // Передаємо реальну суму плану — щоб у CRM SendPulse запис мав коректну ціну
+  // (а не 0 ₴ після ручного reopen). Ціни редаговані з адмінки (YearlyProgramSetting).
+  const programSettings = await getYearlyProgramSettings(prisma);
+  const planPrice = sub.plan === 'YEARLY'
+    ? programSettings.yearlyPrice
+    : programSettings.monthlyPrice;
+
+  try {
+    await openAccessViaEvent(
+      sub.user.email,
+      YEARLY_PROGRAM_CONFIG.sendpulseEventSlug,
+      planPrice,
+    );
+  } catch (e) {
+    return NextResponse.json({ error: `SendPulse event: ${(e as Error).message}` }, { status: 500 });
+  }
 
   await prisma.yearlyProgramSubscription.update({
     where: { id: sub.id },
@@ -482,15 +519,19 @@ async function handleManualPayment(
   }
 
   // Ідемпотентність: два сабміти підряд (дві вкладки, повтор після таймауту) створювали
-  // два PAID-платежі = зайвий місяць доступу. Той самий (сума + спосіб) у межах 60 секунд
-  // вважаємо дублем і відхиляємо — свідомий повтор менеджер зробить через хвилину.
+  // два PAID-платежі = зайвий місяць доступу. Дублем вважаємо збіг суми + способу + ДНЯ
+  // оплати у межах 60 секунд. День у ключі обов'язковий: занесення кількох місяців
+  // (3 × 2200 ₴ з різними paidAt) — легітимний сценарій і має проходити підряд.
   const DUPLICATE_WINDOW_MS = 60 * 1000;
+  const dayStart = new Date(paidAt.getFullYear(), paidAt.getMonth(), paidAt.getDate());
+  const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
   const recentDuplicate = await prisma.payment.findFirst({
     where: {
       yearlyProgramSubscriptionId: sub.id,
       status: 'PAID',
       manualMethod: method,
       amount,
+      paidAt: { gte: dayStart, lt: dayEnd },
       createdAt: { gte: new Date(Date.now() - DUPLICATE_WINDOW_MS) },
     },
     orderBy: { createdAt: 'desc' },
@@ -498,8 +539,10 @@ async function handleManualPayment(
   });
   if (recentDuplicate) {
     return NextResponse.json({
-      error: `Таку саму оплату (${amount}₴, ${MANUAL_METHOD_LABELS[method] ?? method}) вже зафіксовано менше хвилини тому. `
-        + 'Якщо це справді друга оплата — повторіть через хвилину.',
+      error: `Таку саму оплату (${amount}₴, ${MANUAL_METHOD_LABELS[method] ?? method}, `
+        + `${paidAt.toISOString().slice(0, 10)}) вже зафіксовано менше хвилини тому. `
+        + 'Якщо це справді друга оплата за той самий день — повторіть через хвилину; '
+        + 'для іншого місяця вкажіть свою дату оплати.',
       duplicateOf: recentDuplicate.orderReference,
     }, { status: 409 });
   }
