@@ -35,7 +35,8 @@ export type IssueKind =
   | 'ORPHAN_NO_PAYMENT'
   | 'ORPHAN_RECURRING_CHARGE'
   | 'RECURRING_CALLBACK_SKIPPED'
-  | 'REVIVED_WITH_DEBT';
+  | 'REVIVED_WITH_DEBT'
+  | 'EMAIL_FAILED';
 
 export const ISSUE_KIND_VALUES: IssueKind[] = [
   'LAUNCH_ACCESS_FAILED',
@@ -49,6 +50,7 @@ export const ISSUE_KIND_VALUES: IssueKind[] = [
   'ORPHAN_RECURRING_CHARGE',
   'RECURRING_CALLBACK_SKIPPED',
   'REVIVED_WITH_DEBT',
+  'EMAIL_FAILED',
 ];
 
 export type IssueSeverity = 'critical' | 'warning' | 'info';
@@ -69,6 +71,7 @@ export const ISSUE_KIND_SEVERITY: Record<IssueKind, IssueSeverity> = {
   ORPHAN_RECURRING_CHARGE: 'critical',
   RECURRING_CALLBACK_SKIPPED: 'critical',
   REVIVED_WITH_DEBT: 'critical',
+  EMAIL_FAILED: 'warning',
 };
 
 const SEVERITY_RANK: Record<IssueSeverity, number> = { critical: 0, warning: 1, info: 2 };
@@ -104,6 +107,7 @@ export const ISSUE_KIND_LABELS: Record<IssueKind, string> = {
   ORPHAN_RECURRING_CHARGE: 'Гроші списані після закриття підписки',
   RECURRING_CALLBACK_SKIPPED: 'Автосписання не зараховано (callback пропущено)',
   REVIVED_WITH_DEBT: 'Оплата з боргом — потрібне рішення менеджера',
+  EMAIL_FAILED: 'Лист-нагадування не доставлено',
 };
 
 /// Чи є retry-action для kind-у — впливає на UI (показ кнопки «Спробувати ще»).
@@ -120,6 +124,7 @@ export const ISSUE_HAS_RETRY: Record<IssueKind, boolean> = {
   ORPHAN_RECURRING_CHARGE: false, // ручне рішення: повернути гроші або поновити підписку
   RECURRING_CALLBACK_SKIPPED: false, // ручний розбір: звірити з кабінетом WFP
   REVIVED_WITH_DEBT: false,          // рішення менеджера: «Продовжити» / «Ручна оплата» / повернення
+  EMAIL_FAILED: false,               // cron сам ретраїть щодня; ручна дія — виправити email студента
 };
 
 /// Skip-причини WFP-callback-а, за яких гроші реально списані, а платіж НЕ зарахований.
@@ -131,6 +136,9 @@ export const YEARLY_CALLBACK_SKIP_REASONS = [
   'amount_mismatch',
   'monthly_cap_reached',
   'user_not_found',
+  /// WFP повідомив про повернення коштів, а вихідного платежу в нас немає — гроші
+  /// пішли назад «у нікуди» з точки зору обліку. Такий випадок теж треба розібрати вручну.
+  'refund_payment_not_found',
 ] as const;
 
 /// Префікс `actionsTaken`-мітки, якою callback позначає розпізнану підписку
@@ -188,9 +196,37 @@ interface RawSubscription {
   failedChargeCount: number;
   lastChargeAttemptAt: Date | null;
   manuallyAddedAt: Date | null;
+  reminderSent3d: boolean;
+  reminderSentOnExpiry: boolean;
+  reminderSentGraceStart: boolean;
+  reminderSentGraceMid: boolean;
+  reminderSentGraceLast: boolean;
+  reminderSentExpired: boolean;
   user: { id: string; name: string | null; email: string } | null;
   cohort: { name: string } | null;
 }
+
+/// Прапорці «лист надіслано» (дзеркало ReminderFlag у cron-і). Використовуються
+/// детектором EMAIL_FAILED: подія про фейл актуальна лише поки відповідний прапорець
+/// усе ще `false` (тобто лист так і не пішов).
+const REMINDER_FLAG_KEYS = [
+  'reminderSent3d',
+  'reminderSentOnExpiry',
+  'reminderSentGraceStart',
+  'reminderSentGraceMid',
+  'reminderSentGraceLast',
+  'reminderSentExpired',
+] as const;
+
+function reminderFlagValue(sub: RawSubscription, flag: string): boolean | undefined {
+  if (!(REMINDER_FLAG_KEYS as readonly string[]).includes(flag)) return undefined;
+  return (sub as unknown as Record<string, boolean>)[flag];
+}
+
+/// Вікно, у якому недоставлений лист вважається актуальною проблемою. Cron ретраїть
+/// щодня і пише не більше однієї події на добу — тож 3 дні означають «проблема жива
+/// щонайменше останню добу», а стара разова невдача сама зникає з вкладки.
+const EMAIL_FAILED_WINDOW_MS = 3 * 24 * 60 * 60 * 1000;
 
 interface RawEvent {
   id: string;
@@ -264,9 +300,13 @@ function classifyEvent(e: RawEvent): {
 }
 
 /// Зчитує stateful-issue-и з полів підписки (без потреби в подіях).
-function stateBasedIssues(sub: RawSubscription): { kind: IssueKind; errorExcerpt: string; lastOccurredAt: Date }[] {
+function stateBasedIssues(sub: RawSubscription, hasPaidPayment: boolean): { kind: IssueKind; errorExcerpt: string; lastOccurredAt: Date }[] {
   const out: { kind: IssueKind; errorExcerpt: string; lastOccurredAt: Date }[] = [];
-  if (sub.telegramInviteError) {
+  // Невдалий invite показуємо лише для реальних клієнтів: підписка або оплачена, або
+  // вже в робочому статусі. Інакше вкладку засмічують неоплачені чернетки — прямі
+  // POST-и з битим @username створюють `telegramInviteError` ще до будь-якої оплати.
+  const isRealClient = hasPaidPayment || sub.status === 'ACTIVE' || sub.status === 'GRACE';
+  if (sub.telegramInviteError && isRealClient) {
     out.push({
       kind: 'TG_INVITE_FAILED',
       errorExcerpt: sub.telegramInviteError.slice(0, 200),
@@ -297,6 +337,12 @@ export async function collectAllIssues(): Promise<IssuesPayload> {
         failedChargeCount: true,
         lastChargeAttemptAt: true,
         manuallyAddedAt: true,
+        reminderSent3d: true,
+        reminderSentOnExpiry: true,
+        reminderSentGraceStart: true,
+        reminderSentGraceMid: true,
+        reminderSentGraceLast: true,
+        reminderSentExpired: true,
         user: { select: { id: true, name: true, email: true } },
         cohort: { select: { name: true } },
       },
@@ -306,7 +352,7 @@ export async function collectAllIssues(): Promise<IssuesPayload> {
     prisma.yearlyProgramSubscriptionEvent.findMany({
       where: {
         OR: [
-          { type: { in: ['access_open_failed', 'launch_email_failed', 'access_opened', 'launch_email_sent', 'orphan_recurring_charge', 'revived_with_debt', 'reactivated'] } },
+          { type: { in: ['access_open_failed', 'launch_email_failed', 'access_opened', 'launch_email_sent', 'orphan_recurring_charge', 'revived_with_debt', 'reactivated', 'reminder_email_failed'] } },
           { type: 'admin_action' },
         ],
       },
@@ -403,6 +449,12 @@ export async function collectAllIssues(): Promise<IssuesPayload> {
         failedChargeCount: true,
         lastChargeAttemptAt: true,
         manuallyAddedAt: true,
+        reminderSent3d: true,
+        reminderSentOnExpiry: true,
+        reminderSentGraceStart: true,
+        reminderSentGraceMid: true,
+        reminderSentGraceLast: true,
+        reminderSentExpired: true,
         user: { select: { id: true, name: true, email: true } },
         cohort: { select: { name: true } },
       },
@@ -481,7 +533,7 @@ export async function collectAllIssues(): Promise<IssuesPayload> {
   const haveEventRecord = new Set(records.map(recordKey));
   for (const sub of subs) {
     if (!sub.user) continue;
-    for (const stateIssue of stateBasedIssues(sub)) {
+    for (const stateIssue of stateBasedIssues(sub, paidSubIds.has(sub.id))) {
       if (haveEventRecord.has(`${sub.id}::${stateIssue.kind}`)) continue;
       const dismissal = dismissalMap.get(dismissalKey(sub.id, stateIssue.kind));
       records.push({
@@ -529,6 +581,68 @@ export async function collectAllIssues(): Promise<IssuesPayload> {
       dismissedBy: dismissal?.dismissedBy ?? null,
       dismissedReason: dismissal?.reason ?? null,
     });
+  }
+
+  // Детектор EMAIL_FAILED: cron не зміг доставити лист-нагадування і відкотив прапорець.
+  // Показуємо лише поки проблема жива: подія свіжа (≤3 днів) І відповідний прапорець
+  // усе ще `false`. Якщо наступного дня лист пішов — прапорець стає `true` і issue
+  // зникає сам, без ручного «заглушити».
+  {
+    const emailFailedSince = new Date(Date.now() - EMAIL_FAILED_WINDOW_MS);
+    // Групуємо по (підписка, прапорець): у однієї підписки можуть «висіти» різні листи,
+    // і кожен резолвиться своїм прапорцем незалежно.
+    const emailFailAgg = new Map<string, Map<string, { latestAt: Date; count: number; excerpt: string | null }>>();
+    for (const e of events) {
+      if (e.type !== 'reminder_email_failed') continue;
+      if (e.createdAt < emailFailedSince) continue;
+      const meta = e.metadata as { flag?: string } | null;
+      const flag = meta?.flag;
+      // Записи без метаданих (теоретично — з майбутніх/сторонніх джерел) пропускаємо:
+      // без прапорця неможливо сказати, чи проблема ще актуальна.
+      if (!flag) continue;
+      let perFlag = emailFailAgg.get(e.subscriptionId);
+      if (!perFlag) { perFlag = new Map(); emailFailAgg.set(e.subscriptionId, perFlag); }
+      const prev = perFlag.get(flag);
+      const excerpt = e.message?.slice(0, 200) ?? null;
+      if (!prev) {
+        perFlag.set(flag, { latestAt: e.createdAt, count: 1, excerpt });
+      } else {
+        prev.count += 1;
+        if (e.createdAt > prev.latestAt) {
+          prev.latestAt = e.createdAt;
+          prev.excerpt = excerpt;
+        }
+      }
+    }
+
+    for (const [subId, perFlag] of emailFailAgg) {
+      const sub = subById.get(subId);
+      if (!sub || !sub.user) continue;
+      // Лишаємо тільки нерозвʼязані листи: прапорець true → лист таки пішов наступного
+      // проходу. Одна картка на підписку — за найсвіжішим із «живих» фейлів, сумарна
+      // кількість повторень по всіх них.
+      const unresolved = [...perFlag.entries()].filter(([flag]) => reminderFlagValue(sub, flag) === false);
+      if (unresolved.length === 0) continue;
+      const agg = unresolved
+        .map(([, v]) => v)
+        .reduce((best, v) => (v.latestAt > best.latestAt ? v : best));
+      const totalCount = unresolved.reduce((sum, [, v]) => sum + v.count, 0);
+      const dismissal = dismissalMap.get(dismissalKey(subId, 'EMAIL_FAILED'));
+      records.push({
+        subscriptionId: subId,
+        sourceId: null,
+        kind: 'EMAIL_FAILED',
+        lastOccurredAt: agg.latestAt.toISOString(),
+        occurrenceCount: totalCount,
+        errorExcerpt: agg.excerpt,
+        user: sub.user,
+        plan: sub.plan,
+        cohortName: sub.cohort?.name ?? null,
+        dismissedAt: dismissal?.dismissedAt.toISOString() ?? null,
+        dismissedBy: dismissal?.dismissedBy ?? null,
+        dismissedReason: dismissal?.reason ?? null,
+      });
+    }
   }
 
   // Детектор «Запуск прострочено» (рівень набору, не підписки). Набір, у якого вже

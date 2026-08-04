@@ -80,6 +80,11 @@ function flagWhere(flag: ReminderFlag, value: boolean): Prisma.YearlyProgramSubs
   return { [flag]: value } as Prisma.YearlyProgramSubscriptionWhereInput;
 }
 
+/// Вікно дедупу подій `reminder_email_failed` (одна подія на тип листа на добу).
+/// Синхронізоване з вікном детектора EMAIL_FAILED у lib/yearlyProgramIssues.ts (3 дні):
+/// поки проблема жива, у вкладці «Помилки» завжди є свіжий запис.
+const FAILED_EVENT_DEDUP_MS = 24 * 60 * 60 * 1000;
+
 /// Єдина точка відправки cron-листів: claim прапорця → відправка → лог.
 ///
 /// Чому claim ПЕРЕД відправкою: два паралельні проходи (ретрай Vercel-cron, ручний виклик)
@@ -121,14 +126,29 @@ async function sendReminderOnce(args: {
       where: { id: subscriptionId },
       data: flagData(flag, false),
     });
-    await prisma.yearlyProgramSubscriptionEvent.create({
-      data: {
+    // Дедуп: підписка, що застрягла (напр. невалідна адреса), інакше плодила б однакову
+    // подію щодня. Один запис на 24 год для кожного типу листа — достатньо і для
+    // вкладки «Помилки», і для розбору в історії підписки.
+    const since = new Date(Date.now() - FAILED_EVENT_DEDUP_MS);
+    const recent = await prisma.yearlyProgramSubscriptionEvent.findFirst({
+      where: {
         subscriptionId,
         type: 'reminder_email_failed',
-        message: `${eventType} не надіслано: ${error.slice(0, 200)}`,
-        metadata: { flag, eventType, error: error.slice(0, 500) },
+        createdAt: { gte: since },
+        message: { startsWith: `${eventType} ` },
       },
+      select: { id: true },
     });
+    if (!recent) {
+      await prisma.yearlyProgramSubscriptionEvent.create({
+        data: {
+          subscriptionId,
+          type: 'reminder_email_failed',
+          message: `${eventType} не надіслано: ${error.slice(0, 200)}`,
+          metadata: { flag, eventType, error: error.slice(0, 500) },
+        },
+      });
+    }
     return { outcome: 'failed', error };
   }
 
@@ -645,7 +665,10 @@ async function expireGraceSubscriptions(): Promise<StepResult> {
 
 /// «Оплатіть далі»-нагадування не мають сенсу для повністю оплаченої підписки
 /// (усі 9/9 внесків зроблені — її expiresAt це кінець пост-доступу, платити нічого).
-/// Спільний фільтр для всіх manual-кроків нижче.
+/// Перевірка спільна для ВСІХ платіжних листів — і manual, і cyclical. Для cyclical це
+/// критично: після 9-го платежу WFP-правило знімається (`wfpRegularRef` → null), тож
+/// `cyclicalNeedsWarning` вважав би таку підписку «регулярка зникла» і слав би
+/// «списання не пройшло, оплатіть» людині, яка оплатила все до копійки.
 function isFullyPaid(sub: { _count: { payments: number } }): boolean {
   return sub._count.payments >= YEARLY_PROGRAM_CONFIG.totalMonthlyPayments;
 }
@@ -751,12 +774,21 @@ async function sendManualOnExpiryReminders(): Promise<StepResult> {
 }
 
 /// MANUAL #3 + CYCLICAL #1: день +1 після експайру.
-/// Manual: "grace стартував". Cyclical: "charge failed" (тільки якщо failedChargeCount > 0).
+/// Manual: "grace стартував". Cyclical: "charge failed" (тільки якщо є про що попереджати).
 async function sendGraceStartReminders(): Promise<StepResult> {
   const errors: string[] = [];
+  const now = new Date();
   // Поточне значення graceDays із налаштувань — передаємо у render-функції, щоб тексти
   // листів автоматично відображали актуальну тривалість пільгового періоду.
   const graceDays = await getYearlyGraceDays(prisma);
+
+  // «День +1»: не шлемо в тому ж проході, у якому підписка щойно перейшла в GRACE.
+  // Інакше людина за секунди отримує два суперечливі листи — «сьогодні останній день
+  // доступу» (manual_on_expiry) і одразу «пільговий період стартував». 20 годин, а не
+  // 24 — щоб лист гарантовано пішов наступного добового проходу cron-а навіть якщо той
+  // трохи «плаває» у часі.
+  const GRACE_START_MIN_AGE_MS = 20 * 60 * 60 * 1000;
+  const graceStartCutoff = new Date(now.getTime() - GRACE_START_MIN_AGE_MS);
 
   const subs = await prisma.yearlyProgramSubscription.findMany({
     where: {
@@ -764,6 +796,7 @@ async function sendGraceStartReminders(): Promise<StepResult> {
       plan: 'MONTHLY',
       reminderSentGraceStart: false,
       gracePeriodEndsAt: { not: null },
+      graceStartedAt: { lte: graceStartCutoff },
       ...NOT_IN_UNLAUNCHED_COHORT,
     },
     include: { user: true, ...PAID_COUNT_INCLUDE },
@@ -773,11 +806,12 @@ async function sendGraceStartReminders(): Promise<StepResult> {
   await processInParallel(subs, async (sub) => {
     try {
       if (!sub.user?.email || !sub.gracePeriodEndsAt) return;
-      // Для manual (autoRenew=false) — шлемо завжди (grace стартував), КРІМ повністю
-      // оплачених 9/9: їм платити нічого, «оплатіть»-текст брехливий (кінець програми).
+      // Повністю оплачені (9/9) не отримують ЖОДНОГО платіжного нагадування — ні manual,
+      // ні cyclical: платити нема за що, це просто кінець пост-доступу.
+      if (isFullyPaid(sub)) return;
+      // Для manual (autoRenew=false) — шлемо завжди (grace стартував).
       const isManual = !sub.autoRenew;
       if (!isManual && !cyclicalNeedsWarning(sub)) return;
-      if (isManual && isFullyPaid(sub)) return;
 
       const gracePeriodEndsAt = sub.gracePeriodEndsAt;
       const r = await sendReminderOnce({
@@ -833,11 +867,12 @@ async function sendGraceMidReminders(): Promise<StepResult> {
   await processInParallel(subs, async (sub) => {
     try {
       if (!sub.user?.email || !sub.gracePeriodEndsAt) return;
+      // 9/9 — платити нема за що, платіжні листи не шлемо нікому (див. isFullyPaid).
+      if (isFullyPaid(sub)) return;
       const isManual = !sub.autoRenew;
       // Cyclical-mid — тільки коли є про що попереджати (провалене списання або зникле
       // WFP-правило); інакше підписка не в реальному grace-флоу autopay.
       if (!isManual && !cyclicalNeedsWarning(sub)) return;
-      if (isManual && isFullyPaid(sub)) return;
 
       const gracePeriodEndsAt = sub.gracePeriodEndsAt;
       const r = await sendReminderOnce({
@@ -892,9 +927,10 @@ async function sendGraceLastReminders(): Promise<StepResult> {
   await processInParallel(subs, async (sub) => {
     try {
       if (!sub.user?.email || !sub.gracePeriodEndsAt) return;
+      // 9/9 — платити нема за що, платіжні листи не шлемо нікому (див. isFullyPaid).
+      if (isFullyPaid(sub)) return;
       const isManual = !sub.autoRenew;
       if (!isManual && !cyclicalNeedsWarning(sub)) return;
-      if (isManual && isFullyPaid(sub)) return;
 
       const gracePeriodEndsAt = sub.gracePeriodEndsAt;
       const r = await sendReminderOnce({
@@ -943,6 +979,19 @@ async function refreshWfpScheduleCache(): Promise<StepResult> {
   await processInParallel(subs, async (s) => {
     try {
       const r = await syncAutopaySchedule(s.id, { apply: false, source: 'cron_check' });
+      // Підписка оплачена повністю (9/9), а правило регулярки у WFP усе ще живе — тобто
+      // REMOVE у callback-у не пройшов. Читаюча звірка сама нічого не змінює, тому одразу
+      // добиваємо знімальним викликом: інакше WFP спише 10-й місяць (orphan charge), і
+      // розбиратись довелось би поверненням коштів.
+      if (r.outcome === 'checked' && r.reason === 'fully_paid_rule_still_active') {
+        const applied = await syncAutopaySchedule(s.id, { apply: true, source: 'cron_fully_paid_remove' });
+        if (applied.outcome === 'error') {
+          errors.push(`${s.id} fully_paid REMOVE: ${(applied.reason ?? 'unknown').slice(0, 120)}`);
+        } else {
+          processed++;
+        }
+        return;
+      }
       if (r.outcome === 'error') {
         errors.push(`${s.id}: ${r.reason ?? 'unknown'}`);
       } else {
