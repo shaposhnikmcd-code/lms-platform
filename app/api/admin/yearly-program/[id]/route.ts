@@ -399,9 +399,10 @@ async function handleReopenAccess(sub: NonNullable<SubWithUser>, actor: string) 
   // Правило cohort-у може дати дату раніше за поточну (часткова оплата при ручному
   // продовженні) — доступ ми не вкоротили, але менеджер має розуміти, що за графіком
   // місяці ще не викуплені.
-  const warning = cohortExpiresAt && currentExpiresAt && cohortExpiresAt < currentExpiresAt
-    ? 'За графіком набору доступ коротший за поточний — залишили довшу (поточну) дату. Перевірте, чи всі місяці оплачені.'
-    : undefined;
+  const warnings: string[] = [];
+  if (cohortExpiresAt && currentExpiresAt && cohortExpiresAt < currentExpiresAt) {
+    warnings.push('За графіком набору доступ коротший за поточний — залишили довшу (поточну) дату. Перевірте, чи всі місяці оплачені.');
+  }
 
   // Передаємо реальну суму плану — щоб у CRM SendPulse запис мав коректну ціну
   // (а не 0 ₴ після ручного reopen). Ціни редаговані з адмінки (YearlyProgramSetting).
@@ -438,11 +439,44 @@ async function handleReopenAccess(sub: NonNullable<SubWithUser>, actor: string) 
     },
   });
 
+  // Повернення в Telegram. «Скасувати» робить permanent-кік (ban + revoke invite), тож
+  // без цього кроку студент лишався б забаненим у каналі й без робочого посилання.
+  // `generateInviteForSubscription` сам знімає бан (unban з only_if_banned для
+  // telegramTgUserId ЦІЄЇ підписки) перед створенням нового лінка. Best-effort:
+  // помилка Telegram не валить reopen — доступ у SendPulse і статус уже виставлені.
+  let telegram: { inviteRegenerated: boolean; error?: string } | null = null;
+  const tgSettings = await getYearlyProgramTelegramSettings().catch(() => null);
+  if (tgSettings?.autoAdd && tgSettings.chatId && sub.telegramUsername) {
+    const tgRes = await generateInviteForSubscription({
+      subscriptionId: sub.id,
+      force: true,
+      triggeredBy: `admin:${actor} · reopen_access`,
+    }).catch((e) => ({ ok: false, inviteLink: null, error: (e as Error).message, subscriptionId: sub.id }));
+    telegram = { inviteRegenerated: tgRes.ok, ...(tgRes.error ? { error: tgRes.error } : {}) };
+    if (!tgRes.ok) {
+      // Успішну генерацію лог пише сам helper; провал — фіксуємо тут, щоб менеджер
+      // бачив у стрічці підписки, що людину треба повернути в канал руками.
+      await prisma.yearlyProgramSubscriptionEvent.create({
+        data: {
+          subscriptionId: sub.id,
+          type: 'admin_action',
+          message: `TG invite при reopen не згенеровано: ${(tgRes.error ?? 'unknown').slice(0, 200)}`,
+          metadata: { reopenTelegram: true, error: tgRes.error ?? null, actor },
+        },
+      });
+      warnings.push('Не вдалось повернути студента в Telegram-канал — перевірте вручну.');
+    }
+  } else {
+    // Ні каналу, ні @username — автоматично повернути нікого не можемо.
+    warnings.push('студент міг бути вилучений з Telegram-каналу — перевірте вручну');
+  }
+
   return NextResponse.json({
     ok: true,
     newExpiresAt: newExpiresAt.toISOString(),
     expiresAtSource: source,
-    ...(warning ? { warning } : {}),
+    telegram,
+    ...(warnings.length > 0 ? { warning: warnings.join(' · ') } : {}),
   });
 }
 
