@@ -787,7 +787,12 @@ async function sendGraceStartReminders(): Promise<StepResult> {
   // доступу» (manual_on_expiry) і одразу «пільговий період стартував». 20 годин, а не
   // 24 — щоб лист гарантовано пішов наступного добового проходу cron-а навіть якщо той
   // трохи «плаває» у часі.
+  //
+  // Виняток — короткий grace (graceDays < 3): mid/last там вимкнені, а закриття доступу
+  // настане раніше за наступний добовий прохід, тож із затримкою лист не пішов би взагалі.
+  // На такому налаштуванні шлемо одразу: краще двоє листів поспіль, ніж жодного попередження.
   const GRACE_START_MIN_AGE_MS = 20 * 60 * 60 * 1000;
+  const applyAgeGate = graceDays >= 3;
   const graceStartCutoff = new Date(now.getTime() - GRACE_START_MIN_AGE_MS);
 
   const subs = await prisma.yearlyProgramSubscription.findMany({
@@ -796,7 +801,7 @@ async function sendGraceStartReminders(): Promise<StepResult> {
       plan: 'MONTHLY',
       reminderSentGraceStart: false,
       gracePeriodEndsAt: { not: null },
-      graceStartedAt: { lte: graceStartCutoff },
+      ...(applyAgeGate ? { graceStartedAt: { lte: graceStartCutoff } } : {}),
       ...NOT_IN_UNLAUNCHED_COHORT,
     },
     include: { user: true, ...PAID_COUNT_INCLUDE },
