@@ -97,6 +97,9 @@ export async function syncAutopaySchedule(
   // картка + Apple Pay, апгрейд разова→автоплатіж; child-refs WFPREG дадуть 4102 = not found).
   const activeRules: { ref: string; amount: number; currency: string; mode: string; nextPaymentAt: Date | null; dateEndAt: Date | null }[] = [];
   const statusErrors: string[] = [];
+  /// Хоч один STATUS не дав чесної відповіді (5xx/timeout/битий JSON) → ми НЕ знаємо,
+  /// чи є правило. Кеш у такому разі не чіпаємо взагалі.
+  let inconclusive = false;
   for (const p of sub.payments) {
     try {
       const st = await getRegularStatus({
@@ -104,7 +107,10 @@ export async function syncAutopaySchedule(
         merchantPassword,
         orderReference: p.orderReference,
       });
-      if (st.found && st.status === 'Active') {
+      if (st.inconclusive) {
+        inconclusive = true;
+        statusErrors.push(`${p.orderReference}: невизначена відповідь WFP (reasonCode=${String(st.raw.reasonCode ?? '—')})`);
+      } else if (st.found && st.status === 'Active') {
         activeRules.push({
           ref: p.orderReference,
           amount: st.amount ?? p.amount,
@@ -115,6 +121,7 @@ export async function syncAutopaySchedule(
         });
       }
     } catch (e) {
+      inconclusive = true;
       statusErrors.push(`${p.orderReference}: ${(e as Error).message.slice(0, 80)}`);
     }
   }
@@ -127,10 +134,21 @@ export async function syncAutopaySchedule(
   };
 
   if (activeRules.length === 0) {
-    await cacheUpdate(null, null);
-    if (statusErrors.length > 0) {
-      return { outcome: 'error', reason: `STATUS failed: ${statusErrors.join(' | ').slice(0, 300)}`, ruleRef: null, nextChargeAt: null, desiredNextAt: null, changed: false };
+    // Живих правил не знайшли. Якщо хоч одна відповідь була невизначеною — це може бути
+    // просто збій WFP: НЕ занулюємо wfpRegularRef/wfpNextChargeAt (інакше 15 хвилин
+    // недоступності API стерли б графіки всіх підписок в адмінці) і віддаємо помилку,
+    // щоб cron порахував це як помилку й повторив звірку.
+    if (inconclusive) {
+      return {
+        outcome: 'error',
+        reason: `STATUS inconclusive (кеш збережено): ${statusErrors.join(' | ').slice(0, 300)}`,
+        ruleRef: sub.wfpRegularRef,
+        nextChargeAt: sub.wfpNextChargeAt,
+        desiredNextAt: null,
+        changed: false,
+      };
     }
+    await cacheUpdate(null, null);
     return { outcome: 'no_rule', reason: null, ruleRef: null, nextChargeAt: null, desiredNextAt: null, changed: false };
   }
   const primary = activeRules[0]!;

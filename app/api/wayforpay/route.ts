@@ -14,6 +14,12 @@ import { verifyInvite, type InvitePayload } from '@/lib/yearlyProgramInvite';
 import { isValidCountryCode } from '@/lib/countries';
 import { parseTelegramUsername } from '@/lib/telegramUsername';
 
+/// Текст, який пишемо в `YearlyProgramSubscription.telegramInviteError`, коли людина
+/// оформила Річну без валідного Telegram username. Константа — щоб при повторній
+/// покупці з коректним username можна було впізнати й прибрати саме НАШУ помітку,
+/// не затерши справжню помилку Bot API.
+const MISSING_TELEGRAM_USERNAME_ERROR = 'Telegram username не вказано або невалідний';
+
 export async function POST(req: NextRequest) {
   try {
     const rl = await checkRateLimit(req, 'payment');
@@ -94,6 +100,21 @@ export async function POST(req: NextRequest) {
     /// Поточний cohort Річної програми. Якщо менеджер ще не створив cohort — null
     /// (підписка створюється без cohort, регулярка йде по legacy-логіці = 9 платежів від покупки).
     let currentCohortId: string | null = null;
+    /// Дати поточного набору — потрібні і для guard-ів, і для WFP-графіка нижче.
+    let currentCohortDates: { startDate: Date; endDate: Date } | null = null;
+    /// Скільки місячних платежів підписка вже має (PAID). Реюз існуючої підписки означає,
+    /// що майбутніх автосписань має бути менше — інакше upgrade разова→автоплатіж програмує
+    /// зайві списання поверх уже сплачених місяців.
+    let monthlyPaidCount = 0;
+    /// Скільки ВСЬОГО списань (Purchase + регулярні) має бути в цій покупці:
+    /// min(лишок за програмою, слотів до кінця набору). null — не рахували (не MONTHLY).
+    /// `<= 1` означає «цей платіж останній» → регулярку не створюємо взагалі.
+    let autopayTotalPayments: number | null = null;
+    /// Якщо лишок за програмою жорсткіший за межу набору — dateEnd рахує сам хелпер
+    /// з totalPayments (інакше тримаємо межу набору).
+    let autopayLimitedByProgram = false;
+    /// Якір графіка (дата, яку покриває перший платіж) — спільний для DB-рішення й WFP-флагів.
+    let autopayAnchor: Date | null = null;
 
     // Для курсів/пакетів/yearly — створюємо/знаходимо користувача і Payment
     if (!isConnector) {
@@ -208,6 +229,12 @@ export async function POST(req: NextRequest) {
       const parsedCountry = yearlyKind && isValidCountryCode(country) ? country : null;
       const parsedTelegram = yearlyKind ? parseTelegramUsername(telegramUsername) : null;
       const normalizedTelegramUsername = parsedTelegram?.ok ? parsedTelegram.normalized : null;
+      /// Без валідного username бот не зможе додати людину в канал — фіксуємо це одразу
+      /// в `telegramInviteError`, щоб підписка потрапила у вкладку «Помилки» адмінки, а не
+      /// виявилась «тихо без Telegram» аж на запуску.
+      const telegramInviteError = yearlyKind && parsedTelegram && !parsedTelegram.ok
+        ? MISSING_TELEGRAM_USERNAME_ERROR
+        : null;
       const normalizedPhone = yearlyKind && typeof clientPhone === 'string' && clientPhone.trim() ? clientPhone.trim() : null;
       if (yearlyKind) {
         // Invite-flow: cohortId беремо з token-у замість поточного `isCurrent`. Дозволяє
@@ -316,63 +343,98 @@ export async function POST(req: NextRequest) {
           }
         }
 
-        // Guard боргу (тільки MONTHLY — у YEARLY один платіж, борг неможливий).
-        // Місячний графік прив'язаний до КАЛЕНДАРНИХ слотів набору, а не до дати оплати:
-        // наступний платіж «займає» слот `anchor + (сплачено + 1) місяців`. Якщо людина
-        // пропустила кілька місяців, цей слот уже в минулому — оплата відкрила б доступ,
-        // що вже прострочений (callback фіксує такий кейс подією `revived_with_debt`).
-        // Грошей наосліп не беремо: рахуємо дату слота ТІЄЮ Ж формулою, що й доступ
-        // (calculateAccessUntil із синтетичними майбутніми платежами — щоб не дублювати
-        // правила anchor/клемпу/кепа), і відправляємо до менеджера: пропущені місяці
-        // він закриває вручну через ручні платежі.
-        if (plan === 'MONTHLY' && existing && currentCohortId) {
+        // Дати набору тягнемо один раз — їх використовують guard-и нижче і побудова
+        // WFP-графіка наприкінці запиту.
+        if (currentCohortId) {
+          currentCohortDates = await prisma.yearlyProgramCohort.findUnique({
+            where: { id: currentCohortId },
+            select: { startDate: true, endDate: true },
+          });
+        }
+
+        if (plan === 'MONTHLY' && existing) {
           const paidPayments = await prisma.payment.findMany({
             where: { yearlyProgramSubscriptionId: existing.id, status: 'PAID' },
             select: { amount: true, status: true, paidAt: true, createdAt: true },
           });
-          if (paidPayments.length > 0) {
-            const cohortDates = await prisma.yearlyProgramCohort.findUnique({
-              where: { id: currentCohortId },
-              select: { startDate: true, endDate: true },
+          monthlyPaidCount = paidPayments.length;
+
+          // Cap: усі місяці програми вже сплачені — продавати 10-й місяць нікуди.
+          // Доступ у такої підписки вже максимальний (cohort.endDate + пост-доступ),
+          // новий платіж не дав би нічого, крім списаних грошей.
+          if (monthlyPaidCount >= YEARLY_PROGRAM_CONFIG.totalMonthlyPayments) {
+            return NextResponse.json({
+              error: 'Програму вже повністю оплачено. Якщо потрібна допомога — напишіть на edu@uimp.com.ua',
+              code: 'monthly_fully_paid',
+            }, { status: 409 });
+          }
+
+          // Guard боргу (тільки MONTHLY — у YEARLY один платіж, борг неможливий).
+          // Місячний графік прив'язаний до КАЛЕНДАРНИХ слотів набору, а не до дати оплати:
+          // наступний платіж «займає» слот `anchor + (сплачено + 1) місяців`. Якщо людина
+          // пропустила кілька місяців, цей слот уже в минулому — оплата відкрила б доступ,
+          // що вже прострочений (callback фіксує такий кейс подією `revived_with_debt`).
+          // Грошей наосліп не беремо: рахуємо дату слота ТІЄЮ Ж формулою, що й доступ
+          // (calculateAccessUntil із синтетичними майбутніми платежами — щоб не дублювати
+          // правила anchor/клемпу/кепа), і відправляємо до менеджера: пропущені місяці
+          // він закриває вручну через ручні платежі.
+          if (monthlyPaidCount > 0 && currentCohortDates) {
+            const postAccessMonths = await getYearlyPostAccessMonths(prisma);
+            const nowTs = new Date();
+            /// Дата завершення доступу, якщо людина зараз зробить `extra` платежів.
+            const accessAfter = (extra: number) => calculateAccessUntil({
+              plan: 'MONTHLY',
+              autoRenew: existing!.autoRenew,
+              cohort: currentCohortDates!,
+              payments: [
+                ...paidPayments,
+                ...Array.from({ length: extra }, () => ({
+                  amount: 0,
+                  status: 'PAID',
+                  paidAt: nowTs,
+                  createdAt: nowTs,
+                })),
+              ],
+              postAccessMonths,
             });
-            if (cohortDates) {
-              const postAccessMonths = await getYearlyPostAccessMonths(prisma);
-              const nowTs = new Date();
-              /// Дата завершення доступу, якщо людина зараз зробить `extra` платежів.
-              const accessAfter = (extra: number) => calculateAccessUntil({
-                plan: 'MONTHLY',
-                autoRenew: existing!.autoRenew,
-                cohort: cohortDates,
-                payments: [
-                  ...paidPayments,
-                  ...Array.from({ length: extra }, () => ({
-                    amount: 0,
-                    status: 'PAID',
-                    paidAt: nowTs,
-                    createdAt: nowTs,
-                  })),
-                ],
-                postAccessMonths,
-              });
-              const nextAccessEnd = accessAfter(1);
-              if (nextAccessEnd && nextAccessEnd <= nowTs) {
-                // Скільки слотів поспіль лишились би в минулому = скільки місяців пропущено.
-                let missed = 1;
-                while (missed < YEARLY_PROGRAM_CONFIG.totalMonthlyPayments) {
-                  const d = accessAfter(missed + 1);
-                  if (!d || d > nowTs) break;
-                  missed++;
-                }
-                const monthWord = missed % 10 === 1 && missed % 100 !== 11
-                  ? 'місяць'
-                  : ([2, 3, 4].includes(missed % 10) && ![12, 13, 14].includes(missed % 100) ? 'місяці' : 'місяців');
-                return NextResponse.json({
-                  error: `Пропущено ${missed} ${monthWord} оплат за графіком набору — для поновлення звертніться до менеджера`,
-                  code: 'monthly_schedule_debt',
-                }, { status: 409 });
+            const nextAccessEnd = accessAfter(1);
+            if (nextAccessEnd && nextAccessEnd <= nowTs) {
+              // Скільки слотів поспіль лишились би в минулому = скільки місяців пропущено.
+              let missed = 1;
+              while (missed < YEARLY_PROGRAM_CONFIG.totalMonthlyPayments) {
+                const d = accessAfter(missed + 1);
+                if (!d || d > nowTs) break;
+                missed++;
               }
+              const monthWord = missed % 10 === 1 && missed % 100 !== 11
+                ? 'місяць'
+                : ([2, 3, 4].includes(missed % 10) && ![12, 13, 14].includes(missed % 100) ? 'місяці' : 'місяців');
+              return NextResponse.json({
+                error: `Пропущено ${missed} ${monthWord} оплат за графіком набору — для поновлення звертніться до менеджера`,
+                code: 'monthly_schedule_debt',
+              }, { status: 409 });
             }
           }
+        }
+
+        // Скільки списань іще має сенс програмувати. Дві межі: лишок за програмою
+        // (9 − уже сплачені цією підпискою) і кількість слотів до кінця набору.
+        // Без цього upgrade разова→автоплатіж після 2 сплачених місяців створював би
+        // регулярку на всі 9 списань — 2 місяці людина оплатила б двічі.
+        if (plan === 'MONTHLY') {
+          const nowTs = new Date();
+          autopayAnchor = currentCohortDates && currentCohortDates.startDate > nowTs
+            ? currentCohortDates.startDate
+            : nowTs;
+          const remainingByProgram = YEARLY_PROGRAM_CONFIG.totalMonthlyPayments - monthlyPaidCount;
+          const remainingBySlots = currentCohortDates
+            ? maxAutopayChargeCount({
+                firstPaymentDate: autopayAnchor,
+                cohortEndDate: currentCohortDates.endDate,
+              })
+            : YEARLY_PROGRAM_CONFIG.totalMonthlyPayments;
+          autopayTotalPayments = Math.min(remainingByProgram, remainingBySlots);
+          autopayLimitedByProgram = remainingByProgram < remainingBySlots;
         }
 
         if (existing) {
@@ -387,7 +449,17 @@ export async function POST(req: NextRequest) {
           const repointCohort = isPendingLike && existing.cohortId !== currentCohortId;
           // Invite-flow додатково позначає підписку як manually added.
           const markManualAdd = !!invitePayload && isPendingLike;
-          if (parsedCountry || normalizedTelegramUsername || normalizedPhone || repointCohort || markManualAdd) {
+          // Свою ж помітку про відсутній username прибираємо, якщо цього разу він валідний.
+          // Справжні помилки Bot API (бот не адмін, канал видалено) не чіпаємо.
+          const clearOwnTelegramError = !!normalizedTelegramUsername
+            && existing.telegramInviteError === MISSING_TELEGRAM_USERNAME_ERROR;
+          // Позначку ставимо, лише коли валідного username нема ВЗАГАЛІ. Якщо він уже
+          // збережений з попередньої покупки, а цього разу поле не заповнили — інвайт
+          // усе одно можливий, помилку не вигадуємо.
+          const telegramErrorToSet = telegramInviteError && !existing.telegramUsername
+            ? telegramInviteError
+            : null;
+          if (parsedCountry || normalizedTelegramUsername || normalizedPhone || repointCohort || markManualAdd || telegramErrorToSet) {
             await prisma.yearlyProgramSubscription.update({
               where: { id: existing.id },
               data: {
@@ -395,6 +467,8 @@ export async function POST(req: NextRequest) {
                 ...(normalizedTelegramUsername ? { telegramUsername: normalizedTelegramUsername } : {}),
                 ...(normalizedPhone ? { phone: normalizedPhone } : {}),
                 ...(repointCohort ? { cohortId: currentCohortId } : {}),
+                ...(telegramErrorToSet ? { telegramInviteError: telegramErrorToSet } : {}),
+                ...(clearOwnTelegramError ? { telegramInviteError: null } : {}),
                 ...(markManualAdd && !existing.manuallyAddedAt
                   ? { manuallyAddedAt: new Date(), manuallyAddedBy: invitePayload!.invitedBy }
                   : {}),
@@ -447,7 +521,9 @@ export async function POST(req: NextRequest) {
           }
           // Sync autoRenew з recurring у обидва боки. Без цього БД залишається "разова"
           // навіть коли юзер апгрейдиться на АВТОПЛАТІЖ (callback пише monthly-once у логи).
-          const desiredAutoRenew = plan === 'MONTHLY' && recurring === true;
+          // Якщо програмувати нічого (`autopayTotalPayments <= 1` — цей платіж останній),
+          // підписка лишається разовою: WFP-регулярки не буде, тож і прапорець брехати не має.
+          const desiredAutoRenew = plan === 'MONTHLY' && recurring === true && (autopayTotalPayments ?? 0) > 1;
           if (existing.autoRenew !== desiredAutoRenew) {
             // Downgrade: знімаємо ВСІ WFP-регулярки existing підписки перед UPDATE.
             // Якщо REMOVE впаде — все одно мутимо БД, щоб уникнути неконсистентного стану;
@@ -479,7 +555,7 @@ export async function POST(req: NextRequest) {
             });
           }
         } else {
-          const autoRenew = plan === 'MONTHLY' && recurring === true;
+          const autoRenew = plan === 'MONTHLY' && recurring === true && (autopayTotalPayments ?? 0) > 1;
           const created = await prisma.yearlyProgramSubscription.create({
             data: {
               userId: user.id,
@@ -490,6 +566,7 @@ export async function POST(req: NextRequest) {
               ...(parsedCountry ? { country: parsedCountry } : {}),
               ...(normalizedTelegramUsername ? { telegramUsername: normalizedTelegramUsername } : {}),
               ...(normalizedPhone ? { phone: normalizedPhone } : {}),
+              ...(telegramInviteError ? { telegramInviteError } : {}),
               ...(invitePayload
                 ? {
                     manuallyAddedAt: new Date(),
@@ -605,48 +682,41 @@ export async function POST(req: NextRequest) {
     // Для MONTHLY плану Річної програми — увімкнути токенізацію й регулярне щомісячне списання.
     // Admin теж отримує regular flags — це свідомий вибір: для перевірки cyclical потоку треба
     // справжню регулярку на стороні WFP. Адмін після тесту викликає Cancel → removeRegularSchedule.
-    if (yearlyKind === 'monthly' && recurring !== false) {
+    // `autopayTotalPayments <= 1` — програмувати нічого: цей платіж закриває або останній
+    // місяць програми, або останній слот набору. Регулярні флаги не чіпляємо взагалі —
+    // покупка йде як разова (підписка вище теж лишилась з autoRenew=false).
+    if (yearlyKind === 'monthly' && recurring !== false && (autopayTotalPayments ?? 0) > 1) {
       // Якщо є поточний cohort — обмежуємо регулярку cohort.endDate, щоб остання
       // автосписання не виходила за межі програми. Без cohort — стара поведінка
       // (9 платежів × 30 днів від моменту покупки).
+      const totalPayments = autopayTotalPayments!;
       let regularFlags: ReturnType<typeof buildRegularPurchaseFlags>;
-      if (currentCohortId) {
-        const cohort = await prisma.yearlyProgramCohort.findUnique({
-          where: { id: currentCohortId },
-          select: { startDate: true, endDate: true },
+      if (currentCohortDates && autopayAnchor) {
+        // Покупка ДО старту програми: перший (Purchase) платіж покриває перший місяць
+        // ВІД дати старту cohort-у, тому WFP-графік наступних списань якоримо на
+        // cohort.startDate, а не на дату покупки: dateNext = anchor + 1 місяць.
+        // Друге списання прийде через місяць після старту, а не через місяць після
+        // покупки. Після старту — як раніше (від now).
+        regularFlags = buildRegularPurchaseFlags({
+          amount: finalAmount,
+          anchor: autopayAnchor,
+          // Межу набору тримаємо лише коли саме вона обмежує кількість списань. Якщо
+          // жорсткіший лишок за програмою (реюз підписки з уже сплаченими місяцями) —
+          // dateEnd рахує хелпер з totalPayments, інакше WFP списував би до кінця набору.
+          ...(autopayLimitedByProgram
+            ? {}
+            : {
+                dateEnd: lastAutopayChargeDate({
+                  firstPaymentDate: autopayAnchor,
+                  cohortEndDate: currentCohortDates.endDate,
+                }),
+              }),
+          totalPayments,
         });
-        if (cohort) {
-          const now = new Date();
-          // Покупка ДО старту програми: перший (Purchase) платіж покриває перший місяць
-          // ВІД дати старту cohort-у, тому WFP-графік наступних списань якоримо на
-          // cohort.startDate, а не на дату покупки: dateNext = anchor + 1 місяць.
-          // Друге списання прийде через місяць після старту, а не через місяць після
-          // покупки. Після старту — як раніше (від now).
-          const anchor = cohort.startDate > now ? cohort.startDate : now;
-          const totalPayments = maxAutopayChargeCount({
-            firstPaymentDate: anchor,
-            cohortEndDate: cohort.endDate,
-          });
-          const dateEndCohort = lastAutopayChargeDate({
-            firstPaymentDate: anchor,
-            cohortEndDate: cohort.endDate,
-          });
-          regularFlags = buildRegularPurchaseFlags({
-            amount: finalAmount,
-            anchor,
-            dateEnd: dateEndCohort,
-            totalPayments,
-          });
-        } else {
-          regularFlags = buildRegularPurchaseFlags({
-            amount: finalAmount,
-            totalPayments: YEARLY_PROGRAM_CONFIG.totalMonthlyPayments,
-          });
-        }
       } else {
         regularFlags = buildRegularPurchaseFlags({
           amount: finalAmount,
-          totalPayments: YEARLY_PROGRAM_CONFIG.totalMonthlyPayments,
+          totalPayments,
         });
       }
       Object.assign(paymentData, regularFlags);

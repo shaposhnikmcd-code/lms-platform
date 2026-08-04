@@ -226,7 +226,15 @@ export async function applyPromoServerSide(args: {
     }
   }
 
-  // 2) Global PromoCode fallback
+  // 2) Global PromoCode fallback.
+  // Річна програма СВІДОМО виключена: у неї власний механізм знижок — категорійні
+  // промо вище (`CategoryPromoOverride` yearly/monthly з фіксованою ціною). Загальний
+  // PromoCode (courseId=null) на «yearly-program*» був би тихою дірою: для MONTHLY
+  // знижена сума йде в `regularAmount`, тобто множиться на ВСІ 9 списань, а callback
+  // валідує рекурент проти суми першого платежу — тож заниження ніде не спливає.
+  if (courseId && courseId.startsWith(YEARLY_PROGRAM_CONFIG.yearlyOrderPrefix)) {
+    return { finalPrice: basePrice, promoId: null };
+  }
   const promo = await prisma.promoCode.findUnique({
     where: { code },
   });

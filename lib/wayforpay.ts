@@ -132,6 +132,10 @@ export async function removeRegularSchedule(opts: {
 /// Дати WFP повертає unix-секундами → конвертуємо в Date.
 export interface RegularStatus {
   found: boolean;
+  /// true — відповідь НЕ дає відповіді на питання «чи є правило»: 5xx/timeout,
+  /// нечитний JSON, невідомий reasonCode. Викликач НЕ має трактувати це як
+  /// «правила нема» (інакше 15-хвилинний збій WFP затирає кеш графіків в адмінці).
+  inconclusive: boolean;
   /// 'Active' | 'Suspended' | 'Removed' | 'Completed' | ... (як повернув WFP)
   status: string | null;
   mode: string | null;
@@ -158,12 +162,17 @@ export async function getRegularStatus(opts: {
       apiVersion: 1,
     }),
   });
-  const raw = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  const parsed = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+  const raw = parsed ?? {};
   const found = res.ok && raw.reasonCode === 4100;
+  // 4102 = «Rule not found» — це ЧЕСНА відповідь «правила нема». Усе інше без 4100
+  // (HTTP-помилка, нечитний JSON, чужий reasonCode) — невизначеність, а не відсутність.
+  const inconclusive = !found && !(res.ok && parsed !== null && raw.reasonCode === 4102);
   const toDate = (v: unknown): Date | null =>
     typeof v === 'number' && v > 0 ? new Date(v * 1000) : null;
   return {
     found,
+    inconclusive,
     status: typeof raw.status === 'string' ? raw.status : null,
     mode: typeof raw.mode === 'string' ? raw.mode : null,
     amount: typeof raw.amount === 'number' ? raw.amount : null,
