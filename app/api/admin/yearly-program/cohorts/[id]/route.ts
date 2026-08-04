@@ -87,8 +87,12 @@ export async function PATCH(
     return NextResponse.json({ error: 'Дата завершення має бути пізніше дати старту' }, { status: 400 });
   }
 
+  // Порівнюємо НОРМАЛІЗОВАНІ значення з обох боків. Інакше збережений legacy-рядок
+  // (endDate о 00:00) завжди «відрізнявся» б від нормалізованого 23:59:59.999 — і будь-яка
+  // правка назви/листа/прапорця «Поточний» вважалась би зміною дат: 400 на наборах із
+  // періодом ≠ 9 слотів + перерахунок усіх підписок + масовий CHANGE у WFP.
   const datesChanged = startDate.getTime() !== existing.startDate.getTime()
-    || endDate.getTime() !== existing.endDate.getTime();
+    || endDate.getTime() !== normalizeCohortEndDate(existing.endDate).getTime();
 
   // Валідуємо лише коли дати справді змінюються: правка назви/листа в legacy-наборі
   // з «неправильним» періодом не має падати в 400.
