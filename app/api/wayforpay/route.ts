@@ -32,8 +32,9 @@ export async function POST(req: NextRequest) {
     }
 
     // Manual-add invite: менеджер заздалегідь згенерував signed token із email/plan/cohortId.
-    // Якщо token валідний — primary email/plan/autoRenew йдуть з token-у, не з body
-    // (захист від підміни клієнтом). Підписка створюється з manuallyAddedAt + прив'язується
+    // Якщо token валідний — email, cohortId і (коли задані) план та тип оплати мають
+    // збігатися з тим, що прислав браузер: інакше 400. Тобто підписані менеджером умови
+    // не підміниш з боку клієнта. Підписка створюється з manuallyAddedAt + прив'язується
     // до cohort-у з token-у замість поточного `isCurrent`.
     let invitePayload: InvitePayload | null = null;
     if (typeof invite === 'string' && invite.length > 0) {
@@ -44,6 +45,22 @@ export async function POST(req: NextRequest) {
       // Email з body має співпадати з email у token-і — захист від підміни на стороні браузера.
       if (typeof clientEmail === 'string' && clientEmail.trim().toLowerCase() !== invitePayload.email) {
         return NextResponse.json({ error: 'Email не співпадає з invite-посиланням' }, { status: 400 });
+      }
+      // План визначається префіксом orderReference (yearly-program_ / yearly-program-monthly_),
+      // а він приходить з браузера. Без цієї звірки invite на MONTHLY можна було відправити
+      // з річним orderReference — інша ціна, інший графік доступу.
+      if (invitePayload.plan) {
+        const orderKind = isYearlyProgramOrderRef(orderReference);
+        const orderPlan = orderKind === 'yearly' ? 'YEARLY' : orderKind === 'monthly' ? 'MONTHLY' : null;
+        if (orderPlan !== invitePayload.plan) {
+          return NextResponse.json({ error: 'План оплати не співпадає з invite-посиланням' }, { status: 400 });
+        }
+      }
+      // Те саме для «разова / автосписання»: нижче autoRenew рахується саме з `recurring`.
+      if (invitePayload.autoRenew !== null && invitePayload.autoRenew !== undefined) {
+        if ((recurring === true) !== invitePayload.autoRenew) {
+          return NextResponse.json({ error: 'Тип оплати (автосписання) не співпадає з invite-посиланням' }, { status: 400 });
+        }
       }
     }
 

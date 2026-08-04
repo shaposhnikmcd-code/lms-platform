@@ -15,8 +15,11 @@ export interface InvitePayload {
   /// ім'я (опціонально, для prefill)
   name?: string;
   /// план оплати — опціонально. Якщо null/undefined, студент сам обирає план у формі.
+  /// Коли заданий — `/api/wayforpay` звіряє його з префіксом orderReference і відхиляє
+  /// невідповідність (форма lock-ає вибір, але body клієнта можна підмінити).
   plan?: 'YEARLY' | 'MONTHLY' | null;
   /// для MONTHLY — true=автосписання, false=одна оплата 30 днів. Опціонально.
+  /// Коли заданий (не null) — звіряється з `recurring` з body там же.
   autoRenew?: boolean | null;
   /// cohort, до якого прив'яжеться підписка (потрібно для post-launch invite)
   cohortId: string;

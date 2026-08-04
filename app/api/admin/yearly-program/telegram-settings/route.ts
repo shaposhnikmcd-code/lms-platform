@@ -7,7 +7,7 @@ import {
   setJoinRequestModeFlag,
   clearChatId,
 } from '@/lib/yearlyProgramTelegram';
-import { createChatInviteLink, TelegramApiError } from '@/lib/telegram';
+import { createChatInviteLink, revokeChatInviteLink, TelegramApiError } from '@/lib/telegram';
 import { sendYearlyProgramWelcomeEmail } from '@/lib/yearlyProgramWelcomeEmail';
 
 /// GET — повертає поточні налаштування Telegram-каналу.
@@ -90,10 +90,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ settings });
   }
 
-  // Тестовий лист: генерує РЕАЛЬНЕ одноразове invite-посилання для налаштованого
-  // каналу і шле welcome-лист (з телеграм-секцією) на вказаний email. Дозволяє
-  // перевірити, що канал підключено і секція коректно зʼявляється в листі — без
-  // реальної покупки. Підписку/Payment не створює.
+  // Тестовий лист: генерує invite-посилання для налаштованого каналу і шле welcome-лист
+  // (з телеграм-секцією) на вказаний email. Дозволяє перевірити, що канал підключено і
+  // секція коректно зʼявляється в листі — без реальної покупки. Підписку/Payment не створює.
+  //
+  // Invite тут НЕ прив'язаний до жодної підписки, тож живим лишатись не має: TTL 10 хв +
+  // revoke одразу після відправки, а в тексті листа стоїть маркер «[ТЕСТ]».
   if (action === 'test-email') {
     const email = (typeof body.email === 'string' && body.email.trim())
       ? body.email.trim()
@@ -115,7 +117,9 @@ export async function POST(req: NextRequest) {
         chatId: settings.chatId,
         name: 'UIMP test',
         ...(settings.joinRequestMode ? { createsJoinRequest: true } : { memberLimit: 1 }),
-        expireSeconds: 24 * 60 * 60,
+        // 10 хвилин: тестовий invite ні до кого не прив'язаний, тож живий він означав би
+        // вільний вхід у платний канал для будь-кого, кому лист переслали.
+        expireSeconds: 600,
       });
       inviteLink = link.invite_link;
     } catch (e) {
@@ -125,18 +129,32 @@ export async function POST(req: NextRequest) {
 
     const res = await sendYearlyProgramWelcomeEmail({
       to: email,
-      name: 'Тест',
+      // Ім'я — єдине вільне поле шаблону, тож маркер «це тест» ставимо в привітання:
+      // менеджер має одразу бачити, що кнопка в листі нічого не відкриє.
+      name: '[ТЕСТ] — посилання в цьому листі недійсне',
       plan: 'YEARLY',
       autoRenew: false,
       telegramInviteLink: inviteLink,
     });
+
+    // Відкликаємо одразу після відправки — лист лишається для перевірки вигляду, але
+    // кнопка в ньому вже мертва. Best-effort: фейл revoke не міняє результат відправки.
+    let inviteRevoked = false;
+    try {
+      await revokeChatInviteLink(settings.chatId, inviteLink);
+      inviteRevoked = true;
+    } catch (e) {
+      const msg = e instanceof TelegramApiError ? e.message : (e instanceof Error ? e.message : String(e));
+      console.warn(`[yearly-tg-settings] revoke тестового invite не вдався: ${msg}`);
+    }
+
     if (res.skipped) {
       return NextResponse.json({ error: 'Лист не надіслано: мейлер не налаштований (немає RESEND_API_KEY на цьому середовищі).' }, { status: 400 });
     }
     if (!res.ok) {
       return NextResponse.json({ error: res.error ?? 'Не вдалось надіслати лист' }, { status: 502 });
     }
-    return NextResponse.json({ ok: true, email, inviteGenerated: Boolean(inviteLink) });
+    return NextResponse.json({ ok: true, email, inviteGenerated: Boolean(inviteLink), inviteRevoked });
   }
 
   return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
