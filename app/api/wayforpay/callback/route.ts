@@ -673,9 +673,18 @@ async function closeAccessAfterFullRefund(args: {
   subscriptionId: string;
   userEmail: string | null;
   sendpulseStudentId: number | null;
-}): Promise<{ actions: string[]; spClosed: boolean; spError: string | null }> {
+}): Promise<{
+  actions: string[];
+  spOutcome: 'closed' | 'not_found' | 'error';
+  spError: string | null;
+  tgOutcome: 'kicked' | 'skipped' | 'error';
+}> {
   const actions: string[] = [];
-  let spClosed = false;
+  let tgOutcome: 'kicked' | 'skipped' | 'error' = 'error';
+  /// `closed` — доступ реально закрито (тільки в цьому випадку є сенс у
+  /// `sendpulseAccessClosedAt`); `not_found` — студента в курсі немає, закривати нічого;
+  /// `error` — SP не відповів, доступ міг лишитись відкритим.
+  let spOutcome: 'closed' | 'not_found' | 'error' = 'error';
   let spError: string | null = null;
 
   try {
@@ -693,16 +702,21 @@ async function closeAccessAfterFullRefund(args: {
     if (!courseId) {
       spError = 'SENDPULSE_YEARLY_COURSE_ID не налаштовано';
     } else if (!studentId) {
-      // Студента в курсі немає — закривати нічого, це не помилка.
-      spClosed = true;
+      // Студента в курсі немає — закривати нічого. Це не помилка, але й дату закриття
+      // ставити нема за що: доступ ніхто не відкривав.
+      spOutcome = 'not_found';
     } else {
       await closeAccessInCourse(studentId, courseId);
-      spClosed = true;
+      spOutcome = 'closed';
     }
   } catch (e) {
     spError = (e as Error).message.slice(0, 300);
   }
-  actions.push(spClosed ? 'sp:access_closed' : `sp:close_err:${(spError ?? 'unknown').slice(0, 40)}`);
+  actions.push(
+    spOutcome === 'closed' ? 'sp:access_closed'
+    : spOutcome === 'not_found' ? 'sp:close_skipped:student_not_found'
+    : `sp:close_err:${(spError ?? 'unknown').slice(0, 40)}`,
+  );
 
   try {
     const kick = await kickSubscriptionFromChannel({
@@ -710,12 +724,19 @@ async function closeAccessAfterFullRefund(args: {
       mode: 'permanent',
       triggeredBy: 'system:full-refund',
     });
-    actions.push(kick.ok ? 'telegram:kicked' : `telegram:kick_err:${(kick.error ?? kick.skipped ?? 'unknown').slice(0, 40)}`);
+    // `skipped` — це не збій: канал не налаштований або людина ніколи в ньому не була.
+    // Такі випадки не мають виглядати як помилка в логах callback-а.
+    tgOutcome = kick.skipped ? 'skipped' : kick.ok ? 'kicked' : 'error';
+    actions.push(
+      kick.skipped ? `telegram:kick_skipped:${kick.skipped}`
+      : kick.ok ? 'telegram:kicked'
+      : `telegram:kick_err:${(kick.error ?? 'unknown').slice(0, 40)}`,
+    );
   } catch (e) {
     actions.push(`telegram:kick_err:${(e as Error).message.slice(0, 40)}`);
   }
 
-  return { actions, spClosed, spError };
+  return { actions, spOutcome, spError, tgOutcome };
 }
 
 /// Обробка повернення коштів (Refunded / Voided / RefundInProcessing).
@@ -903,13 +924,15 @@ async function handleRefundCallback(args: {
         ...(nothingLeftPaid
           ? {
               status: 'EXPIRED' as const,
-              ...(closeResult?.spClosed ? { sendpulseAccessClosedAt: now } : {}),
+              // Дата закриття — тільки якщо доступ РЕАЛЬНО закрили. «Студента в курсі
+              // немає» це не закриття: поле лишається порожнім, як і було.
+              ...(closeResult?.spOutcome === 'closed' ? { sendpulseAccessClosedAt: now } : {}),
             }
           : {}),
       },
     });
 
-    if (nothingLeftPaid && closeResult && !closeResult.spClosed) {
+    if (nothingLeftPaid && closeResult?.spOutcome === 'error') {
       await prisma.yearlyProgramSubscriptionEvent.create({
         data: {
           subscriptionId: sub.id,
@@ -920,6 +943,16 @@ async function handleRefundCallback(args: {
       });
       actions.push('sp:close_failed_logged');
     }
+    if (nothingLeftPaid && closeResult?.spOutcome === 'not_found') {
+      await prisma.yearlyProgramSubscriptionEvent.create({
+        data: {
+          subscriptionId: sub.id,
+          type: 'admin_action',
+          message: 'SendPulse: студента в курсі не знайдено — закривати доступ не було чого (повний рефанд).',
+          metadata: { orderReference: args.orderReference, spSkipped: 'student_not_found' },
+        },
+      });
+    }
 
     await prisma.yearlyProgramSubscriptionEvent.create({
       data: {
@@ -927,7 +960,15 @@ async function handleRefundCallback(args: {
         type: 'refunded',
         message: `Повернення ${refundedAmount}₴ з ${payment.amount}₴ (WFP ${args.transactionStatus}) · оплачених платежів лишилось ${remaining.length} · ${
           nothingLeftPaid
-            ? `оплат не лишилось → підписку закрито (EXPIRED), доступ у SendPulse ${closeResult?.spClosed ? 'закрито' : 'ЗАКРИТИ ВРУЧНУ'}, з Telegram-каналу вилучено`
+            ? `оплат не лишилось → підписку закрито (EXPIRED), доступ у SendPulse ${
+                closeResult?.spOutcome === 'closed' ? 'закрито'
+                : closeResult?.spOutcome === 'not_found' ? 'закривати не було чого (студента в курсі немає)'
+                : 'ЗАКРИТИ ВРУЧНУ'
+              }, Telegram: ${
+                closeResult?.tgOutcome === 'kicked' ? 'вилучено з каналу'
+                : closeResult?.tgOutcome === 'skipped' ? 'вилучати не було кого'
+                : 'ВИЛУЧИТИ ВРУЧНУ'
+              }`
             : `доступ до ${newExpiresAt ? newExpiresAt.toISOString().slice(0, 10) : '—'}`
         }${sub.plan === 'MONTHLY' ? ` · автосписання знято (${autopayRemoved})` : ''}`,
         metadata: {
