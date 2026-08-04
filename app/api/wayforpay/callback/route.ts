@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
+import type { YearlyProgramSubscriptionStatus } from '@prisma/client';
 import prisma from '@/lib/prisma';
 import { isYearlyProgramOrderRef, YEARLY_PROGRAM_CONFIG, getYearlyPostAccessMonths, RESET_REMINDER_AND_GRACE_FIELDS } from '@/lib/yearlyProgramConfig';
 import { syncAutopaySchedule } from '@/lib/yearlyProgramScheduleSync';
@@ -488,17 +489,29 @@ async function resolveRecurringSubscription(args: {
   });
   if (!user) return { sub: null, user: null, via: null };
 
-  // Спершу жива підписка, і лише якщо такої немає — закрита.
-  const live = await prisma.yearlyProgramSubscription.findFirst({
-    where: { userId: user.id, plan: 'MONTHLY', status: { in: ['ACTIVE', 'GRACE'] } },
-    orderBy: { createdAt: 'desc' },
-    select: subSelect,
-  });
-  const found = live ?? (await prisma.yearlyProgramSubscription.findFirst({
-    where: { userId: user.id, plan: 'MONTHLY', status: { in: ['EXPIRED', 'CANCELLED'] } },
-    orderBy: { createdAt: 'desc' },
-    select: subSelect,
-  }));
+  // Пріоритет строгий, а не «найновіша з усіх»: жива → недооплачена → закрита.
+  // Без тирів свіжа абандонована PENDING-спроба перебивала б ACTIVE-підписку
+  // (orderBy createdAt desc), і місячне списання пішло б не на ту підписку.
+  //   ACTIVE/GRACE — нормальний рекурент.
+  //   PENDING — підписка, яку оживили під повторну покупку, але доступ ще не відкрито
+  //             (WFP уже має правило регулярки → списання належить саме їй).
+  //   EXPIRED/CANCELLED/ARCHIVED — закрита: платіж фіксуємо як orphan (див. викликач).
+  const STATUS_TIERS: YearlyProgramSubscriptionStatus[][] = [
+    ['ACTIVE', 'GRACE'],
+    ['PENDING'],
+    ['EXPIRED', 'CANCELLED', 'ARCHIVED'],
+  ];
+  let found:
+    | { id: string; userId: string; status: string; plan: string; user: { id: string; email: string } | null }
+    | null = null;
+  for (const tier of STATUS_TIERS) {
+    found = await prisma.yearlyProgramSubscription.findFirst({
+      where: { userId: user.id, plan: 'MONTHLY', status: { in: tier } },
+      orderBy: { createdAt: 'desc' },
+      select: subSelect,
+    });
+    if (found) break;
+  }
 
   if (!found) return { sub: null, user, via: null };
   return {
@@ -866,6 +879,16 @@ async function handleYearlyProgramCallback(args: {
             errorMsg: `Subscription ${targetSub.id} disappeared mid-callback (order ${args.orderReference})`,
           } as RecurringCreateResult;
         }
+        // Статус перевіряємо ЩЕ РАЗ усередині Serializable-транзакції: між резолвом
+        // і цим місцем менеджер міг натиснути «Скасувати». Без повторної перевірки
+        // ми б продовжили доступ по щойно скасованій підписці.
+        if (CLOSED_SUB_STATUSES.has(sub.status)) {
+          return {
+            kind: 'error',
+            skipReason: 'subscription_closed_race',
+            errorMsg: `Subscription ${sub.id} became ${sub.status} mid-callback (order ${args.orderReference})`,
+          } as RecurringCreateResult;
+        }
         // Очікувана сума для рекурент-списання = сума першого PAID платежу
         // цієї підписки (бо WFP токенізує оригінальну суму). Якщо немає
         // попередніх PAID — fallback на поточний monthlyPrice з налаштувань.
@@ -925,6 +948,27 @@ async function handleYearlyProgramCallback(args: {
     }
 
     if (createResult.kind === 'error') {
+      // Підписку закрили вже після резолву (гонка з адмін-скасуванням): транзакція
+      // відкотилась, але гроші списані — фіксуємо їх як orphan-charge, а не мовчки губимо.
+      if (createResult.skipReason === 'subscription_closed_race') {
+        const raceActions = await recordOrphanRecurringCharge({
+          subscriptionId: targetSub.id,
+          userId: targetSub.userId,
+          subscriptionStatus: 'CLOSED_MID_CALLBACK',
+          orderReference: args.orderReference,
+          amountInt,
+          paymentSystem: typeof args.body.paymentSystem === 'string' ? args.body.paymentSystem : undefined,
+        });
+        actions.push(...raceActions);
+        return {
+          prevStatus: null,
+          skipped: true,
+          skipReason: 'orphan_recurring_charge',
+          errorMsg: createResult.errorMsg,
+          actions,
+          sendpulseSlugs,
+        };
+      }
       // Підписку ідентифікували, але платіж не зарахували (сума не збіглась / вичерпано
       // ліміт списань). Пишемо подію прямо в підписку — менеджер бачить причину у
       // «Подіях» студента; сам лог-запис підніметься як critical-issue.
@@ -950,19 +994,23 @@ async function handleYearlyProgramCallback(args: {
       actions.push('yearly:recurring_payment_created');
     }
   } else {
-    // Перший платіж: Payment знайдений. Перевіряємо, що підписка ще не CANCELLED/EXPIRED
-    // (Bug #6) — callback для такої підписки не має продовжувати доступ.
+    // Перший платіж (Payment створений при ініціації оплати).
+    //
+    // ARCHIVED — далі відхиляємо: архів це «видалено менеджером», оживляти нічого.
+    // EXPIRED/CANCELLED — навпаки, ОЖИВЛЯЄМО. Це повторна покупка людини, чия підписка
+    // померла: `/api/wayforpay` лінкує новий Payment саме до неї, щоб сплачені місяці
+    // не згорали. Раніше тут стояла відмова, і людина платила в порожнечу.
     if (payment.yearlyProgramSubscriptionId) {
       const subCheck = await prisma.yearlyProgramSubscription.findUnique({
         where: { id: payment.yearlyProgramSubscriptionId },
         select: { status: true },
       });
-      if (subCheck && (subCheck.status === 'CANCELLED' || subCheck.status === 'EXPIRED' || subCheck.status === 'ARCHIVED')) {
+      if (subCheck?.status === 'ARCHIVED') {
         return {
           prevStatus: payment.status,
           skipped: true,
-          skipReason: `subscription_${subCheck.status.toLowerCase()}`,
-          errorMsg: `Subscription is ${subCheck.status}, refusing to extend`,
+          skipReason: 'subscription_archived',
+          errorMsg: 'Subscription is ARCHIVED, refusing to extend',
           actions,
           sendpulseSlugs,
         };
@@ -1011,9 +1059,21 @@ async function handleYearlyProgramCallback(args: {
   type FlipResult =
     | { kind: 'already_paid' }
     | { kind: 'sub_missing' }
-    | { kind: 'ok'; sub: SubWithCohort; newExpiresAt: Date; durationDays: number; wasFirstPayment: boolean };
+    | { kind: 'sub_archived' }
+    | {
+        kind: 'ok';
+        sub: SubWithCohort;
+        newExpiresAt: Date;
+        durationDays: number;
+        wasFirstPayment: boolean;
+        /// Статус, з якого підписку оживили (EXPIRED/CANCELLED), або null для звичайної оплати.
+        revivedFrom: string | null;
+        /// true — SendPulse-доступ був закритий і ми скинули маркери, щоб відкрити його заново.
+        accessReset: boolean;
+      };
 
   const SUB_MISSING_SENTINEL = '__SUB_MISSING_ROLLBACK__';
+  const SUB_ARCHIVED_SENTINEL = '__SUB_ARCHIVED_ROLLBACK__';
   let flipResult: FlipResult;
   try {
     flipResult = await prisma.$transaction(async (tx): Promise<FlipResult> => {
@@ -1039,9 +1099,21 @@ async function handleYearlyProgramCallback(args: {
         // Кидаємо sentinel щоб зробити rollback flip-а — Payment має лишитись PENDING.
         throw new Error(SUB_MISSING_SENTINEL);
       }
+      if (sub.status === 'ARCHIVED') {
+        // Архівували вже після зовнішньої перевірки — відкочуємо flip.
+        throw new Error(SUB_ARCHIVED_SENTINEL);
+      }
 
       const now = new Date();
       const wasFirstPayment = !sub.startDate;
+      /// Оживлення: підписка була мертвою, людина повернулась і доплатила.
+      /// Дати рахуються тією ж формулою, що й для звичайної оплати — сплачені раніше
+      /// місяці лишаються в заліку, бо `calculateAccessUntil` бере всі PAID цієї підписки.
+      const revivedFrom = sub.status === 'EXPIRED' || sub.status === 'CANCELLED' ? sub.status : null;
+      /// Доступ у SendPulse колись закривали → маркери треба скинути, інакше
+      /// `runExtraLaunchForSubscription` вийде з `already_opened` і людина лишиться
+      /// з оплаченою, але закритою програмою.
+      const accessReset = !!sub.sendpulseAccessClosedAt;
 
       // Cohort-aware розрахунок expiresAt. Якщо у sub є cohort — використовуємо його межі;
       // без cohort (legacy) — стара логіка `last_payment + N днів`.
@@ -1076,6 +1148,12 @@ async function handleYearlyProgramCallback(args: {
           // відпрацював попередження. Без скидання grace-прапорів на 2-му циклі студент
           // не отримував жодного grace-листа, а стара grace-дата псувала текст листа.
           ...RESET_REMINDER_AND_GRACE_FIELDS,
+          // Оживлення: слід скасування більше не актуальний. Прив'язано до самого
+          // `cancelledAt`, а не до статусу: `/api/wayforpay` встигає перевести мертву
+          // підписку в PENDING ще до редіректу, і за статусом revive вже не видно.
+          ...(sub.cancelledAt ? { cancelledAt: null, cancelledBy: null, cancelledReason: null } : {}),
+          // Доступ закривали → відкриваємо заново (шлях відкриття нижче по коду).
+          ...(accessReset ? { sendpulseAccessOpenedAt: null, sendpulseAccessClosedAt: null } : {}),
         },
       });
 
@@ -1083,20 +1161,42 @@ async function handleYearlyProgramCallback(args: {
         data: {
           subscriptionId: sub.id,
           type: wasFirstPayment ? 'created' : 'renewed',
-          message: `Payment ${payment!.orderReference} · +${durationDays}d · expires ${newExpiresAt.toISOString().slice(0, 10)}`,
+          message: `Payment ${payment!.orderReference} · +${durationDays}d · expires ${newExpiresAt.toISOString().slice(0, 10)}${revivedFrom ? ` · оживлено з ${revivedFrom}` : ''}`,
           metadata: {
             amount: payment!.amount,
             paymentId: payment!.id,
             recurring: isRecurring,
+            ...(revivedFrom ? { revivedFrom, accessReset } : {}),
           },
         },
       });
 
-      return { kind: 'ok', sub: sub as SubWithCohort, newExpiresAt, durationDays, wasFirstPayment };
+      // Людина повернулась із «боргом»: платежів не вистачає навіть на поточну дату,
+      // тому перерахований доступ уже прострочений. Активуємо все одно (гроші прийшли),
+      // але лишаємо слід — менеджер побачить у «Подіях» і зможе допродати місяці.
+      if (newExpiresAt.getTime() <= now.getTime()) {
+        await tx.yearlyProgramSubscriptionEvent.create({
+          data: {
+            subscriptionId: sub.id,
+            type: 'admin_action',
+            message: `⚠️ Після активації доступ уже прострочений (expires ${newExpiresAt.toISOString().slice(0, 10)}). Оплачених місяців не вистачає до сьогодні — потрібне рішення менеджера.`,
+            metadata: {
+              orderReference: payment!.orderReference,
+              expiresAt: newExpiresAt.toISOString(),
+              paidPayments: allPayments.length,
+              revivedFrom,
+            },
+          },
+        });
+      }
+
+      return { kind: 'ok', sub: sub as SubWithCohort, newExpiresAt, durationDays, wasFirstPayment, revivedFrom, accessReset };
     });
   } catch (e) {
     if (e instanceof Error && e.message === SUB_MISSING_SENTINEL) {
       flipResult = { kind: 'sub_missing' };
+    } else if (e instanceof Error && e.message === SUB_ARCHIVED_SENTINEL) {
+      flipResult = { kind: 'sub_archived' };
     } else {
       throw e;
     }
@@ -1118,6 +1218,16 @@ async function handleYearlyProgramCallback(args: {
       skipped: true,
       skipReason: 'subscription_missing',
       errorMsg: `Subscription ${payment.yearlyProgramSubscriptionId} not found (tx rolled back, payment stays PENDING)`,
+      actions,
+      sendpulseSlugs,
+    };
+  }
+  if (flipResult.kind === 'sub_archived') {
+    return {
+      prevStatus,
+      skipped: true,
+      skipReason: 'subscription_archived',
+      errorMsg: `Subscription ${payment.yearlyProgramSubscriptionId} is ARCHIVED (tx rolled back, payment stays PENDING)`,
       actions,
       sendpulseSlugs,
     };
@@ -1181,7 +1291,24 @@ async function handleYearlyProgramCallback(args: {
   // lett, без ручного "🎯 Екстра Запуск" кліку менеджера. Запасний ручний шлях все одно
   // лишається на випадок збою SP API під час оплати.
   // Інакше (звичайний flow до launch) — шлемо тільки наш generic welcome lett (без креденшилз).
-  if (flipResult.wasFirstPayment) {
+  //
+  // Умова входу — НЕ «перший платіж», а «доступу немає». Інакше реюзнута підписка
+  // (повторна покупка після EXPIRED: `startDate` уже заповнений, тож wasFirstPayment=false)
+  // проходила б повз відкриття SendPulse, TG-invite і листа — людина платить і не
+  // отримує нічого. Три випадки:
+  //   1) перший платіж — класичний онбординг;
+  //   2) оживлення / повторне відкриття закритого доступу;
+  //   3) heal: cohort уже запущений, а доступ так і не відкрився (збій SP на launch-і) —
+  //      чергова оплата стає нагодою добити відкриття (extra-launch ідемпотентний).
+  // Звичайне місячне продовження живої підписки сюди НЕ потрапляє: до запуску
+  // cohort-у `launchedAt` порожній, після запуску `sendpulseAccessOpenedAt` заповнений.
+  const needsAccessOpen =
+    flipResult.revivedFrom !== null
+    || flipResult.accessReset
+    || (!!sub.cohort?.launchedAt && !sub.sendpulseAccessOpenedAt);
+  if (flipResult.revivedFrom) actions.push(`yearly:revived_from_${flipResult.revivedFrom.toLowerCase()}`);
+  if (flipResult.accessReset) actions.push('yearly:sp_access_reset');
+  if (flipResult.wasFirstPayment || needsAccessOpen) {
     // Auto-add у Telegram-канал перед розсилкою welcome / extra-launch листа.
     // Якщо settings.autoAdd=ON, є chatId, і користувач надав telegramUsername —
     // генеруємо одноразовий invite-link і вкладаємо в лист. Помилка генерації
