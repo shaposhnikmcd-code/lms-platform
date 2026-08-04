@@ -519,38 +519,48 @@ export async function POST(req: NextRequest) {
               },
             });
           }
-          // Sync autoRenew з recurring у обидва боки. Без цього БД залишається "разова"
-          // навіть коли юзер апгрейдиться на АВТОПЛАТІЖ (callback пише monthly-once у логи).
+          // Sync autoRenew з recurring — АСИМЕТРИЧНО, і це навмисно.
           // Якщо програмувати нічого (`autopayTotalPayments <= 1` — цей платіж останній),
           // підписка лишається разовою: WFP-регулярки не буде, тож і прапорець брехати не має.
           const desiredAutoRenew = plan === 'MONTHLY' && recurring === true && (autopayTotalPayments ?? 0) > 1;
-          if (existing.autoRenew !== desiredAutoRenew) {
-            // Downgrade: знімаємо ВСІ WFP-регулярки existing підписки перед UPDATE.
+
+          // ── АВТОПЛАТІЖ → РАЗОВА (downgrade): застосовуємо одразу на ініціації.
+          // Ідемпотентно і безпечно: знімаємо правила у WFP і гасимо прапорець. Навіть якщо
+          // людина не доплатить, стан «немає регулярки + autoRenew=false» коректний.
+          if (existing.autoRenew && !desiredAutoRenew) {
             // Якщо REMOVE впаде — все одно мутимо БД, щоб уникнути неконсистентного стану;
             // помилку логуємо в subscription event для діагностики.
-            const downgrade = !desiredAutoRenew && existing.autoRenew;
-            const autopay = downgrade
-              ? await removeSubscriptionAutopay(existing.id)
-              : { removed: 0, attempted: 0, error: null };
-
+            const autopay = await removeSubscriptionAutopay(existing.id);
             await prisma.yearlyProgramSubscription.update({
               where: { id: existing.id },
-              data: {
-                autoRenew: desiredAutoRenew,
-              },
+              data: { autoRenew: false },
             });
             await prisma.yearlyProgramSubscriptionEvent.create({
               data: {
                 subscriptionId: existing.id,
-                type: desiredAutoRenew ? 'autorenew_upgraded' : 'autorenew_downgraded',
-                message: desiredAutoRenew
-                  ? 'Upgraded to АВТОПЛАТІЖ on new payment'
-                  : `Downgraded to РАЗОВА on new payment · WFP REMOVE: ${autopay.removed}/${autopay.attempted}${autopay.error ? ` (errors: ${autopay.error.slice(0, 200)})` : ''}`,
+                type: 'autorenew_downgraded',
+                message: `Downgraded to РАЗОВА on new payment · WFP REMOVE: ${autopay.removed}/${autopay.attempted}${autopay.error ? ` (errors: ${autopay.error.slice(0, 200)})` : ''}`,
                 metadata: {
                   wfpRemovedCount: autopay.removed,
                   wfpAttemptedCount: autopay.attempted,
                   wfpRemoveError: autopay.error,
                 },
+              },
+            });
+          }
+          // ── РАЗОВА → АВТОПЛАТІЖ (upgrade): БД тут НЕ чіпаємо.
+          // Regular-флаги в payload для WFP усе одно йдуть (нижче), але прапорець у нас
+          // виставить Approved-callback — за фактом живого правила у WFP. Інакше людина,
+          // яка перемкнула тумблер і закрила вкладку не заплативши, лишалась би з
+          // autoRenew=true без жодної регулярки, і Rule 2 («скасуйте автосписання»)
+          // блокував би їй наступну оплату — самоблокування без виходу.
+          else if (!existing.autoRenew && desiredAutoRenew) {
+            await prisma.yearlyProgramSubscriptionEvent.create({
+              data: {
+                subscriptionId: existing.id,
+                type: 'autorenew_upgrade_requested',
+                message: `Обрано АВТОПЛАТІЖ при оплаті ${orderReference}. Прапорець увімкнеться після успішної оплати — за фактом правила регулярки у WFP.`,
+                metadata: { orderReference, plan },
               },
             });
           }

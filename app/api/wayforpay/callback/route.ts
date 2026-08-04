@@ -17,7 +17,7 @@ import { timingSafeEqualStr } from '@/lib/authTiming';
 import { getYearlyProgramSettings } from '@/lib/yearlyProgramSettings';
 import { provisionPayment } from '@/lib/paymentProvisioning';
 import { sendBundlePurchaseEmail } from '@/lib/bundlePurchaseEmail';
-import { getWayforpayCreds } from '@/lib/wayforpay';
+import { getRegularStatus, getWayforpayCreds } from '@/lib/wayforpay';
 import { calculateAccessUntil, maxAutopayChargeCount } from '@/lib/yearlyProgramAccess';
 import { removeSubscriptionAutopay } from '@/lib/yearlyProgramAutopay';
 import { archiveDuplicatePendingSubscriptions } from '@/lib/yearlyProgramDedup';
@@ -1666,6 +1666,53 @@ async function handleYearlyProgramCallback(args: {
     actions.push(`dedup:err:${(e as Error).message.slice(0, 40)}`);
   }
 
+  const fullyPaid = flipResult.paidCount >= YEARLY_PROGRAM_CONFIG.totalMonthlyPayments;
+
+  // Прапорець autoRenew вмикається САМЕ ТУТ, за фактом живого правила у WFP. Ініціація
+  // оплати (`/api/wayforpay`) навмисно не робить upgrade разова→автоплатіж у БД: інакше
+  // людина, яка перемкнула тумблер і закрила вкладку не заплативши, лишалась би з
+  // autoRenew=true без жодної регулярки — і Rule 2 («скасуйте автосписання») блокував би
+  // їй наступну оплату. Перевіряємо STATUS правила, створеного цим самим Purchase-ом.
+  // `sub` мутуємо в пам'яті, щоб уся логіка нижче (лейбли, листи, receipt) бачила правду.
+  if (sub.plan === 'MONTHLY' && !sub.autoRenew && !fullyPaid) {
+    try {
+      const merchantPassword = process.env.WAYFORPAY_MERCHANT_PASSWORD;
+      if (!merchantPassword) {
+        actions.push('autopay:probe_skipped:no_password');
+      } else {
+        const creds = getWayforpayCreds();
+        const st = await getRegularStatus({
+          merchantAccount: creds.merchantAccount,
+          merchantPassword,
+          orderReference: payment.orderReference,
+        });
+        if (st.inconclusive) {
+          // WFP не дав чесної відповіді — прапорець не чіпаємо, нічна звірка добере.
+          actions.push('autopay:probe_inconclusive');
+        } else if (st.found && st.status === 'Active') {
+          await prisma.yearlyProgramSubscription.update({
+            where: { id: sub.id },
+            data: { autoRenew: true },
+          });
+          await prisma.yearlyProgramSubscriptionEvent.create({
+            data: {
+              subscriptionId: sub.id,
+              type: 'autorenew_upgraded',
+              message: `Автоплатіж увімкнено після оплати ${payment.orderReference} — у WFP знайдено активне правило регулярки.`,
+              metadata: { orderReference: payment.orderReference, ruleStatus: st.status },
+            },
+          });
+          sub.autoRenew = true;
+          actions.push('autopay:enabled_after_payment');
+        } else {
+          actions.push('autopay:probe_no_rule');
+        }
+      }
+    } catch (e) {
+      actions.push(`autopay:probe_err:${(e as Error).message.slice(0, 40)}`);
+    }
+  }
+
   const planLabel =
     sub.plan === 'YEARLY'
       ? 'yearly'
@@ -1679,7 +1726,6 @@ async function handleYearlyProgramCallback(args: {
   // 9/9 — навпаки, apply:true: гілка `fullyPaid` у sync-у знімає правило регулярки (REMOVE).
   // Без цього WFP пробує 10-те списання, ми його відхиляємо по monthly_cap_reached, а гроші
   // доводиться повертати вручну. Помилка не блокує callback.
-  const fullyPaid = flipResult.paidCount >= YEARLY_PROGRAM_CONFIG.totalMonthlyPayments;
   if (sub.plan === 'MONTHLY' && sub.autoRenew) {
     try {
       const syncRes = await syncAutopaySchedule(sub.id, { apply: fullyPaid, source: fullyPaid ? 'callback:fully-paid' : 'callback' });
