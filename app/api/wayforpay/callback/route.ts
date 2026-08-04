@@ -1173,17 +1173,20 @@ async function handleYearlyProgramCallback(args: {
 
       // Людина повернулась із «боргом»: платежів не вистачає навіть на поточну дату,
       // тому перерахований доступ уже прострочений. Активуємо все одно (гроші прийшли),
-      // але лишаємо слід — менеджер побачить у «Подіях» і зможе допродати місяці.
+      // але лишаємо слід. Тип події `revived_with_debt` мапиться у вкладку «Помилки» —
+      // менеджер має вирішити: допродати місяці чи скоригувати дати.
       if (newExpiresAt.getTime() <= now.getTime()) {
+        const totalSlots = sub.plan === 'MONTHLY' ? YEARLY_PROGRAM_CONFIG.totalMonthlyPayments : 1;
         await tx.yearlyProgramSubscriptionEvent.create({
           data: {
             subscriptionId: sub.id,
-            type: 'admin_action',
-            message: `⚠️ Після активації доступ уже прострочений (expires ${newExpiresAt.toISOString().slice(0, 10)}). Оплачених місяців не вистачає до сьогодні — потрібне рішення менеджера.`,
+            type: 'revived_with_debt',
+            message: `⚠️ Оплата зарахована, але доступ уже прострочений: сплачено ${allPayments.length} з ${totalSlots} — розрахована дата завершення ${newExpiresAt.toISOString().slice(0, 10)} вже в минулому.${revivedFrom ? ` Підписку оживлено зі статусу ${revivedFrom}.` : ''} Потрібне рішення менеджера: допродати місяці або скоригувати дати.`,
             metadata: {
               orderReference: payment!.orderReference,
               expiresAt: newExpiresAt.toISOString(),
               paidPayments: allPayments.length,
+              totalSlots,
               revivedFrom,
             },
           },

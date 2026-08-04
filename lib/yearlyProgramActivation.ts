@@ -11,6 +11,9 @@
 ///     `allowRevive:false` (edit_payment) — статус не чіпає.
 /// startDate виставляється в lastPaymentAt, якщо ще не заданий (як `sub.startDate ?? now`
 /// у callback-у).
+///
+/// При РЕАЛЬНОМУ оживленні (див. `revived` нижче) додатково повторює те, що робить
+/// callback: прибирає сліди скасування і скидає SendPulse-маркери, якщо доступ закривали.
 
 import { Prisma } from '@prisma/client';
 import prisma from '@/lib/prisma';
@@ -22,6 +25,10 @@ export interface PaymentActivationResult {
   newExpiresAt: Date | null;
   cohortLaunched: boolean;
   hasCohort: boolean;
+  /// true — оплата підняла мертву/скасовану підписку назад у ACTIVE.
+  revived: boolean;
+  /// true — SendPulse-маркери скинуто, щоб наступний extra-launch реально відкрив доступ.
+  spMarkersReset: boolean;
 }
 
 /// Статуси «живої» підписки, які завжди активуються після оплати.
@@ -68,6 +75,21 @@ export async function applyPaymentActivation(args: {
     ? 'ACTIVE'
     : (args.allowRevive ? 'ACTIVE' : args.prevStatus);
 
+  // Реальне оживлення = підписку підняли в ACTIVE з мертвого статусу АБО вона несла
+  // слід скасування. Друга умова важлива, бо мертву підписку могли вже перевести в
+  // PENDING (так робить `/api/wayforpay` перед повторною покупкою) — за статусом
+  // revive тоді не видно, а `cancelledAt` лишається.
+  const wasDead = !REVIVABLE_STATUSES.has(args.prevStatus);
+  const revived = newStatus === 'ACTIVE' && (wasDead || !!fresh?.cancelledAt);
+
+  // Дзеркало WFP-callback-а (`handleYearlyProgramCallback`): при оживленні прибираємо
+  // сліди скасування і, якщо доступ у SendPulse РЕАЛЬНО закривали, скидаємо обидва
+  // маркери. Без цього `runExtraLaunchForSubscription` виходить по `already_opened`,
+  // і після «Внести оплату» студент лишається ACTIVE у нас, але видаленим у SendPulse.
+  // Живих підписок без скасування це не торкається — маркери лишаються як були.
+  const clearCancelTrace = revived && !!fresh?.cancelledAt;
+  const spMarkersReset = revived && !!fresh?.sendpulseAccessClosedAt;
+
   await prisma.yearlyProgramSubscription.update({
     where: { id: args.subscriptionId },
     data: {
@@ -77,8 +99,10 @@ export async function applyPaymentActivation(args: {
       // startDate — «початок доступу»: якщо ще не заданий, ставимо дату платежу
       // (дзеркало `startDate: sub.startDate ?? now` у callback-у).
       ...(fresh?.startDate ? {} : { startDate: args.lastPaymentAt }),
+      ...(clearCancelTrace ? { cancelledAt: null, cancelledBy: null, cancelledReason: null } : {}),
+      ...(spMarkersReset ? { sendpulseAccessOpenedAt: null, sendpulseAccessClosedAt: null } : {}),
     },
   });
 
-  return { newStatus, newExpiresAt, cohortLaunched, hasCohort };
+  return { newStatus, newExpiresAt, cohortLaunched, hasCohort, revived, spMarkersReset };
 }
