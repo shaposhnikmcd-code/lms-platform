@@ -3,11 +3,11 @@ import crypto from 'crypto';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
-import { isYearlyProgramOrderRef, YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
+import { getYearlyPostAccessMonths, isYearlyProgramOrderRef, YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
 import { buildRegularPurchaseFlags, getWayforpayCreds } from '@/lib/wayforpay';
 import { applyPromoServerSide, resolveServerPricing } from '@/lib/paymentPricing';
 import { checkRateLimit } from '@/lib/ratelimit';
-import { lastAutopayChargeDate, maxAutopayChargeCount } from '@/lib/yearlyProgramAccess';
+import { calculateAccessUntil, lastAutopayChargeDate, maxAutopayChargeCount } from '@/lib/yearlyProgramAccess';
 import { removeSubscriptionAutopay } from '@/lib/yearlyProgramAutopay';
 import { resolveSellableCohort } from '@/lib/yearlyProgramCohort';
 import { verifyInvite, type InvitePayload } from '@/lib/yearlyProgramInvite';
@@ -249,19 +249,13 @@ export async function POST(req: NextRequest) {
           orderBy: { createdAt: 'desc' },
         });
         // PENDING без PAID-платежу = абандон (відкрив форму, не оплатив) → не блокуємо retry.
-        const subIsPaid = async (s: { id: string; status: string; expiresAt: Date | null }) => {
+        const subIsPaid = async (s: { id: string; status: string }) => {
           if (s.status === 'ACTIVE' || s.status === 'GRACE') return true;
           const p = await prisma.payment.findFirst({
             where: { yearlyProgramSubscriptionId: s.id, status: 'PAID' },
             select: { id: true },
           });
-          if (!p) return false;
-          // PENDING з PAID-платежами, але з простроченим expiresAt — це «оживлена» мертва
-          // підписка (revive нижче), за яку людина так і не доплатила: доступу вона не дає,
-          // тому й блокувати повторну спробу оплати не має. Інакше один абандон після
-          // revive назавжди замикав би людину в 409 (Rule 1 / Rule 2).
-          if (s.status === 'PENDING' && s.expiresAt && s.expiresAt.getTime() < Date.now()) return false;
-          return true;
+          return !!p;
         };
         const yearlySub = activeSubs.find((s) => s.plan === 'YEARLY') ?? null;
         const monthlySub = activeSubs.find((s) => s.plan === 'MONTHLY') ?? null;
@@ -301,6 +295,10 @@ export async function POST(req: NextRequest) {
         // підписку з нуля: сплачені місяці згорають (calculateAccessUntil рахує PAID-платежі
         // саме цієї підписки), а графік доступу стартує заново. Обмеження по cohort-у
         // принципове — підписка минулорічного набору не має воскресати у новому.
+        // ВАЖЛИВО: статус мертвої підписки тут НЕ чіпаємо — вона лишається EXPIRED/CANCELLED
+        // до реальної оплати. Оживляє її callback (handleYearlyProgramCallback вміє це з
+        // 2026-08-04). Передчасний флип у PENDING створював «вічний» неоплачений PENDING зі
+        // старими PAID-платежами: він висів у KPI і його підбирав нічний heal — безкоштовний доступ.
         let revivedFromStatus: string | null = null;
         if (!existing) {
           const dead = await prisma.yearlyProgramSubscription.findFirst({
@@ -317,6 +315,66 @@ export async function POST(req: NextRequest) {
             revivedFromStatus = dead.status;
           }
         }
+
+        // Guard боргу (тільки MONTHLY — у YEARLY один платіж, борг неможливий).
+        // Місячний графік прив'язаний до КАЛЕНДАРНИХ слотів набору, а не до дати оплати:
+        // наступний платіж «займає» слот `anchor + (сплачено + 1) місяців`. Якщо людина
+        // пропустила кілька місяців, цей слот уже в минулому — оплата відкрила б доступ,
+        // що вже прострочений (callback фіксує такий кейс подією `revived_with_debt`).
+        // Грошей наосліп не беремо: рахуємо дату слота ТІЄЮ Ж формулою, що й доступ
+        // (calculateAccessUntil із синтетичними майбутніми платежами — щоб не дублювати
+        // правила anchor/клемпу/кепа), і відправляємо до менеджера: пропущені місяці
+        // він закриває вручну через ручні платежі.
+        if (plan === 'MONTHLY' && existing && currentCohortId) {
+          const paidPayments = await prisma.payment.findMany({
+            where: { yearlyProgramSubscriptionId: existing.id, status: 'PAID' },
+            select: { amount: true, status: true, paidAt: true, createdAt: true },
+          });
+          if (paidPayments.length > 0) {
+            const cohortDates = await prisma.yearlyProgramCohort.findUnique({
+              where: { id: currentCohortId },
+              select: { startDate: true, endDate: true },
+            });
+            if (cohortDates) {
+              const postAccessMonths = await getYearlyPostAccessMonths(prisma);
+              const nowTs = new Date();
+              /// Дата завершення доступу, якщо людина зараз зробить `extra` платежів.
+              const accessAfter = (extra: number) => calculateAccessUntil({
+                plan: 'MONTHLY',
+                autoRenew: existing!.autoRenew,
+                cohort: cohortDates,
+                payments: [
+                  ...paidPayments,
+                  ...Array.from({ length: extra }, () => ({
+                    amount: 0,
+                    status: 'PAID',
+                    paidAt: nowTs,
+                    createdAt: nowTs,
+                  })),
+                ],
+                postAccessMonths,
+              });
+              const nextAccessEnd = accessAfter(1);
+              if (nextAccessEnd && nextAccessEnd <= nowTs) {
+                // Скільки слотів поспіль лишились би в минулому = скільки місяців пропущено.
+                let missed = 1;
+                while (missed < YEARLY_PROGRAM_CONFIG.totalMonthlyPayments) {
+                  const d = accessAfter(missed + 1);
+                  if (!d || d > nowTs) break;
+                  missed++;
+                }
+                const monthWord = missed % 10 === 1 && missed % 100 !== 11
+                  ? 'місяць'
+                  : ([2, 3, 4].includes(missed % 10) && ![12, 13, 14].includes(missed % 100) ? 'місяці' : 'місяців');
+                return NextResponse.json({
+                  error: `Пропущено ${missed} ${monthWord} оплат за графіком набору — для поновлення звертніться до менеджера`,
+                  code: 'monthly_schedule_debt',
+                }, { status: 409 });
+              }
+            }
+          }
+        }
+
         if (existing) {
           yearlyProgramSubscriptionId = existing.id;
           // Cohort re-point: підписка, яка ще не має оплаченого доступу (PENDING або щойно
@@ -329,7 +387,7 @@ export async function POST(req: NextRequest) {
           const repointCohort = isPendingLike && existing.cohortId !== currentCohortId;
           // Invite-flow додатково позначає підписку як manually added.
           const markManualAdd = !!invitePayload && isPendingLike;
-          if (parsedCountry || normalizedTelegramUsername || normalizedPhone || repointCohort || markManualAdd || revivedFromStatus) {
+          if (parsedCountry || normalizedTelegramUsername || normalizedPhone || repointCohort || markManualAdd) {
             await prisma.yearlyProgramSubscription.update({
               where: { id: existing.id },
               data: {
@@ -337,11 +395,6 @@ export async function POST(req: NextRequest) {
                 ...(normalizedTelegramUsername ? { telegramUsername: normalizedTelegramUsername } : {}),
                 ...(normalizedPhone ? { phone: normalizedPhone } : {}),
                 ...(repointCohort ? { cohortId: currentCohortId } : {}),
-                // Мертву підписку повертаємо в PENDING ще до редіректу на WFP: callback
-                // відмовляється продовжувати EXPIRED/CANCELLED-підписку (guard у
-                // handleYearlyProgramCallback), тож без цього людина заплатила б, а доступ
-                // не відкрився. Після успішної оплати callback сам виставить ACTIVE.
-                ...(revivedFromStatus ? { status: 'PENDING' as const } : {}),
                 ...(markManualAdd && !existing.manuallyAddedAt
                   ? { manuallyAddedAt: new Date(), manuallyAddedBy: invitePayload!.invitedBy }
                   : {}),
@@ -365,7 +418,9 @@ export async function POST(req: NextRequest) {
                 data: {
                   subscriptionId: existing.id,
                   type: 'admin_action',
-                  message: `Нова оплата ${orderReference} · cohort перепризначено → ${currentCohortId}`,
+                  message: existing.cohortId
+                    ? `Нова оплата ${orderReference} · набір перепризначено → ${currentCohortId}`
+                    : `Нова оплата ${orderReference} · набір призначено → ${currentCohortId}`,
                   metadata: {
                     orderReference,
                     cohortId: currentCohortId,
@@ -379,8 +434,8 @@ export async function POST(req: NextRequest) {
             await prisma.yearlyProgramSubscriptionEvent.create({
               data: {
                 subscriptionId: existing.id,
-                type: 'reactivated',
-                message: `Повторна покупка (${orderReference}): ${revivedFromStatus} → PENDING, підписка реюзається (сплачені платежі збережено)`,
+                type: 'repurchase_initiated',
+                message: `Ініційована повторна покупка (${orderReference}) — реюзається підписка у статусі ${revivedFromStatus}, сплачені платежі лишаються в заліку. Статус зміниться після успішної оплати.`,
                 metadata: {
                   previousStatus: revivedFromStatus,
                   orderReference,
