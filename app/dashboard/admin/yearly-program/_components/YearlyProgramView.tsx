@@ -352,11 +352,12 @@ function YearlyProgramViewInner({
     });
   }, [rows, activeCohortId, planFilter, statusFilter, methodFilter, visionFilter, visionOf, search]);
 
-  /// Зведення по сертифікату Vision — той самий зріз, що й KPI-стрічка: підписки
-  /// вибраного набору (або всі набори), окрім архіву. Рахується по завантажених рядках
-  /// з урахуванням оптимістичних override-ів, тому цифри живі одразу після кліку по крапці.
-  /// Решта фільтрів таблиці (план/статус/метод/пошук) на зведення не впливають — інакше
-  /// воно б суперечило KPI «Всього» так само, як і банер обрізання.
+  /// Зведення по сертифікату Vision: підписки вибраного набору (або всі набори), окрім
+  /// архіву. Решта фільтрів таблиці (план/статус/метод/пошук) на зведення не впливають.
+  /// Рахується по ЗАВАНТАЖЕНИХ рядках (сервер віддає максимум MAX_ROWS) — на відміну від
+  /// KPI-стрічки, яка приходить порахованою по повній вибірці в БД. Тому при обрізанні
+  /// (`truncation !== null`) цифри Vision — нижня межа, і рядок показує їх як «≥ N».
+  /// Override-и враховані, тож зведення живе одразу після кліку по крапці статусу.
   const visionCounts = useMemo(() => {
     const acc: Record<VisionStatus, number> = { NOT_PAID: 0, PAID: 0, ISSUED: 0 };
     for (const r of rows) {
@@ -619,6 +620,7 @@ function YearlyProgramViewInner({
         <VisionSummaryRow
           theme={theme}
           counts={visionCounts}
+          partial={truncation}
           value={visionFilter}
           onSelect={(v) => setVisionFilter((cur) => (cur === v ? 'ALL' : v))}
         />
@@ -2667,29 +2669,47 @@ function KpiInline({
 /// статусів і розбивкою планів. Зріз той самий, що в KPI (вибраний набір, без архіву).
 /// Сегмент = крапка статусу + підпис + лічильник; клік вмикає фільтр колонки «Vision»,
 /// повторний клік по активному — знімає його.
+/// `partial` != null — серверна вибірка обрізана лімітом, тож лічильники рахують лише
+/// завантажені рядки: показуємо їх як «≥ N» плюс підпис «по перших X з Y», щоб неповнота
+/// не видавала себе за точну цифру (KPI-стрічка вище рахується по всій БД).
 function VisionSummaryRow({
   theme,
   counts,
+  partial,
   value,
   onSelect,
 }: {
   theme: Theme;
   counts: Record<VisionStatus, number>;
+  partial: { shown: number; total: number } | null;
   value: VisionFilter;
   onSelect: (v: VisionStatus) => void;
 }) {
   const dark = theme === 'dark';
+  const partialHint = partial
+    ? `Пораховано лише по завантажених ${partial.shown.toLocaleString()} записах із ${partial.total.toLocaleString()} — реальна кількість не менша за показану.`
+    : null;
   return (
     <div
       data-kpi-row="vision"
       className="px-4 py-2.5 sm:px-5 sm:py-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3"
     >
-      <span
-        className={`shrink-0 text-[10px] uppercase tracking-[0.16em] font-semibold ${
-          dark ? 'text-slate-400' : 'text-stone-500'
-        }`}
-      >
-        Сертифікат Vision
+      <span className="shrink-0 inline-flex flex-wrap items-baseline gap-x-1.5">
+        <span
+          className={`text-[10px] uppercase tracking-[0.16em] font-semibold ${
+            dark ? 'text-slate-400' : 'text-stone-500'
+          }`}
+        >
+          Сертифікат Vision
+        </span>
+        {partial && (
+          <span
+            title={partialHint ?? undefined}
+            className={`text-[9px] tabular-nums ${dark ? 'text-amber-300/80' : 'text-amber-700/90'}`}
+          >
+            по перших {partial.shown.toLocaleString()} з {partial.total.toLocaleString()}
+          </span>
+        )}
       </span>
       {/* На 390px три сегменти в ряд лишаються, але всередині кожного підпис переїжджає
           під крапку+цифру (order + w-full) — інакше «Не оплачено» обрізалося б. */}
@@ -2701,11 +2721,12 @@ function VisionSummaryRow({
               key={o.value}
               type="button"
               aria-pressed={active}
-              title={
+              title={[
                 active
                   ? `Зняти фільтр «${o.label}»`
-                  : `Показати в таблиці лише «${o.label}» (сертифікат Vision)`
-              }
+                  : `Показати в таблиці лише «${o.label}» (сертифікат Vision)`,
+                partialHint,
+              ].filter(Boolean).join('\n')}
               onClick={() => onSelect(o.value)}
               className={`min-w-0 flex flex-wrap items-center justify-center gap-x-1.5 rounded-lg border px-2 py-1 transition-colors sm:flex-nowrap sm:justify-start sm:px-2.5 ${
                 active
@@ -2734,7 +2755,7 @@ function VisionSummaryRow({
                     : dark ? 'text-slate-50' : 'text-stone-900'
                 }`}
               >
-                {counts[o.value].toLocaleString()}
+                {partial ? '≥ ' : ''}{counts[o.value].toLocaleString()}
               </span>
             </button>
           );
