@@ -34,14 +34,17 @@ const POST_ACCESS_SETTING_KEY = 'yearlyPostAccessMonths';
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 // ── Дзеркало lib/yearlyProgramAccess.ts (addCalendarMonths + calculateAccessUntil) ──
+// UTC-геттери як у оригіналі: дати набору лежать як UTC-інстанти (00:00Z / 23:59:59.999Z),
+// з локальними геттерами на машині у UTC+X кінець «31.05.2027 23:59:59.999Z» читався б
+// як 1 червня і клемп місяця з'їжджав би на добу.
 function addCalendarMonths(date, months) {
   if (!months) return new Date(date);
-  const day = date.getDate();
+  const day = date.getUTCDate();
   const result = new Date(date);
-  result.setDate(1);
-  result.setMonth(result.getMonth() + months);
-  const lastDayOfTarget = new Date(result.getFullYear(), result.getMonth() + 1, 0).getDate();
-  result.setDate(Math.min(day, lastDayOfTarget));
+  result.setUTCDate(1);
+  result.setUTCMonth(result.getUTCMonth() + months);
+  const lastDayOfTarget = new Date(Date.UTC(result.getUTCFullYear(), result.getUTCMonth() + 1, 0)).getUTCDate();
+  result.setUTCDate(Math.min(day, lastDayOfTarget));
   return result;
 }
 

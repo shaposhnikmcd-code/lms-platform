@@ -443,7 +443,7 @@ export default function TelegramChannelButton({ theme, initial }: Props) {
                 Тестовий лист
               </div>
               <div className={`text-[11px] mt-0.5 mb-2 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
-                Згенерує реальне invite-посилання і надішле welcome-лист, щоб перевірити, що телеграм-секція додається. Підписку/оплату не створює.
+                Надішле welcome-лист з позначкою [ТЕСТ] і тестовим invite-посиланням (живе ~10 хв і одразу відкликається — по ньому не зайти), щоб перевірити, що телеграм-секція додається. Підписку/оплату не створює.
               </div>
               <div className="flex gap-2">
                 <input

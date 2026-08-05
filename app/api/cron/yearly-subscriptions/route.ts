@@ -51,6 +51,8 @@ interface StepResult {
   /// Set лише коли крок упав цілком (unhandled throw). Решта кроків усе одно виконується —
   /// раніше будь-який виняток (напр. недоступний SendPulse) зривав увесь денний прохід.
   error?: string;
+  /// Додаткова не-помилкова інформація кроку (видно в JSON-відповіді cron-а і логах Vercel).
+  info?: string;
 }
 
 /// Ізолятор кроку: падіння одного кроку не має зупиняти решту денного проходу.
@@ -565,6 +567,16 @@ async function expireGraceSubscriptions(): Promise<StepResult> {
       const courseId = yearlySpCourseId;
       let studentId = sub.sendpulseStudentId;
 
+      // Знімаємо WFP-регулярки ДО будь-якого SendPulse-виклику — обидві SP-гілки нижче
+      // (lookup-фейл і close-фейл) виходять через return без flip-у на EXPIRED, і без
+      // цього підписка висіла б у GRACE з живим автосписанням (гроші йдуть, доступ
+      // закривається). Повторний виклик завтра безпечний: «правило вже знято» (4102/4104)
+      // рахується як успіх, а не помилка.
+      const autopay = await removeSubscriptionAutopay(sub.id);
+      const wfpSummary = sub.plan === 'MONTHLY'
+        ? ` · WFP REMOVE: ${autopay.removed}/${autopay.attempted}${autopay.error ? ` (errors: ${autopay.error.slice(0, 200)})` : ''}`
+        : '';
+
       if (courseId && !studentId && sub.user?.email) {
         // Останній шанс знайти studentId
         try {
@@ -586,22 +598,20 @@ async function expireGraceSubscriptions(): Promise<StepResult> {
             data: {
               subscriptionId: sub.id,
               type: 'access_close_failed',
-              message: `Пошук studentId у SendPulse не вдався — доступ не закрито, статус лишається GRACE: ${msg.slice(0, 200)}`,
-              metadata: { stage: 'lookup', courseId, error: msg.slice(0, 500) },
+              message: `Пошук studentId у SendPulse не вдався — доступ не закрито, статус лишається GRACE: ${msg.slice(0, 200)}${wfpSummary}`,
+              metadata: {
+                stage: 'lookup',
+                courseId,
+                error: msg.slice(0, 500),
+                wfpRemovedCount: autopay.removed,
+                wfpAttemptedCount: autopay.attempted,
+                wfpError: autopay.error,
+              },
             },
           }).catch(() => { /* лог не має валити крок */ });
           return;
         }
       }
-
-      // Знімаємо WFP-регулярки перш ніж позначити EXPIRED — інакше autopay-списання
-      // продовжаться навіть після закриття доступу (orphan charges). Робимо до SP-close
-      // і до flip-у, щоб у випадку SP-помилки нижче (return без flip) регулярки все ж
-      // були зняті — захист від ситуації де доступу нема, а гроші продовжують списуватись.
-      const autopay = await removeSubscriptionAutopay(sub.id);
-      const wfpSummary = sub.plan === 'MONTHLY'
-        ? ` · WFP REMOVE: ${autopay.removed}/${autopay.attempted}${autopay.error ? ` (errors: ${autopay.error.slice(0, 200)})` : ''}`
-        : '';
 
       if (courseId && studentId) {
         try {
@@ -632,8 +642,16 @@ async function expireGraceSubscriptions(): Promise<StepResult> {
             data: {
               subscriptionId: sub.id,
               type: 'access_close_failed',
-              message: `SendPulse DELETE /students/${studentId}/${courseId} не вдався — статус лишається GRACE: ${msg.slice(0, 200)}`,
-              metadata: { stage: 'close', courseId, studentId, error: msg.slice(0, 500) },
+              message: `SendPulse DELETE /students/${studentId}/${courseId} не вдався — статус лишається GRACE: ${msg.slice(0, 200)}${wfpSummary}`,
+              metadata: {
+                stage: 'close',
+                courseId,
+                studentId,
+                error: msg.slice(0, 500),
+                wfpRemovedCount: autopay.removed,
+                wfpAttemptedCount: autopay.attempted,
+                wfpError: autopay.error,
+              },
             },
           }).catch(() => { /* лог не має валити крок */ });
           // Не скидаємо на EXPIRED якщо не змогли закрити — спробуємо знову завтра.
@@ -996,7 +1014,12 @@ async function sendGraceLastReminders(): Promise<StepResult> {
 /// Логіка винесена щоб шарити її з manual-trigger ендпойнтом адмінки.
 async function syncYearlyCourseProgress(): Promise<StepResult> {
   const result = await syncYearlyProgress();
-  return { step: 'sync_progress', processed: result.processed, errors: result.errors };
+  return {
+    step: 'sync_progress',
+    processed: result.processed,
+    errors: result.errors,
+    ...(result.studentIdsFilled ? { info: `studentIdsFilled=${result.studentIdsFilled}` } : {}),
+  };
 }
 
 /// Щоденна звірка кешу «Наступний платіж» з WFP (regularApi STATUS, БЕЗ CHANGE).

@@ -14,6 +14,7 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({
     ok: result.ok,
     processed: result.processed,
+    studentIdsFilled: result.studentIdsFilled ?? 0,
     spStudents: result.spStudents,
     errors: result.errors,
     timestamp: new Date().toISOString(),

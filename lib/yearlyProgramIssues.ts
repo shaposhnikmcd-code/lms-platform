@@ -65,7 +65,8 @@ export const ISSUE_KIND_SEVERITY: Record<IssueKind, IssueSeverity> = {
   LAUNCH_OVERDUE: 'critical',
   TG_INVITE_FAILED: 'warning',
   TG_KICK_FAILED: 'info',
-  SP_CLOSE_FAILED: 'info',
+  // warning, не info: поки закриття не вдалось, студент фактично зберігає платний доступ.
+  SP_CLOSE_FAILED: 'warning',
   SP_REOPEN_FAILED: 'warning',
   ORPHAN_NO_PAYMENT: 'critical',
   ORPHAN_RECURRING_CHARGE: 'critical',
@@ -257,8 +258,9 @@ function classifyEvent(e: RawEvent): {
   if (e.type === 'access_opened') return { kind: null, resolvesKind: 'LAUNCH_ACCESS_FAILED' };
   if (e.type === 'launch_email_sent') return { kind: null, resolvesKind: 'LAUNCH_EMAIL_FAILED' };
   // Менеджер розібрався з боргом: «Відкрити знову» (reactivated) — доступ і дати виставлені
-  // вручну. Та сама подія знімає і невдале повторне відкриття доступу в SP.
-  if (e.type === 'reactivated') return { kind: null, resolvesKind: ['REVIVED_WITH_DEBT', 'SP_REOPEN_FAILED'] };
+  // вручну. Та сама подія знімає і невдале повторне відкриття доступу в SP, і зависле
+  // «не вдалось закрити» — після свідомого reopen закривати доступ уже не треба.
+  if (e.type === 'reactivated') return { kind: null, resolvesKind: ['REVIVED_WITH_DEBT', 'SP_REOPEN_FAILED', 'SP_CLOSE_FAILED'] };
 
   // Доступ таки закрито (cron дотиснув наступного дня або менеджер закрив вручну) —
   // знімає попередній `access_close_failed`.
