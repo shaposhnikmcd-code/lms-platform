@@ -8,7 +8,7 @@
 
 import { PDFDocument, PDFFont, PDFImage, PDFPage, rgb } from 'pdf-lib';
 import type { FontKey } from './fonts';
-import type { TemplateKey } from './templateConfig';
+import type { CertLocale, TemplateKey } from './templateConfig';
 import { drawMedallion as drawMedallionEl, drawSeal as drawSealEl } from './elements';
 import { drawCourseTemplate } from './drawCourseTemplate';
 import { drawSupervisionTemplate } from './drawSupervisionTemplate';
@@ -42,6 +42,92 @@ function c(col: { r: number; g: number; b: number }) {
 }
 
 /* ----------------------------------------------------------------------- */
+/*                          Тексти yearly-шаблону                          */
+/* ----------------------------------------------------------------------- */
+
+/// Ключ yearly-гілки: три категорії сертифіката Річної програми.
+type YearlyKey = 'YEARLY_PRACTICAL' | 'YEARLY_LISTENER' | 'YEARLY_PARTICIPANT';
+
+type YearlyTexts = {
+  subtitle: string;
+  heading: string;
+  award: string;
+  signName: string;
+  signTitle: string;
+  yearLabel: string;
+  category: Record<YearlyKey, string>;
+  /// Два центрованих рядки опису під іменем.
+  body: Record<YearlyKey, [string, string]>;
+};
+
+/// Українські тексти — byte-identical до версії до локалізації (не міняти).
+/// Англійські — погоджений переклад для другої сторінки двомовного сертифіката.
+const TEXTS: Record<CertLocale, YearlyTexts> = {
+  uk: {
+    subtitle: 'УКРАЇНСЬКИЙ ІНСТИТУТ ДУШЕОПІКИ ТА ПСИХОТЕРАПІЇ',
+    heading: 'Сертифікат',
+    award: 'ЦИМ ЗАСВІДЧУЄТЬСЯ, ЩО',
+    signName: 'Тетяна Шапошник',
+    signTitle: 'ПРЕЗИДЕНТКА UIMP',
+    yearLabel: 'РІК ВИДАЧІ',
+    category: {
+      YEARLY_PRACTICAL: 'ПРАКТИЧНОГО НАВЧАННЯ',
+      YEARLY_LISTENER: 'СЛУХАЦЬКОЇ УЧАСТІ',
+      YEARLY_PARTICIPANT: 'УЧАСТІ В ПРОГРАМІ',
+    },
+    body: {
+      YEARLY_PRACTICAL: [
+        'успішно пройшов(ла) річну програму практичного навчання в',
+        'Українському інституті Душеопіки та Психотерапії (UIMP)',
+      ],
+      YEARLY_LISTENER: [
+        'взяв(ла) слухацьку участь у річній програмі практичного навчання',
+        'з душеопіки та психотерапії в Українському інституті UIMP',
+      ],
+      YEARLY_PARTICIPANT: [
+        'взяв(ла) участь у річній програмі практичного навчання',
+        'з душеопіки та психотерапії в Українському інституті UIMP',
+      ],
+    },
+  },
+  en: {
+    subtitle: 'UKRAINIAN INSTITUTE OF MINISTRY AND PSYCHOTHERAPY',
+    heading: 'Certificate',
+    award: 'THIS IS TO CERTIFY THAT',
+    signName: 'Tetiana Shaposhnyk',
+    signTitle: 'PRESIDENT OF UIMP',
+    yearLabel: 'YEAR OF ISSUE',
+    category: {
+      YEARLY_PRACTICAL: 'OF PRACTICAL TRAINING',
+      YEARLY_LISTENER: 'OF ATTENDANCE',
+      YEARLY_PARTICIPANT: 'OF PARTICIPATION',
+    },
+    body: {
+      YEARLY_PRACTICAL: [
+        'has successfully completed the one-year practical training program',
+        'at the Ukrainian Institute of Ministry and Psychotherapy (UIMP)',
+      ],
+      YEARLY_LISTENER: [
+        'has attended the one-year practical training program',
+        'at the Ukrainian Institute of Ministry and Psychotherapy (UIMP)',
+      ],
+      YEARLY_PARTICIPANT: [
+        'has participated in the one-year practical training program',
+        'at the Ukrainian Institute of Ministry and Psychotherapy (UIMP)',
+      ],
+    },
+  },
+};
+
+/// Yearly-гілка приймає лише три ключі; усе інше (теоретично недосяжне —
+/// COURSE/SUPERVISION делегуються раніше) трактуємо як PRACTICAL.
+function yearlyKey(templateKey: TemplateKey): YearlyKey {
+  if (templateKey === 'YEARLY_LISTENER') return 'YEARLY_LISTENER';
+  if (templateKey === 'YEARLY_PARTICIPANT') return 'YEARLY_PARTICIPANT';
+  return 'YEARLY_PRACTICAL';
+}
+
+/* ----------------------------------------------------------------------- */
 /*                          Public API                                     */
 /* ----------------------------------------------------------------------- */
 
@@ -67,6 +153,8 @@ export async function drawBaseTemplate(
     recipientName?: string;
     supervisionDate?: string;
     supervisionHours?: string;
+    /// Мова yearly-сторінки. 'uk' (дефолт) — поведінка як була до локалізації.
+    locale?: CertLocale;
   } = {},
 ) {
   /// COURSE-сертифікат має кардинально інший layout (двопанельний sidebar +
@@ -105,23 +193,27 @@ export async function drawBaseTemplate(
     return;
   }
 
-  /// YEARLY_PRACTICAL / YEARLY_LISTENER → симетрична академічна композиція 1280×960.
+  /// YEARLY_PRACTICAL / YEARLY_LISTENER / YEARLY_PARTICIPANT → симетрична
+  /// академічна композиція. Координати спільні для uk та en — різняться лише тексти.
 
   const W = page.getWidth();
   const H = page.getHeight();
+  const locale: CertLocale = opts.locale ?? 'uk';
+  const texts = TEXTS[locale];
+  const key = yearlyKey(templateKey);
 
   drawBackground(page, W, H);
   drawFrame(page, W, H);
   // drawCornerOrnaments — видалено для yearly за просьбою користувача (2026-04-26)
   drawMedallion(page, W, H, assets.fonts, assets.logoPng);
-  drawBrandLockup(page, W, H, assets.fonts);
+  drawBrandLockup(page, W, H, assets.fonts, texts);
   drawDivider(page, W, H);
-  drawHeading(page, W, H, assets.fonts);
-  drawCategoryLine(page, W, H, templateKey, assets.fonts.interSemiBold, opts.categoryLabel);
-  drawBody(page, W, H, templateKey, assets.fonts, opts.courseName, opts.recipientName);
-  drawSignatureBlock(page, W, H, assets);
+  drawHeading(page, W, H, assets.fonts, texts);
+  drawCategoryLine(page, W, H, key, assets.fonts.interSemiBold, texts, locale, opts.categoryLabel);
+  drawBody(page, W, H, key, assets.fonts, texts, opts.recipientName);
+  drawSignatureBlock(page, W, H, assets, texts);
   drawSeal(page, W, H, assets.fonts, assets.logoPng, opts.year);
-  drawYearLabel(page, W, H, assets.fonts.interMedium, assets.fonts.cormorantItalic);
+  drawYearLabel(page, W, H, assets.fonts.interMedium, assets.fonts.cormorantItalic, texts);
 }
 
 /* ----------------------------------------------------------------------- */
@@ -271,13 +363,14 @@ function drawBrandLockup(
   W: number,
   H: number,
   fonts: Record<FontKey, PDFFont>,
+  texts: YearlyTexts,
 ) {
   const cx = W / 2;
 
   const uimpSize = Math.min(W, H) * 0.023;
   drawCenteredTracked(page, 'UIMP', cx, H * 0.775, uimpSize, 3.4, fonts.interSemiBold, c(GOLD_DEEP));
 
-  const subText = 'УКРАЇНСЬКИЙ ІНСТИТУТ ДУШЕОПІКИ ТА ПСИХОТЕРАПІЇ';
+  const subText = texts.subtitle;
   const subSize = Math.min(W, H) * 0.012;
   drawCenteredTracked(page, subText, cx, H * 0.735, subSize, 1.9, fonts.interMedium, c(GREY));
 }
@@ -329,8 +422,9 @@ function drawHeading(
   W: number,
   H: number,
   fonts: Record<FontKey, PDFFont>,
+  texts: YearlyTexts,
 ) {
-  const text = 'Сертифікат';
+  const text = texts.heading;
   const size = Math.min(W, H) * 0.090;
   const font = fonts.cormorantItalic;
   const color = c(GREEN);
@@ -346,20 +440,23 @@ function drawHeading(
   page.drawText(text, { x: x + 0.45, y: y + 0.45, size, font, color });
 }
 
-/// Підкатегорія: "ПРАКТИЧНОГО НАВЧАННЯ" / "СЛУХАЦЬКОЇ УЧАСТІ". Золото, tracked caps.
+/// Підкатегорія: "ПРАКТИЧНОГО НАВЧАННЯ" / "СЛУХАЦЬКОЇ УЧАСТІ" / "УЧАСТІ В ПРОГРАМІ".
+/// Золото, tracked caps. `categoryLabel` — укр. override з CATEGORY_LABELS (для EN
+/// ігнорується, бо переклад береться з таблиці текстів).
 function drawCategoryLine(
   page: PDFPage,
   W: number,
   H: number,
-  templateKey: TemplateKey,
+  key: YearlyKey,
   interSemiBold: PDFFont,
+  texts: YearlyTexts,
+  locale: CertLocale,
   categoryLabel?: string,
 ) {
-  let text: string | null = null;
-  if (templateKey === 'YEARLY_PRACTICAL') text = 'ПРАКТИЧНОГО НАВЧАННЯ';
-  else if (templateKey === 'YEARLY_LISTENER') text = categoryLabel ?? 'СЛУХАЦЬКОЇ УЧАСТІ';
-
-  if (!text) return;
+  const fallback = texts.category[key];
+  const text = locale === 'uk' && key !== 'YEARLY_PRACTICAL'
+    ? categoryLabel ?? fallback
+    : fallback;
 
   const size = Math.min(W, H) * 0.027;
   drawCenteredTracked(page, text, W / 2, H * 0.510, size, 4.2, interSemiBold, c(GOLD_DEEP));
@@ -370,16 +467,16 @@ function drawBody(
   page: PDFPage,
   W: number,
   H: number,
-  templateKey: TemplateKey,
+  key: YearlyKey,
   fonts: Record<FontKey, PDFFont>,
-  courseName?: string,
+  texts: YearlyTexts,
   recipientName?: string,
 ) {
   const cx = W / 2;
   const greyCol = c(GREY);
 
   /// Award phrase — над ім'ям
-  const awardText = 'ЦИМ ЗАСВІДЧУЄТЬСЯ, ЩО';
+  const awardText = texts.award;
   const awardSize = Math.min(W, H) * 0.0145;
   drawCenteredTracked(page, awardText, cx, H * 0.447, awardSize, 2.4, fonts.interMedium, greyCol);
 
@@ -401,20 +498,7 @@ function drawBody(
   });
 
   /// Опис — два центрованих рядки
-  let line1: string;
-  let line2: string;
-  if (templateKey === 'COURSE') {
-    line1 = 'успішно пройшов(ла) онлайн-курс';
-    line2 = courseName && courseName.length > 0
-      ? `«${courseName}» в Українському інституті UIMP`
-      : 'в Українському інституті UIMP';
-  } else if (templateKey === 'YEARLY_LISTENER') {
-    line1 = 'взяв(ла) слухацьку участь у річній програмі практичного навчання';
-    line2 = 'з душеопіки та психотерапії в Українському інституті UIMP';
-  } else {
-    line1 = 'успішно пройшов(ла) річну програму практичного навчання в';
-    line2 = 'Українському інституті Душеопіки та Психотерапії (UIMP)';
-  }
+  const [line1, line2] = texts.body[key];
   const descSize = Math.min(W, H) * 0.0165;
   const descColor = c(GREY);
   drawCenteredText(page, line1, cx, H * 0.290, descSize, fonts.interRegular, descColor);
@@ -427,6 +511,7 @@ function drawSignatureBlock(
   W: number,
   H: number,
   assets: BaseTemplateAssets,
+  texts: YearlyTexts,
 ) {
   const sig = assets.signaturePng;
   const sigTargetW = W * 0.135;
@@ -442,7 +527,7 @@ function drawSignatureBlock(
 
   const lineY = H * 0.148;
   const nameSize = Math.min(W, H) * 0.030;
-  const nameW = assets.fonts.cormorantItalic.widthOfTextAtSize('Тетяна Шапошник', nameSize);
+  const nameW = assets.fonts.cormorantItalic.widthOfTextAtSize(texts.signName, nameSize);
   /// Underline = max(name, signature) width + невелике padding — щоб лінія не
   /// була набагато ширшою за контент над нею.
   const lineHalfW = Math.max(nameW, sigTargetW * 0.55) / 2 + 8;
@@ -454,14 +539,14 @@ function drawSignatureBlock(
     color: c(GREY),
   });
   drawCenteredText(
-    page, 'Тетяна Шапошник',
+    page, texts.signName,
     nameX, lineY - nameSize * 1.15,
     nameSize, assets.fonts.cormorantItalic, c(GREEN),
   );
 
   const titleSize = Math.min(W, H) * 0.0115;
   drawCenteredTracked(
-    page, 'ПРЕЗИДЕНТКА UIMP',
+    page, texts.signTitle,
     nameX, lineY - nameSize * 1.15 - titleSize * 1.7,
     titleSize, 2.0, assets.fonts.interMedium, c(GREY),
   );
@@ -476,7 +561,7 @@ function drawSeal(page: PDFPage, W: number, H: number, fonts: Record<FontKey, PD
 }
 
 /// "РІК ВИДАЧІ" label + underline (сам рік рендериться у generatePdf).
-function drawYearLabel(page: PDFPage, W: number, H: number, interMedium: PDFFont, italicFont: PDFFont) {
+function drawYearLabel(page: PDFPage, W: number, H: number, interMedium: PDFFont, italicFont: PDFFont, texts: YearlyTexts) {
   const cx = W * 0.795;
   const yLine = H * 0.175;
   /// Line width = year text width + padding (рендериться 4-значне число "2026"
@@ -493,7 +578,7 @@ function drawYearLabel(page: PDFPage, W: number, H: number, interMedium: PDFFont
   });
 
   const labelSize = Math.min(W, H) * 0.0115;
-  drawCenteredTracked(page, 'РІК ВИДАЧІ', cx, yLine - labelSize * 1.8, labelSize, 1.9, interMedium, c(GREY));
+  drawCenteredTracked(page, texts.yearLabel, cx, yLine - labelSize * 1.8, labelSize, 1.9, interMedium, c(GREY));
 }
 
 /* ----------------------------------------------------------------------- */

@@ -1,4 +1,4 @@
-/// GET /api/admin/certificates/preview?type=...&category=...&name=...&courseName=...&year=...
+/// GET /api/admin/certificates/preview?type=...&category=...&name=...&nameEn=...&courseName=...&year=...
 /// Генерує PDF-сертифікат за query params БЕЗ запису у БД. Використовується
 /// admin-діалогами "Видати" для попереднього перегляду до клацання "Видати і відправити".
 /// GET (а не POST) щоб iframe міг напряму використовувати src без blob-URL —
@@ -9,7 +9,7 @@ import { requireAdmin } from '@/lib/certificates/adminAuth';
 import { generateCertificatePdf } from '@/lib/certificates/generatePdf';
 import { formatSupervisionHours } from '@/lib/certificates/service';
 import { appBaseUrl } from '@/lib/mailer';
-import type { TemplateKey } from '@/lib/certificates/templateConfig';
+import { templateKeyFor, type CertCategoryKey, type TemplateKey } from '@/lib/certificates/templateConfig';
 
 export const runtime = 'nodejs';
 
@@ -19,8 +19,14 @@ export async function GET(req: NextRequest) {
 
   const sp = req.nextUrl.searchParams;
   const type = sp.get('type') as 'COURSE' | 'YEARLY_PROGRAM' | 'SUPERVISION' | null;
-  const category = sp.get('category') as 'LISTENER' | 'PRACTICAL' | null;
+  const categoryRaw = sp.get('category');
+  const category: CertCategoryKey | null =
+    categoryRaw === 'LISTENER' || categoryRaw === 'PRACTICAL' || categoryRaw === 'PARTICIPANT'
+      ? categoryRaw
+      : null;
   const recipientName = sp.get('name')?.trim();
+  /// Англомовне ім'я — live-прев'ю двомовного сертифіката (2-га сторінка EN).
+  const recipientNameEn = sp.get('nameEn')?.trim();
   const courseName = sp.get('courseName')?.trim();
   const supervisionDate = sp.get('supervisionDate')?.trim();
   const supervisionHoursRaw = sp.get('supervisionHours')?.trim();
@@ -30,10 +36,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'type + name обовязкові' }, { status: 400 });
   }
 
-  let templateKey: TemplateKey;
-  if (type === 'COURSE') templateKey = 'COURSE';
-  else if (type === 'SUPERVISION') templateKey = 'SUPERVISION';
-  else templateKey = category === 'LISTENER' ? 'YEARLY_LISTENER' : 'YEARLY_PRACTICAL';
+  const templateKey: TemplateKey = templateKeyFor(type, category);
 
   /// SUPERVISION: дату приймаємо як yyyy-mm-dd і форматуємо у «12 травня 2026 року»
   /// (та сама формула, що у lib/certificates/service.ts → formatSupervisionDate).
@@ -64,6 +67,7 @@ export async function GET(req: NextRequest) {
   const pdfBytes = await generateCertificatePdf({
     templateKey,
     recipientName,
+    recipientNameEn: recipientNameEn || undefined,
     issueYear: Number.isFinite(year) ? year : new Date().getUTCFullYear(),
     certNumber: 'UIMP-PREVIEW-0000',
     verificationUrl: `${appBaseUrl()}/uk/certificate/preview`,

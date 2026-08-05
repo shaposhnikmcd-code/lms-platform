@@ -26,6 +26,10 @@ import {
 export type CertGenerationInput = {
   templateKey: TemplateKey;
   recipientName: string;
+  /// Англомовне ім'я. Якщо задане і шаблон YEARLY_* — PDF стає двосторінковим:
+  /// 1-ша сторінка українською, 2-га англійською з цим іменем. Порожнє/undefined —
+  /// один аркуш, як було до двомовності.
+  recipientNameEn?: string;
   issueYear: number;
   certNumber: string;
   verificationUrl: string;
@@ -45,7 +49,6 @@ export async function generateCertificatePdf(input: CertGenerationInput): Promis
   doc.registerFontkit(fontkit);
 
   const pageSize = PAGE_SIZES[input.templateKey] ?? { w: 1280, h: 906 };
-  const page = doc.addPage([pageSize.w, pageSize.h]);
 
   /// Ембед шрифтів з кешем. Тепер використовуємо static TTFs (не variable),
   /// тому `subset: true` працює коректно — pdf-lib включає тільки потрібні гліфи,
@@ -84,36 +87,54 @@ export async function generateCertificatePdf(input: CertGenerationInput): Promis
     loadPublicAsset('Certificates/element-medallion-sphere.png'),
   );
 
-  /// Малюємо весь статичний шар (фон → рамка → орнаменти → heading → body → seal → signature)
   const categoryLabel = input.category ? CATEGORY_LABELS[input.category] : undefined;
-  await drawBaseTemplate(doc, page, input.templateKey, {
-    fonts: fontsAll,
-    signaturePng,
-    logoPng,
-    logoGoldPng,
-    medallionSpherePng,
-  }, {
-    courseName: input.courseName,
-    categoryLabel,
-    year: input.issueYear,
-    recipientName: input.recipientName,
-    supervisionDate: input.supervisionDate,
-    supervisionHours: input.supervisionHours,
-  });
 
-  /// Overlay динамічних полів (ім'я, рік, cert#)
-  const slotValues: Record<string, string> = {
-    recipientName: input.recipientName.trim(),
-    issueYear: String(input.issueYear),
-    courseName: input.courseName?.trim() ?? '',
-    certNumber: input.certNumber,
-    verifyUrl: input.verificationUrl,
+  /// Одна сторінка сертифіката: статичний шар (фон → рамка → орнаменти → heading →
+  /// body → seal → signature) + overlay динамічних полів. Друга сторінка (EN)
+  /// відрізняється лише мовою текстів та ім'ям — координати, QR, номер ідентичні.
+  const renderPage = async (locale: 'uk' | 'en', name: string): Promise<PDFPage> => {
+    const page = doc.addPage([pageSize.w, pageSize.h]);
+
+    await drawBaseTemplate(doc, page, input.templateKey, {
+      fonts: fontsAll,
+      signaturePng,
+      logoPng,
+      logoGoldPng,
+      medallionSpherePng,
+    }, {
+      courseName: input.courseName,
+      categoryLabel,
+      year: input.issueYear,
+      recipientName: name,
+      supervisionDate: input.supervisionDate,
+      supervisionHours: input.supervisionHours,
+      locale,
+    });
+
+    /// Overlay динамічних полів (ім'я, рік, cert#)
+    const slotValues: Record<string, string> = {
+      recipientName: name.trim(),
+      issueYear: String(input.issueYear),
+      courseName: input.courseName?.trim() ?? '',
+      certNumber: input.certNumber,
+      verifyUrl: input.verificationUrl,
+    };
+
+    for (const field of config.fields) {
+      const raw = slotValues[field.slot] ?? '';
+      if (!raw) continue;
+      await drawField(page, field, raw, pageSize.w, pageSize.h, fontsAll);
+    }
+
+    return page;
   };
 
-  for (const field of config.fields) {
-    const raw = slotValues[field.slot] ?? '';
-    if (!raw) continue;
-    await drawField(page, field, raw, pageSize.w, pageSize.h, fontsAll);
+  const pages: PDFPage[] = [await renderPage('uk', input.recipientName)];
+
+  /// Друга сторінка — тільки для yearly-шаблонів і тільки якщо задане англ. ім'я.
+  const nameEn = input.recipientNameEn?.trim();
+  if (nameEn && input.templateKey.startsWith('YEARLY_')) {
+    pages.push(await renderPage('en', nameEn));
   }
 
   /// QR → PNG (512×512) → embed. Кольори у брендовій палітрі (green на cream).
@@ -134,12 +155,14 @@ export async function generateCertificatePdf(input: CertGenerationInput): Promis
   const qrBytes = Uint8Array.from(Buffer.from(qrBase64, 'base64'));
   const qrImg = await doc.embedPng(qrBytes);
   const qrSize = config.qr.sizePct * pageSize.w;
-  page.drawImage(qrImg, {
-    x: config.qr.xPct * pageSize.w,
-    y: config.qr.yPct * pageSize.h,
-    width: qrSize,
-    height: qrSize,
-  });
+  for (const page of pages) {
+    page.drawImage(qrImg, {
+      x: config.qr.xPct * pageSize.w,
+      y: config.qr.yPct * pageSize.h,
+      width: qrSize,
+      height: qrSize,
+    });
+  }
 
   return doc.save();
 }
