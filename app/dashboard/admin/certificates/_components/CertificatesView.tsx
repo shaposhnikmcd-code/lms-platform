@@ -20,7 +20,10 @@ import {
   HiOutlineCircleStack,
   HiOutlineCloudArrowDown,
   HiOutlineUsers,
+  HiOutlineArrowDownTray,
+  HiOutlineEnvelope,
 } from 'react-icons/hi2';
+import { translitUa } from '@/lib/translitUa';
 import { useAdminTheme, type Theme } from '../../_components/adminTheme';
 import { AdminShell, AdminPanel } from '../../_components/AdminShell';
 import YearlyInfoModal from './YearlyInfoModal';
@@ -29,8 +32,41 @@ import CoursesInfoModal from './CoursesInfoModal';
 type TabKey = 'courses' | 'yearly' | 'supervision' | 'history' | 'issues';
 
 type CertificateType = 'COURSE' | 'YEARLY_PROGRAM' | 'SUPERVISION';
-type CertCategory = 'LISTENER' | 'PRACTICAL';
+type CertCategory = 'LISTENER' | 'PRACTICAL' | 'PARTICIPANT';
 type EmailStatus = 'PENDING' | 'SENT' | 'FAILED' | 'BOUNCED';
+
+/// Три категорії сертифіката Річної програми, від вищої до нижчої:
+/// Практична участь → Слухач → Учасник. Тексти зафіксовані у погодженому
+/// з власником концепті — не змінювати без прохання.
+const YEARLY_CATEGORIES: readonly CertCategory[] = ['PRACTICAL', 'LISTENER', 'PARTICIPANT'];
+
+const CATEGORY_LABEL: Record<CertCategory, string> = {
+  PRACTICAL: 'Практична участь',
+  LISTENER: 'Слухач',
+  PARTICIPANT: 'Учасник',
+};
+
+const CATEGORY_HINT: Record<CertCategory, string> = {
+  PRACTICAL: 'Вища категорія — активна практика',
+  LISTENER: 'Слухав лекції, без активної практики',
+  PARTICIPANT: 'Брав участь у програмі',
+};
+
+/// Компактні підписи для таблиць, де на колонку припадає ~90px.
+const CATEGORY_SHORT: Record<CertCategory, string> = {
+  PRACTICAL: 'Практична',
+  LISTENER: 'Слухач',
+  PARTICIPANT: 'Учасник',
+};
+
+function categoryLabel(category: CertCategory | null | undefined, short = false): string {
+  if (!category) return '—';
+  return short ? CATEGORY_SHORT[category] : CATEGORY_LABEL[category];
+}
+
+/// Пояснення під кнопками видачі — спільне для обох діалогів Річної.
+const ISSUE_BUTTONS_NOTE =
+  '«Видати без листа» — сертифікат з’явиться у списку виданих зі статусом «Лист не надіслано»: звідти можна завантажити PDF (наприклад, щоб роздрукувати чи передати особисто) або надіслати листом пізніше.';
 
 interface CourseCandidate {
   userId: string;
@@ -74,6 +110,10 @@ interface YearlyCandidate {
     emailStatus: EmailStatus;
     emailFromAddress: string | null;
     issuedAt: string;
+    /// Ім'я латиницею — заповнене лише коли сертифікат видано з англійською
+    /// сторінкою. Опційне: старі записи і відповіді API без цього поля просто
+    /// не показують мовний badge.
+    recipientNameEn?: string | null;
   } | null;
 }
 
@@ -92,6 +132,7 @@ interface HistoryEvent {
     category: CertCategory | null;
     recipientName: string;
     recipientEmail: string;
+    recipientNameEn?: string | null;
     courseName: string | null;
     revoked: boolean;
   };
@@ -162,7 +203,19 @@ export default function CertificatesView({ graceDays }: { graceDays: number }) {
       eyebrow="Admin · Сертифікати"
       maxWidth="max-w-[1400px]"
     >
-      <div className="flex items-center justify-between gap-3 flex-wrap">
+      {/* Тонкий скролбар для елементів, які на вузьких екранах скролляться
+          горизонтально всередині себе (таб-бар і таблиці). Сама сторінка при
+          цьому лишається без h-скролу. */}
+      <style>{`
+        .cert-scroll-x { scrollbar-width: thin; -webkit-overflow-scrolling: touch; }
+        .cert-scroll-x::-webkit-scrollbar { height: 7px; }
+        .cert-scroll-x::-webkit-scrollbar-thumb { background: rgba(120,113,108,0.35); border-radius: 999px; }
+        .cert-scroll-x::-webkit-scrollbar-track { background: transparent; }
+      `}</style>
+
+      {/* На мобільних 5 вкладок не влазять у 390px — даємо горизонтальний скрол
+          самому таб-бару (а не сторінці; AdminShell має overflow-hidden). */}
+      <div className="-mx-1 px-1 pb-1 overflow-x-auto cert-scroll-x">
         <Tabs theme={theme} active={activeTab} onChange={setActiveTab} />
       </div>
 
@@ -170,7 +223,7 @@ export default function CertificatesView({ graceDays }: { graceDays: number }) {
         {activeTab === 'courses' && <CoursesTab theme={theme} pushToast={setToast} />}
         {activeTab === 'yearly' && <YearlyTab theme={theme} graceDays={graceDays} pushToast={setToast} />}
         {activeTab === 'supervision' && <SupervisionTab theme={theme} pushToast={setToast} />}
-        {activeTab === 'history' && <HistoryTab theme={theme} />}
+        {activeTab === 'history' && <HistoryTab theme={theme} pushToast={setToast} />}
         {activeTab === 'issues' && <IssuesTab theme={theme} pushToast={setToast} />}
       </div>
 
@@ -193,7 +246,7 @@ function Tabs({
   const dark = theme === 'dark';
   return (
     <div
-      className={`inline-flex rounded-xl border p-1 ${dark ? 'bg-white/[0.03] border-white/[0.08]' : 'bg-white/70 border-stone-200/70'}`}
+      className={`inline-flex w-max rounded-xl border p-1 ${dark ? 'bg-white/[0.03] border-white/[0.08]' : 'bg-white/70 border-stone-200/70'}`}
     >
       {TABS.map(({ key, label, icon: Icon }) => {
         const isActive = active === key;
@@ -202,7 +255,7 @@ function Tabs({
             key={key}
             type="button"
             onClick={() => onChange(key)}
-            className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-[13px] font-medium transition-all ${
+            className={`inline-flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg text-[13px] font-medium whitespace-nowrap transition-all ${
               isActive
                 ? dark
                   ? 'bg-amber-500/20 text-amber-100 shadow-inner'
@@ -253,19 +306,95 @@ function StatusBadge({ theme, status, revoked }: { theme: Theme; status: EmailSt
       </span>
     );
   }
+  /// PENDING = сертифікат створено, але лист ще не пішов (видача «без листа» або
+  /// збій черги). Формулювання «Лист не надіслано» замість абстрактного «Очікує» —
+  /// менеджер одразу бачить, що треба дотиснути кнопкою «Надіслати листом».
   const map: Record<EmailStatus, { light: string; dark: string; label: string }> = {
     SENT: { light: 'bg-emerald-100 text-emerald-800', dark: 'bg-emerald-500/20 text-emerald-200', label: 'Відправлено' },
-    PENDING: { light: 'bg-amber-100 text-amber-800', dark: 'bg-amber-500/20 text-amber-200', label: 'Очікує' },
+    PENDING: { light: 'bg-amber-100 text-amber-800', dark: 'bg-amber-500/20 text-amber-200', label: 'Лист не надіслано' },
     FAILED: { light: 'bg-red-100 text-red-800', dark: 'bg-red-500/20 text-red-200', label: 'Помилка' },
     BOUNCED: { light: 'bg-orange-100 text-orange-800', dark: 'bg-orange-500/20 text-orange-200', label: 'Bounce' },
   };
   const s = map[status];
   return (
     <span
-      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wider ${dark ? s.dark : s.light}`}
+      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[9.5px] font-semibold uppercase tracking-wider whitespace-nowrap ${dark ? s.dark : s.light}`}
     >
       {s.label}
     </span>
+  );
+}
+
+/// Мовний badge сертифіката: UA (тільки українська сторінка) або UA·EN
+/// (двосторінковий PDF — укр + англ). Показується у списках виданих.
+function LangBadge({ dark, hasEn }: { dark: boolean; hasEn: boolean }) {
+  return (
+    <span
+      title={hasEn ? 'Двосторінковий PDF: українська + англійська' : 'Тільки українська сторінка'}
+      className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9.5px] font-bold tracking-[0.04em] whitespace-nowrap ${
+        hasEn
+          ? dark
+            ? 'bg-amber-500/15 text-amber-200'
+            : 'bg-amber-100 text-amber-800'
+          : dark
+            ? 'bg-white/[0.06] text-slate-400'
+            : 'bg-stone-100 text-stone-500'
+      }`}
+    >
+      {hasEn ? 'UA·EN' : 'UA'}
+    </span>
+  );
+}
+
+/// Компактна кнопка-дія у рядку таблиці. `tone="gold"` — головна дія рядка
+/// (завантажити PDF), `neutral` — вторинні, `danger` — деструктивні.
+function RowAction({
+  dark,
+  tone = 'neutral',
+  icon,
+  label,
+  title,
+  href,
+  onClick,
+  disabled,
+}: {
+  dark: boolean;
+  tone?: 'gold' | 'neutral' | 'danger';
+  icon: React.ReactNode;
+  /// Видимий підпис. Якщо не передано — кнопка тільки з іконкою (title обов'язковий).
+  label?: string;
+  title: string;
+  href?: string;
+  onClick?: () => void;
+  disabled?: boolean;
+}) {
+  const palette =
+    tone === 'gold'
+      ? dark
+        ? 'border-amber-500/40 bg-amber-500/10 text-amber-200 hover:bg-amber-500/20'
+        : 'border-amber-400/70 bg-amber-50 text-amber-800 hover:bg-amber-100'
+      : tone === 'danger'
+        ? dark
+          ? 'border-red-500/30 bg-red-500/10 text-red-300 hover:bg-red-500/20'
+          : 'border-red-200 bg-red-50 text-red-700 hover:bg-red-100'
+        : dark
+          ? 'border-white/[0.1] bg-white/[0.05] text-slate-200 hover:bg-white/[0.1]'
+          : 'border-stone-300 bg-white text-stone-700 hover:bg-stone-100';
+  const cls = `inline-flex items-center gap-1 px-2 py-1.5 rounded-md border text-[11.5px] font-medium whitespace-nowrap transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${palette}`;
+
+  if (href) {
+    return (
+      <a href={href} target="_blank" rel="noreferrer" title={title} aria-label={title} className={cls}>
+        {icon}
+        {label && <span>{label}</span>}
+      </a>
+    );
+  }
+  return (
+    <button type="button" onClick={onClick} disabled={disabled} title={title} aria-label={title} className={cls}>
+      {icon}
+      {label && <span>{label}</span>}
+    </button>
   );
 }
 
@@ -725,7 +854,7 @@ function CoursesTab({
   }
 
   return (
-    <AdminPanel theme={theme}>
+    <AdminPanel theme={theme} padding="p-4 sm:p-6">
       {/* Row 1 — Синхронізація даних (наша БД + SendPulse) + дії */}
       <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
         <div className="flex items-center gap-3 flex-wrap">
@@ -782,7 +911,7 @@ function CoursesTab({
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Пошук: ім'я, email, курс…"
-            className={`px-3 py-2 rounded-lg border text-[13px] min-w-[280px] ${dark ? 'bg-white/[0.04] border-white/[0.1] text-white placeholder-slate-500' : 'bg-white border-stone-300 text-stone-900'}`}
+            className={`px-3 py-2 rounded-lg border text-[13px] w-full sm:w-auto sm:min-w-[280px] ${dark ? 'bg-white/[0.04] border-white/[0.1] text-white placeholder-slate-500' : 'bg-white border-stone-300 text-stone-900'}`}
           />
           <select
             value={courseFilter}
@@ -809,8 +938,8 @@ function CoursesTab({
         </span>
       </div>
 
-      <div className="overflow-x-auto rounded-xl">
-        <table className="w-full text-[13px]">
+      <div className="overflow-x-auto rounded-xl cert-scroll-x">
+        <table className="w-full text-[13px] min-w-[860px]">
           <thead className={`text-left text-[11px] uppercase tracking-wider ${dark ? 'text-slate-400 border-b border-white/[0.06]' : 'text-stone-500 border-b border-stone-200'}`}>
             <tr>
               <Th>Покупець</Th>
@@ -1005,6 +1134,7 @@ function YearlyTab({
   const [dialogSub, setDialogSub] = useState<YearlyCandidate | null>(null);
   const [showIssueManual, setShowIssueManual] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [sending, setSending] = useState<string | null>(null);
   const [showInfo, setShowInfo] = useState(false);
   const [runningSp, setRunningSp] = useState(false);
 
@@ -1048,6 +1178,23 @@ function YearlyTab({
     }
   }
 
+  /// Відкладена перша відправка листа — для сертифікатів, виданих кнопкою
+  /// «Видати без листа» (emailStatus = PENDING).
+  async function handleSend(certId: string) {
+    setSending(certId);
+    try {
+      const res = await fetch(`/api/admin/certificates/${certId}/send`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Помилка');
+      pushToast({ type: 'success', msg: 'Лист із сертифікатом надіслано' });
+      fetchList();
+    } catch (err) {
+      pushToast({ type: 'error', msg: err instanceof Error ? err.message : 'Помилка' });
+    } finally {
+      setSending(null);
+    }
+  }
+
   const filtered = useMemo(() => {
     const s = search.trim().toLowerCase();
     return candidates.filter((c) => {
@@ -1063,7 +1210,7 @@ function YearlyTab({
   }, [candidates, planFilter, issuedFilter, search]);
 
   return (
-    <AdminPanel theme={theme}>
+    <AdminPanel theme={theme} padding="p-4 sm:p-6">
       {/* Row 1 — Синхронізація даних + дії */}
       <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
         <div className="flex items-center gap-3 flex-wrap">
@@ -1120,7 +1267,7 @@ function YearlyTab({
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Пошук учасника…"
-            className={`px-3 py-2 rounded-lg border text-[13px] min-w-[260px] ${dark ? 'bg-white/[0.04] border-white/[0.1] text-white placeholder-slate-500' : 'bg-white border-stone-300 text-stone-900'}`}
+            className={`px-3 py-2 rounded-lg border text-[13px] w-full sm:w-auto sm:min-w-[260px] ${dark ? 'bg-white/[0.04] border-white/[0.1] text-white placeholder-slate-500' : 'bg-white border-stone-300 text-stone-900'}`}
           />
           <select
             value={planFilter}
@@ -1146,56 +1293,62 @@ function YearlyTab({
         </span>
       </div>
 
-      <div className="overflow-x-auto rounded-xl">
-        <table className="w-full text-[13px]">
+      {/* 9 колонок замість 12: період і статус листа згорнуті у двохрядкові
+          комірки, а дії зведені в одну колонку — щоб таблиця влазила у 1280px
+          без горизонтального скролу. */}
+      <div className="overflow-x-auto rounded-xl cert-scroll-x">
+        <table className="w-full text-[13px] min-w-[860px]">
           <thead className={`text-left text-[11px] uppercase tracking-wider ${dark ? 'text-slate-400 border-b border-white/[0.06]' : 'text-stone-500 border-b border-stone-200'}`}>
             <tr>
               <Th>Учасник</Th>
               <Th>План</Th>
               <Th>Статус</Th>
               <Th>Оплата</Th>
-              <Th>Дата початку</Th>
-              <Th>Дата закінчення</Th>
+              <Th>Період</Th>
               <Th>Курс завершено</Th>
-              <Th>Сертифікат створено</Th>
-              <Th>Сертифікат відправлено</Th>
-              <Th>Лист надійшов з</Th>
               <Th>Сертифікат</Th>
-              <Th>Створити вручну</Th>
+              <Th>Лист</Th>
+              <Th>Дії</Th>
             </tr>
           </thead>
           <tbody className={dark ? 'divide-y divide-white/[0.04]' : 'divide-y divide-stone-200/60'}>
             {loading && (
               <tr>
-                <td colSpan={12} className={`py-8 text-center ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
+                <td colSpan={9} className={`py-8 text-center ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
                   Завантаження…
                 </td>
               </tr>
             )}
             {!loading && filtered.length === 0 && (
               <tr>
-                <td colSpan={12} className={`py-8 text-center ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
+                <td colSpan={9} className={`py-8 text-center ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
                   Немає даних
                 </td>
               </tr>
             )}
             {filtered.map((c) => (
               <tr key={c.subscriptionId} className={dark ? 'hover:bg-white/[0.02]' : 'hover:bg-stone-50/70'}>
-                <td className="py-3 pr-3">
-                  <div className="font-medium">{c.userName ?? '—'}</div>
-                  <div className={`text-[11px] ${dark ? 'text-slate-400' : 'text-stone-500'}`}>{c.userEmail}</div>
+                <td className="py-3 pr-3 max-w-[190px]">
+                  <div className="font-medium truncate" title={c.userName ?? undefined}>{c.userName ?? '—'}</div>
+                  <div className={`text-[11px] truncate ${dark ? 'text-slate-400' : 'text-stone-500'}`} title={c.userEmail}>
+                    {c.userEmail}
+                  </div>
                 </td>
-                <td className="py-3 pr-3">{c.plan === 'YEARLY' ? 'Річний' : 'Місячний'}</td>
+                <td className="py-3 pr-3 whitespace-nowrap">{c.plan === 'YEARLY' ? 'Річний' : 'Місячний'}</td>
                 <td className="py-3 pr-3">
-                  <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-semibold uppercase ${statusColors(c.status, dark)}`}>
+                  <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-semibold uppercase whitespace-nowrap ${statusColors(c.status, dark)}`}>
                     {statusUa(c.status)}
                   </span>
                 </td>
                 <td className="py-3 pr-3">
                   <HealthBadge theme={theme} candidate={c} />
                 </td>
-                <td className="py-3 pr-3">{c.startDate ? formatDateOnly(c.startDate) : '—'}</td>
-                <td className="py-3 pr-3">{c.expiresAt ? formatDateOnly(c.expiresAt) : '—'}</td>
+                <td className={`py-3 pr-3 whitespace-nowrap text-[11.5px] ${dark ? 'text-slate-300' : 'text-stone-700'}`}>
+                  <div>{c.startDate ? formatDateOnly(c.startDate) : '—'}</div>
+                  <div className={dark ? 'text-slate-500' : 'text-stone-400'}>
+                    ↓ {c.expiresAt ? formatDateOnly(c.expiresAt) : '—'}
+                  </div>
+                </td>
                 <td className="py-3 pr-3">
                   <ProgressCell
                     theme={theme}
@@ -1207,9 +1360,12 @@ function YearlyTab({
                 <td className="py-3 pr-3">
                   {c.certificate ? (
                     <div>
-                      <div className="font-mono text-[11px]">{c.certificate.certNumber}</div>
-                      <div className={`text-[10px] mt-0.5 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
-                        {c.certificate.category === 'LISTENER' ? 'Слухач' : 'Практична'} · {formatDate(c.certificate.issuedAt)}
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-mono text-[11px]">{c.certificate.certNumber}</span>
+                        <LangBadge dark={dark} hasEn={Boolean(c.certificate.recipientNameEn)} />
+                      </div>
+                      <div className={`text-[10px] mt-0.5 whitespace-nowrap ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
+                        {categoryLabel(c.certificate.category, true)} · {formatDate(c.certificate.issuedAt)}
                       </div>
                     </div>
                   ) : (
@@ -1218,40 +1374,16 @@ function YearlyTab({
                 </td>
                 <td className="py-3 pr-3">
                   {c.certificate ? (
-                    <StatusBadge theme={theme} status={c.certificate.emailStatus} revoked={false} />
-                  ) : (
-                    <span className={`text-[12px] ${dark ? 'text-slate-500' : 'text-stone-400'}`}>—</span>
-                  )}
-                </td>
-                <td className="py-3 pr-3">
-                  {c.certificate?.emailFromAddress ? (
-                    <span className={`font-mono text-[11px] ${dark ? 'text-slate-300' : 'text-stone-700'}`} title={c.certificate.emailFromAddress}>
-                      {extractEmail(c.certificate.emailFromAddress)}
-                    </span>
-                  ) : (
-                    <span className={`text-[11px] italic ${dark ? 'text-slate-500' : 'text-stone-400'}`}>—</span>
-                  )}
-                </td>
-                <td className="py-3 pr-3">
-                  {c.certificate ? (
-                    <div className="inline-flex items-center gap-1">
-                      <a
-                        href={`/api/admin/certificates/${c.certificate.id}/pdf`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-[12px] font-medium ${dark ? 'bg-white/[0.05] text-slate-200 hover:bg-white/[0.1]' : 'bg-stone-100 text-stone-700 hover:bg-stone-200'}`}
-                      >
-                        <HiOutlineEye /> PDF
-                      </a>
-                      <button
-                        type="button"
-                        disabled={deleting === c.certificate.id}
-                        onClick={() => c.certificate && handleDelete(c.certificate.id)}
-                        title="Видалити сертифікат (dev)"
-                        className={`inline-flex items-center justify-center w-8 h-8 rounded-md disabled:opacity-40 ${dark ? 'bg-red-500/10 text-red-300 hover:bg-red-500/20' : 'bg-red-50 text-red-700 hover:bg-red-100'}`}
-                      >
-                        <HiOutlineTrash />
-                      </button>
+                    <div>
+                      <StatusBadge theme={theme} status={c.certificate.emailStatus} revoked={false} />
+                      {c.certificate.emailFromAddress && (
+                        <div
+                          className={`font-mono text-[10px] mt-0.5 max-w-[140px] truncate ${dark ? 'text-slate-500' : 'text-stone-500'}`}
+                          title={`Лист надійшов з: ${c.certificate.emailFromAddress}`}
+                        >
+                          {extractEmail(c.certificate.emailFromAddress)}
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <span className={`text-[12px] ${dark ? 'text-slate-500' : 'text-stone-400'}`}>—</span>
@@ -1259,12 +1391,39 @@ function YearlyTab({
                 </td>
                 <td className="py-3">
                   {c.certificate ? (
-                    <span className={`text-[12px] ${dark ? 'text-slate-500' : 'text-stone-400'}`}>—</span>
+                    <div className="flex items-center gap-1 flex-wrap">
+                      <RowAction
+                        dark={dark}
+                        tone="gold"
+                        icon={<HiOutlineArrowDownTray className="w-3.5 h-3.5" />}
+                        label="PDF"
+                        title="Завантажити PDF"
+                        href={`/api/admin/certificates/${c.certificate.id}/pdf`}
+                      />
+                      {c.certificate.emailStatus === 'PENDING' && (
+                        <RowAction
+                          dark={dark}
+                          icon={<HiOutlineEnvelope className="w-3.5 h-3.5" />}
+                          label="Надіслати листом"
+                          title="Надіслати листом"
+                          disabled={sending === c.certificate.id}
+                          onClick={() => c.certificate && handleSend(c.certificate.id)}
+                        />
+                      )}
+                      <RowAction
+                        dark={dark}
+                        tone="danger"
+                        icon={<HiOutlineTrash className="w-3.5 h-3.5" />}
+                        title="Видалити сертифікат (dev)"
+                        disabled={deleting === c.certificate.id}
+                        onClick={() => c.certificate && handleDelete(c.certificate.id)}
+                      />
+                    </div>
                   ) : (
                     <button
                       type="button"
                       onClick={() => setDialogSub(c)}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-amber-500 text-white text-[12px] font-semibold hover:bg-amber-600"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-amber-500 text-white text-[12px] font-semibold whitespace-nowrap hover:bg-amber-600"
                     >
                       <HiOutlinePlus /> Видати
                     </button>
@@ -1281,10 +1440,13 @@ function YearlyTab({
           theme={theme}
           candidate={dialogSub}
           onClose={() => setDialogSub(null)}
-          onIssued={() => {
+          onIssued={(sendEmail) => {
             setDialogSub(null);
             fetchList();
-            pushToast({ type: 'success', msg: 'Сертифікат видано та відправлено' });
+            pushToast({
+              type: 'success',
+              msg: sendEmail ? 'Сертифікат видано та відправлено' : 'Сертифікат видано. Лист не надіслано',
+            });
           }}
           onError={(msg) => pushToast({ type: 'error', msg })}
         />
@@ -1294,10 +1456,13 @@ function YearlyTab({
         <IssueYearlyManualDialog
           theme={theme}
           onClose={() => setShowIssueManual(false)}
-          onIssued={() => {
+          onIssued={(sendEmail) => {
             setShowIssueManual(false);
             fetchList();
-            pushToast({ type: 'success', msg: 'Сертифікат видано та відправлено' });
+            pushToast({
+              type: 'success',
+              msg: sendEmail ? 'Сертифікат видано та відправлено' : 'Сертифікат видано. Лист не надіслано',
+            });
           }}
           onError={(msg) => pushToast({ type: 'error', msg })}
         />
@@ -1398,7 +1563,7 @@ function SupervisionTab({
   }
 
   return (
-    <AdminPanel theme={theme}>
+    <AdminPanel theme={theme} padding="p-4 sm:p-6">
       {/* Row 1 — Дії (без sync — супервізії видаються тільки вручну, ніяких кандидатів з БД немає) */}
       <div className="flex items-center justify-end gap-3 flex-wrap mb-4">
         <button
@@ -1418,7 +1583,7 @@ function SupervisionTab({
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Пошук: ім'я, email, тема, номер…"
-            className={`px-3 py-2 rounded-lg border text-[13px] min-w-[280px] ${dark ? 'bg-white/[0.04] border-white/[0.1] text-white placeholder-slate-500' : 'bg-white border-stone-300 text-stone-900'}`}
+            className={`px-3 py-2 rounded-lg border text-[13px] w-full sm:w-auto sm:min-w-[280px] ${dark ? 'bg-white/[0.04] border-white/[0.1] text-white placeholder-slate-500' : 'bg-white border-stone-300 text-stone-900'}`}
           />
           <select
             value={statusFilter}
@@ -1438,8 +1603,8 @@ function SupervisionTab({
         </span>
       </div>
 
-      <div className="overflow-x-auto rounded-xl">
-        <table className="w-full text-[13px]">
+      <div className="overflow-x-auto rounded-xl cert-scroll-x">
+        <table className="w-full text-[13px] min-w-[860px]">
           <thead className={`text-left text-[11px] uppercase tracking-wider ${dark ? 'text-slate-400 border-b border-white/[0.06]' : 'text-stone-500 border-b border-stone-200'}`}>
             <tr>
               <Th>Отримувач</Th>
@@ -1621,6 +1786,7 @@ interface CertHistoryRow {
   type: CertificateType;
   recipientName: string;
   recipientEmail: string;
+  recipientNameEn: string | null;
   revoked: boolean;
   generatedAt: string | null;
   sentAt: string | null;
@@ -1660,6 +1826,7 @@ function aggregateEvents(events: HistoryEvent[]): CertHistoryRow[] {
       type: certInfo.type,
       recipientName: certInfo.recipientName,
       recipientEmail: certInfo.recipientEmail,
+      recipientNameEn: certInfo.recipientNameEn ?? null,
       revoked: certInfo.revoked,
       generatedAt: generated?.createdAt ?? null,
       sentAt: lastSent?.createdAt ?? null,
@@ -1679,15 +1846,23 @@ function statusFor(row: CertHistoryRow): { label: string; tone: 'ok' | 'warn' | 
   if (row.revoked) return { label: 'Відкликано', tone: 'danger' };
   if (row.hasEmailFailed) return { label: 'Помилка email', tone: 'warn' };
   if (row.generatedAt && row.sentAt) return { label: 'Створено та відправлено', tone: 'ok' };
-  if (row.generatedAt) return { label: 'Створено', tone: 'neutral' };
+  /// Створено, але події SENT/RESENT немає — це видача «без листа».
+  if (row.generatedAt) return { label: 'Лист не надіслано', tone: 'warn' };
   return { label: '—', tone: 'neutral' };
 }
 
-function HistoryTab({ theme }: { theme: Theme }) {
+function HistoryTab({
+  theme,
+  pushToast,
+}: {
+  theme: Theme;
+  pushToast: (t: { type: 'success' | 'error'; msg: string }) => void;
+}) {
   const dark = theme === 'dark';
   const [section, setSection] = useState<HistorySection>('course');
   const [events, setEvents] = useState<HistoryEvent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState<string | null>(null);
 
   const fetchEvents = useCallback(async () => {
     setLoading(true);
@@ -1714,8 +1889,25 @@ function HistoryTab({ theme }: { theme: Theme }) {
 
   const rows = useMemo(() => aggregateEvents(events), [events]);
 
+  /// Відкладена перша відправка листа прямо з Історії — щоб не шукати той самий
+  /// сертифікат у вкладці Річна.
+  async function handleSend(certId: string) {
+    setSending(certId);
+    try {
+      const res = await fetch(`/api/admin/certificates/${certId}/send`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Помилка');
+      pushToast({ type: 'success', msg: 'Лист із сертифікатом надіслано' });
+      await fetchEvents();
+    } catch (err) {
+      pushToast({ type: 'error', msg: err instanceof Error ? err.message : 'Помилка' });
+    } finally {
+      setSending(null);
+    }
+  }
+
   return (
-    <AdminPanel theme={theme}>
+    <AdminPanel theme={theme} padding="p-4 sm:p-6">
       <div className="flex items-center gap-2 mb-4 flex-wrap">
         <div
           className={`inline-flex items-center rounded-lg border p-1 ${dark ? 'bg-white/[0.04] border-white/[0.1]' : 'bg-stone-100 border-stone-200'}`}
@@ -1751,8 +1943,8 @@ function HistoryTab({ theme }: { theme: Theme }) {
         </button>
       </div>
 
-      <div className="overflow-x-auto rounded-xl">
-        <table className="w-full text-[13px]">
+      <div className="overflow-x-auto rounded-xl cert-scroll-x">
+        <table className="w-full text-[13px] min-w-[860px]">
           <thead className={`text-left text-[11px] uppercase tracking-wider ${dark ? 'text-slate-400 border-b border-white/[0.06]' : 'text-stone-500 border-b border-stone-200'}`}>
             <tr>
               <Th>Сертифікат</Th>
@@ -1762,46 +1954,84 @@ function HistoryTab({ theme }: { theme: Theme }) {
               <Th>Відправлено</Th>
               <Th>Хто відправив</Th>
               <Th>Деталі</Th>
+              <Th>Дії</Th>
             </tr>
           </thead>
           <tbody className={dark ? 'divide-y divide-white/[0.04]' : 'divide-y divide-stone-200/60'}>
             {loading && (
-              <tr><td colSpan={7} className={`py-8 text-center ${dark ? 'text-slate-400' : 'text-stone-500'}`}>Завантаження…</td></tr>
+              <tr><td colSpan={8} className={`py-8 text-center ${dark ? 'text-slate-400' : 'text-stone-500'}`}>Завантаження…</td></tr>
             )}
             {!loading && rows.length === 0 && (
-              <tr><td colSpan={7} className={`py-8 text-center ${dark ? 'text-slate-400' : 'text-stone-500'}`}>Подій немає</td></tr>
+              <tr><td colSpan={8} className={`py-8 text-center ${dark ? 'text-slate-400' : 'text-stone-500'}`}>Подій немає</td></tr>
             )}
             {rows.map((r) => {
               const status = statusFor(r);
               const actor = r.sender ?? r.issuer;
+              /// «Створено, але не відправлено» — саме ті сертифікати, яким
+              /// доступна перша відправка листа (POST /send).
+              const canSend = !r.revoked && Boolean(r.generatedAt) && !r.sentAt;
               return (
                 <tr key={r.certId} className={dark ? 'hover:bg-white/[0.02]' : 'hover:bg-stone-50/70'}>
                   <td className="py-3 pr-3">
-                    <div className="font-mono text-[11px]">{r.certNumber}</div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-mono text-[11px]">{r.certNumber}</span>
+                      {r.recipientNameEn && <LangBadge dark={dark} hasEn />}
+                    </div>
                     <div className={`text-[10px] ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
                       {r.type === 'COURSE' ? 'Курс' : r.type === 'SUPERVISION' ? 'Супервізія' : 'Річна'}
                     </div>
                   </td>
-                  <td className="py-3 pr-3">
-                    <div>{r.recipientName}</div>
-                    <div className={`text-[10px] ${dark ? 'text-slate-400' : 'text-stone-500'}`}>{r.recipientEmail}</div>
+                  <td className="py-3 pr-3 max-w-[180px]">
+                    <div className="truncate" title={r.recipientName}>{r.recipientName}</div>
+                    <div className={`text-[10px] truncate ${dark ? 'text-slate-400' : 'text-stone-500'}`} title={r.recipientEmail}>
+                      {r.recipientEmail}
+                    </div>
                   </td>
                   <td className="py-3 pr-3">
                     <StatusPill tone={status.tone} dark={dark} label={status.label} />
                   </td>
-                  <td className="py-3 pr-3 whitespace-nowrap">{formatDate(r.generatedAt)}</td>
-                  <td className="py-3 pr-3 whitespace-nowrap">{formatDate(r.sentAt)}</td>
-                  <td className="py-3 pr-3">
+                  <td className="py-3 pr-3 whitespace-nowrap text-[11.5px]">{formatDate(r.generatedAt)}</td>
+                  <td className="py-3 pr-3 whitespace-nowrap text-[11.5px]">{formatDate(r.sentAt)}</td>
+                  <td className="py-3 pr-3 max-w-[150px]">
                     {actor && (actor.name || actor.email) ? (
                       <>
-                        <div>{actor.name ?? '—'}</div>
-                        <div className={`text-[10px] ${dark ? 'text-slate-400' : 'text-stone-500'}`}>{actor.email}</div>
+                        <div className="truncate" title={actor.name ?? undefined}>{actor.name ?? '—'}</div>
+                        <div className={`text-[10px] truncate ${dark ? 'text-slate-400' : 'text-stone-500'}`} title={actor.email ?? undefined}>
+                          {actor.email}
+                        </div>
                       </>
                     ) : (
                       <span className={`text-[11px] italic ${dark ? 'text-slate-500' : 'text-stone-400'}`}>System</span>
                     )}
                   </td>
-                  <td className={`py-3 text-[12px] ${dark ? 'text-slate-400' : 'text-stone-600'}`}>{r.detailsMessage ?? '—'}</td>
+                  <td
+                    className={`py-3 pr-3 text-[12px] max-w-[190px] truncate ${dark ? 'text-slate-400' : 'text-stone-600'}`}
+                    title={r.detailsMessage ?? undefined}
+                  >
+                    {r.detailsMessage ?? '—'}
+                  </td>
+                  <td className="py-3">
+                    <div className="flex items-center gap-1 flex-wrap">
+                      <RowAction
+                        dark={dark}
+                        tone="gold"
+                        icon={<HiOutlineArrowDownTray className="w-3.5 h-3.5" />}
+                        label="PDF"
+                        title="Завантажити PDF"
+                        href={`/api/admin/certificates/${r.certId}/pdf`}
+                      />
+                      {canSend && (
+                        <RowAction
+                          dark={dark}
+                          icon={<HiOutlineEnvelope className="w-3.5 h-3.5" />}
+                          label="Надіслати листом"
+                          title="Надіслати листом"
+                          disabled={sending === r.certId}
+                          onClick={() => handleSend(r.certId)}
+                        />
+                      )}
+                    </div>
+                  </td>
                 </tr>
               );
             })}
@@ -2020,7 +2250,7 @@ function IssuesTab({
         <IssueKpi theme={theme} label="Серт не видано" value={totals.COMPLETED_NO_CERT} tone="neutral" />
       </div>
 
-      <AdminPanel theme={theme}>
+      <AdminPanel theme={theme} padding="p-4 sm:p-6">
         <div className="flex items-center gap-2 mb-5 flex-wrap">
           <select
             value={kindFilter}
@@ -2055,8 +2285,8 @@ function IssuesTab({
           </span>
         </div>
 
-        <div className="overflow-x-auto rounded-xl">
-          <table className="w-full text-[13px]">
+        <div className="overflow-x-auto rounded-xl cert-scroll-x">
+          <table className="w-full text-[13px] min-w-[860px]">
             <thead className={`text-left text-[11px] uppercase tracking-wider ${dark ? 'text-slate-400 border-b border-white/[0.06]' : 'text-stone-500 border-b border-stone-200'}`}>
               <tr>
                 <Th>Тип помилки</Th>
@@ -2383,8 +2613,11 @@ function PreviewPane({
   theme: Theme;
   params: {
     type: 'COURSE' | 'YEARLY_PROGRAM' | 'SUPERVISION';
-    category?: 'LISTENER' | 'PRACTICAL';
+    category?: CertCategory;
     recipientName: string;
+    /// Ім'я латиницею. Якщо задане — прев'ю запитує двосторінковий PDF
+    /// (1 — укр, 2 — англ) і над iframe з'являється перемикач сторінок.
+    nameEn?: string;
     courseName?: string;
     /// Тільки для SUPERVISION — yyyy-mm-dd або порожній. Опційне.
     supervisionDate?: string;
@@ -2433,15 +2666,26 @@ function PreviewPane({
         name: params.recipientName.trim(),
       });
       if (params.category) qs.set('category', params.category);
+      if (params.nameEn) qs.set('nameEn', params.nameEn);
       if (params.courseName) qs.set('courseName', params.courseName);
       if (params.supervisionDate) qs.set('supervisionDate', params.supervisionDate);
       if (params.supervisionHours) qs.set('supervisionHours', params.supervisionHours);
       setBaseSrc(`/api/admin/certificates/preview?${qs.toString()}`);
     }, 500);
     return () => clearTimeout(t);
-  }, [disabled, params.type, params.category, params.recipientName, params.courseName, params.supervisionDate, params.supervisionHours]);
+  }, [disabled, params.type, params.category, params.recipientName, params.nameEn, params.courseName, params.supervisionDate, params.supervisionHours]);
 
-  const src = baseSrc ? `${baseSrc}#toolbar=0&navpanes=0&scrollbar=0&statusbar=0&messages=0&view=Fit&zoom=page-fit` : null;
+  /// Яку сторінку двомовного PDF показувати. Скидається на укр, щойно англійська
+  /// версія вимикається (інакше лишився б запит #page=2 на односторінковий PDF).
+  const hasEn = Boolean(params.nameEn);
+  const [page, setPage] = useState<1 | 2>(1);
+  useEffect(() => {
+    if (!hasEn) setPage(1);
+  }, [hasEn]);
+
+  const src = baseSrc
+    ? `${baseSrc}#page=${page}&toolbar=0&navpanes=0&scrollbar=0&statusbar=0&messages=0&view=Fit&zoom=page-fit`
+    : null;
 
   /// Реальні розміри PDF — мають співпадати з PAGE_SIZES у lib/certificates/templateConfig.ts.
   /// COURSE = 1280×760 (sidebar layout), YEARLY = 1280×960, SUPERVISION = 1280×900 (унікальна).
@@ -2466,7 +2710,10 @@ function PreviewPane({
   ) : src ? (
     <>
       <div className="absolute inset-0 overflow-hidden">
+        {/* key з номером сторінки — зміна лише хеша (#page=N) НЕ перевантажує вже
+            відрендерений PDF, тому перемикач УКР/EN мусить перемонтувати iframe. */}
         <iframe
+          key={src}
           src={src}
           title="Certificate preview"
           onLoad={() => setLoading(false)}
@@ -2496,6 +2743,37 @@ function PreviewPane({
           <div className="flex items-center gap-2">
             <HiOutlineEye className={`w-4 h-4 ${dark ? 'text-amber-400/80' : 'text-amber-600/90'}`} />
             <span className={`text-[12px] font-medium tracking-wide ${dark ? 'text-slate-200' : 'text-stone-700'}`}>Попередній перегляд</span>
+            {hasEn && (
+              <div
+                className={`ml-2 inline-flex rounded-md border p-0.5 ${dark ? 'border-white/[0.1] bg-white/[0.04]' : 'border-stone-300 bg-white'}`}
+                role="tablist"
+                aria-label="Сторінка сертифіката"
+              >
+                {([1, 2] as const).map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    role="tab"
+                    aria-selected={page === p}
+                    onClick={() => {
+                      if (page === p) return;
+                      setLoading(true);
+                      setPage(p);
+                    }}
+                    title={p === 1 ? 'Українська сторінка' : 'Англійська сторінка'}
+                    className={`px-2 py-0.5 rounded text-[10.5px] font-bold tracking-wider transition-colors ${
+                      page === p
+                        ? 'bg-amber-500 text-white'
+                        : dark
+                          ? 'text-slate-400 hover:text-slate-200'
+                          : 'text-stone-500 hover:text-stone-800'
+                    }`}
+                  >
+                    {p === 1 ? 'УКР' : 'EN'}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
           {src && (
             <button
@@ -2677,7 +2955,7 @@ function loadYearlyManualDraft(): YearlyManualDraft | null {
     if (
       typeof r.recipientName !== 'string' ||
       typeof r.recipientEmail !== 'string' ||
-      (r.category !== 'PRACTICAL' && r.category !== 'LISTENER')
+      !YEARLY_CATEGORIES.includes(r.category as CertCategory)
     ) return null;
     return {
       recipientName: r.recipientName,
@@ -3022,6 +3300,230 @@ function ExistingCertConfirm({
   );
 }
 
+/* ------------------- Спільні блоки діалогів Річної програми ------------------ */
+
+/// Вибір категорії сертифіката Річної — три картки в один ряд.
+/// Порядок карток = ієрархія: Практична участь → Слухач → Учасник.
+function CategoryPicker({
+  theme,
+  value,
+  onChange,
+}: {
+  theme: Theme;
+  value: CertCategory;
+  onChange: (c: CertCategory) => void;
+}) {
+  const dark = theme === 'dark';
+  return (
+    <div>
+      <label className={`block text-[11px] uppercase tracking-wider mb-2 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
+        Категорія
+      </label>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+        {YEARLY_CATEGORIES.map((k) => (
+          <button
+            key={k}
+            type="button"
+            onClick={() => onChange(k)}
+            className={`text-left px-3 py-2.5 rounded-xl border transition-all ${
+              value === k
+                ? 'bg-amber-500 border-amber-500 text-white shadow-md'
+                : dark
+                  ? 'bg-white/[0.04] border-white/[0.1] text-slate-200 hover:bg-white/[0.08]'
+                  : 'bg-white border-stone-300 text-stone-800 hover:bg-stone-50'
+            }`}
+          >
+            <div className="font-semibold text-[13.5px] leading-tight">{CATEGORY_LABEL[k]}</div>
+            <div className={`text-[10.5px] mt-1 leading-snug ${value === k ? 'text-white/80' : dark ? 'text-slate-400' : 'text-stone-500'}`}>
+              {CATEGORY_HINT[k]}
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/// Стан блоку «+ Англійська версія»: чи ввімкнено, ім'я латиницею, чи звірив
+/// менеджер написання. Поки поле не редагували руками — воно перераховується
+/// транслітерацією з українського імені на кожну його зміну; після ручної
+/// правки автопідстановка більше не втручається.
+type EnglishVersionState = {
+  enabled: boolean;
+  setEnabled: (v: boolean) => void;
+  nameEn: string;
+  setNameEn: (v: string) => void;
+  verified: boolean;
+  setVerified: (v: boolean) => void;
+  /// Готовий до відправки `recipientNameEn` (undefined коли англійська вимкнена).
+  payload: string | undefined;
+  /// true — англійська ввімкнена, але форма ще не готова (порожнє поле або
+  /// не відмічена звірка). Кнопки видачі мають бути disabled.
+  blocked: boolean;
+};
+
+function useEnglishVersion(nameUa: string): EnglishVersionState {
+  const [enabled, setEnabled] = useState(false);
+  const [nameEn, setNameEnRaw] = useState('');
+  const [edited, setEdited] = useState(false);
+  const [verified, setVerified] = useState(false);
+
+  useEffect(() => {
+    if (!enabled || edited) return;
+    setNameEnRaw(translitUa(nameUa.trim()));
+  }, [enabled, edited, nameUa]);
+
+  const setNameEn = useCallback((v: string) => {
+    setEdited(true);
+    /// Кожна ручна правка скидає звірку — інакше менеджер міг би відмітити
+    /// чекбокс, потім змінити написання і видати неперевірене ім'я.
+    setVerified(false);
+    setNameEnRaw(autoCapName(v));
+  }, []);
+
+  const trimmed = nameEn.trim();
+  return {
+    enabled,
+    setEnabled,
+    nameEn,
+    setNameEn,
+    verified,
+    setVerified,
+    payload: enabled && trimmed ? trimmed : undefined,
+    blocked: enabled && (!trimmed || !verified),
+  };
+}
+
+function EnglishVersionFields({ theme, ev }: { theme: Theme; ev: EnglishVersionState }) {
+  const dark = theme === 'dark';
+  return (
+    <div
+      className={`rounded-xl border border-dashed p-3.5 ${
+        dark ? 'border-amber-500/35 bg-amber-500/[0.06]' : 'border-amber-400/70 bg-amber-50/70'
+      }`}
+    >
+      <button
+        type="button"
+        role="switch"
+        aria-checked={ev.enabled}
+        onClick={() => ev.setEnabled(!ev.enabled)}
+        className="w-full flex items-start gap-3 text-left"
+      >
+        <span
+          className={`mt-0.5 flex-shrink-0 w-[34px] h-[20px] rounded-full relative transition-colors ${
+            ev.enabled ? 'bg-amber-500' : dark ? 'bg-white/[0.15]' : 'bg-stone-300'
+          }`}
+        >
+          <span
+            className={`absolute top-[2px] w-4 h-4 rounded-full bg-white shadow transition-all ${
+              ev.enabled ? 'left-[16px]' : 'left-[2px]'
+            }`}
+          />
+        </span>
+        <span className="min-w-0">
+          <span className={`block text-[14px] font-semibold ${dark ? 'text-slate-100' : 'text-stone-900'}`}>
+            + Англійська версія
+          </span>
+          <span className={`block text-[12px] mt-0.5 leading-snug ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
+            PDF стане двосторінковим: 1-ша сторінка укр, 2-га англ.
+          </span>
+        </span>
+      </button>
+
+      {ev.enabled && (
+        <div className="mt-3.5 space-y-2">
+          <label
+            htmlFor="cert-name-en"
+            className={`block text-[11px] uppercase tracking-wider ${dark ? 'text-slate-400' : 'text-stone-500'}`}
+          >
+            Name and surname (EN)
+          </label>
+          <input
+            id="cert-name-en"
+            value={ev.nameEn}
+            onChange={(e) => ev.setNameEn(e.target.value)}
+            placeholder="Name Surname"
+            className={`w-full px-3 py-2 rounded-lg border text-[14px] ${
+              dark
+                ? 'bg-white/[0.04] border-white/[0.1] text-white placeholder-slate-500'
+                : 'bg-white border-stone-300 text-stone-900'
+            }`}
+          />
+          <p className={`flex items-start gap-1.5 text-[11.5px] leading-snug ${dark ? 'text-amber-200/90' : 'text-amber-800'}`}>
+            <HiOutlineExclamationTriangle className="flex-shrink-0 mt-0.5 w-3.5 h-3.5" />
+            Автоматична транслітерація — звірте з документами студента
+          </p>
+          <label
+            className={`flex items-start gap-2 text-[12.5px] cursor-pointer select-none ${dark ? 'text-slate-200' : 'text-stone-800'}`}
+          >
+            <input
+              type="checkbox"
+              checked={ev.verified}
+              onChange={(e) => ev.setVerified(e.target.checked)}
+              className="mt-0.5 w-4 h-4 accent-amber-500 flex-shrink-0"
+            />
+            <span>Написання англійською звірено</span>
+          </label>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/// Футер обох діалогів видачі: Скасувати · Видати без листа · Видати і відправити,
+/// плюс пояснення, що саме робить видача без листа.
+function IssueFooter({
+  theme,
+  onClose,
+  onIssue,
+  busy,
+  disabled,
+}: {
+  theme: Theme;
+  onClose: () => void;
+  onIssue: (sendEmail: boolean) => void;
+  busy: boolean;
+  disabled: boolean;
+}) {
+  const dark = theme === 'dark';
+  return (
+    <div className="w-full flex flex-col items-stretch sm:items-end gap-2.5">
+      <div className="flex items-center justify-end gap-2 flex-wrap">
+        <button
+          type="button"
+          onClick={onClose}
+          className={`px-4 py-2 rounded-lg text-[13px] ${dark ? 'bg-white/[0.05] text-slate-200' : 'bg-stone-100 text-stone-700'}`}
+        >
+          Скасувати
+        </button>
+        <button
+          type="button"
+          onClick={() => onIssue(false)}
+          disabled={busy || disabled}
+          className={`px-4 py-2 rounded-lg border text-[13px] font-semibold disabled:opacity-50 disabled:cursor-not-allowed ${
+            dark
+              ? 'border-white/[0.15] bg-white/[0.04] text-slate-100 hover:bg-white/[0.09]'
+              : 'border-stone-300 bg-white text-stone-800 hover:bg-stone-50'
+          }`}
+        >
+          Видати без листа
+        </button>
+        <button
+          type="button"
+          onClick={() => onIssue(true)}
+          disabled={busy || disabled}
+          className="px-4 py-2 rounded-lg bg-amber-500 text-white text-[13px] font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {busy ? 'Видаю…' : 'Видати і відправити'}
+        </button>
+      </div>
+      <p className={`text-[11.5px] leading-snug sm:text-right sm:max-w-[62ch] ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
+        {ISSUE_BUTTONS_NOTE}
+      </p>
+    </div>
+  );
+}
+
 function IssueYearlyDialog({
   theme,
   candidate,
@@ -3032,7 +3534,7 @@ function IssueYearlyDialog({
   theme: Theme;
   candidate: YearlyCandidate;
   onClose: () => void;
-  onIssued: () => void;
+  onIssued: (sendEmail: boolean) => void;
   onError: (msg: string) => void;
 }) {
   const dark = theme === 'dark';
@@ -3040,7 +3542,10 @@ function IssueYearlyDialog({
   const [recipientName, setRecipientName] = useState(candidate.userName ?? '');
   const [fromEmail, setFromEmail] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [confirmingPartial, setConfirmingPartial] = useState(false);
+  /// Коли оплата неповна — тримаємо тут вибраний режим видачі (з листом / без),
+  /// поки менеджер підтверджує намір у попапі.
+  const [confirmingPartial, setConfirmingPartial] = useState<{ sendEmail: boolean } | null>(null);
+  const ev = useEnglishVersion(recipientName);
 
   useEffect(() => {
     fetch('/api/admin/mailer-config')
@@ -3051,8 +3556,8 @@ function IssueYearlyDialog({
       .catch(() => {});
   }, []);
 
-  async function submit() {
-    setConfirmingPartial(false);
+  async function submit(sendEmail: boolean) {
+    setConfirmingPartial(null);
     setBusy(true);
     try {
       const res = await fetch('/api/admin/certificates/yearly', {
@@ -3063,11 +3568,13 @@ function IssueYearlyDialog({
           subscriptionId: candidate.subscriptionId,
           category,
           recipientName: recipientName.trim() || undefined,
+          recipientNameEn: ev.payload,
+          sendEmail,
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'Помилка');
-      onIssued();
+      onIssued(sendEmail);
     } catch (err) {
       onError(err instanceof Error ? err.message : 'Помилка');
     } finally {
@@ -3076,11 +3583,11 @@ function IssueYearlyDialog({
   }
 
   /// Якщо оплата неповна — спочатку показуємо confirm-попап. Інакше — одразу submit.
-  function handleClickIssue() {
+  function handleClickIssue(sendEmail: boolean) {
     if (candidate.paymentHealth !== 'FULL') {
-      setConfirmingPartial(true);
+      setConfirmingPartial({ sendEmail });
     } else {
-      void submit();
+      void submit(sendEmail);
     }
   }
 
@@ -3092,23 +3599,18 @@ function IssueYearlyDialog({
       wide
       expandable
       footer={
-        <>
-          <button onClick={onClose} className={`px-4 py-2 rounded-lg text-[13px] ${dark ? 'bg-white/[0.05] text-slate-200' : 'bg-stone-100 text-stone-700'}`}>
-            Скасувати
-          </button>
-          <button
-            onClick={handleClickIssue}
-            disabled={busy || !recipientName.trim()}
-            className="px-4 py-2 rounded-lg bg-amber-500 text-white text-[13px] font-semibold disabled:opacity-50"
-          >
-            {busy ? 'Видаю…' : 'Видати і відправити'}
-          </button>
-        </>
+        <IssueFooter
+          theme={theme}
+          onClose={onClose}
+          onIssue={handleClickIssue}
+          busy={busy}
+          disabled={!recipientName.trim() || ev.blocked}
+        />
       }
     >
       {({ expanded }) => (
       <>
-      <div className={`grid grid-cols-1 ${expanded ? 'lg:grid-cols-[0.5fr_1.5fr] lg:h-full' : 'lg:grid-cols-[1fr_1fr]'} gap-5`}>
+      <div className={`grid grid-cols-1 ${expanded ? 'lg:grid-cols-[minmax(430px,0.6fr)_1.4fr] lg:h-full' : 'lg:grid-cols-[1fr_1fr]'} gap-5`}>
         <div className="space-y-4">
         <div className={`rounded-lg p-4 ${dark ? 'bg-white/[0.04]' : 'bg-stone-50'}`}>
           <div className="font-medium">{candidate.userName ?? '—'}</div>
@@ -3129,46 +3631,21 @@ function IssueYearlyDialog({
           )}
         </div>
 
-        <div>
-          <label className={`block text-[11px] uppercase tracking-wider mb-2 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
-            Категорія
-          </label>
-          <div className="grid grid-cols-2 gap-2">
-            {(['PRACTICAL', 'LISTENER'] as const).map((k) => (
-              <button
-                key={k}
-                type="button"
-                onClick={() => setCategory(k)}
-                className={`text-left px-4 py-3 rounded-xl border transition-all ${
-                  category === k
-                    ? 'bg-amber-500 border-amber-500 text-white shadow-md'
-                    : dark
-                      ? 'bg-white/[0.04] border-white/[0.1] text-slate-200 hover:bg-white/[0.08]'
-                      : 'bg-white border-stone-300 text-stone-800 hover:bg-stone-50'
-                }`}
-              >
-                <div className="font-semibold text-[14px]">
-                  {k === 'PRACTICAL' ? 'Практична участь' : 'Слухач'}
-                </div>
-                <div className={`text-[11px] mt-0.5 ${category === k ? 'text-white/80' : dark ? 'text-slate-400' : 'text-stone-500'}`}>
-                  {k === 'PRACTICAL' ? 'Вища категорія — активна практика' : 'Слухав лекції, без активної практики'}
-                </div>
-              </button>
-            ))}
-          </div>
-        </div>
+        <CategoryPicker theme={theme} value={category} onChange={setCategory} />
 
         <div>
           <label className={`block text-[11px] uppercase tracking-wider mb-1 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
-            Ім'я для друку на сертифікаті
+            Ім&apos;я та прізвище (укр)
           </label>
           <input
             value={recipientName}
-            onChange={(e) => setRecipientName(e.target.value.replace(/(^|[\s\-'’])(\p{L})/gu, (_m, sep, ch) => sep + ch.toUpperCase()))}
+            onChange={(e) => setRecipientName(autoCapName(e.target.value))}
             placeholder="Повне ім'я учасника"
             className={`w-full px-3 py-2 rounded-lg border text-[14px] ${dark ? 'bg-white/[0.04] border-white/[0.1] text-white' : 'bg-white border-stone-300 text-stone-900'}`}
           />
         </div>
+
+        <EnglishVersionFields theme={theme} ev={ev} />
 
         <div>
           <label className={`block text-[11px] uppercase tracking-wider mb-1 ${dark ? 'text-slate-500' : 'text-stone-400'}`}>
@@ -3196,6 +3673,7 @@ function IssueYearlyDialog({
             type: 'YEARLY_PROGRAM',
             category,
             recipientName: recipientName.trim(),
+            nameEn: ev.payload,
           }}
         />
       </div>
@@ -3205,8 +3683,9 @@ function IssueYearlyDialog({
           theme={theme}
           candidate={candidate}
           category={category}
-          onCancel={() => setConfirmingPartial(false)}
-          onConfirm={() => void submit()}
+          sendEmail={confirmingPartial.sendEmail}
+          onCancel={() => setConfirmingPartial(null)}
+          onConfirm={() => void submit(confirmingPartial.sendEmail)}
           busy={busy}
         />
       )}
@@ -3220,6 +3699,7 @@ function PartialPaymentConfirm({
   theme,
   candidate,
   category,
+  sendEmail,
   onCancel,
   onConfirm,
   busy,
@@ -3227,6 +3707,8 @@ function PartialPaymentConfirm({
   theme: Theme;
   candidate: YearlyCandidate;
   category: CertCategory;
+  /// Режим видачі, який менеджер обрав у футері: з листом чи без.
+  sendEmail: boolean;
   onCancel: () => void;
   onConfirm: () => void;
   busy: boolean;
@@ -3236,7 +3718,7 @@ function PartialPaymentConfirm({
   const paid = candidate.paidCount;
   const missing = Math.max(expected - paid, 0);
   const planLabel = candidate.plan === 'YEARLY' ? 'річну' : 'місячну';
-  const categoryLabel = category === 'PRACTICAL' ? 'Практична участь' : 'Слухач';
+  const catLabel = categoryLabel(category);
 
   return (
     <div
@@ -3258,7 +3740,9 @@ function PartialPaymentConfirm({
               Оплата неповна. Точно видавати сертифікат?
             </h3>
             <p className={`text-[12.5px] mt-1 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
-              Ця дія створить сертифікат, відправить його на email учаснику й зафіксується у журналі. Відмінити можна лише через відклик.
+              {sendEmail
+                ? 'Ця дія створить сертифікат, відправить його на email учаснику й зафіксується у журналі. Відмінити можна лише через відклик.'
+                : 'Ця дія створить сертифікат без листа (статус «Лист не надіслано») і зафіксується у журналі. Відмінити можна лише через відклик.'}
             </p>
           </div>
         </div>
@@ -3279,7 +3763,7 @@ function PartialPaymentConfirm({
               )}
             </li>
             <li>
-              <strong>Категорія сертифіката:</strong> {categoryLabel}
+              <strong>Категорія сертифіката:</strong> {catLabel}
             </li>
           </ul>
           <p className={`mt-3 text-[12px] ${dark ? 'text-amber-200/80' : 'text-amber-900/80'}`}>
@@ -3303,7 +3787,7 @@ function PartialPaymentConfirm({
             disabled={busy}
             className="px-5 py-2.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-[13px] font-semibold shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {busy ? 'Видаю…' : 'Так, видати і відправити'}
+            {busy ? 'Видаю…' : sendEmail ? 'Так, видати і відправити' : 'Так, видати без листа'}
           </button>
         </div>
       </div>
@@ -3319,7 +3803,7 @@ function IssueYearlyManualDialog({
 }: {
   theme: Theme;
   onClose: () => void;
-  onIssued: () => void;
+  onIssued: (sendEmail: boolean) => void;
   onError: (msg: string) => void;
 }) {
   const dark = theme === 'dark';
@@ -3333,6 +3817,10 @@ function IssueYearlyManualDialog({
   const [category, setCategory] = useState<CertCategory>(initialDraft?.category ?? 'PRACTICAL');
   const [busy, setBusy] = useState(false);
   const [existing, setExisting] = useState<ExistingCertSummary | null>(null);
+  /// Режим видачі останнього кліку — щоб confirm-попап «сертифікат уже існує»
+  /// повторив саме його (з листом / без), а не завжди з листом.
+  const [lastSendEmail, setLastSendEmail] = useState(true);
+  const ev = useEnglishVersion(recipientName);
 
   useEffect(() => {
     fetch('/api/admin/mailer-config')
@@ -3357,12 +3845,14 @@ function IssueYearlyManualDialog({
     }
   }, [recipientName, recipientEmail, category]);
 
-  const canSubmit =
-    !busy &&
-    recipientName.trim().length > 0 &&
-    recipientEmail.trim().length > 0;
+  const blocked =
+    busy ||
+    recipientName.trim().length === 0 ||
+    recipientEmail.trim().length === 0 ||
+    ev.blocked;
 
-  async function submit(force: boolean) {
+  async function submit(force: boolean, sendEmail: boolean) {
+    setLastSendEmail(sendEmail);
     setBusy(true);
     try {
       const res = await fetch('/api/admin/certificates/yearly/manual', {
@@ -3372,6 +3862,8 @@ function IssueYearlyManualDialog({
           recipientName: recipientName.trim(),
           recipientEmail: recipientEmail.trim(),
           category,
+          recipientNameEn: ev.payload,
+          sendEmail,
           force,
         }),
       });
@@ -3383,7 +3875,7 @@ function IssueYearlyManualDialog({
       if (!res.ok) throw new Error(data?.error ?? 'Помилка');
       setExisting(null);
       clearDraft(YEARLY_MANUAL_DRAFT_KEY);
-      onIssued();
+      onIssued(sendEmail);
     } catch (err) {
       onError(err instanceof Error ? err.message : 'Помилка');
     } finally {
@@ -3391,7 +3883,7 @@ function IssueYearlyManualDialog({
     }
   }
 
-  const categoryLabel = category === 'PRACTICAL' ? 'Практична участь' : 'Слухач';
+  const catLabel = categoryLabel(category);
 
   return (
     <ModalShell
@@ -3401,23 +3893,18 @@ function IssueYearlyManualDialog({
       wide
       expandable
       footer={
-        <>
-          <button onClick={onClose} className={`px-4 py-2 rounded-lg text-[13px] ${dark ? 'bg-white/[0.05] text-slate-200' : 'bg-stone-100 text-stone-700'}`}>
-            Скасувати
-          </button>
-          <button
-            onClick={() => void submit(false)}
-            disabled={!canSubmit}
-            className="px-4 py-2 rounded-lg bg-amber-500 text-white text-[13px] font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {busy ? 'Видаю…' : 'Видати і відправити'}
-          </button>
-        </>
+        <IssueFooter
+          theme={theme}
+          onClose={onClose}
+          onIssue={(sendEmail) => void submit(false, sendEmail)}
+          busy={busy}
+          disabled={blocked}
+        />
       }
     >
       {({ expanded }) => (
       <>
-      <div className={`grid grid-cols-1 ${expanded ? 'lg:grid-cols-[0.5fr_1.5fr] lg:h-full' : 'lg:grid-cols-[1fr_1fr]'} gap-5`}>
+      <div className={`grid grid-cols-1 ${expanded ? 'lg:grid-cols-[minmax(430px,0.6fr)_1.4fr] lg:h-full' : 'lg:grid-cols-[1fr_1fr]'} gap-5`}>
         <div className="space-y-4">
           {draftRestored && (
             <div className={`flex items-center justify-between gap-2 px-3 py-2 rounded-lg border text-[11.5px] ${dark ? 'border-amber-500/25 bg-amber-500/10 text-amber-200' : 'border-amber-300/60 bg-amber-50 text-amber-900'}`}>
@@ -3436,12 +3923,12 @@ function IssueYearlyManualDialog({
           )}
           <div>
             <label className={`block text-[11px] uppercase tracking-wider mb-1 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
-              Ім&apos;я (як надрукувати)
+              Ім&apos;я та прізвище (укр)
             </label>
             <input
               autoFocus
               value={recipientName}
-              onChange={(e) => setRecipientName(e.target.value.replace(/(^|[\s\-'’])(\p{L})/gu, (_m, sep, ch) => sep + ch.toUpperCase()))}
+              onChange={(e) => setRecipientName(autoCapName(e.target.value))}
               placeholder="Ім'я та Прізвище"
               className={`w-full px-3 py-2 rounded-lg border text-[13px] ${dark ? 'bg-white/[0.04] border-white/[0.1] text-white placeholder-slate-500' : 'bg-white border-stone-300 text-stone-900'}`}
             />
@@ -3481,34 +3968,9 @@ function IssueYearlyManualDialog({
             />
           </div>
 
-          <div>
-            <label className={`block text-[11px] uppercase tracking-wider mb-2 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
-              Категорія
-            </label>
-            <div className="grid grid-cols-2 gap-2">
-              {(['PRACTICAL', 'LISTENER'] as const).map((k) => (
-                <button
-                  key={k}
-                  type="button"
-                  onClick={() => setCategory(k)}
-                  className={`text-left px-4 py-3 rounded-xl border transition-all ${
-                    category === k
-                      ? 'bg-amber-500 border-amber-500 text-white shadow-md'
-                      : dark
-                        ? 'bg-white/[0.04] border-white/[0.1] text-slate-200 hover:bg-white/[0.08]'
-                        : 'bg-white border-stone-300 text-stone-800 hover:bg-stone-50'
-                  }`}
-                >
-                  <div className="font-semibold text-[14px]">
-                    {k === 'PRACTICAL' ? 'Практична участь' : 'Слухач'}
-                  </div>
-                  <div className={`text-[11px] mt-0.5 ${category === k ? 'text-white/80' : dark ? 'text-slate-400' : 'text-stone-500'}`}>
-                    {k === 'PRACTICAL' ? 'Вища категорія — активна практика' : 'Слухав лекції, без активної практики'}
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
+          <CategoryPicker theme={theme} value={category} onChange={setCategory} />
+
+          <EnglishVersionFields theme={theme} ev={ev} />
         </div>
 
         <PreviewPane
@@ -3519,6 +3981,7 @@ function IssueYearlyManualDialog({
             type: 'YEARLY_PROGRAM',
             category,
             recipientName: recipientName.trim(),
+            nameEn: ev.payload,
           }}
         />
       </div>
@@ -3527,10 +3990,10 @@ function IssueYearlyManualDialog({
         <ExistingCertConfirm
           theme={theme}
           existing={existing}
-          courseTitle={`Річна програма · ${categoryLabel}`}
+          courseTitle={`Річна програма · ${catLabel}`}
           recipientEmail={recipientEmail.trim()}
           onCancel={() => setExisting(null)}
-          onConfirm={() => void submit(true)}
+          onConfirm={() => void submit(true, lastSendEmail)}
           busy={busy}
         />
       )}
