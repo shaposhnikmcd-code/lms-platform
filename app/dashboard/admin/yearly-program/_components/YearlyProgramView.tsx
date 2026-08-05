@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
@@ -120,6 +120,10 @@ const METHOD_OPTIONS: { value: MethodFilter; label: string }[] = [
   { value: 'googlePay', label: 'Google Pay' },
   { value: 'card', label: 'Картка' },
 ];
+
+/// Фільтр по статусу платного сертифіката «Vision». 'ALL' = без фільтра (перша опція
+/// ColumnFilter). Опції будуються з VISION_OPTIONS — одне джерело правди з крапкою і меню.
+type VisionFilter = 'ALL' | VisionStatus;
 
 /// Точні причини PENDING (мають збігатися з derivePendingLabel у page.tsx).
 /// Значення фільтра для них — `pending:<label>`.
@@ -296,6 +300,7 @@ function YearlyProgramViewInner({
   const [planFilter, setPlanFilter] = useState<PlanFilter>('ALL');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [methodFilter, setMethodFilter] = useState<MethodFilter>('ALL');
+  const [visionFilter, setVisionFilter] = useState<VisionFilter>('ALL');
   const [search, setSearch] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [details, setDetails] = useState<Record<string, SubscriptionDetails | 'loading' | 'error'>>({});
@@ -316,6 +321,13 @@ function YearlyProgramViewInner({
   /// провалі запиту повертаємо попереднє значення назад у цю ж мапу.
   const [visionOverrides, setVisionOverrides] = useState<Record<string, VisionStatus>>({});
 
+  /// Чинний Vision-статус рядка: щойно виставлений оптимістичний override має пріоритет
+  /// над серверним значенням — щоб зведення і фільтр реагували на крапку миттєво.
+  const visionOf = useCallback(
+    (r: Row) => visionOverrides[r.id] ?? r.visionCertStatus,
+    [visionOverrides],
+  );
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return rows.filter((r) => {
@@ -333,10 +345,27 @@ function YearlyProgramViewInner({
         return false;
       }
       if (methodFilter !== 'ALL' && r.paymentMethod !== methodFilter) return false;
+      // Vision-фільтр читає override — рядок реагує на зміну крапки без перезавантаження.
+      if (visionFilter !== 'ALL' && visionOf(r) !== visionFilter) return false;
       if (q && !r.userEmail.toLowerCase().includes(q) && !(r.userName ?? '').toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [rows, activeCohortId, planFilter, statusFilter, methodFilter, search]);
+  }, [rows, activeCohortId, planFilter, statusFilter, methodFilter, visionFilter, visionOf, search]);
+
+  /// Зведення по сертифікату Vision — той самий зріз, що й KPI-стрічка: підписки
+  /// вибраного набору (або всі набори), окрім архіву. Рахується по завантажених рядках
+  /// з урахуванням оптимістичних override-ів, тому цифри живі одразу після кліку по крапці.
+  /// Решта фільтрів таблиці (план/статус/метод/пошук) на зведення не впливають — інакше
+  /// воно б суперечило KPI «Всього» так само, як і банер обрізання.
+  const visionCounts = useMemo(() => {
+    const acc: Record<VisionStatus, number> = { NOT_PAID: 0, PAID: 0, ISSUED: 0 };
+    for (const r of rows) {
+      if (activeCohortId !== null && r.cohortId !== activeCohortId) continue;
+      if (r.status === 'ARCHIVED') continue;
+      acc[visionOf(r)] += 1;
+    }
+    return acc;
+  }, [rows, activeCohortId, visionOf]);
 
   // Банер обрізання рахується в ТОМУ САМОМУ зрізі, що й таблиця: скільки рядків
   // вибраного набору реально приїхало з сервера проти того, скільки їх там усього.
@@ -358,7 +387,7 @@ function YearlyProgramViewInner({
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   useEffect(() => {
     setPage(1);
-  }, [planFilter, statusFilter, methodFilter, search, pageSize]);
+  }, [planFilter, statusFilter, methodFilter, visionFilter, search, pageSize]);
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
   }, [page, totalPages]);
@@ -585,6 +614,15 @@ function YearlyProgramViewInner({
           />
         </div>
         <div className={dark ? 'border-t border-white/[0.06]' : 'border-t border-stone-300/40'} />
+        {/* Зведення по платному сертифікату Vision — окремий тонкий рядок між статусами і
+            розбивкою планів. Сегменти клікабельні: вмикають/знімають фільтр колонки «Vision». */}
+        <VisionSummaryRow
+          theme={theme}
+          counts={visionCounts}
+          value={visionFilter}
+          onSelect={(v) => setVisionFilter((cur) => (cur === v ? 'ALL' : v))}
+        />
+        <div className={dark ? 'border-t border-white/[0.06]' : 'border-t border-stone-300/40'} />
         {/* Другий рядок панелі — розбивка живих студентів (ACTIVE+GRACE) по видах підписки.
             Назви ідентичні колонці «Вид» в адмінці Платежів. Сума трьох = Активних + Grace. */}
         <PlanBreakdownRow theme={theme} summary={activeSummary} />
@@ -750,6 +788,7 @@ function YearlyProgramViewInner({
             setSearch('');
             setPlanFilter('ALL');
             setStatusFilter('ALL');
+            setVisionFilter('ALL');
             setActiveCohortId(null);
             const idx = rows.findIndex((row) => row.id === subId);
             if (idx >= 0) setPage(Math.floor(idx / pageSize) + 1);
@@ -802,7 +841,19 @@ function YearlyProgramViewInner({
               <tr>
                 <Th theme={theme}>{''}</Th>
                 <Th theme={theme} className="px-2">Створено</Th>
-                <Th theme={theme}>Користувач</Th>
+                <Th theme={theme}>
+                  {/* Фільтр «Vision» стоїть у шапці саме цієї колонки — тут же живе крапка-статус. */}
+                  <span className="inline-flex items-center gap-2">
+                    Користувач
+                    <ColumnFilter
+                      theme={theme}
+                      label="Vision"
+                      options={VISION_FILTER_OPTIONS}
+                      value={visionFilter}
+                      onChange={(v) => setVisionFilter(v as VisionFilter)}
+                    />
+                  </span>
+                </Th>
                 <Th theme={theme}>Країна</Th>
                 <Th theme={theme} align="center">
                   <ColumnFilter
@@ -2298,6 +2349,13 @@ function visionOption(status: VisionStatus) {
   return VISION_OPTIONS.find((o) => o.value === status) ?? VISION_OPTIONS[0];
 }
 
+/// Опції ColumnFilter «Vision» у шапці колонки «Користувач» (там же живе крапка-статус).
+/// Перша опція 'ALL' — ColumnFilter вважає її «фільтр не активний».
+const VISION_FILTER_OPTIONS: { value: VisionFilter; label: string }[] = [
+  { value: 'ALL', label: 'Всі' },
+  ...VISION_OPTIONS.map((o) => ({ value: o.value as VisionFilter, label: `${o.emoji} ${o.label}` })),
+];
+
 /// Кольорова крапка статусу сертифіката «Vision» біля імені студента. Клік відкриває
 /// міні-меню з трьома станами (а не циклічне перемикання — щоб випадковий клік не
 /// переводив картку в неправильний стан). Меню — через portal, інакше його зрізав би
@@ -2601,6 +2659,87 @@ function KpiInline({
           · {suffix}
         </span>
       )}
+    </div>
+  );
+}
+
+/// Рядок workspace-панелі зі зведенням по платному сертифікату «Vision» — між стрічкою
+/// статусів і розбивкою планів. Зріз той самий, що в KPI (вибраний набір, без архіву).
+/// Сегмент = крапка статусу + підпис + лічильник; клік вмикає фільтр колонки «Vision»,
+/// повторний клік по активному — знімає його.
+function VisionSummaryRow({
+  theme,
+  counts,
+  value,
+  onSelect,
+}: {
+  theme: Theme;
+  counts: Record<VisionStatus, number>;
+  value: VisionFilter;
+  onSelect: (v: VisionStatus) => void;
+}) {
+  const dark = theme === 'dark';
+  return (
+    <div
+      data-kpi-row="vision"
+      className="px-4 py-2.5 sm:px-5 sm:py-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3"
+    >
+      <span
+        className={`shrink-0 text-[10px] uppercase tracking-[0.16em] font-semibold ${
+          dark ? 'text-slate-400' : 'text-stone-500'
+        }`}
+      >
+        Сертифікат Vision
+      </span>
+      {/* На 390px три сегменти в ряд лишаються, але всередині кожного підпис переїжджає
+          під крапку+цифру (order + w-full) — інакше «Не оплачено» обрізалося б. */}
+      <div className="grid grid-cols-3 gap-1.5 sm:flex sm:items-center sm:gap-2">
+        {VISION_OPTIONS.map((o) => {
+          const active = value === o.value;
+          return (
+            <button
+              key={o.value}
+              type="button"
+              aria-pressed={active}
+              title={
+                active
+                  ? `Зняти фільтр «${o.label}»`
+                  : `Показати в таблиці лише «${o.label}» (сертифікат Vision)`
+              }
+              onClick={() => onSelect(o.value)}
+              className={`min-w-0 flex flex-wrap items-center justify-center gap-x-1.5 rounded-lg border px-2 py-1 transition-colors sm:flex-nowrap sm:justify-start sm:px-2.5 ${
+                active
+                  ? dark
+                    ? 'border-amber-400/45 bg-amber-400/[0.12]'
+                    : 'border-amber-500/50 bg-amber-100/70'
+                  : dark
+                    ? 'border-white/[0.10] bg-white/[0.04] hover:bg-white/[0.08]'
+                    : 'border-stone-300/70 bg-white/85 hover:bg-stone-50'
+              }`}
+            >
+              <span className={`order-1 shrink-0 block w-2 h-2 rounded-full sm:order-none ${dark ? o.dot.dark : o.dot.light}`} />
+              <span
+                className={`order-3 w-full min-w-0 truncate text-center text-[9px] font-medium leading-tight sm:order-2 sm:w-auto sm:text-left sm:text-[10px] sm:uppercase sm:tracking-[0.12em] ${
+                  active
+                    ? dark ? 'text-amber-200' : 'text-amber-900'
+                    : dark ? 'text-slate-300' : 'text-stone-600'
+                }`}
+              >
+                {o.label}
+              </span>
+              <span
+                className={`order-2 tabular-nums text-[15px] font-semibold leading-none sm:order-3 sm:text-[14px] ${
+                  active
+                    ? dark ? 'text-amber-100' : 'text-amber-900'
+                    : dark ? 'text-slate-50' : 'text-stone-900'
+                }`}
+              >
+                {counts[o.value].toLocaleString()}
+              </span>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
