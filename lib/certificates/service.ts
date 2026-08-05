@@ -9,7 +9,25 @@ import { generateCertificatePdf } from './generatePdf';
 import { generateCertNumber, newVerificationToken, hashPdfBytes } from './identifiers';
 import { certificateFilenameAscii } from './filename';
 import { templateKeyFor } from './templateConfig';
-import type { CertCategory, Certificate } from '@prisma/client';
+import type { CertCategory, CertLanguages, Certificate } from '@prisma/client';
+
+/// Нормалізує пару (languages, recipientNameEn) до узгодженого стану, який пишемо
+/// у БД і передаємо генератору:
+///   • не задано languages → сумісний дефолт (є англ. ім'я → UK_EN, немає → UK);
+///   • EN / UK_EN без англ. імені → помилка (PDF не має чим заповнити EN-сторінку);
+///   • UK → англ. ім'я занулюємо, щоб у списках не з'являвся фантомний мовний бейдж.
+function resolveLanguages(
+  languages: CertLanguages | undefined,
+  recipientNameEnRaw: string | null | undefined,
+): { languages: CertLanguages; recipientNameEn: string | null } {
+  const nameEn = recipientNameEnRaw?.trim() || null;
+  const resolved: CertLanguages = languages ?? (nameEn ? 'UK_EN' : 'UK');
+  if (resolved === 'UK') return { languages: 'UK', recipientNameEn: null };
+  if (!nameEn) {
+    throw new Error("Для англійської версії сертифіката потрібне ім'я латиницею.");
+  }
+  return { languages: resolved, recipientNameEn: nameEn };
+}
 
 type Actor = {
   id?: string | null;
@@ -55,9 +73,11 @@ export type IssueYearlyCertInput = {
   subscriptionId: string;
   category: CertCategory;
   recipientName?: string; // override; default = User.name
-  /// Англомовне ім'я. Задане → PDF стає двосторінковим (укр + англ сторінка).
-  /// Порожнє/undefined → один аркуш українською.
+  /// Англомовне ім'я — друкується на EN-сторінці. Обов'язкове для languages EN/UK_EN.
   recipientNameEn?: string;
+  /// Які сторінки міститиме PDF: UK (тільки укр), UK_EN (дві), EN (тільки англ).
+  /// Не задано → UK_EN якщо є англ. ім'я, інакше UK.
+  languages?: CertLanguages;
   /// false — видати без листа: emailStatus лишається PENDING, лист шлеться пізніше
   /// через POST /api/admin/certificates/[id]/send. Default true.
   sendEmail?: boolean;
@@ -131,8 +151,10 @@ export async function issueManualYearlyCertificate(input: {
   userId: string;
   category: CertCategory;
   recipientName?: string;
-  /// Англомовне ім'я → друга (EN) сторінка PDF.
+  /// Англомовне ім'я — друкується на EN-сторінці.
   recipientNameEn?: string;
+  /// Які сторінки міститиме PDF (див. `IssueYearlyCertInput.languages`).
+  languages?: CertLanguages;
   /// false — без листа (emailStatus лишається PENDING). Default true.
   sendEmail?: boolean;
   actor: Actor;
@@ -147,7 +169,7 @@ export async function issueManualYearlyCertificate(input: {
   if (!user) throw new Error(`User not found: ${userId}`);
 
   const recipientName = (input.recipientName?.trim() || user.name?.trim() || user.email).trim();
-  const recipientNameEn = input.recipientNameEn?.trim() || null;
+  const { languages, recipientNameEn } = resolveLanguages(input.languages, input.recipientNameEn);
   const issueYear = new Date().getUTCFullYear();
   const certNumber = await generateCertNumber('YEARLY_PROGRAM', issueYear);
   const verificationToken = newVerificationToken();
@@ -162,6 +184,7 @@ export async function issueManualYearlyCertificate(input: {
       subscriptionId: null,
       recipientName,
       recipientNameEn,
+      languages,
       recipientEmail: user.email,
       issueYear,
       issuedManually: true,
@@ -207,7 +230,7 @@ export async function issueYearlyCertificate(input: IssueYearlyCertInput): Promi
   if (sub.userId !== userId) throw new Error('Subscription does not belong to this user');
 
   const recipientName = (input.recipientName?.trim() || user.name?.trim() || user.email).trim();
-  const recipientNameEn = input.recipientNameEn?.trim() || null;
+  const { languages, recipientNameEn } = resolveLanguages(input.languages, input.recipientNameEn);
   const issueYear = new Date().getUTCFullYear();
   const certNumber = await generateCertNumber('YEARLY_PROGRAM', issueYear);
   const verificationToken = newVerificationToken();
@@ -222,6 +245,7 @@ export async function issueYearlyCertificate(input: IssueYearlyCertInput): Promi
       subscriptionId,
       recipientName,
       recipientNameEn,
+      languages,
       recipientEmail: user.email,
       issueYear,
       issuedManually: true,
@@ -285,6 +309,9 @@ async function sendCertificateEmail(cert: Certificate, actor: Actor, isResend: b
       recipientName: cert.recipientName,
       /// Двомовний серт — це ОДИН PDF на дві сторінки, тому аттач лишається один.
       recipientNameEn: cert.recipientNameEn ?? undefined,
+      /// Набір сторінок береться зі snapshot-у у БД: інакше EN-only сертифікат
+      /// пішов би листом як двомовний.
+      languages: cert.languages,
       issueYear: cert.issueYear,
       certNumber: cert.certNumber,
       verificationUrl: verificationUrl(cert.verificationToken),
@@ -491,6 +518,7 @@ export async function regeneratePdfBytes(cert: Certificate): Promise<Uint8Array>
     templateKey: templateKeyFor(cert.type, cert.category),
     recipientName: cert.recipientName,
     recipientNameEn: cert.recipientNameEn ?? undefined,
+    languages: cert.languages,
     issueYear: cert.issueYear,
     certNumber: cert.certNumber,
     verificationUrl: verificationUrl(cert.verificationToken),

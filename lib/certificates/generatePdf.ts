@@ -23,13 +23,20 @@ import {
   type CertCategoryKey,
 } from './templateConfig';
 
+/// Які мовні сторінки містить PDF. Діє лише для YEARLY_*-шаблонів
+/// (COURSE/SUPERVISION завжди одна українська сторінка).
+export type CertLanguagesInput = 'UK' | 'EN' | 'UK_EN';
+
 export type CertGenerationInput = {
   templateKey: TemplateKey;
   recipientName: string;
-  /// Англомовне ім'я. Якщо задане і шаблон YEARLY_* — PDF стає двосторінковим:
-  /// 1-ша сторінка українською, 2-га англійською з цим іменем. Порожнє/undefined —
-  /// один аркуш, як було до двомовності.
+  /// Англомовне ім'я — друкується на EN-сторінці. Обов'язкове коли `languages`
+  /// включає EN.
   recipientNameEn?: string;
+  /// Набір сторінок: UK — тільки укр, UK_EN — двосторінковий (укр + англ),
+  /// EN — тільки англійська. Не задано → сумісний із старим кодом дефолт:
+  /// є `recipientNameEn` → UK_EN, немає → UK.
+  languages?: CertLanguagesInput;
   issueYear: number;
   certNumber: string;
   verificationUrl: string;
@@ -129,13 +136,19 @@ export async function generateCertificatePdf(input: CertGenerationInput): Promis
     return page;
   };
 
-  const pages: PDFPage[] = [await renderPage('uk', input.recipientName)];
-
-  /// Друга сторінка — тільки для yearly-шаблонів і тільки якщо задане англ. ім'я.
+  /// Мовний набір сторінок. Вибір діє тільки для YEARLY_* — курсові й
+  /// супервізійні шаблони лишаються односторінковими українськими.
   const nameEn = input.recipientNameEn?.trim();
-  if (nameEn && input.templateKey.startsWith('YEARLY_')) {
-    pages.push(await renderPage('en', nameEn));
+  const requested: CertLanguagesInput = input.languages ?? (nameEn ? 'UK_EN' : 'UK');
+  const languages: CertLanguagesInput = input.templateKey.startsWith('YEARLY_') ? requested : 'UK';
+  if (languages !== 'UK' && !nameEn) {
+    /// Валідація має відсіювати це на рівні API/сервісу; сюди доходить лише як баг.
+    throw new Error(`languages=${languages} потребує recipientNameEn`);
   }
+
+  const pages: PDFPage[] = [];
+  if (languages !== 'EN') pages.push(await renderPage('uk', input.recipientName));
+  if (languages !== 'UK') pages.push(await renderPage('en', nameEn as string));
 
   /// QR → PNG (512×512) → embed. Кольори у брендовій палітрі (green на cream).
   /// QR веде на публічну сторінку верифікації /uk/certificate/{token} — стандартна

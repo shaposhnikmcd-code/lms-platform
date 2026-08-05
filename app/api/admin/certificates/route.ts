@@ -44,6 +44,9 @@ export async function GET(req: NextRequest) {
       type: true,
       category: true,
       recipientName: true,
+      recipientNameEn: true,
+      /// Мовний набір сторінок PDF — щоб список «Видані» міг показати бейдж UA·EN / EN.
+      languages: true,
       recipientEmail: true,
       courseName: true,
       issueYear: true,

@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { requireAdmin } from '@/lib/certificates/adminAuth';
 import { issueYearlyCertificate } from '@/lib/certificates/service';
-import type { CertCategory } from '@prisma/client';
+import type { CertCategory, CertLanguages } from '@prisma/client';
 
 export async function GET(req: NextRequest) {
   const guard = await requireAdmin(req);
@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
       payments: { where: { status: 'PAID' }, select: { amount: true, paidAt: true } },
       certificates: {
         where: { revoked: false, type: 'YEARLY_PROGRAM' },
-        select: { id: true, certNumber: true, category: true, recipientNameEn: true, emailStatus: true, emailFromAddress: true, issuedAt: true },
+        select: { id: true, certNumber: true, category: true, recipientNameEn: true, languages: true, emailStatus: true, emailFromAddress: true, issuedAt: true },
       },
     },
   });
@@ -89,13 +89,14 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
-  const { userId, subscriptionId, category, recipientName, recipientNameEn, sendEmail } =
+  const { userId, subscriptionId, category, recipientName, recipientNameEn, languages, sendEmail } =
     (body ?? {}) as {
       userId?: string;
       subscriptionId?: string;
       category?: CertCategory;
       recipientName?: string;
       recipientNameEn?: string;
+      languages?: CertLanguages;
       sendEmail?: boolean;
     };
   if (!userId || !subscriptionId || !category) {
@@ -115,6 +116,17 @@ export async function POST(req: NextRequest) {
   if (recipientNameEn !== undefined && !String(recipientNameEn).trim()) {
     return NextResponse.json({ error: 'Англійське ім\'я не може бути порожнім' }, { status: 400 });
   }
+  /// Набір сторінок PDF — строгий allow-list: невідоме значення краще відхилити,
+  /// ніж мовчки видати сертифікат не тією мовою.
+  if (languages !== undefined && languages !== 'UK' && languages !== 'EN' && languages !== 'UK_EN') {
+    return NextResponse.json({ error: 'languages має бути UK, EN або UK_EN' }, { status: 400 });
+  }
+  if ((languages === 'EN' || languages === 'UK_EN') && !String(recipientNameEn ?? '').trim()) {
+    return NextResponse.json(
+      { error: 'Для англійської версії вкажіть ім\'я латиницею' },
+      { status: 400 },
+    );
+  }
 
   try {
     const cert = await issueYearlyCertificate({
@@ -123,6 +135,7 @@ export async function POST(req: NextRequest) {
       category,
       recipientName,
       recipientNameEn,
+      languages,
       sendEmail: sendEmail !== false,
       actor: guard.actor,
     });

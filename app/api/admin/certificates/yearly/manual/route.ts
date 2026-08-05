@@ -12,7 +12,7 @@ import {
   revokeCertificate,
   yearlyCategoryLabel,
 } from '@/lib/certificates/service';
-import type { CertCategory } from '@prisma/client';
+import type { CertCategory, CertLanguages } from '@prisma/client';
 
 export async function POST(req: NextRequest) {
   const guard = await requireAdmin(req);
@@ -28,6 +28,7 @@ export async function POST(req: NextRequest) {
     recipientName,
     recipientEmail,
     recipientNameEn,
+    languages,
     category,
     sendEmail,
     force,
@@ -35,6 +36,7 @@ export async function POST(req: NextRequest) {
     recipientName?: string;
     recipientEmail?: string;
     recipientNameEn?: string;
+    languages?: CertLanguages;
     category?: CertCategory;
     sendEmail?: boolean;
     force?: boolean;
@@ -54,6 +56,17 @@ export async function POST(req: NextRequest) {
   /// ніж мовчазний односторінковий PDF замість очікуваного двомовного.
   if (recipientNameEn !== undefined && !String(recipientNameEn).trim()) {
     return NextResponse.json({ error: 'Англійське ім\'я не може бути порожнім' }, { status: 400 });
+  }
+  /// Набір сторінок PDF — строгий allow-list: невідоме значення краще відхилити,
+  /// ніж мовчки видати сертифікат не тією мовою.
+  if (languages !== undefined && languages !== 'UK' && languages !== 'EN' && languages !== 'UK_EN') {
+    return NextResponse.json({ error: 'languages має бути UK, EN або UK_EN' }, { status: 400 });
+  }
+  if ((languages === 'EN' || languages === 'UK_EN') && !String(recipientNameEn ?? '').trim()) {
+    return NextResponse.json(
+      { error: 'Для англійської версії вкажіть ім\'я латиницею' },
+      { status: 400 },
+    );
   }
   const email = emailRaw.toLowerCase();
 
@@ -119,6 +132,7 @@ export async function POST(req: NextRequest) {
       category,
       recipientName: name,
       recipientNameEn,
+      languages,
       sendEmail: sendEmail !== false,
       actor: guard.actor,
     });

@@ -34,6 +34,8 @@ type TabKey = 'courses' | 'yearly' | 'supervision' | 'history' | 'issues';
 type CertificateType = 'COURSE' | 'YEARLY_PROGRAM' | 'SUPERVISION';
 type CertCategory = 'LISTENER' | 'PRACTICAL' | 'PARTICIPANT';
 type EmailStatus = 'PENDING' | 'SENT' | 'FAILED' | 'BOUNCED';
+/// Які сторінки містить виданий PDF: тільки укр / двосторінковий / тільки англ.
+type CertLanguages = 'UK' | 'EN' | 'UK_EN';
 
 /// Три категорії сертифіката Річної програми, від вищої до нижчої:
 /// Практична участь → Слухач → Учасник. Тексти зафіксовані у погодженому
@@ -110,10 +112,10 @@ interface YearlyCandidate {
     emailStatus: EmailStatus;
     emailFromAddress: string | null;
     issuedAt: string;
-    /// Ім'я латиницею — заповнене лише коли сертифікат видано з англійською
-    /// сторінкою. Опційне: старі записи і відповіді API без цього поля просто
-    /// не показують мовний badge.
+    /// Ім'я латиницею — заповнене лише коли сертифікат видано з англійською сторінкою.
     recipientNameEn?: string | null;
+    /// Мовний набір сторінок PDF — джерело правди для бейджа UA·EN / EN.
+    languages?: CertLanguages | null;
   } | null;
 }
 
@@ -133,6 +135,7 @@ interface HistoryEvent {
     recipientName: string;
     recipientEmail: string;
     recipientNameEn?: string | null;
+    languages?: CertLanguages | null;
     courseName: string | null;
     revoked: boolean;
   };
@@ -325,23 +328,23 @@ function StatusBadge({ theme, status, revoked }: { theme: Theme; status: EmailSt
   );
 }
 
-/// Мовний badge сертифіката: UA (тільки українська сторінка) або UA·EN
-/// (двосторінковий PDF — укр + англ). Показується у списках виданих.
-function LangBadge({ dark, hasEn }: { dark: boolean; hasEn: boolean }) {
+/// Мовний badge сертифіката за полем `languages`: UA·EN — двосторінковий PDF,
+/// EN — тільки англійська сторінка. Для UK (звичайний укр-сертифікат) бейджа
+/// немає взагалі — щоб не зашумлювати списки, де таких більшість.
+function LangBadge({ dark, languages }: { dark: boolean; languages?: CertLanguages | null }) {
+  if (languages !== 'EN' && languages !== 'UK_EN') return null;
   return (
     <span
-      title={hasEn ? 'Двосторінковий PDF: українська + англійська' : 'Тільки українська сторінка'}
+      title={
+        languages === 'EN'
+          ? 'PDF містить тільки англійську сторінку'
+          : 'Двосторінковий PDF: українська + англійська'
+      }
       className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9.5px] font-bold tracking-[0.04em] whitespace-nowrap ${
-        hasEn
-          ? dark
-            ? 'bg-amber-500/15 text-amber-200'
-            : 'bg-amber-100 text-amber-800'
-          : dark
-            ? 'bg-white/[0.06] text-slate-400'
-            : 'bg-stone-100 text-stone-500'
+        dark ? 'bg-amber-500/15 text-amber-200' : 'bg-amber-100 text-amber-800'
       }`}
     >
-      {hasEn ? 'UA·EN' : 'UA'}
+      {languages === 'EN' ? 'EN' : 'UA·EN'}
     </span>
   );
 }
@@ -1362,9 +1365,7 @@ function YearlyTab({
                     <div>
                       <div className="flex items-center gap-1.5">
                         <span className="font-mono text-[11px]">{c.certificate.certNumber}</span>
-                        {/* Бейдж лише коли поле реально прийшло з API — інакше
-                            двомовний серт показував би хибний «UA». */}
-                        {c.certificate.recipientNameEn && <LangBadge dark={dark} hasEn />}
+                        <LangBadge dark={dark} languages={c.certificate.languages} />
                       </div>
                       <div className={`text-[10px] mt-0.5 whitespace-nowrap ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
                         {categoryLabel(c.certificate.category, true)} · {formatDate(c.certificate.issuedAt)}
@@ -1789,6 +1790,7 @@ interface CertHistoryRow {
   recipientName: string;
   recipientEmail: string;
   recipientNameEn: string | null;
+  languages: CertLanguages | null;
   revoked: boolean;
   generatedAt: string | null;
   sentAt: string | null;
@@ -1829,6 +1831,7 @@ function aggregateEvents(events: HistoryEvent[]): CertHistoryRow[] {
       recipientName: certInfo.recipientName,
       recipientEmail: certInfo.recipientEmail,
       recipientNameEn: certInfo.recipientNameEn ?? null,
+      languages: certInfo.languages ?? null,
       revoked: certInfo.revoked,
       generatedAt: generated?.createdAt ?? null,
       sentAt: lastSent?.createdAt ?? null,
@@ -1977,7 +1980,7 @@ function HistoryTab({
                   <td className="py-3 pr-3">
                     <div className="flex items-center gap-1.5">
                       <span className="font-mono text-[11px]">{r.certNumber}</span>
-                      {r.recipientNameEn && <LangBadge dark={dark} hasEn />}
+                      <LangBadge dark={dark} languages={r.languages} />
                     </div>
                     <div className={`text-[10px] ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
                       {r.type === 'COURSE' ? 'Курс' : r.type === 'SUPERVISION' ? 'Супервізія' : 'Річна'}
@@ -2620,6 +2623,10 @@ function PreviewPane({
     /// Ім'я латиницею. Якщо задане — прев'ю запитує двосторінковий PDF
     /// (1 — укр, 2 — англ) і над iframe з'являється перемикач сторінок.
     nameEn?: string;
+    /// Який набір сторінок буде у виданому PDF. UK_EN — перемикач УКР/EN,
+    /// EN — одразу англійська без перемикача, UK — тільки українська.
+    /// Не задано → виводиться з `nameEn` (сумісність зі старими викликами).
+    languages?: CertLanguages;
     courseName?: string;
     /// Тільки для SUPERVISION — yyyy-mm-dd або порожній. Опційне.
     supervisionDate?: string;
@@ -2677,13 +2684,26 @@ function PreviewPane({
     return () => clearTimeout(t);
   }, [disabled, params.type, params.category, params.recipientName, params.nameEn, params.courseName, params.supervisionDate, params.supervisionHours]);
 
-  /// Яку сторінку двомовного PDF показувати. Скидається на укр, щойно англійська
-  /// версія вимикається (інакше лишився б запит #page=2 на односторінковий PDF).
-  const hasEn = Boolean(params.nameEn);
+  /// Яку сторінку показувати. Перемикач потрібен лише для двомовного набору;
+  /// у режимі «лише англійська» прев'ю одразу показує EN-сторінку (саме вона
+  /// і буде єдиною у виданому PDF), у режимі UK — українську.
+  const langs: CertLanguages = params.languages ?? (params.nameEn ? 'UK_EN' : 'UK');
+  const showPageSwitch = langs === 'UK_EN' && Boolean(params.nameEn);
   const [page, setPage] = useState<1 | 2>(1);
   useEffect(() => {
-    if (!hasEn) setPage(1);
-  }, [hasEn]);
+    const target: 1 | 2 = langs === 'EN' && params.nameEn ? 2 : 1;
+    setPage((prev) => (prev === target ? prev : target));
+  }, [langs, params.nameEn]);
+
+  /// Автоперемикання сторінки (зміна режиму мов) теж має показати спінер —
+  /// інакше стара сторінка висить у кадрі, поки вантажиться нова.
+  const prevPage = useRef<1 | 2>(page);
+  useEffect(() => {
+    if (prevPage.current !== page) {
+      prevPage.current = page;
+      setLoading(true);
+    }
+  }, [page]);
 
   /// `pageOnly` — сервер віддає РІВНО одну сторінку (одно-сторінковий PDF).
   /// Інакше Chrome-в'ювер рендерить двосторінковий документ суцільною стрічкою:
@@ -2745,7 +2765,17 @@ function PreviewPane({
           <div className="flex items-center gap-2">
             <HiOutlineEye className={`w-4 h-4 ${dark ? 'text-amber-400/80' : 'text-amber-600/90'}`} />
             <span className={`text-[12px] font-medium tracking-wide ${dark ? 'text-slate-200' : 'text-stone-700'}`}>Попередній перегляд</span>
-            {hasEn && (
+            {langs === 'EN' && params.nameEn && (
+              <span
+                title="У виданому PDF буде тільки ця сторінка"
+                className={`ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold tracking-[0.04em] ${
+                  dark ? 'bg-amber-500/15 text-amber-200' : 'bg-amber-100 text-amber-800'
+                }`}
+              >
+                EN
+              </span>
+            )}
+            {showPageSwitch && (
               <div
                 className={`ml-2 inline-flex rounded-md border p-0.5 ${dark ? 'border-white/[0.1] bg-white/[0.04]' : 'border-stone-300 bg-white'}`}
                 role="tablist"
@@ -3382,6 +3412,11 @@ type EnglishVersionState = {
   setNameEn: (v: string) => void;
   verified: boolean;
   setVerified: (v: boolean) => void;
+  /// Які сторінки увійдуть у PDF, коли англійська ввімкнена: обидві чи тільки EN.
+  pagesMode: 'UK_EN' | 'EN';
+  setPagesMode: (v: 'UK_EN' | 'EN') => void;
+  /// Готовий до відправки `languages` (UK коли англійська вимкнена).
+  languages: CertLanguages;
   /// Готовий до відправки `recipientNameEn` (undefined коли англійська вимкнена).
   payload: string | undefined;
   /// true — англійська ввімкнена, але форма ще не готова (порожнє поле або
@@ -3390,7 +3425,8 @@ type EnglishVersionState = {
 };
 
 function useEnglishVersion(nameUa: string): EnglishVersionState {
-  const [enabled, setEnabled] = useState(false);
+  const [enabled, setEnabledRaw] = useState(false);
+  const [pagesMode, setPagesMode] = useState<'UK_EN' | 'EN'>('UK_EN');
   const [nameEn, setNameEnRaw] = useState('');
   const [edited, setEdited] = useState(false);
   const [verified, setVerified] = useState(false);
@@ -3431,6 +3467,13 @@ function useEnglishVersion(nameUa: string): EnglishVersionState {
     setNameEnRaw(autoCapName(v));
   }, []);
 
+  /// Вимкнення тумблера повертає набір сторінок до дефолтного «укр + англ»:
+  /// «Лише англійська» — свідомий разовий вибір, а не липкий стан форми.
+  const setEnabled = useCallback((v: boolean) => {
+    setEnabledRaw(v);
+    if (!v) setPagesMode('UK_EN');
+  }, []);
+
   const trimmed = nameEn.trim();
   return {
     enabled,
@@ -3439,6 +3482,9 @@ function useEnglishVersion(nameUa: string): EnglishVersionState {
     setNameEn,
     verified,
     setVerified,
+    pagesMode,
+    setPagesMode,
+    languages: enabled ? pagesMode : 'UK',
     payload: enabled && trimmed ? trimmed : undefined,
     blocked: enabled && (!trimmed || !verified),
   };
@@ -3475,10 +3521,47 @@ function EnglishVersionFields({ theme, ev }: { theme: Theme; ev: EnglishVersionS
             + Англійська версія
           </span>
           <span className={`block text-[12px] mt-0.5 leading-snug ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
-            PDF стане двосторінковим: 1-ша сторінка укр, 2-га англ.
+            PDF міститиме обрані сторінки; лист і завантаження — той самий файл.
           </span>
         </span>
       </button>
+
+      {ev.enabled && (
+        <div className="mt-3.5">
+          <label className={`block text-[11px] uppercase tracking-wider mb-1.5 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
+            Які сторінки у PDF
+          </label>
+          <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Які сторінки у PDF">
+            {([
+              { key: 'UK_EN', label: 'Укр + англ', hint: '2 сторінки' },
+              { key: 'EN', label: 'Лише англійська', hint: '1 сторінка' },
+            ] as const).map((opt) => {
+              const active = ev.pagesMode === opt.key;
+              return (
+                <button
+                  key={opt.key}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  onClick={() => ev.setPagesMode(opt.key)}
+                  className={`px-3 py-2 rounded-lg border text-left transition-all ${
+                    active
+                      ? 'bg-amber-500 border-amber-500 text-white shadow-sm'
+                      : dark
+                        ? 'bg-white/[0.04] border-white/[0.12] text-slate-200 hover:bg-white/[0.08]'
+                        : 'bg-white border-stone-300 text-stone-800 hover:bg-stone-50'
+                  }`}
+                >
+                  <span className="block text-[12.5px] font-semibold leading-tight">{opt.label}</span>
+                  <span className={`block text-[10.5px] mt-0.5 ${active ? 'text-white/80' : dark ? 'text-slate-400' : 'text-stone-500'}`}>
+                    {opt.hint}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {ev.enabled && (
         <div className="mt-3.5 space-y-2">
@@ -3638,6 +3721,7 @@ function IssueYearlyDialog({
           category,
           recipientName: recipientName.trim() || undefined,
           recipientNameEn: ev.payload,
+          languages: ev.languages,
           sendEmail,
         }),
       });
@@ -3743,6 +3827,7 @@ function IssueYearlyDialog({
             category,
             recipientName: recipientName.trim(),
             nameEn: ev.payload,
+            languages: ev.languages,
           }}
         />
       </div>
@@ -3932,6 +4017,7 @@ function IssueYearlyManualDialog({
           recipientEmail: recipientEmail.trim(),
           category,
           recipientNameEn: ev.payload,
+          languages: ev.languages,
           sendEmail,
           force,
         }),
@@ -4051,6 +4137,7 @@ function IssueYearlyManualDialog({
             category,
             recipientName: recipientName.trim(),
             nameEn: ev.payload,
+            languages: ev.languages,
           }}
         />
       </div>
