@@ -34,6 +34,7 @@ export async function GET(req: NextRequest) {
           type: true,
           category: true,
           recipientName: true,
+          recipientNameEn: true,
           recipientEmail: true,
           courseName: true,
           revoked: true,

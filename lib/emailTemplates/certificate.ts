@@ -45,6 +45,8 @@ export function certificateEmailHtml(args: CertificateEmailArgs): string {
       : `ви взяли участь у супервізійному занятті${metaSuffix} в Українському інституті душеопіки та психотерапії.`;
   } else if (args.category === 'LISTENER') {
     achievement = 'ви успішно завершили Річну програму в Українському інституті душеопіки та психотерапії у категорії <strong>Слухач</strong>.';
+  } else if (args.category === 'PARTICIPANT') {
+    achievement = 'ви взяли участь у Річній програмі в Українському інституті душеопіки та психотерапії у категорії <strong>Учасник</strong>.';
   } else {
     achievement = 'ви успішно завершили Річну програму практичного навчання в Українському інституті душеопіки та психотерапії.';
   }

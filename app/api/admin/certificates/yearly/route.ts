@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { requireAdmin } from '@/lib/certificates/adminAuth';
 import { issueYearlyCertificate } from '@/lib/certificates/service';
+import type { CertCategory } from '@prisma/client';
 
 export async function GET(req: NextRequest) {
   const guard = await requireAdmin(req);
@@ -30,7 +31,7 @@ export async function GET(req: NextRequest) {
       payments: { where: { status: 'PAID' }, select: { amount: true, paidAt: true } },
       certificates: {
         where: { revoked: false, type: 'YEARLY_PROGRAM' },
-        select: { id: true, certNumber: true, category: true, emailStatus: true, emailFromAddress: true, issuedAt: true },
+        select: { id: true, certNumber: true, category: true, recipientNameEn: true, emailStatus: true, emailFromAddress: true, issuedAt: true },
       },
     },
   });
@@ -88,20 +89,31 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
-  const { userId, subscriptionId, category, recipientName } = (body ?? {}) as {
-    userId?: string;
-    subscriptionId?: string;
-    category?: 'LISTENER' | 'PRACTICAL';
-    recipientName?: string;
-  };
+  const { userId, subscriptionId, category, recipientName, recipientNameEn, sendEmail } =
+    (body ?? {}) as {
+      userId?: string;
+      subscriptionId?: string;
+      category?: CertCategory;
+      recipientName?: string;
+      recipientNameEn?: string;
+      sendEmail?: boolean;
+    };
   if (!userId || !subscriptionId || !category) {
     return NextResponse.json(
       { error: 'userId, subscriptionId та category обов\'язкові' },
       { status: 400 },
     );
   }
-  if (category !== 'LISTENER' && category !== 'PRACTICAL') {
-    return NextResponse.json({ error: 'category має бути LISTENER або PRACTICAL' }, { status: 400 });
+  if (category !== 'LISTENER' && category !== 'PRACTICAL' && category !== 'PARTICIPANT') {
+    return NextResponse.json(
+      { error: 'category має бути LISTENER, PRACTICAL або PARTICIPANT' },
+      { status: 400 },
+    );
+  }
+  /// Англійське ім'я опційне, але якщо передане — має бути змістовним: порожній рядок
+  /// мовчки дав би односторінковий PDF замість очікуваного двомовного.
+  if (recipientNameEn !== undefined && !String(recipientNameEn).trim()) {
+    return NextResponse.json({ error: 'Англійське ім\'я не може бути порожнім' }, { status: 400 });
   }
 
   try {
@@ -110,6 +122,8 @@ export async function POST(req: NextRequest) {
       subscriptionId,
       category,
       recipientName,
+      recipientNameEn,
+      sendEmail: sendEmail !== false,
       actor: guard.actor,
     });
     return NextResponse.json({ certificate: cert });

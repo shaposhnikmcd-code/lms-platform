@@ -55,8 +55,25 @@ export type IssueYearlyCertInput = {
   subscriptionId: string;
   category: CertCategory;
   recipientName?: string; // override; default = User.name
+  /// Англомовне ім'я. Задане → PDF стає двосторінковим (укр + англ сторінка).
+  /// Порожнє/undefined → один аркуш українською.
+  recipientNameEn?: string;
+  /// false — видати без листа: emailStatus лишається PENDING, лист шлеться пізніше
+  /// через POST /api/admin/certificates/[id]/send. Default true.
+  sendEmail?: boolean;
   actor: Actor;
 };
+
+/// Людські назви категорій Річної для логів подій і повідомлень адмінки.
+const YEARLY_CATEGORY_LABELS: Record<CertCategory, string> = {
+  LISTENER: 'Слухач',
+  PRACTICAL: 'Практична участь',
+  PARTICIPANT: 'Учасник',
+};
+
+export function yearlyCategoryLabel(category: CertCategory): string {
+  return YEARLY_CATEGORY_LABELS[category];
+}
 
 /// Видача курсового сертифіката. Ідемпотентно по (userId, COURSE, courseId) — якщо
 /// вже виданий і не revoked, повертає існуючий і НЕ шле листа повторно.
@@ -114,9 +131,14 @@ export async function issueManualYearlyCertificate(input: {
   userId: string;
   category: CertCategory;
   recipientName?: string;
+  /// Англомовне ім'я → друга (EN) сторінка PDF.
+  recipientNameEn?: string;
+  /// false — без листа (emailStatus лишається PENDING). Default true.
+  sendEmail?: boolean;
   actor: Actor;
 }): Promise<Certificate> {
   const { userId, category, actor } = input;
+  const sendEmail = input.sendEmail !== false;
 
   const user = await prisma.user.findUnique({
     where: { id: userId },
@@ -125,6 +147,7 @@ export async function issueManualYearlyCertificate(input: {
   if (!user) throw new Error(`User not found: ${userId}`);
 
   const recipientName = (input.recipientName?.trim() || user.name?.trim() || user.email).trim();
+  const recipientNameEn = input.recipientNameEn?.trim() || null;
   const issueYear = new Date().getUTCFullYear();
   const certNumber = await generateCertNumber('YEARLY_PROGRAM', issueYear);
   const verificationToken = newVerificationToken();
@@ -138,6 +161,7 @@ export async function issueManualYearlyCertificate(input: {
       userId,
       subscriptionId: null,
       recipientName,
+      recipientNameEn,
       recipientEmail: user.email,
       issueYear,
       issuedManually: true,
@@ -148,9 +172,14 @@ export async function issueManualYearlyCertificate(input: {
     },
   });
 
-  await logEvent(certificate.id, 'GENERATED', actor, `Видано вручну (Річна, ${category === 'LISTENER' ? 'Слухач' : 'Практична участь'}, без підписки)`);
+  await logEvent(
+    certificate.id,
+    'GENERATED',
+    actor,
+    `Видано вручну (Річна, ${YEARLY_CATEGORY_LABELS[category]}, без підписки)${sendEmail ? '' : ' — без відправки листа'}`,
+  );
 
-  await sendCertificateEmail(certificate, actor, false);
+  if (sendEmail) await sendCertificateEmail(certificate, actor, false);
 
   return prisma.certificate.findUniqueOrThrow({ where: { id: certificate.id } });
 }
@@ -160,6 +189,7 @@ export async function issueManualYearlyCertificate(input: {
 /// бо Prisma не підтримує partial unique index).
 export async function issueYearlyCertificate(input: IssueYearlyCertInput): Promise<Certificate> {
   const { userId, subscriptionId, category, actor } = input;
+  const sendEmail = input.sendEmail !== false;
 
   const existing = await prisma.certificate.findFirst({
     where: { userId, type: 'YEARLY_PROGRAM', subscriptionId, revoked: false },
@@ -177,6 +207,7 @@ export async function issueYearlyCertificate(input: IssueYearlyCertInput): Promi
   if (sub.userId !== userId) throw new Error('Subscription does not belong to this user');
 
   const recipientName = (input.recipientName?.trim() || user.name?.trim() || user.email).trim();
+  const recipientNameEn = input.recipientNameEn?.trim() || null;
   const issueYear = new Date().getUTCFullYear();
   const certNumber = await generateCertNumber('YEARLY_PROGRAM', issueYear);
   const verificationToken = newVerificationToken();
@@ -190,6 +221,7 @@ export async function issueYearlyCertificate(input: IssueYearlyCertInput): Promi
       userId,
       subscriptionId,
       recipientName,
+      recipientNameEn,
       recipientEmail: user.email,
       issueYear,
       issuedManually: true,
@@ -200,9 +232,14 @@ export async function issueYearlyCertificate(input: IssueYearlyCertInput): Promi
     },
   });
 
-  await logEvent(certificate.id, 'GENERATED', actor, `Видано вручну (Річна, ${category === 'LISTENER' ? 'Слухач' : 'Практична участь'})`);
+  await logEvent(
+    certificate.id,
+    'GENERATED',
+    actor,
+    `Видано вручну (Річна, ${YEARLY_CATEGORY_LABELS[category]})${sendEmail ? '' : ' — без відправки листа'}`,
+  );
 
-  await sendCertificateEmail(certificate, actor, false);
+  if (sendEmail) await sendCertificateEmail(certificate, actor, false);
 
   return prisma.certificate.findUniqueOrThrow({ where: { id: certificate.id } });
 }
@@ -246,6 +283,8 @@ async function sendCertificateEmail(cert: Certificate, actor: Actor, isResend: b
     const pdfBytes = await generateCertificatePdf({
       templateKey: templateKeyFor(cert.type, cert.category),
       recipientName: cert.recipientName,
+      /// Двомовний серт — це ОДИН PDF на дві сторінки, тому аттач лишається один.
+      recipientNameEn: cert.recipientNameEn ?? undefined,
       issueYear: cert.issueYear,
       certNumber: cert.certNumber,
       verificationUrl: verificationUrl(cert.verificationToken),
@@ -328,6 +367,18 @@ async function sendCertificateEmail(cert: Certificate, actor: Actor, isResend: b
     await logEvent(cert.id, 'EMAIL_FAILED', actor, msg);
     throw err;
   }
+}
+
+/// Перша відправка листа для сертифіката, виданого без листа (emailStatus=PENDING)
+/// або коли перша спроба впала (FAILED). Логується як SENT, не RESENT —
+/// для отримувача це перший лист. Повторна відправка — `resendCertificate`.
+export async function sendCertificateFirstEmail(certificateId: string, actor: Actor): Promise<void> {
+  const cert = await prisma.certificate.findUniqueOrThrow({ where: { id: certificateId } });
+  if (cert.revoked) throw new Error('Сертифікат відкликано, відправка заборонена.');
+  if (cert.emailStatus === 'SENT') {
+    throw new Error('Лист уже надіслано. Для повторної відправки скористайтесь «Перевідправити».');
+  }
+  await sendCertificateEmail(cert, actor, false);
 }
 
 /// Перевідправка листа — регенерує PDF, шле заново. emailStatus → SENT/FAILED.
@@ -439,6 +490,7 @@ export async function regeneratePdfBytes(cert: Certificate): Promise<Uint8Array>
   return generateCertificatePdf({
     templateKey: templateKeyFor(cert.type, cert.category),
     recipientName: cert.recipientName,
+    recipientNameEn: cert.recipientNameEn ?? undefined,
     issueYear: cert.issueYear,
     certNumber: cert.certNumber,
     verificationUrl: verificationUrl(cert.verificationToken),

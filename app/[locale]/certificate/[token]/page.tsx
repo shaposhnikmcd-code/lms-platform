@@ -64,7 +64,9 @@ export default async function CertificateVerifyPage({ params }: Props) {
     ? 'Слухач'
     : cert.category === 'PRACTICAL'
       ? 'Практична участь'
-      : null;
+      : cert.category === 'PARTICIPANT'
+        ? 'Учасник'
+        : null;
   const courseTitle = cert.courseName ?? cert.course?.title ?? null;
   const subjectFieldLabel = cert.type === 'SUPERVISION' ? 'Тема супервізії' : 'Курс';
   const supervisionDateStr = cert.supervisionDate

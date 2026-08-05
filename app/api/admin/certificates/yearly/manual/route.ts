@@ -7,7 +7,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { requireAdmin } from '@/lib/certificates/adminAuth';
-import { issueManualYearlyCertificate, revokeCertificate } from '@/lib/certificates/service';
+import {
+  issueManualYearlyCertificate,
+  revokeCertificate,
+  yearlyCategoryLabel,
+} from '@/lib/certificates/service';
 import type { CertCategory } from '@prisma/client';
 
 export async function POST(req: NextRequest) {
@@ -23,12 +27,16 @@ export async function POST(req: NextRequest) {
   const {
     recipientName,
     recipientEmail,
+    recipientNameEn,
     category,
+    sendEmail,
     force,
   } = (body ?? {}) as {
     recipientName?: string;
     recipientEmail?: string;
+    recipientNameEn?: string;
     category?: CertCategory;
+    sendEmail?: boolean;
     force?: boolean;
   };
 
@@ -39,8 +47,13 @@ export async function POST(req: NextRequest) {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailRaw)) {
     return NextResponse.json({ error: 'Невалідний email' }, { status: 400 });
   }
-  if (category !== 'LISTENER' && category !== 'PRACTICAL') {
+  if (category !== 'LISTENER' && category !== 'PRACTICAL' && category !== 'PARTICIPANT') {
     return NextResponse.json({ error: 'Невалідна категорія' }, { status: 400 });
+  }
+  /// Порожнє англ. ім'я — це не «вимкнено», а недозаповнена форма: краще 400,
+  /// ніж мовчазний односторінковий PDF замість очікуваного двомовного.
+  if (recipientNameEn !== undefined && !String(recipientNameEn).trim()) {
+    return NextResponse.json({ error: 'Англійське ім\'я не може бути порожнім' }, { status: 400 });
   }
   const email = emailRaw.toLowerCase();
 
@@ -75,7 +88,7 @@ export async function POST(req: NextRequest) {
         {
           error: 'EXISTS',
           existing,
-          categoryLabel: category === 'LISTENER' ? 'Слухач' : 'Практична участь',
+          categoryLabel: yearlyCategoryLabel(category),
         },
         { status: 409 },
       );
@@ -105,6 +118,8 @@ export async function POST(req: NextRequest) {
       userId: user.id,
       category,
       recipientName: name,
+      recipientNameEn,
+      sendEmail: sendEmail !== false,
       actor: guard.actor,
     });
     return NextResponse.json({ certificate: cert });
