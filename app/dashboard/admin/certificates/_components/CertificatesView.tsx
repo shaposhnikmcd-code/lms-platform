@@ -2685,16 +2685,16 @@ function PreviewPane({
     if (!hasEn) setPage(1);
   }, [hasEn]);
 
+  /// `pageOnly` — сервер віддає РІВНО одну сторінку (одно-сторінковий PDF).
+  /// Інакше Chrome-в'ювер рендерить двосторінковий документ суцільною стрічкою:
+  /// вертикальний скрол + «хвіст» сусідньої сторінки у кадрі.
   const src = baseSrc
-    ? `${baseSrc}#page=${page}&toolbar=0&navpanes=0&scrollbar=0&statusbar=0&messages=0&view=Fit&zoom=page-fit`
+    ? `${baseSrc}&pageOnly=${page}#toolbar=0&navpanes=0&scrollbar=0&view=Fit`
     : null;
 
   /// Реальні розміри PDF — мають співпадати з PAGE_SIZES у lib/certificates/templateConfig.ts.
-  /// COURSE = 1280×760 (sidebar layout), YEARLY = 1280×960, SUPERVISION = 1280×900 (унікальна).
-  const pageAspect =
-    params.type === 'COURSE' ? '1280 / 760'
-      : params.type === 'SUPERVISION' ? '1280 / 900'
-        : '1280 / 960';
+  /// Зараз усі шаблони A4 landscape 842×595.
+  const pageAspect = '842 / 595';
 
   /// Спінер «Генерую сертифікат…» — спільний для empty-state і loading-overlay.
   const spinner = (
@@ -2835,6 +2835,8 @@ function PreviewPane({
 /// проблем з backdrop-filter / transform у батьківських елементах. Escape закриває
 /// тільки overlay (capture-фаза + stopPropagation), не зачіпаючи парентову модалку.
 function CertPreviewFullscreen({ src, onClose }: { src: string; onClose: () => void }) {
+  const [loaded, setLoaded] = useState(false);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -2849,14 +2851,32 @@ function CertPreviewFullscreen({ src, onClose }: { src: string; onClose: () => v
   if (typeof document === 'undefined') return null;
   return createPortal(
     <div
-      className="fixed inset-x-0 bottom-0 top-16 z-[100] bg-black/85 flex flex-col cursor-zoom-out"
+      className="fixed inset-x-0 bottom-0 top-16 z-[100] bg-black/85 flex items-center justify-center p-4 cursor-zoom-out"
       onClick={onClose}
     >
+      {/* Бокс рівно з пропорціями A4-landscape аркуша (842×595) і вписаний у viewport:
+          без цього iframe тягнувся на всю висоту екрана і під сертифікатом лишалась
+          біла смуга (тло PDF-в'ювера за межами сторінки). */}
       <div
-        className="relative flex-1 min-h-0 bg-white"
+        className="relative bg-white rounded-sm shadow-2xl overflow-hidden"
+        style={{
+          aspectRatio: '842 / 595',
+          width: 'min(96vw, calc((100vh - 96px) * (842 / 595)))',
+        }}
         onClick={(e) => e.stopPropagation()}
       >
-        <iframe src={src} title="Certificate full" className="w-full h-full border-0" />
+        <iframe
+          src={src}
+          title="Certificate full"
+          onLoad={() => setLoaded(true)}
+          className={`w-full h-full border-0 transition-opacity duration-200 ${loaded ? 'opacity-100' : 'opacity-0'}`}
+        />
+        {!loaded && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-stone-500">
+            <div className="w-8 h-8 rounded-full border-[3px] border-stone-300 border-t-amber-500 animate-spin" />
+            <span className="text-[13px]">Генерую сертифікат…</span>
+          </div>
+        )}
         <button
           type="button"
           onClick={onClose}
@@ -3468,32 +3488,51 @@ function EnglishVersionFields({ theme, ev }: { theme: Theme; ev: EnglishVersionS
           >
             Name and surname (EN)
           </label>
-          <input
-            id="cert-name-en"
-            value={ev.nameEn}
-            onChange={(e) => ev.setNameEn(e.target.value)}
-            placeholder="Name Surname"
-            className={`w-full px-3 py-2 rounded-lg border text-[14px] ${
-              dark
-                ? 'bg-white/[0.04] border-white/[0.1] text-white placeholder-slate-500'
-                : 'bg-white border-stone-300 text-stone-900'
-            }`}
-          />
-          <p className={`flex items-start gap-1.5 text-[11.5px] leading-snug ${dark ? 'text-amber-200/90' : 'text-amber-800'}`}>
-            <HiOutlineExclamationTriangle className="flex-shrink-0 mt-0.5 w-3.5 h-3.5" />
-            Автоматична транслітерація — звірте з документами студента
-          </p>
-          <label
-            className={`flex items-start gap-2 text-[12.5px] cursor-pointer select-none ${dark ? 'text-slate-200' : 'text-stone-800'}`}
-          >
+          {/* Звірка живе ПРЯМО в полі імені: кнопка «Підтвердити ✓» справа в інпуті.
+              Окремий чекбокс нижче ніхто не помічав — тепер поле саме амберне,
+              поки написання не підтверджене, і зеленіє після підтвердження. */}
+          <div className="relative">
             <input
-              type="checkbox"
-              checked={ev.verified}
-              onChange={(e) => ev.setVerified(e.target.checked)}
-              className="mt-0.5 w-4 h-4 accent-amber-500 flex-shrink-0"
+              id="cert-name-en"
+              value={ev.nameEn}
+              onChange={(e) => ev.setNameEn(e.target.value)}
+              placeholder="Name Surname"
+              className={`w-full pl-3 pr-[118px] py-2 rounded-lg border text-[14px] transition-colors ${
+                ev.verified
+                  ? dark
+                    ? 'bg-emerald-500/[0.08] border-emerald-400/40 text-white'
+                    : 'bg-emerald-50 border-emerald-400 text-stone-900'
+                  : dark
+                    ? 'bg-amber-500/[0.06] border-amber-400/40 text-white placeholder-slate-500'
+                    : 'bg-amber-50/60 border-amber-400 text-stone-900'
+              }`}
             />
-            <span>Написання англійською звірено</span>
-          </label>
+            {ev.verified ? (
+              <span
+                className={`absolute right-1.5 top-1/2 -translate-y-1/2 inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[12px] font-bold ${
+                  dark ? 'bg-emerald-500/[0.15] text-emerald-300' : 'bg-emerald-100 text-emerald-700'
+                }`}
+              >
+                ✓ Звірено
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => ev.setVerified(true)}
+                disabled={!ev.nameEn.trim()}
+                title="Підтвердіть, що написання збігається з документами студента"
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 px-2.5 py-1.5 rounded-md text-[12px] font-bold bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Підтвердити ✓
+              </button>
+            )}
+          </div>
+          {!ev.verified && (
+            <p className={`flex items-start gap-1.5 text-[11.5px] leading-snug ${dark ? 'text-amber-200/90' : 'text-amber-800'}`}>
+              <HiOutlineExclamationTriangle className="flex-shrink-0 mt-0.5 w-3.5 h-3.5" />
+              Автоматична транслітерація — звірте з документами студента і натисніть «Підтвердити»
+            </p>
+          )}
         </div>
       )}
     </div>
@@ -4144,7 +4183,7 @@ function buildSupervisionPreviewSrc({
   if (topic.trim()) qs.set('courseName', topic.trim());
   if (supervisionDate) qs.set('supervisionDate', supervisionDate);
   if (supervisionHours.trim()) qs.set('supervisionHours', supervisionHours.trim());
-  return `/api/admin/certificates/preview?${qs.toString()}#toolbar=0&navpanes=0&scrollbar=0&statusbar=0&messages=0&view=Fit&zoom=page-fit`;
+  return `/api/admin/certificates/preview?${qs.toString()}#toolbar=0&navpanes=0&scrollbar=0&view=Fit`;
 }
 
 /// Парсинг bulk-textarea: підтримує два формати — інлайн (імʼя+email на одному рядку)

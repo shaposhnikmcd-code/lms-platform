@@ -5,6 +5,7 @@
 /// деякі браузери блокують blob URL в iframe через CSP/sandbox.
 
 import { NextRequest, NextResponse } from 'next/server';
+import { PDFDocument } from 'pdf-lib';
 import { requireAdmin } from '@/lib/certificates/adminAuth';
 import { generateCertificatePdf } from '@/lib/certificates/generatePdf';
 import { formatSupervisionHours } from '@/lib/certificates/service';
@@ -64,7 +65,7 @@ export async function GET(req: NextRequest) {
   }
 
   const year = yearRaw ? parseInt(yearRaw, 10) : new Date().getUTCFullYear();
-  const pdfBytes = await generateCertificatePdf({
+  let pdfBytes = await generateCertificatePdf({
     templateKey,
     recipientName,
     recipientNameEn: recipientNameEn || undefined,
@@ -76,6 +77,23 @@ export async function GET(req: NextRequest) {
     supervisionDate: supervisionDateFmt,
     supervisionHours: supervisionHoursFmt,
   });
+
+  /// `pageOnly=1|2` — віддати РІВНО одну сторінку двомовного PDF. Live-прев'ю
+  /// показує PDF у вбудованому Chrome-в'ювері, який рендерить документ суцільною
+  /// стрічкою: на двосторінковому файлі iframe отримує вертикальний скрол і
+  /// «хвіст» сусідньої сторінки. Тому перемикач УКР/EN тягне кожну сторінку
+  /// окремим одно-сторінковим документом.
+  const pageOnlyRaw = sp.get('pageOnly');
+  if (pageOnlyRaw === '1' || pageOnlyRaw === '2') {
+    const full = await PDFDocument.load(pdfBytes);
+    const idx = pageOnlyRaw === '2' ? 1 : 0;
+    if (idx < full.getPageCount()) {
+      const single = await PDFDocument.create();
+      const [page] = await single.copyPages(full, [idx]);
+      single.addPage(page);
+      pdfBytes = await single.save();
+    }
+  }
 
   return new NextResponse(Buffer.from(pdfBytes), {
     status: 200,
