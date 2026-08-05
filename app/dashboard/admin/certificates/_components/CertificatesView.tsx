@@ -3086,6 +3086,29 @@ function ModalShell({
     return () => document.removeEventListener('keydown', fn);
   }, [onClose]);
 
+  /// М'яка тінь по нижньому краю скрол-контейнера, поки під фолдом лишається контент.
+  /// Без неї форма, що не влізла у viewport, виглядає як «це все» — менеджер не бачить,
+  /// що нижче ще є поля. MutationObserver ловить появу умовних блоків (напр. англійської),
+  /// ResizeObserver — зміну розмірів самого контейнера.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [moreBelow, setMoreBelow] = useState(false);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const update = () => setMoreBelow(el.scrollHeight - el.scrollTop - el.clientHeight > 8);
+    update();
+    el.addEventListener('scroll', update, { passive: true });
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    const mo = new MutationObserver(update);
+    mo.observe(el, { childList: true, subtree: true, characterData: true });
+    return () => {
+      el.removeEventListener('scroll', update);
+      ro.disconnect();
+      mo.disconnect();
+    };
+  }, [expanded]);
+
   const sizeClasses = expanded
     ? 'max-w-none w-screen max-h-none h-full rounded-none border-0'
     : `${wide ? 'max-w-[1100px]' : 'max-w-2xl'} max-h-[92vh] rounded-2xl border`;
@@ -3134,8 +3157,26 @@ function ModalShell({
         </div>
         {/* overscrollBehavior: contain — докрутивши вміст модалки до краю, колесо
             НЕ передає скрол сторінці під нею (chaining). */}
-        <div className="p-5 overflow-y-auto flex-1" style={{ overscrollBehavior: 'contain' }}>
-          {typeof children === 'function' ? children({ expanded }) : children}
+        <div className="relative flex-1 min-h-0 flex flex-col">
+          {/* scrollPaddingBottom — щоб scrollIntoView({block:'nearest'}) зупинявся ВИЩЕ
+              fade-смужки, а не рівно під нею: інакше підтягнутий у кадр блок лягає
+              під градієнт і виглядає пригашеним. */}
+          <div
+            ref={scrollRef}
+            className="p-5 overflow-y-auto flex-1 min-h-0"
+            style={{ overscrollBehavior: 'contain', scrollPaddingBottom: 28 }}
+          >
+            {typeof children === 'function' ? children({ expanded }) : children}
+          </div>
+          <div
+            aria-hidden
+            className={`pointer-events-none absolute left-0 right-0 bottom-0 h-10 transition-opacity duration-200 ${moreBelow ? 'opacity-100' : 'opacity-0'}`}
+            style={{
+              background: dark
+                ? 'linear-gradient(to top, rgba(20,23,31,0.96), rgba(20,23,31,0))'
+                : 'linear-gradient(to top, rgba(255,255,255,0.96), rgba(255,255,255,0))',
+            }}
+          />
         </div>
         {footer && (
           <div className={`px-5 py-4 border-t flex items-center justify-end gap-2 ${dark ? 'border-white/[0.08] bg-white/[0.02]' : 'border-stone-200 bg-stone-50/60'}`}>
@@ -3916,6 +3957,55 @@ function ExistingCertConfirm({
 
 /// Вибір категорії сертифіката Річної — три картки в один ряд.
 /// Порядок карток = ієрархія: Практична участь → Слухач → Учасник.
+/// Адреса відправника — довідка, а не поле форми. Тримаємо її однорядковим
+/// підписом під email-ом: readonly-інпут з'їдав ~70px висоти діалогу і виглядав
+/// як щось, що можна редагувати.
+function FromEmailNote({ theme, fromEmail }: { theme: Theme; fromEmail: string | null }) {
+  const dark = theme === 'dark';
+  return (
+    <p
+      title="Адреса відправника листа. Змінити можна тільки через RESEND_FROM_EMAIL у env."
+      className={`text-[11px] leading-snug truncate ${dark ? 'text-slate-500' : 'text-stone-500'}`}
+    >
+      Лист надійде з {fromEmail ?? 'Завантаження…'}
+    </p>
+  );
+}
+
+/// Тонка однорядкова плашка «Відновлено чернетку». Сама зникає через 5с —
+/// це підтвердження факту, а не постійний елемент форми.
+function DraftRestoredNote({
+  theme,
+  onDismiss,
+}: {
+  theme: Theme;
+  onDismiss: () => void;
+}) {
+  const dark = theme === 'dark';
+  useEffect(() => {
+    const t = setTimeout(onDismiss, 5000);
+    return () => clearTimeout(t);
+  }, [onDismiss]);
+  return (
+    <div
+      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] leading-tight ${
+        dark ? 'border-amber-500/25 bg-amber-500/10 text-amber-200' : 'border-amber-300/60 bg-amber-50 text-amber-900'
+      }`}
+    >
+      <HiOutlineInformationCircle className="w-3.5 h-3.5 flex-shrink-0" />
+      <span className="truncate">Відновлено чернетку — продовжуйте з того місця, де зупинилися</span>
+      <button
+        type="button"
+        onClick={onDismiss}
+        aria-label="Приховати"
+        className={`ml-auto flex-shrink-0 px-1 rounded ${dark ? 'hover:bg-white/[0.05] text-amber-300/80' : 'hover:bg-amber-100 text-amber-800/80'}`}
+      >
+        ✕
+      </button>
+    </div>
+  );
+}
+
 function CategoryPicker({
   theme,
   value,
@@ -3928,16 +4018,19 @@ function CategoryPicker({
   const dark = theme === 'dark';
   return (
     <div>
-      <label className={`block text-[11px] uppercase tracking-wider mb-2 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
+      <label className={`block text-[11px] uppercase tracking-wider mb-1.5 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
         Категорія
       </label>
+      {/* Опис категорії — в один рядок з ellipsis; повний текст лишається у title,
+          щоб картки не з'їдали висоту форми двома-трьома рядками. */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
         {YEARLY_CATEGORIES.map((k) => (
           <button
             key={k}
             type="button"
             onClick={() => onChange(k)}
-            className={`text-left px-3 py-2.5 rounded-xl border transition-all ${
+            title={`${CATEGORY_LABEL[k]} — ${CATEGORY_HINT[k]}`}
+            className={`text-left px-3 py-1.5 rounded-xl border transition-all overflow-hidden ${
               value === k
                 ? 'bg-amber-500 border-amber-500 text-white shadow-md'
                 : dark
@@ -3945,8 +4038,8 @@ function CategoryPicker({
                   : 'bg-white border-stone-300 text-stone-800 hover:bg-stone-50'
             }`}
           >
-            <div className="font-semibold text-[13.5px] leading-tight">{CATEGORY_LABEL[k]}</div>
-            <div className={`text-[10.5px] mt-1 leading-snug ${value === k ? 'text-white/80' : dark ? 'text-slate-400' : 'text-stone-500'}`}>
+            <div className="font-semibold text-[13.5px] leading-tight truncate">{CATEGORY_LABEL[k]}</div>
+            <div className={`text-[10.5px] mt-0.5 leading-snug truncate ${value === k ? 'text-white/80' : dark ? 'text-slate-400' : 'text-stone-500'}`}>
               {CATEGORY_HINT[k]}
             </div>
           </button>
@@ -4047,9 +4140,20 @@ function useEnglishVersion(nameUa: string): EnglishVersionState {
 
 function EnglishVersionFields({ theme, ev }: { theme: Theme; ev: EnglishVersionState }) {
   const dark = theme === 'dark';
+  /// Увімкнення тумблера доливає у форму два нових блоки — на невисоких екранах
+  /// вони народжуються нижче фолду. Підтягуємо їх у кадр мінімальним скролом.
+  const detailsRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!ev.enabled) return;
+    const el = detailsRef.current;
+    if (!el) return;
+    const t = setTimeout(() => el.scrollIntoView({ block: 'nearest', behavior: 'smooth' }), 60);
+    return () => clearTimeout(t);
+  }, [ev.enabled]);
+
   return (
     <div
-      className={`rounded-xl border border-dashed p-3.5 ${
+      className={`rounded-xl border border-dashed p-3 ${
         dark ? 'border-amber-500/35 bg-amber-500/[0.06]' : 'border-amber-400/70 bg-amber-50/70'
       }`}
     >
@@ -4058,10 +4162,10 @@ function EnglishVersionFields({ theme, ev }: { theme: Theme; ev: EnglishVersionS
         role="switch"
         aria-checked={ev.enabled}
         onClick={() => ev.setEnabled(!ev.enabled)}
-        className="w-full flex items-start gap-3 text-left"
+        className="w-full flex items-center gap-2.5 text-left"
       >
         <span
-          className={`mt-0.5 flex-shrink-0 w-[34px] h-[20px] rounded-full relative transition-colors ${
+          className={`flex-shrink-0 w-[34px] h-[20px] rounded-full relative transition-colors ${
             ev.enabled ? 'bg-amber-500' : dark ? 'bg-white/[0.15]' : 'bg-stone-300'
           }`}
         >
@@ -4072,24 +4176,27 @@ function EnglishVersionFields({ theme, ev }: { theme: Theme; ev: EnglishVersionS
           />
         </span>
         <span className="min-w-0">
-          <span className={`block text-[14px] font-semibold ${dark ? 'text-slate-100' : 'text-stone-900'}`}>
+          <span className={`block text-[13.5px] font-semibold leading-tight ${dark ? 'text-slate-100' : 'text-stone-900'}`}>
             + Англійська версія
           </span>
-          <span className={`block text-[12px] mt-0.5 leading-snug ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
+          <span className={`block text-[11px] leading-snug truncate ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
             PDF міститиме обрані сторінки; лист і завантаження — той самий файл.
           </span>
         </span>
       </button>
 
       {ev.enabled && (
-        <div className="mt-3.5">
-          <label className={`block text-[11px] uppercase tracking-wider mb-1.5 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
+        <div ref={detailsRef}>
+        {/* На вузьких екранах лейбл стає над пігулками — інакше «Лише англійська»
+            обрізається в ellipsis. Від sm — один рядок, щоб економити висоту. */}
+        <div className="mt-2.5 flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2.5">
+          <label className={`text-[10.5px] uppercase tracking-wider leading-tight flex-shrink-0 sm:max-w-[84px] ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
             Які сторінки у PDF
           </label>
-          <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Які сторінки у PDF">
+          <div className="grid grid-cols-2 gap-1.5 flex-1 min-w-0" role="radiogroup" aria-label="Які сторінки у PDF">
             {([
-              { key: 'UK_EN', label: 'Укр + англ', hint: '2 сторінки' },
-              { key: 'EN', label: 'Лише англійська', hint: '1 сторінка' },
+              { key: 'UK_EN', label: 'Укр + англ', hint: '2 стор.' },
+              { key: 'EN', label: 'Лише англійська', hint: '1 стор.' },
             ] as const).map((opt) => {
               const active = ev.pagesMode === opt.key;
               return (
@@ -4099,7 +4206,7 @@ function EnglishVersionFields({ theme, ev }: { theme: Theme; ev: EnglishVersionS
                   role="radio"
                   aria-checked={active}
                   onClick={() => ev.setPagesMode(opt.key)}
-                  className={`px-3 py-2 rounded-lg border text-left transition-all ${
+                  className={`px-2.5 py-1.5 rounded-lg border transition-all flex flex-wrap items-baseline gap-x-1.5 min-w-0 ${
                     active
                       ? 'bg-amber-500 border-amber-500 text-white shadow-sm'
                       : dark
@@ -4107,8 +4214,8 @@ function EnglishVersionFields({ theme, ev }: { theme: Theme; ev: EnglishVersionS
                         : 'bg-white border-stone-300 text-stone-800 hover:bg-stone-50'
                   }`}
                 >
-                  <span className="block text-[12.5px] font-semibold leading-tight">{opt.label}</span>
-                  <span className={`block text-[10.5px] mt-0.5 ${active ? 'text-white/80' : dark ? 'text-slate-400' : 'text-stone-500'}`}>
+                  <span className="text-[12.5px] font-semibold leading-tight whitespace-nowrap">{opt.label}</span>
+                  <span className={`text-[10.5px] flex-shrink-0 ${active ? 'text-white/80' : dark ? 'text-slate-400' : 'text-stone-500'}`}>
                     {opt.hint}
                   </span>
                 </button>
@@ -4116,10 +4223,8 @@ function EnglishVersionFields({ theme, ev }: { theme: Theme; ev: EnglishVersionS
             })}
           </div>
         </div>
-      )}
 
-      {ev.enabled && (
-        <div className="mt-3.5 space-y-2">
+        <div className="mt-2.5 space-y-1.5">
           <label
             htmlFor="cert-name-en"
             className={`block text-[11px] uppercase tracking-wider ${dark ? 'text-slate-400' : 'text-stone-500'}`}
@@ -4171,6 +4276,7 @@ function EnglishVersionFields({ theme, ev }: { theme: Theme; ev: EnglishVersionS
               Автоматична транслітерація — звірте з документами студента і натисніть «Підтвердити»
             </p>
           )}
+        </div>
         </div>
       )}
     </div>
@@ -4323,6 +4429,7 @@ function IssueYearlyDialog({
         <div className={`rounded-lg p-4 ${dark ? 'bg-white/[0.04]' : 'bg-stone-50'}`}>
           <div className="font-medium">{candidate.userName ?? '—'}</div>
           <div className={`text-[12px] mt-0.5 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>{candidate.userEmail}</div>
+          <FromEmailNote theme={theme} fromEmail={fromEmail} />
           <div className="mt-2 flex items-center gap-3">
             <HealthBadge theme={theme} candidate={candidate} />
             <span className={`text-[11px] ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
@@ -4354,24 +4461,6 @@ function IssueYearlyDialog({
         </div>
 
         <EnglishVersionFields theme={theme} ev={ev} />
-
-        <div>
-          <label className={`block text-[11px] uppercase tracking-wider mb-1 ${dark ? 'text-slate-500' : 'text-stone-400'}`}>
-            Лист надійде з
-          </label>
-          <input
-            type="text"
-            readOnly
-            disabled
-            value={fromEmail ?? 'Завантаження…'}
-            title="Адреса відправника листа. Змінити можна тільки через RESEND_FROM_EMAIL у env."
-            className={`w-full px-3 py-2 rounded-lg border text-[13px] cursor-not-allowed ${
-              dark
-                ? 'bg-white/[0.02] border-white/[0.06] text-slate-500'
-                : 'bg-stone-100 border-stone-200 text-stone-500'
-            }`}
-          />
-        </div>
         </div>
 
         <PreviewPane
@@ -4530,6 +4619,9 @@ function IssueYearlyManualDialog({
   /// повторив саме його (з листом / без), а не завжди з листом.
   const [lastSendEmail, setLastSendEmail] = useState(true);
   const ev = useEnglishVersion(recipientName);
+  /// Стабільна ідентичність — інакше авто-таймер у плашці перезапускався б
+  /// на кожен рендер форми (набір імені) і вона висіла б вічно.
+  const dismissDraftNote = useCallback(() => setDraftRestored(false), []);
 
   useEffect(() => {
     fetch('/api/admin/mailer-config')
@@ -4614,21 +4706,7 @@ function IssueYearlyManualDialog({
       <>
       <div className={`grid grid-cols-1 ${expanded ? 'lg:grid-cols-[minmax(430px,0.6fr)_1.4fr] lg:h-full' : 'lg:grid-cols-[1fr_1fr]'} gap-5`}>
         <div className="space-y-4">
-          {draftRestored && (
-            <div className={`flex items-center justify-between gap-2 px-3 py-2 rounded-lg border text-[11.5px] ${dark ? 'border-amber-500/25 bg-amber-500/10 text-amber-200' : 'border-amber-300/60 bg-amber-50 text-amber-900'}`}>
-              <span className="inline-flex items-center gap-1.5">
-                <HiOutlineInformationCircle className="w-3.5 h-3.5" />
-                Відновлено чернетку — продовжуйте з того місця, де зупинилися
-              </span>
-              <button
-                type="button"
-                onClick={() => setDraftRestored(false)}
-                className={`text-[11px] px-1.5 py-0.5 rounded ${dark ? 'hover:bg-white/[0.05] text-amber-300/80' : 'hover:bg-amber-100 text-amber-800/80'}`}
-              >
-                Зрозуміло
-              </button>
-            </div>
-          )}
+          {draftRestored && <DraftRestoredNote theme={theme} onDismiss={dismissDraftNote} />}
           <div>
             <label className={`block text-[11px] uppercase tracking-wider mb-1 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
               Ім&apos;я та прізвище (укр)
@@ -4656,24 +4734,7 @@ function IssueYearlyManualDialog({
             <p className={`text-[11px] mt-1 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
               Якщо такого юзера ще немає — буде створено новий запис.
             </p>
-          </div>
-
-          <div>
-            <label className={`block text-[11px] uppercase tracking-wider mb-1 ${dark ? 'text-slate-500' : 'text-stone-400'}`}>
-              Лист надійде з
-            </label>
-            <input
-              type="text"
-              readOnly
-              disabled
-              value={fromEmail ?? 'Завантаження…'}
-              title="Адреса відправника листа. Змінити можна тільки через RESEND_FROM_EMAIL у env."
-              className={`w-full px-3 py-2 rounded-lg border text-[13px] cursor-not-allowed ${
-                dark
-                  ? 'bg-white/[0.02] border-white/[0.06] text-slate-500'
-                  : 'bg-stone-100 border-stone-200 text-stone-500'
-              }`}
-            />
+            <FromEmailNote theme={theme} fromEmail={fromEmail} />
           </div>
 
           <CategoryPicker theme={theme} value={category} onChange={setCategory} />
