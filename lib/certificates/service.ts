@@ -7,7 +7,6 @@ import { sendEmail, appBaseUrl, MAILER_FROM_EMAIL } from '@/lib/mailer';
 import { certificateEmailHtml, certificateEmailSubject } from '@/lib/emailTemplates/certificate';
 import { generateCertificatePdf } from './generatePdf';
 import { generateCertNumber, newVerificationToken, hashPdfBytes } from './identifiers';
-import { certificateFilenameAscii } from './filename';
 import { templateKeyFor } from './templateConfig';
 import type { CertCategory, CertLanguages, Certificate } from '@prisma/client';
 
@@ -143,10 +142,40 @@ export async function issueCourseCertificate(input: IssueCourseCertInput): Promi
   return prisma.certificate.findUniqueOrThrow({ where: { id: certificate.id } });
 }
 
-/// Видача "персонального" Річного сертифіката без привʼязки до підписки. Для випадків,
-/// коли учасник не купував Річну програму через сайт (офлайн домовленість, спецдомовленість).
-/// Дублі контролює route — partial unique index на Certificate не покриває (userId, type) для
-/// YEARLY_PROGRAM (там немає courseId), тому валідація в application code.
+/// Знаходить підписку Річної, до якої варто прив'язати персонально виданий сертифікат.
+/// Пріоритет: оплачена підписка у поточному наборі (`isCurrent`) → інакше найсвіжіша
+/// оплачена підписка юзера. null — юзер Річну не купував (справді «персональна» видача).
+///
+/// Навіщо: таблиця кандидатів на вкладці «Річна програма» бере сертифікат ЧЕРЕЗ підписку
+/// (`subscription.certificates[0]`). Серт без `subscriptionId` там не видно взагалі —
+/// менеджер бачив порожні колонки «Сертифікат/Лист» і кнопку «Видати», хоча лист уже пішов.
+async function resolveSubscriptionForManualYearly(userId: string): Promise<string | null> {
+  const paid = { payments: { some: { status: 'PAID' as const } } };
+  const currentCohort = await prisma.yearlyProgramCohort.findFirst({
+    where: { isCurrent: true },
+    select: { id: true },
+  });
+  if (currentCohort) {
+    const inCohort = await prisma.yearlyProgramSubscription.findFirst({
+      where: { userId, cohortId: currentCohort.id, ...paid },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true },
+    });
+    if (inCohort) return inCohort.id;
+  }
+  const latest = await prisma.yearlyProgramSubscription.findFirst({
+    where: { userId, ...paid },
+    orderBy: { createdAt: 'desc' },
+    select: { id: true },
+  });
+  return latest?.id ?? null;
+}
+
+/// Видача "персонального" Річного сертифіката за вільно вписаним email-ом. Якщо у юзера є
+/// оплачена підписка Річної — серт лінкується до неї (щоб бути видимим у рядку учасника),
+/// інакше лишається без привʼязки: для тих, хто не купував Річну через сайт (офлайн
+/// домовленість). Дублі контролює route — partial unique index на Certificate не покриває
+/// (userId, type) для YEARLY_PROGRAM (там немає courseId), тому валідація в application code.
 export async function issueManualYearlyCertificate(input: {
   userId: string;
   category: CertCategory;
@@ -171,6 +200,23 @@ export async function issueManualYearlyCertificate(input: {
   const recipientName = (input.recipientName?.trim() || user.name?.trim() || user.email).trim();
   const { languages, recipientNameEn } = resolveLanguages(input.languages, input.recipientNameEn);
   const issueYear = new Date().getUTCFullYear();
+
+  /// Той самий guard, що й у `issueYearlyCertificate`: один активний сертифікат на підписку.
+  /// Без нього персональна видача могла б підвісити другий серт на ту саму підписку, і в
+  /// таблиці показувався б лише один із них (`certificates[0]`).
+  const subscriptionId = await resolveSubscriptionForManualYearly(userId);
+  if (subscriptionId) {
+    const existingOnSub = await prisma.certificate.findFirst({
+      where: { type: 'YEARLY_PROGRAM', subscriptionId, revoked: false },
+      select: { id: true },
+    });
+    if (existingOnSub) {
+      throw new Error(
+        'Для цього учасника вже є активний сертифікат Річної програми. Щоб видати новий — відкличте попередній.',
+      );
+    }
+  }
+
   const certNumber = await generateCertNumber('YEARLY_PROGRAM', issueYear);
   const verificationToken = newVerificationToken();
 
@@ -181,7 +227,7 @@ export async function issueManualYearlyCertificate(input: {
       type: 'YEARLY_PROGRAM',
       category,
       userId,
-      subscriptionId: null,
+      subscriptionId,
       recipientName,
       recipientNameEn,
       languages,
@@ -199,7 +245,7 @@ export async function issueManualYearlyCertificate(input: {
     certificate.id,
     'GENERATED',
     actor,
-    `Видано вручну (Річна, ${YEARLY_CATEGORY_LABELS[category]}, без підписки)${sendEmail ? '' : ' — без відправки листа'}`,
+    `Видано вручну (Річна, ${YEARLY_CATEGORY_LABELS[category]}, ${subscriptionId ? 'привʼязано до підписки' : 'без підписки'})${sendEmail ? '' : ' — без відправки листа'}`,
   );
 
   if (sendEmail) await sendCertificateEmail(certificate, actor, false);
@@ -347,6 +393,7 @@ async function sendCertificateEmail(cert: Certificate, actor: Actor, isResend: b
       certNumber: cert.certNumber,
       verificationUrl: verificationUrl(cert.verificationToken),
       issueYear: cert.issueYear,
+      languages: cert.languages,
     });
 
     const result = await sendEmail({
@@ -358,7 +405,9 @@ async function sendCertificateEmail(cert: Certificate, actor: Actor, isResend: b
         {
           // ASCII-only щоб iPhone Mail / Outlook коректно показували назву аттача.
           // Кирилиця у MIME-headers подекуди не декодується клієнтами.
-          filename: certificateFilenameAscii(cert),
+          // «UIMP-Certificate-…» замість транслітерованого «Sertyfikat-…»: у теці
+          // завантажень одразу видно, від кого документ, і назва читається будь-якою мовою.
+          filename: `UIMP-Certificate-${cert.certNumber}.pdf`,
           content: Buffer.from(pdfBytes),
           contentType: 'application/pdf',
         },
