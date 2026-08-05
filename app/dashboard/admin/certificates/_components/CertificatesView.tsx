@@ -1133,7 +1133,17 @@ function YearlyTab({
     );
   const [search, setSearch] = useState('');
   const [planFilter, setPlanFilter] = useState<'all' | 'YEARLY' | 'MONTHLY'>('all');
-  const [issuedFilter, setIssuedFilter] = useState<'all' | 'yes' | 'no'>('all');
+  /// Взаємовиключний сегмент зведення: виданий / лист не пішов / без сертифіката.
+  /// null — фільтр знято (повторний клік по активному сегменту).
+  const [certSegment, setCertSegment] = useState<'issued' | 'unsent' | 'none' | null>(null);
+  /// Дві незалежні відсічки — комбінуються між собою і з сегментом.
+  const [onlyCompleted, setOnlyCompleted] = useState(false);
+  const [onlyPaidFull, setOnlyPaidFull] = useState(false);
+  const [progressSort, setProgressSort] = useState<'none' | 'desc' | 'asc'>('none');
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const [bulkCategory, setBulkCategory] = useState<CertCategory>('PRACTICAL');
+  const [bulkSendEmail, setBulkSendEmail] = useState(true);
+  const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null);
   const [dialogSub, setDialogSub] = useState<YearlyCandidate | null>(null);
   const [showIssueManual, setShowIssueManual] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -1198,19 +1208,140 @@ function YearlyTab({
     }
   }
 
-  const filtered = useMemo(() => {
+  /// Набір, у межах якого рахується зведення: пошук + план. Самі сегменти в нього не
+  /// входять — інакше активний сегмент занулював би числа сусідніх і зведення переставало
+  /// б показувати картину («Видано 12 · Без сертифіката 0» одразу після кліку).
+  const scoped = useMemo(() => {
     const s = search.trim().toLowerCase();
     return candidates.filter((c) => {
       if (planFilter !== 'all' && c.plan !== planFilter) return false;
-      if (issuedFilter === 'yes' && !c.certificate) return false;
-      if (issuedFilter === 'no' && c.certificate) return false;
       if (s) {
         const hay = `${c.userName ?? ''} ${c.userEmail}`.toLowerCase();
         if (!hay.includes(s)) return false;
       }
       return true;
     });
-  }, [candidates, planFilter, issuedFilter, search]);
+  }, [candidates, planFilter, search]);
+
+  const counts = useMemo(() => {
+    let issued = 0;
+    let unsent = 0;
+    let none = 0;
+    let completed = 0;
+    let paidFull = 0;
+    for (const c of scoped) {
+      if (c.certificate) {
+        issued += 1;
+        if (c.certificate.emailStatus !== 'SENT') unsent += 1;
+      } else {
+        none += 1;
+      }
+      if ((c.spProgressPercent ?? -1) >= 100) completed += 1;
+      if (c.paymentHealth === 'FULL') paidFull += 1;
+    }
+    return { issued, unsent, none, completed, paidFull };
+  }, [scoped]);
+
+  const filtered = useMemo(() => {
+    const rows = scoped.filter((c) => {
+      if (certSegment === 'issued' && !c.certificate) return false;
+      if (certSegment === 'unsent' && !(c.certificate && c.certificate.emailStatus !== 'SENT')) return false;
+      if (certSegment === 'none' && c.certificate) return false;
+      if (onlyCompleted && (c.spProgressPercent ?? -1) < 100) return false;
+      if (onlyPaidFull && c.paymentHealth !== 'FULL') return false;
+      return true;
+    });
+    if (progressSort !== 'none') {
+      /// null-прогрес (cron ще не бачив учасника) кладемо в кінець при сортуванні за
+      /// спаданням і на початок при зростанні — як найменше значення.
+      rows.sort((a, b) => {
+        const av = a.spProgressPercent ?? -1;
+        const bv = b.spProgressPercent ?? -1;
+        return progressSort === 'desc' ? bv - av : av - bv;
+      });
+    }
+    return rows;
+  }, [scoped, certSegment, onlyCompleted, onlyPaidFull, progressSort]);
+
+  /// Кандидати масової видачі — тільки видимі рядки без сертифіката. Якщо вибраний
+  /// рядок «випав» під фільтр, він у видачу не потрапляє (менеджер бачить лише те,
+  /// що реально піде в роботу).
+  const bulkTargets = useMemo(
+    () => filtered.filter((c) => !c.certificate && selected.has(c.subscriptionId)),
+    [filtered, selected],
+  );
+  const selectableIds = useMemo(
+    () => filtered.filter((c) => !c.certificate).map((c) => c.subscriptionId),
+    [filtered],
+  );
+  const allSelected = selectableIds.length > 0 && selectableIds.every((id) => selected.has(id));
+
+  function toggleRow(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAll() {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (allSelected) selectableIds.forEach((id) => next.delete(id));
+      else selectableIds.forEach((id) => next.add(id));
+      return next;
+    });
+  }
+
+  /// Масова видача — послідовний цикл по звичайному POST /api/admin/certificates/yearly.
+  /// Свідомо без bulk-endpoint-а: кожна видача проходить ті самі перевірки й лог подій,
+  /// а послідовність не забиває Resend паралельними листами.
+  async function runBulkIssue() {
+    const targets = bulkTargets;
+    if (targets.length === 0 || bulkProgress) return;
+    const confirmMsg =
+      `Видати ${targets.length} сертифікат(ів) категорії «${CATEGORY_LABEL[bulkCategory]}» ` +
+      `${bulkSendEmail ? 'і відправити листи учасникам' : 'без листів'}?\n\n` +
+      'Скасувати можна лише відкликом кожного сертифіката окремо.';
+    if (!window.confirm(confirmMsg)) return;
+
+    setBulkProgress({ done: 0, total: targets.length });
+    let ok = 0;
+    const errors: string[] = [];
+    for (let i = 0; i < targets.length; i++) {
+      const c = targets[i];
+      pushToast({ type: 'success', msg: `Видаю ${i + 1} з ${targets.length}: ${c.userName ?? c.userEmail}…` });
+      try {
+        const res = await fetch('/api/admin/certificates/yearly', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userId: c.userId,
+            subscriptionId: c.subscriptionId,
+            category: bulkCategory,
+            sendEmail: bulkSendEmail,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? 'Помилка');
+        ok += 1;
+      } catch (err) {
+        errors.push(`${c.userName ?? c.userEmail}: ${err instanceof Error ? err.message : 'Помилка'}`);
+      }
+      setBulkProgress({ done: i + 1, total: targets.length });
+    }
+    setBulkProgress(null);
+    setSelected(new Set());
+    await fetchList();
+    const tail = errors.length
+      ? ` — ${errors.slice(0, 3).join('; ')}${errors.length > 3 ? ` та ще ${errors.length - 3}` : ''}`
+      : '';
+    pushToast({
+      type: errors.length ? 'error' : 'success',
+      msg: `Масова видача: видано ${ok}, помилок ${errors.length}${tail}`,
+    });
+  }
 
   return (
     <AdminPanel theme={theme} padding="p-4 sm:p-6">
@@ -1281,36 +1412,161 @@ function YearlyTab({
             <option value="YEARLY">Річний</option>
             <option value="MONTHLY">Місячний</option>
           </select>
-          <select
-            value={issuedFilter}
-            onChange={(e) => setIssuedFilter(e.target.value as 'all' | 'yes' | 'no')}
-            className={`px-3 py-2 rounded-lg border text-[13px] ${dark ? 'bg-white/[0.04] border-white/[0.1] text-white' : 'bg-white border-stone-300 text-stone-900'}`}
-          >
-            <option value="all">Усі</option>
-            <option value="yes">Серт виданий</option>
-            <option value="no">Серт не виданий</option>
-          </select>
         </div>
         <span className={`text-[12px] ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
           показано <strong className={dark ? 'text-slate-200' : 'text-stone-700'}>{filtered.length}</strong> з {candidates.length}
         </span>
       </div>
 
-      {/* 9 колонок замість 12: період і статус листа згорнуті у двохрядкові
-          комірки, а дії зведені в одну колонку — щоб таблиця влазила у 1280px
-          без горизонтального скролу. */}
+      {/* Row 3 — Зведення-фільтр. Три взаємовиключні сегменти стану сертифіката
+          (замінили колишній селект «Серт виданий / не виданий» — той самий зріз,
+          але з числами) + дві незалежні відсічки (пунктирні). Усе комбінується
+          з пошуком і селектом плану. */}
+      <div className="flex items-center gap-2 flex-wrap mb-5">
+        <SegmentChip
+          dark={dark}
+          label="Видано"
+          value={counts.issued}
+          tone="emerald"
+          active={certSegment === 'issued'}
+          title="Учасники з активним сертифікатом"
+          onClick={() => setCertSegment((v) => (v === 'issued' ? null : 'issued'))}
+        />
+        <SegmentChip
+          dark={dark}
+          label="Лист не надіслано"
+          value={counts.unsent}
+          tone="amber"
+          active={certSegment === 'unsent'}
+          title="Сертифікат є, але лист ще не пішов (видано без листа або відправка впала)"
+          onClick={() => setCertSegment((v) => (v === 'unsent' ? null : 'unsent'))}
+        />
+        <SegmentChip
+          dark={dark}
+          label="Без сертифіката"
+          value={counts.none}
+          tone="slate"
+          active={certSegment === 'none'}
+          title="Сертифікат ще не видавався"
+          onClick={() => setCertSegment((v) => (v === 'none' ? null : 'none'))}
+        />
+        <span className={`mx-1 h-5 w-px ${dark ? 'bg-white/[0.12]' : 'bg-stone-300'}`} />
+        <SegmentChip
+          dark={dark}
+          dashed
+          label="Завершили курс"
+          value={counts.completed}
+          tone="sky"
+          active={onlyCompleted}
+          title="Прогрес у SendPulse = 100% — готові до сертифіката"
+          onClick={() => setOnlyCompleted((v) => !v)}
+        />
+        <SegmentChip
+          dark={dark}
+          dashed
+          label="Повністю оплачені"
+          value={counts.paidFull}
+          tone="violet"
+          active={onlyPaidFull}
+          title="Сплачено все: 9 місячних слотів або одна річна оплата"
+          onClick={() => setOnlyPaidFull((v) => !v)}
+        />
+      </div>
+
+      {/* Панель масової видачі — з'являється, щойно вибрано хоч один рядок без серта. */}
+      {(bulkTargets.length > 0 || bulkProgress) && (
+        <div
+          className={`mb-4 flex items-center gap-3 flex-wrap px-3.5 py-3 rounded-xl border ${
+            dark ? 'border-amber-500/30 bg-amber-500/[0.07]' : 'border-amber-300 bg-amber-50/80'
+          }`}
+        >
+          <span className={`text-[13px] font-semibold ${dark ? 'text-amber-100' : 'text-amber-900'}`}>
+            Вибрано {bulkTargets.length} без сертифіката
+          </span>
+          <select
+            value={bulkCategory}
+            onChange={(e) => setBulkCategory(e.target.value as CertCategory)}
+            disabled={Boolean(bulkProgress)}
+            title="Категорія, з якою підуть усі вибрані сертифікати"
+            className={`px-3 py-2 rounded-lg border text-[13px] disabled:opacity-50 ${dark ? 'bg-white/[0.04] border-white/[0.1] text-white' : 'bg-white border-stone-300 text-stone-900'}`}
+          >
+            {YEARLY_CATEGORIES.map((cat) => (
+              <option key={cat} value={cat}>
+                {CATEGORY_LABEL[cat]}
+              </option>
+            ))}
+          </select>
+          <select
+            value={bulkSendEmail ? 'email' : 'silent'}
+            onChange={(e) => setBulkSendEmail(e.target.value === 'email')}
+            disabled={Boolean(bulkProgress)}
+            className={`px-3 py-2 rounded-lg border text-[13px] disabled:opacity-50 ${dark ? 'bg-white/[0.04] border-white/[0.1] text-white' : 'bg-white border-stone-300 text-stone-900'}`}
+          >
+            <option value="email">З листом</option>
+            <option value="silent">Без листа</option>
+          </select>
+          <button
+            type="button"
+            onClick={runBulkIssue}
+            disabled={Boolean(bulkProgress) || bulkTargets.length === 0}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-[13px] font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <HiOutlinePlus className="text-[15px]" />
+            {bulkProgress
+              ? `Видаю ${bulkProgress.done} з ${bulkProgress.total}…`
+              : `Видати вибраним (${bulkTargets.length})`}
+          </button>
+          {!bulkProgress && (
+            <button
+              type="button"
+              onClick={() => setSelected(new Set())}
+              className={`px-3 py-2 rounded-lg text-[12.5px] ${dark ? 'text-slate-300 hover:bg-white/[0.06]' : 'text-stone-600 hover:bg-stone-100'}`}
+            >
+              Зняти вибір
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Колонки: чекбокс масової видачі, учасник, план, статус, оплата, період,
+          прогрес (сортований), сертифікат (номер + мови + статус листа однією
+          коміркою) і дії — вміщається у 1280px без горизонтального скролу. */}
       <div className="overflow-x-auto rounded-xl cert-scroll-x">
         <table className="w-full text-[13px] min-w-[860px]">
           <thead className={`text-left text-[11px] uppercase tracking-wider ${dark ? 'text-slate-400 border-b border-white/[0.06]' : 'text-stone-500 border-b border-stone-200'}`}>
             <tr>
+              <th className="py-2 pr-2 w-8">
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  onChange={toggleAll}
+                  disabled={selectableIds.length === 0}
+                  title={allSelected ? 'Зняти вибір з усіх' : 'Вибрати всі рядки без сертифіката'}
+                  aria-label="Вибрати всі рядки без сертифіката"
+                  className="w-4 h-4 accent-amber-500 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                />
+              </th>
               <Th>Учасник</Th>
               <Th>План</Th>
               <Th>Статус</Th>
               <Th>Оплата</Th>
               <Th>Період</Th>
-              <Th>Курс завершено</Th>
+              <th className="py-2 pr-3 font-semibold">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setProgressSort((v) => (v === 'none' ? 'desc' : v === 'desc' ? 'asc' : 'none'))
+                  }
+                  title="Сортувати за прогресом у SendPulse"
+                  className={`inline-flex items-center gap-1 uppercase tracking-wider transition-colors ${dark ? 'hover:text-slate-200' : 'hover:text-stone-800'}`}
+                >
+                  Курс завершено
+                  <span className={progressSort === 'none' ? 'opacity-40' : 'opacity-100'}>
+                    {progressSort === 'asc' ? '↑' : progressSort === 'desc' ? '↓' : '⇅'}
+                  </span>
+                </button>
+              </th>
               <Th>Сертифікат</Th>
-              <Th>Лист</Th>
               <Th>Дії</Th>
             </tr>
           </thead>
@@ -1331,7 +1587,20 @@ function YearlyTab({
             )}
             {filtered.map((c) => (
               <tr key={c.subscriptionId} className={dark ? 'hover:bg-white/[0.02]' : 'hover:bg-stone-50/70'}>
-                <td className="py-3 pr-3 max-w-[190px]">
+                <td className="py-3 pr-2 align-top">
+                  {!c.certificate && (
+                    <input
+                      type="checkbox"
+                      checked={selected.has(c.subscriptionId)}
+                      onChange={() => toggleRow(c.subscriptionId)}
+                      disabled={Boolean(bulkProgress)}
+                      title="Додати до масової видачі"
+                      aria-label={`Вибрати ${c.userName ?? c.userEmail}`}
+                      className="mt-1 w-4 h-4 accent-amber-500 cursor-pointer disabled:opacity-40"
+                    />
+                  )}
+                </td>
+                <td className="py-3 pr-3 max-w-[250px]">
                   <div className="font-medium truncate" title={c.userName ?? undefined}>{c.userName ?? '—'}</div>
                   <div className={`text-[11px] truncate ${dark ? 'text-slate-400' : 'text-stone-500'}`} title={c.userEmail}>
                     {c.userEmail}
@@ -1360,33 +1629,28 @@ function YearlyTab({
                     hasSp
                   />
                 </td>
+                {/* Об'єднана колонка: номер + мовний бейдж + статус листа зверху,
+                    категорія / дата видачі / відправник — другим рядком. */}
                 <td className="py-3 pr-3">
                   {c.certificate ? (
                     <div>
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="font-mono text-[11px]">{c.certificate.certNumber}</span>
                         <LangBadge dark={dark} languages={c.certificate.languages} />
+                        <StatusBadge theme={theme} status={c.certificate.emailStatus} revoked={false} />
                       </div>
-                      <div className={`text-[10px] mt-0.5 whitespace-nowrap ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
+                      <div className={`text-[10px] mt-1 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
                         {categoryLabel(c.certificate.category, true)} · {formatDate(c.certificate.issuedAt)}
+                        {c.certificate.emailFromAddress && (
+                          <span
+                            className="font-mono"
+                            title={`Лист надійшов з: ${c.certificate.emailFromAddress}`}
+                          >
+                            {' · '}
+                            {extractEmail(c.certificate.emailFromAddress)}
+                          </span>
+                        )}
                       </div>
-                    </div>
-                  ) : (
-                    <span className={`text-[12px] ${dark ? 'text-slate-500' : 'text-stone-400'}`}>—</span>
-                  )}
-                </td>
-                <td className="py-3 pr-3">
-                  {c.certificate ? (
-                    <div>
-                      <StatusBadge theme={theme} status={c.certificate.emailStatus} revoked={false} />
-                      {c.certificate.emailFromAddress && (
-                        <div
-                          className={`font-mono text-[10px] mt-0.5 max-w-[140px] truncate ${dark ? 'text-slate-500' : 'text-stone-500'}`}
-                          title={`Лист надійшов з: ${c.certificate.emailFromAddress}`}
-                        >
-                          {extractEmail(c.certificate.emailFromAddress)}
-                        </div>
-                      )}
                     </div>
                   ) : (
                     <span className={`text-[12px] ${dark ? 'text-slate-500' : 'text-stone-400'}`}>—</span>
@@ -1750,11 +2014,94 @@ function HealthBadge({ theme, candidate }: { theme: Theme; candidate: YearlyCand
         : dark ? 'bg-red-500/20 text-red-200' : 'bg-red-100 text-red-800';
   const label =
     paymentHealth === 'FULL' ? '✓' : paymentHealth === 'PARTIAL' ? '⚠' : '✕';
+  /// Дріб 3/9 сам по собі нічого не пояснює менеджеру — розшифровуємо тултіпом,
+  /// окремо для місячної розстрочки (слоти) і річної (єдиний платіж).
+  const title =
+    candidate.plan === 'MONTHLY'
+      ? `Сплачено місячних слотів ${paidCount} з ${expectedPayments}`
+      : `Річна оплата: сплачено ${paidCount} з ${expectedPayments}`;
   return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold ${colors}`}>
+    <span
+      title={title}
+      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold cursor-help ${colors}`}
+    >
       <span>{label}</span>
       <span className="font-mono">{paidCount}/{expectedPayments}</span>
     </span>
+  );
+}
+
+/// Сегмент зведення над таблицею Річної: підпис + число, клікабельний як фільтр.
+/// `active` — сегмент увімкнено (повторний клік знімає його у батьківському стані).
+function SegmentChip({
+  dark,
+  label,
+  value,
+  tone,
+  active,
+  onClick,
+  title,
+  dashed,
+}: {
+  dark: boolean;
+  label: string;
+  value: number;
+  tone: 'emerald' | 'amber' | 'slate' | 'sky' | 'violet';
+  active: boolean;
+  onClick: () => void;
+  title?: string;
+  /// Пунктирна рамка — для чіпів другої групи (незалежні перемикачі), щоб візуально
+  /// відрізнялись від трьох взаємовиключних сегментів «стану сертифіката».
+  dashed?: boolean;
+}) {
+  const palettes: Record<
+    'emerald' | 'amber' | 'slate' | 'sky' | 'violet',
+    { onDark: string; onLight: string; offDark: string; offLight: string }
+  > = {
+    emerald: {
+      onDark: 'border-emerald-400/60 bg-emerald-500/20 text-emerald-100',
+      onLight: 'border-emerald-500 bg-emerald-100 text-emerald-900',
+      offDark: 'border-white/[0.08] bg-white/[0.03] text-emerald-300/80',
+      offLight: 'border-stone-300/70 bg-white/70 text-emerald-700',
+    },
+    amber: {
+      onDark: 'border-amber-400/60 bg-amber-500/20 text-amber-100',
+      onLight: 'border-amber-500 bg-amber-100 text-amber-900',
+      offDark: 'border-white/[0.08] bg-white/[0.03] text-amber-300/80',
+      offLight: 'border-stone-300/70 bg-white/70 text-amber-700',
+    },
+    slate: {
+      onDark: 'border-slate-300/50 bg-white/[0.12] text-white',
+      onLight: 'border-stone-500 bg-stone-200 text-stone-900',
+      offDark: 'border-white/[0.08] bg-white/[0.03] text-slate-300',
+      offLight: 'border-stone-300/70 bg-white/70 text-stone-600',
+    },
+    sky: {
+      onDark: 'border-sky-400/60 bg-sky-500/20 text-sky-100',
+      onLight: 'border-sky-500 bg-sky-100 text-sky-900',
+      offDark: 'border-white/[0.08] bg-white/[0.03] text-sky-300/80',
+      offLight: 'border-stone-300/70 bg-white/70 text-sky-700',
+    },
+    violet: {
+      onDark: 'border-violet-400/60 bg-violet-500/20 text-violet-100',
+      onLight: 'border-violet-500 bg-violet-100 text-violet-900',
+      offDark: 'border-white/[0.08] bg-white/[0.03] text-violet-300/80',
+      offLight: 'border-stone-300/70 bg-white/70 text-violet-700',
+    },
+  };
+  const p = palettes[tone];
+  const cls = active ? (dark ? p.onDark : p.onLight) : dark ? p.offDark : p.offLight;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      aria-pressed={active}
+      className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border ${dashed ? 'border-dashed' : ''} transition-colors hover:brightness-110 ${cls}`}
+    >
+      <span className="text-[15px] font-semibold tabular-nums leading-none">{value}</span>
+      <span className="text-[11.5px] font-medium leading-none">{label}</span>
+    </button>
   );
 }
 
