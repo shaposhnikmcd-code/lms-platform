@@ -51,6 +51,25 @@ const BASE: Record<string, string> = {
   ь: '',
 };
 
+/// Літери, яких немає в українському алфавіті, але які реально трапляються у
+/// БД (російськомовні паспортні написання: «Алёна», «Эдуард», «Крым»). Постанова
+/// №55 їх не описує — беремо звичні відповідники, щоб не лишати кирилицю в
+/// латинському полі. `ъ`, як і `ь`, не передається.
+const NON_UA_CYRILLIC: Record<string, string> = {
+  ё: 'e',
+  ы: 'y',
+  э: 'e',
+  ъ: '',
+};
+
+/// Кириличні блоки Unicode: основний (U+0400–U+04FF) і додатковий (U+0500–U+052F).
+/// Усе кириличне, що не покрито таблицями вище, викидаємо — краще коротше ім'я,
+/// ніж «Alёna» з нелатинським символом у полі, яке піде на друк англійською.
+function isCyrillic(ch: string): boolean {
+  const code = ch.codePointAt(0) ?? 0;
+  return (code >= 0x0400 && code <= 0x04ff) || (code >= 0x0500 && code <= 0x052f);
+}
+
 /// Позиційні літери: `start` — на початку слова, `inner` — у будь-якій іншій позиції.
 const POSITIONAL: Record<string, { start: string; inner: string }> = {
   є: { start: 'ye', inner: 'ie' },
@@ -109,8 +128,16 @@ export function translitUa(input: string): string {
       continue;
     }
 
-    const base = BASE[ch];
-    out += base !== undefined ? base : ch;
+    const base = BASE[ch] ?? NON_UA_CYRILLIC[ch];
+    if (base !== undefined) {
+      out += base;
+      continue;
+    }
+
+    /// Невідома кирилиця (сербська/білоруська/архаїчна) — дропаємо.
+    /// Латиниця, цифри, пробіли й розділові знаки проходять наскрізь.
+    if (isCyrillic(ch)) continue;
+    out += ch;
   }
 
   return capitalizeWords(out);

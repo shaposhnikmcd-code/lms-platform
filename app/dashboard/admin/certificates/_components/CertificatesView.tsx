@@ -1362,7 +1362,9 @@ function YearlyTab({
                     <div>
                       <div className="flex items-center gap-1.5">
                         <span className="font-mono text-[11px]">{c.certificate.certNumber}</span>
-                        <LangBadge dark={dark} hasEn={Boolean(c.certificate.recipientNameEn)} />
+                        {/* Бейдж лише коли поле реально прийшло з API — інакше
+                            двомовний серт показував би хибний «UA». */}
+                        {c.certificate.recipientNameEn && <LangBadge dark={dark} hasEn />}
                       </div>
                       <div className={`text-[10px] mt-0.5 whitespace-nowrap ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
                         {categoryLabel(c.certificate.category, true)} · {formatDate(c.certificate.issuedAt)}
@@ -3220,6 +3222,7 @@ function ExistingCertConfirm({
   existing,
   courseTitle,
   recipientEmail,
+  sendEmail = true,
   onCancel,
   onConfirm,
   busy,
@@ -3228,6 +3231,9 @@ function ExistingCertConfirm({
   existing: ExistingCertSummary;
   courseTitle: string;
   recipientEmail: string;
+  /// Режим перевидачі: з листом чи без. Дефолт true — курсовий діалог іншого
+  /// режиму не має і пропс не передає; Річна прокидає обраний менеджером.
+  sendEmail?: boolean;
   onCancel: () => void;
   onConfirm: () => void;
   busy: boolean;
@@ -3260,8 +3266,9 @@ function ExistingCertConfirm({
               Сертифікат для цього юзера й курсу вже існує
             </h3>
             <p className={`text-[12.5px] mt-1 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
-              Якщо натиснути «Все одно видати», попередній буде відкликано, а замість
-              нього створено новий і відправлено лист.
+              {sendEmail
+                ? 'Якщо натиснути «Все одно видати», попередній буде відкликано, а замість нього створено новий і відправлено лист.'
+                : 'Якщо натиснути «Все одно видати без листа», попередній буде відкликано, а замість нього створено новий. Лист не піде — його можна надіслати пізніше кнопкою «Надіслати листом» у списку.'}
             </p>
           </div>
         </div>
@@ -3292,7 +3299,7 @@ function ExistingCertConfirm({
             disabled={busy}
             className="px-5 py-2.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-[13px] font-semibold shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {busy ? 'Видаю…' : 'Все одно видати'}
+            {busy ? 'Видаю…' : sendEmail ? 'Все одно видати' : 'Все одно видати без листа'}
           </button>
         </div>
       </div>
@@ -3367,10 +3374,21 @@ function useEnglishVersion(nameUa: string): EnglishVersionState {
   const [nameEn, setNameEnRaw] = useState('');
   const [edited, setEdited] = useState(false);
   const [verified, setVerified] = useState(false);
+  /// Укр-ім'я, з якого востаннє згенеровано EN-поле. Потрібне, щоб відрізнити
+  /// «ефект перезапустився з тим самим джерелом» (toggle OFF→ON, StrictMode)
+  /// від «джерело реально змінилось» — скидати звірку треба тільки в другому разі.
+  const lastAutoSource = useRef<string | null>(null);
 
   useEffect(() => {
     if (!enabled || edited) return;
-    setNameEnRaw(translitUa(nameUa.trim()));
+    const source = nameUa.trim();
+    setNameEnRaw(translitUa(source));
+    /// Укр-ім'я змінили ПІСЛЯ звірки → EN-поле щойно мовчки перегенерувалось,
+    /// тож галка «звірено» стосується вже неіснуючого написання. Знімаємо її.
+    if (lastAutoSource.current !== null && lastAutoSource.current !== source) {
+      setVerified(false);
+    }
+    lastAutoSource.current = source;
   }, [enabled, edited, nameUa]);
 
   const setNameEn = useCallback((v: string) => {
@@ -3992,6 +4010,7 @@ function IssueYearlyManualDialog({
           existing={existing}
           courseTitle={`Річна програма · ${catLabel}`}
           recipientEmail={recipientEmail.trim()}
+          sendEmail={lastSendEmail}
           onCancel={() => setExisting(null)}
           onConfirm={() => void submit(true, lastSendEmail)}
           busy={busy}
