@@ -2688,12 +2688,18 @@ function PreviewPane({
   /// у режимі «лише англійська» прев'ю одразу показує EN-сторінку (саме вона
   /// і буде єдиною у виданому PDF), у режимі UK — українську.
   const langs: CertLanguages = params.languages ?? (params.nameEn ? 'UK_EN' : 'UK');
-  const showPageSwitch = langs === 'UK_EN' && Boolean(params.nameEn);
+  const hasEn = Boolean(params.nameEn);
+  const showPageSwitch = langs === 'UK_EN' && hasEn;
   const [page, setPage] = useState<1 | 2>(1);
+  /// Депси — тільки режим мов і факт наявності англ. імені (не сам текст):
+  /// інакше кожне натискання клавіші у полі EN-імені скидало б відкритий
+  /// EN-таб прев'ю назад на українську сторінку. У режимі UK_EN сторінку
+  /// обирає менеджер перемикачем — тут її не чіпаємо.
   useEffect(() => {
-    const target: 1 | 2 = langs === 'EN' && params.nameEn ? 2 : 1;
-    setPage((prev) => (prev === target ? prev : target));
-  }, [langs, params.nameEn]);
+    if (!hasEn) setPage(1);
+    else if (langs === 'EN') setPage(2);
+    else if (langs === 'UK') setPage(1);
+  }, [langs, hasEn]);
 
   /// Автоперемикання сторінки (зміна режиму мов) теж має показати спінер —
   /// інакше стара сторінка висить у кадрі, поки вантажиться нова.
