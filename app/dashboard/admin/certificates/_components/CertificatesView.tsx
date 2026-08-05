@@ -25,6 +25,7 @@ import {
 } from 'react-icons/hi2';
 import { translitUa } from '@/lib/translitUa';
 import { useAdminTheme, type Theme } from '../../_components/adminTheme';
+import { useBodyScrollLock } from './useBodyScrollLock';
 import { AdminShell, AdminPanel } from '../../_components/AdminShell';
 import YearlyInfoModal from './YearlyInfoModal';
 import CoursesInfoModal from './CoursesInfoModal';
@@ -1144,6 +1145,10 @@ function YearlyTab({
   const [bulkCategory, setBulkCategory] = useState<CertCategory>('PRACTICAL');
   const [bulkSendEmail, setBulkSendEmail] = useState(true);
   const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null);
+  const [bulkConfirm, setBulkConfirm] = useState(false);
+  /// Прапорець «Зупинити» — саме ref, а не стан: цикл читає його між ітераціями і
+  /// зі стану бачив би застаріле значення (замикання на момент старту).
+  const bulkAbortRef = useRef(false);
   const [dialogSub, setDialogSub] = useState<YearlyCandidate | null>(null);
   const [showIssueManual, setShowIssueManual] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -1252,11 +1257,14 @@ function YearlyTab({
       return true;
     });
     if (progressSort !== 'none') {
-      /// null-прогрес (cron ще не бачив учасника) кладемо в кінець при сортуванні за
-      /// спаданням і на початок при зростанні — як найменше значення.
+      /// null-прогрес (cron ще не бачив учасника) — це «немає даних», а не «0%»,
+      /// тому такі рядки завжди в кінці, в обох напрямках сортування.
       rows.sort((a, b) => {
-        const av = a.spProgressPercent ?? -1;
-        const bv = b.spProgressPercent ?? -1;
+        const av = a.spProgressPercent;
+        const bv = b.spProgressPercent;
+        if (av == null && bv == null) return 0;
+        if (av == null) return 1;
+        if (bv == null) return -1;
         return progressSort === 'desc' ? bv - av : av - bv;
       });
     }
@@ -1270,11 +1278,15 @@ function YearlyTab({
     () => filtered.filter((c) => !c.certificate && selected.has(c.subscriptionId)),
     [filtered, selected],
   );
+  /// Масово можна видавати ЛИШЕ тим, у кого заповнене ім'я: на PDF друкується
+  /// `recipientName`, а fallback у сервісі — email. Індивідуальний діалог не дає
+  /// видати з порожнім іменем, тож масовий шлях не може бути слабшим.
   const selectableIds = useMemo(
-    () => filtered.filter((c) => !c.certificate).map((c) => c.subscriptionId),
+    () => filtered.filter((c) => !c.certificate && c.userName?.trim()).map((c) => c.subscriptionId),
     [filtered],
   );
   const allSelected = selectableIds.length > 0 && selectableIds.every((id) => selected.has(id));
+  const someSelected = selectableIds.some((id) => selected.has(id));
 
   function toggleRow(id: string) {
     setSelected((prev) => {
@@ -1294,24 +1306,44 @@ function YearlyTab({
     });
   }
 
+  const anyFilterActive =
+    certSegment !== null ||
+    onlyCompleted ||
+    onlyPaidFull ||
+    planFilter !== 'all' ||
+    search.trim().length > 0;
+
+  function resetFilters() {
+    setCertSegment(null);
+    setOnlyCompleted(false);
+    setOnlyPaidFull(false);
+    setPlanFilter('all');
+    setSearch('');
+  }
+
   /// Масова видача — послідовний цикл по звичайному POST /api/admin/certificates/yearly.
   /// Свідомо без bulk-endpoint-а: кожна видача проходить ті самі перевірки й лог подій,
   /// а послідовність не забиває Resend паралельними листами.
-  async function runBulkIssue() {
-    const targets = bulkTargets;
+  /// `mode`: 'all' — усі вибрані, 'fullOnly' — лише з повною оплатою (вибір у попапі).
+  async function runBulkIssue(mode: 'all' | 'fullOnly') {
+    const targets =
+      mode === 'fullOnly' ? bulkTargets.filter((c) => c.paymentHealth === 'FULL') : bulkTargets;
+    setBulkConfirm(false);
     if (targets.length === 0 || bulkProgress) return;
-    const confirmMsg =
-      `Видати ${targets.length} сертифікат(ів) категорії «${CATEGORY_LABEL[bulkCategory]}» ` +
-      `${bulkSendEmail ? 'і відправити листи учасникам' : 'без листів'}?\n\n` +
-      'Скасувати можна лише відкликом кожного сертифіката окремо.';
-    if (!window.confirm(confirmMsg)) return;
 
+    bulkAbortRef.current = false;
     setBulkProgress({ done: 0, total: targets.length });
     let ok = 0;
+    let stoppedAt: number | null = null;
     const errors: string[] = [];
     for (let i = 0; i < targets.length; i++) {
+      /// Прапорець перевіряємо МІЖ ітераціями: поточну видачу не рвемо на пів-дорозі,
+      /// щоб не лишити серт створеним, але без листа через abort у мережі.
+      if (bulkAbortRef.current) {
+        stoppedAt = i;
+        break;
+      }
       const c = targets[i];
-      pushToast({ type: 'success', msg: `Видаю ${i + 1} з ${targets.length}: ${c.userName ?? c.userEmail}…` });
       try {
         const res = await fetch('/api/admin/certificates/yearly', {
           method: 'POST',
@@ -1332,6 +1364,7 @@ function YearlyTab({
       setBulkProgress({ done: i + 1, total: targets.length });
     }
     setBulkProgress(null);
+    bulkAbortRef.current = false;
     setSelected(new Set());
     await fetchList();
     const tail = errors.length
@@ -1339,7 +1372,10 @@ function YearlyTab({
       : '';
     pushToast({
       type: errors.length ? 'error' : 'success',
-      msg: `Масова видача: видано ${ok}, помилок ${errors.length}${tail}`,
+      msg:
+        stoppedAt !== null
+          ? `Масова видача: видано ${ok}, зупинено на ${stoppedAt} з ${targets.length}, помилок ${errors.length}${tail}`
+          : `Масова видача: видано ${ok}, помилок ${errors.length}${tail}`,
     });
   }
 
@@ -1471,6 +1507,21 @@ function YearlyTab({
           title="Сплачено все: 9 місячних слотів або одна річна оплата"
           onClick={() => setOnlyPaidFull((v) => !v)}
         />
+        {anyFilterActive && (
+          <button
+            type="button"
+            onClick={resetFilters}
+            title="Зняти сегменти, відсічки, пошук і план"
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[11.5px] font-medium transition-colors ${
+              dark
+                ? 'border-white/[0.12] bg-white/[0.04] text-slate-300 hover:bg-white/[0.09]'
+                : 'border-stone-300 bg-white text-stone-600 hover:bg-stone-100'
+            }`}
+          >
+            <HiOutlineXCircle className="w-3.5 h-3.5" />
+            Скинути всі фільтри
+          </button>
+        )}
       </div>
 
       {/* Панель масової видачі — з'являється, щойно вибрано хоч один рядок без серта. */}
@@ -1507,7 +1558,7 @@ function YearlyTab({
           </select>
           <button
             type="button"
-            onClick={runBulkIssue}
+            onClick={() => setBulkConfirm(true)}
             disabled={Boolean(bulkProgress) || bulkTargets.length === 0}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-[13px] font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
           >
@@ -1516,7 +1567,16 @@ function YearlyTab({
               ? `Видаю ${bulkProgress.done} з ${bulkProgress.total}…`
               : `Видати вибраним (${bulkTargets.length})`}
           </button>
-          {!bulkProgress && (
+          {bulkProgress ? (
+            <button
+              type="button"
+              onClick={() => { bulkAbortRef.current = true; }}
+              title="Завершити поточну видачу і зупинитись — решта вибраних лишиться без сертифіката"
+              className={`px-3 py-2 rounded-lg border text-[12.5px] font-medium ${dark ? 'border-red-500/30 bg-red-500/10 text-red-300 hover:bg-red-500/20' : 'border-red-200 bg-red-50 text-red-700 hover:bg-red-100'}`}
+            >
+              Зупинити
+            </button>
+          ) : (
             <button
               type="button"
               onClick={() => setSelected(new Set())}
@@ -1525,7 +1585,21 @@ function YearlyTab({
               Зняти вибір
             </button>
           )}
+          <p className={`w-full text-[11.5px] leading-snug ${dark ? 'text-amber-200/70' : 'text-amber-900/70'}`}>
+            Усі сертифікати — лише українською; для англійської версії видавайте персонально.
+          </p>
         </div>
+      )}
+
+      {bulkConfirm && (
+        <BulkIssueConfirm
+          theme={theme}
+          targets={bulkTargets}
+          category={bulkCategory}
+          sendEmail={bulkSendEmail}
+          onCancel={() => setBulkConfirm(false)}
+          onConfirm={(mode) => void runBulkIssue(mode)}
+        />
       )}
 
       {/* Колонки: чекбокс масової видачі, учасник, план, статус, оплата, період,
@@ -1539,9 +1613,13 @@ function YearlyTab({
                 <input
                   type="checkbox"
                   checked={allSelected}
+                  /// indeterminate — DOM-property, через JSX не задається: ставимо в ref.
+                  ref={(el) => {
+                    if (el) el.indeterminate = someSelected && !allSelected;
+                  }}
                   onChange={toggleAll}
-                  disabled={selectableIds.length === 0}
-                  title={allSelected ? 'Зняти вибір з усіх' : 'Вибрати всі рядки без сертифіката'}
+                  disabled={selectableIds.length === 0 || Boolean(bulkProgress)}
+                  title={allSelected ? 'Зняти вибір з усіх' : 'Вибрати всі рядки без сертифіката (крім тих, де немає імені)'}
                   aria-label="Вибрати всі рядки без сертифіката"
                   className="w-4 h-4 accent-amber-500 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
                 />
@@ -1593,10 +1671,14 @@ function YearlyTab({
                       type="checkbox"
                       checked={selected.has(c.subscriptionId)}
                       onChange={() => toggleRow(c.subscriptionId)}
-                      disabled={Boolean(bulkProgress)}
-                      title="Додати до масової видачі"
+                      disabled={Boolean(bulkProgress) || !c.userName?.trim()}
+                      title={
+                        c.userName?.trim()
+                          ? 'Додати до масової видачі'
+                          : 'Немає імені — видайте персонально (на PDF друкувався б email)'
+                      }
                       aria-label={`Вибрати ${c.userName ?? c.userEmail}`}
-                      className="mt-1 w-4 h-4 accent-amber-500 cursor-pointer disabled:opacity-40"
+                      className="mt-1 w-4 h-4 accent-amber-500 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
                     />
                   )}
                 </td>
@@ -1667,12 +1749,19 @@ function YearlyTab({
                         title="Завантажити PDF"
                         href={`/api/admin/certificates/${c.certificate.id}/pdf`}
                       />
-                      {c.certificate.emailStatus === 'PENDING' && (
+                      {/* FAILED — теж «лист не доставлено»: endpoint /send приймає обидва
+                          стани, тож кнопка потрібна й тут (інакше сегмент «Лист не
+                          надіслано» показував би рядки без жодної дії). */}
+                      {(c.certificate.emailStatus === 'PENDING' || c.certificate.emailStatus === 'FAILED') && (
                         <RowAction
                           dark={dark}
                           icon={<HiOutlineEnvelope className="w-3.5 h-3.5" />}
-                          label="Надіслати листом"
-                          title="Надіслати листом"
+                          label={c.certificate.emailStatus === 'FAILED' ? 'Надіслати ще раз' : 'Надіслати листом'}
+                          title={
+                            c.certificate.emailStatus === 'FAILED'
+                              ? 'Попередня спроба відправки впала — спробувати ще раз'
+                              : 'Надіслати листом'
+                          }
                           disabled={sending === c.certificate.id}
                           onClick={() => c.certificate && handleSend(c.certificate.id)}
                         />
@@ -2000,6 +2089,111 @@ function SupervisionTab({
         />
       )}
     </AdminPanel>
+  );
+}
+
+/// Підтвердження масової видачі. Замінює generic `window.confirm`, бо той не показував
+/// головного ризику — скільки серед вибраних із НЕПОВНОЮ оплатою (індивідуальний флоу
+/// на такому місці зупиняє менеджера окремим попапом, масовий не мав права бути м'якшим).
+function BulkIssueConfirm({
+  theme,
+  targets,
+  category,
+  sendEmail,
+  onCancel,
+  onConfirm,
+}: {
+  theme: Theme;
+  targets: YearlyCandidate[];
+  category: CertCategory;
+  sendEmail: boolean;
+  onCancel: () => void;
+  onConfirm: (mode: 'all' | 'fullOnly') => void;
+}) {
+  const dark = theme === 'dark';
+  const partial = targets.filter((c) => c.paymentHealth !== 'FULL');
+  const fullCount = targets.length - partial.length;
+
+  return (
+    <div
+      className={`fixed inset-0 z-[90] flex items-center justify-center p-4 ${dark ? 'bg-black/80' : 'bg-stone-900/60'}`}
+      onClick={onCancel}
+    >
+      <div
+        className={`relative w-full max-w-[560px] rounded-2xl shadow-2xl border ${dark ? 'bg-[#14161d] border-amber-500/40 text-slate-100' : 'bg-[#fbf7ec] border-amber-500/50 text-stone-900'}`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="px-6 pt-6 pb-2 flex items-start gap-3">
+          <span className={`flex-shrink-0 inline-flex items-center justify-center w-11 h-11 rounded-full ${dark ? 'bg-amber-500/20 text-amber-300' : 'bg-amber-100 text-amber-700'}`}>
+            <HiOutlineExclamationTriangle className="w-6 h-6" />
+          </span>
+          <div className="min-w-0">
+            <h3 className="text-[18px] font-semibold leading-tight">
+              Видати {targets.length} сертифікат{targets.length === 1 ? '' : 'ів'} одразу?
+            </h3>
+            <p className={`text-[12.5px] mt-1 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
+              Категорія <strong>{CATEGORY_LABEL[category]}</strong> ·{' '}
+              {sendEmail ? 'з листом кожному учаснику' : 'без листів (статус «Лист не надіслано»)'}.
+              Відмінити можна лише відкликом кожного сертифіката окремо.
+            </p>
+          </div>
+        </div>
+
+        <div className={`mx-6 my-4 rounded-xl p-4 text-[13px] leading-[1.65] ${dark ? 'bg-amber-500/10 border border-amber-500/25 text-amber-100' : 'bg-amber-50 border border-amber-300/60 text-amber-950'}`}>
+          <div>
+            <strong>Повна оплата:</strong> {fullCount} · <strong>неповна:</strong> {partial.length}
+          </div>
+          {partial.length > 0 && (
+            <>
+              <ul className="mt-2 space-y-1">
+                {partial.slice(0, 5).map((c) => (
+                  <li key={c.subscriptionId} className="flex items-center gap-2">
+                    <span className="truncate">{c.userName ?? c.userEmail}</span>
+                    <span className="font-mono text-[12px] opacity-80">
+                      {c.paidCount}/{c.expectedPayments}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              {partial.length > 5 && (
+                <div className="mt-1 text-[12px] opacity-80">…та ще {partial.length - 5}</div>
+              )}
+              <p className={`mt-3 text-[12px] ${dark ? 'text-amber-200/80' : 'text-amber-900/80'}`}>
+                Зазвичай сертифікат видається після ПОВНОЇ оплати. Якщо це особливі домовленості —
+                продовжуй; якщо сумніваєшся — видай лише повністю оплаченим.
+              </p>
+            </>
+          )}
+        </div>
+
+        <div className="px-6 pb-6 pt-2 flex items-center justify-end gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={onCancel}
+            className={`px-4 py-2.5 rounded-lg text-[13px] font-medium transition-colors ${dark ? 'bg-white/[0.05] text-slate-200 hover:bg-white/[0.1]' : 'bg-stone-100 text-stone-700 hover:bg-stone-200'}`}
+          >
+            Скасувати
+          </button>
+          {partial.length > 0 && (
+            <button
+              type="button"
+              onClick={() => onConfirm('fullOnly')}
+              disabled={fullCount === 0}
+              className={`px-4 py-2.5 rounded-lg border text-[13px] font-semibold disabled:opacity-40 disabled:cursor-not-allowed ${dark ? 'border-white/[0.15] bg-white/[0.04] text-slate-100 hover:bg-white/[0.09]' : 'border-stone-300 bg-white text-stone-800 hover:bg-stone-50'}`}
+            >
+              Лише повністю оплаченим ({fullCount})
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => onConfirm('all')}
+            className="px-5 py-2.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-[13px] font-semibold shadow-md"
+          >
+            Видати всім ({targets.length})
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -2855,38 +3049,6 @@ function Th({ children }: { children: React.ReactNode }) {
 
 /* --------------------------------- Modals --------------------------------- */
 
-/// Блокування скролу сторінки під відкритим оверлеєм.
-///
-/// Лічильник (а не простий set/restore) обов'язковий: діалог видачі і фулскрін-прев'ю
-/// існують одночасно — фулскрін відкривається ПОВЕРХ форми і закривається раніше за неї.
-/// Без лічильника його unmount повернув би скрол сторінці, поки модалка ще відкрита.
-/// Оригінальні значення знімаємо тільки при першому локі й повертаємо при останньому анлоку.
-let scrollLockCount = 0;
-let scrollLockSaved: { overflow: string; paddingRight: string } | null = null;
-
-function useBodyScrollLock() {
-  useEffect(() => {
-    if (typeof document === 'undefined') return;
-    const body = document.body;
-    if (scrollLockCount === 0) {
-      scrollLockSaved = { overflow: body.style.overflow, paddingRight: body.style.paddingRight };
-      /// Компенсація ширини скролбара — інакше при хованні скролу контент стрибає вправо.
-      const gap = window.innerWidth - document.documentElement.clientWidth;
-      body.style.overflow = 'hidden';
-      if (gap > 0) body.style.paddingRight = `${gap}px`;
-    }
-    scrollLockCount += 1;
-    return () => {
-      scrollLockCount -= 1;
-      if (scrollLockCount === 0 && scrollLockSaved) {
-        body.style.overflow = scrollLockSaved.overflow;
-        body.style.paddingRight = scrollLockSaved.paddingRight;
-        scrollLockSaved = null;
-      }
-    };
-  }, []);
-}
-
 /// Тип `children` дозволяє function-render: дитина може взяти стан модалки
 /// (зокрема `expanded`), щоб адаптувати layout до full-screen режиму
 /// (наприклад, перерозподілити пропорції grid-колонок).
@@ -3316,6 +3478,9 @@ type CourseOption = { id: string; title: string };
 type ExistingCertSummary = {
   id: string;
   certNumber: string;
+  /// Тільки для Річної: категорія КОНФЛІКТНОГО серта. Може відрізнятись від обраної
+  /// у формі — конфліктом вважається і чужа категорія на тій самій підписці.
+  category?: CertCategory | null;
   recipientName: string;
   recipientEmail: string;
   emailStatus: 'PENDING' | 'SENT' | 'FAILED';
@@ -4428,8 +4593,6 @@ function IssueYearlyManualDialog({
     }
   }
 
-  const catLabel = categoryLabel(category);
-
   return (
     <ModalShell
       theme={theme}
@@ -4536,7 +4699,7 @@ function IssueYearlyManualDialog({
         <ExistingCertConfirm
           theme={theme}
           existing={existing}
-          courseTitle={`Річна програма · ${catLabel}`}
+          courseTitle={`Річна програма · ${categoryLabel(existing.category ?? category)}`}
           recipientEmail={recipientEmail.trim()}
           sendEmail={lastSendEmail}
           onCancel={() => setExisting(null)}

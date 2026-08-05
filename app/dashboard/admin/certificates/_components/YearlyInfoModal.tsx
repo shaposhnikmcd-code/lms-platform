@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import { HiOutlineXMark, HiOutlineSparkles } from 'react-icons/hi2';
 import type { Theme } from '../../_components/adminTheme';
+import { useBodyScrollLock } from './useBodyScrollLock';
 import {
   buildYearlyInfoSections,
   YEARLY_INFO_VERSION,
@@ -21,18 +22,16 @@ export default function YearlyInfoModal({
   const dark = theme === 'dark';
   const sections = buildYearlyInfoSections({ graceDays });
 
-  /// Esc закриває, scroll body замикається.
+  /// Скрол сторінки — через спільний лічильник оверлеїв (див. useBodyScrollLock),
+  /// а не власним set/restore: інакше два механізми перетирали б `overflow` один одному.
+  useBodyScrollLock();
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', onKey);
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      window.removeEventListener('keydown', onKey);
-      document.body.style.overflow = prevOverflow;
-    };
+    return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
   return (

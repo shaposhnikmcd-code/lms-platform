@@ -149,7 +149,7 @@ export async function issueCourseCertificate(input: IssueCourseCertInput): Promi
 /// Навіщо: таблиця кандидатів на вкладці «Річна програма» бере сертифікат ЧЕРЕЗ підписку
 /// (`subscription.certificates[0]`). Серт без `subscriptionId` там не видно взагалі —
 /// менеджер бачив порожні колонки «Сертифікат/Лист» і кнопку «Видати», хоча лист уже пішов.
-async function resolveSubscriptionForManualYearly(userId: string): Promise<string | null> {
+export async function resolveSubscriptionForManualYearly(userId: string): Promise<string | null> {
   const paid = { payments: { some: { status: 'PAID' as const } } };
   const currentCohort = await prisma.yearlyProgramCohort.findFirst({
     where: { isCurrent: true },
@@ -169,6 +169,35 @@ async function resolveSubscriptionForManualYearly(userId: string): Promise<strin
     select: { id: true },
   });
   return latest?.id ?? null;
+}
+
+/// Активний сертифікат, який блокує персональну видачу Річної. Два випадки конфлікту:
+///   • той самий (userId, category) — класичний дубль;
+///   • будь-який активний серт на підписці, до якої привʼязався б новий, — навіть іншої
+///     категорії (у рядку таблиці все одно показався б лише один із них).
+/// Route віддає це як 409 EXISTS, щоб менеджер міг перевипустити через `force` замість
+/// глухого 400 без виходу.
+export async function findConflictingYearlyCertificate(userId: string, category: CertCategory) {
+  const subscriptionId = await resolveSubscriptionForManualYearly(userId);
+  return prisma.certificate.findFirst({
+    where: {
+      type: 'YEARLY_PROGRAM',
+      revoked: false,
+      OR: [{ userId, category }, ...(subscriptionId ? [{ subscriptionId }] : [])],
+    },
+    orderBy: { issuedAt: 'desc' },
+    select: {
+      id: true,
+      certNumber: true,
+      category: true,
+      recipientName: true,
+      recipientEmail: true,
+      emailStatus: true,
+      emailSentAt: true,
+      issuedAt: true,
+      issuedManually: true,
+    },
+  });
 }
 
 /// Видача "персонального" Річного сертифіката за вільно вписаним email-ом. Якщо у юзера є
@@ -405,9 +434,9 @@ async function sendCertificateEmail(cert: Certificate, actor: Actor, isResend: b
         {
           // ASCII-only щоб iPhone Mail / Outlook коректно показували назву аттача.
           // Кирилиця у MIME-headers подекуди не декодується клієнтами.
-          // «UIMP-Certificate-…» замість транслітерованого «Sertyfikat-…»: у теці
-          // завантажень одразу видно, від кого документ, і назва читається будь-якою мовою.
-          filename: `UIMP-Certificate-${cert.certNumber}.pdf`,
+          // «Certificate-…» замість транслітерованого «Sertyfikat-…»: читається будь-якою
+          // мовою, а інститут уже названий у самому номері (UIMP-YEAR-2026-00042).
+          filename: `Certificate-${cert.certNumber}.pdf`,
           content: Buffer.from(pdfBytes),
           contentType: 'application/pdf',
         },

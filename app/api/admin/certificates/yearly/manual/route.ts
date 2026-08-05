@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { requireAdmin } from '@/lib/certificates/adminAuth';
 import {
+  findConflictingYearlyCertificate,
   issueManualYearlyCertificate,
   revokeCertificate,
   yearlyCategoryLabel,
@@ -82,26 +83,20 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  /// Конфліктом вважаємо не тільки дубль тієї ж категорії, а й будь-який активний
+  /// серт на підписці, до якої привʼязався б новий (див. findConflictingYearlyCertificate).
+  /// Обидва випадки віддаємо однаково — 409 EXISTS, щоб UI показав звичний
+  /// «перевипустити» замість тупикової помилки.
   if (user && !force) {
-    const existing = await prisma.certificate.findFirst({
-      where: { userId: user.id, type: 'YEARLY_PROGRAM', category, revoked: false },
-      select: {
-        id: true,
-        certNumber: true,
-        recipientName: true,
-        recipientEmail: true,
-        emailStatus: true,
-        emailSentAt: true,
-        issuedAt: true,
-        issuedManually: true,
-      },
-    });
+    const existing = await findConflictingYearlyCertificate(user.id, category);
     if (existing) {
       return NextResponse.json(
         {
           error: 'EXISTS',
           existing,
-          categoryLabel: yearlyCategoryLabel(category),
+          /// Категорія КОНФЛІКТНОГО серта (може відрізнятись від обраної у формі) —
+          /// щоб попап писав правду про те, що саме буде відкликано.
+          categoryLabel: yearlyCategoryLabel(existing.category ?? category),
         },
         { status: 409 },
       );
@@ -116,11 +111,10 @@ export async function POST(req: NextRequest) {
     user = created;
   }
 
+  /// Force відкликає рівно той серт, який щойно показали менеджеру як конфліктний
+  /// (та сама функція пошуку) — інакше перевипуск упирався б у guard у сервісі.
   if (force) {
-    const existing = await prisma.certificate.findFirst({
-      where: { userId: user.id, type: 'YEARLY_PROGRAM', category, revoked: false },
-      select: { id: true },
-    });
+    const existing = await findConflictingYearlyCertificate(user.id, category);
     if (existing) {
       await revokeCertificate(existing.id, guard.actor, 'Перевипуск (manual yearly issue, force=true)');
     }
