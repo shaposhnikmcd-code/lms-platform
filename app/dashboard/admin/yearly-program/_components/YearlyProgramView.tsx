@@ -29,7 +29,7 @@ import { FaApplePay, FaGooglePay, FaRegCreditCard } from 'react-icons/fa';
 import type { YearlyProgramSettings } from '@/lib/yearlyProgramSettings';
 import { useAdminTheme, type Theme } from '../../_components/adminTheme';
 import { AdminShell, AdminPanel } from '../../_components/AdminShell';
-import type { Row, SubStatus, Plan, SummaryData, CohortListItem } from './types';
+import type { Row, SubStatus, Plan, SummaryData, CohortListItem, VisionStatus } from './types';
 import CohortHeader from './CohortHeader';
 import CohortActions from './CohortActions';
 import MoveCohortBtn from './MoveCohortBtn';
@@ -311,6 +311,10 @@ function YearlyProgramViewInner({
   /// показується як red-badge на кнопці. Initial = 0; перший fetch виконує модалка
   /// при відкритті, а потім callback оновлює badge для toolbar-а без відкриття модалки.
   const [issuesActiveTotal, setIssuesActiveTotal] = useState<number>(initialIssuesTotal);
+  /// Оптимістичні значення Vision-статусу: id підписки → щойно виставлений стан.
+  /// Тримаємо окремо від `rows` (це серверний prop, мутувати його не можна); при
+  /// провалі запиту повертаємо попереднє значення назад у цю ж мапу.
+  const [visionOverrides, setVisionOverrides] = useState<Record<string, VisionStatus>>({});
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -360,7 +364,9 @@ function YearlyProgramViewInner({
   }, [page, totalPages]);
 
   const pageStart = (page - 1) * pageSize;
-  const paged = filtered.slice(pageStart, pageStart + pageSize);
+  const paged = filtered
+    .slice(pageStart, pageStart + pageSize)
+    .map((r) => (visionOverrides[r.id] ? { ...r, visionCertStatus: visionOverrides[r.id] } : r));
 
   async function toggleExpand(id: string) {
     if (expandedId === id) {
@@ -391,6 +397,28 @@ function YearlyProgramViewInner({
       setDetails((d) => ({ ...d, [id]: data }));
     } catch {
       setDetails((d) => ({ ...d, [id]: 'error' }));
+    }
+  }
+
+  /// Vision-статус — окремо від `runAction`: без confirm-діалогу, без глобального busy
+  /// (крапку клацають часто) і з оптимістичним оновленням, яке відкочується на помилці.
+  async function setVisionStatus(id: string, next: VisionStatus, previous: VisionStatus) {
+    if (next === previous) return;
+    setVisionOverrides((m) => ({ ...m, [id]: next }));
+    try {
+      const res = await fetch(`/api/admin/yearly-program/${id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'set_vision_status', visionStatus: next }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string; message?: string };
+      if (!res.ok) throw new Error(data.error || httpFallbackMessage(res.status, res.statusText));
+      toast('success', data.message ?? 'Статус Vision оновлено');
+      // Якщо картка підписки розгорнута — підтягуємо журнал, щоб нова подія була видна одразу.
+      if (details[id] && details[id] !== 'loading') reloadDetails(id);
+    } catch (e) {
+      setVisionOverrides((m) => ({ ...m, [id]: previous }));
+      toast('error', (e as Error).message);
     }
   }
 
@@ -470,7 +498,9 @@ function YearlyProgramViewInner({
       {/* max-w підняте з 5xl (1024px) до 1200px: стрічка з 7 показників в один рядок має
           запас для 3-значних лічильників і 7-значного доходу на проді. Панель `w-fit` —
           ширшою за свій контент вона не стає. */}
-      <AdminPanel theme={theme} padding="p-0" className="mb-5 w-fit max-w-[1200px]">
+      {/* На мобільному `w-fit` дає рвану ширину під найдовший чип — там панель на всю
+          ширину екрана; з sm: повертається десктопний shrink-to-fit. */}
+      <AdminPanel theme={theme} padding="p-0" className="mb-5 w-full sm:w-fit max-w-full sm:max-w-[1200px]">
         <CohortHeader
           cohorts={cohorts}
           activeCohortId={activeCohortId}
@@ -492,8 +522,13 @@ function YearlyProgramViewInner({
         )}
         <div className={dark ? 'border-t border-white/[0.06]' : 'border-t border-stone-300/40'} />
         {/* Стрічка статусів — усі 7 показників в один рядок (Дохід останній). gap-x-5 підібрано
-            так, щоб рядок вміщався на 1366px без переносу; на вужчих екранах flex-wrap лишається. */}
-        <div data-kpi-row="status" className="px-5 py-3 flex items-center gap-x-5 gap-y-2 flex-wrap">
+            так, щоб рядок вміщався на 1366px без переносу; на вужчих екранах flex-wrap лишається.
+            На мобільному (<640px) flex-wrap давав ступінчасті рядки різної довжини — там рівна
+            сітка 2×N; з sm: повертається десктопний рядок. */}
+        <div
+          data-kpi-row="status"
+          className="px-4 py-3 grid grid-cols-2 gap-x-3 gap-y-2.5 sm:px-5 sm:flex sm:items-center sm:gap-x-5 sm:gap-y-2 sm:flex-wrap"
+        >
           <KpiInline
             theme={theme}
             icon={HiOutlineUserGroup}
@@ -564,8 +599,10 @@ function YearlyProgramViewInner({
 
       {/* Програмні налаштування: Вартість+GRACE та Листи/Пошук — один ряд, окремі підблоки. */}
       <div className="flex items-start gap-3 mb-5 flex-wrap">
-        <AdminPanel theme={theme} padding="p-3" className="w-fit">
-          <div className="flex items-center gap-1">
+        <AdminPanel theme={theme} padding="p-3" className="w-full sm:w-fit">
+          {/* flex-wrap обов'язковий: без нього ряд із 3 кнопок (410px) вилазив за екран
+              і обрізався `overflow-hidden` шелла — «Доступ після курсу» був недосяжний. */}
+          <div className="flex flex-wrap items-center gap-1">
             <ProgramSettingButton
               theme={theme}
               icon={<HiOutlineCurrencyDollar className="text-base" />}
@@ -596,8 +633,8 @@ function YearlyProgramViewInner({
           </div>
         </AdminPanel>
 
-        <AdminPanel theme={theme} padding="p-3" className="w-fit">
-          <div className="flex items-center gap-2">
+        <AdminPanel theme={theme} padding="p-3" className="w-full sm:w-fit">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={() => setManualAddOpen(true)}
@@ -615,14 +652,14 @@ function YearlyProgramViewInner({
           </div>
         </AdminPanel>
 
-        <AdminPanel theme={theme} padding="p-3" className="w-fit">
+        <AdminPanel theme={theme} padding="p-3" className="w-full sm:w-fit">
           <div className="flex items-center gap-2 flex-wrap">
             <input
               type="search"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Пошук за email або імʼям"
-              className={`w-[260px] px-3 py-1.5 rounded-lg border text-[12px] outline-none transition-colors ${
+              className={`w-full sm:w-[260px] px-3 py-1.5 rounded-lg border text-[12px] outline-none transition-colors ${
                 dark
                   ? 'bg-white/[0.04] border-white/[0.08] text-slate-200 placeholder:text-slate-600 focus:border-amber-400/40'
                   : 'bg-white/80 border-stone-300/60 text-stone-800 placeholder:text-stone-400 focus:border-amber-600/50'
@@ -631,7 +668,7 @@ function YearlyProgramViewInner({
           </div>
         </AdminPanel>
 
-        <AdminPanel theme={theme} padding="p-3" className="w-fit">
+        <AdminPanel theme={theme} padding="p-3" className="w-full sm:w-fit">
           <button
             type="button"
             onClick={() => setIssuesOpen(true)}
@@ -751,7 +788,15 @@ function YearlyProgramViewInner({
       )}
 
       <AdminPanel theme={theme} padding="p-0">
-        <div className="overflow-x-auto">
+        {/* Таблиця має 15 колонок і на телефон не влазить принципово. Лишаємо внутрішній
+            горизонтальний скрол (сторінка від нього не ламається), але підказуємо, що
+            рядок треба тягнути вбік — інакше здається, що дані просто обрізані. */}
+        <div
+          className={`sm:hidden px-4 pt-3 pb-1 text-[11px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}
+        >
+          ← Таблицю можна тягнути вбік · натисніть <b>⌄</b> щоб розгорнути картку студента
+        </div>
+        <div className="overflow-x-auto overscroll-x-contain">
           <table className="w-full text-[13px]">
             <thead className={`border-b ${dark ? 'border-white/[0.06] bg-black/10' : 'border-stone-300/40 bg-stone-50/40'}`}>
               <tr>
@@ -823,6 +868,7 @@ function YearlyProgramViewInner({
                     onReload={() => reloadDetails(r.id)}
                     issueBadge={issueSeverityBySub[r.id]}
                     onOpenIssues={() => setIssuesOpen(true)}
+                    onSetVision={(next) => setVisionStatus(r.id, next, r.visionCertStatus)}
                   />
                 ))
               )}
@@ -972,6 +1018,7 @@ function RowBlock({
   onReload,
   issueBadge,
   onOpenIssues,
+  onSetVision,
 }: {
   r: Row;
   theme: Theme;
@@ -984,6 +1031,7 @@ function RowBlock({
   onReload: () => void;
   issueBadge?: { severity: 'critical' | 'warning' | 'info'; count: number };
   onOpenIssues: () => void;
+  onSetVision: (next: VisionStatus) => void;
 }) {
   const dark = theme === 'dark';
   return (
@@ -1006,7 +1054,10 @@ function RowBlock({
           <div className={dark ? 'text-slate-600' : 'text-stone-400'}>{fmtTime(r.createdAt)}</div>
         </td>
         <td className="px-2 py-2.5">
-          <div className={`text-[12px] font-medium ${dark ? 'text-slate-200' : 'text-stone-800'}`}>{r.userName ?? '—'}</div>
+          <div className="flex items-center gap-1.5">
+            <VisionStatusDot status={r.visionCertStatus} theme={theme} onChange={onSetVision} />
+            <div className={`text-[12px] font-medium ${dark ? 'text-slate-200' : 'text-stone-800'}`}>{r.userName ?? '—'}</div>
+          </div>
           <div className={`text-[10px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>{r.userEmail}</div>
           {r.phone && (
             <a
@@ -1171,16 +1222,23 @@ function RowBlock({
 
       {expanded && (
         <tr className={dark ? 'bg-black/20' : 'bg-stone-50/80'}>
-          <td colSpan={14} className="px-6 py-5">
-            <ExpandedRowContent
-              theme={theme}
-              graceDays={graceDays}
-              details={details}
-              row={r}
-              busy={busy}
-              onAction={onAction}
-              onReload={onReload}
-            />
+          <td colSpan={14} className="p-0">
+            {/* Клітинка експандера успадковує ширину таблиці (~1250px), тож на телефоні
+                деталі підписки їхали далеко за правий край видимої області скролера і
+                читались тільки горизонтальним скролом. `sticky left-0` притискає блок до
+                видимого лівого краю, а ширина = ширині екрана мінус паддінги сторінки.
+                З sm: усе повертається до звичайного статичного рендеру (десктоп не чіпаємо). */}
+            <div className="sticky left-0 w-[calc(100vw-3rem)] px-4 py-4 sm:static sm:w-auto sm:px-6 sm:py-5">
+              <ExpandedRowContent
+                theme={theme}
+                graceDays={graceDays}
+                details={details}
+                row={r}
+                busy={busy}
+                onAction={onAction}
+                onReload={onReload}
+              />
+            </div>
           </td>
         </tr>
       )}
@@ -1618,7 +1676,11 @@ function ExpandedRowContent({
           if (anyReminder) {
             items.push(['reminders', `3д:${details.reminderSent3d ? '✓' : '–'} · exp:${details.reminderSentExpired ? '✓' : '–'}`]);
           }
-          if (items.length === 0) return null;
+          // Vision-статус показуємо завжди (навіть коли решта технічних полів порожня) —
+          // це стан, який менеджер веде вручну, і його треба бачити у картці, а не лише
+          // вгадувати за кольором крапки в таблиці.
+          const vision = visionOption(row.visionCertStatus);
+          items.push(['Vision-сертифікат', `${vision.emoji} ${vision.label}`]);
           return (
             <>
               <SectionTitle theme={theme} className="mt-5">Технічні поля</SectionTitle>
@@ -2220,6 +2282,151 @@ function Th({
 
 /// Фільтр у шапці колонки таблиці. Текст-лейбл + chevron + крапка-індикатор активного фільтра;
 /// клік відкриває dropdown з опціями. ALL-значення (перша опція) не вважається активним.
+/// Палітра і підписи станів Vision — одне джерело правди для крапки, меню й експандера.
+const VISION_OPTIONS: {
+  value: VisionStatus;
+  label: string;
+  emoji: string;
+  dot: { dark: string; light: string };
+}[] = [
+  { value: 'NOT_PAID', label: 'Не оплачено', emoji: '🔴', dot: { dark: 'bg-rose-400', light: 'bg-rose-500' } },
+  { value: 'PAID', label: 'Оплачено', emoji: '🟢', dot: { dark: 'bg-emerald-400', light: 'bg-emerald-500' } },
+  { value: 'ISSUED', label: 'Видано', emoji: '🔵', dot: { dark: 'bg-sky-400', light: 'bg-sky-500' } },
+];
+
+function visionOption(status: VisionStatus) {
+  return VISION_OPTIONS.find((o) => o.value === status) ?? VISION_OPTIONS[0];
+}
+
+/// Кольорова крапка статусу сертифіката «Vision» біля імені студента. Клік відкриває
+/// міні-меню з трьома станами (а не циклічне перемикання — щоб випадковий клік не
+/// переводив картку в неправильний стан). Меню — через portal, інакше його зрізав би
+/// `overflow-x-auto` навколо таблиці.
+function VisionStatusDot({
+  status,
+  theme,
+  onChange,
+}: {
+  status: VisionStatus;
+  theme: Theme;
+  onChange: (next: VisionStatus) => void;
+}) {
+  const dark = theme === 'dark';
+  const [open, setOpen] = useState(false);
+  const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const current = visionOption(status);
+
+  useEffect(() => {
+    if (!open) return;
+    const place = () => {
+      const btn = btnRef.current;
+      if (!btn) return;
+      const r = btn.getBoundingClientRect();
+      const menuW = menuRef.current?.offsetWidth ?? 200;
+      const left = Math.max(8, Math.min(r.left, window.innerWidth - menuW - 8));
+      setCoords({ top: r.bottom + 6 + window.scrollY, left: left + window.scrollX });
+    };
+    place();
+    const onScroll = () => place();
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', onScroll);
+    return () => {
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', onScroll);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (btnRef.current?.contains(e.target as Node)) return;
+      if (menuRef.current?.contains(e.target as Node)) return;
+      setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDocClick);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDocClick);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        title={`Сертифікат Vision: ${current.label.toLowerCase()}`}
+        aria-label={`Сертифікат Vision: ${current.label.toLowerCase()}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className={`shrink-0 inline-flex items-center justify-center w-4 h-4 rounded-full transition-colors ${
+          dark ? 'hover:bg-white/[0.10]' : 'hover:bg-stone-200/70'
+        } ${open ? (dark ? 'bg-white/[0.10]' : 'bg-stone-200/70') : ''}`}
+      >
+        <span
+          className={`block w-2 h-2 rounded-full ring-1 ${dark ? current.dot.dark : current.dot.light} ${
+            dark ? 'ring-black/40' : 'ring-white/70'
+          }`}
+        />
+      </button>
+      {open && typeof document !== 'undefined' && createPortal(
+        <div
+          ref={menuRef}
+          role="menu"
+          style={{
+            position: 'absolute',
+            top: coords?.top ?? -9999,
+            left: coords?.left ?? -9999,
+            minWidth: 200,
+            zIndex: 320,
+            opacity: coords ? 1 : 0,
+          }}
+          className={`rounded-lg border shadow-2xl overflow-hidden ${
+            dark ? 'bg-zinc-900 border-white/10' : 'bg-white border-stone-200'
+          }`}
+        >
+          <div
+            className={`px-3 py-2 text-[10px] uppercase tracking-[0.14em] font-semibold border-b ${
+              dark ? 'text-slate-400 border-white/[0.07]' : 'text-stone-500 border-stone-200'
+            }`}
+          >
+            Сертифікат Vision
+          </div>
+          {VISION_OPTIONS.map((o) => {
+            const selected = o.value === status;
+            return (
+              <button
+                key={o.value}
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setOpen(false);
+                  onChange(o.value);
+                }}
+                className={`w-full px-3 py-2 text-left flex items-center gap-2 text-[12px] normal-case tracking-normal transition-colors ${
+                  selected
+                    ? dark ? 'bg-amber-400/10 text-amber-200' : 'bg-amber-50 text-amber-900'
+                    : dark ? 'text-slate-200 hover:bg-white/[0.06]' : 'text-stone-800 hover:bg-stone-100'
+                }`}
+              >
+                <span className={`block w-2 h-2 rounded-full ${dark ? o.dot.dark : o.dot.light}`} />
+                <span className="flex-1">{o.label}</span>
+                {selected && <HiOutlineCheck className="text-sm" />}
+              </button>
+            );
+          })}
+        </div>,
+        document.body,
+      )}
+    </>
+  );
+}
+
 function ColumnFilter<T extends string>({
   label,
   value,
@@ -2380,7 +2587,10 @@ function KpiInline({
     danger: dark ? 'text-rose-300' : 'text-rose-700',
   }[tone];
   return (
-    <div className="inline-flex items-baseline gap-1.5" title={hint}>
+    /* flex-wrap + min-w-0: у мобільній сітці 2 колонки довга мітка («В очікуванні»,
+       «Доступ закрито») переносить цифру на другий рядок замість того, щоб вилазити
+       за клітинку. На десктопі місця вистачає — перенесення не спрацьовує. */
+    <div className="inline-flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 min-w-0" title={hint}>
       <Icon className={`shrink-0 self-center text-[13px] ${dark ? 'text-slate-500' : 'text-stone-500'}`} />
       <span className={`text-[11px] uppercase tracking-[0.14em] font-medium ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
         {label}
@@ -2428,21 +2638,22 @@ function PlanBreakdownRow({ theme, summary }: { theme: Theme; summary: SummaryDa
   return (
     <div
       data-kpi-row="plans"
-      className={`px-5 py-3.5 flex items-stretch gap-x-3 gap-y-3 flex-wrap rounded-b-2xl ${
+      className={`px-4 py-3 grid grid-cols-2 gap-2.5 sm:px-5 sm:py-3.5 sm:flex sm:items-stretch sm:gap-x-3 sm:gap-y-3 sm:flex-wrap rounded-b-2xl ${
         dark ? 'bg-white/[0.04]' : 'bg-amber-500/[0.09]'
       }`}
     >
-      <div className="flex flex-col justify-center pr-3 mr-1">
+      {/* На мобільному підпис — окремим рядком над картками (col-span-2), інакше він
+          з'їдав половину сітки і чипи ставали вдвічі вужчими за потрібне. */}
+      <div className="col-span-2 flex flex-row items-baseline gap-2 sm:flex-col sm:items-stretch sm:gap-0 sm:justify-center sm:pr-3 sm:mr-1">
         <span
           className={`text-[10px] uppercase tracking-[0.16em] font-semibold leading-tight ${
             dark ? 'text-slate-400' : 'text-stone-500'
           }`}
         >
-          Студенти
-          <br />в програмі
+          Студенти{' '}<br className="hidden sm:inline" />в програмі
         </span>
         <span
-          className={`mt-0.5 tabular-nums text-[19px] font-semibold leading-none ${
+          className={`sm:mt-0.5 tabular-nums text-[19px] font-semibold leading-none ${
             dark ? 'text-slate-100' : 'text-stone-900'
           }`}
           title="Активні + Grace. Дорівнює сумі трьох видів підписки праворуч."
@@ -2456,7 +2667,7 @@ function PlanBreakdownRow({ theme, summary }: { theme: Theme; summary: SummaryDa
           <div
             key={it.label}
             title={it.hint}
-            className={`min-w-[186px] rounded-xl border px-3.5 py-2 ${
+            className={`min-w-0 sm:min-w-[186px] rounded-xl border px-3 py-2 sm:px-3.5 ${
               dark
                 ? 'border-white/[0.10] bg-white/[0.05]'
                 : 'border-stone-300/70 bg-white/85 shadow-[0_1px_3px_rgba(120,113,108,0.08)]'
@@ -2465,7 +2676,7 @@ function PlanBreakdownRow({ theme, summary }: { theme: Theme; summary: SummaryDa
             <div className="flex items-center gap-1.5">
               <it.icon className={`shrink-0 text-[13px] ${dark ? 'text-amber-300/75' : 'text-amber-600/85'}`} />
               <span
-                className={`text-[10px] uppercase tracking-[0.13em] font-medium whitespace-nowrap ${
+                className={`min-w-0 truncate text-[10px] uppercase tracking-[0.13em] font-medium whitespace-nowrap ${
                   dark ? 'text-slate-300' : 'text-stone-600'
                 }`}
               >
@@ -2484,7 +2695,7 @@ function PlanBreakdownRow({ theme, summary }: { theme: Theme; summary: SummaryDa
                 {share}%
               </span>
               <span
-                className={`ml-auto self-center h-1.5 w-14 overflow-hidden rounded-full ${
+                className={`ml-auto shrink-0 self-center h-1.5 w-10 sm:w-14 overflow-hidden rounded-full ${
                   dark ? 'bg-white/[0.09]' : 'bg-stone-300/60'
                 }`}
               >

@@ -239,6 +239,7 @@ export default async function AdminYearlyProgramPage() {
       telegramInvitedAt: s.telegramInvitedAt?.toISOString() ?? null,
       telegramJoinedAt: s.telegramJoinedAt?.toISOString() ?? null,
       telegramLeftAt: s.telegramLeftAt?.toISOString() ?? null,
+      visionCertStatus: s.visionCertStatus,
     };
   });
 

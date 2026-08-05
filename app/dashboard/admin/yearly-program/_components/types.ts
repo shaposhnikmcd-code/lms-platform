@@ -3,6 +3,9 @@
 
 export type Plan = 'YEARLY' | 'MONTHLY';
 export type SubStatus = 'PENDING' | 'ACTIVE' | 'GRACE' | 'EXPIRED' | 'CANCELLED' | 'ARCHIVED';
+/// Оплата/видача окремого платного сертифіката «Vision» (понад базовий сертифікат Річної).
+/// Дзеркалить enum VisionCertStatus у schema.prisma.
+export type VisionStatus = 'NOT_PAID' | 'PAID' | 'ISSUED';
 
 export interface Row {
   id: string;
@@ -62,6 +65,9 @@ export interface Row {
   /// telegramLeftAt — момент leave/kick. Якщо є — клієнт уже не в каналі.
   /// При rejoin webhook скидає в null і оновлює telegramJoinedAt.
   telegramLeftAt: string | null;
+  /// Статус платного сертифіката «Vision»: 🔴 NOT_PAID / 🟢 PAID / 🔵 ISSUED.
+  /// Ставиться вручну менеджером з таблиці — автоматики за ним поки немає.
+  visionCertStatus: VisionStatus;
 }
 
 export interface SummaryData {

@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { Prisma } from '@prisma/client';
+import { Prisma, type VisionCertStatus } from '@prisma/client';
+import { getServerSession } from 'next-auth';
+import { getToken } from 'next-auth/jwt';
 import prisma from '@/lib/prisma';
-import { isAdmin, getAdminActor } from '@/lib/adminAuth';
+import { authOptions } from '@/lib/auth';
+import { isAdmin, getAdminActor, type AdminActor } from '@/lib/adminAuth';
 import { closeAccessInCourse, lookupStudentIdByEmail, openAccessViaEvent } from '@/lib/sendpulse';
 import {
   kickSubscriptionFromChannel,
@@ -19,6 +22,32 @@ import { runManualPreLaunchWelcome, type ManualPreLaunchWelcomeResult } from '@/
 import { runExtraLaunchForSubscription } from '@/lib/yearlyProgramLaunch';
 import { syncAutopaySchedule } from '@/lib/yearlyProgramScheduleSync';
 
+/// Ідентичність MANAGER-а (дзеркало `getAdminActor`, але для ролі MANAGER).
+/// Потрібна лише для manager-дозволених дій — зараз це `set_vision_status`.
+async function getManagerActor(req: NextRequest): Promise<AdminActor | null> {
+  const session = await getServerSession(authOptions);
+  const sessionUser = session?.user as { id?: string; role?: string; name?: string | null; email?: string | null } | undefined;
+  if (sessionUser?.role === 'MANAGER') {
+    return { id: sessionUser.id, name: sessionUser.name ?? null, email: sessionUser.email ?? null };
+  }
+  const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+  if (token?.role === 'MANAGER') {
+    return {
+      id: token.id as string | undefined,
+      name: (token.name as string | null | undefined) ?? null,
+      email: (token.email as string | null | undefined) ?? null,
+    };
+  }
+  return null;
+}
+
+/// Людські підписи станів Vision — використовуються і в тексті події, і у відповіді UI.
+const VISION_STATUS_LABELS: Record<VisionCertStatus, string> = {
+  NOT_PAID: 'не оплачено',
+  PAID: 'оплачено',
+  ISSUED: 'видано',
+};
+
 /// Admin actions над конкретною підпискою Річної програми.
 /// Body: { action: "cancel" | "close_access" | "reopen_access" | "extend" | "carryover" | "delete",
 ///         daysToAdd?: number, reason?: string, note?: string, sendWelcome?: boolean }
@@ -26,11 +55,14 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  if (!(await isAdmin(req))) {
+  const admin = await isAdmin(req);
+  // `getAdminActor` розпізнає лише ADMIN. Vision-статус має право міняти й менеджер,
+  // тож для нього ідентичність беремо окремим хелпером (сесія або JWT, роль MANAGER).
+  const actor = admin ? await getAdminActor(req) : await getManagerActor(req);
+  if (!actor) {
     return NextResponse.json({ error: 'Немає доступу' }, { status: 403 });
   }
-  const actor = await getAdminActor(req);
-  const actorLabel = actor?.email ?? actor?.name ?? 'admin';
+  const actorLabel = actor.email ?? actor.name ?? (admin ? 'admin' : 'manager');
   const { id } = await params;
   const body = (await req.json()) as {
     action?: string;
@@ -43,7 +75,14 @@ export async function POST(
     note?: string;
     paidAt?: string;
     sendWelcome?: boolean;
+    visionStatus?: string;
   };
+
+  // Менеджеру відкрита рівно одна дія — Vision-статус (він веде видачу цих сертифікатів).
+  // Решта дій над підпискою (скасування, доступ, платежі, видалення) лишається admin-only.
+  if (!admin && body.action !== 'set_vision_status') {
+    return NextResponse.json({ error: 'Немає доступу' }, { status: 403 });
+  }
 
   const sub = await prisma.yearlyProgramSubscription.findUnique({
     where: { id },
@@ -89,6 +128,8 @@ export async function POST(
       return handleTelegramKick(sub, actorLabel, 'permanent');
     case 'sync_wfp_schedule':
       return handleSyncWfpSchedule(sub, actorLabel);
+    case 'set_vision_status':
+      return handleSetVisionStatus(sub, body.visionStatus, actorLabel);
     default:
       return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
   }
@@ -136,6 +177,42 @@ async function notifyUserSubscriptionEnded(
       },
     });
   }
+}
+
+/// Ручний статус платного сертифіката «Vision» (крапка біля студента в таблиці).
+/// Дозволено ADMIN і MANAGER. Ніякої побічної автоматики: тільки поле + подія в журналі,
+/// щоб потім було видно, хто і коли перевів у «оплачено»/«видано».
+async function handleSetVisionStatus(
+  sub: NonNullable<SubWithUser>,
+  status: unknown,
+  actor: string,
+) {
+  if (status !== 'NOT_PAID' && status !== 'PAID' && status !== 'ISSUED') {
+    return NextResponse.json({ error: 'Невідомий статус Vision' }, { status: 400 });
+  }
+  const previous = sub.visionCertStatus;
+  if (previous === status) {
+    return NextResponse.json({ ok: true, visionCertStatus: status, unchanged: true });
+  }
+
+  await prisma.yearlyProgramSubscription.update({
+    where: { id: sub.id },
+    data: { visionCertStatus: status },
+  });
+  await prisma.yearlyProgramSubscriptionEvent.create({
+    data: {
+      subscriptionId: sub.id,
+      type: 'admin_action',
+      message: `Vision: ${VISION_STATUS_LABELS[status]} by ${actor}`,
+      metadata: { action: 'set_vision_status', from: previous, to: status, actor },
+    },
+  });
+
+  return NextResponse.json({
+    ok: true,
+    visionCertStatus: status,
+    message: `Сертифікат Vision: ${VISION_STATUS_LABELS[status]}`,
+  });
 }
 
 /// Ручна синхронізація WFP-графіка автосписань з датами cohort-у (кнопка в панелі Дії).
