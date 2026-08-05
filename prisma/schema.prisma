@@ -325,6 +325,9 @@ model Certificate {
 
   /// Snapshot recipient name (що буде надруковано) — editable у білдері перед видачею.
   recipientName  String
+  /// Snapshot англомовного імені. Заповнене = сертифікат двомовний: PDF отримує
+  /// другу сторінку англійською з цим іменем. null = одномовний (тільки укр.).
+  recipientNameEn String?
   recipientEmail String
   /// Snapshot назви курсу/теми на момент видачі (друкується як subject):
   /// COURSE — назва курсу, SUPERVISION — тема супервізії, YEARLY_PROGRAM — null.
@@ -412,6 +415,7 @@ enum CertificateType {
 enum CertCategory {
   LISTENER // Слухач — нижча категорія
   PRACTICAL // Практична участь — вища категорія
+  PARTICIPANT // Учасник — взяв(ла) участь у програмі
 }
 
 enum CertEmailStatus {
@@ -970,6 +974,11 @@ model YearlyProgramSubscription {
   telegramLeftAt      DateTime?
   telegramTgUserId    BigInt?
 
+  /// Сертифікат «Vision» (окремий платний документ понад базовий сертифікат Річної).
+  /// NOT_PAID — не замовлений/не оплачений (дефолт), PAID — оплачений і чекає видачі,
+  /// ISSUED — сертифікат згенеровано і відправлено.
+  visionCertStatus VisionCertStatus @default(NOT_PAID)
+
   payments     Payment[]                        @relation("YearlyProgramPayments")
   events       YearlyProgramSubscriptionEvent[]
   certificates Certificate[]
@@ -1076,6 +1085,13 @@ model YearlyProgramCohort {
 
   @@index([startDate])
   @@index([isCurrent])
+}
+
+/// Статус оплати/видачі сертифіката «Vision» для підписки Річної програми.
+enum VisionCertStatus {
+  NOT_PAID
+  PAID
+  ISSUED
 }
 
 enum YearlyProgramSubscriptionStatus {

@@ -9,7 +9,7 @@
 export interface CertLike {
   certNumber: string;
   type: 'COURSE' | 'YEARLY_PROGRAM' | 'SUPERVISION';
-  category?: 'LISTENER' | 'PRACTICAL' | null;
+  category?: 'LISTENER' | 'PRACTICAL' | 'PARTICIPANT' | null;
   courseName?: string | null;
 }
 
@@ -44,6 +44,7 @@ function subjectName(cert: CertLike): string {
   }
   if (cert.category === 'LISTENER') return 'Річна програма (Слухач)';
   if (cert.category === 'PRACTICAL') return 'Річна програма (Практична участь)';
+  if (cert.category === 'PARTICIPANT') return 'Річна програма (Учасник)';
   return 'Річна програма';
 }
 

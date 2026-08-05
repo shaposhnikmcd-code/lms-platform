@@ -20,6 +20,7 @@ import {
   type TemplateKey,
   type TextField,
   type ColorRgb,
+  type CertCategoryKey,
 } from './templateConfig';
 
 export type CertGenerationInput = {
@@ -29,7 +30,7 @@ export type CertGenerationInput = {
   certNumber: string;
   verificationUrl: string;
   courseName?: string;
-  category?: 'LISTENER' | 'PRACTICAL';
+  category?: CertCategoryKey;
   /// Тільки для SUPERVISION — DD.MM.YYYY (вже відформатовано). Друкується у body.
   supervisionDate?: string;
   /// Тільки для SUPERVISION — тривалість (вже відформатовано: «2 години» / «1.5 години»).

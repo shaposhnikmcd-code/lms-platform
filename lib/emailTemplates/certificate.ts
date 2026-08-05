@@ -6,7 +6,7 @@ export interface CertificateEmailArgs {
   recipientName: string;
   recipientEmail: string;
   type: 'COURSE' | 'YEARLY_PROGRAM' | 'SUPERVISION';
-  category?: 'LISTENER' | 'PRACTICAL';
+  category?: 'LISTENER' | 'PRACTICAL' | 'PARTICIPANT';
   /// COURSE: назва курсу. SUPERVISION: тема супервізії. YEARLY_PROGRAM: не використовується.
   courseName?: string;
   /// Тільки для SUPERVISION — людино-читабельна дата проведення (DD.MM.YYYY).

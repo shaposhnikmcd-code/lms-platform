@@ -32,7 +32,18 @@ export type TextField = {
   maxWidthPct?: number;
 };
 
-export type TemplateKey = 'COURSE' | 'YEARLY_PRACTICAL' | 'YEARLY_LISTENER' | 'SUPERVISION';
+export type TemplateKey =
+  | 'COURSE'
+  | 'YEARLY_PRACTICAL'
+  | 'YEARLY_LISTENER'
+  | 'YEARLY_PARTICIPANT'
+  | 'SUPERVISION';
+
+/// Категорія сертифіката Річної програми (дзеркало enum CertCategory у Prisma).
+export type CertCategoryKey = 'LISTENER' | 'PRACTICAL' | 'PARTICIPANT';
+
+/// Мова сторінки сертифіката. Двомовний PDF = сторінка 'uk' + сторінка 'en'.
+export type CertLocale = 'uk' | 'en';
 
 /// Розміри PDF-сторінки для кожного шаблону. Використовується і генератором
 /// (`generatePdf`), і публічною сторінкою верифікації (для aspect-ratio iframe).
@@ -44,17 +55,20 @@ export const PAGE_SIZES: Record<TemplateKey, { w: number; h: number }> = {
   COURSE: { w: 842, h: 595 },
   YEARLY_PRACTICAL: { w: 842, h: 595 },
   YEARLY_LISTENER: { w: 842, h: 595 },
+  YEARLY_PARTICIPANT: { w: 842, h: 595 },
   SUPERVISION: { w: 842, h: 595 },
 };
 
 /// Маппінг (type, category) → TemplateKey. Не дублюй цю логіку — імпортуй сюди.
 export function templateKeyFor(
   type: 'COURSE' | 'YEARLY_PROGRAM' | 'SUPERVISION',
-  category: 'LISTENER' | 'PRACTICAL' | null | undefined,
+  category: CertCategoryKey | null | undefined,
 ): TemplateKey {
   if (type === 'COURSE') return 'COURSE';
   if (type === 'SUPERVISION') return 'SUPERVISION';
-  return category === 'LISTENER' ? 'YEARLY_LISTENER' : 'YEARLY_PRACTICAL';
+  if (category === 'LISTENER') return 'YEARLY_LISTENER';
+  if (category === 'PARTICIPANT') return 'YEARLY_PARTICIPANT';
+  return 'YEARLY_PRACTICAL';
 }
 
 export type TemplateConfig = {
@@ -144,10 +158,12 @@ export const TEMPLATES: Record<TemplateKey, TemplateConfig> = {
   COURSE: COURSE_TEMPLATE,
   YEARLY_PRACTICAL: YEARLY_TEMPLATE,
   YEARLY_LISTENER: YEARLY_TEMPLATE,
+  YEARLY_PARTICIPANT: YEARLY_TEMPLATE,
   SUPERVISION: SUPERVISION_TEMPLATE,
 };
 
-export const CATEGORY_LABELS: Record<'LISTENER' | 'PRACTICAL', string> = {
+export const CATEGORY_LABELS: Record<CertCategoryKey, string> = {
   LISTENER: 'СЛУХАЦЬКОЇ УЧАСТІ',
   PRACTICAL: 'ПРАКТИЧНОГО НАВЧАННЯ',
+  PARTICIPANT: 'УЧАСТІ В ПРОГРАМІ',
 };
