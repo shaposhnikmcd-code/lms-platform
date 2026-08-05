@@ -2508,6 +2508,38 @@ function Th({ children }: { children: React.ReactNode }) {
 
 /* --------------------------------- Modals --------------------------------- */
 
+/// Блокування скролу сторінки під відкритим оверлеєм.
+///
+/// Лічильник (а не простий set/restore) обов'язковий: діалог видачі і фулскрін-прев'ю
+/// існують одночасно — фулскрін відкривається ПОВЕРХ форми і закривається раніше за неї.
+/// Без лічильника його unmount повернув би скрол сторінці, поки модалка ще відкрита.
+/// Оригінальні значення знімаємо тільки при першому локі й повертаємо при останньому анлоку.
+let scrollLockCount = 0;
+let scrollLockSaved: { overflow: string; paddingRight: string } | null = null;
+
+function useBodyScrollLock() {
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const body = document.body;
+    if (scrollLockCount === 0) {
+      scrollLockSaved = { overflow: body.style.overflow, paddingRight: body.style.paddingRight };
+      /// Компенсація ширини скролбара — інакше при хованні скролу контент стрибає вправо.
+      const gap = window.innerWidth - document.documentElement.clientWidth;
+      body.style.overflow = 'hidden';
+      if (gap > 0) body.style.paddingRight = `${gap}px`;
+    }
+    scrollLockCount += 1;
+    return () => {
+      scrollLockCount -= 1;
+      if (scrollLockCount === 0 && scrollLockSaved) {
+        body.style.overflow = scrollLockSaved.overflow;
+        body.style.paddingRight = scrollLockSaved.paddingRight;
+        scrollLockSaved = null;
+      }
+    };
+  }, []);
+}
+
 /// Тип `children` дозволяє function-render: дитина може взяти стан модалки
 /// (зокрема `expanded`), щоб адаптувати layout до full-screen режиму
 /// (наприклад, перерозподілити пропорції grid-колонок).
@@ -2536,6 +2568,7 @@ function ModalShell({
 }) {
   const dark = theme === 'dark';
   const [expanded, setExpanded] = useState(false);
+  useBodyScrollLock();
   useEffect(() => {
     const fn = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -2590,7 +2623,9 @@ function ModalShell({
             </button>
           </div>
         </div>
-        <div className="p-5 overflow-y-auto flex-1">
+        {/* overscrollBehavior: contain — докрутивши вміст модалки до краю, колесо
+            НЕ передає скрол сторінці під нею (chaining). */}
+        <div className="p-5 overflow-y-auto flex-1" style={{ overscrollBehavior: 'contain' }}>
           {typeof children === 'function' ? children({ expanded }) : children}
         </div>
         {footer && (
@@ -2872,6 +2907,7 @@ function PreviewPane({
 /// тільки overlay (capture-фаза + stopPropagation), не зачіпаючи парентову модалку.
 function CertPreviewFullscreen({ src, onClose }: { src: string; onClose: () => void }) {
   const [loaded, setLoaded] = useState(false);
+  useBodyScrollLock();
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -2888,6 +2924,7 @@ function CertPreviewFullscreen({ src, onClose }: { src: string; onClose: () => v
   return createPortal(
     <div
       className="fixed inset-x-0 bottom-0 top-16 z-[100] bg-black/85 flex items-center justify-center p-4 cursor-zoom-out"
+      style={{ overscrollBehavior: 'contain' }}
       onClick={onClose}
     >
       {/* Бокс рівно з пропорціями A4-landscape аркуша (842×595) і вписаний у viewport:
