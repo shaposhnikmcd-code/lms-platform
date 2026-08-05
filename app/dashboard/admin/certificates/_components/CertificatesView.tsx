@@ -3391,6 +3391,18 @@ function useEnglishVersion(nameUa: string): EnglishVersionState {
     lastAutoSource.current = source;
   }, [enabled, edited, nameUa]);
 
+  /// Страхувальний ефект ПОЗА `edited`-гардом: на сертифікаті друкуються ОБИДВА
+  /// імені, тому будь-яка зміна укр-імені після звірки робить її недійсною —
+  /// навіть коли EN-поле правили руками і автотранслітерація вже не втручається.
+  const lastUaSource = useRef(nameUa.trim());
+  useEffect(() => {
+    const source = nameUa.trim();
+    if (lastUaSource.current !== source) {
+      lastUaSource.current = source;
+      setVerified(false);
+    }
+  }, [nameUa]);
+
   const setNameEn = useCallback((v: string) => {
     setEdited(true);
     /// Кожна ручна правка скидає звірку — інакше менеджер міг би відмітити

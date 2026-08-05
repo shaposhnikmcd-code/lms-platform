@@ -62,12 +62,12 @@ const NON_UA_CYRILLIC: Record<string, string> = {
   ъ: '',
 };
 
-/// Кириличні блоки Unicode: основний (U+0400–U+04FF) і додатковий (U+0500–U+052F).
+/// Уся кирилиця за Unicode-скриптом (включно з Extended-A/B/C блоками).
 /// Усе кириличне, що не покрито таблицями вище, викидаємо — краще коротше ім'я,
 /// ніж «Alёna» з нелатинським символом у полі, яке піде на друк англійською.
+const CYRILLIC_RE = /\p{Script=Cyrillic}/u;
 function isCyrillic(ch: string): boolean {
-  const code = ch.codePointAt(0) ?? 0;
-  return (code >= 0x0400 && code <= 0x04ff) || (code >= 0x0500 && code <= 0x052f);
+  return CYRILLIC_RE.test(ch);
 }
 
 /// Позиційні літери: `start` — на початку слова, `inner` — у будь-якій іншій позиції.
