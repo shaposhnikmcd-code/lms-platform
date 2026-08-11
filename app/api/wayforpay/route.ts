@@ -91,10 +91,16 @@ export async function POST(req: NextRequest) {
     const promoCourseKey = yearlyKind
       ? (yearlyKind === 'monthly' ? YEARLY_PROGRAM_CONFIG.monthlyOrderPrefix : YEARLY_PROGRAM_CONFIG.yearlyOrderPrefix)
       : (typeof courseId === 'string' ? courseId : null);
+    // Конектор СВІДОМО без промо на цьому роуті: у гри власна промо-система в
+    // `/api/connector` (CategoryPromoOverride category='connector'), яка вже врахована
+    // в `ConnectorOrder.amount`. Загальний `PromoCode` з `courseId=null` тут проходив
+    // повз усі перевірки і різав суму ще раз — при тому що товар (і сума в замовленні
+    // менеджера) лишались повними.
     const { finalPrice: promoFinalPrice, promoId } = await applyPromoServerSide({
-      promoCode: typeof promoCode === 'string' ? promoCode : undefined,
+      promoCode: !isConnector && typeof promoCode === 'string' ? promoCode : undefined,
       courseId: promoCourseKey,
       basePrice: resolved.basePrice,
+      orderReference,
     });
 
     // Admin/Manager test: дозволяємо символічну ціну 1/2 ₴ для перевірки callback-флоу.
@@ -626,10 +632,20 @@ export async function POST(req: NextRequest) {
       // з новим selectedFreeSlugs / promo після callback-у).
       const existingPayment = await prisma.payment.findUnique({
         where: { orderReference },
-        select: { status: true },
+        select: { status: true, userId: true },
       });
       if (existingPayment?.status === 'PAID') {
         return NextResponse.json({ error: 'Payment already finalized' }, { status: 409 });
+      }
+      // Ownership guard: orderReference приходить з браузера, тож чужий (наприклад
+      // підглянутий) ref можна було переприсвоїти собі — Payment лишався б із чужим
+      // userId, а доступи після оплати отримав би не той, хто платив. Пере-використання
+      // свого ж PENDING-у (звичайний retry оплати) працює як раніше.
+      if (existingPayment && existingPayment.userId !== user.id) {
+        return NextResponse.json(
+          { error: 'Це замовлення належить іншому користувачу. Оновіть сторінку і спробуйте ще раз.', code: 'order_owner_mismatch' },
+          { status: 409 },
+        );
       }
 
       const isNewPayment = !existingPayment;
@@ -645,7 +661,14 @@ export async function POST(req: NextRequest) {
           freeSlugs: finalFreeSlugs,
           yearlyProgramSubscriptionId,
         },
+        // ВАЖЛИВО: update переписує і ТОВАР, не лише суму. Інакше повторний POST з тим
+        // самим orderReference, але іншим courseId/bundleId, змінював суму на дешевшу,
+        // а courseId/bundleId лишались від першого (дорогого) створення — оплата 1 курсу
+        // видавала пакет. Товар і сума мають походити з ОДНОГО запиту.
         update: {
+          userId: user.id,
+          courseId: paymentCourseId,
+          bundleId,
           amount: finalAmount,
           freeSlugs: finalFreeSlugs,
           yearlyProgramSubscriptionId,

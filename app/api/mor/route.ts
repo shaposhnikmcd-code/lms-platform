@@ -114,9 +114,16 @@ export async function POST(req: NextRequest) {
 
     // Payment.upsert. amount=0 поки — реальну USD-суму (в центах) випишемо у webhook
     // з data.details.totals.grand_total. currency=USD, provider=paddle.
-    const existingPayment = await prisma.payment.findUnique({ where: { orderReference }, select: { status: true } });
+    const existingPayment = await prisma.payment.findUnique({ where: { orderReference }, select: { status: true, userId: true } });
     if (existingPayment?.status === 'PAID') {
       return NextResponse.json({ error: 'Payment already finalized' }, { status: 409 });
+    }
+    // Ownership guard (як у WFP-роуті): чужий orderReference не можна переприсвоїти собі.
+    if (existingPayment && existingPayment.userId !== user.id) {
+      return NextResponse.json(
+        { error: 'Це замовлення належить іншому користувачу. Оновіть сторінку і спробуйте ще раз.', code: 'order_owner_mismatch' },
+        { status: 409 },
+      );
     }
 
     await prisma.payment.upsert({
@@ -132,7 +139,13 @@ export async function POST(req: NextRequest) {
         paymentProvider: 'paddle',
         freeSlugs: finalFreeSlugs,
       },
+      // update переписує і товар (courseId/bundleId/userId), а не лише службові поля —
+      // інакше повторний POST з тим самим ref, але іншим продуктом, лишав у Payment
+      // старий товар, а Paddle-checkout виставлявся на новий (підміна товару).
       update: {
+        userId: user.id,
+        courseId: paymentCourseId,
+        bundleId,
         currency: 'USD',
         paymentProvider: 'paddle',
         freeSlugs: finalFreeSlugs,

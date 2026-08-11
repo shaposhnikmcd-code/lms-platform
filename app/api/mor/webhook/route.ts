@@ -87,7 +87,9 @@ export async function POST(req: NextRequest) {
 
       // === ФАЗА A: атомарний claim flip ===
       const claim = await prisma.payment.updateMany({
-        where: { orderReference: payment.orderReference, status: { not: 'PAID' } },
+        // REFUNDED виключений нарівні з PAID (як у WFP-callback): запізнілий
+        // `transaction.completed` після рефанду не має повертати платіж у PAID.
+        where: { orderReference: payment.orderReference, status: { notIn: ['PAID', 'REFUNDED'] } },
         data: {
           status: 'PAID',
           paidAt: new Date(),
@@ -97,9 +99,9 @@ export async function POST(req: NextRequest) {
 
       if (claim.count === 0) {
         skipped = true;
-        skipReason = 'already_paid';
-        actions.push('skip:already_paid');
-        console.log('ℹ️ Paddle: Payment уже PAID, пропускаю:', payment.orderReference);
+        skipReason = prevStatus === 'REFUNDED' ? 'already_refunded' : 'already_paid';
+        actions.push(`skip:${skipReason}`);
+        console.log('ℹ️ Paddle: Payment уже завершений, пропускаю:', payment.orderReference, prevStatus);
       } else {
         actions.push('payment:updated');
 

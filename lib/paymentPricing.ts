@@ -143,9 +143,18 @@ export async function applyPromoServerSide(args: {
   promoCode: string | null | undefined;
   courseId: string | null | undefined;
   basePrice: number;
+  /// Опційно — щоб відсікти продукти з власною промо-системою (конектор).
+  orderReference?: string | null;
 }): Promise<{ finalPrice: number; promoId: string | null }> {
-  const { promoCode, courseId, basePrice } = args;
+  const { promoCode, courseId, basePrice, orderReference } = args;
   if (!promoCode) return { finalPrice: basePrice, promoId: null };
+  // Конектор СВІДОМО виключений (як і Річна нижче): промо для гри застосовує
+  // `/api/connector` через `CategoryPromoOverride` category='connector', і результат
+  // уже зашитий у `ConnectorOrder.amount`. Будь-який промо тут — це друга знижка
+  // поверх першої, причому непомітна для менеджера (сума в замовленні не змінюється).
+  if (orderReference && orderReference.startsWith('connector_')) {
+    return { finalPrice: basePrice, promoId: null };
+  }
   const code = promoCode.toUpperCase();
   const now = new Date();
 

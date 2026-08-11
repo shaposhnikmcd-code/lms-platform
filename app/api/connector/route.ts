@@ -6,6 +6,7 @@ import prisma from '@/lib/prisma';
 import { isPromoWindowActive } from '@/lib/paymentPricing';
 import { notifyManagers } from '@/lib/connectorNotifications';
 import { getConnectorPricing } from '@/lib/connectorPricing';
+import { checkRateLimit } from '@/lib/ratelimit';
 
 const CONNECTOR_ORDER_STATUSES = ['NEW', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED'] as const;
 
@@ -15,9 +16,62 @@ async function requireStaff() {
   return role === 'ADMIN' || role === 'MANAGER' ? session : null;
 }
 
+/// Розумні межі текстових полів замовлення. Роут публічний (без сесії), тому без них
+/// у БД можна залити мегабайтні рядки, які потім летять у Telegram-нотифікацію менеджерам.
+const FIELD_LIMITS = {
+  email: 254,
+  fullName: 120,
+  phone: 32,
+  city: 160,
+  postOffice: 300,
+} as const;
+
+/// Стеля доставки. Вище — або помилка, або спроба накрутити суму; нижче нуля —
+/// спроба зменшити підсумок нижче ціни гри.
+const MAX_SHIPPING_COST = 5000;
+
 export async function POST(req: NextRequest) {
   try {
+    const rl = await checkRateLimit(req, 'payment');
+    if (!rl.ok) return rl.response!;
+
     const { email, fullName, phone, city, postOffice, shippingCost, callMe, promoCode } = await req.json();
+
+    // ── Валідація вводу. Роут публічний і створює запис у БД + шле нотифікацію
+    // менеджерам, тому перевіряємо все до першого запису.
+    const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
+    const emailV = str(email);
+    const fullNameV = str(fullName);
+    const phoneV = str(phone);
+    const cityV = str(city);
+    const postOfficeV = str(postOffice);
+
+    if (!emailV || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailV) || emailV.length > FIELD_LIMITS.email) {
+      return NextResponse.json({ success: false, error: 'Невалідний email' }, { status: 400 });
+    }
+    if (fullNameV.length < 2 || fullNameV.length > FIELD_LIMITS.fullName) {
+      return NextResponse.json({ success: false, error: 'Вкажіть коректне ПІБ' }, { status: 400 });
+    }
+    const phoneDigits = phoneV.replace(/\D/g, '');
+    if (phoneV.length > FIELD_LIMITS.phone || phoneDigits.length < 7 || phoneDigits.length > 15) {
+      return NextResponse.json({ success: false, error: 'Невалідний номер телефону' }, { status: 400 });
+    }
+    if (!cityV || cityV.length > FIELD_LIMITS.city) {
+      return NextResponse.json({ success: false, error: 'Невалідне місто' }, { status: 400 });
+    }
+    if (!postOfficeV || postOfficeV.length > FIELD_LIMITS.postOffice) {
+      return NextResponse.json({ success: false, error: 'Невалідне відділення або адреса доставки' }, { status: 400 });
+    }
+    // Доставка приходить з клієнта (Nova Poshta API) і напряму додається до суми.
+    // Без перевірки від'ємне значення зменшувало підсумок нижче ціни гри — гра за 1 ₴.
+    if (shippingCost !== undefined && shippingCost !== null) {
+      if (!Number.isInteger(shippingCost) || shippingCost < 0 || shippingCost > MAX_SHIPPING_COST) {
+        return NextResponse.json(
+          { success: false, error: `Некоректна вартість доставки (очікується ціле число від 0 до ${MAX_SHIPPING_COST} ₴)` },
+          { status: 400 },
+        );
+      }
+    }
 
     const session = await getServerSession(authOptions);
     const sessionRole = (session?.user as { role?: string } | undefined)?.role;
@@ -74,11 +128,11 @@ export async function POST(req: NextRequest) {
     const order = await prisma.connectorOrder.create({
       data: {
         orderReference,
-        email,
-        fullName,
-        phone,
-        city,
-        postOffice,
+        email: emailV,
+        fullName: fullNameV,
+        phone: phoneV,
+        city: cityV,
+        postOffice: postOfficeV,
         amount: finalAmount,
         gamePrice: finalGamePrice,
         shippingCost: finalShippingCost,

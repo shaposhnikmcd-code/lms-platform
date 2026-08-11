@@ -15,7 +15,7 @@ import { sendYearlyProgramPlanChangedEmail } from '@/lib/yearlyProgramPlanChange
 import { sendYearlyProgramPaymentReceiptEmail } from '@/lib/yearlyProgramPaymentReceiptEmail';
 import { timingSafeEqualStr } from '@/lib/authTiming';
 import { getYearlyProgramSettings } from '@/lib/yearlyProgramSettings';
-import { provisionPayment } from '@/lib/paymentProvisioning';
+import { provisionPayment, AMOUNT_MISMATCH_MARKER } from '@/lib/paymentProvisioning';
 import { sendBundlePurchaseEmail } from '@/lib/bundlePurchaseEmail';
 import { getRegularStatus, getWayforpayCreds } from '@/lib/wayforpay';
 import { calculateAccessUntil, maxAutopayChargeCount } from '@/lib/yearlyProgramAccess';
@@ -36,6 +36,27 @@ type CallbackKind = 'course' | 'bundle' | 'connector' | 'yearly' | 'monthly' | '
 /// незворотний з нашого боку, тому обробляємо так само як завершений: краще зупинити
 /// автосписання на день раніше, ніж зняти з людини ще один платіж після заявки.
 const REFUND_STATUSES = new Set(['Refunded', 'Voided', 'RefundInProcessing']);
+
+/// Сума з callback-у WFP приходить то числом, то рядком — нормалізуємо в гривні (int).
+function parseCallbackAmount(raw: unknown): number | null {
+  if (typeof raw === 'number' && Number.isFinite(raw)) return Math.round(raw);
+  if (typeof raw === 'string' && raw.trim() !== '' && Number.isFinite(Number(raw))) return Math.round(Number(raw));
+  return null;
+}
+
+/// Звірка суми, яку реально списав WFP, із сумою, яку ми виставили.
+/// Розбіжність до 1 ₴ — округлення на боці WFP, ігноруємо. Більша — сигнал, що товар
+/// і гроші розійшлись (підміна суми, ручна правка в кабінеті WFP, баг у нас): гроші
+/// фіксуємо як PAID, але автоматичну видачу товару НЕ запускаємо.
+/// Виняток — адмін/менеджер-тести за символічні 1-2 ₴: там очікувана сума саме така.
+const AMOUNT_TOLERANCE_UAH = 1;
+function checkAmountMismatch(expected: number | null | undefined, raw: unknown): { mismatch: boolean; callbackAmount: number | null } {
+  const callbackAmount = parseCallbackAmount(raw);
+  if (expected === null || expected === undefined) return { mismatch: false, callbackAmount };
+  if (expected <= 2) return { mismatch: false, callbackAmount };
+  if (callbackAmount === null) return { mismatch: false, callbackAmount };
+  return { mismatch: Math.abs(callbackAmount - expected) > AMOUNT_TOLERANCE_UAH, callbackAmount };
+}
 
 function detectKind(orderReference: string | undefined): CallbackKind {
   if (!orderReference) return 'unknown';
@@ -116,14 +137,18 @@ export async function POST(req: NextRequest) {
       if (kind === 'connector') {
         const existing = await prisma.connectorOrder.findUnique({
           where: { orderReference: orderReference! },
-          select: { paymentStatus: true },
+          select: { paymentStatus: true, amount: true },
         });
         prevStatus = existing?.paymentStatus || null;
 
+        // Звірка суми: скільки WFP реально списав проти суми замовлення.
+        const amountCheck = checkAmountMismatch(existing?.amount, body.amount);
+
         // Claim-then-act: атомарний flip, щоб два одночасних callback-и не задвоїли зміну
-        // orderStatus/paidAt. count=0 ⇒ вже PAID, skip.
+        // orderStatus/paidAt. count=0 ⇒ вже PAID/REFUNDED, skip. REFUNDED недоторканний:
+        // запізнілий Approved після повернення коштів не має воскрешати замовлення.
         const claim = await prisma.connectorOrder.updateMany({
-          where: { orderReference: orderReference!, paymentStatus: { not: 'PAID' } },
+          where: { orderReference: orderReference!, paymentStatus: { notIn: ['PAID', 'REFUNDED'] } },
           data: {
             paymentStatus: 'PAID',
             paidAt: new Date(),
@@ -132,9 +157,17 @@ export async function POST(req: NextRequest) {
         });
         if (claim.count === 0) {
           skipped = true;
-          skipReason = 'already_paid';
-          actions.push('skip:already_paid');
-          console.log('ℹ️ Конектор уже PAID (claim lost), пропускаю:', orderReference);
+          skipReason = prevStatus === 'REFUNDED' ? 'already_refunded' : 'already_paid';
+          actions.push(`skip:${skipReason}`);
+          console.log('ℹ️ Конектор уже завершений (claim lost), пропускаю:', orderReference, prevStatus);
+        } else if (amountCheck.mismatch) {
+          // Гроші фіксуємо (вони реальні), але менеджерів на відправку НЕ тригеримо —
+          // спершу треба розібратись, чому списана сума ≠ сумі замовлення.
+          skipped = true;
+          skipReason = 'amount_mismatch';
+          errorMsg = `Amount mismatch: callback=${amountCheck.callbackAmount} ₴, order=${existing!.amount} ₴ — позначено PAID, нотифікацію менеджерам не надіслано`;
+          actions.push(`connector:paid`, `amount-mismatch:${amountCheck.callbackAmount}!=${existing!.amount}`);
+          console.error('🚨 Конектор: сума callback-у не збігається з замовленням:', orderReference, errorMsg);
         } else {
           actions.push('connector:paid');
           console.log('✅ Конектор оплачено:', orderReference);
@@ -192,9 +225,16 @@ export async function POST(req: NextRequest) {
         } else {
           prevStatus = payment.status;
 
+          // Звірка суми: WFP міг списати не те, що ми виставили (підміна суми на
+          // платіжній сторінці, ручна правка в кабінеті WFP). Гроші фіксуємо, доступи —
+          // ні: курс/пакет за меншу суму видавати не можна.
+          const amountCheck = checkAmountMismatch(payment.amount, body.amount);
+
           // === ФАЗА A: атомарний claim flip ===
+          // REFUNDED виключений нарівні з PAID: запізнілий Approved після повернення
+          // коштів не має повертати платіж у PAID і заново видавати доступи.
           const claim = await prisma.payment.updateMany({
-            where: { orderReference: orderReference!, status: { not: 'PAID' } },
+            where: { orderReference: orderReference!, status: { notIn: ['PAID', 'REFUNDED'] } },
             data: {
               status: 'PAID',
               paidAt: new Date(),
@@ -204,9 +244,24 @@ export async function POST(req: NextRequest) {
 
           if (claim.count === 0) {
             skipped = true;
-            skipReason = 'already_paid';
-            actions.push('skip:already_paid');
-            console.log('ℹ️ Payment уже PAID (claim lost), пропускаю:', orderReference);
+            skipReason = prevStatus === 'REFUNDED' ? 'already_refunded' : 'already_paid';
+            actions.push(`skip:${skipReason}`);
+            console.log('ℹ️ Payment уже завершений (claim lost), пропускаю:', orderReference, prevStatus);
+          } else if (amountCheck.mismatch) {
+            // Платіж лишається PAID (гроші прийшли), але провіжининг не запускаємо —
+            // менеджер розбирається вручну за логом.
+            skipped = true;
+            skipReason = 'amount_mismatch';
+            errorMsg = `Amount mismatch: callback=${amountCheck.callbackAmount} ₴, payment=${payment.amount} ₴ — платіж позначено PAID, доступи НЕ видані`;
+            actions.push('payment:updated', `amount-mismatch:${amountCheck.callbackAmount}!=${payment.amount}`);
+            console.error('🚨 Сума callback-у не збігається з Payment:', orderReference, errorMsg);
+            // Позначаємо платіж, щоб reconciliation-cron НЕ добрав його як «PAID без
+            // провіжинінгу» і не видав курси в обхід цієї перевірки (він фільтрує саме
+            // за цим префіксом). Знімає позначку менеджер після розбору.
+            await prisma.payment.update({
+              where: { id: payment.id },
+              data: { provisionError: `${AMOUNT_MISMATCH_MARKER}: ${errorMsg}`.slice(0, 1000) },
+            });
           } else {
             actions.push('payment:updated');
 
@@ -265,11 +320,32 @@ export async function POST(req: NextRequest) {
       }
     } else if (transactionStatus === 'Declined' || transactionStatus === 'Expired') {
       if (kind === 'connector') {
-        await prisma.connectorOrder.updateMany({
-          where: { orderReference: orderReference! },
+        // Дзеркально до guard-а курсів нижче: WFP присилає запізнілі Declined уже після
+        // успішної оплати (ретрай першої спроби, дубль-callback). Без guard-а такий пакет
+        // «розплачував» оплачене замовлення — менеджер бачив FAILED по грі, яку вже
+        // відправив. REFUNDED теж недоторканний: слід «гроші приходили і повернулись»
+        // не має перетворюватись на FAILED.
+        const failFlip = await prisma.connectorOrder.updateMany({
+          where: { orderReference: orderReference!, paymentStatus: { notIn: ['PAID', 'REFUNDED'] } },
           data: { paymentStatus: 'FAILED' },
         });
-        actions.push('connector:failed');
+        if (failFlip.count > 0) {
+          actions.push('connector:failed');
+        } else {
+          const existingOrder = await prisma.connectorOrder.findUnique({
+            where: { orderReference: orderReference! },
+            select: { paymentStatus: true },
+          });
+          const settled = existingOrder?.paymentStatus === 'PAID' || existingOrder?.paymentStatus === 'REFUNDED';
+          prevStatus = existingOrder?.paymentStatus ?? null;
+          skipped = true;
+          skipReason = settled ? 'late_declined_after_paid' : 'order_not_found';
+          errorMsg = settled
+            ? `Late ${transactionStatus} for ${existingOrder!.paymentStatus} connector order ${orderReference} — статус не змінено`
+            : `Connector order not found for ${orderReference}`;
+          actions.push(`skip:${skipReason}`);
+          if (settled) console.warn('⚠️ Запізнілий Declined по завершеному замовленню конектора:', orderReference);
+        }
       } else if (kind === 'monthly') {
         // Для MONTHLY Declined/Expired йдемо через спеціальний handler який знає
         // про recurring сценарій: коли cyclical-callback приходить з НОВИМ orderRef
@@ -1425,13 +1501,16 @@ async function handleYearlyProgramCallback(args: {
   }
 
   const prevStatus = payment.status;
-  if (prevStatus === 'PAID') {
+  // REFUNDED нарівні з PAID: запізнілий Approved після повернення коштів не має
+  // воскрешати платіж у PAID і продовжувати доступ за гроші, які ми вже віддали назад.
+  if (prevStatus === 'PAID' || prevStatus === 'REFUNDED') {
+    const reason = prevStatus === 'REFUNDED' ? 'already_refunded' : 'already_paid';
     return {
       prevStatus,
       skipped: true,
-      skipReason: 'already_paid',
+      skipReason: reason,
       errorMsg: null,
-      actions: [...actions, 'skip:already_paid'],
+      actions: [...actions, `skip:${reason}`],
       sendpulseSlugs,
     };
   }
@@ -1477,7 +1556,8 @@ async function handleYearlyProgramCallback(args: {
   try {
     flipResult = await prisma.$transaction(async (tx): Promise<FlipResult> => {
       const claim = await tx.payment.updateMany({
-        where: { id: payment!.id, status: { not: 'PAID' } },
+        // REFUNDED виключений нарівні з PAID — повернений платіж не флипаємо назад у PAID.
+        where: { id: payment!.id, status: { notIn: ['PAID', 'REFUNDED'] } },
         data: {
           status: 'PAID',
           paidAt: new Date(),

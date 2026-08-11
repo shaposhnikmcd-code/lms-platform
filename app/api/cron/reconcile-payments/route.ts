@@ -16,7 +16,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { verifyBearer } from '@/lib/authTiming';
-import { provisionPayment } from '@/lib/paymentProvisioning';
+import { provisionPayment, AMOUNT_MISMATCH_MARKER } from '@/lib/paymentProvisioning';
 
 const SCAN_WINDOW_DAYS = 30;
 const MAX_BATCH = 50;
@@ -48,6 +48,10 @@ async function run(req: NextRequest) {
         { enrollmentsCompletedAt: null },
         { sendpulseSentAt: null },
       ],
+      // Платежі, де сума callback-у не збіглась із сумою Payment, callback свідомо
+      // лишив без провіжинінгу. Без цього виключення cron «полікував» би їх за добу
+      // і видав курси в обхід перевірки суми. Розбирає менеджер вручну.
+      NOT: { provisionError: { startsWith: AMOUNT_MISMATCH_MARKER } },
     },
     take: MAX_BATCH,
     orderBy: { paidAt: 'asc' },

@@ -14,6 +14,12 @@
 import prisma from '@/lib/prisma';
 import type { Payment } from '@prisma/client';
 
+/// Маркер у `Payment.provisionError`: сума callback-у не збіглась із сумою платежу,
+/// тому автоматична видача доступів заблокована. Ставить WFP-callback, читає
+/// reconciliation-cron (щоб не «полікувати» такий платіж і не видати курси в обхід
+/// перевірки). Знімається вручну менеджером після розбору.
+export const AMOUNT_MISMATCH_MARKER = 'AMOUNT_MISMATCH';
+
 export type ProvisioningResult = {
   enrollmentsCreated: string[];
   sendpulseSent: string[];
