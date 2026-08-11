@@ -14,6 +14,17 @@ const METHODS: { value: string; label: string; icon: string }[] = [
   { value: 'direct', label: 'Напряму (ФОП)', icon: '👤' },
 ];
 
+/// Українська плюралізація числівника: 1 платіж / 2-4 платежі / 5+ платежів.
+/// Винятки 11-14 («11 платежів», а не «11 платіж») ловляться перевіркою `n % 100`.
+function plural(n: number, one: string, few: string, many: string): string {
+  const mod100 = Math.abs(n) % 100;
+  const mod10 = Math.abs(n) % 10;
+  if (mod100 >= 11 && mod100 <= 14) return many;
+  if (mod10 === 1) return one;
+  if (mod10 >= 2 && mod10 <= 4) return few;
+  return many;
+}
+
 /// Локальний datetime-local рядок (YYYY-MM-DDTHH:mm) для значення за замовчуванням = зараз.
 function localNowValue(): string {
   const d = new Date();
@@ -233,12 +244,12 @@ export default function ManualPaymentModal({
               />
               <span className="text-[12px] leading-relaxed">
                 <b>
-                  Розбити на {fullMonths} платежів по {monthlyPrice.toLocaleString('uk-UA')} ₴
-                  {splitRest > 0 ? ` (останній — ${lastPart.toLocaleString('uk-UA')} ₴ із залишком)` : ''}
+                  Розбити на {fullMonths} {plural(fullMonths, 'платіж', 'платежі', 'платежів')} по {monthlyPrice.toLocaleString('uk-UA')} ₴
+                  {splitRest > 0 ? ` (останній — ${lastPart.toLocaleString('uk-UA')} ₴)` : ''}
                 </b>
                 <span className={`block mt-1 ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
                   {split
-                    ? `Закриє ${fullMonths} місяців графіка. Студент отримає ОДНУ квитанцію на всю суму.`
+                    ? `Закриє ${fullMonths} ${plural(fullMonths, 'місяць', 'місяці', 'місяців')} графіка. Студент отримає ОДНУ квитанцію на всю суму.`
                     : 'Без розбивки вся сума зарахується як ОДИН місяць графіка.'}
                 </span>
               </span>
