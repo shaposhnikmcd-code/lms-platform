@@ -166,8 +166,12 @@ export async function POST(
       opened: launchSummary.opened,
       skipped: launchSummary.skipped,
       failed: launchSummary.failed,
+      /// Підписки, на яких ітерація впала з винятком (БД/мережа). Решта cohort-у все одно
+      /// відпрацювала — тут видно, кого добирати вручну (або лишити нічному heal_unopened).
+      crashed: launchSummary.crashed.length,
     },
     results: launchSummary.results,
+    crashed: launchSummary.crashed,
     emailSummary: emailSummary
       ? {
           total: emailSummary.total,

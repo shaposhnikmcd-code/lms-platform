@@ -10,6 +10,8 @@
 ///        • автор заявки має збігтись із підпискою (`telegramTgUserId`, а якщо він ще
 ///          порожній — `telegramUsername` з форми оплати). Не збігся → decline + подія
 ///          у підписку (тобто переслав лінк другові — друг не зайде);
+///        • у підписці немає ні tg id, ні username → звірити нічим: НЕ approve і НЕ decline,
+///          заявка лишається висіти + мітка у «Помилках» на ручний розгляд менеджера;
 ///        • approve → `telegramJoinedAt` + `telegramTgUserId` (тільки якщо був null!)
 ///          + best-effort `revokeChatInviteLink` (робить лінк реально одноразовим)
 ///          + лог події. Фейл approve теж лишає подію з текстом помилки.
@@ -45,6 +47,10 @@ const LOG_PREFIX = '[yearly-tg-webhook]';
 /// Маркер у `metadata.kind` для подій «заявку відхилено через невідповідність особи».
 /// Використовується для дедупу повторних кліків по тому самому лінку.
 const JOIN_DECLINED_EVENT_KIND = 'tg_join_declined_identity';
+
+/// Маркер для подій «особу звірити нічим — заявка лишена на ручний розгляд».
+/// Окремий від declined: тут нікого не відхиляли, заявка й далі висить у каналі.
+const JOIN_PENDING_EVENT_KIND = 'tg_join_pending_identity';
 
 /// Незмінна частина мітки про висячу заявку — за нею впізнаємо власний запис
 /// у `telegramInviteError`, щоб не дублювати його і не затирати чужий текст.
@@ -199,25 +205,53 @@ async function handleChatJoinRequest(joinReq: TgChatJoinRequest): Promise<void> 
   // creates_join_request), тож студент може переслати його комусь. Тому лінк — це лише
   // «яка підписка», а не «хто саме»; особу звіряємо окремо.
   const identity = checkJoinIdentity(sub, joinReq.from);
-  if (!identity.ok) {
+
+  // === Особу перевірити нічим (у підписці немає ні tg id, ні username) ===
+  // Раніше такий випадок йшов у approve — тобто будь-хто з пересланим лінком заходив у канал,
+  // і саме це мав унеможливлювати режим заявок. Тепер поводимось як з невідомою заявкою:
+  // не approve і не decline (decline знищив би її назавжди) — лишаємо висіти на менеджера.
+  if (identity.status === 'unverified') {
+    console.log(
+      `${LOG_PREFIX} заявку не підтверджено — особу нічим звірити: sub=${sub.id} user=(${userDesc})`,
+    );
+    const handleLabel = joinReq.from.username ? `@${joinReq.from.username}` : `id=${userId}`;
+    await markPendingJoinOnSubscription(
+      sub.id,
+      `${PENDING_JOIN_MARK} від ${handleLabel} — у підписці не вказано Telegram-username, підтвердіть вручну в каналі`,
+    );
+
+    // Дедуп такий самий, як у гілці decline: людина тисне «Приєднатись» багато разів.
+    const dupePending = await findRecentJoinEvent(sub.id, JOIN_PENDING_EVENT_KIND, userId);
+    if (dupePending) {
+      console.log(`${LOG_PREFIX} pending event deduped sub=${sub.id} user=${userId}`);
+      return;
+    }
+    await prisma.yearlyProgramSubscriptionEvent.create({
+      data: {
+        subscriptionId: sub.id,
+        type: 'admin_action',
+        message: `Telegram: заявка чекає ручного підтвердження — ${identity.reason}`,
+        metadata: {
+          kind: JOIN_PENDING_EVENT_KIND,
+          tgUserId: String(userId),
+          tgUserDesc: userDesc,
+          tgUsername: joinReq.from.username ? `@${joinReq.from.username}` : null,
+          inviteLink: inviteUrl,
+          chatId: String(chatId),
+          reason: identity.reason,
+        },
+      },
+    });
+    return;
+  }
+
+  if (identity.status === 'mismatch') {
     await declineJoin(chatId, userId, `identity mismatch sub=${sub.id} · ${identity.reason}`);
 
     // Дедуп: людина може тиснути «Приєднатись» десятки разів поспіль — не засмічуємо
     // ні стрічку подій, ні БД зайвими UPDATE-ами. Одна подія + один запис помилки
     // на (підписка, tg-користувач) за годину.
-    const hourAgo = new Date(Date.now() - 60 * 60 * 1000);
-    const dupe = await prisma.yearlyProgramSubscriptionEvent.findFirst({
-      where: {
-        subscriptionId: sub.id,
-        type: 'admin_action',
-        createdAt: { gte: hourAgo },
-        AND: [
-          { metadata: { path: ['kind'], equals: JOIN_DECLINED_EVENT_KIND } },
-          { metadata: { path: ['tgUserId'], equals: String(userId) } },
-        ],
-      },
-      select: { id: true },
-    });
+    const dupe = await findRecentJoinEvent(sub.id, JOIN_DECLINED_EVENT_KIND, userId);
     if (dupe) {
       console.log(`${LOG_PREFIX} decline event deduped sub=${sub.id} user=${userId}`);
       return;
@@ -311,7 +345,7 @@ async function handleChatJoinRequest(joinReq: TgChatJoinRequest): Promise<void> 
       type: 'admin_action',
       message: approveError
         ? `Telegram: approve заявки не вдався — ${approveError}`
-        : `Telegram: клієнт приєднався в канал (auto-approved)${identity.unverified ? ' · username у підписці не вказано, приналежність не перевірена' : ''}`,
+        : 'Telegram: клієнт приєднався в канал (auto-approved)',
       metadata: {
         tgUserId: String(userId),
         tgUserDesc: userDesc,
@@ -320,7 +354,6 @@ async function handleChatJoinRequest(joinReq: TgChatJoinRequest): Promise<void> 
         approveError,
         inviteRevoked,
         revokeError,
-        identityUnverified: identity.unverified,
       },
     },
   });
@@ -330,31 +363,63 @@ async function handleChatJoinRequest(joinReq: TgChatJoinRequest): Promise<void> 
 ///   • `telegramTgUserId` заповнений → це єдиний авторитетний критерій (id незмінний,
 ///     на відміну від username, який людина може перейменувати).
 ///   • інакше → порівнюємо username із форми оплати (без `@`, case-insensitive).
-///   • username у підписці порожній (legacy/manual-add без handle) → перевірити нічим,
-///     пропускаємо, але помічаємо `unverified` для сліду в подіях.
+///   • username у підписці порожній (legacy/manual-add без handle) → перевірити нічим →
+///     `unverified`. НЕ approve: інакше будь-хто з пересланим лінком заходив би в канал,
+///     а це рівно те, від чого захищає режим заявок. Заявка лишається на ручний розгляд.
+type JoinIdentity =
+  | { status: 'ok' }
+  | { status: 'unverified'; reason: string }
+  | { status: 'mismatch'; reason: string; kind: 'tg_id' | 'username' };
+
 function checkJoinIdentity(
   sub: { telegramTgUserId: bigint | null; telegramUsername: string | null },
   from: TgUser,
-): { ok: true; unverified: boolean } | { ok: false; reason: string; kind: 'tg_id' | 'username' } {
+): JoinIdentity {
   const fromHandle = (from.username ?? '').replace(/^@/, '').toLowerCase();
 
   if (sub.telegramTgUserId !== null) {
-    if (sub.telegramTgUserId === BigInt(from.id)) return { ok: true, unverified: false };
+    if (sub.telegramTgUserId === BigInt(from.id)) return { status: 'ok' };
     return {
-      ok: false,
+      status: 'mismatch',
       kind: 'tg_id',
       reason: `tg id не збігається (підписка: ${sub.telegramTgUserId}, заявка: ${from.id}${fromHandle ? `, @${fromHandle}` : ''})`,
     };
   }
 
   const expected = (sub.telegramUsername ?? '').replace(/^@/, '').toLowerCase();
-  if (!expected) return { ok: true, unverified: true };
-  if (expected === fromHandle) return { ok: true, unverified: false };
+  if (!expected) {
+    return {
+      status: 'unverified',
+      reason: `у підписці немає ні tg id, ні username — звірити автора заявки (${fromHandle ? `@${fromHandle}` : `id=${from.id} без username`}) нічим`,
+    };
+  }
+  if (expected === fromHandle) return { status: 'ok' };
   return {
-    ok: false,
+    status: 'mismatch',
     kind: 'username',
     reason: `username не збігається (очікували @${sub.telegramUsername?.replace(/^@/, '')}, заявка від ${fromHandle ? `@${fromHandle}` : `id=${from.id} без username`})`,
   };
+}
+
+/// Дедуп подій по заявці: одна подія на (підписка, tg-користувач, вид) за годину.
+async function findRecentJoinEvent(
+  subscriptionId: string,
+  kind: string,
+  tgUserId: number,
+): Promise<{ id: string } | null> {
+  const hourAgo = new Date(Date.now() - 60 * 60 * 1000);
+  return prisma.yearlyProgramSubscriptionEvent.findFirst({
+    where: {
+      subscriptionId,
+      type: 'admin_action',
+      createdAt: { gte: hourAgo },
+      AND: [
+        { metadata: { path: ['kind'], equals: kind } },
+        { metadata: { path: ['tgUserId'], equals: String(tgUserId) } },
+      ],
+    },
+    select: { id: true },
+  });
 }
 
 /// Read-only слід про висячу заявку: шукає ЧИННУ підписку за username автора і пише їй
@@ -377,24 +442,45 @@ async function flagPendingJoinRequest(from: TgUser): Promise<void> {
   });
   if (!sub) return;
 
-  // Мітка ніколи не затирає попередній текст: у полі може лежати справжня помилка Bot API
-  // («бот не адмін», «chat not found»), яка і є ПРИЧИНОЮ висячої заявки — стерти її означає
-  // прибрати з «Помилок» те, що менеджеру треба лагодити. Порожньо → пишемо; вже є наша
-  // мітка → нічого не робимо (і це ж дає дедуп повторних заявок); інша помилка → дописуємо.
-  const current = sub.telegramInviteError;
+  await markPendingJoinOnSubscription(
+    sub.id,
+    `${PENDING_JOIN_MARK} від @${handle} — перевірте вручну в каналі`,
+    sub.telegramInviteError,
+  );
+}
+
+/// Пише мітку про висячу заявку в `telegramInviteError` вказаної підписки.
+///
+/// Мітка ніколи не затирає попередній текст: у полі може лежати справжня помилка Bot API
+/// («бот не адмін», «chat not found»), яка і є ПРИЧИНОЮ висячої заявки — стерти її означає
+/// прибрати з «Помилок» те, що менеджеру треба лагодити. Порожньо → пишемо; вже є наша
+/// мітка → нічого не робимо (і це ж дає дедуп повторних заявок); інша помилка → дописуємо.
+async function markPendingJoinOnSubscription(
+  subscriptionId: string,
+  message: string,
+  knownCurrent?: string | null,
+): Promise<void> {
+  let current = knownCurrent;
+  if (current === undefined) {
+    const row = await prisma.yearlyProgramSubscription.findUnique({
+      where: { id: subscriptionId },
+      select: { telegramInviteError: true },
+    });
+    if (!row) return;
+    current = row.telegramInviteError;
+  }
   if (current?.includes(PENDING_JOIN_MARK)) return;
 
-  const message = `${PENDING_JOIN_MARK} від @${handle} — перевірте вручну в каналі`;
-  const next = current?.trim() ? `${current.trim()} · ${message}`.slice(0, 500) : message;
+  const next = current?.trim() ? `${current.trim()} · ${message}`.slice(0, 500) : message.slice(0, 500);
 
   // Умова на where — захист від гонки: якщо між читанням і записом поле змінилось
   // (напр. паралельна генерація інвайта записала свою помилку), UPDATE просто не спрацює.
   const res = await prisma.yearlyProgramSubscription.updateMany({
-    where: { id: sub.id, telegramInviteError: current },
+    where: { id: subscriptionId, telegramInviteError: current },
     data: { telegramInviteError: next },
   });
   if (res.count > 0) {
-    console.log(`${LOG_PREFIX} висяча заявка позначена у підписці sub=${sub.id} (@${handle})`);
+    console.log(`${LOG_PREFIX} висяча заявка позначена у підписці sub=${subscriptionId}`);
   }
 }
 

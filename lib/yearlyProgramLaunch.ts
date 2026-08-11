@@ -1,5 +1,5 @@
 import prisma from '@/lib/prisma';
-import { openAccessViaEvent, lookupStudentIdByEmail } from '@/lib/sendpulse';
+import { openAccessViaEvent, lookupStudentIdByEmail, withSendpulseRosterCache } from '@/lib/sendpulse';
 import { YEARLY_PROGRAM_CONFIG, getYearlyPostAccessMonths, getYearlySendpulseCourseId, RESET_REMINDER_AND_GRACE_FIELDS } from '@/lib/yearlyProgramConfig';
 import { syncAutopaySchedule } from '@/lib/yearlyProgramScheduleSync';
 import { calculateAccessUntil } from '@/lib/yearlyProgramAccess';
@@ -41,6 +41,9 @@ export interface LaunchResult {
   skipReason?: LaunchSkipReason;
   /// Set коли стався справжній збій (SP API down, мережа). Counter `failed`.
   error?: string;
+  /// Ітерація впала непередбачувано (БД недоступна, unique-конфлікт тощо) і була проковтнута
+  /// per-subscription catch-ем, щоб не зривати решту запуску. Такі теж рахуються у `failed`.
+  crashed?: true;
 }
 
 export interface LaunchSummary {
@@ -50,6 +53,9 @@ export interface LaunchSummary {
   skipped: number;
   failed: number;
   results: LaunchResult[];
+  /// Підписки, на яких ітерація впала з винятком. Порожньо у нормальному запуску.
+  /// Менеджеру видно, кого добирати руками (або чекати нічний heal_unopened).
+  crashed: Array<{ subscriptionId: string; email: string | null; error: string }>;
 }
 
 export async function executeLaunchLoop(
@@ -75,133 +81,177 @@ export async function executeLaunchLoop(
   const results: LaunchResult[] = [];
   const now = new Date();
 
+  const crashed: LaunchSummary['crashed'] = [];
+
+  // Ростер SendPulse тягнеться ОДИН раз на весь цикл (див. withSendpulseRosterCache):
+  // без цього lookupStudentIdByEmail пагінував увесь курс на кожного студента і запуск
+  // на 300 людей не встигав у ліміт функції.
+  await withSendpulseRosterCache(async () => {
   for (const s of subs) {
-    if (!s.user?.email) continue;
-    const paidPayments = s.payments.filter((p) => p.status === 'PAID');
-    if (paidPayments.length === 0) {
-      // Свідомий пропуск: підписка існує, але платіж ще не пройшов. Не вважається
-      // помилкою (counter `skipped`, не `failed`). Не пишемо event — це не failure.
-      results.push({
-        subscriptionId: s.id,
-        email: s.user.email,
-        accessOpened: false,
-        expiresAt: null,
-        skipReason: 'no_paid_payments',
-      });
-      continue;
-    }
+    // Кожен студент ізольований: непередбачуваний виняток (обрив БД, конфлікт запису)
+    // раніше клав увесь запуск — усі наступні лишались без доступу, а розсилка кредів
+    // взагалі не стартувала, бо помилка вилітала в route. Тепер падіння одного —
+    // подія в його лозі + запис у `crashed`, цикл їде далі.
+    let recorded = false;
+    try {
+      if (!s.user?.email) continue;
+      const paidPayments = s.payments.filter((p) => p.status === 'PAID');
+      if (paidPayments.length === 0) {
+        // Свідомий пропуск: підписка існує, але платіж ще не пройшов. Не вважається
+        // помилкою (counter `skipped`, не `failed`). Не пишемо event — це не failure.
+        results.push({
+          subscriptionId: s.id,
+          email: s.user.email,
+          accessOpened: false,
+          expiresAt: null,
+          skipReason: 'no_paid_payments',
+        });
+        recorded = true;
+        continue;
+      }
 
-    // PENDING зі старими PAID-платежами, але вичерпаним (або невизначеним) доступом —
-    // не оплачений цикл, а залишок минулого. Критерій той самий, що в heal-cron-і:
-    // PENDING допускається тільки з чинним expiresAt. ACTIVE/GRACE — без змін.
-    if (s.status === 'PENDING' && !(s.expiresAt && s.expiresAt >= now)) {
-      results.push({
-        subscriptionId: s.id,
-        email: s.user.email,
-        accessOpened: false,
-        expiresAt: s.expiresAt?.toISOString() ?? null,
-        skipReason: 'pending_access_expired',
-      });
-      continue;
-    }
+      // PENDING зі старими PAID-платежами, але вичерпаним (або невизначеним) доступом —
+      // не оплачений цикл, а залишок минулого. Критерій той самий, що в heal-cron-і:
+      // PENDING допускається тільки з чинним expiresAt. ACTIVE/GRACE — без змін.
+      if (s.status === 'PENDING' && !(s.expiresAt && s.expiresAt >= now)) {
+        results.push({
+          subscriptionId: s.id,
+          email: s.user.email,
+          accessOpened: false,
+          expiresAt: s.expiresAt?.toISOString() ?? null,
+          skipReason: 'pending_access_expired',
+        });
+        recorded = true;
+        continue;
+      }
 
-    let openedNow = false;
-    let openErr: string | null = null;
-    if (!s.sendpulseAccessOpenedAt) {
-      try {
-        await openAccessViaEvent(
-          s.user.email,
-          YEARLY_PROGRAM_CONFIG.sendpulseEventSlug,
-          s.plan === 'YEARLY' ? programSettings.yearlyPrice : programSettings.monthlyPrice,
-        );
-        openedNow = true;
-        if (!s.sendpulseStudentId && yearlySpCourseId) {
-          try {
-            const studentId = await lookupStudentIdByEmail(
-              yearlySpCourseId,
-              s.user.email,
-            );
-            if (studentId) {
-              await prisma.yearlyProgramSubscription.update({
-                where: { id: s.id },
-                data: { sendpulseStudentId: studentId },
-              });
+      let openedNow = false;
+      let openErr: string | null = null;
+      if (!s.sendpulseAccessOpenedAt) {
+        try {
+          await openAccessViaEvent(
+            s.user.email,
+            YEARLY_PROGRAM_CONFIG.sendpulseEventSlug,
+            s.plan === 'YEARLY' ? programSettings.yearlyPrice : programSettings.monthlyPrice,
+          );
+          openedNow = true;
+          if (!s.sendpulseStudentId && yearlySpCourseId) {
+            try {
+              const studentId = await lookupStudentIdByEmail(
+                yearlySpCourseId,
+                s.user.email,
+              );
+              if (studentId) {
+                await prisma.yearlyProgramSubscription.update({
+                  where: { id: s.id },
+                  data: { sendpulseStudentId: studentId },
+                });
+              }
+            } catch {
+              // ignore lookup err — буде підтянуто пізніше cron-ом
             }
-          } catch {
-            // ignore lookup err — буде підтянуто пізніше cron-ом
           }
+        } catch (e) {
+          openErr = (e as Error).message;
         }
-      } catch (e) {
-        openErr = (e as Error).message;
+      } else {
+        openedNow = true;
       }
-    } else {
-      openedNow = true;
-    }
 
-    const newExpiresAt = calculateAccessUntil({
-      plan: s.plan,
-      autoRenew: s.autoRenew,
-      cohort: { startDate: cohort.startDate, endDate: cohort.endDate },
-      payments: s.payments,
-      postAccessMonths,
-    });
+      const newExpiresAt = calculateAccessUntil({
+        plan: s.plan,
+        autoRenew: s.autoRenew,
+        cohort: { startDate: cohort.startDate, endDate: cohort.endDate },
+        payments: s.payments,
+        postAccessMonths,
+      });
 
-    await prisma.yearlyProgramSubscription.update({
-      where: { id: s.id },
-      data: {
-        status: 'ACTIVE',
-        startDate: s.startDate ?? cohort.startDate,
-        expiresAt: newExpiresAt,
-        // Запуск = початок свіжого циклу життя: гасимо спожиті до запуску прапори
-        // нагадувань і grace-залишки (могли лишитись від періоду з кривими датами),
-        // інакше перший реальний цикл після запуску пройде без жодного листа.
-        ...RESET_REMINDER_AND_GRACE_FIELDS,
-        ...(openedNow && !s.sendpulseAccessOpenedAt
-          ? { sendpulseAccessOpenedAt: new Date(), sendpulseAccessClosedAt: null }
-          : {}),
-      },
-    });
+      await prisma.yearlyProgramSubscription.update({
+        where: { id: s.id },
+        data: {
+          status: 'ACTIVE',
+          startDate: s.startDate ?? cohort.startDate,
+          expiresAt: newExpiresAt,
+          // Запуск = початок свіжого циклу життя: гасимо спожиті до запуску прапори
+          // нагадувань і grace-залишки (могли лишитись від періоду з кривими датами),
+          // інакше перший реальний цикл після запуску пройде без жодного листа.
+          ...RESET_REMINDER_AND_GRACE_FIELDS,
+          ...(openedNow && !s.sendpulseAccessOpenedAt
+            ? { sendpulseAccessOpenedAt: new Date(), sendpulseAccessClosedAt: null }
+            : {}),
+        },
+      });
 
-    // Переносимо WFP-графік автосписань під дати cohort-у (HTTP поза транзакцією — тут
-    // її і немає). Помилка не валить запуск: подія wfp_schedule_sync_failed у лозі підписки.
-    if (s.plan === 'MONTHLY' && s.autoRenew) {
-      try {
-        await syncAutopaySchedule(s.id, { apply: true, source: `launch:${actorLabel}` });
-      } catch {
-        // подія вже створена всередині syncAutopaySchedule або впав сам виклик — не блокуємо запуск
+      // Переносимо WFP-графік автосписань під дати cohort-у (HTTP поза транзакцією — тут
+      // її і немає). Помилка не валить запуск: подія wfp_schedule_sync_failed у лозі підписки.
+      if (s.plan === 'MONTHLY' && s.autoRenew) {
+        try {
+          await syncAutopaySchedule(s.id, { apply: true, source: `launch:${actorLabel}` });
+        } catch {
+          // подія вже створена всередині syncAutopaySchedule або впав сам виклик — не блокуємо запуск
+        }
       }
-    }
 
-    // Тип події точно відображає семантику: success → "access_opened", failure → "access_open_failed".
-    // Issue-tracker полюється на ці типи, плюс старі записи (legacy "admin_action" з FAILED у message)
-    // ловить regex-fallback у classifyEvent.
-    const eventType = openErr
-      ? 'access_open_failed'
-      : (openedNow && !s.sendpulseAccessOpenedAt ? 'access_opened' : 'admin_action');
-    await prisma.yearlyProgramSubscriptionEvent.create({
-      data: {
+      // Тип події точно відображає семантику: success → "access_opened", failure → "access_open_failed".
+      // Issue-tracker полюється на ці типи, плюс старі записи (legacy "admin_action" з FAILED у message)
+      // ловить regex-fallback у classifyEvent.
+      const eventType = openErr
+        ? 'access_open_failed'
+        : (openedNow && !s.sendpulseAccessOpenedAt ? 'access_opened' : 'admin_action');
+      await prisma.yearlyProgramSubscriptionEvent.create({
+        data: {
+          subscriptionId: s.id,
+          type: eventType,
+          message: openErr
+            ? `Cohort launch · access open FAILED: ${openErr.slice(0, 200)}`
+            : `Cohort launch by ${actorLabel} · expiresAt=${newExpiresAt?.toISOString().slice(0, 10) ?? 'null'}`,
+          metadata: { cohortId: cohort.id, openedNow, openErr },
+        },
+      });
+
+      results.push({
         subscriptionId: s.id,
-        type: eventType,
-        message: openErr
-          ? `Cohort launch · access open FAILED: ${openErr.slice(0, 200)}`
-          : `Cohort launch by ${actorLabel} · expiresAt=${newExpiresAt?.toISOString().slice(0, 10) ?? 'null'}`,
-        metadata: { cohortId: cohort.id, openedNow, openErr },
-      },
-    });
-
-    results.push({
-      subscriptionId: s.id,
-      email: s.user.email,
-      accessOpened: openedNow && !openErr,
-      expiresAt: newExpiresAt?.toISOString() ?? null,
-      error: openErr ?? undefined,
-    });
+        email: s.user.email,
+        accessOpened: openedNow && !openErr,
+        expiresAt: newExpiresAt?.toISOString() ?? null,
+        error: openErr ?? undefined,
+      });
+      recorded = true;
+    } catch (e) {
+      const message = (e instanceof Error ? e.message : String(e)).slice(0, 300);
+      console.error(`[yearly-launch] subscription ${s.id} crashed: ${message}`);
+      crashed.push({ subscriptionId: s.id, email: s.user?.email ?? null, error: message });
+      if (!recorded) {
+        results.push({
+          subscriptionId: s.id,
+          email: s.user?.email ?? '',
+          accessOpened: false,
+          expiresAt: null,
+          error: message,
+          crashed: true,
+        });
+      }
+      // Слід у лозі підписки — best-effort: якщо впала сама БД, писати нікуди.
+      try {
+        await prisma.yearlyProgramSubscriptionEvent.create({
+          data: {
+            subscriptionId: s.id,
+            type: 'access_open_failed',
+            message: `Cohort launch · ітерація впала: ${message.slice(0, 200)}`,
+            metadata: { cohortId: cohort.id, crashed: true, error: message },
+          },
+        });
+      } catch {
+        // лог у БД теж недоступний — лишається console.error вище
+      }
+    }
   }
+  });
 
   const opened = results.filter((r) => r.accessOpened).length;
   const skipped = results.filter((r) => !r.accessOpened && r.skipReason).length;
   const failed = results.filter((r) => !r.accessOpened && !r.skipReason).length;
-  return { total: results.length, opened, skipped, failed, results };
+  return { total: results.length, opened, skipped, failed, results, crashed };
 }
 
 export interface ExtraLaunchResult {
