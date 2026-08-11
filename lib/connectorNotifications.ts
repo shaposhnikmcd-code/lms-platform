@@ -16,6 +16,13 @@ import { sendConnectorMessage, escapeHtml, isConnectorBotConfigured } from '@/li
 
 export type ConnectorNotificationEvent = 'new' | 'paid';
 
+/// Чи вважати спробу нотифікації доставленою (щоб проставити `ConnectorOrder.paidNotifiedAt`
+/// і не смикати recon-cron щодоби). `managersTried === 0` теж рахуємо доставкою: підписаних
+/// менеджерів просто немає, повторні спроби нічого не змінять.
+export function isNotificationDelivered(r: NotifyResult): boolean {
+  return r.managersTried === 0 || r.emailsSent > 0 || r.telegramSent > 0;
+}
+
 export interface ConnectorOrderForNotify {
   id: string;
   orderReference: string;
@@ -32,9 +39,12 @@ export interface ConnectorOrderForNotify {
   createdAt: Date;
 }
 
-interface NotifyResult {
+export interface NotifyResult {
   managersTried: number;
   emailsSent: number;
+  /// Resend не сконфігуровано (dev без ключа) — лист НЕ пішов. Окремо від `emailsSent`,
+  /// щоб `isNotificationDelivered` не вважав такий прогін доставкою.
+  emailsSkipped: number;
   emailsFailed: number;
   telegramSent: number;
   telegramFailed: number;
@@ -155,6 +165,7 @@ export async function notifyManagers(
   const result: NotifyResult = {
     managersTried: 0,
     emailsSent: 0,
+    emailsSkipped: 0,
     emailsFailed: 0,
     telegramSent: 0,
     telegramFailed: 0,
@@ -213,7 +224,8 @@ export async function notifyManagers(
           (async () => {
             try {
               const r = await sendEmail({ to: m.email!, subject, html });
-              if (r.ok) result.emailsSent += 1;
+              if (r.skipped) result.emailsSkipped += 1;
+              else if (r.ok) result.emailsSent += 1;
               else {
                 result.emailsFailed += 1;
                 console.error(`❌ [connectorNotify] email→${m.email} failed:`, r.error);

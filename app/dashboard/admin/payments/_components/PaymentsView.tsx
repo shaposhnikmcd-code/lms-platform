@@ -29,6 +29,15 @@ export type Row = {
   basePrice: number | null;
   status: string;
   orderReference: string;
+  /// Стан видачі доступу після оплати (колонка «Доступ»):
+  ///   'ok'      — enrollment-и створені і SendPulse-подія пішла (для Конектора — менеджерам
+  ///               пішла нотифікація про оплату);
+  ///   'error'   — `Payment.provisionError`, у т.ч. AMOUNT_MISMATCH: гроші є, доступу немає;
+  ///   'pending' — оплачено, але крок ще не завершився (recon-cron добере);
+  ///   null      — не застосовно (неоплачений платіж, Річна програма зі своїм флоу).
+  provisioning?: 'ok' | 'error' | 'pending' | null;
+  /// Деталі для tooltip-а біля бейджа (текст помилки або чого саме бракує).
+  provisionNote?: string | null;
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -261,14 +270,17 @@ export default function PaymentsView({ rows }: { rows: Row[] }) {
 
             <div className="overflow-x-auto">
               <table className="w-full table-fixed">
+                {/* Сума ширин тримається в межах панелі (~1230px на 1536-екрані), щоб
+                    колонка «Референс» не з'їжджала за правий край після появи «Доступу». */}
                 <colgroup>
-                  <col style={{ width: '110px' }} />
-                  <col style={{ width: '230px' }} />
-                  <col style={{ width: '130px' }} />
-                  <col style={{ width: '240px' }} />
+                  <col style={{ width: '95px' }} />
+                  <col style={{ width: '225px' }} />
                   <col style={{ width: '120px' }} />
+                  <col style={{ width: '215px' }} />
+                  <col style={{ width: '115px' }} />
+                  <col style={{ width: '115px' }} />
                   <col style={{ width: '120px' }} />
-                  <col style={{ width: '240px' }} />
+                  <col style={{ width: '210px' }} />
                 </colgroup>
                 <thead className={`border-b ${dark ? 'border-white/[0.06] bg-black/10' : 'border-stone-300/40 bg-stone-50/40'}`}>
                   <tr>
@@ -287,13 +299,14 @@ export default function PaymentsView({ rows }: { rows: Row[] }) {
                         <StatusInfoButton theme={theme} />
                       </span>
                     </Th>
+                    <Th theme={theme}>Доступ</Th>
                     <Th theme={theme}>Референс</Th>
                   </tr>
                 </thead>
                 <tbody className={dark ? 'divide-y divide-white/[0.04]' : 'divide-y divide-stone-200/60'}>
                   {filtered.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className={`px-5 py-12 text-center text-sm ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+                      <td colSpan={8} className={`px-5 py-12 text-center text-sm ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
                         За обраними фільтрами платежів не знайдено
                       </td>
                     </tr>
@@ -306,6 +319,8 @@ export default function PaymentsView({ rows }: { rows: Row[] }) {
                         row.status === 'PAID' &&
                         row.basePrice !== null &&
                         row.amount < row.basePrice;
+                      // «Гроші є, доступу немає» має кидатись у вічі сильніше за знижку.
+                      const isProvisionBroken = row.provisioning === 'error';
                       return (
                         <tr
                           key={row.id}
@@ -316,11 +331,15 @@ export default function PaymentsView({ rows }: { rows: Row[] }) {
                               ? dark
                                 ? 'bg-amber-500/15 ring-2 ring-inset ring-amber-400/60'
                                 : 'bg-amber-200/40 ring-2 ring-inset ring-amber-500/60'
-                              : isDiscounted
+                              : isProvisionBroken
                                 ? dark
-                                  ? 'bg-amber-500/[0.04]'
-                                  : 'bg-amber-100/30'
-                                : ''
+                                  ? 'bg-rose-500/[0.07]'
+                                  : 'bg-rose-100/40'
+                                : isDiscounted
+                                  ? dark
+                                    ? 'bg-amber-500/[0.04]'
+                                    : 'bg-amber-100/30'
+                                  : ''
                           } ${
                             isClickable
                               ? dark ? 'cursor-pointer hover:bg-white/[0.04]' : 'cursor-pointer hover:bg-stone-100/70'
@@ -382,6 +401,9 @@ export default function PaymentsView({ rows }: { rows: Row[] }) {
                           </td>
                           <td className="px-5 py-3">
                             <StatusPill theme={theme} status={row.status} />
+                          </td>
+                          <td className="px-5 py-3">
+                            <ProvisionPill theme={theme} state={row.provisioning ?? null} note={row.provisionNote ?? null} />
                           </td>
                           <td className="px-5 py-3">
                             <CopyableRef theme={theme} value={row.orderReference} />
@@ -814,7 +836,9 @@ function StatusInfoButton({ theme }: { theme: Theme }) {
       </button>
       {open && (
         <div
-          className={`absolute right-0 top-full mt-1.5 w-[440px] rounded-xl py-2 z-30 backdrop-blur-md border normal-case tracking-normal ${
+          // max-h + скрол: після додавання легенди колонки «Доступ» попап переріс
+          // висоту екрана і нижні пункти виїжджали за межу вікна.
+          className={`absolute right-0 top-full mt-1.5 w-[440px] max-h-[55vh] overflow-y-auto rounded-xl py-2 z-30 backdrop-blur-md border normal-case tracking-normal ${
             dark
               ? 'bg-[#161821]/95 border-white/[0.08] shadow-[0_12px_32px_rgba(0,0,0,0.5)]'
               : 'bg-white/95 border-stone-300/60 shadow-[0_12px_32px_rgba(68,64,60,0.15)]'
@@ -842,6 +866,25 @@ function StatusInfoButton({ theme }: { theme: Theme }) {
               </div>
             </div>
           ))}
+          <div className={`px-3 pt-2 pb-1 mt-1 border-t text-[11px] font-semibold uppercase tracking-[0.18em] ${
+            dark ? 'border-white/[0.06] text-slate-400' : 'border-stone-200 text-stone-500'
+          }`}>
+            Колонка «Доступ»
+          </div>
+          {([
+            { state: 'ok' as const, text: 'Доступ у LMS відкрито і подія в SendPulse надіслана — клієнт усе отримав.' },
+            { state: 'error' as const, text: 'Гроші прийшли, доступ НЕ видано (у т.ч. розбіжність суми). Наведи курсор на бейдж — там текст помилки. Потрібне ручне втручання.' },
+            { state: 'pending' as const, text: 'Оплачено, але один із кроків ще не завершився. Нічний cron-звірка добере автоматично.' },
+          ]).map(it => (
+            <div key={it.state} className="px-3 py-2 flex items-start gap-3">
+              <span className="shrink-0 w-[100px] flex justify-start mt-0.5">
+                <ProvisionPill theme={theme} state={it.state} note={null} />
+              </span>
+              <p className={`min-w-0 flex-1 text-[12px] leading-snug ${dark ? 'text-slate-300' : 'text-stone-700'}`}>
+                {it.text}
+              </p>
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -860,6 +903,38 @@ function StatusPill({ status, theme }: { status: string; theme: Theme }) {
   return (
     <span className={`inline-flex px-2 py-0.5 rounded-md text-[11px] font-semibold border ${dark ? m.dark : m.light}`}>
       {STATUS_LABELS[status] ?? status}
+    </span>
+  );
+}
+
+/// Бейдж колонки «Доступ» — чи дійшло до клієнта те, за що він заплатив.
+/// Червоний ⚠️ означає «гроші є, доступу немає»: розбирає менеджер, `title` містить
+/// текст помилки з `Payment.provisionError`.
+function ProvisionPill({
+  state,
+  note,
+  theme,
+}: {
+  state: Row['provisioning'];
+  note: string | null;
+  theme: Theme;
+}) {
+  const dark = theme === 'dark';
+  if (!state) return <span className={`text-[11px] ${dark ? 'text-slate-600' : 'text-stone-400'}`}>—</span>;
+  const map = {
+    ok:      { label: 'OK',      icon: '✓',  dark: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/20', light: 'bg-emerald-500/10 text-emerald-800 border-emerald-500/25' },
+    error:   { label: 'ПОМИЛКА', icon: '⚠️', dark: 'bg-rose-500/20 text-rose-200 border-rose-500/40',           light: 'bg-rose-500/15 text-rose-800 border-rose-500/40' },
+    pending: { label: 'Очікує',  icon: '⏳', dark: 'bg-slate-500/20 text-slate-300 border-slate-500/20',        light: 'bg-stone-200/70 text-stone-700 border-stone-300/70' },
+  }[state];
+  return (
+    <span
+      title={note ?? undefined}
+      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold border ${
+        dark ? map.dark : map.light
+      } ${note ? 'cursor-help' : ''}`}
+    >
+      <span aria-hidden>{map.icon}</span>
+      <span>{map.label}</span>
     </span>
   );
 }

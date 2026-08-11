@@ -26,11 +26,54 @@ export type ProvisioningResult = {
   errors: string[];
 };
 
+/// Склад пакета, зафіксований у момент створення Payment.
+/// `paid` — платні курси пакета; `free` — безкоштовні, які отримує САМЕ цей покупець
+/// (для FIXED_FREE — усі фіксовані, для CHOICE_FREE — обрані клієнтом, не весь пул).
+export type BundleSlugsSnapshot = { paid: string[]; free: string[] };
+
+/// Будує snapshot зі складу пакета + вже провалідованого вибору безкоштовних.
+/// Викликається у чекаут-роутах (`/api/wayforpay`, `/api/mor`) перед створенням Payment.
+export function buildBundleSlugsSnapshot(
+  bundleCourses: Array<{ courseSlug: string; isFree: boolean }>,
+  finalFreeSlugs: string[],
+): BundleSlugsSnapshot {
+  return {
+    paid: [...new Set(bundleCourses.filter((c) => !c.isFree).map((c) => c.courseSlug))],
+    free: [...new Set(finalFreeSlugs)],
+  };
+}
+
+/// Валідує JSON зі `Payment.bundleSlugsSnapshot`. Повертає null, якщо поля немає
+/// (старі платежі) або воно порожнє/зіпсоване — тоді викликач фолбекає на живий bundle.
+export function parseBundleSlugsSnapshot(raw: unknown): BundleSlugsSnapshot | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const obj = raw as Record<string, unknown>;
+  const strings = (v: unknown): string[] =>
+    Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.length > 0) : [];
+  const paid = strings(obj.paid);
+  const free = strings(obj.free);
+  if (paid.length === 0 && free.length === 0) return null;
+  return { paid, free };
+}
+
 /// Обчислює список course-slug-ів, які мають отримати enrollment + SP event на основі
 /// типу платежу (course | bundle). Single source of truth — використовується і у callback,
 /// і у recon cron.
-export async function computeExpectedSlugs(payment: Pick<Payment, 'courseId' | 'bundleId' | 'freeSlugs'>): Promise<string[]> {
+///
+/// Для пакетів джерело правди — `bundleSlugsSnapshot`, знятий у момент оплати. Живий
+/// bundle читається ЛИШЕ як fallback для платежів, створених до появи поля: інакше
+/// правка складу пакета між оплатою і callback-ом (менеджер прибрав курс) мовчки
+/// урізала б клієнту те, за що він уже заплатив.
+export async function computeExpectedSlugs(
+  payment: Pick<Payment, 'courseId' | 'bundleId' | 'freeSlugs'> & { bundleSlugsSnapshot?: unknown },
+): Promise<string[]> {
   if (payment.bundleId) {
+    const snapshot = parseBundleSlugsSnapshot(payment.bundleSlugsSnapshot);
+    if (snapshot) {
+      // `payment.freeSlugs` додаємо як підстраховку: snapshot.free — його копія на момент
+      // оплати, але саме freeSlugs історично несе вибір клієнта для CHOICE_FREE.
+      return [...new Set([...snapshot.paid, ...snapshot.free, ...(payment.freeSlugs ?? [])])];
+    }
     const bundle = await prisma.bundle.findUnique({
       where: { id: payment.bundleId },
       include: { courses: true },
@@ -55,7 +98,10 @@ export async function computeExpectedSlugs(payment: Pick<Payment, 'courseId' | '
 /// На успіх — оновлює `enrollmentsCompletedAt` / `sendpulseSentAt` на Payment.
 /// На помилку — оновлює `provisionError` і повертає список помилок (НЕ кидає).
 /// Recon cron при наступному запуску побачить NULL timestamp і повторить спробу.
-export async function provisionPayment(payment: Pick<Payment, 'id' | 'userId' | 'courseId' | 'bundleId' | 'freeSlugs' | 'amount' | 'enrollmentsCompletedAt' | 'sendpulseSentAt'>): Promise<ProvisioningResult> {
+export async function provisionPayment(
+  payment: Pick<Payment, 'id' | 'userId' | 'courseId' | 'bundleId' | 'freeSlugs' | 'amount' | 'enrollmentsCompletedAt' | 'sendpulseSentAt'>
+    & { bundleSlugsSnapshot?: unknown },
+): Promise<ProvisioningResult> {
   const result: ProvisioningResult = {
     enrollmentsCreated: [],
     sendpulseSent: [],
@@ -154,6 +200,9 @@ export async function provisionPayment(payment: Pick<Payment, 'id' | 'userId' | 
       ...(enrollmentsAllOk && !payment.enrollmentsCompletedAt ? { enrollmentsCompletedAt: now } : {}),
       ...(sendpulseAllOk && !payment.sendpulseSentAt ? { sendpulseSentAt: now } : {}),
       provisionError: result.errors.length > 0 ? result.errors.join('; ').slice(0, 1000) : null,
+      // Полагодилось — знімаємо помітку про надісланий алерт, щоб наступний (новий) збій
+      // менеджери знову побачили, а не проковтнули як «вже сповіщали».
+      ...(result.errors.length === 0 ? { provisionAlertedAt: null } : {}),
     },
   });
 

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import prisma from '@/lib/prisma';
 import { timingSafeEqualStr } from '@/lib/authTiming';
+import { provisionPayment } from '@/lib/paymentProvisioning';
+import { notifyManagers, isNotificationDelivered } from '@/lib/connectorNotifications';
 
 /// Вхідний webhook від зовнішніх сайтів (зараз — персональний сайт Тетяни).
 /// Приймає факт успішної оплати й створює Payment або ConnectorOrder з source=TETYANA,
@@ -120,18 +122,31 @@ async function handleCourse(p: CourseSalePayload) {
       source: p.source,
       externalRef: p.externalRef,
     },
-    select: { id: true },
   });
 
+  // Доступ видаємо тим самим шляхом, що й WFP-callback: enrollment.upsert + SendPulse-подія
+  // (реєстрація на курс у SP) + timestamps провіжинінгу. Раніше тут був голий
+  // `enrollment.upsert` — запис у нашій БД з'являвся, а листа/доступу в SendPulse клієнт
+  // не отримував узагалі. Best-effort: помилки осідають у `Payment.provisionError`,
+  // recon-cron доганяє.
+  let provisioned: string[] = [];
+  let provisionErrors: string[] = [];
   if (courseId) {
-    await prisma.enrollment.upsert({
-      where: { userId_courseId: { userId: user.id, courseId } },
-      create: { userId: user.id, courseId },
-      update: {},
-    });
+    const provision = await provisionPayment(payment);
+    provisioned = provision.enrollmentsCreated;
+    provisionErrors = provision.errors;
+    if (provision.errors.length > 0) {
+      console.error('⚠️ [external-sales] провіжинінг курсу не завершився:', prefixedRef, provision.errors);
+    }
   }
 
-  return { created: true, id: payment.id, courseMatched: !!courseId };
+  return {
+    created: true,
+    id: payment.id,
+    courseMatched: !!courseId,
+    enrollments: provisioned,
+    provisionErrors,
+  };
 }
 
 async function handleConnector(p: ConnectorSalePayload) {
@@ -163,10 +178,21 @@ async function handleConnector(p: ConnectorSalePayload) {
       source: p.source,
       externalRef: p.externalRef,
     },
-    select: { id: true },
   });
 
-  return { created: true, id: order.id };
+  // Замовлення прийшло вже ОПЛАЧЕНИМ, тож менеджерам потрібна та сама нотифікація
+  // 'paid', що й з WFP-callback-у — інакше оплачена гра із зовнішнього сайту тихо
+  // лежала б у списку, і ніхто б її не відправив. `notifyManagers` не кидає.
+  const notify = await notifyManagers('paid', order);
+  const notified = isNotificationDelivered(notify);
+  if (notified) {
+    await prisma.connectorOrder.update({
+      where: { id: order.id },
+      data: { paidNotifiedAt: new Date() },
+    });
+  }
+
+  return { created: true, id: order.id, managersNotified: notified };
 }
 
 export async function POST(req: NextRequest) {

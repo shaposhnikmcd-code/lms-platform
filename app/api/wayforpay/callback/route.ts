@@ -19,10 +19,10 @@ import { provisionPayment, AMOUNT_MISMATCH_MARKER } from '@/lib/paymentProvision
 import { sendBundlePurchaseEmail } from '@/lib/bundlePurchaseEmail';
 import { getRegularStatus, getWayforpayCreds } from '@/lib/wayforpay';
 import { calculateAccessUntil, maxAutopayChargeCount } from '@/lib/yearlyProgramAccess';
-import { removeSubscriptionAutopay } from '@/lib/yearlyProgramAutopay';
+import { removeSubscriptionAutopay, recordAutopayRemoveOutcome } from '@/lib/yearlyProgramAutopay';
 import { archiveDuplicatePendingSubscriptions } from '@/lib/yearlyProgramDedup';
 import { CALLBACK_LOG_SUB_ACTION_PREFIX } from '@/lib/yearlyProgramIssues';
-import { notifyManagers as notifyConnectorManagers } from '@/lib/connectorNotifications';
+import { notifyManagers as notifyConnectorManagers, isNotificationDelivered as isConnectorNotificationDelivered } from '@/lib/connectorNotifications';
 
 function getClientIp(req: NextRequest): string {
   const xff = req.headers.get('x-forwarded-for');
@@ -202,9 +202,17 @@ export async function POST(req: NextRequest) {
             where: { orderReference: orderReference! },
           });
           if (paidOrder) {
-            notifyConnectorManagers('paid', paidOrder, { warning: mismatchWarning }).catch((e) =>
-              console.error('[wfp callback] connector notifyManagers failed:', e),
-            );
+            // `paidNotifiedAt` ставимо лише на реальну доставку: recon-cron добере
+            // замовлення з NULL і надішле повторно, якщо і пошта, і Telegram лягли.
+            notifyConnectorManagers('paid', paidOrder, { warning: mismatchWarning })
+              .then(async (r) => {
+                if (!isConnectorNotificationDelivered(r)) return;
+                await prisma.connectorOrder.update({
+                  where: { id: paidOrder.id },
+                  data: { paidNotifiedAt: new Date() },
+                });
+              })
+              .catch((e) => console.error('[wfp callback] connector notifyManagers failed:', e));
           }
         }
       } else if (kind === 'yearly' || kind === 'monthly') {
@@ -993,6 +1001,13 @@ async function handleRefundCallback(args: {
       autopayRemoved = res.removed;
       actions.push(`autopay:removed(${res.removed}/${res.attempted})`);
       if (res.error) actions.push(`autopay:err:${res.error.slice(0, 40)}`);
+      // Окрема подія на провал REMOVE — інакше після рефанду жива регулярка у WFP
+      // продовжила б списувати гроші, а в адмінці це виглядало б як штатне повернення.
+      await recordAutopayRemoveOutcome({
+        subscriptionId: sub.id,
+        result: res,
+        source: `wfp-callback:${args.orderReference} · refund`,
+      });
     } catch (e) {
       actions.push(`autopay:err:${(e as Error).message.slice(0, 40)}`);
     }

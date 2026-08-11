@@ -10,6 +10,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
+import { Prisma } from '@prisma/client';
+import { buildBundleSlugsSnapshot, type BundleSlugsSnapshot } from '@/lib/paymentProvisioning';
 import { resolveServerPricing } from '@/lib/paymentPricing';
 import { checkRateLimit } from '@/lib/ratelimit';
 import { isPaddleConfigured, createPaddleTransaction } from '@/lib/paddle';
@@ -78,6 +80,10 @@ export async function POST(req: NextRequest) {
     let bundleId: string | null = resolved.bundleId;
     let paymentCourseId: string | null = resolved.paymentCourseId;
     let finalFreeSlugs: string[] = [];
+    /// Склад пакета на момент створення платежу — джерело правди для provisionPayment
+    /// у webhook-у (як у WFP-роуті). Без нього правка пакета між checkout і webhook-ом
+    /// урізала б клієнту оплачені курси.
+    let bundleSnapshot: BundleSlugsSnapshot | null = null;
 
     // Duplicate-purchase guard для індивідуального курсу (як у WFP).
     if (paymentCourseId && !bundleId) {
@@ -109,6 +115,7 @@ export async function POST(req: NextRequest) {
           }
           finalFreeSlugs = unique;
         }
+        bundleSnapshot = buildBundleSlugsSnapshot(bundle.courses, finalFreeSlugs);
       }
     }
 
@@ -138,6 +145,7 @@ export async function POST(req: NextRequest) {
         status: 'PENDING',
         paymentProvider: 'paddle',
         freeSlugs: finalFreeSlugs,
+        bundleSlugsSnapshot: bundleSnapshot ?? Prisma.DbNull,
       },
       // update переписує і товар (courseId/bundleId/userId), а не лише службові поля —
       // інакше повторний POST з тим самим ref, але іншим продуктом, лишав у Payment
@@ -149,6 +157,7 @@ export async function POST(req: NextRequest) {
         currency: 'USD',
         paymentProvider: 'paddle',
         freeSlugs: finalFreeSlugs,
+        bundleSlugsSnapshot: bundleSnapshot ?? Prisma.DbNull,
       },
     });
 

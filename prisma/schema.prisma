@@ -254,6 +254,12 @@ model Payment {
   paymentMethod               String?
   /// Для CHOICE_FREE bundle-ів: слаги курсів, які клієнт обрав як безкоштовні
   freeSlugs                   String[]                   @default([])
+  /// Snapshot складу пакета на МОМЕНТ створення платежу: `{ paid: string[], free: string[] }`.
+  /// Без нього провіжинінг читав склад пакета під час callback-у — якщо менеджер прибрав
+  /// курс із пакета між оплатою і callback-ом, клієнт недоотримував оплачене.
+  /// `free` дублює `freeSlugs` (для CHOICE_FREE — саме ОБРАНІ, не пул).
+  /// null — старі платежі до введення поля: `computeExpectedSlugs` фолбекає на живий bundle.
+  bundleSlugsSnapshot         Json?
   createdAt                   DateTime                   @default(now())
   paidAt                      DateTime?
   /// Якщо платіж є частиною підписки річної програми — лінк сюди.
@@ -273,6 +279,10 @@ model Payment {
   enrollmentsCompletedAt      DateTime?
   sendpulseSentAt             DateTime?
   provisionError              String?
+  /// Коли менеджерам пішов алерт «гроші є, доступу немає» по цьому платежу.
+  /// Ставить `/api/cron/reconcile-payments`; без нього алерт летів би щодоби на той самий
+  /// платіж. Скидається в null, якщо провіжинінг згодом полагодився.
+  provisionAlertedAt          DateTime?
   /// Ручне підтвердження оплати поза WayForPay (готівка / переказ / напряму ФОП).
   /// `manualMethod` — спосіб ("cash" | "transfer" | "direct" | ...), `manualNote` — коментар менеджера.
   /// Заповнюються лише для платежів, створених екшеном `manual_payment` у адмінці Річної програми.
@@ -465,6 +475,11 @@ model ConnectorOrder {
   actualShippingCost Int?
   paymentStatus      PaymentStatus               @default(PENDING)
   paidAt             DateTime?
+  /// Коли менеджерам пішла нотифікація про ОПЛАТУ цього замовлення (подія 'paid').
+  /// Ставлять WFP-callback і `/api/external-sales`; `/api/cron/reconcile-payments`
+  /// добирає PAID-замовлення з NULL і шле нотифікацію повторно — щоб оплачений
+  /// конектор не залишився непоміченим, якщо notify впав.
+  paidNotifiedAt     DateTime?
   orderStatus        OrderStatus                 @default(NEW)
   trackingNumber     String?
   trackingSetAt      DateTime?
@@ -864,6 +879,9 @@ model PaymentCallbackLog {
   rawPayload        Json?
   error             String?
   createdAt         DateTime @default(now())
+  /// Коли по цьому логу пішов алерт менеджерам («гроші прийшли, а Payment не знайдено»).
+  /// Ставить `/api/cron/reconcile-payments`; дедуплікує денний прохід.
+  alertedAt         DateTime?
 
   @@index([orderReference])
   @@index([createdAt])

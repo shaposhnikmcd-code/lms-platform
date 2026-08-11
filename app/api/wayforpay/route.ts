@@ -3,12 +3,14 @@ import crypto from 'crypto';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
+import { Prisma } from '@prisma/client';
+import { buildBundleSlugsSnapshot, type BundleSlugsSnapshot } from '@/lib/paymentProvisioning';
 import { getYearlyPostAccessMonths, isYearlyProgramOrderRef, YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
 import { buildRegularPurchaseFlags, getWayforpayCreds } from '@/lib/wayforpay';
 import { applyPromoServerSide, resolveServerPricing } from '@/lib/paymentPricing';
 import { checkRateLimit } from '@/lib/ratelimit';
 import { calculateAccessUntil, lastAutopayChargeDate, maxAutopayChargeCount } from '@/lib/yearlyProgramAccess';
-import { removeSubscriptionAutopay } from '@/lib/yearlyProgramAutopay';
+import { removeSubscriptionAutopay, recordAutopayRemoveOutcome } from '@/lib/yearlyProgramAutopay';
 import { resolveSellableCohort } from '@/lib/yearlyProgramCohort';
 import { verifyInvite, type InvitePayload } from '@/lib/yearlyProgramInvite';
 import { isValidCountryCode } from '@/lib/countries';
@@ -213,6 +215,9 @@ export async function POST(req: NextRequest) {
 
       // Для bundle — валідація вибору безкоштовних (CHOICE_FREE) + обчислення finalFreeSlugs
       let finalFreeSlugs: string[] = [];
+      /// Склад пакета, зафіксований ЗАРАЗ. Провіжинінг після callback-у бере курси звідси,
+      /// а не з живого bundle — правка складу між оплатою і callback-ом не з'їдає доступ.
+      let bundleSnapshot: BundleSlugsSnapshot | null = null;
       if (bundleId) {
         const bundle = await prisma.bundle.findUnique({
           where: { id: bundleId },
@@ -242,6 +247,7 @@ export async function POST(req: NextRequest) {
             }
             finalFreeSlugs = unique;
           }
+          bundleSnapshot = buildBundleSlugsSnapshot(bundle.courses, finalFreeSlugs);
         }
       }
 
@@ -554,6 +560,14 @@ export async function POST(req: NextRequest) {
             // Якщо REMOVE впаде — все одно мутимо БД, щоб уникнути неконсистентного стану;
             // помилку логуємо в subscription event для діагностики.
             const autopay = await removeSubscriptionAutopay(existing.id);
+            // Провал REMOVE має підняти окрему подію `wfp_remove_failed`, інакше «знято 0 з 3»
+            // губиться в тексті події нижче: ретрай-крок крона і вкладка «Помилки» його не
+            // бачать, а регулярка у WFP лишається живою і списує гроші з разової підписки.
+            await recordAutopayRemoveOutcome({
+              subscriptionId: existing.id,
+              result: autopay,
+              source: `checkout:${orderReference} · downgrade_to_one_time`,
+            });
             await prisma.yearlyProgramSubscription.update({
               where: { id: existing.id },
               data: { autoRenew: false },
@@ -659,6 +673,7 @@ export async function POST(req: NextRequest) {
           amount: finalAmount,
           status: 'PENDING',
           freeSlugs: finalFreeSlugs,
+          bundleSlugsSnapshot: bundleSnapshot ?? Prisma.DbNull,
           yearlyProgramSubscriptionId,
         },
         // ВАЖЛИВО: update переписує і ТОВАР, не лише суму. Інакше повторний POST з тим
@@ -671,6 +686,9 @@ export async function POST(req: NextRequest) {
           bundleId,
           amount: finalAmount,
           freeSlugs: finalFreeSlugs,
+          // Snapshot переписуємо разом з товаром: інакше повторний POST на той самий
+          // orderReference з іншим пакетом лишив би склад від першого.
+          bundleSlugsSnapshot: bundleSnapshot ?? Prisma.DbNull,
           yearlyProgramSubscriptionId,
         },
       });

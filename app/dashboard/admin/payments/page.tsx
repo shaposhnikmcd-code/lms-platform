@@ -20,6 +20,10 @@ export default async function AdminPayments() {
         status: true,
         orderReference: true,
         source: true,
+        // Стан провіжинінгу — щоб «гроші є, доступу немає» було видно прямо в таблиці.
+        enrollmentsCompletedAt: true,
+        sendpulseSentAt: true,
+        provisionError: true,
         user: { select: { name: true, email: true, role: true } },
         course: { select: { id: true, slug: true, title: true, price: true } },
         bundle: { select: { id: true, title: true, price: true } },
@@ -39,6 +43,7 @@ export default async function AdminPayments() {
         paymentStatus: true,
         orderReference: true,
         source: true,
+        paidNotifiedAt: true,
       },
     }),
     prisma.coursePriceOverride.findMany({ select: { slug: true, price: true } }),
@@ -61,6 +66,29 @@ export default async function AdminPayments() {
       return overridePrice ?? p.course.price;
     }
     return null;
+  }
+
+  /// Стан видачі доступів для course/bundle платежу.
+  ///   ok      — enrollment-и створені І SendPulse-подія надіслана;
+  ///   error   — є `provisionError` (у т.ч. AMOUNT_MISMATCH — доступ заблоковано свідомо);
+  ///   pending — оплачено, але один із двох кроків ще не завершився (recon-cron добере).
+  /// Для неоплачених платежів стан не показуємо взагалі — там нічого видавати.
+  function computeProvisioning(p: typeof payments[number]): {
+    state: Row['provisioning'];
+    note: string | null;
+  } {
+    if (p.status !== 'PAID') return { state: null, note: null };
+    if (p.provisionError) {
+      return { state: 'error', note: p.provisionError.slice(0, 400) };
+    }
+    if (p.enrollmentsCompletedAt && p.sendpulseSentAt) {
+      return { state: 'ok', note: null };
+    }
+    const missing = [
+      p.enrollmentsCompletedAt ? null : 'доступ у LMS',
+      p.sendpulseSentAt ? null : 'подія в SendPulse',
+    ].filter(Boolean).join(', ');
+    return { state: 'pending', note: `Ще не завершено: ${missing}` };
   }
 
   const courseRows: Row[] = payments.map((p) => {
@@ -87,8 +115,13 @@ export default async function AdminPayments() {
         basePrice: null,
         status: p.status,
         orderReference: p.orderReference,
+        // Річна не йде через provisionPayment (свій флоу відкриття доступу на запуску) —
+        // колонку для неї не заповнюємо, щоб не показувати вічний ⏳.
+        provisioning: null,
+        provisionNote: null,
       };
     }
+    const provisioning = computeProvisioning(p);
     return {
       id: `pay_${p.id}`,
       source: p.bundle ? 'bundle' as const : 'course' as const,
@@ -101,6 +134,8 @@ export default async function AdminPayments() {
       basePrice: computeBasePrice(p),
       status: p.status,
       orderReference: p.orderReference,
+      provisioning: provisioning.state,
+      provisionNote: provisioning.note,
     };
   });
 
@@ -117,6 +152,13 @@ export default async function AdminPayments() {
     basePrice: o.amount > 2 ? CONNECTOR_STANDARD_PRICE : null,
     status: o.paymentStatus,
     orderReference: o.orderReference,
+    // Конектор — фізичний товар, доступів не видає. Замість цього стежимо, чи менеджерам
+    // пішла нотифікація про оплату (recon-cron добирає ті, де вона не дійшла).
+    provisioning: o.paymentStatus === 'PAID' ? (o.paidNotifiedAt ? 'ok' : 'pending') : null,
+    provisionNote:
+      o.paymentStatus === 'PAID' && !o.paidNotifiedAt
+        ? 'Менеджерам ще не пішла нотифікація про оплату'
+        : null,
   }));
 
   const rows: Row[] = [...courseRows, ...connectorRows].sort(
