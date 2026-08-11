@@ -11,9 +11,14 @@ import {
   generateInviteForSubscription,
   getYearlyProgramTelegramSettings,
 } from '@/lib/yearlyProgramTelegram';
-import { removeSubscriptionAutopay } from '@/lib/yearlyProgramAutopay';
+import { removeSubscriptionAutopay, recordAutopayRemoveOutcome } from '@/lib/yearlyProgramAutopay';
 import { sendYearlyProgramAdminEndedEmail, type AdminEndKind } from '@/lib/yearlyProgramAdminEndedEmail';
-import { YEARLY_PROGRAM_CONFIG, getYearlySendpulseCourseId, getYearlyPostAccessMonths } from '@/lib/yearlyProgramConfig';
+import {
+  YEARLY_PROGRAM_CONFIG,
+  getYearlySendpulseCourseId,
+  getYearlyPostAccessMonths,
+  RESET_REMINDER_AND_GRACE_FIELDS,
+} from '@/lib/yearlyProgramConfig';
 import { calculateAccessUntil } from '@/lib/yearlyProgramAccess';
 import { getYearlyProgramSettings } from '@/lib/yearlyProgramSettings';
 import { parseTelegramUsername } from '@/lib/telegramUsername';
@@ -225,12 +230,17 @@ async function handleSetVisionStatus(
 /// Ручна синхронізація WFP-графіка автосписань з датами cohort-у (кнопка в панелі Дії).
 /// Уся логіка і запобіжники — у syncAutopaySchedule; тут тільки виклик + людська відповідь.
 async function handleSyncWfpSchedule(sub: NonNullable<SubWithUser>, actor: string) {
-  if (sub.plan !== 'MONTHLY' || !sub.autoRenew) {
+  if (sub.plan !== 'MONTHLY') {
     return NextResponse.json({
-      error: 'Синхронізація графіка доступна тільки для місячних підписок з автоплатежем.',
+      error: 'Синхронізація графіка доступна тільки для місячних підписок.',
     }, { status: 400 });
   }
-  const r = await syncAutopaySchedule(sub.id, { apply: true, source: `admin:${actor}` });
+  // Прапорець `autoRenew` може брехати (inconclusive-probe у callback-у, ручна правка,
+  // недокручений REMOVE), а саме тоді звірка потрібна найбільше — щоб побачити живе
+  // правило у WFP. Тому для autoRenew=false пускаємо, але тільки в READ-ONLY режимі:
+  // STATUS-probe без CHANGE. Міняти графік підписці, яка формально без автоплатежу,
+  // ми не маємо права.
+  const r = await syncAutopaySchedule(sub.id, { apply: sub.autoRenew, source: `admin:${actor}` });
   const fmtD = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : '—');
   const message = {
     synced: `Графік оновлено: наступне списання ${fmtD(r.nextChargeAt)}`,
@@ -248,14 +258,19 @@ async function handleSyncWfpSchedule(sub: NonNullable<SubWithUser>, actor: strin
 }
 
 async function handleCancel(sub: NonNullable<SubWithUser>, actor: string, reason?: string) {
-  if (sub.plan !== 'MONTHLY' || !sub.autoRenew) {
+  // Вимогу `autoRenew=true` свідомо прибрано: саме коли прапорець збитий (inconclusive
+  // probe у callback-у, ручна правка, недокручений REMOVE), у WFP і може лишатись жива
+  // регулярка — а стара перевірка не давала її зняти. REMOVE по всіх WFP-ref-ах
+  // безпечний: якщо правила немає, WFP віддає 4102, і ми його ігноруємо.
+  if (sub.plan !== 'MONTHLY') {
     return NextResponse.json({
-      error: 'Скасування доступне тільки для місячних підписок з активним автоплатежем. Для дострокового закриття доступу використай "Закрити доступ у SendPulse" або "Деактивувати та Вилучити студента з програми".',
+      error: 'Скасування автосписання доступне тільки для місячних підписок. Для дострокового закриття доступу використай "Закрити доступ у SendPulse" або "Деактивувати та Вилучити студента з програми".',
     }, { status: 400 });
   }
   const hadAutoRenew = sub.autoRenew;
-  const { removed: wfpRemovedCount, attempted: wfpAttemptedCount, error: wfpError } =
-    await removeSubscriptionAutopay(sub.id);
+  const autopay = await removeSubscriptionAutopay(sub.id);
+  const { removed: wfpRemovedCount, attempted: wfpAttemptedCount, error: wfpError } = autopay;
+  await recordAutopayRemoveOutcome({ subscriptionId: sub.id, result: autopay, source: `admin:${actor} · cancel` });
 
   await prisma.yearlyProgramSubscription.update({
     where: { id: sub.id },
@@ -264,6 +279,11 @@ async function handleCancel(sub: NonNullable<SubWithUser>, actor: string, reason
       // Регулярку у WFP уже знято — гасимо і прапор у себе, інакше підписка виглядає
       // як «з автоплатежем» і UI/крон-звірки продовжують чекати списань.
       autoRenew: false,
+      // Кеш графіка більше не має сенсу — списань не буде. `wfpRegularRef` чистимо
+      // ТІЛЬКИ при успішному REMOVE: якщо він провалився, ref лишається маркером
+      // «правило ще живе» — по ньому ретрай-крок нічного cron-а знайде цю підписку.
+      wfpNextChargeAt: null,
+      ...(wfpError ? {} : { wfpRegularRef: null }),
       cancelledAt: new Date(),
       cancelledBy: actor,
       cancelledReason: reason ?? null,
@@ -355,6 +375,7 @@ async function handleCloseAccess(sub: NonNullable<SubWithUser>, actor: string) {
   // автосписання не йшло до архівованих/закритих студентів (orphan-charges).
   const hadAutoRenew = sub.autoRenew;
   const autopay = await removeSubscriptionAutopay(sub.id);
+  await recordAutopayRemoveOutcome({ subscriptionId: sub.id, result: autopay, source: `admin:${actor} · close_access` });
 
   const now = new Date();
   await prisma.yearlyProgramSubscription.update({
@@ -362,6 +383,11 @@ async function handleCloseAccess(sub: NonNullable<SubWithUser>, actor: string) {
     data: {
       status: 'EXPIRED',
       sendpulseAccessClosedAt: now,
+      // Доступ закритий → списань більше бути не має. `wfpRegularRef` лишаємо, якщо
+      // REMOVE провалився: це маркер для нічного ретраю.
+      autoRenew: false,
+      wfpNextChargeAt: null,
+      ...(autopay.error ? {} : { wfpRegularRef: null }),
     },
   });
   const wfpSummary = sub.plan === 'MONTHLY'
@@ -637,15 +663,22 @@ const MANUAL_METHOD_LABELS: Record<string, string> = {
 /// сотні Payment-ів, якщо у налаштуваннях опиниться мізерна місячна ціна.
 const MAX_SPLIT_PARTS = 24;
 
-/// Розбиває внесену суму на місячні платежі: N рядків по `monthlyPrice` + залишок окремим
-/// рядком, якщо сума не ділиться націло. Потрібно тому, що графік доступу рахує КІЛЬКІСТЬ
-/// PAID-платежів, а не суму (calculateAccessUntil) — одна «жирна» оплата закрила б лише
-/// один місяць.
+/// Розбиває внесену суму на місячні платежі: N рядків по `monthlyPrice`, а залишок
+/// ДОЛИВАЄТЬСЯ в останній рядок (5000 при ціні 2200 → [2200, 2800], а не [2200,2200,600]).
+/// Потрібно тому, що графік доступу рахує КІЛЬКІСТЬ PAID-платежів, а не суму
+/// (calculateAccessUntil) — одна «жирна» оплата закрила б лише один місяць.
+///
+/// Чому без окремого рядка-залишку:
+///   • рядок на 600 ₴ давав ПОВНИЙ місяць доступу нарівні з повноцінним внеском;
+///   • залишок у 1-2 ₴ ще й губився порогом відсіювання тестових платежів.
+/// Долитий останній рядок зберігає і суму (дохід), і чесну кількість місяців.
 function splitManualAmount(amount: number, monthlyPrice: number): number[] {
   const full = Math.floor(amount / monthlyPrice);
+  // Сума менша за місячну ціну — ділити нема чого, це один платіж «як є».
+  if (full < 1) return [amount];
   const rest = amount - full * monthlyPrice;
   const parts = Array.from({ length: full }, () => monthlyPrice);
-  if (rest > 0) parts.push(rest);
+  if (rest > 0) parts[parts.length - 1] = monthlyPrice + rest;
   return parts;
 }
 
@@ -786,6 +819,25 @@ async function handleManualPayment(
     allowRevive: true,
   });
 
+  // Готівка закрила місяці, за які WFP ще збирається списати з картки. Без негайного
+  // зсуву графіка людину списують за вже оплачений період, а звірка виправить це лише
+  // нічним проходом — вікно у ~добу. Best-effort: помилка WFP не валить зафіксовану оплату
+  // (сам syncAutopaySchedule пише подію в журнал підписки).
+  let scheduleSync: Awaited<ReturnType<typeof syncAutopaySchedule>> | null = null;
+  if (sub.plan === 'MONTHLY' && sub.autoRenew) {
+    scheduleSync = await syncAutopaySchedule(sub.id, {
+      apply: true,
+      source: `admin:${actor} · manual_payment`,
+    }).catch((e) => ({
+      outcome: 'error' as const,
+      reason: (e as Error).message.slice(0, 200),
+      ruleRef: null,
+      nextChargeAt: null,
+      desiredNextAt: null,
+      changed: false,
+    }));
+  }
+
   const methodLabel = MANUAL_METHOD_LABELS[method] ?? method;
   const splitSummary = parts.length > 1
     ? ` · розбито на ${parts.length} платежів (${parts.join('+')})`
@@ -870,17 +922,22 @@ async function handleManualPayment(
     extraLaunch,
     welcome,
     receiptEmail,
+    scheduleSync,
     ...(warning ? { warning } : {}),
   });
 }
 
 /// «⬆️ Перевести на Річну» — клієнт доплатив повну вартість частинами (готівка/переказ),
 /// і місячна підписка стає річною. Що робимо:
-///   а) знімаємо WFP-регулярку (інакше картку списувало б далі);
-///   б) plan=YEARLY, autoRenew=false, чистимо кеш дати наступного списання;
-///   в) перераховуємо expiresAt за правилом YEARLY (cohort.endDate + пост-доступ);
-///   г) подія `plan_converted` з сумами;
-///   д) лист студенту (помилка листа дію не валить — повертаємо warning).
+///   а) знімаємо WFP-регулярку БЕЗУМОВНО; якщо жодну не зняли і WFP віддав помилку —
+///      конверсію перериваємо 409 (жива регулярка на YEARLY-плані = списання в нікуди);
+///   б) plan=YEARLY, autoRenew=false, чистимо кеш графіка і `wfpRegularRef`;
+///   в) статус → ACTIVE + скидання прапорців нагадувань/grace (конверсія з GRACE інакше
+///      лишала GRACE, і нічний cron закривав доступ щойно оплаченому клієнту);
+///   г) перераховуємо expiresAt за правилом YEARLY (cohort.endDate + пост-доступ);
+///   д) подія `plan_converted` з сумами;
+///   е) лист студенту (помилка листа дію не валить — повертаємо warning).
+/// Зміна плану — атомарний `updateMany where plan='MONTHLY'` (guard від подвійного кліку).
 /// Недоплату НЕ блокуємо: рішення за менеджером, UI показує залишок у конфірмі.
 async function handleConvertToYearly(sub: NonNullable<SubWithUser>, actor: string) {
   if (sub.plan !== 'MONTHLY') {
@@ -894,9 +951,24 @@ async function handleConvertToYearly(sub: NonNullable<SubWithUser>, actor: strin
   }
 
   // Регулярку знімаємо ДО зміни плану: removeSubscriptionAutopay працює тільки для MONTHLY.
-  const autopay = sub.autoRenew
-    ? await removeSubscriptionAutopay(sub.id)
-    : { removed: 0, attempted: 0, error: null as string | null };
+  //
+  // БЕЗУМОВНО, без гейта `sub.autoRenew`: прапорець може брехати. Якщо STATUS-probe у
+  // callback-у/звірці був inconclusive або REMOVE колись не докрутився, autoRenew уже
+  // false, а правило у WFP живе. Для підписки без регулярки виклик і так no-op —
+  // усі orderRef повернуть 4102, які ми ігноруємо.
+  const autopay = await removeSubscriptionAutopay(sub.id);
+  await recordAutopayRemoveOutcome({ subscriptionId: sub.id, result: autopay, source: `admin:${actor} · convert_to_yearly` });
+
+  // Спроби були, жодної регулярки не знято І WFP повернув помилку — ми НЕ знаємо, чи
+  // правило живе. Переводити на Річну в такому стані не можна: на YEARLY-плані рекурентне
+  // списання не має куди зарахуватись (піде в orphan), тобто клієнта списують за доступ,
+  // який він уже викупив. Краще заблокувати дію і дати менеджеру повторити.
+  if (autopay.attempted > 0 && autopay.removed === 0 && autopay.error) {
+    return NextResponse.json({
+      error: 'Не вдалося зняти автосписання у WayForPay — спробуйте ще раз',
+      autopay,
+    }, { status: 409 });
+  }
 
   const fresh = await prisma.yearlyProgramSubscription.findUnique({
     where: { id: sub.id },
@@ -925,8 +997,17 @@ async function handleConvertToYearly(sub: NonNullable<SubWithUser>, actor: strin
   const totalPaid = sumRealPaid(fresh?.payments ?? []);
   const remaining = Math.max(0, yearlyPrice - totalPaid);
 
-  await prisma.yearlyProgramSubscription.update({
-    where: { id: sub.id },
+  // Підписка вже оплачена (інакше переводити нема за що) — після конверсії вона має бути
+  // живою. Без цього конверсія з GRACE лишала status=GRACE, і найближчий нічний cron
+  // закривав доступ щойно розрахованому клієнту, а прапорці нагадувань з попереднього
+  // циклу давали листи «оплатіть» уже на Річному плані.
+  const hasPaidPayment = (fresh?.payments ?? []).some((p) => p.status === 'PAID');
+
+  // Атомарний guard від подвійного кліку: план міняємо лише якщо він ЩЕ MONTHLY.
+  // Другий (паралельний) запит отримає count=0 і 409 — без нього два кліки писали б
+  // дві події `plan_converted` і два листи студенту.
+  const claim = await prisma.yearlyProgramSubscription.updateMany({
+    where: { id: sub.id, plan: 'MONTHLY' },
     data: {
       plan: 'YEARLY',
       autoRenew: false,
@@ -934,11 +1015,19 @@ async function handleConvertToYearly(sub: NonNullable<SubWithUser>, actor: strin
       // показувала б дату списання, якого вже не буде.
       wfpNextChargeAt: null,
       wfpScheduleCheckedAt: null,
+      wfpRegularRef: null,
+      ...(hasPaidPayment ? { status: 'ACTIVE', ...RESET_REMINDER_AND_GRACE_FIELDS } : {}),
       ...(newExpiresAt ? { expiresAt: newExpiresAt } : {}),
     },
   });
+  if (claim.count === 0) {
+    return NextResponse.json(
+      { error: 'Підписку вже переведено на Річний план (можливо, іншим кліком або в паралельній вкладці).' },
+      { status: 409 },
+    );
+  }
 
-  const wfpSummary = sub.autoRenew
+  const wfpSummary = autopay.attempted > 0
     ? ` · WFP REMOVE: ${autopay.removed}/${autopay.attempted}${autopay.error ? ` (errors: ${autopay.error.slice(0, 200)})` : ''}`
     : '';
   await prisma.yearlyProgramSubscriptionEvent.create({
@@ -1432,6 +1521,7 @@ async function handleDelete(sub: NonNullable<SubWithUser>, actor: string) {
   // запис; reopen заборонений. Payment-и лишаються нерушеними з лінком на цю підписку.
   const hadAutoRenew = sub.autoRenew;
   const autopay = await removeSubscriptionAutopay(sub.id);
+  await recordAutopayRemoveOutcome({ subscriptionId: sub.id, result: autopay, source: `admin:${actor} · delete` });
 
   let sendpulseClosed = false;
   let sendpulseError: string | null = null;
@@ -1464,6 +1554,11 @@ async function handleDelete(sub: NonNullable<SubWithUser>, actor: string) {
       sendpulseAccessClosedAt: sendpulseClosed ? now : sub.sendpulseAccessClosedAt,
       // Чистимо технічні поля — підписку вже не можна реактивувати
       sendpulseStudentId: null,
+      // Архів = списань більше не буде. Прапор гасимо завжди, кеш дати — теж;
+      // `wfpRegularRef` лишаємо при провалі REMOVE як маркер для нічного ретраю.
+      autoRenew: false,
+      wfpNextChargeAt: null,
+      ...(autopay.error ? {} : { wfpRegularRef: null }),
     },
   });
 

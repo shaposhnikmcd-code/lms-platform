@@ -36,6 +36,7 @@ export type IssueKind =
   | 'ORPHAN_RECURRING_CHARGE'
   | 'RECURRING_CALLBACK_SKIPPED'
   | 'REVIVED_WITH_DEBT'
+  | 'WFP_REMOVE_FAILED'
   | 'EMAIL_FAILED';
 
 export const ISSUE_KIND_VALUES: IssueKind[] = [
@@ -50,8 +51,15 @@ export const ISSUE_KIND_VALUES: IssueKind[] = [
   'ORPHAN_RECURRING_CHARGE',
   'RECURRING_CALLBACK_SKIPPED',
   'REVIVED_WITH_DEBT',
+  'WFP_REMOVE_FAILED',
   'EMAIL_FAILED',
 ];
+
+/// Скільки провалів REMOVE поспіль треба, щоб підняти issue у вкладку «Помилки».
+/// Один провал — це найчастіше разова недоступність WFP: нічний ретрай-крок cron-а
+/// дотисне сам. Три поспіль означають, що правило живе і само не зникне, а картку
+/// клієнта продовжують списувати.
+const WFP_REMOVE_ISSUE_THRESHOLD = 3;
 
 export type IssueSeverity = 'critical' | 'warning' | 'info';
 
@@ -72,6 +80,8 @@ export const ISSUE_KIND_SEVERITY: Record<IssueKind, IssueSeverity> = {
   ORPHAN_RECURRING_CHARGE: 'critical',
   RECURRING_CALLBACK_SKIPPED: 'critical',
   REVIVED_WITH_DEBT: 'critical',
+  // critical: поки правило живе, картку клієнта списують за доступ, якого вже немає.
+  WFP_REMOVE_FAILED: 'critical',
   EMAIL_FAILED: 'warning',
 };
 
@@ -108,6 +118,7 @@ export const ISSUE_KIND_LABELS: Record<IssueKind, string> = {
   ORPHAN_RECURRING_CHARGE: 'Гроші списані після закриття підписки',
   RECURRING_CALLBACK_SKIPPED: 'Автосписання не зараховано (callback пропущено)',
   REVIVED_WITH_DEBT: 'Оплата з боргом — потрібне рішення менеджера',
+  WFP_REMOVE_FAILED: 'Автосписання у WayForPay не вдалося зняти',
   EMAIL_FAILED: 'Лист-нагадування не доставлено',
 };
 
@@ -125,6 +136,7 @@ export const ISSUE_HAS_RETRY: Record<IssueKind, boolean> = {
   ORPHAN_RECURRING_CHARGE: false, // ручне рішення: повернути гроші або поновити підписку
   RECURRING_CALLBACK_SKIPPED: false, // ручний розбір: звірити з кабінетом WFP
   REVIVED_WITH_DEBT: false,          // рішення менеджера: «Продовжити» / «Ручна оплата» / повернення
+  WFP_REMOVE_FAILED: false,          // нічний cron ретраїть сам; ручна дія — зняти правило в кабінеті WFP
   EMAIL_FAILED: false,               // cron сам ретраїть щодня; ручна дія — виправити email студента
 };
 
@@ -272,6 +284,16 @@ function classifyEvent(e: RawEvent): {
   if (e.type === 'access_close_failed') return { kind: 'SP_CLOSE_FAILED' };
   if (e.type === 'access_reopen_failed') return { kind: 'SP_REOPEN_FAILED' };
 
+  // Зняття WFP-регулярки. Успіх (ретрай cron-а дотиснув або менеджер зняв правило
+  // вручну) закриває issue. Провал піднімає його лише з WFP_REMOVE_ISSUE_THRESHOLD-ї
+  // спроби поспіль — лічильник пише `recordAutopayRemoveOutcome`.
+  if (e.type === 'wfp_remove_succeeded') return { kind: null, resolvesKind: 'WFP_REMOVE_FAILED' };
+  if (e.type === 'wfp_remove_failed') {
+    const meta = (e.metadata ?? null) as { consecutiveFailures?: number } | null;
+    const streak = typeof meta?.consecutiveFailures === 'number' ? meta.consecutiveFailures : 1;
+    return { kind: streak >= WFP_REMOVE_ISSUE_THRESHOLD ? 'WFP_REMOVE_FAILED' : null };
+  }
+
   // Оплата оживила мертву підписку, але за графіком набору доступ уже вичерпано:
   // гроші зайшли, а скільки саме доступу давати — рішення менеджера (callback лише фіксує факт).
   if (e.type === 'revived_with_debt') return { kind: 'REVIVED_WITH_DEBT' };
@@ -366,7 +388,7 @@ export async function collectAllIssues(): Promise<IssuesPayload> {
     prisma.yearlyProgramSubscriptionEvent.findMany({
       where: {
         OR: [
-          { type: { in: ['access_open_failed', 'launch_email_failed', 'access_opened', 'launch_email_sent', 'orphan_recurring_charge', 'revived_with_debt', 'reactivated', 'reminder_email_failed', 'access_close_failed', 'access_reopen_failed'] } },
+          { type: { in: ['access_open_failed', 'launch_email_failed', 'access_opened', 'launch_email_sent', 'orphan_recurring_charge', 'revived_with_debt', 'reactivated', 'reminder_email_failed', 'access_close_failed', 'access_reopen_failed', 'wfp_remove_failed', 'wfp_remove_succeeded'] } },
           { type: 'admin_action' },
         ],
       },
@@ -443,10 +465,13 @@ export async function collectAllIssues(): Promise<IssuesPayload> {
   const subById = new Map<string, RawSubscription>(subs.map((s) => [s.id, s]));
 
   /// ARCHIVED-підписки свідомо не входять у вибірку (їхні старі failure — історія).
-  /// Єдиний виняток: орфанне рекурентне списання — гроші прийшли ПІСЛЯ архівації,
-  /// і це треба показати менеджеру. Дотягуємо такі підписки точково.
+  /// Винятки, які треба показати менеджеру навіть в архіві:
+  ///   • орфанне рекурентне списання — гроші прийшли ПІСЛЯ архівації;
+  ///   • незняте автосписання у WFP — картку списують далі, попри архів.
+  /// Дотягуємо такі підписки точково.
+  const ARCHIVED_VISIBLE_EVENT_TYPES = new Set(['orphan_recurring_charge', 'wfp_remove_failed']);
   const orphanChargeSubIds = new Set(
-    events.filter((e) => e.type === 'orphan_recurring_charge').map((e) => e.subscriptionId),
+    events.filter((e) => ARCHIVED_VISIBLE_EVENT_TYPES.has(e.type)).map((e) => e.subscriptionId),
   );
   const missingSubIds = [...orphanChargeSubIds].filter((id) => !subById.has(id));
   if (missingSubIds.length > 0) {

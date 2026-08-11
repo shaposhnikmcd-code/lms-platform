@@ -7,7 +7,12 @@ import {
   closeAccessInCourse,
   lookupStudentIdByEmail,
 } from '@/lib/sendpulse';
-import { removeSubscriptionAutopay } from '@/lib/yearlyProgramAutopay';
+import {
+  removeSubscriptionAutopay,
+  recordAutopayRemoveOutcome,
+  WFP_REMOVE_FAILED_EVENT,
+  WFP_REMOVE_SUCCEEDED_EVENT,
+} from '@/lib/yearlyProgramAutopay';
 import { syncYearlyProgress } from '@/lib/certificates/syncYearlyProgress';
 import { verifyBearer } from '@/lib/authTiming';
 import {
@@ -185,6 +190,7 @@ const NOT_IN_UNLAUNCHED_COHORT = {
 /// Щоденний cron Річної програми (04:00, `0 4 * * *` у vercel.json).
 /// — Переводить ACTIVE → GRACE коли expiresAt у минулому.
 /// — Закриває доступ (GRACE → EXPIRED) коли grace-період вийшов.
+/// — Добиває зняття WFP-регулярки там, де вона могла пережити підписку (`retry_autopay_remove`).
 /// — Шле нагадування за адаптивним розкладом, що залежить від `graceDays` із налаштувань
 ///   (`yearlyGraceDays` в `AppSetting`, редагується з адмінки — тому кількість днів ніде
 ///   не хардкодиться, а mid/last вмикаються лише за достатньої тривалості):
@@ -222,6 +228,7 @@ export async function GET(req: NextRequest) {
   results.push(await runStep('grace_last', sendGraceLastReminders));
   results.push(await runStep('sendScheduledCohortLaunchEmails', sendScheduledCohortLaunchEmails));
   results.push(await runStep('sync_progress', syncYearlyCourseProgress));
+  results.push(await runStep('retry_autopay_remove', retryAutopayRemoval));
   results.push(await runStep('wfp_schedule_cache', refreshWfpScheduleCache));
 
   // ok=false якщо хоча б один крок упав цілком — видно і в логах Vercel-cron, і при ручному виклику.
@@ -573,9 +580,19 @@ async function expireGraceSubscriptions(): Promise<StepResult> {
       // закривається). Повторний виклик завтра безпечний: «правило вже знято» (4102/4104)
       // рахується як успіх, а не помилка.
       const autopay = await removeSubscriptionAutopay(sub.id);
+      await recordAutopayRemoveOutcome({ subscriptionId: sub.id, result: autopay, source: 'cron:expire-grace' });
       const wfpSummary = sub.plan === 'MONTHLY'
         ? ` · WFP REMOVE: ${autopay.removed}/${autopay.attempted}${autopay.error ? ` (errors: ${autopay.error.slice(0, 200)})` : ''}`
         : '';
+      // Поля, які має отримати підписка разом із переходом у EXPIRED. autoRenew гасимо
+      // завжди: доступ закритий, чекати списань більше нема сенсу, а живий прапорець
+      // залишав підписку у звірках і листах як «автоплатіжну». `wfpRegularRef` чистимо
+      // ЛИШЕ при успішному REMOVE — інакше це маркер для ретрай-кроку нижче.
+      const autopayFields = {
+        autoRenew: false,
+        wfpNextChargeAt: null,
+        ...(autopay.error ? {} : { wfpRegularRef: null }),
+      };
 
       if (courseId && !studentId && sub.user?.email) {
         // Останній шанс знайти studentId
@@ -621,6 +638,7 @@ async function expireGraceSubscriptions(): Promise<StepResult> {
             data: {
               status: 'EXPIRED',
               sendpulseAccessClosedAt: new Date(),
+              ...autopayFields,
             },
           });
           await prisma.yearlyProgramSubscriptionEvent.create({
@@ -661,7 +679,7 @@ async function expireGraceSubscriptions(): Promise<StepResult> {
         // Без courseId/studentId — позначаємо EXPIRED локально, але з поміткою.
         await prisma.yearlyProgramSubscription.update({
           where: { id: sub.id },
-          data: { status: 'EXPIRED' },
+          data: { status: 'EXPIRED', ...autopayFields },
         });
         await prisma.yearlyProgramSubscriptionEvent.create({
           data: {
@@ -1022,6 +1040,96 @@ async function syncYearlyCourseProgress(): Promise<StepResult> {
   };
 }
 
+/// Скільки підписок максимум добиваємо ретраєм REMOVE за один прохід — щоб крок не з'їв
+/// бюджет maxDuration (кожна підписка = 1 HTTP-виклик на кожен її WFP-платіж).
+const AUTOPAY_RETRY_BATCH = 25;
+
+/// Ретрай зняття WFP-регулярки для підписок, які вже НЕ мають отримувати списань:
+/// закриті (CANCELLED / EXPIRED / ARCHIVED) або переведені на Річний план.
+///
+/// Навіщо окремий крок: REMOVE у момент дії (скасування, закриття доступу, конверсія)
+/// міг не пройти — WFP лежав, таймаут, не налаштований merchantPassword. Раніше після
+/// такої невдачі не повторював ніхто: правило лишалось живим, і картку студента
+/// списували за доступ, якого вже немає.
+///
+/// Кандидат — підписка з ознакою «правило могло лишитись»:
+///   • `wfpRegularRef != null` (кеш знає живе правило), АБО
+///   • остання подія про REMOVE = провал (`wfp_remove_failed` новіша за `wfp_remove_succeeded`).
+/// Успіх чистить кеш і пише подію (вона ж резолвить issue). Провал пише подію з лічильником
+/// спроб поспіль — з третьої вона піднімається у вкладку «Помилки» (WFP_REMOVE_FAILED).
+async function retryAutopayRemoval(): Promise<StepResult> {
+  const errors: string[] = [];
+
+  // Останній результат REMOVE по кожній підписці. Подій цих типів одиниці, тож повна
+  // вибірка дешева; сортування desc + перший запис на підписку = найсвіжіший статус.
+  const removeEvents = await prisma.yearlyProgramSubscriptionEvent.findMany({
+    where: { type: { in: [WFP_REMOVE_FAILED_EVENT, WFP_REMOVE_SUCCEEDED_EVENT] } },
+    select: { subscriptionId: true, type: true },
+    orderBy: { createdAt: 'desc' },
+  });
+  const lastOutcome = new Map<string, string>();
+  for (const e of removeEvents) {
+    if (!lastOutcome.has(e.subscriptionId)) lastOutcome.set(e.subscriptionId, e.type);
+  }
+  const failedIds = [...lastOutcome.entries()]
+    .filter(([, type]) => type === WFP_REMOVE_FAILED_EVENT)
+    .map(([id]) => id);
+
+  const subs = await prisma.yearlyProgramSubscription.findMany({
+    where: {
+      OR: [
+        { status: { in: ['CANCELLED', 'EXPIRED', 'ARCHIVED'] } },
+        { plan: 'YEARLY' },
+      ],
+      AND: [
+        {
+          OR: [
+            { wfpRegularRef: { not: null } },
+            ...(failedIds.length > 0 ? [{ id: { in: failedIds } }] : []),
+          ],
+        },
+      ],
+    },
+    select: { id: true },
+    orderBy: { updatedAt: 'asc' },
+    take: AUTOPAY_RETRY_BATCH,
+  });
+  if (subs.length === 0) return { step: 'retry_autopay_remove', processed: 0, errors };
+
+  let processed = 0;
+  for (const s of subs) {
+    try {
+      // force: план уже міг стати YEARLY (конверсія) — без нього helper вийшов би no-op
+      // саме там, де правило найімовірніше й лишилось живим.
+      const result = await removeSubscriptionAutopay(s.id, { force: true });
+      const { consecutiveFailures } = await recordAutopayRemoveOutcome({
+        subscriptionId: s.id,
+        result,
+        source: 'cron:retry-autopay-remove',
+      });
+      if (result.error) {
+        errors.push(`${s.id}: спроба ${consecutiveFailures} · ${result.error.slice(0, 160)}`);
+        continue;
+      }
+      // Помилок немає (зняли або правила й не було) — кеш більше не має тримати ref.
+      await prisma.yearlyProgramSubscription.update({
+        where: { id: s.id },
+        data: { wfpRegularRef: null, wfpNextChargeAt: null, wfpScheduleCheckedAt: new Date() },
+      });
+      processed++;
+    } catch (e) {
+      errors.push(`${s.id}: ${(e as Error).message.slice(0, 160)}`);
+    }
+  }
+
+  return {
+    step: 'retry_autopay_remove',
+    processed,
+    errors,
+    ...(subs.length === AUTOPAY_RETRY_BATCH ? { info: `batch cap ${AUTOPAY_RETRY_BATCH} — решта наступним проходом` } : {}),
+  };
+}
+
 /// Щоденна звірка кешу «Наступний платіж» з WFP (regularApi STATUS, БЕЗ CHANGE).
 /// Оновлює wfpNextChargeAt/wfpScheduleCheckedAt для всіх автоплатіжних ACTIVE/GRACE —
 /// колонка в адмінці завжди показує реальний графік WFP, розбіжність із «Доступ до»
@@ -1049,6 +1157,14 @@ async function refreshWfpScheduleCache(): Promise<StepResult> {
         const applied = await syncAutopaySchedule(s.id, { apply: true, source: 'cron_fully_paid_remove' });
         if (applied.outcome === 'error') {
           errors.push(`${s.id} fully_paid REMOVE: ${(applied.reason ?? 'unknown').slice(0, 120)}`);
+          // Провал REMOVE має бути видимим окремим типом події — інакше ретрай-крок
+          // (він шукає підписки з останньою невдалою спробою) і вкладка «Помилки»
+          // цього кейсу не побачать: syncAutopaySchedule уже занулив wfpRegularRef.
+          await recordAutopayRemoveOutcome({
+            subscriptionId: s.id,
+            result: { removed: 0, attempted: 1, error: (applied.reason ?? 'unknown').slice(0, 300) },
+            source: 'cron:fully_paid_remove',
+          });
         } else {
           processed++;
         }

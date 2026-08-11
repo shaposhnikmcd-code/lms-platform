@@ -70,7 +70,11 @@ export async function syncAutopaySchedule(
     },
   });
   if (!sub) return skip('sub_not_found');
-  if (sub.plan !== 'MONTHLY' || !sub.autoRenew) return skip('not_autopay');
+  if (sub.plan !== 'MONTHLY') return skip('not_autopay');
+  // autoRenew=false і apply — нічого міняти не можна (підписка формально разова).
+  // Але READ-ONLY звірка (apply:false) дозволена: прапорець міг збрехати, а живе
+  // правило у WFP треба побачити, а не приховати за раннім виходом.
+  if (!sub.autoRenew && opts.apply) return skip('not_autopay');
   if (['CANCELLED', 'EXPIRED', 'ARCHIVED'].includes(sub.status)) return skip(`status_${sub.status.toLowerCase()}`);
   if (!sub.cohort) return skip('no_cohort');
   if (sub.payments.length === 0) return skip('no_paid_payments');

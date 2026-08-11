@@ -32,6 +32,7 @@ type IssueKind =
   | 'ORPHAN_RECURRING_CHARGE'
   | 'RECURRING_CALLBACK_SKIPPED'
   | 'REVIVED_WITH_DEBT'
+  | 'WFP_REMOVE_FAILED'
   | 'EMAIL_FAILED';
 
 const ALL_KINDS: IssueKind[] = [
@@ -46,6 +47,7 @@ const ALL_KINDS: IssueKind[] = [
   'ORPHAN_RECURRING_CHARGE',
   'RECURRING_CALLBACK_SKIPPED',
   'REVIVED_WITH_DEBT',
+  'WFP_REMOVE_FAILED',
   'EMAIL_FAILED',
 ];
 
@@ -271,6 +273,28 @@ const CATALOG: Record<IssueKind, CatalogEntry> = {
       'Рішення 1 — поновити студенту доступ («Відкрити знову» / «Продовжити») і зняти issue.',
       'Рішення 2 — повернути кошти в кабінеті WayForPay і зняти правило автосписання.',
       'У будь-якому разі перевірте, чи регулярка у WFP більше не активна, інакше списання повторяться.',
+    ],
+    hasRetry: false,
+  },
+  WFP_REMOVE_FAILED: {
+    severity: 'critical',
+    icon: '🔁',
+    shortTitle: 'Регулярка не знята',
+    title: 'Автосписання у WayForPay не вдалося зняти',
+    whatHappened:
+      'Підписка закрита (скасована / доступ закрито / архів) або переведена на Річний план, але правило регулярного списання у WayForPay зняти не вдалося. Нічний процес повторює спробу щодня; issue піднімається після трьох невдач поспіль.',
+    sideEffects:
+      'Правило живе — WayForPay може списати з картки студента гроші за доступ, якого вже немає. Кожне таке списання потім доведеться повертати.',
+    causes: [
+      'WayForPay API був недоступний або відповідав помилкою на момент спроби.',
+      'Не налаштований WAYFORPAY_MERCHANT_PASSWORD (без нього REMOVE неможливий).',
+      'Правило створене на orderReference, якого немає серед платежів підписки (ручне створення в кабінеті).',
+    ],
+    actions: [
+      'Відкрийте кабінет WayForPay → Регулярні платежі і знайдіть правило по email/orderReference студента.',
+      'Зніміть правило вручну — після цього нічна звірка сама закриє цю помилку.',
+      'Перевірте «Події» підписки: там повний текст відповіді WayForPay по кожній спробі.',
+      'Якщо списання вже пройшло — шукайте його у вкладці «Гроші списані після закриття підписки».',
     ],
     hasRetry: false,
   },

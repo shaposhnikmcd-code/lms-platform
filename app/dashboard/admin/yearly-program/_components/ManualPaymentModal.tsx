@@ -72,10 +72,12 @@ export default function ManualPaymentModal({
   const placeholderAmount = String(row.plan === 'YEARLY' ? yearlyPrice : monthlyPrice);
 
   // Розбивка пропонується тільки місячним підпискам і тільки коли сума тягне ≥ 2 місяці.
-  // Розрахунок дзеркалить сервер (splitManualAmount): N повних місяців + залишок окремо.
+  // Розрахунок дзеркалить сервер (splitManualAmount): N повних місяців, залишок доливається
+  // в ОСТАННІЙ рядок (окремого рядка-залишку немає — він давав би зайвий місяць доступу).
   const canSplit = row.plan === 'MONTHLY' && monthlyPrice > 0 && validAmount && amountNum >= 2 * monthlyPrice;
   const fullMonths = canSplit ? Math.floor(amountNum / monthlyPrice) : 0;
   const splitRest = canSplit ? amountNum - fullMonths * monthlyPrice : 0;
+  const lastPart = canSplit ? monthlyPrice + splitRest : 0;
 
   async function submit() {
     if (!canSubmit) return;
@@ -231,12 +233,12 @@ export default function ManualPaymentModal({
               />
               <span className="text-[12px] leading-relaxed">
                 <b>
-                  Розбити на {fullMonths + (splitRest > 0 ? 1 : 0)} платежів по {monthlyPrice.toLocaleString('uk-UA')} ₴
-                  {splitRest > 0 ? ` (+ залишок ${splitRest.toLocaleString('uk-UA')} ₴)` : ''}
+                  Розбити на {fullMonths} платежів по {monthlyPrice.toLocaleString('uk-UA')} ₴
+                  {splitRest > 0 ? ` (останній — ${lastPart.toLocaleString('uk-UA')} ₴ із залишком)` : ''}
                 </b>
                 <span className={`block mt-1 ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
                   {split
-                    ? `Закриє ${fullMonths}${splitRest > 0 ? '+1' : ''} місяців графіка. Студент отримає ОДНУ квитанцію на всю суму.`
+                    ? `Закриє ${fullMonths} місяців графіка. Студент отримає ОДНУ квитанцію на всю суму.`
                     : 'Без розбивки вся сума зарахується як ОДИН місяць графіка.'}
                 </span>
               </span>

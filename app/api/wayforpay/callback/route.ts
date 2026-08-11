@@ -710,6 +710,11 @@ async function logCallbackSkipEvent(args: {
 /// або підписку скасували між списаннями). Гроші реально списані — фіксуємо Payment
 /// із лінком на підписку і піднімаємо critical-issue. Статус підписки НЕ чіпаємо:
 /// повернути кошти чи поновити доступ — рішення менеджера.
+///
+/// `skipReason` пояснює, ЧОМУ платіж пішов орфанним шляхом, і формує текст події.
+/// Спільний принцип для всіх причин: гроші вже списані реально, тому Payment мусить
+/// бути в БД — «відкотити транзакцію і нічого не записати» означало б, що списання
+/// зникло з обліку назавжди (WFP цей callback більше не повторить).
 async function recordOrphanRecurringCharge(args: {
   subscriptionId: string;
   userId: string;
@@ -717,8 +722,21 @@ async function recordOrphanRecurringCharge(args: {
   orderReference: string;
   amountInt: number;
   paymentSystem: string | undefined;
+  /// Причина: 'closed_subscription' (дефолт), 'subscription_closed_race',
+  /// 'plan_not_monthly', 'amount_mismatch', 'monthly_cap_reached'.
+  skipReason?: string;
+  /// Технічна деталь для журналу (текст помилки з перевірки).
+  detail?: string;
 }): Promise<string[]> {
   const actions: string[] = [];
+  const skipReason = args.skipReason ?? 'closed_subscription';
+  const reasonText: Record<string, string> = {
+    plan_not_monthly: `Автосписання ${args.amountInt} грн надійшло на підписку, переведену на Річний план (регулярка у WayForPay лишилась живою). Платіж записано, доступ НЕ продовжено — потрібне рішення: повернути кошти або зарахувати доплату. Обов'язково зніміть правило автосписання у WFP.`,
+    amount_mismatch: `Автосписання ${args.amountInt} грн не збіглося з очікуваною сумою підписки. Платіж записано (гроші реально списані), доступ НЕ продовжено — потрібне рішення менеджера.`,
+    monthly_cap_reached: `Автосписання ${args.amountInt} грн надійшло понад ліміт місячних платежів програми. Платіж записано, доступ НЕ продовжено — ймовірно, правило регулярки у WayForPay не було знято після повної оплати.`,
+  };
+  const message = reasonText[skipReason]
+    ?? `Автосписання ${args.amountInt} грн надійшло на підписку у статусі ${args.subscriptionStatus}. Платіж записано, доступ НЕ продовжено — потрібне рішення: повернути кошти або поновити підписку.`;
   try {
     await prisma.$transaction(async (tx) => {
       const existing = await tx.payment.findUnique({
@@ -746,11 +764,13 @@ async function recordOrphanRecurringCharge(args: {
         data: {
           subscriptionId: args.subscriptionId,
           type: 'orphan_recurring_charge',
-          message: `Автосписання ${args.amountInt} грн надійшло на підписку у статусі ${args.subscriptionStatus}. Платіж записано, доступ НЕ продовжено — потрібне рішення: повернути кошти або поновити підписку.`,
+          message,
           metadata: {
             orderReference: args.orderReference,
             amount: args.amountInt,
             subscriptionStatus: args.subscriptionStatus,
+            skipReason,
+            ...(args.detail ? { detail: args.detail.slice(0, 300) } : {}),
           },
         },
       });
@@ -1357,6 +1377,33 @@ async function handleYearlyProgramCallback(args: {
       };
     }
 
+    // Підписку перевели на Річний план («⬆️ Перевести на Річну»), а регулярка у WFP
+    // усе одно спрацювала. Звичайним `renewed`-платежем це бути не може: місячних слотів
+    // на YEARLY-плані немає, і зарахування мовчки подовжило б доступ за зайві гроші.
+    // Фіксуємо як orphan + critical-issue, щоб у «Помилках» було видно «списання по
+    // переведеній підписці» і менеджер зняв правило/повернув кошти.
+    if (targetSub.plan !== 'MONTHLY') {
+      const orphanActions = await recordOrphanRecurringCharge({
+        subscriptionId: targetSub.id,
+        userId: targetSub.userId,
+        subscriptionStatus: targetSub.status,
+        orderReference: args.orderReference,
+        amountInt,
+        paymentSystem: typeof args.body.paymentSystem === 'string' ? args.body.paymentSystem : undefined,
+        skipReason: 'plan_not_monthly',
+        detail: `plan=${targetSub.plan}`,
+      });
+      actions.push(...orphanActions);
+      return {
+        prevStatus: null,
+        skipped: true,
+        skipReason: 'orphan_recurring_charge',
+        errorMsg: `Recurring charge ${amountInt} on ${targetSub.plan} subscription ${targetSub.id} (order ${args.orderReference})`,
+        actions,
+        sendpulseSlugs,
+      };
+    }
+
     // Для recurring callback довіряємо merchantSignature (вже валідовано вище).
     // Захист від двох одночасних recurring-колбеків — Serializable transaction
     // + UNIQUE constraint на Payment.orderReference.
@@ -1390,9 +1437,16 @@ async function handleYearlyProgramCallback(args: {
         // Очікувана сума для рекурент-списання = сума першого PAID платежу
         // цієї підписки (бо WFP токенізує оригінальну суму). Якщо немає
         // попередніх PAID — fallback на поточний monthlyPrice з налаштувань.
+        //
+        // `manualMethod: null` обов'язковий: еталоном може бути ТІЛЬКИ платіж WayForPay.
+        // Ручні рядки (готівка/переказ/перенесення 0 ₴/залишок авто-розбивки) сумою до
+        // регулярки не мають стосунку — якби такий рядок став еталоном, усі легальні
+        // списання почали б відкидатись як amount_mismatch.
+        // Вторинне сортування по createdAt: у ручних/імпортованих рядків paidAt може
+        // збігатись до мілісекунди, і без нього порядок був би недетермінований.
         const firstPaid = await tx.payment.findFirst({
-          where: { yearlyProgramSubscriptionId: sub.id, status: 'PAID' },
-          orderBy: { paidAt: 'asc' },
+          where: { yearlyProgramSubscriptionId: sub.id, status: 'PAID', manualMethod: null },
+          orderBy: [{ paidAt: 'asc' }, { createdAt: 'asc' }],
           select: { amount: true },
         });
         const settings = firstPaid ? null : await getYearlyProgramSettings(tx);
@@ -1446,21 +1500,34 @@ async function handleYearlyProgramCallback(args: {
     }
 
     if (createResult.kind === 'error') {
-      // Підписку закрили вже після резолву (гонка з адмін-скасуванням): транзакція
-      // відкотилась, але гроші списані — фіксуємо їх як orphan-charge, а не мовчки губимо.
-      if (createResult.skipReason === 'subscription_closed_race') {
+      // Транзакція відкотилась, але гроші списані реально. Усі причини нижче ведуть
+      // одним шляхом — orphan-запис: Payment фіксуємо, доступ НЕ продовжуємо, підіймаємо
+      // critical-issue. Раніше amount_mismatch і monthly_cap_reached просто відкочували
+      // все і не записували нічого — списання зникало з обліку (WFP цей callback не повторить).
+      //   subscription_closed_race — гонка з адмін-скасуванням;
+      //   amount_mismatch — WFP списав не ту суму;
+      //   monthly_cap_reached — списання понад ліміт платежів програми.
+      const ORPHAN_SKIP_REASONS = new Set(['subscription_closed_race', 'amount_mismatch', 'monthly_cap_reached']);
+      if (ORPHAN_SKIP_REASONS.has(createResult.skipReason)) {
         const raceActions = await recordOrphanRecurringCharge({
           subscriptionId: targetSub.id,
           userId: targetSub.userId,
-          subscriptionStatus: 'CLOSED_MID_CALLBACK',
+          subscriptionStatus: createResult.skipReason === 'subscription_closed_race'
+            ? 'CLOSED_MID_CALLBACK'
+            : targetSub.status,
           orderReference: args.orderReference,
           amountInt,
           paymentSystem: typeof args.body.paymentSystem === 'string' ? args.body.paymentSystem : undefined,
+          skipReason: createResult.skipReason,
+          detail: createResult.errorMsg,
         });
-        actions.push(...raceActions);
+        actions.push(...raceActions, `yearly:orphan_reason_${createResult.skipReason}`);
         return {
           prevStatus: null,
           skipped: true,
+          // Єдиний skipReason на всі orphan-кейси: гроші вже зафіксовані Payment-ом,
+          // тож дублювати їх ще й як RECURRING_CALLBACK_SKIPPED у «Помилках» не треба —
+          // конкретна причина лишається в події підписки і в actionsTaken лог-запису.
           skipReason: 'orphan_recurring_charge',
           errorMsg: createResult.errorMsg,
           actions,
