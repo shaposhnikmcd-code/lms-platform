@@ -15,6 +15,8 @@ import {
 } from '@/lib/yearlyProgramAutopay';
 import { syncYearlyProgress } from '@/lib/certificates/syncYearlyProgress';
 import { verifyBearer } from '@/lib/authTiming';
+import { kyivMidnightUtc } from '@/lib/timezone';
+import { WFP_REMOVE_ISSUE_THRESHOLD } from '@/lib/yearlyProgramIssues';
 import {
   manualBeforeExpiry,
   manualOnExpiry,
@@ -40,9 +42,26 @@ const CONCURRENCY = 5;
 /// Дефолтних 10-60с не вистачає на великий cohort → Fluid Compute-ліміт 300с.
 export const maxDuration = 300;
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 /// Скільки підписок максимум лікуємо за один прохід heal_unopened — щоб крок не з'їв
-/// увесь бюджет maxDuration (300с на 13 кроків) і не заблокував решту. Залишок підбереться завтра.
+/// увесь бюджет maxDuration (300с на 15 кроків) і не заблокував решту. Залишок підбереться завтра.
+///
+/// Батч адаптивний: одразу після запуску набору (перші `FRESH_LAUNCH_WINDOW_MS`) heal —
+/// це основний механізм добору тих, кого не встиг обробити обірваний по таймауту
+/// `executeLaunchLoop`. По 15 на добу великий набір лікувався б тиждень, тому у вікні
+/// свіжого запуску беремо вчетверо більше; далі повертаємось до економного режиму.
 const HEAL_UNOPENED_BATCH = 15;
+const HEAL_UNOPENED_BATCH_FRESH_LAUNCH = 60;
+const FRESH_LAUNCH_WINDOW_MS = 7 * DAY_MS;
+
+/// Скільки welcome-листів максимум досилаємо за прохід (на кожен набір).
+const HEAL_EMAIL_BATCH = 40;
+
+/// Мінімальний «відстій» між відкриттям доступу і досиланням листа. Захищає від гонки
+/// з ручним запуском, який менеджер робить прямо зараз (доступ уже відкрито, розсилка
+/// ще йде) — інакше cron надіслав би другий лист паралельно з першим.
+const HEAL_EMAIL_MIN_AGE_MS = 6 * 60 * 60 * 1000;
 
 /// Telegram invite-лінк живе 30 днів (`createChatInviteLink`, expireSeconds). Усе, що старше
 /// 25 днів, у heal-кроці перегенеровуємо — інакше в welcome-лист потрапить мертве посилання.
@@ -191,9 +210,14 @@ const NOT_IN_UNLAUNCHED_COHORT = {
 /// — Переводить ACTIVE → GRACE коли expiresAt у минулому.
 /// — Закриває доступ (GRACE → EXPIRED) коли grace-період вийшов.
 /// — Добиває зняття WFP-регулярки там, де вона могла пережити підписку (`retry_autopay_remove`).
-/// — Шле нагадування за адаптивним розкладом, що залежить від `graceDays` із налаштувань
+/// — Досилає welcome-лист там, де доступ уже відкрито, а листа не було (`heal_missing_welcome_email`).
+/// — Раз на добу штовхає менеджерам критичні issue-и (`push_critical_issues`).
+/// — Шле нагадування за адаптивним розкладом. Тривалість grace береться з налаштувань
 ///   (`yearlyGraceDays` в `AppSetting`, редагується з адмінки — тому кількість днів ніде
-///   не хардкодиться, а mid/last вмикаються лише за достатньої тривалості):
+///   не хардкодиться) у МОМЕНТ переходу в GRACE і далі фіксується в записі: увесь розклад
+///   листів конкретної підписки рахується від `gracePeriodEndsAt − graceStartedAt`
+///   (`storedGraceDays`), тож зміна налаштування посеред чужого grace нікому не бреше.
+///   mid/last вмикаються лише за достатньої зафіксованої тривалості:
 ///   MANUAL (разова оплата, autoRenew=false):
 ///     за 3 дні до закінчення → у день закінчення → grace-start → mid (≥5д) → last (≥3д) → закриття
 ///   CYCLICAL (автоплатіж) — коли є про що попереджати, тобто списання провалилось
@@ -227,9 +251,14 @@ export async function GET(req: NextRequest) {
   results.push(await runStep('grace_mid', sendGraceMidReminders));
   results.push(await runStep('grace_last', sendGraceLastReminders));
   results.push(await runStep('sendScheduledCohortLaunchEmails', sendScheduledCohortLaunchEmails));
+  // Після планових розсилок: те, що лишилось без листа після них, — це вже дірка, а не черга.
+  results.push(await runStep('heal_missing_welcome_email', healMissingWelcomeEmails));
   results.push(await runStep('sync_progress', syncYearlyCourseProgress));
   results.push(await runStep('retry_autopay_remove', retryAutopayRemoval));
   results.push(await runStep('wfp_schedule_cache', refreshWfpScheduleCache));
+  // Останнім: до цього моменту всі кроки вже полагодили те, що лагодиться само, тож
+  // менеджерам іде лише те, що система сама не вирішить.
+  results.push(await runStep('push_critical_issues', pushCriticalIssues));
 
   // ok=false якщо хоча б один крок упав цілком — видно і в логах Vercel-cron, і при ручному виклику.
   const failedSteps = results.filter((r) => r.error).map((r) => r.step);
@@ -312,6 +341,13 @@ async function runScheduledCohortLaunches(): Promise<StepResult> {
 async function healUnopenedAccess(): Promise<StepResult> {
   const errors: string[] = [];
   const now = new Date();
+
+  // Вікно свіжого запуску → більший батч (див. HEAL_UNOPENED_BATCH_FRESH_LAUNCH).
+  const freshLaunches = await prisma.yearlyProgramCohort.count({
+    where: { launchedAt: { gte: new Date(now.getTime() - FRESH_LAUNCH_WINDOW_MS) } },
+  });
+  const batchSize = freshLaunches > 0 ? HEAL_UNOPENED_BATCH_FRESH_LAUNCH : HEAL_UNOPENED_BATCH;
+
   const subs = await prisma.yearlyProgramSubscription.findMany({
     where: {
       sendpulseAccessOpenedAt: null,
@@ -330,7 +366,7 @@ async function healUnopenedAccess(): Promise<StepResult> {
       user: { select: { email: true, name: true } },
     },
     orderBy: { createdAt: 'asc' },
-    take: HEAL_UNOPENED_BATCH,
+    take: batchSize,
   });
   if (subs.length === 0) return { step: 'heal_unopened', processed: 0, errors };
 
@@ -385,7 +421,89 @@ async function healUnopenedAccess(): Promise<StepResult> {
     }
   }
 
-  return { step: 'heal_unopened', processed, errors };
+  return {
+    step: 'heal_unopened',
+    processed,
+    errors,
+    ...(subs.length === batchSize
+      ? { info: `batch cap ${batchSize}${freshLaunches > 0 ? ' (свіжий запуск)' : ''} — решта наступним проходом` }
+      : {}),
+  };
+}
+
+/// Self-healing «доступ є, а листа немає». Дзеркальна дірка до `heal_unopened`: SendPulse
+/// відкрили, а welcome-лист із входом не пішов — масова розсилка пропустила людину
+/// (оплатила пізніше), лист впав на Resend, або extra-launch відкрив доступ у момент,
+/// коли пошта лежала. Студент платить, доступ є, але він про це не знає.
+///
+/// Критерій навмисно вузький:
+///   • набір launched, ще не завершений (`endDate >= now`) і по ньому ВЖЕ була масова
+///     розсилка (`emailSentAt != null`). Останнє критично: якщо менеджер свідомо запустив
+///     набір без листів (або запланував розсилку на потім), cron не має вирішувати за нього.
+///   • запланована розсилка не має чекати попереду (`emailScheduledFor` у майбутньому) —
+///     інакше лист пішов би раніше за задуманий менеджером час.
+///   • доступ відкрито щонайменше `HEAL_EMAIL_MIN_AGE_MS` тому — щоб не гонитись із
+///     ручним запуском, який іде прямо зараз.
+///   • статус ACTIVE/GRACE + є PAID-платіж; сам `sendCohortLaunchEmails` ще раз перевіряє
+///     і оплату, і відкритий доступ, тож зайвого листа неоплаченому не буде.
+/// Дедуп — по події `launch_email_sent` (її ж пише і сама розсилка).
+async function healMissingWelcomeEmails(): Promise<StepResult> {
+  const errors: string[] = [];
+  const now = new Date();
+  const openedBefore = new Date(now.getTime() - HEAL_EMAIL_MIN_AGE_MS);
+
+  const cohorts = await prisma.yearlyProgramCohort.findMany({
+    where: {
+      launchedAt: { not: null },
+      endDate: { gte: now },
+      emailSentAt: { not: null },
+      OR: [{ emailScheduledFor: null }, { emailScheduledFor: { lte: now } }],
+    },
+    select: { id: true, name: true, startDate: true, endDate: true, launchEmailSubject: true, launchEmailBody: true },
+  });
+  if (cohorts.length === 0) return { step: 'heal_missing_welcome_email', processed: 0, errors };
+
+  const { sendCohortLaunchEmails } = await import('@/lib/yearlyProgramSendEmails');
+
+  let processed = 0;
+  let capped = false;
+  for (const cohort of cohorts) {
+    try {
+      const subs = await prisma.yearlyProgramSubscription.findMany({
+        where: {
+          cohortId: cohort.id,
+          status: { in: ['ACTIVE', 'GRACE'] },
+          sendpulseAccessOpenedAt: { not: null, lte: openedBefore },
+          payments: { some: { status: 'PAID' } },
+          events: { none: { type: 'launch_email_sent' } },
+        },
+        select: { id: true },
+        orderBy: { sendpulseAccessOpenedAt: 'asc' },
+        take: HEAL_EMAIL_BATCH,
+      });
+      if (subs.length === 0) continue;
+      if (subs.length === HEAL_EMAIL_BATCH) capped = true;
+
+      // targetIds → per-recipient режим: `emailSentAt` набору не переписується, а dedup
+      // нам не потрібен (ми й відібрали тих, у кого події про лист немає).
+      const summary = await sendCohortLaunchEmails(cohort, {
+        targetIds: subs.map((s) => s.id),
+        actorLabel: 'heal-cron',
+        source: 'cron',
+      });
+      processed += summary.sent;
+      if (summary.failed > 0) errors.push(`${cohort.name}: ${summary.failed}/${summary.total} failed`);
+    } catch (e) {
+      errors.push(`cohort ${cohort.id}: ${(e as Error).message.slice(0, 200)}`);
+    }
+  }
+
+  return {
+    step: 'heal_missing_welcome_email',
+    processed,
+    errors,
+    ...(capped ? { info: `batch cap ${HEAL_EMAIL_BATCH} на набір — решта наступним проходом` } : {}),
+  };
 }
 
 /// Запланована welcome-розсилка cohort-у. Менеджер міг (а) при запуску LaunchProgramModal
@@ -487,7 +605,10 @@ async function transitionActiveToGrace(): Promise<StepResult> {
   const now = new Date();
   const errors: string[] = [];
   const graceDays = await getYearlyGraceDays(prisma);
-  const gracePeriodEndsAt = new Date(now.getTime() + graceDays * 24 * 60 * 60 * 1000);
+  // Кінець grace — 00:00 КИЇВСЬКОЇ доби через graceDays днів, а не «зараз + N×24год».
+  // Так у листі стоїть чесна календарна дата («до 12.08»), студент має весь останній день
+  // цілком, а закриття не «повзе» разом із часом нічного проходу.
+  const gracePeriodEndsAt = kyivMidnightUtc(now, graceDays);
   const candidates = await prisma.yearlyProgramSubscription.findMany({
     where: {
       status: 'ACTIVE',
@@ -757,6 +878,22 @@ function cyclicalNeedsWarning(sub: { failedChargeCount: number | null; wfpRegula
   return (sub.failedChargeCount ?? 0) > 0 || sub.wfpRegularRef === null;
 }
 
+/// Тривалість grace, ЗАФІКСОВАНА в момент переходу ACTIVE→GRACE (gracePeriodEndsAt −
+/// graceStartedAt). Увесь розклад листів усередині grace має рахуватись від неї, а не від
+/// поточного `yearlyGraceDays` з налаштувань: інакше зміна налаштування посеред чужого
+/// grace давала брехливі листи. Приклад (14 → 3): підписка увійшла в grace до 25.08,
+/// менеджер міняє на 3 — і того ж вечора людина отримує «завтра закриваємо», хоча
+/// у її записі стоїть 25.08 і закриття станеться саме тоді.
+/// Fallback на поточне налаштування — лише для legacy-рядків без обох дат.
+function storedGraceDays(
+  sub: { graceStartedAt: Date | null; gracePeriodEndsAt: Date | null },
+  fallback: number,
+): number {
+  if (!sub.graceStartedAt || !sub.gracePeriodEndsAt) return fallback;
+  const days = Math.round((sub.gracePeriodEndsAt.getTime() - sub.graceStartedAt.getTime()) / DAY_MS);
+  return days >= 1 ? days : fallback;
+}
+
 /// MANUAL #1: за 3 дні до експайру. Тільки MANUAL (autoRenew=false) ACTIVE.
 async function sendManualBeforeExpiryReminders(): Promise<StepResult> {
   const errors: string[] = [];
@@ -804,9 +941,11 @@ async function sendManualBeforeExpiryReminders(): Promise<StepResult> {
 async function sendManualOnExpiryReminders(): Promise<StepResult> {
   const errors: string[] = [];
   const now = new Date();
-  const startOfToday = new Date(now);
-  startOfToday.setUTCHours(0, 0, 0, 0);
-  const startOfTomorrow = new Date(startOfToday.getTime() + 24 * 60 * 60 * 1000);
+  // Межі доби — київські, не UTC. З `setUTCHours(0)` доба різалась о 03:00 за Києвом:
+  // підписка, що спливає 15.08 о 01:00 Kyiv (=14.08 22:00 UTC), рахувалась «вчорашньою»
+  // і листа «сьогодні останній день» людина не отримувала взагалі.
+  const startOfToday = kyivMidnightUtc(now, 0);
+  const startOfTomorrow = kyivMidnightUtc(now, 1);
 
   const subs = await prisma.yearlyProgramSubscription.findMany({
     where: {
@@ -848,8 +987,9 @@ async function sendManualOnExpiryReminders(): Promise<StepResult> {
 async function sendGraceStartReminders(): Promise<StepResult> {
   const errors: string[] = [];
   const now = new Date();
-  // Поточне значення graceDays із налаштувань — передаємо у render-функції, щоб тексти
-  // листів автоматично відображали актуальну тривалість пільгового періоду.
+  // Поточне значення graceDays — лише fallback для legacy-рядків без grace-дат. Для решти
+  // у листі стоїть тривалість, зафіксована в момент переходу в GRACE (`storedGraceDays`),
+  // щоб текст не суперечив реальній даті закриття.
   const graceDays = await getYearlyGraceDays(prisma);
 
   // «День +1»: не шлемо в тому ж проході, у якому підписка щойно перейшла в GRACE.
@@ -862,16 +1002,16 @@ async function sendGraceStartReminders(): Promise<StepResult> {
   // настане раніше за наступний добовий прохід, тож із затримкою лист не пішов би взагалі.
   // На такому налаштуванні шлемо одразу: краще двоє листів поспіль, ніж жодного попередження.
   const GRACE_START_MIN_AGE_MS = 20 * 60 * 60 * 1000;
-  const applyAgeGate = graceDays >= 3;
   const graceStartCutoff = new Date(now.getTime() - GRACE_START_MIN_AGE_MS);
 
+  // Гейт «день +1» застосовується per-subscription (за її власною тривалістю grace),
+  // тому у вибірку беремо всіх, а відсіюємо в циклі.
   const subs = await prisma.yearlyProgramSubscription.findMany({
     where: {
       status: 'GRACE',
       plan: 'MONTHLY',
       reminderSentGraceStart: false,
       gracePeriodEndsAt: { not: null },
-      ...(applyAgeGate ? { graceStartedAt: { lte: graceStartCutoff } } : {}),
       ...NOT_IN_UNLAUNCHED_COHORT,
     },
     include: { user: true, ...PAID_COUNT_INCLUDE },
@@ -881,6 +1021,9 @@ async function sendGraceStartReminders(): Promise<StepResult> {
   await processInParallel(subs, async (sub) => {
     try {
       if (!sub.user?.email || !sub.gracePeriodEndsAt) return;
+      const spanDays = storedGraceDays(sub, graceDays);
+      // Короткий grace (<3 днів) — шлемо одразу, інакше лист не встиг би піти взагалі.
+      if (spanDays >= 3 && sub.graceStartedAt && sub.graceStartedAt > graceStartCutoff) return;
       // Повністю оплачені (9/9) не отримують ЖОДНОГО платіжного нагадування — ні manual,
       // ні cyclical: платити нема за що, це просто кінець пост-доступу.
       if (isFullyPaid(sub)) return;
@@ -894,8 +1037,8 @@ async function sendGraceStartReminders(): Promise<StepResult> {
         flag: 'reminderSentGraceStart',
         to: sub.user.email,
         render: () => (isManual
-          ? manualGraceStart({ name: sub.user!.name, gracePeriodEndsAt, graceDays })
-          : cyclicalChargeFailed1({ name: sub.user!.name, gracePeriodEndsAt, graceDays })),
+          ? manualGraceStart({ name: sub.user!.name, gracePeriodEndsAt, graceDays: spanDays })
+          : cyclicalChargeFailed1({ name: sub.user!.name, gracePeriodEndsAt, graceDays: spanDays })),
         eventType: isManual ? 'reminder_manual_grace_start' : 'reminder_cyclical_failed1',
         eventMessage: `Grace ends ${gracePeriodEndsAt.toISOString().slice(0, 10)}`,
       });
@@ -916,22 +1059,17 @@ async function sendGraceStartReminders(): Promise<StepResult> {
 /// різні шаблони, спільне поле reminderSentGraceMid.
 async function sendGraceMidReminders(): Promise<StepResult> {
   const graceDays = await getYearlyGraceDays(prisma);
-  if (graceDays < 5) {
-    return { step: 'grace_mid', processed: 0, errors: [] };
-  }
   const errors: string[] = [];
   const now = new Date();
-  const midDay = Math.ceil(graceDays / 2);
-  // День +1 grace = graceStartedAt. Хочемо fire на день +midDay → потрібно щоб минуло (midDay - 1) діб.
-  // Беремо <= щоб точка-в-точку співпадіння теж тригерило (cron + transitionActiveToGrace на одній годині).
-  const cutoff = new Date(now.getTime() - (midDay - 1) * 24 * 60 * 60 * 1000);
 
+  // Поріг «≥5 днів» і точка midDay рахуються per-subscription від її ВЛАСНОЇ тривалості
+  // grace (storedGraceDays) — вибірка тому широка, відсів у циклі.
   const subs = await prisma.yearlyProgramSubscription.findMany({
     where: {
       status: 'GRACE',
       plan: 'MONTHLY',
       reminderSentGraceMid: false,
-      graceStartedAt: { lte: cutoff },
+      graceStartedAt: { not: null },
       gracePeriodEndsAt: { not: null },
       ...NOT_IN_UNLAUNCHED_COHORT,
     },
@@ -941,7 +1079,13 @@ async function sendGraceMidReminders(): Promise<StepResult> {
   let processed = 0;
   await processInParallel(subs, async (sub) => {
     try {
-      if (!sub.user?.email || !sub.gracePeriodEndsAt) return;
+      if (!sub.user?.email || !sub.gracePeriodEndsAt || !sub.graceStartedAt) return;
+      const spanDays = storedGraceDays(sub, graceDays);
+      // <5 днів — проміжна точка занадто близько до start/last, шлемо тільки їх.
+      if (spanDays < 5) return;
+      const midDay = Math.ceil(spanDays / 2);
+      // День +1 grace = graceStartedAt. Fire на день +midDay → має минути (midDay − 1) діб.
+      if (now.getTime() < sub.graceStartedAt.getTime() + (midDay - 1) * DAY_MS) return;
       // 9/9 — платити нема за що, платіжні листи не шлемо нікому (див. isFullyPaid).
       if (isFullyPaid(sub)) return;
       const isManual = !sub.autoRenew;
@@ -958,7 +1102,7 @@ async function sendGraceMidReminders(): Promise<StepResult> {
           ? manualGraceMid({ name: sub.user!.name, gracePeriodEndsAt })
           : cyclicalGraceMid({ name: sub.user!.name, gracePeriodEndsAt })),
         eventType: isManual ? 'reminder_manual_grace_mid' : 'reminder_cyclical_grace_mid',
-        eventMessage: `Grace ends ${gracePeriodEndsAt.toISOString().slice(0, 10)} · midDay=${midDay} · graceDays=${graceDays}`,
+        eventMessage: `Grace ends ${gracePeriodEndsAt.toISOString().slice(0, 10)} · midDay=${midDay} · graceDays=${spanDays}`,
       });
       if (r.outcome === 'failed') errors.push(`${sub.id}: ${r.error}`);
       if (r.outcome === 'sent') processed++;
@@ -976,20 +1120,16 @@ async function sendGraceMidReminders(): Promise<StepResult> {
 /// інакше колізія зі start (при graceDays=2 day-of-grace=2 = day закриття; при graceDays=1 — взагалі немає сенсу).
 async function sendGraceLastReminders(): Promise<StepResult> {
   const graceDays = await getYearlyGraceDays(prisma);
-  if (graceDays < 3) {
-    return { step: 'grace_last', processed: 0, errors: [] };
-  }
   const errors: string[] = [];
   const now = new Date();
-  // Той самий принцип, що й у mid — fire на день +graceDays від graceStartedAt.
-  const cutoff = new Date(now.getTime() - (graceDays - 1) * 24 * 60 * 60 * 1000);
 
+  // Як і в mid: поріг «≥3 днів» і точка «останній день» — від власної тривалості grace.
   const subs = await prisma.yearlyProgramSubscription.findMany({
     where: {
       status: 'GRACE',
       plan: 'MONTHLY',
       reminderSentGraceLast: false,
-      graceStartedAt: { lte: cutoff },
+      graceStartedAt: { not: null },
       // Safety: не шлемо «завтра закриваємо» якщо grace вже фактично завершився
       // (рідкісний edge — cron не запускався і експайр пропустили).
       gracePeriodEndsAt: { gt: now },
@@ -1001,7 +1141,12 @@ async function sendGraceLastReminders(): Promise<StepResult> {
   let processed = 0;
   await processInParallel(subs, async (sub) => {
     try {
-      if (!sub.user?.email || !sub.gracePeriodEndsAt) return;
+      if (!sub.user?.email || !sub.gracePeriodEndsAt || !sub.graceStartedAt) return;
+      const spanDays = storedGraceDays(sub, graceDays);
+      // <3 днів — «завтра закриваємо» дублювало б grace-start.
+      if (spanDays < 3) return;
+      // Fire на день +spanDays від graceStartedAt → має минути (spanDays − 1) діб.
+      if (now.getTime() < sub.graceStartedAt.getTime() + (spanDays - 1) * DAY_MS) return;
       // 9/9 — платити нема за що, платіжні листи не шлемо нікому (див. isFullyPaid).
       if (isFullyPaid(sub)) return;
       const isManual = !sub.autoRenew;
@@ -1016,7 +1161,7 @@ async function sendGraceLastReminders(): Promise<StepResult> {
           ? manualGraceLast({ name: sub.user!.name, gracePeriodEndsAt })
           : cyclicalGraceLast({ name: sub.user!.name, gracePeriodEndsAt })),
         eventType: isManual ? 'reminder_manual_grace_last' : 'reminder_cyclical_grace_last',
-        eventMessage: `Grace ends ${gracePeriodEndsAt.toISOString().slice(0, 10)} · graceDays=${graceDays}`,
+        eventMessage: `Grace ends ${gracePeriodEndsAt.toISOString().slice(0, 10)} · graceDays=${spanDays}`,
       });
       if (r.outcome === 'failed') errors.push(`${sub.id}: ${r.error}`);
       if (r.outcome === 'sent') processed++;
@@ -1044,6 +1189,11 @@ async function syncYearlyCourseProgress(): Promise<StepResult> {
 /// бюджет maxDuration (кожна підписка = 1 HTTP-виклик на кожен її WFP-платіж).
 const AUTOPAY_RETRY_BATCH = 25;
 
+/// Вікно і стеля вибірки подій REMOVE (див. `retryAutopayRemoval`). 90 днів із запасом
+/// перекривають будь-який живий кейс: те, що не зняли за квартал, знімається руками.
+const REMOVE_EVENT_WINDOW_MS = 90 * DAY_MS;
+const REMOVE_EVENT_MAX_ROWS = 2000;
+
 /// Ретрай зняття WFP-регулярки для підписок, які вже НЕ мають отримувати списань:
 /// закриті (CANCELLED / EXPIRED / ARCHIVED) або переведені на Річний план.
 ///
@@ -1060,19 +1210,33 @@ const AUTOPAY_RETRY_BATCH = 25;
 async function retryAutopayRemoval(): Promise<StepResult> {
   const errors: string[] = [];
 
-  // Останній результат REMOVE по кожній підписці. Подій цих типів одиниці, тож повна
-  // вибірка дешева; сортування desc + перший запис на підписку = найсвіжіший статус.
+  // Останній результат REMOVE по кожній підписці. Вибірку обмежуємо вікном і стелею:
+  // подій цих типів у нормі одиниці, але «вічно провальна» підписка генерує по одній
+  // щоночі, тож без take/датного фільтра запит із часом читав би всю історію.
   const removeEvents = await prisma.yearlyProgramSubscriptionEvent.findMany({
-    where: { type: { in: [WFP_REMOVE_FAILED_EVENT, WFP_REMOVE_SUCCEEDED_EVENT] } },
-    select: { subscriptionId: true, type: true },
+    where: {
+      type: { in: [WFP_REMOVE_FAILED_EVENT, WFP_REMOVE_SUCCEEDED_EVENT] },
+      createdAt: { gte: new Date(Date.now() - REMOVE_EVENT_WINDOW_MS) },
+    },
+    select: { subscriptionId: true, type: true, metadata: true },
     orderBy: { createdAt: 'desc' },
+    take: REMOVE_EVENT_MAX_ROWS,
   });
-  const lastOutcome = new Map<string, string>();
+  const lastOutcome = new Map<string, { type: string; streak: number }>();
   for (const e of removeEvents) {
-    if (!lastOutcome.has(e.subscriptionId)) lastOutcome.set(e.subscriptionId, e.type);
+    if (lastOutcome.has(e.subscriptionId)) continue;
+    const meta = (e.metadata ?? null) as { consecutiveFailures?: number } | null;
+    const streak = typeof meta?.consecutiveFailures === 'number' ? meta.consecutiveFailures : 1;
+    lastOutcome.set(e.subscriptionId, { type: e.type, streak });
   }
-  const failedIds = [...lastOutcome.entries()]
-    .filter(([, type]) => type === WFP_REMOVE_FAILED_EVENT)
+  const failedEntries = [...lastOutcome.entries()].filter(([, v]) => v.type === WFP_REMOVE_FAILED_EVENT);
+  const failedIds = failedEntries.map(([id]) => id);
+  // Poison-pill: підписки, де REMOVE провалюється стабільно (streak ≥ порогу) уже висять
+  // критичним issue WFP_REMOVE_FAILED і чекають ручного зняття правила в кабінеті WFP.
+  // Тримати їх у денній вибірці шкідливо: сортування за updatedAt ставить їх на початок,
+  // вони щоночі з'їдають увесь батч і блокують нові, ще виправні випадки (head-of-line).
+  const poisonIds = failedEntries
+    .filter(([, v]) => v.streak >= WFP_REMOVE_ISSUE_THRESHOLD)
     .map(([id]) => id);
 
   const subs = await prisma.yearlyProgramSubscription.findMany({
@@ -1088,13 +1252,19 @@ async function retryAutopayRemoval(): Promise<StepResult> {
             ...(failedIds.length > 0 ? [{ id: { in: failedIds } }] : []),
           ],
         },
+        ...(poisonIds.length > 0 ? [{ id: { notIn: poisonIds } }] : []),
       ],
     },
     select: { id: true },
     orderBy: { updatedAt: 'asc' },
     take: AUTOPAY_RETRY_BATCH,
   });
-  if (subs.length === 0) return { step: 'retry_autopay_remove', processed: 0, errors };
+  const poisonInfo = poisonIds.length > 0
+    ? `пропущено ${poisonIds.length} з ≥${WFP_REMOVE_ISSUE_THRESHOLD} провалами поспіль — вони у «Помилках» (WFP_REMOVE_FAILED)`
+    : null;
+  if (subs.length === 0) {
+    return { step: 'retry_autopay_remove', processed: 0, errors, ...(poisonInfo ? { info: poisonInfo } : {}) };
+  }
 
   let processed = 0;
   for (const s of subs) {
@@ -1122,11 +1292,30 @@ async function retryAutopayRemoval(): Promise<StepResult> {
     }
   }
 
+  const infoParts = [
+    subs.length === AUTOPAY_RETRY_BATCH ? `batch cap ${AUTOPAY_RETRY_BATCH} — решта наступним проходом` : null,
+    poisonInfo,
+  ].filter(Boolean);
   return {
     step: 'retry_autopay_remove',
     processed,
     errors,
-    ...(subs.length === AUTOPAY_RETRY_BATCH ? { info: `batch cap ${AUTOPAY_RETRY_BATCH} — решта наступним проходом` } : {}),
+    ...(infoParts.length > 0 ? { info: infoParts.join(' · ') } : {}),
+  };
+}
+
+/// Push критичних issue-ів менеджерам (email + Telegram) — раз на добу, з дедупом.
+/// Уся логіка вибору/дедупу — в `lib/yearlyProgramIssueAlerts.ts`; тут лише виклик і звіт.
+async function pushCriticalIssues(): Promise<StepResult> {
+  const { alertCriticalYearlyIssues } = await import('@/lib/yearlyProgramIssueAlerts');
+  const r = await alertCriticalYearlyIssues();
+  return {
+    step: 'push_critical_issues',
+    processed: r.fresh,
+    errors: r.errors,
+    info: `active=${r.candidates} · fresh=${r.fresh} · cleared=${r.cleared} · email ${r.emailsSent}/${r.recipients}`
+      + (r.emailsSkipped > 0 ? ` · mailer_off=${r.emailsSkipped}` : '')
+      + ` · tg ${r.telegramSent}`,
   };
 }
 

@@ -632,6 +632,12 @@ async function handleExtend(sub: NonNullable<SubWithUser>, daysToAdd: number, ac
       expiresAt: newExpires,
       // Якщо був EXPIRED/GRACE — знову активуємо
       status: sub.status === 'CANCELLED' ? 'CANCELLED' : 'ACTIVE',
+      // Продовження = новий цикл життя. Без скидання прапорців підписка, що вже
+      // пройшла grace, поверталась в ACTIVE зі «спожитими» reminderSent*: наступне
+      // закінчення доступу проходило мовчки (жодного листа) і гасло без попередження.
+      // Заразом чистимо graceStartedAt/gracePeriodEndsAt — інакше mid/last рахувались би
+      // від старого, уже неактуального grace-вікна. Симетрично до конверсії на Річну.
+      ...RESET_REMINDER_AND_GRACE_FIELDS,
     },
   });
   await prisma.yearlyProgramSubscriptionEvent.create({

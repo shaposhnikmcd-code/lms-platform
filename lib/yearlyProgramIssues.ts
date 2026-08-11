@@ -37,6 +37,7 @@ export type IssueKind =
   | 'RECURRING_CALLBACK_SKIPPED'
   | 'REVIVED_WITH_DEBT'
   | 'WFP_REMOVE_FAILED'
+  | 'ACCESS_OPENED_NO_EMAIL'
   | 'EMAIL_FAILED';
 
 export const ISSUE_KIND_VALUES: IssueKind[] = [
@@ -52,6 +53,7 @@ export const ISSUE_KIND_VALUES: IssueKind[] = [
   'RECURRING_CALLBACK_SKIPPED',
   'REVIVED_WITH_DEBT',
   'WFP_REMOVE_FAILED',
+  'ACCESS_OPENED_NO_EMAIL',
   'EMAIL_FAILED',
 ];
 
@@ -59,7 +61,14 @@ export const ISSUE_KIND_VALUES: IssueKind[] = [
 /// Один провал — це найчастіше разова недоступність WFP: нічний ретрай-крок cron-а
 /// дотисне сам. Три поспіль означають, що правило живе і само не зникне, а картку
 /// клієнта продовжують списувати.
-const WFP_REMOVE_ISSUE_THRESHOLD = 3;
+/// Експортовано для cron-кроку `retry_autopay_remove`: підписки, що вже перетнули поріг,
+/// він викидає з денної вибірки (вони й так висять у «Помилках» і чекають ручного втручання).
+export const WFP_REMOVE_ISSUE_THRESHOLD = 3;
+
+/// Скільки має «вистоятись» відкритий доступ без welcome-листа, щоб це стало issue.
+/// Нічний heal-крок (`heal_missing_welcome_email`) добиває лист сам, тож свіжий розрив
+/// між відкриттям доступу і листом — нормальний стан, а не проблема менеджера.
+const ACCESS_OPENED_NO_EMAIL_MIN_AGE_MS = 36 * 60 * 60 * 1000;
 
 export type IssueSeverity = 'critical' | 'warning' | 'info';
 
@@ -82,8 +91,21 @@ export const ISSUE_KIND_SEVERITY: Record<IssueKind, IssueSeverity> = {
   REVIVED_WITH_DEBT: 'critical',
   // critical: поки правило живе, картку клієнта списують за доступ, якого вже немає.
   WFP_REMOVE_FAILED: 'critical',
+  // warning: доступ у людини Є (гроші відпрацьовані), бракує лише листа з входом —
+  // неприємно, але не про втрату грошей чи доступу.
+  ACCESS_OPENED_NO_EMAIL: 'warning',
   EMAIL_FAILED: 'warning',
 };
+
+/// Issue-и, про які менеджерам шлеться push (email + Telegram) із денного cron-а.
+/// Вужче за «всі critical»: сюди входить лише те, де ціна мовчання — гроші клієнта
+/// або цілий набір без доступу, і де система сама вже нічого не виправить.
+export const PUSHED_ISSUE_KINDS: IssueKind[] = [
+  'ORPHAN_RECURRING_CHARGE',
+  'RECURRING_CALLBACK_SKIPPED',
+  'WFP_REMOVE_FAILED',
+  'LAUNCH_OVERDUE',
+];
 
 const SEVERITY_RANK: Record<IssueSeverity, number> = { critical: 0, warning: 1, info: 2 };
 
@@ -119,6 +141,7 @@ export const ISSUE_KIND_LABELS: Record<IssueKind, string> = {
   RECURRING_CALLBACK_SKIPPED: 'Автосписання не зараховано (callback пропущено)',
   REVIVED_WITH_DEBT: 'Оплата з боргом — потрібне рішення менеджера',
   WFP_REMOVE_FAILED: 'Автосписання у WayForPay не вдалося зняти',
+  ACCESS_OPENED_NO_EMAIL: 'Доступ відкрито, але welcome-лист не пішов',
   EMAIL_FAILED: 'Лист-нагадування не доставлено',
 };
 
@@ -137,6 +160,7 @@ export const ISSUE_HAS_RETRY: Record<IssueKind, boolean> = {
   RECURRING_CALLBACK_SKIPPED: false, // ручний розбір: звірити з кабінетом WFP
   REVIVED_WITH_DEBT: false,          // рішення менеджера: «Продовжити» / «Ручна оплата» / повернення
   WFP_REMOVE_FAILED: false,          // нічний cron ретраїть сам; ручна дія — зняти правило в кабінеті WFP
+  ACCESS_OPENED_NO_EMAIL: false,     // нічний heal досилає сам; ручна дія — «Дослати лист» у наборі
   EMAIL_FAILED: false,               // cron сам ретраїть щодня; ручна дія — виправити email студента
 };
 
@@ -209,6 +233,7 @@ interface RawSubscription {
   failedChargeCount: number;
   lastChargeAttemptAt: Date | null;
   manuallyAddedAt: Date | null;
+  sendpulseAccessOpenedAt: Date | null;
   reminderSent3d: boolean;
   reminderSentOnExpiry: boolean;
   reminderSentGraceStart: boolean;
@@ -373,6 +398,7 @@ export async function collectAllIssues(): Promise<IssuesPayload> {
         failedChargeCount: true,
         lastChargeAttemptAt: true,
         manuallyAddedAt: true,
+        sendpulseAccessOpenedAt: true,
         reminderSent3d: true,
         reminderSentOnExpiry: true,
         reminderSentGraceStart: true,
@@ -488,6 +514,7 @@ export async function collectAllIssues(): Promise<IssuesPayload> {
         failedChargeCount: true,
         lastChargeAttemptAt: true,
         manuallyAddedAt: true,
+        sendpulseAccessOpenedAt: true,
         reminderSent3d: true,
         reminderSentOnExpiry: true,
         reminderSentGraceStart: true,
@@ -676,6 +703,43 @@ export async function collectAllIssues(): Promise<IssuesPayload> {
         lastOccurredAt: agg.latestAt.toISOString(),
         occurrenceCount: totalCount,
         errorExcerpt: agg.excerpt,
+        user: sub.user,
+        plan: sub.plan,
+        cohortName: sub.cohort?.name ?? null,
+        dismissedAt: dismissal?.dismissedAt.toISOString() ?? null,
+        dismissedBy: dismissal?.dismissedBy ?? null,
+        dismissedReason: dismissal?.reason ?? null,
+      });
+    }
+  }
+
+  // Детектор ACCESS_OPENED_NO_EMAIL: доступ у SendPulse відкрито, а welcome-листа з
+  // входом людина так і не отримала (масова розсилка її пропустила / лист впав /
+  // extra-launch відкрив доступ, але відправка не вдалася). Студент оплатив і формально
+  // «в програмі», але не знає ні що навчання почалось, ні куди заходити.
+  // Резолв автоматичний: щойно з'явиться подія `launch_email_sent` — issue зникає.
+  {
+    const emailSentSubIds = new Set(
+      events.filter((e) => e.type === 'launch_email_sent').map((e) => e.subscriptionId),
+    );
+    const noEmailCutoff = new Date(Date.now() - ACCESS_OPENED_NO_EMAIL_MIN_AGE_MS);
+    for (const sub of subs) {
+      if (!sub.user) continue;
+      // Лише живі підписки в наборі: welcome-лист прив'язаний до cohort-шаблону, а для
+      // EXPIRED/CANCELLED досилати «вітаємо в програмі» вже безглуздо.
+      if (sub.status !== 'ACTIVE' && sub.status !== 'GRACE') continue;
+      if (!sub.cohort) continue;
+      if (!sub.sendpulseAccessOpenedAt || sub.sendpulseAccessOpenedAt > noEmailCutoff) continue;
+      if (emailSentSubIds.has(sub.id)) continue;
+      if (haveEventRecord.has(`${sub.id}::ACCESS_OPENED_NO_EMAIL`)) continue;
+      const dismissal = dismissalMap.get(dismissalKey(sub.id, 'ACCESS_OPENED_NO_EMAIL'));
+      records.push({
+        subscriptionId: sub.id,
+        sourceId: null,
+        kind: 'ACCESS_OPENED_NO_EMAIL',
+        lastOccurredAt: sub.sendpulseAccessOpenedAt.toISOString(),
+        occurrenceCount: 1,
+        errorExcerpt: `Доступ відкрито ${sub.sendpulseAccessOpenedAt.toISOString().slice(0, 10)}, події launch_email_sent немає.`,
         user: sub.user,
         plan: sub.plan,
         cohortName: sub.cohort?.name ?? null,

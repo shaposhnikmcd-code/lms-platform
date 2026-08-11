@@ -1,4 +1,5 @@
 import prisma from '@/lib/prisma';
+import { kyivDateDisplay } from '@/lib/timezone';
 import { renderTemplate } from './paymentTemplates';
 
 /// Реєстр email-нагадувань Річної програми. Те саме DB-pattern що й paymentTemplates:
@@ -289,10 +290,11 @@ export function nameOfVar(name: string | null): string {
   return name && name.trim().length > 0 ? name.trim() : 'друже';
 }
 
+/// Дата для листа — за КИЇВСЬКИМ календарем, а не UTC. Рантайм Vercel живе в UTC,
+/// тож `toISOString()` для `gracePeriodEndsAt = 12.08 00:00 Kyiv` (=11.08 21:00 UTC)
+/// друкував студенту «11.08» — на добу раніше за реальне закриття доступу.
 export function dateOfVar(d: Date): string {
-  const iso = d.toISOString().slice(0, 10);
-  const [y, m, day] = iso.split('-');
-  return `${day}.${m}.${y}`;
+  return kyivDateDisplay(d);
 }
 
 /// Українська множина: 1 день, 2-4 дні, 5-20 днів, 21 день, 22-24 дні, …
