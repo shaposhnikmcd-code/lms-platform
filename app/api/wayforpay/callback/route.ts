@@ -160,24 +160,49 @@ export async function POST(req: NextRequest) {
           skipReason = prevStatus === 'REFUNDED' ? 'already_refunded' : 'already_paid';
           actions.push(`skip:${skipReason}`);
           console.log('ℹ️ Конектор уже завершений (claim lost), пропускаю:', orderReference, prevStatus);
-        } else if (amountCheck.mismatch) {
-          // Гроші фіксуємо (вони реальні), але менеджерів на відправку НЕ тригеримо —
-          // спершу треба розібратись, чому списана сума ≠ сумі замовлення.
-          skipped = true;
-          skipReason = 'amount_mismatch';
-          errorMsg = `Amount mismatch: callback=${amountCheck.callbackAmount} ₴, order=${existing!.amount} ₴ — позначено PAID, нотифікацію менеджерам не надіслано`;
-          actions.push(`connector:paid`, `amount-mismatch:${amountCheck.callbackAmount}!=${existing!.amount}`);
-          console.error('🚨 Конектор: сума callback-у не збігається з замовленням:', orderReference, errorMsg);
         } else {
-          actions.push('connector:paid');
-          console.log('✅ Конектор оплачено:', orderReference);
+          // Гроші фіксуємо завжди. Якщо сума розійшлась — замовлення все одно PAID, але
+          // і в нотифікації менеджерам, і в самому рядку замовлення (`managerNote`) має
+          // стояти явне «не відправляти»: у списку замовлень видно суму З БД, а не
+          // фактично списану, тож без помітки менеджер відправить гру собі у збиток.
+          const mismatchWarning = amountCheck.mismatch
+            ? `⚠️ РОЗБІЖНІСТЬ СУМИ: сплачено ${amountCheck.callbackAmount} ₴ із ${existing!.amount} ₴ — НЕ відправляти замовлення до з'ясування`
+            : null;
+
+          if (mismatchWarning) {
+            skipped = true;
+            skipReason = 'amount_mismatch';
+            errorMsg = `Amount mismatch: callback=${amountCheck.callbackAmount} ₴, order=${existing!.amount} ₴ — позначено PAID, менеджерам надіслано попередження`;
+            actions.push('connector:paid', `amount-mismatch:${amountCheck.callbackAmount}!=${existing!.amount}`);
+            console.error('🚨 Конектор: сума callback-у не збігається з замовленням:', orderReference, errorMsg);
+            // Помітка в рядку замовлення. Наявний текст менеджера не затираємо —
+            // дописуємо попередження на початок.
+            try {
+              const current = await prisma.connectorOrder.findUnique({
+                where: { orderReference: orderReference! },
+                select: { managerNote: true },
+              });
+              const prevNote = current?.managerNote?.trim();
+              await prisma.connectorOrder.update({
+                where: { orderReference: orderReference! },
+                data: { managerNote: prevNote ? `${mismatchWarning}\n\n${prevNote}` : mismatchWarning },
+              });
+              actions.push('connector:manager_note_warned');
+            } catch (e) {
+              console.error('[wfp callback] connector managerNote update failed:', e);
+            }
+          } else {
+            actions.push('connector:paid');
+            console.log('✅ Конектор оплачено:', orderReference);
+          }
 
           // Сповіщення менеджерам про успішну оплату (best-effort, не блокує WFP-ack).
+          // При розбіжності суми лист/повідомлення йдуть із червоним попередженням.
           const paidOrder = await prisma.connectorOrder.findUnique({
             where: { orderReference: orderReference! },
           });
           if (paidOrder) {
-            notifyConnectorManagers('paid', paidOrder).catch((e) =>
+            notifyConnectorManagers('paid', paidOrder, { warning: mismatchWarning }).catch((e) =>
               console.error('[wfp callback] connector notifyManagers failed:', e),
             );
           }

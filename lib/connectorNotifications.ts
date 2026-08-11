@@ -59,10 +59,19 @@ function buildAdminLink(): string {
   return `${base.replace(/\/+$/, '')}/dashboard/admin/connector`;
 }
 
-function buildEmailHtml(event: ConnectorNotificationEvent, order: ConnectorOrderForNotify): string {
+/// Додаткові опції сповіщення. `warning` — червоний банер угорі листа / перший рядок
+/// у Telegram + помітка в темі листа. Використовується, коли замовлення оплачене, але
+/// відправляти його НЕ можна (наприклад, розбіжність суми у WFP-callback).
+export interface NotifyOptions {
+  warning?: string | null;
+}
+
+function buildEmailHtml(event: ConnectorNotificationEvent, order: ConnectorOrderForNotify, warning?: string | null): string {
   const title = EVENT_LABEL[event];
   const isPaid = event === 'paid';
-  const accent = isPaid ? '#16a34a' : '#D4A017';
+  // Попередження перебиває «зелений успіх»: менеджер має одразу бачити, що це не
+  // звичайне оплачене замовлення.
+  const accent = warning ? '#dc2626' : (isPaid ? '#16a34a' : '#D4A017');
   const adminLink = buildAdminLink();
 
   const rows: Array<[string, string]> = [
@@ -91,6 +100,9 @@ function buildEmailHtml(event: ConnectorNotificationEvent, order: ConnectorOrder
         <div style="background:${accent};color:#fff;padding:18px 24px">
           <div style="font-size:18px;font-weight:600">${esc(title)}</div>
         </div>
+        ${warning
+          ? `<div style="background:#fef2f2;border-bottom:2px solid #dc2626;color:#991b1b;padding:16px 24px;font-size:15px;font-weight:600;line-height:1.45">${esc(warning)}</div>`
+          : ''}
         <table style="width:100%;border-collapse:collapse;margin:0">
           ${rowsHtml}
         </table>
@@ -105,7 +117,7 @@ function buildEmailHtml(event: ConnectorNotificationEvent, order: ConnectorOrder
   `;
 }
 
-function buildTelegramText(event: ConnectorNotificationEvent, order: ConnectorOrderForNotify): string {
+function buildTelegramText(event: ConnectorNotificationEvent, order: ConnectorOrderForNotify, warning?: string | null): string {
   const title = EVENT_LABEL[event];
   const isPaid = event === 'paid';
   const adminLink = buildAdminLink();
@@ -117,6 +129,7 @@ function buildTelegramText(event: ConnectorNotificationEvent, order: ConnectorOr
       : '';
 
   return [
+    ...(warning ? [`<b>${escapeHtml(warning)}</b>`, ''] : []),
     `<b>${escapeHtml(title)}</b>`,
     '',
     `👤 <b>${escapeHtml(order.fullName)}</b>`,
@@ -136,7 +149,9 @@ function buildTelegramText(event: ConnectorNotificationEvent, order: ConnectorOr
 export async function notifyManagers(
   event: ConnectorNotificationEvent,
   order: ConnectorOrderForNotify,
+  options?: NotifyOptions,
 ): Promise<NotifyResult> {
+  const warning = options?.warning?.trim() || null;
   const result: NotifyResult = {
     managersTried: 0,
     emailsSent: 0,
@@ -180,9 +195,13 @@ export async function notifyManagers(
   if (managers.length === 0) return result;
   result.managersTried = managers.length;
 
-  const subject = `${EVENT_LABEL[event]} — ${order.fullName} (${fmtMoney(order.amount)})`;
-  const html = buildEmailHtml(event, order);
-  const tgText = buildTelegramText(event, order);
+  // При попередженні тема листа має кричати вже у списку вхідних — звичайний
+  // «✅ Оплачено» там виглядав би як штатне замовлення на відправку.
+  const subject = warning
+    ? `⚠️ РОЗБІЖНІСТЬ СУМИ — ${order.fullName} (замовлення на ${fmtMoney(order.amount)})`
+    : `${EVENT_LABEL[event]} — ${order.fullName} (${fmtMoney(order.amount)})`;
+  const html = buildEmailHtml(event, order, warning);
+  const tgText = buildTelegramText(event, order, warning);
   const tgEnabled = isConnectorBotConfigured();
 
   await Promise.allSettled(
