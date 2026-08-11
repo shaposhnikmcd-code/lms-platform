@@ -1,10 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { checkRateLimit } from '@/lib/ratelimit';
+import { isSameOrigin } from '@/lib/apiGuards';
 
 export async function POST(req: NextRequest) {
   try {
+    // Endpoint публічний (без session), але палить наш NP API key і квоту —
+    // тому лише same-origin + rate limit.
+    if (!isSameOrigin(req)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    const rl = await checkRateLimit(req, 'novaPoshta');
+    if (!rl.ok) return rl.response!;
+
     const { cityRef, search } = await req.json();
 
-    if (!cityRef || !search) {
+    if (typeof cityRef !== 'string' || !cityRef || typeof search !== 'string' || !search) {
       return NextResponse.json({ streets: [] });
     }
 
@@ -16,8 +27,8 @@ export async function POST(req: NextRequest) {
         modelName: 'Address',
         calledMethod: 'getStreet',
         methodProperties: {
-          CityRef: cityRef,
-          FindByString: search,
+          CityRef: cityRef.slice(0, 100),
+          FindByString: search.slice(0, 100),
           Limit: 20,
         },
       }),

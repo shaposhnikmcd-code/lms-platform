@@ -25,5 +25,9 @@ declare module "next-auth/jwt" {
   interface JWT {
     role?: string;
     activeRole?: string;
+    /// Timestamp (ms) останньої звірки ролі/deletedAt з БД — див. ROLE_REVALIDATE_MS.
+    roleCheckedAt?: number;
+    /// true — юзера видалили або понизили; сесія віддається без `user`.
+    revoked?: boolean;
   }
 }

@@ -11,6 +11,17 @@ import { NextRequest, NextResponse } from 'next/server';
 
 const hasCredentials = !!process.env.UPSTASH_REDIS_REST_URL && !!process.env.UPSTASH_REDIS_REST_TOKEN;
 
+/// Fail-open — свідомий компроміс заради dev-а, але в проді він означає, що
+/// брутфорс логіну, спам платіжок і перебір промокодів нічим не обмежені.
+/// Тому на кожному cold start у проді голосно кричимо в логи, якщо env немає.
+if (!hasCredentials && process.env.NODE_ENV === 'production') {
+  console.error(
+    '🚨 RATE LIMITING DISABLED — не задані UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN. ' +
+    'Усі ліміти (login, register, payment, promo, contact, forgot-password, cert-verify) працюють у fail-open режимі. ' +
+    'Додай змінні у Vercel → Settings → Environment Variables.'
+  );
+}
+
 /// Upstash client створюємо лазливо, тільки якщо є credentials.
 const redis = hasCredentials
   ? new Redis({
@@ -43,8 +54,10 @@ export const limiters = {
   payment: makeLimiter(10, '5 m', 'payment'),
   /// Контактна форма. 5 / годину / IP — запобігає email spam через Resend.
   contact: makeLimiter(5, '1 h', 'contact'),
-  /// Nova Poshta delivery cost — захист NP API quota. 30 / 5 хв / IP.
-  novaPoshta: makeLimiter(30, '5 m', 'nova-poshta'),
+  /// Nova Poshta проксі (cities/streets/warehouses/buildings/delivery-cost, + EU) —
+  /// захист NP API quota і ключа. Спільний бюджет 120 / 5 хв / IP: одна заповнена
+  /// форма доставки з автокомплітом легко дає кілька десятків запитів.
+  novaPoshta: makeLimiter(120, '5 m', 'nova-poshta'),
   /// Запит на скидання пароля. 5 / годину / email — обмежує спам-лістами і email enumeration.
   forgotPassword: makeLimiter(5, '1 h', 'forgot-password'),
   /// Підтвердження reset-токена (встановлення нового пароля). 10 / 10 хв / IP.

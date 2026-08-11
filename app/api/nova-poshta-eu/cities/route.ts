@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
+import { checkRateLimit } from '@/lib/ratelimit';
+import { isSameOrigin } from '@/lib/apiGuards';
 
 const COUNTRY_LANG: Record<string, string> = {
   PL: 'pl', DE: 'de', CZ: 'cs', LT: 'lt', LV: 'lv',
@@ -67,16 +69,26 @@ async function getLocalCityNames(query: string, countryCode: string): Promise<st
 
 export async function POST(req: NextRequest) {
   try {
+    // Endpoint публічний (без session), але б'є у Wikidata від нашого імені
+    // і в нашу БД — тому лише same-origin + rate limit.
+    if (!isSameOrigin(req)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    const rl = await checkRateLimit(req, 'novaPoshta');
+    if (!rl.ok) return rl.response!;
+
     const { countryCode, search } = await req.json();
 
-    if (!countryCode || !search || search.length < 2) {
+    if (typeof countryCode !== 'string' || typeof search !== 'string' || search.length < 2) {
       return NextResponse.json({ cities: [] });
     }
 
-    const searchTerms: string[] = [search];
+    const term = search.slice(0, 100);
+    const searchTerms: string[] = [term];
 
-    if (isUkrainian(search)) {
-      const localNames = await getLocalCityNames(search, countryCode);
+    if (isUkrainian(term)) {
+      const localNames = await getLocalCityNames(term, countryCode);
       searchTerms.push(...localNames);
     }
 

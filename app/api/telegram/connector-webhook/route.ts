@@ -15,6 +15,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { sendConnectorMessage, escapeHtml } from '@/lib/telegramConnector';
+import { timingSafeEqualStr } from '@/lib/authTiming';
 
 interface TgUpdate {
   message?: {
@@ -33,7 +34,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false }, { status: 200 });
   }
   const got = req.headers.get('x-telegram-bot-api-secret-token');
-  if (got !== expectedSecret) {
+  if (!timingSafeEqualStr(got ?? '', expectedSecret)) {
     console.warn('[connector-webhook] Невірний secret token');
     return NextResponse.json({ ok: false }, { status: 200 });
   }

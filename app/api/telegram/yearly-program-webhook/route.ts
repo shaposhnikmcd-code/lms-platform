@@ -38,6 +38,7 @@ import {
   TelegramApiError,
 } from '@/lib/telegram';
 import { ensureNumericChatId, getYearlyProgramTelegramSettings } from '@/lib/yearlyProgramTelegram';
+import { timingSafeEqualStr } from '@/lib/authTiming';
 
 const LOG_PREFIX = '[yearly-tg-webhook]';
 
@@ -114,7 +115,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false }, { status: 200 });
   }
   const got = req.headers.get('x-telegram-bot-api-secret-token');
-  if (got !== expectedSecret) {
+  if (!timingSafeEqualStr(got ?? '', expectedSecret)) {
     console.warn(`${LOG_PREFIX} Невірний secret token`);
     return NextResponse.json({ ok: false }, { status: 200 });
   }

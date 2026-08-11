@@ -28,6 +28,12 @@ export const getAllowedRoles = (role: string): string[] => {
   return ROLE_HIERARCHY[role] ?? [];
 };
 
+/// Як часто перезчитувати роль/deletedAt з БД у jwt-callback. JWT сам по собі
+/// незмінний до кінця свого строку життя, тож без цієї звірки понижений або
+/// видалений адмін тримав би доступ до адмінки всі 7 днів. 60с — компроміс між
+/// свіжістю прав і навантаженням на БД (один SELECT на юзера раз на хвилину).
+const ROLE_REVALIDATE_MS = 60_000;
+
 export const authOptions: NextAuthOptions = {
   providers: [
     GoogleProvider({
@@ -114,10 +120,10 @@ export const authOptions: NextAuthOptions = {
   ],
   session: {
     strategy: "jwt",
-    maxAge: 30 * 24 * 60 * 60,
+    maxAge: 7 * 24 * 60 * 60,
   },
   jwt: {
-    maxAge: 30 * 24 * 60 * 60,
+    maxAge: 7 * 24 * 60 * 60,
   },
   // Унікальні назви cookie з префіксом `uimp.` — щоб на localhost не конфліктувати
   // з іншими NextAuth-проєктами (tetyana-website:3001, cleartax). Браузер ділить
@@ -161,19 +167,44 @@ export const authOptions: NextAuthOptions = {
         token.picture = user.image;
         token.role = user.role;
         token.activeRole = token.role;
+        token.revoked = undefined;
+        token.roleCheckedAt = token.role ? Date.now() : 0;
       }
-      // Hydrate role з БД якщо токен його не має (OAuth-флоу не передає role
-      // через user-об'єкт, або старий JWT створено до додавання поля).
-      if (!token.role && token.email) {
-        const dbUser = await prisma.user.findUnique({
-          where: { email: token.email as string },
-          select: { role: true },
-        });
-        if (dbUser?.role) {
-          token.role = dbUser.role;
-          token.activeRole = dbUser.role;
+
+      // Звірка токена з БД. Покриває два випадки:
+      //   1) hydrate — токен без ролі (OAuth-флоу не передає role через user-об'єкт,
+      //      або старий JWT створено до додавання поля);
+      //   2) revalidation — роль могли понизити чи юзера видалити вже після видачі
+      //      токена, тож раз на ROLE_REVALIDATE_MS перечитуємо стан з БД.
+      const lastChecked = typeof token.roleCheckedAt === "number" ? token.roleCheckedAt : 0;
+      const isStale = Date.now() - lastChecked > ROLE_REVALIDATE_MS;
+      if (token.email && (isStale || (!token.role && !token.revoked))) {
+        try {
+          const dbUser = await prisma.user.findUnique({
+            where: { email: token.email as string },
+            select: { id: true, role: true, deletedAt: true },
+          });
+          token.roleCheckedAt = Date.now();
+          if (!dbUser || dbUser.deletedAt || (dbUser.role !== "ADMIN" && dbUser.role !== "MANAGER")) {
+            // Юзера видалили / понизили до legacy-ролі — токен більше не дає доступу.
+            token.revoked = true;
+            token.role = undefined;
+            token.activeRole = undefined;
+          } else {
+            token.revoked = undefined;
+            token.id = dbUser.id;
+            if (dbUser.role !== token.role) {
+              token.role = dbUser.role;
+              token.activeRole = dbUser.role;
+            }
+          }
+        } catch (error) {
+          // БД тимчасово недоступна — не викидаємо всіх залогінених, лишаємо
+          // токен як є і пробуємо звірку на наступному запиті (roleCheckedAt не оновлено).
+          console.error("❌ JWT role revalidation failed:", error);
         }
       }
+
       if (trigger === "update" && session?.activeRole) {
         const allowedRoles = getAllowedRoles(token.role as string);
         if (allowedRoles.includes(session.activeRole)) {
@@ -183,6 +214,11 @@ export const authOptions: NextAuthOptions = {
       return token;
     },
     async session({ session, token }) {
+      // Токен відкликано у jwt-callback (юзера видалили або понизили роль) —
+      // віддаємо сесію без user, усі гарди (`if (!session?.user) redirect`) її відсіють.
+      if (token.revoked) {
+        return { ...session, user: undefined, expires: new Date(0).toISOString() } as unknown as typeof session;
+      }
       if (session.user) {
         session.user.id = token.id as string;
         session.user.email = token.email as string;
