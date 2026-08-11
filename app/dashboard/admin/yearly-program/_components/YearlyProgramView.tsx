@@ -50,9 +50,11 @@ const ManualPaymentModal = dynamic(() => import('./ManualPaymentModal'), { ssr: 
 const EditPaymentModal = dynamic(() => import('./EditPaymentModal'), { ssr: false });
 const CarryoverModal = dynamic(() => import('./CarryoverModal'), { ssr: false });
 const ManualAddStudentModal = dynamic(() => import('./ManualAddStudentModal'), { ssr: false });
+const ManualPaymentsPanel = dynamic(() => import('./ManualPaymentsPanel'), { ssr: false });
 import ManualAddHelpButton from './ManualAddHelpButton';
 import ProgramSettingButton from './ProgramSettingButton';
 import { type TelegramSettingsState } from './TelegramChannelButton';
+import { sumRealPaid } from '@/lib/yearlyProgramPaidTotals';
 import { getCountryName, COUNTRIES } from '@/lib/countries';
 import { telegramProfileUrl } from '@/lib/telegramUsername';
 
@@ -320,6 +322,9 @@ function YearlyProgramViewInner({
   /// Тримаємо окремо від `rows` (це серверний prop, мутувати його не можна); при
   /// провалі запиту повертаємо попереднє значення назад у цю ж мапу.
   const [visionOverrides, setVisionOverrides] = useState<Record<string, VisionStatus>>({});
+  /// Яку таблицю показуємо під спільною KPI-стрічкою і toolbar-ом: підписки (дефолт)
+  /// чи реєстр ручних платежів по всіх підписках.
+  const [tab, setTab] = useState<'subs' | 'manual'>('subs');
 
   /// Чинний Vision-статус рядка: щойно виставлений оптимістичний override має пріоритет
   /// над серверним значенням — щоб зведення і фільтр реагували на крапку миттєво.
@@ -808,10 +813,51 @@ function YearlyProgramViewInner({
         />
       )}
 
+      {/* Перемикач таблиць. KPI-стрічка і toolbar вище — спільні для обох вкладок:
+          вони описують програму загалом, а не конкретний список. */}
+      <div className="flex items-center gap-1 mb-3" role="tablist" aria-label="Вигляд даних">
+        {([
+          { id: 'subs', label: 'Підписки' },
+          { id: 'manual', label: 'Ручні платежі' },
+        ] as const).map((t) => {
+          const active = tab === t.id;
+          return (
+            <button
+              key={t.id}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => setTab(t.id)}
+              className={`px-4 py-2 rounded-lg text-[13px] font-semibold border transition-colors ${
+                active
+                  ? dark
+                    ? 'bg-amber-400/15 border-amber-400/35 text-amber-200'
+                    : 'bg-amber-100 border-amber-300/70 text-amber-900'
+                  : dark
+                    ? 'bg-white/[0.03] border-white/[0.08] text-slate-400 hover:bg-white/[0.07] hover:text-slate-200'
+                    : 'bg-white/70 border-stone-300/60 text-stone-600 hover:bg-stone-100 hover:text-stone-900'
+              }`}
+            >
+              {t.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {tab === 'manual' && (
+        <ManualPaymentsPanel
+          theme={theme}
+          rows={rows}
+          monthlyPrice={programSettings.monthlyPrice}
+          yearlyPrice={programSettings.yearlyPrice}
+          onChanged={() => router.refresh()}
+        />
+      )}
+
       {/* Серверна вибірка обрізана лімітом — попереджаємо, що в таблиці не всі записи.
           KPI-стрічка рахується по повному набору підписок, тож без банера її цифри
           виглядали б «зламаними» відносно вкороченого списку. */}
-      {truncation && (
+      {tab === 'subs' && truncation && (
         <div
           data-truncation-banner
           className={`mb-3 flex items-center gap-2 rounded-lg border px-4 py-2.5 text-[13px] ${
@@ -828,7 +874,7 @@ function YearlyProgramViewInner({
         </div>
       )}
 
-      <AdminPanel theme={theme} padding="p-0">
+      <AdminPanel theme={theme} padding="p-0" className={tab === 'subs' ? undefined : 'hidden'}>
         {/* Таблиця має 15 колонок і на телефон не влазить принципово. Лишаємо внутрішній
             горизонтальний скрол (сторінка від нього не ламається), але підказуємо, що
             рядок треба тягнути вбік — інакше здається, що дані просто обрізані. */}
@@ -919,6 +965,8 @@ function YearlyProgramViewInner({
                     onToggle={() => toggleExpand(r.id)}
                     onAction={(action, payload, confirm) => runAction(r.id, action, payload, confirm)}
                     onReload={() => reloadDetails(r.id)}
+                    yearlyPrice={programSettings.yearlyPrice}
+                    monthlyPrice={programSettings.monthlyPrice}
                     issueBadge={issueSeverityBySub[r.id]}
                     onOpenIssues={() => setIssuesOpen(true)}
                     onSetVision={(next) => setVisionStatus(r.id, next, r.visionCertStatus)}
@@ -1069,6 +1117,8 @@ function RowBlock({
   onToggle,
   onAction,
   onReload,
+  yearlyPrice,
+  monthlyPrice,
   issueBadge,
   onOpenIssues,
   onSetVision,
@@ -1080,8 +1130,12 @@ function RowBlock({
   details: SubscriptionDetails | 'loading' | 'error' | undefined;
   busy: boolean;
   onToggle: () => void;
-  onAction: (action: string, payload?: Record<string, unknown>, confirm?: string) => void;
+  onAction: (action: string, payload?: Record<string, unknown>, confirm?: string) => void | Promise<void>;
   onReload: () => void;
+  /// Ціни з налаштувань програми — для блоку «Сплачено / залишок», конфірма переведення
+  /// на Річну і форми ручної оплати.
+  yearlyPrice: number;
+  monthlyPrice: number;
   issueBadge?: { severity: 'critical' | 'warning' | 'info'; count: number };
   onOpenIssues: () => void;
   onSetVision: (next: VisionStatus) => void;
@@ -1290,6 +1344,8 @@ function RowBlock({
                 busy={busy}
                 onAction={onAction}
                 onReload={onReload}
+                yearlyPrice={yearlyPrice}
+                monthlyPrice={monthlyPrice}
               />
             </div>
           </td>
@@ -1307,14 +1363,18 @@ function ExpandedRowContent({
   busy,
   onAction,
   onReload,
+  yearlyPrice,
+  monthlyPrice,
 }: {
   details: SubscriptionDetails | 'loading' | 'error' | undefined;
   row: Row;
   theme: Theme;
   graceDays: number;
   busy: boolean;
-  onAction: (action: string, payload?: Record<string, unknown>, confirm?: string) => void;
+  onAction: (action: string, payload?: Record<string, unknown>, confirm?: string) => void | Promise<void>;
   onReload: () => void;
+  yearlyPrice: number;
+  monthlyPrice: number;
 }) {
   const dark = theme === 'dark';
   const { toast, confirm, prompt } = useUIFeedback();
@@ -1424,6 +1484,35 @@ function ExpandedRowContent({
     return <div className={`text-[12px] ${dark ? 'text-rose-400' : 'text-rose-700'}`}>Не вдалося завантажити деталі.</div>;
   }
 
+  // Скільки реально сплачено по підписці — WFP + ручні + перенесення, без символічних
+  // тест-оплат адмінів і без не-PAID (правило спільне з сервером, lib/yearlyProgramPaidTotals).
+  const paidTotal = sumRealPaid(details.payments);
+  const remainingToYearly = Math.max(0, yearlyPrice - paidTotal);
+
+  /// «Перевести на Річну»: конфірм показує сплачено/залишок, недоплату не блокує —
+  /// рішення за менеджером (клієнт міг домовитись про знижку).
+  async function convertToYearly() {
+    const ok = await confirm({
+      title: 'Перевести підписку на Річний план?',
+      description: `Сплачено ${paidTotal.toLocaleString()} ₴ з ${yearlyPrice.toLocaleString()} ₴`
+        + `${remainingToYearly > 0 ? ` · залишок ${remainingToYearly.toLocaleString()} ₴` : ' · оплачено повністю'}.`,
+      bullets: [
+        ...(remainingToYearly > 0
+          ? [{ icon: '⚠️', text: 'Сплачено менше повної вартості. Все одно перевести?' }]
+          : []),
+        { icon: '🚫', text: 'Знімає автосписання у WayForPay (якщо було)' },
+        { icon: '📅', text: 'Перераховує «Доступ до» за правилом Річного плану' },
+        { icon: '✉️', text: 'Шле студенту лист про зміну плану' },
+      ],
+      confirmLabel: 'Перевести на Річну',
+    });
+    if (!ok) return;
+    // runAction скидає закешовані деталі — після нього самі тягнемо свіжі, щоб панель
+    // одразу показала новий план і подію, а не лишалась у скелетоні до згортання рядка.
+    await onAction('convert_to_yearly');
+    onReload();
+  }
+
   return (
     <div className="grid md:grid-cols-3 gap-5">
       {helpOpen && <HelpModal theme={theme} graceDays={graceDays} onClose={() => setHelpOpen(false)} />}
@@ -1485,6 +1574,8 @@ function ExpandedRowContent({
             <ManualPaymentModal
               row={row}
               theme={theme}
+              monthlyPrice={monthlyPrice}
+              yearlyPrice={yearlyPrice}
               onClose={() => setManualPayOpen(false)}
               onDone={() => { onReload(); router.refresh(); }}
             />
@@ -1514,6 +1605,24 @@ function ExpandedRowContent({
               onClose={() => setCarryoverOpen(false)}
               onDone={() => { onReload(); router.refresh(); }}
             />
+          )}
+          {/* Клієнт доплатив повну вартість частинами — місячна підписка стає річною.
+              Видно тільки для MONTHLY поза архівом. */}
+          {row.plan === 'MONTHLY' && row.status !== 'ARCHIVED' && (
+            <button
+              type="button"
+              onClick={convertToYearly}
+              disabled={busy}
+              className={`px-3 py-1.5 text-[11px] font-semibold rounded-lg border transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-left flex items-center gap-2 ${
+                dark
+                  ? 'bg-amber-500/10 border-amber-400/30 text-amber-200 hover:bg-amber-500/20 hover:border-amber-400/50'
+                  : 'bg-amber-50 border-amber-300/60 text-amber-900 hover:bg-amber-100 hover:border-amber-400/70'
+              }`}
+              title="Місячна підписка оплачена повністю — перевести на Річний план і зняти автосписання"
+            >
+              <span className="text-base">⬆️</span>
+              Перевести на Річну
+            </button>
           )}
           {row.cohortLaunched && !row.sendpulseAccessOpenedAt && row.status !== 'ARCHIVED' && row.status !== 'CANCELLED' && (
             <button
@@ -1745,6 +1854,26 @@ function ExpandedRowContent({
 
       <div className="md:col-span-1">
         <SectionTitle theme={theme}>Платежі ({details.payments.length})</SectionTitle>
+        {/* Для місячної підписки головне питання менеджера — скільки ще винен клієнт
+            до повної вартості Річної. Рахуємо реальні гроші (без тест-оплат 1–2 ₴). */}
+        {row.plan === 'MONTHLY' && (
+          <div className={`mb-2 px-3 py-2 rounded-lg border text-[11.5px] flex flex-wrap items-center gap-x-2 gap-y-1 ${
+            remainingToYearly > 0
+              ? dark ? 'border-amber-400/25 bg-amber-400/[0.07] text-amber-100/90' : 'border-amber-300/60 bg-amber-50/80 text-amber-900'
+              : dark ? 'border-emerald-400/25 bg-emerald-400/[0.07] text-emerald-100/90' : 'border-emerald-300/60 bg-emerald-50/80 text-emerald-900'
+          }`}>
+            <span>
+              Сплачено <b className="tabular-nums">{paidTotal.toLocaleString()}</b> грн з{' '}
+              <b className="tabular-nums">{yearlyPrice.toLocaleString()}</b>
+            </span>
+            <span className={dark ? 'text-slate-500' : 'text-stone-400'}>·</span>
+            <span>
+              {remainingToYearly > 0
+                ? <>залишок <b className="tabular-nums">{remainingToYearly.toLocaleString()}</b> грн</>
+                : <b>оплачено повністю</b>}
+            </span>
+          </div>
+        )}
         <div className={`rounded-lg border ${dark ? 'border-white/[0.06] bg-white/[0.02]' : 'border-stone-300/50 bg-white/60'}`}>
           {details.payments.length === 0 ? (
             <div className={`px-3 py-4 text-center text-[11px] ${dark ? 'text-slate-600' : 'text-stone-400'}`}>Платежів ще нема</div>
@@ -1872,6 +2001,7 @@ function eventTypeColor(type: string, dark: boolean): string {
   if (type === 'revived_with_debt') return dark ? 'text-rose-300' : 'text-rose-700';
   if (type === 'created' || type === 'access_opened' || type === 'reactivated') return dark ? 'text-emerald-300' : 'text-emerald-700';
   if (type === 'renewed') return dark ? 'text-sky-300' : 'text-sky-700';
+  if (type === 'plan_converted') return dark ? 'text-amber-300' : 'text-amber-700';
   if (type === 'cancelled') return dark ? 'text-slate-400' : 'text-stone-600';
   if (type.startsWith('reminder')) return dark ? 'text-amber-300' : 'text-amber-700';
   return dark ? 'text-slate-400' : 'text-stone-600';
@@ -1894,6 +2024,7 @@ function httpFallbackMessage(status: number, statusText: string): string {
 const EVENT_LABELS: Record<string, { label: string; icon?: string }> = {
   revived_with_debt: { label: 'оплата з боргом — потрібне рішення', icon: '⚠️' },
   repurchase_initiated: { label: 'повторна покупка — очікує оплату', icon: '🔁' },
+  plan_converted: { label: 'план переведено на Річний', icon: '⬆️' },
 };
 
 /// Країни за абеткою (укр. колація) — для випадайки у формі редагування.

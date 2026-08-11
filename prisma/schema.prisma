@@ -278,6 +278,9 @@ model Payment {
   /// Заповнюються лише для платежів, створених екшеном `manual_payment` у адмінці Річної програми.
   manualMethod                String?
   manualNote                  String?
+  /// Хто вніс ручний платіж (email або ім'я адміна з getAdminActor). Заповнюється разом з
+  /// `manualMethod`; для WFP-платежів завжди null. Показується у реєстрі «Ручні платежі».
+  manualEnteredBy             String?
   yearlyProgramSubscription   YearlyProgramSubscription? @relation("YearlyProgramPayments", fields: [yearlyProgramSubscriptionId], references: [id])
   user                        User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
   course                      Course?                    @relation(fields: [courseId], references: [id])

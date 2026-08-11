@@ -21,6 +21,9 @@ import { applyPaymentActivation } from '@/lib/yearlyProgramActivation';
 import { runManualPreLaunchWelcome, type ManualPreLaunchWelcomeResult } from '@/lib/yearlyProgramManualWelcome';
 import { runExtraLaunchForSubscription } from '@/lib/yearlyProgramLaunch';
 import { syncAutopaySchedule } from '@/lib/yearlyProgramScheduleSync';
+import { sumRealPaid } from '@/lib/yearlyProgramPaidTotals';
+import { sendYearlyProgramManualPaymentEmail } from '@/lib/yearlyProgramManualPaymentEmail';
+import { sendYearlyProgramConvertedToYearlyEmail } from '@/lib/yearlyProgramConvertedToYearlyEmail';
 
 /// Ідентичність MANAGER-а (дзеркало `getAdminActor`, але для ролі MANAGER).
 /// Потрібна лише для manager-дозволених дій — зараз це `set_vision_status`.
@@ -76,6 +79,7 @@ export async function POST(
     paidAt?: string;
     sendWelcome?: boolean;
     visionStatus?: string;
+    split?: boolean;
   };
 
   // Менеджеру відкрита рівно одна дія — Vision-статус (він веде видачу цих сертифікатів).
@@ -109,7 +113,10 @@ export async function POST(
         method: body.method,
         note: body.note,
         paidAt: body.paidAt,
+        split: body.split,
       }, actorLabel);
+    case 'convert_to_yearly':
+      return handleConvertToYearly(sub, actorLabel);
     case 'carryover':
       return handleCarryover(sub, { note: body.note, sendWelcome: body.sendWelcome }, actorLabel);
     case 'edit_payment':
@@ -625,9 +632,26 @@ const MANUAL_METHOD_LABELS: Record<string, string> = {
 /// активує підписку. Якщо cohort уже launched — відкриває доступ у SendPulse + welcome-лист
 /// (через runExtraLaunchForSubscription, idempotent). Якщо ще ні — лишає PENDING (чекає запуску).
 /// Сума автоматично потрапляє в «Дохід» (агрегація PAID-платежів з yearlyProgramSubscriptionId).
+/// Скільки рядків максимум може дати авто-розбивка. 24 з запасом перекриває будь-який
+/// реальний випадок (програма — 9 місячних платежів), але не дає одним запитом залити
+/// сотні Payment-ів, якщо у налаштуваннях опиниться мізерна місячна ціна.
+const MAX_SPLIT_PARTS = 24;
+
+/// Розбиває внесену суму на місячні платежі: N рядків по `monthlyPrice` + залишок окремим
+/// рядком, якщо сума не ділиться націло. Потрібно тому, що графік доступу рахує КІЛЬКІСТЬ
+/// PAID-платежів, а не суму (calculateAccessUntil) — одна «жирна» оплата закрила б лише
+/// один місяць.
+function splitManualAmount(amount: number, monthlyPrice: number): number[] {
+  const full = Math.floor(amount / monthlyPrice);
+  const rest = amount - full * monthlyPrice;
+  const parts = Array.from({ length: full }, () => monthlyPrice);
+  if (rest > 0) parts.push(rest);
+  return parts;
+}
+
 async function handleManualPayment(
   sub: NonNullable<SubWithUser>,
-  input: { amount?: number; method?: string; note?: string; paidAt?: string },
+  input: { amount?: number; method?: string; note?: string; paidAt?: string; split?: boolean },
   actor: string,
 ) {
   if (sub.status === 'ARCHIVED') {
@@ -657,6 +681,26 @@ async function handleManualPayment(
     paidAt = parsed;
   }
 
+  // Авто-розбивка великої суми на місячні платежі. Ціни — з налаштувань (не хардкод):
+  // сервер тут єдине джерело правди, клієнт лише вмикає/вимикає прапорець `split`.
+  const { monthlyPrice, yearlyPrice } = await getYearlyProgramSettings(prisma);
+  const canSplit = sub.plan === 'MONTHLY' && monthlyPrice > 0 && amount >= 2 * monthlyPrice;
+  const doSplit = canSplit && input.split === true;
+  const parts = doSplit ? splitManualAmount(amount, monthlyPrice) : [amount];
+  if (parts.length > MAX_SPLIT_PARTS) {
+    return NextResponse.json({
+      error: `Розбивка дала б ${parts.length} платежів (максимум ${MAX_SPLIT_PARTS}). `
+        + 'Перевірте суму та місячну ціну в налаштуваннях програми.',
+    }, { status: 400 });
+  }
+
+  // Сума на кілька місяців БЕЗ розбивки все одно зараховується як ОДИН місячний слот
+  // (calculateAccessUntil рахує кількість PAID-платежів, не суму). Не блокуємо —
+  // менеджер міг свідомо зняти галочку, — але віддаємо попередження для UI.
+  const warning = canSplit && !doSplit
+    ? 'сума схожа на оплату кількох місяців — буде зараховано як 1 місяць'
+    : undefined;
+
   // Ідемпотентність: два сабміти підряд (дві вкладки, повтор після таймауту) створювали
   // два PAID-платежі = зайвий місяць доступу. Дублем вважаємо збіг суми + способу + ДНЯ
   // оплати у межах 60 секунд. День у ключі обов'язковий: занесення кількох місяців
@@ -668,12 +712,15 @@ async function handleManualPayment(
   const paidAtKyivDay = kyivDay(paidAt);
   // ±1 доба навколо paidAt покриває будь-який зсув київського дня відносно UTC;
   // точний збіг дня перевіряємо в JS. Вікно createdAt < 60с тримає вибірку крихітною.
+  // Порівнюємо з сумою РЯДКА, який реально буде записаний: при розбивці це monthlyPrice,
+  // без неї — вся внесена сума. Інакше повторний сабміт розбитої оплати не ловився б.
+  const dupAmount = parts[0]!;
   const recentSameAmount = await prisma.payment.findMany({
     where: {
       yearlyProgramSubscriptionId: sub.id,
       status: 'PAID',
       manualMethod: method,
-      amount,
+      amount: dupAmount,
       paidAt: {
         gte: new Date(paidAt.getTime() - 24 * 60 * 60 * 1000),
         lte: new Date(paidAt.getTime() + 24 * 60 * 60 * 1000),
@@ -688,7 +735,7 @@ async function handleManualPayment(
   );
   if (recentDuplicate) {
     return NextResponse.json({
-      error: `Таку саму оплату (${amount}₴, ${MANUAL_METHOD_LABELS[method] ?? method}, `
+      error: `Таку саму оплату (${dupAmount}₴, ${MANUAL_METHOD_LABELS[method] ?? method}, `
         + `${paidAtKyivDay}) вже зафіксовано менше хвилини тому. `
         + 'Якщо це справді друга оплата за той самий день — повторіть через хвилину; '
         + 'для іншого місяця вкажіть свою дату оплати.',
@@ -696,41 +743,37 @@ async function handleManualPayment(
     }, { status: 409 });
   }
 
-  // Сума на кілька місяців усе одно зараховується як ОДИН місячний слот
-  // (calculateAccessUntil рахує кількість PAID-платежів, не суму). Не блокуємо —
-  // менеджер може так зафіксувати передоплату, — але віддаємо попередження для UI.
-  let warning: string | undefined;
-  if (sub.plan === 'MONTHLY') {
-    const { monthlyPrice } = await getYearlyProgramSettings(prisma);
-    if (monthlyPrice > 0 && amount >= 2 * monthlyPrice) {
-      warning = 'сума схожа на оплату кількох місяців — буде зараховано як 1 місяць';
-    }
-  }
+  // orderReference має бути унікальним — timestamp + хвіст id підписки; при розбивці
+  // кожен рядок отримує ще й свій індекс.
+  const orderBase = `manual-${method}_${Date.now()}_${sub.id.slice(-6)}`;
+  const orderReferences = parts.map((_, i) => (parts.length > 1 ? `${orderBase}_${i + 1}` : orderBase));
 
-  // orderReference має бути унікальним — додаємо timestamp + короткий рандом на випадок
-  // двох ручних оплат в одну мілісекунду.
-  const orderReference = `manual-${method}_${Date.now()}_${sub.id.slice(-6)}`;
+  // Розбивка має бути атомарною: половина записаних рядків = зіпсований графік доступу.
+  await prisma.$transaction(
+    parts.map((partAmount, i) =>
+      prisma.payment.create({
+        data: {
+          userId: sub.userId,
+          orderReference: orderReferences[i]!,
+          amount: partAmount,
+          currency: 'UAH',
+          status: 'PAID',
+          paidAt,
+          yearlyProgramSubscriptionId: sub.id,
+          manualMethod: method,
+          manualNote: note,
+          manualEnteredBy: actor,
+        },
+      }),
+    ),
+  );
 
-  await prisma.payment.create({
-    data: {
-      userId: sub.userId,
-      orderReference,
-      amount,
-      currency: 'UAH',
-      status: 'PAID',
-      paidAt,
-      yearlyProgramSubscriptionId: sub.id,
-      manualMethod: method,
-      manualNote: note,
-    },
-  });
-
-  // Це перший PAID-платіж підписки? (визначає, чи слати pre-launch welcome). Платіж уже
-  // створений вище, тож перший = рівно 1 PAID у підписки.
+  // Це перша оплата підписки? (визначає, чи слати pre-launch welcome). Рядки вже створені,
+  // тож перша оплата = у підписці рівно стільки PAID, скільки ми щойно записали.
   const paidCount = await prisma.payment.count({
     where: { yearlyProgramSubscriptionId: sub.id, status: 'PAID' },
   });
-  const wasFirstPayment = paidCount === 1;
+  const wasFirstPayment = paidCount === parts.length;
 
   // Перерахунок expiresAt по cohort-логіці + активація статусу (single source of truth,
   // спільний helper з carryover-флоу manual-add). Реальна оплата воскрешає мертву підписку.
@@ -744,17 +787,53 @@ async function handleManualPayment(
   });
 
   const methodLabel = MANUAL_METHOD_LABELS[method] ?? method;
+  const splitSummary = parts.length > 1
+    ? ` · розбито на ${parts.length} платежів (${parts.join('+')})`
+    : '';
   await prisma.yearlyProgramSubscriptionEvent.create({
     data: {
       subscriptionId: sub.id,
       type: 'admin_action',
-      message: `Ручна оплата ${amount}₴ (${methodLabel}) by ${actor}${note ? ` — ${note}` : ''} · expiresAt=${newExpiresAt?.toISOString().slice(0, 10) ?? 'null'}`,
+      message: `Ручна оплата ${amount}₴ (${methodLabel}) by ${actor}${note ? ` — ${note}` : ''}${splitSummary} · expiresAt=${newExpiresAt?.toISOString().slice(0, 10) ?? 'null'}`,
       metadata: {
-        manualPayment: true, amount, method, note, paidAt: paidAt.toISOString(), orderReference, actor,
+        manualPayment: true, amount, method, note, paidAt: paidAt.toISOString(),
+        orderReference: orderReferences[0], orderReferences, parts, actor,
         ...(warning ? { warning } : {}),
       },
     },
   });
+
+  // Квитанція студенту: ОДИН лист на всю внесену суму, навіть якщо її розбито на N рядків.
+  // Помилка листа не валить оплату — платіж уже в БД; факт фіксуємо подією.
+  let receiptEmail: { sent: boolean; error?: string } | null = null;
+  if (sub.user?.email) {
+    const allPayments = await prisma.payment.findMany({
+      where: { yearlyProgramSubscriptionId: sub.id },
+      select: { amount: true, status: true },
+    });
+    const totalPaid = sumRealPaid(allPayments);
+    const remaining = sub.plan === 'YEARLY' ? 0 : Math.max(0, yearlyPrice - totalPaid);
+    const res = await sendYearlyProgramManualPaymentEmail({
+      to: sub.user.email,
+      name: sub.user.name ?? null,
+      amount,
+      methodLabel,
+      totalPaid,
+      remaining,
+      expiresAt: newExpiresAt,
+    }).catch((e) => ({ ok: false, error: (e as Error).message }));
+    receiptEmail = { sent: res.ok, ...(res.error ? { error: res.error } : {}) };
+    await prisma.yearlyProgramSubscriptionEvent.create({
+      data: {
+        subscriptionId: sub.id,
+        type: 'admin_action',
+        message: res.ok
+          ? `Квитанція про ручну оплату ${amount}₴ надіслана на ${sub.user.email}`
+          : `Квитанція про ручну оплату НЕ надіслана: ${(res.error ?? 'unknown').slice(0, 120)}`,
+        metadata: { emailKind: 'manual-payment-received', ok: res.ok, error: res.error ?? null, amount },
+      },
+    });
+  }
 
   // Якщо cohort уже запущений — відкриваємо доступ у SendPulse + welcome-лист (idempotent:
   // якщо доступ уже відкрито/лист уже надсилався — пропускає). Помилка SP не валить оплату:
@@ -782,13 +861,146 @@ async function handleManualPayment(
 
   return NextResponse.json({
     ok: true,
-    paymentId: orderReference,
+    paymentId: orderReferences[0],
+    orderReferences,
+    splitParts: parts.length > 1 ? parts : null,
     newStatus,
     newExpiresAt: newExpiresAt?.toISOString() ?? null,
     cohortLaunched,
     extraLaunch,
     welcome,
+    receiptEmail,
     ...(warning ? { warning } : {}),
+  });
+}
+
+/// «⬆️ Перевести на Річну» — клієнт доплатив повну вартість частинами (готівка/переказ),
+/// і місячна підписка стає річною. Що робимо:
+///   а) знімаємо WFP-регулярку (інакше картку списувало б далі);
+///   б) plan=YEARLY, autoRenew=false, чистимо кеш дати наступного списання;
+///   в) перераховуємо expiresAt за правилом YEARLY (cohort.endDate + пост-доступ);
+///   г) подія `plan_converted` з сумами;
+///   д) лист студенту (помилка листа дію не валить — повертаємо warning).
+/// Недоплату НЕ блокуємо: рішення за менеджером, UI показує залишок у конфірмі.
+async function handleConvertToYearly(sub: NonNullable<SubWithUser>, actor: string) {
+  if (sub.plan !== 'MONTHLY') {
+    return NextResponse.json({ error: 'Підписка вже на Річному плані.' }, { status: 400 });
+  }
+  if (sub.status === 'ARCHIVED') {
+    return NextResponse.json(
+      { error: 'Підписка заархівована — переведення на Річну неможливе. Створіть нову.' },
+      { status: 400 },
+    );
+  }
+
+  // Регулярку знімаємо ДО зміни плану: removeSubscriptionAutopay працює тільки для MONTHLY.
+  const autopay = sub.autoRenew
+    ? await removeSubscriptionAutopay(sub.id)
+    : { removed: 0, attempted: 0, error: null as string | null };
+
+  const fresh = await prisma.yearlyProgramSubscription.findUnique({
+    where: { id: sub.id },
+    include: {
+      cohort: { select: { startDate: true, endDate: true } },
+      payments: { select: { amount: true, status: true, paidAt: true, createdAt: true } },
+    },
+  });
+  const postAccessMonths = await getYearlyPostAccessMonths(prisma);
+  const computedExpiresAt = calculateAccessUntil({
+    plan: 'YEARLY',
+    autoRenew: false,
+    cohort: fresh?.cohort ? { startDate: fresh.cohort.startDate, endDate: fresh.cohort.endDate } : null,
+    payments: fresh?.payments ?? [],
+    postAccessMonths,
+  });
+
+  // Ніколи не вкорочуємо доступ: якщо менеджер раніше продовжив вручну далі за розрахунок —
+  // лишаємо його дату. Якщо розрахунку немає (немає оплат/набору) — лишаємо як було.
+  const currentExpiresAt = sub.expiresAt ?? null;
+  const newExpiresAt = computedExpiresAt && currentExpiresAt
+    ? (computedExpiresAt > currentExpiresAt ? computedExpiresAt : currentExpiresAt)
+    : (computedExpiresAt ?? currentExpiresAt);
+
+  const { yearlyPrice } = await getYearlyProgramSettings(prisma);
+  const totalPaid = sumRealPaid(fresh?.payments ?? []);
+  const remaining = Math.max(0, yearlyPrice - totalPaid);
+
+  await prisma.yearlyProgramSubscription.update({
+    where: { id: sub.id },
+    data: {
+      plan: 'YEARLY',
+      autoRenew: false,
+      // Кеш графіка WFP більше не має сенсу — інакше колонка «Наступний платіж»
+      // показувала б дату списання, якого вже не буде.
+      wfpNextChargeAt: null,
+      wfpScheduleCheckedAt: null,
+      ...(newExpiresAt ? { expiresAt: newExpiresAt } : {}),
+    },
+  });
+
+  const wfpSummary = sub.autoRenew
+    ? ` · WFP REMOVE: ${autopay.removed}/${autopay.attempted}${autopay.error ? ` (errors: ${autopay.error.slice(0, 200)})` : ''}`
+    : '';
+  await prisma.yearlyProgramSubscriptionEvent.create({
+    data: {
+      subscriptionId: sub.id,
+      type: 'plan_converted',
+      message: `Переведено на Річний план by ${actor} · сплачено ${totalPaid}₴ з ${yearlyPrice}₴`
+        + `${remaining > 0 ? ` (недоплата ${remaining}₴)` : ''}`
+        + ` · expiresAt=${newExpiresAt?.toISOString().slice(0, 10) ?? 'null'}${wfpSummary}`,
+      metadata: {
+        planConverted: true,
+        from: 'MONTHLY',
+        to: 'YEARLY',
+        totalPaid,
+        yearlyPrice,
+        remaining,
+        hadAutoRenew: sub.autoRenew,
+        expiresAt: newExpiresAt?.toISOString() ?? null,
+        wfpRemovedCount: autopay.removed,
+        wfpAttemptedCount: autopay.attempted,
+        wfpError: autopay.error,
+        actor,
+      },
+    },
+  });
+
+  // Лист — best-effort: план уже змінено в БД, помилка пошти цього не скасовує.
+  let emailWarning: string | null = null;
+  if (sub.user?.email) {
+    const res = await sendYearlyProgramConvertedToYearlyEmail({
+      to: sub.user.email,
+      name: sub.user.name ?? null,
+      totalPaid,
+      expiresAt: newExpiresAt,
+    }).catch((e) => ({ ok: false, error: (e as Error).message }));
+    if (!res.ok) emailWarning = `лист студенту не надіслано: ${(res.error ?? 'unknown').slice(0, 160)}`;
+    await prisma.yearlyProgramSubscriptionEvent.create({
+      data: {
+        subscriptionId: sub.id,
+        type: 'admin_action',
+        message: res.ok
+          ? `Лист про переведення на Річну надіслано на ${sub.user.email}`
+          : `Лист про переведення на Річну НЕ надіслано: ${(res.error ?? 'unknown').slice(0, 120)}`,
+        metadata: { emailKind: 'plan-converted-yearly', ok: res.ok, error: res.error ?? null },
+      },
+    });
+  }
+
+  const warnings = [
+    autopay.error ? `WFP: ${autopay.error.slice(0, 200)}` : null,
+    emailWarning,
+  ].filter(Boolean) as string[];
+
+  return NextResponse.json({
+    ok: true,
+    plan: 'YEARLY',
+    totalPaid,
+    yearlyPrice,
+    remaining,
+    newExpiresAt: newExpiresAt?.toISOString() ?? null,
+    autopay,
+    ...(warnings.length > 0 ? { warning: warnings.join(' · ') } : {}),
   });
 }
 
@@ -848,6 +1060,7 @@ async function handleCarryover(
       yearlyProgramSubscriptionId: sub.id,
       manualMethod: 'carryover',
       manualNote: note,
+      manualEnteredBy: actor,
     },
   });
 

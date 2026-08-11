@@ -17,6 +17,8 @@ export type PaymentTemplateKey =
   | 'plan-changed-downgrade'
   | 'receipt-autopay'
   | 'receipt-one-time'
+  | 'manual-payment-received'
+  | 'plan-converted-yearly'
   | 'admin-cancelled'
   | 'admin-archived'
   | 'admin-access-closed'
@@ -151,6 +153,18 @@ export const PLACEHOLDER_DESCRIPTIONS: Record<string, { what: string; consequenc
   inviteBlock: {
     what: 'Готовий HTML-блок з кнопкою «Долучитись у Telegram» (запрошувальне посилання вже всередині).',
     consequence: 'БЕЗ цього поля юзер не отримає посилання на канал — лист стане безглуздим.',
+  },
+  methodLabel: {
+    what: 'Спосіб, яким прийнято оплату — наприклад «Готівка», «Переказ», «Напряму (ФОП)».',
+    consequence: 'БЕЗ цього поля у квитанції не буде вказано, як саме оплату прийнято.',
+  },
+  totalPaid: {
+    what: 'Сумарно сплачено за Річну програму на цей момент — наприклад «6600».',
+    consequence: 'БЕЗ цього поля студент не побачить, скільки всього вже сплатив.',
+  },
+  remainingLine: {
+    what: 'Готовий рядок «Залишок до повної вартості: X ₴». Автоматично ховається, коли доплачувати нічого (0 ₴) або план уже Річний.',
+    consequence: 'БЕЗ цього поля студент не побачить, скільки ще треба доплатити.',
   },
   telegramSection: {
     what: 'Готовий блок «Telegram-канал Річної програми» з кнопкою «Долучитись у Telegram» (персональне посилання підставляється автоматично).',
@@ -312,6 +326,56 @@ export const PAYMENT_TEMPLATES: Record<PaymentTemplateKey, PaymentTemplateMeta> 
   <ul style="margin: 0 0 16px; padding-left: 20px;">
     <li style="margin-bottom: 8px;">Щоб продовжити навчання наступного місяця — оформте нову оплату на сайті.</li>
   </ul>`),
+  },
+  'manual-payment-received': {
+    key: 'manual-payment-received',
+    group: 'payment',
+    title: '🧾 Квитанція — оплата поза сайтом (готівка / переказ)',
+    when: 'Менеджер зафіксував оплату вручну («Підтвердити оплату вручну» / вкладка «Ручні платежі»). Один лист на всю внесену суму — навіть якщо її розбито на кілька місячних платежів.',
+    placeholders: ['greeting', 'amount', 'methodLabel', 'totalPaid', 'remainingLine', 'expiresLine'],
+    sampleData: {
+      greeting: 'Доброго дня, Іван Петренко!',
+      amount: '6600',
+      methodLabel: 'Переказ',
+      totalPaid: '6600',
+      remainingLine: '<p style="margin: 0 0 16px;"><b>Залишок до повної вартості:</b> 8400 ₴</p>',
+      expiresLine: '<p style="margin: 0 0 16px;"><b>Доступ діє до:</b> 2026-12-01</p>',
+    },
+    defaultSubject: 'Оплату по Річній програмі отримано — {amount} ₴',
+    defaultBodyHtml: layout(`  <h2 style="color: #1a1a1a; margin: 0 0 16px;">Дякуємо за оплату</h2>
+  <p style="margin: 0 0 12px;">{greeting}</p>
+  <p style="margin: 0 0 16px;">Ми отримали вашу оплату по Річній програмі Українського інституту Душеопіки та Психотерапії (UIMP) і зафіксували її у вашій підписці.</p>
+  <p style="margin: 0 0 8px;"><b>Сума платежу:</b> {amount} ₴</p>
+  <p style="margin: 0 0 8px;"><b>Спосіб оплати:</b> {methodLabel}</p>
+  <p style="margin: 0 0 8px;"><b>Всього сплачено:</b> {totalPaid} ₴</p>
+  {remainingLine}
+  {expiresLine}
+  <p style="margin: 0 0 16px;">Якщо у сумі чи датах є розбіжність — просто відповідайте на цей лист, ми перевіримо.</p>`),
+  },
+  'plan-converted-yearly': {
+    key: 'plan-converted-yearly',
+    group: 'plan-change',
+    title: '⬆️ Переведення на Річний план (повна оплата)',
+    when: 'Менеджер натиснув «Перевести на Річну» у картці підписки — місячний план стає Річним, автосписання знімається.',
+    placeholders: ['greeting', 'totalPaid', 'expiresLine'],
+    sampleData: {
+      greeting: 'Доброго дня, Іван Петренко!',
+      totalPaid: '15000',
+      expiresLine: '<p style="margin: 0 0 16px;"><b>Доступ діє до:</b> 2027-11-30</p>',
+    },
+    defaultSubject: 'Ваш план змінено — Річна програма оплачена повністю',
+    defaultBodyHtml: layout(`  <h2 style="color: #1a1a1a; margin: 0 0 16px;">Вітаємо — ваш план тепер Річний</h2>
+  <p style="margin: 0 0 12px;">{greeting}</p>
+  <p style="margin: 0 0 16px;">Ваша підписка на Річну програму Українського інституту Душеопіки та Психотерапії (UIMP) переведена з місячної оплати на <b>Річний план</b>.</p>
+  <p style="margin: 0 0 8px;"><b>Всього сплачено:</b> {totalPaid} ₴</p>
+  {expiresLine}
+  <h3 style="margin: 24px 0 8px;">Що це означає</h3>
+  <ul style="margin: 0 0 16px; padding-left: 20px;">
+    <li style="margin-bottom: 8px;">Щомісячні платежі більше не потрібні — програма оплачена.</li>
+    <li style="margin-bottom: 8px;">Автосписання вимкнено, картка більше не списуватиметься.</li>
+    <li style="margin-bottom: 8px;">Доступ до навчальної платформи діє до вказаної вище дати.</li>
+  </ul>
+  <p style="margin: 0 0 16px;">Якщо щось у цих даних виглядає неправильно — відповідайте на цей лист, ми розберемось.</p>`),
   },
   'admin-cancelled': {
     key: 'admin-cancelled',

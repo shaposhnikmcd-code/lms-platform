@@ -27,11 +27,16 @@ function localNowValue(): string {
 export default function ManualPaymentModal({
   row,
   theme,
+  monthlyPrice,
+  yearlyPrice,
   onClose,
   onDone,
 }: {
   row: Row;
   theme: Theme;
+  /// Ціни з налаштувань програми (НЕ хардкод): плейсхолдер суми + поріг авто-розбивки.
+  monthlyPrice: number;
+  yearlyPrice: number;
   onClose: () => void;
   onDone: () => void;
 }) {
@@ -42,6 +47,9 @@ export default function ManualPaymentModal({
   const [method, setMethod] = useState<string>('cash');
   const [note, setNote] = useState('');
   const [paidAt, setPaidAt] = useState(localNowValue());
+  /// Авто-розбивка великої суми на місячні платежі. Дефолт ON — бо графік доступу рахує
+  /// КІЛЬКІСТЬ платежів, і без розбивки 6600 ₴ закрили б лише один місяць.
+  const [split, setSplit] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   /// Не помилка сервера, а інформація для менеджера: анти-дубль (HTTP 409) — оплата з такою
@@ -61,7 +69,13 @@ export default function ManualPaymentModal({
   const validAmount = Number.isInteger(amountNum) && amountNum > 0 && amountNum <= 1_000_000;
   const canSubmit = validAmount && !!method && !submitting;
 
-  const placeholderAmount = row.plan === 'YEARLY' ? '15000' : '2200';
+  const placeholderAmount = String(row.plan === 'YEARLY' ? yearlyPrice : monthlyPrice);
+
+  // Розбивка пропонується тільки місячним підпискам і тільки коли сума тягне ≥ 2 місяці.
+  // Розрахунок дзеркалить сервер (splitManualAmount): N повних місяців + залишок окремо.
+  const canSplit = row.plan === 'MONTHLY' && monthlyPrice > 0 && validAmount && amountNum >= 2 * monthlyPrice;
+  const fullMonths = canSplit ? Math.floor(amountNum / monthlyPrice) : 0;
+  const splitRest = canSplit ? amountNum - fullMonths * monthlyPrice : 0;
 
   async function submit() {
     if (!canSubmit) return;
@@ -80,6 +94,9 @@ export default function ManualPaymentModal({
           note: note.trim() || undefined,
           // datetime-local → ISO (трактуємо як локальний час менеджера).
           paidAt: paidAt ? new Date(paidAt).toISOString() : undefined,
+          // Прапорець розбивки має сенс лише коли вона взагалі можлива; остаточне рішення
+          // (і розрахунок часток) — на сервері, він єдине джерело правди про ціни.
+          split: canSplit ? split : undefined,
         }),
       });
       const data = await res.json();
@@ -115,10 +132,18 @@ export default function ManualPaymentModal({
       // Сервер міг зафіксувати оплату і водночас повернути `warning` (напр. сума схожа на
       // кілька місяців, але зарахується як один) — тоді замість зеленого «зафіксовано»
       // показуємо попередження, інакше менеджер його ніколи не побачить.
+      const splitNote = Array.isArray(data.splitParts)
+        ? ` · розбито на ${data.splitParts.length} платежів (${data.splitParts.join(' + ')})`
+        : '';
+      const receiptNote = data.receiptEmail && !data.receiptEmail.sent
+        ? ' · ⚠ квитанцію студенту НЕ надіслано'
+        : '';
       if (data.warning) {
-        toast('warning', `Оплату ${amountNum}₴ зафіксовано${note2} — ${data.warning}`);
+        toast('warning', `Оплату ${amountNum}₴ зафіксовано${splitNote}${note2}${receiptNote} — ${data.warning}`);
+      } else if (receiptNote) {
+        toast('warning', `Оплату ${amountNum}₴ зафіксовано${splitNote}${note2}${receiptNote}`);
       } else {
-        toast('success', `Оплату ${amountNum}₴ зафіксовано${note2}`);
+        toast('success', `Оплату ${amountNum}₴ зафіксовано${splitNote}${note2}`);
       }
       onDone();
       onClose();
@@ -189,6 +214,34 @@ export default function ManualPaymentModal({
               autoFocus
             />
           </Field>
+
+          {canSplit && (
+            <label
+              className={`flex items-start gap-2.5 px-4 py-3 rounded-xl border cursor-pointer transition-colors ${
+                split
+                  ? dark ? 'bg-emerald-500/[0.07] border-emerald-400/30' : 'bg-emerald-50/70 border-emerald-300/60'
+                  : dark ? 'bg-white/[0.03] border-white/10' : 'bg-white border-stone-300'
+              }`}
+            >
+              <input
+                type="checkbox"
+                checked={split}
+                onChange={(e) => setSplit(e.target.checked)}
+                className="mt-0.5 w-4 h-4 shrink-0 accent-emerald-600"
+              />
+              <span className="text-[12px] leading-relaxed">
+                <b>
+                  Розбити на {fullMonths + (splitRest > 0 ? 1 : 0)} платежів по {monthlyPrice.toLocaleString('uk-UA')} ₴
+                  {splitRest > 0 ? ` (+ залишок ${splitRest.toLocaleString('uk-UA')} ₴)` : ''}
+                </b>
+                <span className={`block mt-1 ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
+                  {split
+                    ? `Закриє ${fullMonths}${splitRest > 0 ? '+1' : ''} місяців графіка. Студент отримає ОДНУ квитанцію на всю суму.`
+                    : 'Без розбивки вся сума зарахується як ОДИН місяць графіка.'}
+                </span>
+              </span>
+            </label>
+          )}
 
           <Field theme={theme} label="Спосіб оплати" required>
             <div className="grid grid-cols-3 gap-2">
