@@ -77,9 +77,9 @@ export const content = {
     badge: "🎓 Investment in yourself",
     title: "Course price",
     subtitle: "Recorded lectures, workbook with exercises and additional materials",
-    access: "Full access for 6 months",
+    access: "Lifetime access to materials",
     currency: "UAH",
-    features: ["All lectures (up to 30 min each)", "6-month access", "Workbook with exercises", "Additional materials"],
+    features: ["All lectures (up to 30 min each)", "Lifetime access", "Workbook with exercises", "Additional materials"],
     btnBuy: "Buy course",
   },
 };

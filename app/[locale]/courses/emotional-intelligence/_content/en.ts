@@ -34,7 +34,7 @@ export const content = {
     label: "Format",
     title: "How the course works",
     items: [
-      { icon: "🎥", title: "Recorded lectures", text: "All lectures are recorded (up to 30 minutes each). You can watch them at any convenient time (access — six months)" },
+      { icon: "🎥", title: "Recorded lectures", text: "All lectures are recorded (up to 30 minutes each). You can watch them at any convenient time (access — with no time limit)" },
       { icon: "📝", title: "Practical materials", text: "Questions for personal reflection and additional materials" },
     ],
   },
@@ -90,9 +90,9 @@ export const content = {
     badge: "🎓 Investment in yourself",
     title: "Course price",
     subtitle: "Recorded lectures, questions for reflection and additional materials",
-    access: "Full access for 6 months",
+    access: "Lifetime access to materials",
     currency: "UAH",
-    features: ["All lectures (up to 30 min each)", "6-month access", "Questions for personal reflection", "Additional materials"],
+    features: ["All lectures (up to 30 min each)", "Lifetime access", "Questions for personal reflection", "Additional materials"],
     btnBuy: "Buy course",
   },
 };

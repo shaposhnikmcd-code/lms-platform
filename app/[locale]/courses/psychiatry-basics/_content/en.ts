@@ -37,8 +37,8 @@ export const content = {
   },
   pricing: {
     title: "Start learning right now!",
-    subtitle: "Full access to all course materials for 6 months",
-    access: "Full access for 6 months",
+    subtitle: "Full access to all course materials with no time limit",
+    access: "Lifetime access to materials",
     btnBuy: "Buy course",
   },
 };

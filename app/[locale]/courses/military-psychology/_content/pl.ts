@@ -77,9 +77,9 @@ export const content = {
     badge: "🎓 Inwestycja w siebie",
     title: "Cena kursu",
     subtitle: "Wykłady nagrane, zeszyt ćwiczeń i dodatkowe materiały",
-    access: "Pełny dostęp na 6 miesięcy",
+    access: "Bezterminowy dostęp do materiałów",
     currency: "UAH",
-    features: ["Wszystkie wykłady (do 30 min każdy)", "Dostęp 6 miesięcy", "Zeszyt ćwiczeń", "Dodatkowe materiały"],
+    features: ["Wszystkie wykłady (do 30 min każdy)", "Bezterminowy dostęp", "Zeszyt ćwiczeń", "Dodatkowe materiały"],
     btnBuy: "Kup kurs",
   },
 };

@@ -59,7 +59,7 @@ export const content = {
   pricing: {
     title: "Start learning right now!",
     subtitle: "20 hours of video, additional materials and homework",
-    access: "Full access for 6 months",
+    access: "Lifetime access to materials",
     btnBuy: "Buy course",
   },
 };

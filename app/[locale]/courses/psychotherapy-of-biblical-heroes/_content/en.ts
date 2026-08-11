@@ -30,7 +30,7 @@ export const content = {
   pricing: {
     title: "Start learning right now!",
     subtitle: "5 recorded lessons, access to all materials",
-    access: "Full access for 6 months",
+    access: "Lifetime access to materials",
     btnBuy: "Buy course",
   },
 };
