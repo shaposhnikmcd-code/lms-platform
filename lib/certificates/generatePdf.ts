@@ -67,7 +67,16 @@ export async function generateCertificatePdf(input: CertGenerationInput): Promis
     /// subset: false — pdf-lib subsetting ламає гліфи у Google Fonts static TTFs
     /// (ймовірно через CFF outlines). Повний embed ~300KB per font; 6 fonts у
     /// фінальному PDF ~500-700KB після DEFLATE. Прийнятний tradeoff за коректність.
-    const font = await doc.embedFont(loadFont(key), { subset: false });
+    ///
+    /// Cormorant: вимикаємо лігатури (liga/calt/dlig). Ліга-гліфи (g_g.liga,
+    /// T_h.liga, Q.long, f_t.liga…) недосяжні через cmap → pdf-lib не включає їх
+    /// у W-масив ширин → фантомний пробіл після «gg»/«Th» («Wiggam» → «Wigg am»).
+    const font = await doc.embedFont(loadFont(key), {
+      subset: false,
+      ...(key.startsWith('cormorant')
+        ? { features: { liga: false, calt: false, dlig: false } }
+        : {}),
+    });
     fontCache.set(key, font);
     return font;
   };
