@@ -37,6 +37,8 @@ export type IssueKind =
   | 'RECURRING_CALLBACK_SKIPPED'
   | 'REVIVED_WITH_DEBT'
   | 'WFP_REMOVE_FAILED'
+  | 'WFP_SCHEDULE_DRIFT'
+  | 'WFP_RULE_NOT_ACTIVE'
   | 'ACCESS_OPENED_NO_EMAIL'
   | 'EMAIL_FAILED';
 
@@ -53,6 +55,8 @@ export const ISSUE_KIND_VALUES: IssueKind[] = [
   'RECURRING_CALLBACK_SKIPPED',
   'REVIVED_WITH_DEBT',
   'WFP_REMOVE_FAILED',
+  'WFP_SCHEDULE_DRIFT',
+  'WFP_RULE_NOT_ACTIVE',
   'ACCESS_OPENED_NO_EMAIL',
   'EMAIL_FAILED',
 ];
@@ -91,6 +95,12 @@ export const ISSUE_KIND_SEVERITY: Record<IssueKind, IssueSeverity> = {
   REVIVED_WITH_DEBT: 'critical',
   // critical: поки правило живе, картку клієнта списують за доступ, якого вже немає.
   WFP_REMOVE_FAILED: 'critical',
+  // warning: гроші поки не втрачені, але дати списань розійшлись із розкладом набору —
+  // без ручної синхронізації клієнта спишуть не тоді, коли має бути.
+  WFP_SCHEDULE_DRIFT: 'warning',
+  // warning: правило у WFP є, але призупинене — чергові списання не пройдуть, і доступ
+  // одного дня згасне «без причини». Виправляється тільки в кабінеті WayForPay.
+  WFP_RULE_NOT_ACTIVE: 'warning',
   // warning: доступ у людини Є (гроші відпрацьовані), бракує лише листа з входом —
   // неприємно, але не про втрату грошей чи доступу.
   ACCESS_OPENED_NO_EMAIL: 'warning',
@@ -141,6 +151,8 @@ export const ISSUE_KIND_LABELS: Record<IssueKind, string> = {
   RECURRING_CALLBACK_SKIPPED: 'Автосписання не зараховано (callback пропущено)',
   REVIVED_WITH_DEBT: 'Оплата з боргом — потрібне рішення менеджера',
   WFP_REMOVE_FAILED: 'Автосписання у WayForPay не вдалося зняти',
+  WFP_SCHEDULE_DRIFT: 'Графік списань WayForPay розійшовся з розкладом набору',
+  WFP_RULE_NOT_ACTIVE: 'Правило автосписання у WayForPay призупинене',
   ACCESS_OPENED_NO_EMAIL: 'Доступ відкрито, але welcome-лист не пішов',
   EMAIL_FAILED: 'Лист-нагадування не доставлено',
 };
@@ -160,6 +172,8 @@ export const ISSUE_HAS_RETRY: Record<IssueKind, boolean> = {
   RECURRING_CALLBACK_SKIPPED: false, // ручний розбір: звірити з кабінетом WFP
   REVIVED_WITH_DEBT: false,          // рішення менеджера: «Продовжити» / «Ручна оплата» / повернення
   WFP_REMOVE_FAILED: false,          // нічний cron ретраїть сам; ручна дія — зняти правило в кабінеті WFP
+  WFP_SCHEDULE_DRIFT: false,         // ручна дія — «Синхронізувати графік» у панелі підписки
+  WFP_RULE_NOT_ACTIVE: false,        // виправляється лише в кабінеті WayForPay
   ACCESS_OPENED_NO_EMAIL: false,     // нічний heal досилає сам; ручна дія — «Дослати лист» у наборі
   EMAIL_FAILED: false,               // cron сам ретраїть щодня; ручна дія — виправити email студента
 };
@@ -266,6 +280,18 @@ function reminderFlagValue(sub: RawSubscription, flag: string): boolean | undefi
 /// щонайменше останню добу», а стара разова невдача сама зникає з вкладки.
 const EMAIL_FAILED_WINDOW_MS = 3 * 24 * 60 * 60 * 1000;
 
+/// Події read-only звірки графіка WFP (`lib/yearlyProgramScheduleSync.ts` — константи
+/// WFP_SCHEDULE_DRIFT_EVENT / WFP_RULE_NOT_ACTIVE_EVENT). Рядки дублюються свідомо:
+/// цей модуль не має тягнути за собою WFP-клієнт. Міняти — в обох місцях одночасно.
+const NIGHTLY_ECHO_EVENT_KINDS: Record<string, IssueKind> = {
+  wfp_schedule_drift: 'WFP_SCHEDULE_DRIFT',
+  wfp_rule_not_active: 'WFP_RULE_NOT_ACTIVE',
+};
+
+/// Вікно свіжості для таких подій: звірка пише їх раз на добу, поки проблема жива.
+/// 3 доби = «сигнал був щонайменше вчора-позавчора», старіші сигнали гаснуть самі.
+const NIGHTLY_ECHO_WINDOW_MS = 3 * 24 * 60 * 60 * 1000;
+
 interface RawEvent {
   id: string;
   subscriptionId: string;
@@ -313,6 +339,13 @@ function classifyEvent(e: RawEvent): {
   // вручну) закриває issue. Провал піднімає його лише з WFP_REMOVE_ISSUE_THRESHOLD-ї
   // спроби поспіль — лічильник пише `recordAutopayRemoveOutcome`.
   if (e.type === 'wfp_remove_succeeded') return { kind: null, resolvesKind: 'WFP_REMOVE_FAILED' };
+
+  // Успішна синхронізація графіка (ручна кнопка, запуск, зміна дат набору) закриває
+  // обидва «графікові» issue одразу: після CHANGE дати збігаються, а якщо правило було
+  // призупинене — CHANGE по ньому взагалі не пройшов би.
+  if (e.type === 'wfp_schedule_synced') {
+    return { kind: null, resolvesKind: ['WFP_SCHEDULE_DRIFT', 'WFP_RULE_NOT_ACTIVE'] };
+  }
   if (e.type === 'wfp_remove_failed') {
     const meta = (e.metadata ?? null) as { consecutiveFailures?: number } | null;
     const streak = typeof meta?.consecutiveFailures === 'number' ? meta.consecutiveFailures : 1;
@@ -414,7 +447,7 @@ export async function collectAllIssues(): Promise<IssuesPayload> {
     prisma.yearlyProgramSubscriptionEvent.findMany({
       where: {
         OR: [
-          { type: { in: ['access_open_failed', 'launch_email_failed', 'access_opened', 'launch_email_sent', 'orphan_recurring_charge', 'revived_with_debt', 'reactivated', 'reminder_email_failed', 'access_close_failed', 'access_reopen_failed', 'wfp_remove_failed', 'wfp_remove_succeeded'] } },
+          { type: { in: ['access_open_failed', 'launch_email_failed', 'access_opened', 'launch_email_sent', 'orphan_recurring_charge', 'revived_with_debt', 'reactivated', 'reminder_email_failed', 'access_close_failed', 'access_reopen_failed', 'wfp_remove_failed', 'wfp_remove_succeeded', 'wfp_schedule_synced', 'wfp_schedule_drift', 'wfp_rule_not_active'] } },
           { type: 'admin_action' },
         ],
       },
@@ -710,6 +743,59 @@ export async function collectAllIssues(): Promise<IssuesPayload> {
         dismissedBy: dismissal?.dismissedBy ?? null,
         dismissedReason: dismissal?.reason ?? null,
       });
+    }
+  }
+
+  // Детектори «нічного відлуння»: WFP_SCHEDULE_DRIFT і WFP_RULE_NOT_ACTIVE.
+  // Ці події пише READ-ONLY звірка графіка (`lib/yearlyProgramScheduleSync.ts`) не частіше
+  // разу на добу, поки проблема жива. Тому issue активний лише поки остання подія свіжа:
+  // щойно звірка перестала її писати (менеджер синхронізував графік, правило ожило або
+  // регулярку зняли) — картка зникає сама, без ручного «заглушити».
+  {
+    const echoSince = new Date(Date.now() - NIGHTLY_ECHO_WINDOW_MS);
+    const echoAgg = new Map<string, Map<IssueKind, { latestAt: Date; count: number; excerpt: string | null }>>();
+    for (const e of events) {
+      const kind = NIGHTLY_ECHO_EVENT_KINDS[e.type];
+      if (!kind) continue;
+      if (e.createdAt < echoSince) continue;
+      let perKind = echoAgg.get(e.subscriptionId);
+      if (!perKind) { perKind = new Map(); echoAgg.set(e.subscriptionId, perKind); }
+      const prev = perKind.get(kind);
+      const excerpt = e.message?.slice(0, 200) ?? null;
+      if (!prev) {
+        perKind.set(kind, { latestAt: e.createdAt, count: 1, excerpt });
+      } else {
+        prev.count += 1;
+        if (e.createdAt > prev.latestAt) {
+          prev.latestAt = e.createdAt;
+          prev.excerpt = excerpt;
+        }
+      }
+    }
+
+    for (const [subId, perKind] of echoAgg) {
+      const sub = subById.get(subId);
+      if (!sub || !sub.user) continue;
+      for (const [kind, agg] of perKind) {
+        // Успішний sync після останнього сигналу — проблеми вже немає.
+        const successAt = resolvedAt.get(subId)?.get(kind);
+        if (successAt && successAt > agg.latestAt) continue;
+        const dismissal = dismissalMap.get(dismissalKey(subId, kind));
+        records.push({
+          subscriptionId: subId,
+          sourceId: null,
+          kind,
+          lastOccurredAt: agg.latestAt.toISOString(),
+          occurrenceCount: agg.count,
+          errorExcerpt: agg.excerpt,
+          user: sub.user,
+          plan: sub.plan,
+          cohortName: sub.cohort?.name ?? null,
+          dismissedAt: dismissal?.dismissedAt.toISOString() ?? null,
+          dismissedBy: dismissal?.dismissedBy ?? null,
+          dismissedReason: dismissal?.reason ?? null,
+        });
+      }
     }
   }
 

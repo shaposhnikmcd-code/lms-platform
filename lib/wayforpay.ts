@@ -149,7 +149,10 @@ export interface RegularStatus {
   /// нечитний JSON, невідомий reasonCode. Викликач НЕ має трактувати це як
   /// «правила нема» (інакше 15-хвилинний збій WFP затирає кеш графіків в адмінці).
   inconclusive: boolean;
-  /// 'Active' | 'Suspended' | 'Removed' | 'Completed' | ... (як повернув WFP)
+  /// 'Active' | 'Suspended' | 'Removed' | 'Completed' | ... — рядок ЯК ЙОГО ПОВЕРНУВ WFP,
+  /// без нормалізації і без згортання «не Active» у «правила немає». Призупинене правило —
+  /// це живе правило: воно лишається у кабінеті мерчанта і може ожити, тому викликач має
+  /// бачити реальний статус, а не порожнечу (інакше підписка зникає з радара звірки).
   status: string | null;
   mode: string | null;
   amount: number | null;
@@ -183,10 +186,15 @@ export async function getRegularStatus(opts: {
   const inconclusive = !found && !(res.ok && parsed !== null && raw.reasonCode === 4102);
   const toDate = (v: unknown): Date | null =>
     typeof v === 'number' && v > 0 ? new Date(v * 1000) : null;
+  // Статус правила WFP віддає полем `status`; у частині відповідей regularApi те саме
+  // значення приходить як `regularStatus`. Беремо перше непорожнє і НЕ приводимо до
+  // жодного канонічного вигляду — «Suspended», «Removed», «Completed» мають дійти до
+  // викликача як є, щоб він міг розрізнити «правила немає» і «правило не активне».
+  const rawStatus = [raw.status, raw.regularStatus].find((v) => typeof v === 'string' && v.trim() !== '');
   return {
     found,
     inconclusive,
-    status: typeof raw.status === 'string' ? raw.status : null,
+    status: typeof rawStatus === 'string' ? rawStatus.trim() : null,
     mode: typeof raw.mode === 'string' ? raw.mode : null,
     amount: typeof raw.amount === 'number' ? raw.amount : null,
     currency: typeof raw.currency === 'string' ? raw.currency : null,

@@ -35,11 +35,29 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
 /// бачила б «дрейф» у 10 днів і слала зайвий CHANGE.
 const REGULAR_DATE_END_BUFFER_DAYS = 10;
 
+/// Подія «графік WFP розійшовся з розкладом набору» — пишеться read-only звіркою, коли
+/// вона бачить дрейф, але сама нічого не змінює. Її ловить детектор «Помилок»
+/// (`WFP_SCHEDULE_DRIFT`), щоб менеджер міг натиснути ручний sync.
+export const WFP_SCHEDULE_DRIFT_EVENT = 'wfp_schedule_drift';
+/// Подія «у WFP є правило, але воно не Active» (Suspended/Paused/…). Теж read-only сигнал:
+/// автоматично таке правило ми не чіпаємо — статус міняється тільки в кабінеті WFP.
+export const WFP_RULE_NOT_ACTIVE_EVENT = 'wfp_rule_not_active';
+
+/// Дрейф, з якого попереджаємо менеджера. 1 день вважаємо шумом (WFP округляє дати
+/// по добі, банківські затримки), тому поріг вищий за той, що вмикає CHANGE.
+const DRIFT_ALERT_DAYS = 2;
+
+/// Не частіше однієї події на добу на підписку: read-only звірка ходить і з cron-а,
+/// і з кожного callback-а — без дедупу журнал підписки заріс би дублями, а лічильник
+/// у «Помилках» показував би десятки «проявів» однієї й тієї ж проблеми.
+const ALERT_EVENT_DEDUP_MS = 20 * 60 * 60 * 1000;
+
 export interface ScheduleSyncResult {
   /// synced — CHANGE відправлено (або знято правило для 9/9); checked — звірено, змін не треба;
-  /// no_rule — жодного живого правила у WFP; skipped — підписка не підлягає синку;
-  /// error — WFP/мережа/конфіг.
-  outcome: 'synced' | 'checked' | 'no_rule' | 'skipped' | 'error';
+  /// no_rule — жодного живого правила у WFP; rule_inactive — правило у WFP Є, але не Active
+  /// (Suspended/Paused): міняти його не можна, потрібне рішення в кабінеті WFP;
+  /// skipped — підписка не підлягає синку; error — WFP/мережа/конфіг.
+  outcome: 'synced' | 'checked' | 'no_rule' | 'rule_inactive' | 'skipped' | 'error';
   reason: string | null;
   /// orderReference живого правила (перший Active).
   ruleRef: string | null;
@@ -48,6 +66,39 @@ export interface ScheduleSyncResult {
   /// Бажана дата (перерахований кінець оплаченого періоду). null коли не рахували.
   desiredNextAt: Date | null;
   changed: boolean;
+}
+
+/// Пише подію-сигнал не частіше ніж раз на `ALERT_EVENT_DEDUP_MS`. Best-effort:
+/// провал запису журналу не має валити саму звірку (вона й так нічого не змінює).
+async function recordAlertOnce(args: {
+  subscriptionId: string;
+  type: string;
+  message: string;
+  metadata: Record<string, unknown>;
+}): Promise<boolean> {
+  try {
+    const recent = await prisma.yearlyProgramSubscriptionEvent.findFirst({
+      where: {
+        subscriptionId: args.subscriptionId,
+        type: args.type,
+        createdAt: { gte: new Date(Date.now() - ALERT_EVENT_DEDUP_MS) },
+      },
+      select: { id: true },
+    });
+    if (recent) return false;
+    await prisma.yearlyProgramSubscriptionEvent.create({
+      data: {
+        subscriptionId: args.subscriptionId,
+        type: args.type,
+        message: args.message.slice(0, 500),
+        metadata: args.metadata as never,
+      },
+    });
+    return true;
+  } catch (e) {
+    console.error('⚠️ Не вдалося записати подію звірки графіка:', args.subscriptionId, args.type, e);
+    return false;
+  }
 }
 
 export async function syncAutopaySchedule(
@@ -101,6 +152,11 @@ export async function syncAutopaySchedule(
   //   • STATUS по ref дав ЧЕСНУ відповідь «правила нема/не активне» (4102) — кеш застарів;
   //   • підписка вже 9/9 — там треба зняти ВСІ правила, тож маємо знати про кожне.
   const activeRules: { ref: string; amount: number; currency: string; mode: string; nextPaymentAt: Date | null; dateEndAt: Date | null }[] = [];
+  /// Правила, які WFP ЗНАЙШОВ, але їхній статус не 'Active' (Suspended, Paused, ...).
+  /// Це НЕ «правила немає»: воно живе в кабінеті мерчанта і може відновитись, тому
+  /// ref такої підписки не можна занулювати — інакше вона зникає з нічної звірки і з
+  /// колонки «Наступний платіж», а списання одного дня повертаються без попередження.
+  const inactiveRules: { ref: string; status: string; nextPaymentAt: Date | null }[] = [];
   const statusErrors: string[] = [];
   /// Хоч один STATUS не дав чесної відповіді (5xx/timeout/битий JSON) → ми НЕ знаємо,
   /// чи є правило. Кеш у такому разі не чіпаємо взагалі.
@@ -131,6 +187,10 @@ export async function syncAutopaySchedule(
             nextPaymentAt: st.nextPaymentAt,
             dateEndAt: st.dateEndAt,
           });
+        } else if (st.found) {
+          // Правило існує, але не Active. Раніше ця гілка була невідрізненна від «нема
+          // правила» → wfpRegularRef обнулявся, і призупинена регулярка ставала невидимою.
+          inactiveRules.push({ ref, status: st.status ?? 'unknown', nextPaymentAt: st.nextPaymentAt });
         }
       } catch (e) {
         inconclusive = true;
@@ -170,6 +230,32 @@ export async function syncAutopaySchedule(
         reason: `STATUS inconclusive (кеш збережено): ${statusErrors.join(' | ').slice(0, 300)}`,
         ruleRef: sub.wfpRegularRef,
         nextChargeAt: sub.wfpNextChargeAt,
+        desiredNextAt: null,
+        changed: false,
+      };
+    }
+    // Живого (Active) правила немає, але WFP знайшов правило в іншому статусі —
+    // Suspended/Paused/etc. Кеш зберігаємо (підписка лишається у звірці й у колонці
+    // «Наступний платіж»), нічого не міняємо — CHANGE по неактивному правилу WFP
+    // не приймає, а рішення «відновити чи зняти» ухвалюється в кабінеті мерчанта.
+    if (inactiveRules.length > 0) {
+      const stale = inactiveRules[0]!;
+      await cacheUpdate(stale.ref, stale.nextPaymentAt);
+      const statuses = inactiveRules.map((r) => `${r.ref}: ${r.status}`).join(' | ');
+      await recordAlertOnce({
+        subscriptionId: sub.id,
+        type: WFP_RULE_NOT_ACTIVE_EVENT,
+        message: `Правило регулярки у WFP у статусі «${stale.status}» — списань не буде, поки його не відновлять. Перевірте правило у кабінеті WayForPay (${statuses}) · ${opts.source}`,
+        metadata: {
+          source: opts.source,
+          rules: inactiveRules.map((r) => ({ ref: r.ref, status: r.status })),
+        },
+      });
+      return {
+        outcome: 'rule_inactive',
+        reason: `WFP-правило у статусі ${stale.status}`,
+        ruleRef: stale.ref,
+        nextChargeAt: stale.nextPaymentAt,
         desiredNextAt: null,
         changed: false,
       };
@@ -228,6 +314,31 @@ export async function syncAutopaySchedule(
 
   if (!opts.apply || !needsChange) {
     await cacheUpdate(primary.ref, primary.nextPaymentAt);
+    // Дрейф побачила READ-ONLY звірка (нічний cron, callback, адмін-перегляд без права
+    // на CHANGE). Раніше він лишався всередині `reason` і не доходив нікуди: графік
+    // тихо розходився з розкладом набору, а списання йшли за старими датами.
+    // Авто-виправлення свідомо НЕ вмикаємо (CHANGE — це гроші клієнта): пишемо подію
+    // + піднімаємо issue у «Помилках», щоб менеджер натиснув ручну синхронізацію.
+    if (needsChange) {
+      const nextDrift = driftDays(primary.nextPaymentAt, desiredNext);
+      if (nextDrift > DRIFT_ALERT_DAYS) {
+        const fmt = (d: Date | null) => d?.toISOString().slice(0, 10) ?? '—';
+        const driftLabel = Number.isFinite(nextDrift) ? `${Math.round(nextDrift)} дн` : 'дата невідома';
+        await recordAlertOnce({
+          subscriptionId: sub.id,
+          type: WFP_SCHEDULE_DRIFT_EVENT,
+          message: `Графік WFP розійшовся з розкладом набору: наступне списання ${fmt(primary.nextPaymentAt)}, має бути ${fmt(desiredNext)} (розбіжність ${driftLabel}). Натисніть «Синхронізувати графік» у панелі підписки · ${opts.source}`,
+          metadata: {
+            source: opts.source,
+            ruleRef: primary.ref,
+            wfpNextAt: primary.nextPaymentAt?.toISOString() ?? null,
+            desiredNext: desiredNext.toISOString(),
+            desiredEnd: desiredEnd.toISOString(),
+            driftDays: Number.isFinite(nextDrift) ? Math.round(nextDrift) : null,
+          },
+        });
+      }
+    }
     return {
       outcome: 'checked',
       reason: needsChange ? 'drift_detected' : null,

@@ -898,7 +898,11 @@ function storedGraceDays(
 async function sendManualBeforeExpiryReminders(): Promise<StepResult> {
   const errors: string[] = [];
   const now = new Date();
-  const windowStart = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000);
+  // ВІДКРИТЕ вікно, не смуга [now+2d, now+3d). Жорстка смуга означала «лист має бути
+  // надісланий рівно в цей добовий прохід»: один пропущений прогін cron-а (Vercel не
+  // запустив, деплой, збій БД) — і лист не піде НІКОЛИ, бо завтра підписка з вікна
+  // випадає. Від дублів захищає не вікно, а прапорець `reminderSent3d`: він claim-иться
+  // атомарно перед відправкою, тож «перестигла» підписка отримає лист рівно один раз.
   const windowEnd = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
 
   const subs = await prisma.yearlyProgramSubscription.findMany({
@@ -906,7 +910,7 @@ async function sendManualBeforeExpiryReminders(): Promise<StepResult> {
       status: 'ACTIVE',
       plan: 'MONTHLY',
       autoRenew: false,
-      expiresAt: { gte: windowStart, lt: windowEnd },
+      expiresAt: { lte: windowEnd },
       reminderSent3d: false,
       ...NOT_IN_UNLAUNCHED_COHORT,
     },
@@ -941,10 +945,13 @@ async function sendManualBeforeExpiryReminders(): Promise<StepResult> {
 async function sendManualOnExpiryReminders(): Promise<StepResult> {
   const errors: string[] = [];
   const now = new Date();
-  // Межі доби — київські, не UTC. З `setUTCHours(0)` доба різалась о 03:00 за Києвом:
-  // підписка, що спливає 15.08 о 01:00 Kyiv (=14.08 22:00 UTC), рахувалась «вчорашньою»
-  // і листа «сьогодні останній день» людина не отримувала взагалі.
-  const startOfToday = kyivMidnightUtc(now, 0);
+  // Верхня межа доби — київська, не UTC. З `setUTCHours(0)` доба різалась о 03:00 за
+  // Києвом: підписка, що спливає 15.08 о 01:00 Kyiv (=14.08 22:00 UTC), рахувалась
+  // «вчорашньою» і листа «сьогодні останній день» людина не отримувала взагалі.
+  //
+  // Нижньої межі свідомо НЕМАЄ (було `gte: startOfToday`): вікно в одну добу означало,
+  // що пропущений прогін cron-а назавжди з'їдає цей лист. Дублі виключає прапорець
+  // `reminderSentOnExpiry` (атомарний claim перед відправкою), а не вузьке вікно.
   const startOfTomorrow = kyivMidnightUtc(now, 1);
 
   const subs = await prisma.yearlyProgramSubscription.findMany({
@@ -952,7 +959,7 @@ async function sendManualOnExpiryReminders(): Promise<StepResult> {
       status: 'ACTIVE',
       plan: 'MONTHLY',
       autoRenew: false,
-      expiresAt: { gte: startOfToday, lt: startOfTomorrow },
+      expiresAt: { lt: startOfTomorrow },
       reminderSentOnExpiry: false,
       ...NOT_IN_UNLAUNCHED_COHORT,
     },
@@ -1195,7 +1202,8 @@ const REMOVE_EVENT_WINDOW_MS = 90 * DAY_MS;
 const REMOVE_EVENT_MAX_ROWS = 2000;
 
 /// Ретрай зняття WFP-регулярки для підписок, які вже НЕ мають отримувати списань:
-/// закриті (CANCELLED / EXPIRED / ARCHIVED) або переведені на Річний план.
+/// закриті (CANCELLED / EXPIRED / ARCHIVED), переведені на Річний план, або живі
+/// місячні, яким автоплатіж вимикали (autoRenew=false), а REMOVE тоді провалився.
 ///
 /// Навіщо окремий крок: REMOVE у момент дії (скасування, закриття доступу, конверсія)
 /// міг не пройти — WFP лежав, таймаут, не налаштований merchantPassword. Раніше після
@@ -1244,6 +1252,20 @@ async function retryAutopayRemoval(): Promise<StepResult> {
       OR: [
         { status: { in: ['CANCELLED', 'EXPIRED', 'ARCHIVED'] } },
         { plan: 'YEARLY' },
+        // Downgrade «автоплатіж → разова»: підписка лишається ЖИВОЮ (ACTIVE MONTHLY),
+        // але з autoRenew=false списувати вже не можна. Якщо REMOVE у момент downgrade-у
+        // не пройшов (WFP лежав, таймаут), правило живе далі — а стара вибірка бачила
+        // тільки закриті підписки і YEARLY, тож ретрай для таких не запускався НІКОЛИ:
+        // картку студента списували за підписку, яку він з автоплатежу вже зняв.
+        //
+        // Умова свідомо ВУЖЧА за «будь-яка MONTHLY з autoRenew=false і живим ref»:
+        // сам прапорець `autoRenew` може брехати (inconclusive-probe у callback-у,
+        // ручна правка), і зняти по ньому чужу робочу регулярку означало б обірвати
+        // оплати клієнту, який нічого не скасовував. Тому беремо лише тих, кому REMOVE
+        // уже РОБИЛИ і він провалився — тут намір зняти правило зафіксований подією.
+        ...(failedIds.length > 0
+          ? [{ plan: 'MONTHLY' as const, autoRenew: false, id: { in: failedIds } }]
+          : []),
       ],
       AND: [
         {
@@ -1335,6 +1357,11 @@ async function refreshWfpScheduleCache(): Promise<StepResult> {
   });
 
   let processed = 0;
+  /// Правило у WFP є, але не Active (Suspended/Paused). Не помилка проходу — але й не
+  /// «все гаразд»: підписка вже висить у «Помилках» (WFP_RULE_NOT_ACTIVE), а тут лише
+  /// показуємо лічильник, щоб це було видно у відповіді cron-а.
+  let inactiveRules = 0;
+  let driftDetected = 0;
   await processInParallel(subs, async (s) => {
     try {
       const r = await syncAutopaySchedule(s.id, { apply: false, source: 'cron_check' });
@@ -1362,6 +1389,8 @@ async function refreshWfpScheduleCache(): Promise<StepResult> {
       if (r.outcome === 'error') {
         errors.push(`${s.id}: ${r.reason ?? 'unknown'}`);
       } else {
+        if (r.outcome === 'rule_inactive') inactiveRules++;
+        if (r.outcome === 'checked' && r.reason === 'drift_detected') driftDetected++;
         processed++;
       }
     } catch (e) {
@@ -1369,5 +1398,14 @@ async function refreshWfpScheduleCache(): Promise<StepResult> {
     }
   });
 
-  return { step: 'wfp_schedule_cache', processed, errors };
+  const infoParts = [
+    inactiveRules > 0 ? `правил не в статусі Active: ${inactiveRules}` : null,
+    driftDetected > 0 ? `розбіжність графіка: ${driftDetected}` : null,
+  ].filter(Boolean);
+  return {
+    step: 'wfp_schedule_cache',
+    processed,
+    errors,
+    ...(infoParts.length > 0 ? { info: `${infoParts.join(' · ')} — деталі у «Помилках»` } : {}),
+  };
 }

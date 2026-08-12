@@ -246,6 +246,7 @@ async function handleSyncWfpSchedule(sub: NonNullable<SubWithUser>, actor: strin
     synced: `Графік оновлено: наступне списання ${fmtD(r.nextChargeAt)}`,
     checked: `Графік уже коректний: наступне списання ${fmtD(r.nextChargeAt)}`,
     no_rule: 'У WFP немає живої регулярки для цієї підписки (разова оплата або правило знято)',
+    rule_inactive: `Правило у WFP є, але воно не активне (${r.reason ?? 'статус невідомий'}) — списань не буде. Відновіть або зніміть його в кабінеті WayForPay.`,
     skipped: `Пропущено: ${r.reason ?? ''}`,
     error: `Помилка: ${r.reason ?? 'невідома'}`,
   }[r.outcome];
@@ -253,6 +254,9 @@ async function handleSyncWfpSchedule(sub: NonNullable<SubWithUser>, actor: strin
     ok: r.outcome !== 'error',
     outcome: r.outcome,
     message,
+    // Призупинене правило — не «все добре»: дублюємо у `warning`, бо тост показує саме
+    // його, а зелене «Дію виконано» приховало б те, що списань не буде.
+    ...(r.outcome === 'rule_inactive' ? { warning: message } : {}),
     nextChargeAt: r.nextChargeAt?.toISOString() ?? null,
   }, { status: r.outcome === 'error' ? 500 : 200 });
 }
@@ -648,7 +652,23 @@ async function handleExtend(sub: NonNullable<SubWithUser>, daysToAdd: number, ac
     },
   });
 
-  return NextResponse.json({ ok: true, newExpiresAt: newExpires.toISOString() });
+  // Дати в нашій БД продовжені, але доступ у SendPulse лишається ЗАКРИТИМ: «Продовжити»
+  // не викликає SP API (це лише зсув expiresAt). Для підписки, якій доступ уже закривали
+  // (cron після grace або менеджер вручну), мовчазне «Дію виконано» читалось як «студент
+  // знову вчиться» — а він і далі не міг зайти в курс. Тому повертаємо застереження.
+  const warnings: string[] = [];
+  if (sub.sendpulseAccessClosedAt) {
+    warnings.push(
+      `доступ у SendPulse закритий ${sub.sendpulseAccessClosedAt.toISOString().slice(0, 10)} — `
+      + 'натисніть «Відкрити знову», інакше студент у курс не потрапить',
+    );
+  }
+
+  return NextResponse.json({
+    ok: true,
+    newExpiresAt: newExpires.toISOString(),
+    ...(warnings.length > 0 ? { warning: warnings.join(' · ') } : {}),
+  });
 }
 
 /// Способи ручної оплати, відомі UI. Backend приймає будь-який непустий рядок (forward-compat),
