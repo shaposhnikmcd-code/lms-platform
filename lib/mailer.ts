@@ -98,8 +98,13 @@ export function esc(s: string): string {
 }
 
 /// Базовий URL для посилань у листах. Беремо з NEXTAUTH_URL (це стандартна змінна,
-/// яка вже задана на dev/prod для NextAuth). Fallback — прод uimp.com.ua.
+/// яка вже задана на dev/prod для NextAuth).
+///
+/// Fallback — саме `www.uimp.com.ua`, а не голий домен: канонічний хост сайту — www
+/// (apex віддає 307 на www, туди ж ведуть QR-коди сертифікатів і канонічні URL для SEO).
+/// З голим доменом кожне посилання в листі коштувало клієнту зайвий редірект-хоп, а
+/// поштові сканери іноді «спалюють» одноразові токени саме на редіректі.
 export function appBaseUrl(): string {
-  const url = process.env.NEXTAUTH_URL || 'https://uimp.com.ua';
+  const url = process.env.NEXTAUTH_URL || 'https://www.uimp.com.ua';
   return url.replace(/\/+$/, '');
 }

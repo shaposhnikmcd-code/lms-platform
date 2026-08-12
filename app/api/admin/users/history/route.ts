@@ -12,7 +12,9 @@ async function requireAdmin(req: NextRequest): Promise<boolean> {
 }
 
 /// Лог подій життєвого циклу акаунтів ADMIN/MANAGER
-/// (створення / видалення / відновлення).
+/// (створення / видалення / відновлення / зміна ролі).
+/// Для ROLE_CHANGED `targetRole` — це НОВА роль, а `previousRole` — попередня,
+/// тож фільтр по targetRole такі події не втрачає (обидві ролі з цієї пари).
 export async function GET(req: NextRequest) {
   try {
     if (!(await requireAdmin(req))) {
@@ -30,6 +32,7 @@ export async function GET(req: NextRequest) {
         targetName: true,
         targetEmail: true,
         targetRole: true,
+        previousRole: true,
         actorName: true,
         actorEmail: true,
         createdAt: true,

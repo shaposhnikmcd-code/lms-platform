@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import type { UserRole } from '@prisma/client';
 import { getServerSession } from 'next-auth';
 import { getToken } from 'next-auth/jwt';
 import { authOptions } from '@/lib/auth';
@@ -7,30 +8,44 @@ import { isProtectedAccount, isSuperAdmin } from '@/lib/superAdmin';
 
 type AdminActor = { id?: string; name?: string | null; email?: string | null };
 
-/// Аудит зміни ролі. `UserAuditEvent` (Prisma enum) поки має тільки
-/// CREATED/DELETED/RESTORED, а додавання ROLE_CHANGED = зміна схеми + міграція,
-/// що поза скоупом цієї задачі. Тому подія пишеться структурованим рядком у
-/// логи (Vercel → Runtime Logs, шукати `[audit] ROLE_CHANGED`). Коли enum
-/// розширять — перенести на `prisma.userAuditLog.create`.
-function logRoleChange(params: {
+/// Аудит зміни ролі. Раніше подія жила лише рядком у Runtime Logs Vercel —
+/// тобто зміна привілеїв не була видна ні в «Історії змін», ні поза 30-денним
+/// вікном зберігання логів. Тепер це повноцінний запис `UserAuditLog`
+/// (ROLE_CHANGED, `previousRole` → `targetRole`), як CREATED/DELETED/RESTORED.
+/// Best-effort: збій запису аудиту не має відкочувати вже застосовану зміну ролі,
+/// але має бути гучним у логах.
+async function recordRoleChange(params: {
   actor: AdminActor;
-  target: { id: string; name: string | null; email: string; role: string };
-  newRole: string;
-}) {
-  console.log(
-    '[audit] ROLE_CHANGED ' +
-      JSON.stringify({
-        at: new Date().toISOString(),
+  target: { id: string; name: string | null; email: string; role: UserRole };
+  newRole: UserRole;
+}): Promise<void> {
+  try {
+    await prisma.userAuditLog.create({
+      data: {
+        userId: params.target.id,
+        eventType: 'ROLE_CHANGED',
+        targetName: params.target.name,
+        targetEmail: params.target.email,
+        targetRole: params.newRole,
+        previousRole: params.target.role,
         actorId: params.actor.id ?? null,
         actorName: params.actor.name ?? null,
         actorEmail: params.actor.email ?? null,
+      },
+    });
+  } catch (e) {
+    console.error(
+      '[audit] ROLE_CHANGED не записано в UserAuditLog:',
+      JSON.stringify({
         targetId: params.target.id,
-        targetName: params.target.name,
         targetEmail: params.target.email,
         fromRole: params.target.role,
         toRole: params.newRole,
+        actorEmail: params.actor.email ?? null,
       }),
-  );
+      e,
+    );
+  }
 }
 
 async function requireAdmin(req: NextRequest): Promise<
@@ -194,7 +209,7 @@ export async function PATCH(req: NextRequest) {
     });
 
     if (target.role !== newRole) {
-      logRoleChange({ actor, target, newRole });
+      await recordRoleChange({ actor, target, newRole });
     }
 
     return NextResponse.json({ success: true, user: updatedUser });

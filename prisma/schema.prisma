@@ -52,7 +52,12 @@ model UserAuditLog {
   /// навіть якщо юзера потім перейменували / змінили роль).
   targetName  String?
   targetEmail String
+  /// Для ROLE_CHANGED — НОВА роль (та, що діє після події). Для решти подій — роль
+  /// на момент дії. Історія фільтрується саме по цьому полю (ADMIN/MANAGER).
   targetRole  UserRole
+  /// Роль ДО зміни. Заповнюється лише для ROLE_CHANGED — щоб у «Історії змін» було
+  /// видно перехід (Менеджер → Адмін), а не тільки кінцевий стан.
+  previousRole UserRole?
   /// Хто виконав дію. actorId може бути null якщо подія системна (OAuth-первинний логін).
   actorId     String?
   actorName   String?
@@ -68,6 +73,8 @@ enum UserAuditEvent {
   CREATED
   DELETED
   RESTORED
+  /// Зміна ролі ADMIN↔MANAGER. `previousRole` → `targetRole`.
+  ROLE_CHANGED
 }
 
 model Account {

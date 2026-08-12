@@ -3,7 +3,7 @@
 import Image from 'next/image';
 import { useState, useEffect } from 'react';
 import { FaTrashRestore } from 'react-icons/fa';
-import { HiOutlineUserPlus, HiOutlineTrash, HiOutlineArrowUturnLeft } from 'react-icons/hi2';
+import { HiOutlineUserPlus, HiOutlineTrash, HiOutlineArrowUturnLeft, HiOutlineShieldCheck } from 'react-icons/hi2';
 
 const ROLE_LABELS: Record<string, string> = {
   ADMIN: 'Адмін',
@@ -15,7 +15,7 @@ const ROLE_COLORS: Record<string, string> = {
   MANAGER: 'bg-indigo-50 text-indigo-700 ring-1 ring-indigo-100',
 };
 
-type EventType = 'CREATED' | 'DELETED' | 'RESTORED';
+type EventType = 'CREATED' | 'DELETED' | 'RESTORED' | 'ROLE_CHANGED';
 
 interface AuditEvent {
   id: string;
@@ -23,7 +23,9 @@ interface AuditEvent {
   eventType: EventType;
   targetName: string | null;
   targetEmail: string;
+  /// Для ROLE_CHANGED — нова роль; `previousRole` — та, що була до зміни.
   targetRole: string;
+  previousRole: string | null;
   actorName: string | null;
   actorEmail: string | null;
   createdAt: string;
@@ -31,9 +33,10 @@ interface AuditEvent {
 }
 
 const EVENT_META: Record<EventType, { label: string; cls: string; Icon: React.ComponentType<{ className?: string }> }> = {
-  CREATED:  { label: 'Додано',     cls: 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100', Icon: HiOutlineUserPlus },
-  DELETED:  { label: 'Видалено',   cls: 'bg-rose-50 text-rose-700 ring-1 ring-rose-100',          Icon: HiOutlineTrash },
-  RESTORED: { label: 'Відновлено', cls: 'bg-amber-50 text-amber-700 ring-1 ring-amber-100',       Icon: HiOutlineArrowUturnLeft },
+  CREATED:      { label: 'Додано',       cls: 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100', Icon: HiOutlineUserPlus },
+  DELETED:      { label: 'Видалено',     cls: 'bg-rose-50 text-rose-700 ring-1 ring-rose-100',          Icon: HiOutlineTrash },
+  RESTORED:     { label: 'Відновлено',   cls: 'bg-amber-50 text-amber-700 ring-1 ring-amber-100',       Icon: HiOutlineArrowUturnLeft },
+  ROLE_CHANGED: { label: 'Змінено роль', cls: 'bg-violet-50 text-violet-700 ring-1 ring-violet-100',    Icon: HiOutlineShieldCheck },
 };
 
 export default function UserHistoryPage() {
@@ -113,7 +116,7 @@ export default function UserHistoryPage() {
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-3xl font-bold text-slate-800">Історія змін</h1>
-          <p className="text-sm text-slate-500 mt-1">Хто і кого додав, видалив чи відновив. Тільки ADMIN/MANAGER.</p>
+          <p className="text-sm text-slate-500 mt-1">Хто і кого додав, видалив, відновив чи змінив роль. Тільки ADMIN/MANAGER.</p>
         </div>
         <div className="flex items-center gap-2 text-sm text-slate-500 bg-white px-3 py-1.5 rounded-lg border border-slate-200/70">
           <span>Всього подій: <span className="font-semibold text-slate-700 tabular-nums">{events.length}</span></span>
@@ -159,10 +162,22 @@ export default function UserHistoryPage() {
                         </div>
                       </td>
                       <td className="px-5 py-3 text-sm text-slate-600">{ev.targetEmail}</td>
+                      {/* Для зміни ролі показуємо перехід «стара → нова», а не лише кінцевий
+                          стан: інакше з рядка не видно, підвищили людину чи понизили. */}
                       <td className="px-5 py-3">
-                        <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${ROLE_COLORS[ev.targetRole] || 'bg-slate-100 text-slate-600'}`}>
-                          {ROLE_LABELS[ev.targetRole] || ev.targetRole}
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          {ev.eventType === 'ROLE_CHANGED' && ev.previousRole && (
+                            <>
+                              <span className={`px-2.5 py-1 rounded-full text-xs font-medium line-through opacity-60 ${ROLE_COLORS[ev.previousRole] || 'bg-slate-100 text-slate-600'}`}>
+                                {ROLE_LABELS[ev.previousRole] || ev.previousRole}
+                              </span>
+                              <span className="text-slate-400 text-xs">→</span>
+                            </>
+                          )}
+                          <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${ROLE_COLORS[ev.targetRole] || 'bg-slate-100 text-slate-600'}`}>
+                            {ROLE_LABELS[ev.targetRole] || ev.targetRole}
+                          </span>
+                        </div>
                       </td>
                       <td className="px-5 py-3">
                         <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${meta.cls}`}>
