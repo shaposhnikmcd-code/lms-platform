@@ -10,6 +10,15 @@
 ///   `UIMP Education <edu@uimp.com.ua>`. Це наша головна адреса для масових
 ///   розсилок, сертифікатів та системних сповіщень. Reply-to листів про
 ///   сертифікати теж edu@uimp.com.ua (lib/certificates/service.ts).
+///
+/// ⚠️ Гард середовища (як у SendPulse/Telegram): реальний лист реальному отримувачу
+/// йде ТІЛЬКИ на проді (`VERCEL_ENV === 'production'`). На pre (preview) і localhost
+/// (VERCEL_ENV не заданий) ключ RESEND_API_KEY той самий, що й на проді, тож без гарда
+/// будь-який e2e-тест шле справжні листи живим людям. На не-проді:
+///   - є `MAILER_OVERRIDE_TO` → лист іде на цю тест-скриньку, тема з префіксом
+///     `[DEV→оригінальний_to]`, справжня адреса в `to` НЕ потрапляє;
+///   - нема `MAILER_OVERRIDE_TO` → лист не шлеться взагалі, лише console.warn.
+/// На проді `MAILER_OVERRIDE_TO` ігнорується навіть якщо випадково заданий.
 
 import { Resend } from 'resend';
 
@@ -24,6 +33,12 @@ const resend = RESEND_API_KEY ? new Resend(RESEND_API_KEY) : null;
 /// Чи реально сконфігуровано Resend (є API key). Якщо false — листи лише в консолі.
 export function isMailerConfigured(): boolean {
   return resend !== null;
+}
+
+/// Прод — єдине середовище, де лист іде реальному отримувачу. Читаємо env на кожен
+/// виклик (а не на import), щоб гард працював і в тестах, які підміняють process.env.
+function isProductionEnv(): boolean {
+  return process.env.VERCEL_ENV === 'production';
 }
 
 export interface EmailAttachment {
@@ -59,11 +74,30 @@ export async function sendEmail(args: SendEmailArgs): Promise<{ ok: boolean; err
     return { ok: true, skipped: true };
   }
 
+  // Гард середовища: на не-проді реальному отримувачу не пишемо ніколи.
+  let effectiveTo = to;
+  let effectiveSubject = subject;
+  if (!isProductionEnv()) {
+    const overrideTo = process.env.MAILER_OVERRIDE_TO?.trim();
+    if (!overrideTo) {
+      console.warn('📧 [mailer] non-production env — лист НЕ відправлено (MAILER_OVERRIDE_TO не заданий).');
+      console.warn('📧 [mailer] to:', to, '| subject:', subject);
+      if (attachments?.length) {
+        console.warn('📧 [mailer] attachments:', attachments.map((a) => `${a.filename} (${a.content.byteLength}B)`).join(', '));
+      }
+      if (devPreviewHint) console.warn('📧 [mailer] preview:', devPreviewHint);
+      return { ok: true, skipped: true };
+    }
+    effectiveTo = overrideTo;
+    effectiveSubject = `[DEV→${to}] ${subject}`;
+    console.warn(`📧 [mailer] non-production env — лист перенаправлено на ${overrideTo} (оригінальний отримувач: ${to}).`);
+  }
+
   try {
     const payload: Parameters<typeof resend.emails.send>[0] = {
       from: MAILER_FROM_EMAIL,
-      to,
-      subject,
+      to: effectiveTo,
+      subject: effectiveSubject,
       html,
     };
     if (replyTo) (payload as { replyTo?: string }).replyTo = replyTo;
