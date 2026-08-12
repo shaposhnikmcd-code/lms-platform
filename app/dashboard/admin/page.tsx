@@ -27,10 +27,19 @@ export default async function AdminDashboard({
   const activeProductPeriod = PERIOD_OPTIONS.find(p => p.value === productPeriod)
     ?? PERIOD_OPTIONS.find(p => p.value === '30d')!;
 
+  /// Пороги «залипання» замовлень конектора (від оплати / від останньої зміни статусу).
+  const now = Date.now();
+  const STUCK_NEW_MS = 12 * 60 * 60 * 1000;
+  const STUCK_PROCESSING_MS = 24 * 60 * 60 * 1000;
+  const stuckNewCutoff = new Date(now - STUCK_NEW_MS);
+  const stuckProcessingCutoff = new Date(now - STUCK_PROCESSING_MS);
+
   const [
     series,
     productSales,
-    connectorOrders,
+    connectorAwaitingManager,
+    connectorStuckNew,
+    connectorStuckProcessing,
     connectorPendingPayment,
     bundleSuspended,
     bundleDraft,
@@ -43,15 +52,26 @@ export default async function AdminDashboard({
   ] = await Promise.all([
     getSalesAnalytics(activePeriod.value),
     getSalesByProduct(activeProductPeriod.value),
-    prisma.connectorOrder.findMany({
-      select: {
-        gamePrice: true,
-        paymentStatus: true,
-        orderStatus: true,
-        createdAt: true,
-        updatedAt: true,
-        paidAt: true,
+    // Раніше тут тягнулась УСЯ таблиця connectorOrder, щоб порахувати 4 числа
+    // в памʼяті — з ростом замовлень це лінійно важчало на кожному відкритті
+    // дашборду. Тепер рахує БД (кожен count лягає на існуючі індекси
+    // orderStatus/paymentStatus).
+    prisma.connectorOrder.count({
+      where: { orderStatus: 'NEW', paymentStatus: 'PAID' },
+    }),
+    prisma.connectorOrder.count({
+      where: {
+        orderStatus: 'NEW',
+        paymentStatus: 'PAID',
+        // «Вік» замовлення рахується від оплати, а якщо paidAt порожній — від створення.
+        OR: [
+          { paidAt: { lt: stuckNewCutoff } },
+          { paidAt: null, createdAt: { lt: stuckNewCutoff } },
+        ],
       },
+    }),
+    prisma.connectorOrder.count({
+      where: { orderStatus: 'PROCESSING', updatedAt: { lt: stuckProcessingCutoff } },
     }),
     prisma.connectorOrder.count({ where: { paymentStatus: 'PENDING' } }),
     prisma.bundle.count({ where: { suspendedAt: { not: null } } }),
@@ -66,29 +86,19 @@ export default async function AdminDashboard({
     prisma.payment.count({ where: { status: 'PENDING' } }),
   ]);
 
-  const connectorAwaitingManager = connectorOrders.filter(
-    o => o.orderStatus === 'NEW' && o.paymentStatus === 'PAID',
-  ).length;
-  const now = Date.now();
-  const STUCK_NEW_MS = 12 * 60 * 60 * 1000;
-  const STUCK_PROCESSING_MS = 24 * 60 * 60 * 1000;
-  const connectorStuckNew = connectorOrders.filter(o => {
-    if (o.orderStatus !== 'NEW' || o.paymentStatus !== 'PAID') return false;
-    const since = (o.paidAt ?? o.createdAt).getTime();
-    return now - since > STUCK_NEW_MS;
-  }).length;
-  const connectorStuckProcessing = connectorOrders.filter(o => {
-    if (o.orderStatus !== 'PROCESSING') return false;
-    return now - o.updatedAt.getTime() > STUCK_PROCESSING_MS;
-  }).length;
-  const connectorNonStandard = connectorOrders.filter(o => {
-    if (o.paymentStatus !== 'PAID') return false;
-    if (o.createdAt < series.rangeStart || o.createdAt > series.rangeEnd) return false;
-    const price = o.gamePrice ?? CONNECTOR_STANDARD_PRICE;
-    return price !== CONNECTOR_STANDARD_PRICE && price !== CONNECTOR_ADMIN_TEST_PRICE;
-  }).length;
-
-  const discountedPayments = await getDiscountedPayments(series.rangeStart, series.rangeEnd);
+  // Залежить від періоду (series.rangeStart/End), тому рахується після Promise.all.
+  // `gamePrice: null` трактується як стандартна ціна → notIn відкидає NULL так само,
+  // як це робив старий in-memory фільтр (`o.gamePrice ?? STANDARD`).
+  const [connectorNonStandard, discountedPayments] = await Promise.all([
+    prisma.connectorOrder.count({
+      where: {
+        paymentStatus: 'PAID',
+        createdAt: { gte: series.rangeStart, lte: series.rangeEnd },
+        gamePrice: { notIn: [CONNECTOR_STANDARD_PRICE, CONNECTOR_ADMIN_TEST_PRICE] },
+      },
+    }),
+    getDiscountedPayments(series.rangeStart, series.rangeEnd),
+  ]);
 
   /// Бейджі на картках у «Швидкі дії». Показуємо лише той, що варто уваги
   /// (`warning` — залипли замовлення/платежі; інакше нейтральна загальна цифра).

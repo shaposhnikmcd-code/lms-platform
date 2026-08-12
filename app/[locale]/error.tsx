@@ -1,13 +1,26 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect } from "react";
 
 export default function Error({
+  error,
   reset,
 }: {
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  // Без цього логу помилка публічної сторінки зникала безслідно: у продакшені
+  // Next віддає клієнту лише digest, а стек лишається в серверних логах —
+  // знайти їх можна тільки за цим самим digest.
+  useEffect(() => {
+    console.error("[page-error]", {
+      digest: error.digest ?? null,
+      message: error.message,
+      stack: error.stack,
+    });
+  }, [error]);
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
       <div className="text-center px-4">
@@ -32,6 +45,11 @@ export default function Error({
             Повернутися на головну
           </Link>
         </div>
+        {error.digest && (
+          <p className="mt-8 text-xs text-gray-400 select-all">
+            Код помилки: {error.digest}
+          </p>
+        )}
       </div>
     </div>
   );

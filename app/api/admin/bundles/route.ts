@@ -26,6 +26,34 @@ function normalizeCourses(
   }));
 }
 
+/// Ціна пакету: тільки ціле число в межах 1…999999 грн. Приймає і рядок з форми
+/// («12000»), і число. Повертає нормалізоване значення або null якщо невалідне.
+function parsePrice(value: unknown): number | null {
+  const num = typeof value === 'string' ? Number(value.trim()) : value;
+  if (typeof num !== 'number' || !Number.isInteger(num)) return null;
+  if (num <= 0 || num >= 1_000_000) return null;
+  return num;
+}
+
+/// Звіряє courseSlug-и з каталогом (як і решта коду — по slug АБО id).
+/// Повертає список тих, яких немає в БД.
+async function findUnknownCourseSlugs(courses: BundleCourseInput[]): Promise<string[]> {
+  const slugs = [...new Set(courses.map((c) => c.courseSlug).filter(Boolean))];
+  if (slugs.length !== courses.length) return ['(порожній slug)'];
+  if (slugs.length === 0) return [];
+
+  const found = await prisma.course.findMany({
+    where: { OR: [{ slug: { in: slugs } }, { id: { in: slugs } }] },
+    select: { slug: true, id: true },
+  });
+  const known = new Set<string>();
+  for (const c of found) {
+    if (c.slug) known.add(c.slug);
+    known.add(c.id);
+  }
+  return slugs.filter((s) => !known.has(s));
+}
+
 function validateByType(
   type: BundleType,
   paidCount: number,
@@ -102,9 +130,33 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Для DISCOUNT потрібна ціна пакету" }, { status: 400 });
   }
 
+  // Ціну FIXED_FREE/CHOICE_FREE сервер перераховує сам (сума платних), тому
+  // валідуємо тільки там, де вона реально приходить з форми.
+  let discountPrice = 0;
+  if (bundleType === "DISCOUNT") {
+    const parsed = parsePrice(price);
+    if (parsed === null) {
+      return NextResponse.json(
+        { error: "Ціна пакету має бути цілим числом від 1 до 999999 грн" },
+        { status: 400 },
+      );
+    }
+    discountPrice = parsed;
+  }
+
   const validationError = validateByType(bundleType, paidCount, freeCount, courses);
   if (validationError) {
     return NextResponse.json({ error: validationError }, { status: 400 });
+  }
+
+  // Неіснуючий courseSlug → «мертвий» BundleCourse у пакеті (дірка на вітрині,
+  // курс не рахується в ціні). Звіряємо з каталогом до створення.
+  const unknownSlugs = await findUnknownCourseSlugs(courses);
+  if (unknownSlugs.length > 0) {
+    return NextResponse.json(
+      { error: `Курси не знайдено: ${unknownSlugs.join(', ')}` },
+      { status: 400 },
+    );
   }
 
   const existing = await prisma.bundle.findUnique({ where: { slug } });
@@ -114,7 +166,7 @@ export async function POST(req: NextRequest) {
 
   // Для FIXED_FREE і CHOICE_FREE ціна пакету = сума цін платних курсів (безкоштовні = 0).
   // Враховуємо override (admin "Курси — ціни") як єдине джерело істини.
-  let finalPrice = Number(price) || 0;
+  let finalPrice = discountPrice;
   if (bundleType === "FIXED_FREE" || bundleType === "CHOICE_FREE") {
     const paidSlugs = courses.filter((c) => !c.isFree).map((c) => c.courseSlug);
     const [paidCourses, overrides] = await Promise.all([

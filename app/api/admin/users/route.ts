@@ -3,15 +3,35 @@ import { getServerSession } from 'next-auth';
 import { getToken } from 'next-auth/jwt';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
-
-/// Захищені акаунти: критичні адміни, яких не можна видалити ні через UI,
-/// ні через прямий API-виклик (defense in depth).
-const PROTECTED_ACCOUNTS = new Set([
-  'shaposhnik.mcd@gmail.com',
-  'saposniktana878@gmail.com',
-]);
+import { isProtectedAccount, isSuperAdmin } from '@/lib/superAdmin';
 
 type AdminActor = { id?: string; name?: string | null; email?: string | null };
+
+/// Аудит зміни ролі. `UserAuditEvent` (Prisma enum) поки має тільки
+/// CREATED/DELETED/RESTORED, а додавання ROLE_CHANGED = зміна схеми + міграція,
+/// що поза скоупом цієї задачі. Тому подія пишеться структурованим рядком у
+/// логи (Vercel → Runtime Logs, шукати `[audit] ROLE_CHANGED`). Коли enum
+/// розширять — перенести на `prisma.userAuditLog.create`.
+function logRoleChange(params: {
+  actor: AdminActor;
+  target: { id: string; name: string | null; email: string; role: string };
+  newRole: string;
+}) {
+  console.log(
+    '[audit] ROLE_CHANGED ' +
+      JSON.stringify({
+        at: new Date().toISOString(),
+        actorId: params.actor.id ?? null,
+        actorName: params.actor.name ?? null,
+        actorEmail: params.actor.email ?? null,
+        targetId: params.target.id,
+        targetName: params.target.name,
+        targetEmail: params.target.email,
+        fromRole: params.target.role,
+        toRole: params.newRole,
+      }),
+  );
+}
 
 async function requireAdmin(req: NextRequest): Promise<
   { actor: AdminActor } | { error: NextResponse }
@@ -119,10 +139,63 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: 'Невалідна роль' }, { status: 400 });
     }
 
+    // Ті самі гарди, що і в DELETE (defense in depth): зміна ролі — така ж
+    // привілейована операція, як видалення, і без них через прямий PATCH можна
+    // було понизити власника платформи або підвищити себе/чужого до ADMIN.
+    const actor = guard.actor;
+    const target = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, name: true, email: true, role: true },
+    });
+    if (!target) {
+      return NextResponse.json({ error: 'Користувача не знайдено' }, { status: 404 });
+    }
+
+    // 1. Собі роль не міняємо (щоб адмін не зачинив сам себе поза адмінкою).
+    const isSelf =
+      (!!actor.id && actor.id === target.id) ||
+      (!!actor.email && !!target.email && actor.email.toLowerCase() === target.email.toLowerCase());
+    if (isSelf) {
+      return NextResponse.json(
+        { error: 'Не можна змінити роль власного акаунта' },
+        { status: 400 }
+      );
+    }
+
+    // 2. Захищені акаунти (вшитий список + SUPER_ADMIN_EMAILS) недоторканні.
+    if (isProtectedAccount(target.email)) {
+      return NextResponse.json(
+        { error: 'Цей акаунт захищений — його роль змінити не можна.' },
+        { status: 403 }
+      );
+    }
+
+    const actorIsSuperAdmin = await isSuperAdmin(req);
+
+    // 3. Чіпати роль чинного ADMIN може тільки супер-адмін.
+    if (target.role === 'ADMIN' && !actorIsSuperAdmin) {
+      return NextResponse.json(
+        { error: 'Змінити роль іншого адміна може тільки супер-адмін.' },
+        { status: 400 }
+      );
+    }
+
+    // 4. Підвищення до ADMIN — теж тільки супер-адмін.
+    if (newRole === 'ADMIN' && target.role !== 'ADMIN' && !actorIsSuperAdmin) {
+      return NextResponse.json(
+        { error: 'Призначити роль ADMIN може тільки супер-адмін.' },
+        { status: 400 }
+      );
+    }
+
     const updatedUser = await prisma.user.update({
       where: { id: userId },
       data: { role: newRole },
     });
+
+    if (target.role !== newRole) {
+      logRoleChange({ actor, target, newRole });
+    }
 
     return NextResponse.json({ success: true, user: updatedUser });
   } catch (error) {
@@ -141,6 +214,15 @@ export async function POST(req: NextRequest) {
 
     const validRoles = ['ADMIN', 'MANAGER'];
     const userRole = validRoles.includes(role) ? role : 'MANAGER';
+
+    // Створення/відновлення одразу з роллю ADMIN — той самий escalation-шлях, що
+    // й PATCH, тому та сама вимога: тільки супер-адмін.
+    if (userRole === 'ADMIN' && !(await isSuperAdmin(req))) {
+      return NextResponse.json(
+        { error: 'Створити акаунт з роллю ADMIN може тільки супер-адмін.' },
+        { status: 400 }
+      );
+    }
 
     const existing = await prisma.user.findUnique({ where: { email } });
     if (existing) {
@@ -224,14 +306,14 @@ export async function DELETE(req: NextRequest) {
       select: { role: true, email: true },
     });
     // Критичні акаунти — повна заборона видалення.
-    if (target?.email && PROTECTED_ACCOUNTS.has(target.email.toLowerCase())) {
+    if (isProtectedAccount(target?.email)) {
       return NextResponse.json(
         { error: 'Цей акаунт захищений і не може бути видалений.' },
         { status: 403 }
       );
     }
     // Видалити іншого ADMIN може тільки супер-адмін (захищені акаунти).
-    const actorIsSuperAdmin = !!actor.email && PROTECTED_ACCOUNTS.has(actor.email.toLowerCase());
+    const actorIsSuperAdmin = await isSuperAdmin(req);
     if (target?.role === 'ADMIN' && !actorIsSuperAdmin) {
       return NextResponse.json(
         { error: 'Видалити іншого адміна може тільки супер-адмін. Спершу зніміть роль ADMIN.' },

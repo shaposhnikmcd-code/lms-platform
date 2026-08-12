@@ -1,11 +1,24 @@
 "use client";
 
+import { useEffect } from "react";
+
 export default function GlobalError({
+  error,
   reset,
 }: {
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  // global-error замінює весь документ, тому це остання точка, де помилку взагалі
+  // видно. Логуємо digest, щоб зіставити з серверним стеком у Vercel Runtime Logs.
+  useEffect(() => {
+    console.error("[global-error]", {
+      digest: error.digest ?? null,
+      message: error.message,
+      stack: error.stack,
+    });
+  }, [error]);
+
   return (
     <html lang="uk">
       <body>
@@ -43,6 +56,11 @@ export default function GlobalError({
             >
               Спробувати ще раз
             </button>
+            {error.digest && (
+              <p style={{ marginTop: "2rem", fontSize: "0.75rem", color: "#9ca3af", userSelect: "all" }}>
+                Код помилки: {error.digest}
+              </p>
+            )}
           </div>
         </div>
       </body>

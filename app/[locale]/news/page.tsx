@@ -1,5 +1,7 @@
+import type { Metadata } from "next";
 import prisma from "@/lib/prisma";
 import { getTranslatedContent } from "@/lib/translate";
+import { buildPageMetadata } from "@/lib/seo";
 import { maybeAutoPublishStagedNewsPage } from "@/lib/newsPagePublish";
 import { hasUnfilledPlaceholders } from "@/lib/news/placeholderCheck";
 import { newsContent } from "./_content/uk";
@@ -23,6 +25,17 @@ const getContent = getTranslatedContent(newsContent, "news-page", {
   pl: () => import("./_content/pl").then(m => m.default),
 });
 
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
+  const { locale } = await params;
+  const c = await getContent(locale);
+  return buildPageMetadata({
+    locale,
+    path: "/news",
+    title: c.title,
+    description: c.subtitle,
+  });
+}
+
 export default async function NewsPage({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
   const c = await getContent(locale);
@@ -37,51 +50,88 @@ export default async function NewsPage({ params }: { params: Promise<{ locale: s
   // У ЗАПИТІ suspendedAt/resumeAt не фільтруємо (повний набір потрібен для рендеру),
   // але картки призупинених новин ховаємо нижче у visibleBlocks — інакше картка
   // видима, а клік по ній веде на 404 (детальна /news/[slug] гейтить suspendedAt).
+  // Тягнемо тільки поля, що реально йдуть у рендер, і лише переклади активної
+  // локалі: раніше кожен запит /news вивантажував UK+EN+PL копії content,
+  // previewContent, templateData і templateBlocks усіх опублікованих новин
+  // (десятки КБ на новину), з яких 2/3 одразу відкидались.
+  const isEn = locale === "en";
+  const isPl = locale === "pl";
+
   const now = new Date();
   const [pageRow, publishedNews] = await Promise.all([
     prisma.newsPage.findUnique({ where: { key: "default" } }),
     prisma.news.findMany({
       where: { published: true, isTemplate: false },
       orderBy: { createdAt: "desc" },
-      include: { author: { select: { name: true } } },
+      select: {
+        id: true,
+        title: true,
+        slug: true,
+        excerpt: true,
+        imageUrl: true,
+        category: true,
+        createdAt: true,
+        suspendedAt: true,
+        resumeAt: true,
+        pageBgColor: true,
+        content: true,
+        previewContent: true,
+        templateKind: true,
+        templateData: true,
+        templateBlocks: true,
+        templateCanvas: true,
+        titleEn: isEn,
+        titlePl: isPl,
+        excerptEn: isEn,
+        excerptPl: isPl,
+        contentEn: isEn,
+        contentPl: isPl,
+        previewContentEn: isEn,
+        previewContentPl: isPl,
+        templateDataEn: isEn,
+        templateDataPl: isPl,
+        templateBlocksEn: isEn,
+        templateBlocksPl: isPl,
+        author: { select: { name: true } },
+      },
     }),
   ]);
 
   const newsItemsForBlocks: NewsListItemForBlock[] = publishedNews.map(n => ({
     id: n.id,
     title: n.title,
-    titleEn: n.titleEn,
-    titlePl: n.titlePl,
+    titleEn: n.titleEn ?? null,
+    titlePl: n.titlePl ?? null,
     slug: n.slug,
     excerpt: n.excerpt,
-    excerptEn: n.excerptEn,
-    excerptPl: n.excerptPl,
+    excerptEn: n.excerptEn ?? null,
+    excerptPl: n.excerptPl ?? null,
     imageUrl: n.imageUrl,
     category: n.category,
     createdAt: n.createdAt.toISOString(),
     authorName: n.author?.name ?? null,
     // Контент потрібен для newsCard блоків з displayMode="expanded" — повний інлайн-рендер.
     content: n.content,
-    contentEn: n.contentEn,
-    contentPl: n.contentPl,
+    contentEn: n.contentEn ?? null,
+    contentPl: n.contentPl ?? null,
     // Кастомний layout превʼю-картки — для displayMode="preview".
     previewContent: n.previewContent,
-    previewContentEn: n.previewContentEn,
-    previewContentPl: n.previewContentPl,
+    previewContentEn: n.previewContentEn ?? null,
+    previewContentPl: n.previewContentPl ?? null,
     pageBgColor: n.pageBgColor,
     // Template-based render: коли задано — newsCard рендериться через
     // lib/news/templates замість блокового renderer-а.
     templateKind: n.templateKind,
     templateData: n.templateData,
-    templateDataEn: n.templateDataEn,
-    templateDataPl: n.templateDataPl,
+    templateDataEn: n.templateDataEn ?? null,
+    templateDataPl: n.templateDataPl ?? null,
     // Block-based template render (Session 4): якщо templateBlocks непустий,
     // картка рендериться через AbsoluteBlockRender у рамках templateCanvas;
     // інакше fallback на legacy templateData → TemplatePreviewCard.
     // *En/*Pl — локалізований текст карток (render обирає за locale).
     templateBlocks: n.templateBlocks,
-    templateBlocksEn: n.templateBlocksEn,
-    templateBlocksPl: n.templateBlocksPl,
+    templateBlocksEn: n.templateBlocksEn ?? null,
+    templateBlocksPl: n.templateBlocksPl ?? null,
     templateCanvas: n.templateCanvas,
   }));
 

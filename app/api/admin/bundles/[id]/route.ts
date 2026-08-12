@@ -26,6 +26,34 @@ function normalizeCourses(
   }));
 }
 
+/// Ціна пакету: тільки ціле число в межах 1…999999 грн. Приймає і рядок з форми
+/// («12000»), і число. Повертає нормалізоване значення або null якщо невалідне.
+function parsePrice(value: unknown): number | null {
+  const num = typeof value === 'string' ? Number(value.trim()) : value;
+  if (typeof num !== 'number' || !Number.isInteger(num)) return null;
+  if (num <= 0 || num >= 1_000_000) return null;
+  return num;
+}
+
+/// Звіряє courseSlug-и з каталогом (як і решта коду — по slug АБО id).
+/// Повертає список тих, яких немає в БД.
+async function findUnknownCourseSlugs(courses: BundleCourseInput[]): Promise<string[]> {
+  const slugs = [...new Set(courses.map((c) => c.courseSlug).filter(Boolean))];
+  if (slugs.length !== courses.length) return ['(порожній slug)'];
+  if (slugs.length === 0) return [];
+
+  const found = await prisma.course.findMany({
+    where: { OR: [{ slug: { in: slugs } }, { id: { in: slugs } }] },
+    select: { slug: true, id: true },
+  });
+  const known = new Set<string>();
+  for (const c of found) {
+    if (c.slug) known.add(c.slug);
+    known.add(c.id);
+  }
+  return slugs.filter((s) => !known.has(s));
+}
+
 function validateByType(
   type: BundleType,
   paidCount: number,
@@ -88,6 +116,8 @@ export async function PATCH(
   }
 
   const { id } = await params;
+
+  try {
   const body = await req.json();
   const {
     title,
@@ -106,6 +136,31 @@ export async function PATCH(
   const courses = body.courses !== undefined || body.courseSlugs !== undefined
     ? normalizeCourses(body.courses ?? body.courseSlugs)
     : null;
+
+  // Ціна валідується до будь-яких записів: раніше `price: null` / рядок / від'ємне
+  // значення долітало до Prisma і поверталось голим 500 (PrismaClientValidationError).
+  let validatedPrice: number | null = null;
+  if (price !== undefined) {
+    validatedPrice = parsePrice(price);
+    if (validatedPrice === null) {
+      return NextResponse.json(
+        { error: 'Ціна пакету має бути цілим числом від 1 до 999999 грн' },
+        { status: 400 },
+      );
+    }
+  }
+
+  // Неіснуючий courseSlug раніше створював «мертвий» BundleCourse: пакет
+  // рендериться з діркою замість курсу, а ціна рахується як 0.
+  if (courses && courses.length > 0) {
+    const unknown = await findUnknownCourseSlugs(courses);
+    if (unknown.length > 0) {
+      return NextResponse.json(
+        { error: `Курси не знайдено: ${unknown.join(', ')}` },
+        { status: 400 },
+      );
+    }
+  }
 
   if (slug) {
     const existing = await prisma.bundle.findFirst({
@@ -163,8 +218,8 @@ export async function PATCH(
   // Для FIXED_FREE / CHOICE_FREE автоматично перерахувати price = сума платних
   const effectiveType = (updateData.type as BundleType | undefined) ?? (await prisma.bundle.findUnique({ where: { id }, select: { type: true } }))?.type;
 
-  if (price !== undefined) {
-    updateData.price = price;
+  if (validatedPrice !== null) {
+    updateData.price = validatedPrice;
   }
   if (courses && (effectiveType === "FIXED_FREE" || effectiveType === "CHOICE_FREE")) {
     const paidSlugs = courses.filter((c) => !c.isFree).map((c) => c.courseSlug);
@@ -181,18 +236,23 @@ export async function PATCH(
     }, 0);
   }
 
-  await prisma.bundle.update({ where: { id }, data: updateData });
-
-  if (courses) {
-    await prisma.bundleCourse.deleteMany({ where: { bundleId: id } });
-    await prisma.bundleCourse.createMany({
-      data: courses.map((c) => ({
-        bundleId: id,
-        courseSlug: c.courseSlug,
-        isFree: !!c.isFree,
-      })),
-    });
-  }
+  // Атомарно: якщо createMany впаде після deleteMany, пакет лишався б без курсів
+  // (порожній пакет на вітрині). Транзакція відкочує обидві операції разом з update.
+  await prisma.$transaction([
+    prisma.bundle.update({ where: { id }, data: updateData }),
+    ...(courses
+      ? [
+          prisma.bundleCourse.deleteMany({ where: { bundleId: id } }),
+          prisma.bundleCourse.createMany({
+            data: courses.map((c) => ({
+              bundleId: id,
+              courseSlug: c.courseSlug,
+              isFree: !!c.isFree,
+            })),
+          }),
+        ]
+      : []),
+  ]);
 
   const updated = await prisma.bundle.findUnique({
     where: { id },
@@ -201,6 +261,14 @@ export async function PATCH(
 
   revalidateLocalized('/courses');
   return NextResponse.json(updated);
+  } catch (error) {
+    // P2025 = запис не знайдено (пакет видалили паралельно).
+    if ((error as { code?: string })?.code === 'P2025') {
+      return NextResponse.json({ error: "Пакет не знайдено" }, { status: 404 });
+    }
+    console.error('Помилка PATCH /api/admin/bundles/[id]:', error);
+    return NextResponse.json({ error: "Не вдалося зберегти пакет" }, { status: 500 });
+  }
 }
 
 export async function DELETE(
@@ -213,8 +281,28 @@ export async function DELETE(
 
   const { id } = await params;
 
-  await prisma.bundle.delete({ where: { id } });
+  try {
+    // Пакет з платежами видаляти не можна: Payment.bundleId — це історія продажів,
+    // і delete або впаде на FK, або (гірше) знеособить платіж у звітах.
+    const paymentsCount = await prisma.payment.count({ where: { bundleId: id } });
+    if (paymentsCount > 0) {
+      return NextResponse.json(
+        {
+          error: `Пакет має ${paymentsCount} платеж(ів) — видалити не можна. Зніміть його з публікації замість видалення.`,
+        },
+        { status: 409 },
+      );
+    }
 
-  revalidateLocalized('/courses');
-  return NextResponse.json({ ok: true });
+    await prisma.bundle.delete({ where: { id } });
+
+    revalidateLocalized('/courses');
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    if ((error as { code?: string })?.code === 'P2025') {
+      return NextResponse.json({ error: "Пакет не знайдено" }, { status: 404 });
+    }
+    console.error('Помилка DELETE /api/admin/bundles/[id]:', error);
+    return NextResponse.json({ error: "Не вдалося видалити пакет" }, { status: 500 });
+  }
 }

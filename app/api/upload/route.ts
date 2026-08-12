@@ -9,6 +9,14 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // 10 МБ
+const ALLOWED_MIME_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+]);
+
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session?.user || session.user.role !== "ADMIN") {
@@ -25,6 +33,22 @@ export async function POST(req: NextRequest) {
 
   if (!file) {
     return NextResponse.json({ error: "Файл не знайдено" }, { status: 400 });
+  }
+
+  // Ліміти до читання в память: без них будь-який адмінський клієнт міг залити
+  // 500-мегабайтний файл (OOM на serverless) або довільний тип (PDF/SVG/HTML)
+  // у CDN, з якого він потім віддається користувачам.
+  if (file.size > MAX_UPLOAD_BYTES) {
+    return NextResponse.json(
+      { error: `Файл завеликий: ${(file.size / 1024 / 1024).toFixed(1)} МБ. Максимум — 10 МБ.` },
+      { status: 400 }
+    );
+  }
+  if (!ALLOWED_MIME_TYPES.has(file.type)) {
+    return NextResponse.json(
+      { error: `Непідтримуваний тип файлу${file.type ? ` (${file.type})` : ""}. Дозволені: JPEG, PNG, WebP, GIF.` },
+      { status: 400 }
+    );
   }
 
   try {
