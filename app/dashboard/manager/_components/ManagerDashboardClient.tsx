@@ -823,7 +823,7 @@ function OrderRow({
             <div className={`font-medium truncate ${dark ? 'text-slate-100' : 'text-stone-900'}`} title={order.fullName}>
               {order.fullName}
             </div>
-            <div className={`text-[11px] tabular-nums ${dark ? 'text-slate-500' : 'text-stone-500'}`}>{order.phone}</div>
+            <div className={`text-[11px] tabular-nums whitespace-nowrap ${dark ? 'text-slate-500' : 'text-stone-500'}`}>{order.phone}</div>
           </div>
         </div>
       </td>

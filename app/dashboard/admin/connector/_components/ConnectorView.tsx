@@ -408,7 +408,7 @@ function RowBlock({ r, theme }: { r: Row; theme: Theme }) {
         </div>
       </Td>
       <Td theme={theme}>
-        <span className="inline-flex items-center gap-1.5 tabular-nums">
+        <span className="inline-flex items-center gap-1.5 tabular-nums whitespace-nowrap">
           {r.callMe && (
             <HiOutlinePhone
               title="Передзвонити"

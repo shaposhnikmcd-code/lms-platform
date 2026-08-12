@@ -220,11 +220,11 @@ export default function OrderDetailsModal({
           <div className="px-6 py-5 space-y-5 overflow-y-auto [scrollbar-width:thin]">
             <div className="grid grid-cols-2 gap-x-4 gap-y-4">
               <Field label="Телефон" theme={theme}>
-                <span className="inline-flex items-center gap-1.5 tabular-nums">
+                <span className="inline-flex items-center gap-1.5 tabular-nums whitespace-nowrap">
                   {order.callMe && (
                     <HiOutlinePhone
                       title="Передзвонити"
-                      className={`text-sm ${dark ? 'text-amber-400' : 'text-amber-700'}`}
+                      className={`text-sm flex-shrink-0 ${dark ? 'text-amber-400' : 'text-amber-700'}`}
                     />
                   )}
                   {order.phone}
