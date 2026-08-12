@@ -97,7 +97,7 @@ async function recomputeLiveAccess(postAccessMonths: number, actor: string): Pro
     },
     include: {
       cohort: { select: { startDate: true, endDate: true } },
-      payments: { select: { amount: true, status: true, paidAt: true, createdAt: true } },
+      payments: { select: { amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true } },
     },
   });
 

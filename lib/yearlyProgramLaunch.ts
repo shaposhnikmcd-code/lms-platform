@@ -69,7 +69,7 @@ export async function executeLaunchLoop(
     },
     include: {
       user: { select: { id: true, email: true } },
-      payments: { select: { amount: true, status: true, paidAt: true, createdAt: true } },
+      payments: { select: { amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true } },
     },
   });
 
@@ -279,7 +279,7 @@ export async function runExtraLaunchForSubscription(
     include: {
       user: { select: { id: true, name: true, email: true } },
       cohort: true,
-      payments: { select: { amount: true, status: true, paidAt: true, createdAt: true } },
+      payments: { select: { amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true } },
       events: { where: { type: 'launch_email_sent' }, select: { metadata: true } },
     },
   });

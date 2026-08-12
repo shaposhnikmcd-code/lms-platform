@@ -48,6 +48,13 @@ export default async function CoursePage({ params }: Props) {
 
   const isEnrolled = !!enrollment;
   const totalLessons = course.modules.reduce((acc, m) => acc + m.lessons.length, 0);
+  /// Перший урок курсу (модулі й уроки вже відсортовані по `order`). Кнопки «Перейти до
+  /// навчання» / «Продовжити навчання» ведуть саме сюди: маршрут `/courses/[id]/learn`,
+  /// на який вони посилались раніше, у застосунку не існує взагалі — після оплати людина
+  /// впиралась у 404. Якщо уроків у нашій LMS немає (навчання йде на SendPulse), кнопки
+  /// не показуємо взагалі — замість них пояснення, де шукати матеріали.
+  const firstLessonId =
+    course.modules.flatMap((m) => m.lessons).find(() => true)?.id ?? null;
 
   return (
     <main className="min-h-screen bg-white">
@@ -57,6 +64,7 @@ export default async function CoursePage({ params }: Props) {
         isEnrolled={isEnrolled}
         totalLessons={totalLessons}
         enrollmentCount={course._count.enrollments}
+        firstLessonId={firstLessonId}
       />
       {course.courseTeachers.length > 0 && (
         <CourseTeachers teachers={course.courseTeachers} />
@@ -67,7 +75,7 @@ export default async function CoursePage({ params }: Props) {
         isEnrolled={isEnrolled}
       />
       {isEnrolled ? (
-        <CourseEnrolled courseId={courseId} />
+        <CourseEnrolled courseId={courseId} firstLessonId={firstLessonId} />
       ) : (
         <CoursePricing
           course={course}

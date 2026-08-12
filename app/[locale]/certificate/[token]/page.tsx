@@ -7,10 +7,14 @@
 ///   - Посилання на курс або Річну програму
 
 import { notFound } from 'next/navigation';
+import type { Metadata } from 'next';
 import prisma from '@/lib/prisma';
+import { buildPageMetadata } from '@/lib/seo';
 import { appBaseUrl } from '@/lib/mailer';
 import { headers } from 'next/headers';
 import { certificateFilename } from '@/lib/certificates/filename';
+import { checkRateLimitRaw } from '@/lib/ratelimit';
+import { clientIpFrom, logCertificateView } from '@/lib/certificates/viewLog';
 import { DownloadButton } from './DownloadButton';
 import { CertificatePreview } from './CertificatePreview';
 
@@ -26,10 +30,35 @@ function formatDate(d: Date | string, locale: string): string {
   return date.toLocaleDateString(loc, { day: '2-digit', month: 'long', year: 'numeric' });
 }
 
+/**
+ * `noindex, nofollow`: сторінка адресна (унікальний токен у QR на PDF) і не має
+ * бути в пошуку. У robots.txt її свідомо НЕ блокуємо — інакше зламались би
+ * прев'ю/сканери, які відкривають лінк із сертифіката.
+ */
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const { locale } = await params;
+  return buildPageMetadata({
+    locale,
+    path: '/certificate',
+    title: 'Верифікація сертифіката',
+    description: 'Перевірка справжності сертифіката, виданого UIMP.',
+    noindex: true,
+  });
+}
+
 export default async function CertificateVerifyPage({ params }: Props) {
   const { locale, token } = await params;
 
   if (!token || token.length < 16) return notFound();
+
+  const hdrs = await headers();
+  const ip = clientIpFrom(hdrs.get('x-forwarded-for')) ?? hdrs.get('x-real-ip') ?? '127.0.0.1';
+
+  /// Той самий ліміт, що й на API-роутах верифікації. Без нього сторінка була
+  /// відкритим каналом для перебору токенів: кожен запит — повний lookup у БД, а
+  /// нижче ще й рендер із PDF-preview.
+  const rl = await checkRateLimitRaw('certVerify', ip);
+  if (!rl.success) return <TooManyRequests retryAfter={rl.retryAfter} />;
 
   const cert = await prisma.certificate.findUnique({
     where: { verificationToken: token },
@@ -39,20 +68,10 @@ export default async function CertificateVerifyPage({ params }: Props) {
   });
   if (!cert) return notFound();
 
-  /// Log VIEWED — не блокуємо рендер.
-  const hdrs = await headers();
-  prisma.certificateEvent
-    .create({
-      data: {
-        certificateId: cert.id,
-        action: 'VIEWED',
-        metadata: {
-          ip: hdrs.get('x-forwarded-for')?.split(',')[0].trim() ?? null,
-          ua: hdrs.get('user-agent') ?? null,
-        } as object,
-      },
-    })
-    .catch(() => {});
+  /// Log VIEWED — не блокуємо рендер. Дедуплікація 1/год на (сертифікат, IP)
+  /// всередині `logCertificateView`: сторінка ще тягне PDF-preview і API-роут, тож
+  /// одне відкриття інакше давало б кілька однакових подій у журналі.
+  void logCertificateView(cert.id, ip, hdrs.get('user-agent'));
 
   const typeLabel =
     cert.type === 'COURSE'
@@ -202,6 +221,29 @@ export default async function CertificateVerifyPage({ params }: Props) {
         <footer className="mt-10 text-center text-xs text-stone-400">
           {appBaseUrl().replace(/^https?:\/\//, '')} · UIMP Institute
         </footer>
+      </div>
+    </main>
+  );
+}
+
+/// Показується замість сертифіката, коли з цього IP прийшло забагато запитів.
+/// Свідомо без деталей про сам сертифікат — щоб сторінка не підтверджувала
+/// існування токена тому, хто їх перебирає.
+function TooManyRequests({ retryAfter }: { retryAfter: number }) {
+  const minutes = Math.max(1, Math.ceil(retryAfter / 60));
+  return (
+    <main className="min-h-screen bg-gradient-to-b from-stone-50 via-white to-amber-50/30 py-10 px-4">
+      <div className="max-w-lg mx-auto text-center pt-20">
+        <h1 className="text-2xl font-medium text-stone-700">Забагато запитів</h1>
+        <p className="mt-3 text-stone-600">
+          Перевірку сертифікатів тимчасово обмежено. Спробуйте приблизно через {minutes} хв.
+        </p>
+        <p className="mt-6 text-sm text-stone-500">
+          Питання:{' '}
+          <a href="mailto:edu@uimp.com.ua" className="text-amber-800 underline">
+            edu@uimp.com.ua
+          </a>
+        </p>
       </div>
     </main>
   );

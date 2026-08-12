@@ -10,8 +10,9 @@
 ///   2) КОНЕКТОР. ConnectorOrder з paymentStatus=PAID, orderStatus=NEW і `paidNotifiedAt`
 ///      NULL → повторний `notifyManagers('paid')`. Без цього кроку оплачена гра, чия
 ///      нотифікація впала (Resend/Telegram лягли), тихо лежала б у списку невідправленою.
-///   3) АЛЕРТ. Усе, що лишилось зламаним, і Approved-callback-и без Payment
-///      (`skipReason=payment_not_found`) — пушимо менеджерам на email+Telegram.
+///   3) АЛЕРТ. Усе, що лишилось зламаним, і Approved-callback-и без замовлення в базі
+///      (`skipReason` = `payment_not_found` для курсів/пакетів або `order_not_found`
+///      для «Конектора») — пушимо менеджерам на email+Telegram.
 ///      Дедуплікація: `Payment.provisionAlertedAt` / `PaymentCallbackLog.alertedAt`.
 ///
 /// Усі вікна обмежені 30 днями, щоб не сканувати всю історію.
@@ -221,7 +222,14 @@ async function run(req: NextRequest) {
     where: {
       createdAt: { gt: cutoff },
       skipped: true,
-      skipReason: 'payment_not_found',
+      // `order_not_found` — той самий клас проблеми, але для «Конектора»: WFP підтвердив
+      // оплату, а замовлення з таким orderReference у базі немає. Раніше цей кейс
+      // маркувався як `already_paid` і не потрапляв сюди взагалі.
+      skipReason: { in: ['payment_not_found', 'order_not_found'] },
+      // Тільки підтверджені оплати. Ті самі skipReason-и виникають і на Declined/Expired
+      // («відмова по неіснуючому замовленню») — там грошей не рухалось, і алерт був би
+      // чистим шумом, який ще й з'їдає дедуплікацію реальних кейсів.
+      transactionStatus: 'Approved',
       alertedAt: null,
     },
     take: MAX_BATCH,

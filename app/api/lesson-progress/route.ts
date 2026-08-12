@@ -93,9 +93,17 @@ export async function POST(req: NextRequest) {
             courseId,
             actor: null,
             issuedManually: false,
-          }).catch((err) => {
-            console.error('[lesson-progress] cert auto-issue failed:', err);
-          });
+          })
+            .then((r) => {
+              /// Автовидача без імені у профілі свідомо не відбувається (див.
+              /// issueCourseCertificate) — там кидається помилка, і вона тут логується.
+              if (r.email && !r.email.ok) {
+                console.error('[lesson-progress] cert issued, email failed:', r.email.error);
+              }
+            })
+            .catch((err) => {
+              console.error('[lesson-progress] cert auto-issue failed:', err);
+            });
         }
       }
     }

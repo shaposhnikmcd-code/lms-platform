@@ -284,6 +284,7 @@
     "teacher": "Wykładowca",
     "enrolledTitle": "Już jesteś zapisany/a na ten kurs",
     "btnGoLearn": "Przejdź do nauki",
+    "enrolledExternal": "Materiały tego kursu znajdują się na platformie edukacyjnej — link do logowania wysłaliśmy na Twój e-mail. Jeśli wiadomość nie dotarła, napisz na edu@uimp.com.ua",
     "lessonNotFound": "Lekcja nie znaleziona",
     "breadcrumbMyCourses": "Moje kursy",
     "btnCompleted": "Ukończono",

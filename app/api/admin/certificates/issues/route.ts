@@ -288,6 +288,10 @@ export async function GET(req: NextRequest) {
     for (const e of completedEnrollments) {
       if (e.user.deletedAt) continue;
       if (certKeys.has(`${e.userId}_${e.courseId}`)) continue;
+      /// Порожнє ім'я — найчастіша причина, чому автовидача свідомо пропустила людину
+      /// (див. `issueCourseCertificate`: друкувати email замість імені на документі
+      /// не можна). Кажемо менеджеру прямо, що робити, а не «не спрацювало».
+      const hasName = (e.user.name ?? '').trim().length > 0;
       issues.push({
         kind: 'COMPLETED_NO_CERT',
         certType: 'COURSE',
@@ -295,7 +299,9 @@ export async function GET(req: NextRequest) {
         user: { id: e.user.id, name: e.user.name, email: e.user.email },
         subjectTitle: e.course.title,
         subjectMeta: null,
-        details: 'Прогрес 100%, але сертифіката немає (auto-видача не спрацювала)',
+        details: hasName
+          ? 'Прогрес 100%, але сертифіката немає (auto-видача не спрацювала)'
+          : 'Прогрес 100%, але у профілі немає імені — автовидача пропущена. Видайте вручну, вписавши ім\'я.',
         issuedBy: null,
       });
     }

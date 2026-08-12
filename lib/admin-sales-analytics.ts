@@ -278,6 +278,11 @@ export async function getSalesAnalytics(period: SalesPeriod): Promise<SalesSerie
     prisma.payment.findMany({
       where: {
         status: 'PAID',
+        // Виключені зі заліку списання (orphan по закритій підписці, понад ліміт місяців,
+        // розбіжність суми) — не виручка: доступу за них не видано, і найімовірніше
+        // гроші підуть назад. У графіку/KPI вони не беруть участі; сам платіж лишається
+        // видимим у розділі Платежі та в подіях підписки.
+        excludedFromAccess: false,
         createdAt: { gte: start, lte: end },
         user: { role: { notIn: ['ADMIN', 'MANAGER'] } },
       },
@@ -441,6 +446,9 @@ export async function getSalesAnalytics(period: SalesPeriod): Promise<SalesSerie
       _sum: { amount: true },
       where: {
         status: 'PAID',
+        // Той самий фільтр, що й у головному запиті — інакше порівняння «період до періоду»
+        // рахувалось би за різними правилами.
+        excludedFromAccess: false,
         createdAt: { gte: prevStart, lte: prevEnd },
         user: { role: { notIn: ['ADMIN', 'MANAGER'] } },
       },

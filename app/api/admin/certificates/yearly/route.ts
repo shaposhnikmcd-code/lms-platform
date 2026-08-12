@@ -129,7 +129,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const cert = await issueYearlyCertificate({
+    const result = await issueYearlyCertificate({
       userId,
       subscriptionId,
       category,
@@ -139,7 +139,15 @@ export async function POST(req: NextRequest) {
       sendEmail: sendEmail !== false,
       actor: guard.actor,
     });
-    return NextResponse.json({ certificate: cert });
+    return NextResponse.json({
+      certificate: result.certificate,
+      emailStatus: result.certificate.emailStatus,
+      ...(result.email && !result.email.ok
+        ? {
+            warning: `Сертифікат ${result.certificate.certNumber} видано, але лист не пішов: ${result.email.error ?? 'невідома помилка'}. Дошліть його кнопкою «Надіслати листом».`,
+          }
+        : {}),
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Unknown error';
     return NextResponse.json({ error: msg }, { status: 400 });

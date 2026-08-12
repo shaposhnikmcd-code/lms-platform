@@ -4783,6 +4783,17 @@ function IssueYearlyManualDialog({
 type SupervisionRecipient = { id: string; name: string; email: string };
 type SupervisionFailed = { name: string; email: string; error: string };
 
+/// Сертифікат СТВОРЕНО, але лист не пішов. Принципово інший стан, ніж `failed`:
+/// такий рядок НЕ можна лишати у формі «на повтор» — повторна видача створила б
+/// людині другий сертифікат з новим номером. Лист досилається з таблиці «Супервізія».
+type SupervisionIssuedEmailFailed = {
+  id: string;
+  name: string;
+  email: string;
+  certNumber: string;
+  emailError?: string;
+};
+
 const SUPERVISION_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 /// Витяг email-у з довільного рядка bulk-paste — для парсингу строк виду
 /// "Іван Петренко <ivan@x.com>" або "Іван Петренко, ivan@x.com" або просто "Ivan ivan@x.com"
@@ -4807,6 +4818,10 @@ function autoCapName(value: string): string {
 /// у localStorage на кожну зміну, щоб ненавмисне закриття модалки не з'їдало
 /// введене. Очищується після успішної відправки (всі сертифікати видані).
 const SUPERVISION_DRAFT_KEY = 'cert-supervision-draft-v1';
+
+/// Максимум учасників на один POST — має збігатися з `MAX_RECIPIENTS` у
+/// `app/api/admin/certificates/supervision/route.ts`.
+const SUPERVISION_MAX_PER_REQUEST = 30;
 
 type SupervisionDraft = {
   topic: string;
@@ -4964,6 +4979,7 @@ function IssueSupervisionDialog({
   const [bulkText, setBulkText] = useState('');
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState<SupervisionFailed[] | null>(null);
+  const [emailFailed, setEmailFailed] = useState<SupervisionIssuedEmailFailed[] | null>(null);
   /// Який учасник зараз відкритий у fullscreen-overlay (натиснули «👁» у його рядку).
   /// Використовуємо id, а не індекс — щоб видалення/перевпорядкування рядків не ламали посилання.
   const [previewRowId, setPreviewRowId] = useState<string | null>(null);
@@ -5012,7 +5028,11 @@ function IssueSupervisionDialog({
     return new Set([...seen.entries()].filter(([, n]) => n > 1).map(([e]) => e));
   }, [recipients]);
 
-  const canSubmit = !busy && topic.trim().length > 0 && validCount > 0;
+  /// Стеля на один запит — дзеркалить серверний ліміт у
+  /// `app/api/admin/certificates/supervision/route.ts`. Один сертифікат — ~1.4 с
+  /// генерації PDF і ~300 МБ памʼяті на пік, тож більший батч не встигає до таймауту.
+  const tooManyRecipients = validCount > SUPERVISION_MAX_PER_REQUEST;
+  const canSubmit = !busy && topic.trim().length > 0 && validCount > 0 && !tooManyRecipients;
 
   /// Превʼю тягнеться для ПЕРШОГО валідного учасника — щоб менеджер бачив, як
   /// виглядатиме сертифікат, без 50-рендерів одночасно.
@@ -5054,6 +5074,7 @@ function IssueSupervisionDialog({
     setSupervisionHours('');
     setRecipients([newSupervisionRecipient()]);
     setFailed(null);
+    setEmailFailed(null);
     setDraftRestored(false);
     clearSupervisionDraft();
   }
@@ -5061,6 +5082,7 @@ function IssueSupervisionDialog({
   async function submit() {
     setBusy(true);
     setFailed(null);
+    setEmailFailed(null);
     try {
       /// Передаємо лише валідних — невалідні (порожні рядки) ігноруємо при submit-і
       const payloadRecipients = recipients
@@ -5083,14 +5105,18 @@ function IssueSupervisionDialog({
       const data = (await res.json()) as {
         issued?: number;
         failed?: SupervisionFailed[];
+        issuedEmailFailed?: SupervisionIssuedEmailFailed[];
         error?: string;
       };
       if (!res.ok) throw new Error(data?.error ?? 'Помилка');
 
       const failedList = Array.isArray(data.failed) ? data.failed : [];
+      /// «Видано, але лист не пішов» — окремий список. У форму НЕ повертаємо:
+      /// сертифікат уже існує, повторна видача дала б людині другий номер.
+      const emailFailedList = Array.isArray(data.issuedEmailFailed) ? data.issuedEmailFailed : [];
       const issuedCount = typeof data.issued === 'number' ? data.issued : 0;
 
-      if (failedList.length === 0) {
+      if (failedList.length === 0 && emailFailedList.length === 0) {
         /// Усе видано → закриваємо модалку, parent ховає toast.
         /// Чернетку чистимо, щоб наступне відкриття форми було порожнім.
         clearSupervisionDraft();
@@ -5098,16 +5124,21 @@ function IssueSupervisionDialog({
         return;
       }
 
-      /// Часткова невдача: лишаємо у формі ЛИШЕ ті рядки, що впали — щоб менеджер
-      /// міг виправити (наприклад, юзер у архіві → інший email) і відправити ще раз
-      /// без ризику задвоїти сертифікати тим, кому вже видано.
+      /// Часткова невдача: лишаємо у формі ЛИШЕ ті рядки, де сертифіката НЕМАЄ —
+      /// щоб менеджер міг виправити (наприклад, юзер у архіві → інший email) і
+      /// відправити ще раз без ризику задвоїти сертифікати тим, кому вже видано.
       const failedKeys = new Set(failedList.map((f) => f.email.trim().toLowerCase()));
       setRecipients((prev) => {
         const keptFailed = prev.filter((r) => failedKeys.has(r.email.trim().toLowerCase()));
         return keptFailed.length > 0 ? keptFailed : [newSupervisionRecipient()];
       });
       setFailed(failedList);
-      onError(`${issuedCount} видано, ${failedList.length} з помилкою — залишились у списку`);
+      setEmailFailed(emailFailedList.length > 0 ? emailFailedList : null);
+
+      const parts: string[] = [`${issuedCount} видано`];
+      if (emailFailedList.length > 0) parts.push(`${emailFailedList.length} без листа (дошліть з таблиці)`);
+      if (failedList.length > 0) parts.push(`${failedList.length} з помилкою — залишились у списку`);
+      onError(parts.join(', '));
     } catch (err) {
       onError(err instanceof Error ? err.message : 'Помилка');
     } finally {
@@ -5379,6 +5410,34 @@ function IssueSupervisionDialog({
               </button>
             </div>
           </div>
+
+          {tooManyRecipients && (
+            <div className={`mt-3 rounded-lg border px-3 py-2 text-[11.5px] ${dark ? 'border-amber-500/30 bg-amber-500/10 text-amber-200' : 'border-amber-200 bg-amber-50 text-amber-900'}`}>
+              У списку {validCount} учасників — за один раз можна не більше{' '}
+              {SUPERVISION_MAX_PER_REQUEST}. Видайте частинами: приберіть зайвих, натисніть
+              «Видати», потім додайте наступних — тема, дата й тривалість залишаться у формі.
+            </div>
+          )}
+
+          {emailFailed && emailFailed.length > 0 && (
+            <div className={`mt-3 rounded-lg border px-3 py-2 ${dark ? 'border-amber-500/30 bg-amber-500/10' : 'border-amber-200 bg-amber-50'}`}>
+              <div className={`text-[11px] uppercase tracking-wider font-semibold mb-1.5 ${dark ? 'text-amber-300' : 'text-amber-800'}`}>
+                Видано, лист не пішов ({emailFailed.length})
+              </div>
+              <div className={`text-[11.5px] mb-1.5 ${dark ? 'text-amber-200/80' : 'text-amber-900/80'}`}>
+                Сертифікати створені — повторно НЕ видавайте. Лист дошліть кнопкою
+                «Надіслати листом» у таблиці «Супервізія».
+              </div>
+              <ul className={`text-[11.5px] space-y-0.5 max-h-24 overflow-y-auto ${dark ? 'text-amber-200' : 'text-amber-900'}`}>
+                {emailFailed.map((f) => (
+                  <li key={f.id}>
+                    <span className="font-mono">{f.certNumber}</span>
+                    <span className="opacity-70"> · {f.email} — {f.emailError ?? 'лист не відправлено'}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {failed && failed.length > 0 && (
             <div className={`mt-3 rounded-lg border px-3 py-2 ${dark ? 'border-red-500/30 bg-red-500/10' : 'border-red-200 bg-red-50'}`}>

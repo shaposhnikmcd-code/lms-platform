@@ -31,7 +31,7 @@ export async function POST(
     where: { id },
     include: {
       cohort: { select: { id: true, name: true, launchedAt: true } },
-      payments: { select: { amount: true, status: true, paidAt: true, createdAt: true } },
+      payments: { select: { amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true } },
     },
   });
   if (!sub) {

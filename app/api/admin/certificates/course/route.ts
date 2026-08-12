@@ -121,14 +121,40 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const cert = await issueCourseCertificate({
+    const result = await issueCourseCertificate({
       userId,
       courseId,
       recipientName,
       actor: guard.actor,
       issuedManually: true,
     });
-    return NextResponse.json({ certificate: cert });
+    const cert = result.certificate;
+
+    /// Повторний POST по вже виданому сертифікату раніше повертав тихий 200 —
+    /// менеджер бачив «успіх», хоча нічого не сталося і лист міг лежати у FAILED.
+    /// Тепер відповідь чесна: що саме існує і в якому стані лист.
+    if (result.alreadyExisted) {
+      const sent = cert.emailStatus === 'SENT';
+      return NextResponse.json({
+        certificate: cert,
+        alreadyExisted: true,
+        emailStatus: cert.emailStatus,
+        warning: sent
+          ? `Сертифікат ${cert.certNumber} уже виданий, лист надіслано ${cert.emailSentAt?.toISOString() ?? ''}. Нічого не змінено.`
+          : `Сертифікат ${cert.certNumber} уже існує, але лист НЕ надіслано (${cert.emailStatus}). Дошліть його кнопкою «Надіслати листом».`,
+      });
+    }
+
+    return NextResponse.json({
+      certificate: cert,
+      alreadyExisted: false,
+      emailStatus: cert.emailStatus,
+      ...(result.email && !result.email.ok
+        ? {
+            warning: `Сертифікат ${cert.certNumber} видано, але лист не пішов: ${result.email.error ?? 'невідома помилка'}. Дошліть його кнопкою «Надіслати листом».`,
+          }
+        : {}),
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Unknown error';
     return NextResponse.json({ error: msg }, { status: 400 });

@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { checkRateLimit } from '@/lib/ratelimit';
 import { appBaseUrl } from '@/lib/mailer';
+import { clientIpFrom, logCertificateView } from '@/lib/certificates/viewLog';
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ token: string }> }) {
   const rl = await checkRateLimit(req, 'certVerify');
@@ -20,6 +21,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ toke
   const cert = await prisma.certificate.findUnique({
     where: { verificationToken: token },
     select: {
+      id: true,
       certNumber: true,
       type: true,
       category: true,
@@ -39,27 +41,14 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ toke
     return NextResponse.json({ error: 'Сертифікат не знайдено' }, { status: 404 });
   }
 
-  /// Залог VIEWED event — знайти cert.id (не select-имо зверху щоб не переплутати з публічним респонсом).
-  const certId = await prisma.certificate.findUnique({
-    where: { verificationToken: token },
-    select: { id: true },
-  });
-  if (certId) {
-    prisma.certificateEvent
-      .create({
-        data: {
-          certificateId: certId.id,
-          action: 'VIEWED',
-          metadata: {
-            ip: req.headers.get('x-forwarded-for')?.split(',')[0].trim() ?? null,
-            ua: req.headers.get('user-agent') ?? null,
-          } as object,
-        },
-      })
-      .catch(() => {
-        // fire-and-forget — не блокуємо respond
-      });
-  }
+  /// VIEWED — fire-and-forget, не блокуємо відповідь. Дедуплікація 1/год на (cert, IP)
+  /// живе всередині `logCertificateView`: сторінка верифікації сама смикає цей роут,
+  /// тож без неї один перегляд писав би кілька подій.
+  void logCertificateView(
+    cert.id,
+    clientIpFrom(req.headers.get('x-forwarded-for')),
+    req.headers.get('user-agent'),
+  );
 
   const linkUrl =
     cert.type === 'COURSE' && cert.course?.slug

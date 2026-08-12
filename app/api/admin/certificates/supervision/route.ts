@@ -4,16 +4,39 @@
 ///          одна спільна тема + дата, але список учасників (name + email).
 ///
 /// Семантика: супервізія проходить онлайн-мітингом для групи; після — менеджер
-/// видає сертифікат КОЖНОМУ учаснику (часом до 50). API обробляє учасників
-/// паралельно через `Promise.allSettled`, повертає окремо успішні та невдалі —
-/// фронт може показати часткові помилки і дати повторну спробу лише невдалим.
+/// видає сертифікат КОЖНОМУ учаснику. Один сертифікат коштує ~1.4 с генерації PDF
+/// (~3 МБ) і тримає ~300 МБ RSS на пік, тому:
+///   • обробка йде чанками по `CONCURRENCY` (а не всі одразу — 40 паралельних
+///     генерацій клали функцію по памʼяті ще до таймауту),
+///   • є `maxDuration` замість дефолтних 10 с,
+///   • ліміт учасників за один запит — `MAX_RECIPIENTS`; більше — менеджер розбиває
+///     список (підказка приходить у тексті помилки).
+///
+/// Відповідь ділить учасників на ТРИ списки, а не два:
+///   issued            — сертифікат створений, лист пішов;
+///   issuedEmailFailed — сертифікат створений, лист НЕ пішов (треба дослати з таблиці);
+///   failed            — сертифіката немає, рядок можна повторювати.
+/// Раніше «лист не пішов» потрапляло у `failed`, менеджер повторював рядок — і людина
+/// отримувала другий сертифікат з іншим номером.
 
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { requireAdmin } from '@/lib/certificates/adminAuth';
 import { issueSupervisionCertificate } from '@/lib/certificates/service';
 
+export const maxDuration = 300;
+
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/// Скільки сертифікатів генеруємо одночасно. Виміряно локально: 4 паралельні
+/// генерації тримають пік ~300 МБ RSS — у межах ліміту serverless-функції.
+/// Без обмеження всі 30-40 стартували разом і клали процес по памʼяті.
+const CONCURRENCY = 4;
+
+/// Стеля учасників на один запит. Виміряно: 30 сертифікатів чанками по 4 —
+/// ~39 с, тобто вчетверо менше за maxDuration. Запас свідомий: у проді додається
+/// латентність Resend і холодний старт.
+const MAX_RECIPIENTS = 30;
 
 export async function GET(req: NextRequest) {
   const guard = await requireAdmin(req);
@@ -48,6 +71,16 @@ type RecipientInput = { name?: unknown; email?: unknown };
 
 type FailedRow = { name: string; email: string; error: string };
 
+/// Сертифікат СТВОРЕНО. `emailError` заповнений → лист не пішов; рядок НЕ можна
+/// повторювати, лист досилається кнопкою в таблиці «Супервізія».
+type IssuedRow = {
+  id: string;
+  name: string;
+  email: string;
+  certNumber: string;
+  emailError?: string;
+};
+
 export async function POST(req: NextRequest) {
   const guard = await requireAdmin(req);
   if (!guard.ok) return guard.response;
@@ -74,9 +107,16 @@ export async function POST(req: NextRequest) {
   if (!Array.isArray(recipients) || recipients.length === 0) {
     return NextResponse.json({ error: 'Не вказано жодного учасника' }, { status: 400 });
   }
-  if (recipients.length > 100) {
-    /// Стеля 100 — щоб не повісити сервер; реальний кейс ≤50
-    return NextResponse.json({ error: 'Понад 100 учасників за раз — забагато' }, { status: 400 });
+  if (recipients.length > MAX_RECIPIENTS) {
+    return NextResponse.json(
+      {
+        error:
+          `За один раз — не більше ${MAX_RECIPIENTS} учасників (зараз ${recipients.length}). ` +
+          `Розбийте список на частини по ${MAX_RECIPIENTS} і видайте кількома заходами: ` +
+          'тема, дата й тривалість збережуться у чернетці.',
+      },
+      { status: 400 },
+    );
   }
 
   /// Дата — опційна, але якщо задана — має парситись
@@ -112,29 +152,45 @@ export async function POST(req: NextRequest) {
     return { name, email, preError };
   });
 
-  /// Видача — паралельно через Promise.allSettled. Кожен сертифікат зберігається
-  /// у БД, шле лист, лочиться certNumber атомарно. Невдача одного НЕ ламає інших.
-  const results = await Promise.allSettled(
-    normalized.map(async (r) => {
-      if (r.preError) throw new Error(r.preError);
-      return issueSupervisionCertificate({
-        recipientName: r.name,
-        recipientEmail: r.email,
-        topic: topicTrim,
-        supervisionDate: parsedDate,
-        supervisionHours: parsedHours,
-        actor: guard.actor,
-      });
-    }),
-  );
+  /// Видача чанками по CONCURRENCY: усередині чанка — паралельно (`allSettled`,
+  /// невдача одного не ламає сусідів), між чанками — послідовно, щоб не тримати
+  /// у памʼяті більше 4 PDF одночасно і не забивати Resend залпом.
+  const results: PromiseSettledResult<Awaited<ReturnType<typeof issueSupervisionCertificate>>>[] = [];
+  for (let i = 0; i < normalized.length; i += CONCURRENCY) {
+    const chunk = normalized.slice(i, i + CONCURRENCY);
+    const settled = await Promise.allSettled(
+      chunk.map(async (r) => {
+        if (r.preError) throw new Error(r.preError);
+        return issueSupervisionCertificate({
+          recipientName: r.name,
+          recipientEmail: r.email,
+          topic: topicTrim,
+          supervisionDate: parsedDate,
+          supervisionHours: parsedHours,
+          actor: guard.actor,
+        });
+      }),
+    );
+    results.push(...settled);
+  }
 
-  const issued: { id: string; email: string; certNumber: string }[] = [];
+  const issued: IssuedRow[] = [];
+  const issuedEmailFailed: IssuedRow[] = [];
   const failed: FailedRow[] = [];
 
   results.forEach((res, i) => {
     const r = normalized[i];
     if (res.status === 'fulfilled') {
-      issued.push({ id: res.value.id, email: r.email, certNumber: res.value.certNumber });
+      const { certificate, email } = res.value;
+      const row: IssuedRow = {
+        id: certificate.id,
+        name: r.name,
+        email: r.email,
+        certNumber: certificate.certNumber,
+        emailError: email?.ok === false ? email.error ?? 'Лист не відправлено' : undefined,
+      };
+      if (email?.ok === false) issuedEmailFailed.push(row);
+      else issued.push(row);
     } else {
       failed.push({
         name: r.name,
@@ -145,8 +201,12 @@ export async function POST(req: NextRequest) {
   });
 
   return NextResponse.json({
-    issued: issued.length,
+    /// `issued` історично = скільки сертифікатів створено. Лишаємо саме таку
+    /// семантику (створені + ті, у кого не пішов лист), щоб лічильник у тості не
+    /// занижував факт видачі.
+    issued: issued.length + issuedEmailFailed.length,
     issuedDetails: issued,
+    issuedEmailFailed,
     failed,
   });
 }

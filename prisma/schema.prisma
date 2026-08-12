@@ -291,6 +291,18 @@ model Payment {
   /// Хто вніс ручний платіж (email або ім'я адміна з getAdminActor). Заповнюється разом з
   /// `manualMethod`; для WFP-платежів завжди null. Показується у реєстрі «Ручні платежі».
   manualEnteredBy             String?
+  /// Гроші прийшли, але система СВІДОМО відмовилась зарахувати їх у доступ:
+  /// orphan-списання по закритій/переведеній підписці, списання понад ліміт місяців,
+  /// розбіжність суми. Такий Payment існує лише як слід реального списання —
+  /// `calculateAccessUntil` його не рахує як оплачений місяць, а аналітика продажів
+  /// не бере у виручку (гроші, ймовірно, підуть на повернення).
+  /// Знімається рішенням менеджера (ручний платіж/коригування дат), а не автоматично.
+  excludedFromAccess          Boolean                    @default(false)
+  /// `PromoCode.id`, лічильник якого ми інкрементнули під цей платіж (тільки глобальні
+  /// промокоди з maxUses; per-course/категорійні лічильника не мають → тут null).
+  /// Потрібен, щоб Declined/Expired-callback повернув використання назад у ліміт.
+  /// Обнуляється в момент повернення — це і є маркер ідемпотентності.
+  promoCodeId                 String?
   yearlyProgramSubscription   YearlyProgramSubscription? @relation("YearlyProgramPayments", fields: [yearlyProgramSubscriptionId], references: [id])
   user                        User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
   course                      Course?                    @relation(fields: [courseId], references: [id])

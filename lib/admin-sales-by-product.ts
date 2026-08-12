@@ -33,6 +33,10 @@ export async function getSalesByProduct(period: SalesPeriod): Promise<ProductSal
   const payments = await prisma.payment.findMany({
     where: {
       status: 'PAID',
+      // Списання, які система свідомо не зарахувала (orphan по закритій підписці,
+      // понад ліміт, розбіжність суми) — це не продаж, а кандидат на повернення.
+      // У виручці по продуктах їх немає; слід лишається в Платежах і в подіях підписки.
+      excludedFromAccess: false,
       createdAt: { gte: start, lte: end },
       user: { role: { notIn: ['ADMIN', 'MANAGER'] } },
     },

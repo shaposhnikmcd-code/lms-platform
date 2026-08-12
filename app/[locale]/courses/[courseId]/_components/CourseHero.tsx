@@ -12,6 +12,8 @@ interface CourseHeroProps {
   isEnrolled: boolean;
   totalLessons: number;
   enrollmentCount: number;
+  /// Перший урок курсу в нашій LMS; `null` — уроків немає (навчання на SendPulse).
+  firstLessonId: string | null;
 }
 
 export default async function CourseHero({
@@ -20,6 +22,7 @@ export default async function CourseHero({
   isEnrolled,
   totalLessons,
   enrollmentCount,
+  firstLessonId,
 }: CourseHeroProps) {
   const t = await getTranslations("DynamicCourse");
   return (
@@ -43,13 +46,18 @@ export default async function CourseHero({
             </p>
 
             <div className="flex flex-wrap gap-4">
+              {/* Купленому курсу — перехід на ПЕРШИЙ УРОК. Раніше тут стояв неіснуючий
+                  маршрут `/courses/[id]/learn` (404). Якщо уроків у нашій LMS немає,
+                  кнопку не показуємо взагалі — пояснення дає блок нижче на сторінці. */}
               {isEnrolled ? (
+                firstLessonId ? (
                 <Link
-                  href={`/courses/${courseId}/learn`}
+                  href={`/courses/${courseId}/lesson/${firstLessonId}`}
                   className="inline-flex items-center gap-2 bg-[#D4A017] text-white font-medium px-8 py-4 rounded-lg hover:bg-[#b88913] transition-all"
                 >
                   <FaPlay /> {t("btnContinue")}
                 </Link>
+                ) : null
               ) : (
                 <Link
                   href="#price"

@@ -8,6 +8,7 @@ import { buildBundleSlugsSnapshot, type BundleSlugsSnapshot } from '@/lib/paymen
 import { getYearlyPostAccessMonths, isYearlyProgramOrderRef, YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
 import { buildRegularPurchaseFlags, getWayforpayCreds } from '@/lib/wayforpay';
 import { applyPromoServerSide, resolveServerPricing } from '@/lib/paymentPricing';
+import { claimPromoUse, releasePromoUse } from '@/lib/promoUsage';
 import { checkRateLimit } from '@/lib/ratelimit';
 import { calculateAccessUntil, lastAutopayChargeDate, maxAutopayChargeCount } from '@/lib/yearlyProgramAccess';
 import { removeSubscriptionAutopay, recordAutopayRemoveOutcome } from '@/lib/yearlyProgramAutopay';
@@ -22,6 +23,27 @@ import { parseTelegramUsername } from '@/lib/telegramUsername';
 /// не затерши справжню помилку Bot API.
 const MISSING_TELEGRAM_USERNAME_ERROR = 'Telegram username не вказано або невалідний';
 
+/// `orderReference` приходить з браузера і стає UNIQUE-ключем `Payment`. Це означає, що
+/// ним можна ЗАЙНЯТИ чужий простір імен: створити PENDING-платіж з ref-ом
+/// `tetyana:1001` — і коли з сайту Тетяни реально прийде продаж №1001, його
+/// `payment.create` впаде на UNIQUE (P2002) назавжди, бо номер замовлення там не
+/// перегенеровується. Те саме з ручними платежами адмінки (`manual-…`).
+///
+/// Тому простори імен, які веде НЕ цей роут, тут заборонені:
+///   `<джерело>:…`   — зовнішні продажі (`/api/external-sales`);
+///   `manual-`/`manual_` — ручні платежі Річної (адмінка);
+///   `yearly-program…` без валідного суфікса — сміття в просторі Річної (валідні форми
+///   `yearly-program_…` і `yearly-program-monthly_…` проходять як звичайні продукти).
+/// `connector_` не в списку свідомо: цей роут по такому ref-у взагалі не пише Payment,
+/// а ціну бере з наявного `ConnectorOrder` (немає замовлення → 400 вище).
+function isReservedOrderReference(ref: string): boolean {
+  const lower = ref.trim().toLowerCase();
+  if (/^[a-z0-9_-]+:/.test(lower)) return true;
+  if (lower.startsWith('manual-') || lower.startsWith('manual_')) return true;
+  if (lower.startsWith(YEARLY_PROGRAM_CONFIG.yearlyOrderPrefix) && !isYearlyProgramOrderRef(ref)) return true;
+  return false;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const rl = await checkRateLimit(req, 'payment');
@@ -31,6 +53,16 @@ export async function POST(req: NextRequest) {
 
     if (typeof orderReference !== 'string' || !orderReference) {
       return NextResponse.json({ error: 'Missing orderReference' }, { status: 400 });
+    }
+    if (orderReference.length > 200) {
+      return NextResponse.json({ error: 'Invalid orderReference' }, { status: 400 });
+    }
+    if (isReservedOrderReference(orderReference)) {
+      console.warn('⛔ Спроба зайняти зарезервований orderReference:', orderReference);
+      return NextResponse.json(
+        { error: 'Некоректний номер замовлення. Оновіть сторінку і спробуйте ще раз.', code: 'reserved_order_reference' },
+        { status: 400 },
+      );
     }
 
     // Manual-add invite: менеджер заздалегідь згенерував signed token із email/plan/cohortId.
@@ -111,7 +143,12 @@ export async function POST(req: NextRequest) {
     const sessionRole = (session?.user as { role?: string } | undefined)?.role;
     const isAdmin = sessionRole === 'ADMIN' || sessionRole === 'MANAGER';
     const adminTestPrice = yearlyKind === 'yearly' ? 2 : 1;
-    const finalAmount = isAdmin ? adminTestPrice : promoFinalPrice;
+    /// НЕ const: якщо лічильник промокоду не вдасться зайняти (ліміт вичерпали
+    /// паралельні покупці), ціна нижче перераховується без знижки.
+    let finalAmount = isAdmin ? adminTestPrice : promoFinalPrice;
+    /// `PromoCode.id`, використання якого ми реально зайняли під цей платіж. Пишеться
+    /// у `Payment.promoCodeId`, щоб Declined/Expired міг повернути його в ліміт.
+    let claimedPromoId: string | null = null;
 
     if (!Number.isFinite(finalAmount) || finalAmount <= 0) {
       return NextResponse.json({ error: 'Invalid amount' }, { status: 400 });
@@ -120,7 +157,6 @@ export async function POST(req: NextRequest) {
     let bundleId: string | null = resolved.bundleId;
     let paymentCourseId: string | null = resolved.paymentCourseId;
     const productName: string = resolved.productName;
-    const productPrice: number = finalAmount;
     const productCount: number = resolved.productCount;
     /// Поточний cohort Річної програми. Якщо менеджер ще не створив cohort — null
     /// (підписка створюється без cohort, регулярка йде по legacy-логіці = 9 платежів від покупки).
@@ -383,8 +419,11 @@ export async function POST(req: NextRequest) {
 
         if (plan === 'MONTHLY' && existing) {
           const paidPayments = await prisma.payment.findMany({
-            where: { yearlyProgramSubscriptionId: existing.id, status: 'PAID' },
-            select: { amount: true, status: true, paidAt: true, createdAt: true },
+            // `excludedFromAccess` — списання, які система свідомо не зарахувала в доступ
+            // (orphan по закритій підписці, понад ліміт, розбіжність суми). Вони не є
+            // сплаченим місяцем ні для кепу 9/9, ні для guard-а боргу.
+            where: { yearlyProgramSubscriptionId: existing.id, status: 'PAID', excludedFromAccess: false },
+            select: { amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true },
           });
           monthlyPaidCount = paidPayments.length;
 
@@ -646,9 +685,14 @@ export async function POST(req: NextRequest) {
       // з новим selectedFreeSlugs / promo після callback-у).
       const existingPayment = await prisma.payment.findUnique({
         where: { orderReference },
-        select: { status: true, userId: true },
+        select: { status: true, userId: true, promoCodeId: true },
       });
-      if (existingPayment?.status === 'PAID') {
+      // REFUNDED нарівні з PAID: по поверненому платежу гроші вже пройшли обидва боки,
+      // і його рядок — фінансовий слід. Без цієї гілки повторний POST на той самий
+      // orderReference переписував товар/суму на поверненому платежі (upsert.update
+      // нижче міняє courseId/bundleId/amount), і в звітності рефанд «повертав» уже
+      // інший продукт. Нова оплата має йти новим orderReference.
+      if (existingPayment?.status === 'PAID' || existingPayment?.status === 'REFUNDED') {
         return NextResponse.json({ error: 'Payment already finalized' }, { status: 409 });
       }
       // Ownership guard: orderReference приходить з браузера, тож чужий (наприклад
@@ -662,7 +706,43 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      const isNewPayment = !existingPayment;
+      // ── Промо-лічильник: CAS ДО того, як знижена ціна стане сумою платежу.
+      //
+      // Раніше порядок був зворотний: знижку рахували в `applyPromoServerSide` (там ліміт
+      // перевіряється звичайним читанням `usedCount < maxUses`), Payment створювався вже
+      // з акційною сумою, і лише ПОТІМ ішов атомарний інкремент — результат якого ніхто
+      // не дивився. Тобто при `maxUses = 1` п'ять паралельних чекаутів усі читали
+      // `usedCount = 0`, усі отримували знижку, а CAS дозволяв інкремент рівно одному:
+      // лічильник казав «використано 1», а продано за акцією було п'ять.
+      //
+      // Тепер: спершу займаємо використання, і тільки якщо зайняли — лишаємо знижку.
+      // Не зайняли (ліміт вичерпали інші) — ціна перераховується без промо, людина бачить
+      // повну суму у формі WFP.
+      //
+      // Адмін-тест (1–2 ₴) використання не займає: ціна там і так перевизначена.
+      if (promoId && !isAdmin) {
+        const alreadyClaimedHere = existingPayment?.promoCodeId === promoId;
+        if (alreadyClaimedHere) {
+          // Ретрай тієї ж оплати з тим самим кодом — використання вже зайняте цим
+          // замовленням, вдруге лічильник не чіпаємо.
+          claimedPromoId = promoId;
+        } else if (await claimPromoUse(promoId)) {
+          claimedPromoId = promoId;
+        } else {
+          finalAmount = resolved.basePrice;
+          console.warn('ℹ️ Промокод вичерпано на етапі CAS — ціна без знижки:', orderReference, promoId);
+        }
+      }
+      // На цьому ж замовленні раніше був ІНШИЙ промокод (людина повернулась і ввела новий,
+      // або цього разу без коду) — повертаємо старе використання в ліміт.
+      if (existingPayment?.promoCodeId && existingPayment.promoCodeId !== claimedPromoId) {
+        await releasePromoUse(existingPayment.promoCodeId);
+      }
+
+      if (!Number.isFinite(finalAmount) || finalAmount <= 0) {
+        return NextResponse.json({ error: 'Invalid amount' }, { status: 400 });
+      }
+
       await prisma.payment.upsert({
         where: { orderReference },
         create: {
@@ -675,6 +755,7 @@ export async function POST(req: NextRequest) {
           freeSlugs: finalFreeSlugs,
           bundleSlugsSnapshot: bundleSnapshot ?? Prisma.DbNull,
           yearlyProgramSubscriptionId,
+          promoCodeId: claimedPromoId,
         },
         // ВАЖЛИВО: update переписує і ТОВАР, не лише суму. Інакше повторний POST з тим
         // самим orderReference, але іншим courseId/bundleId, змінював суму на дешевшу,
@@ -690,21 +771,11 @@ export async function POST(req: NextRequest) {
           // orderReference з іншим пакетом лишив би склад від першого.
           bundleSlugsSnapshot: bundleSnapshot ?? Prisma.DbNull,
           yearlyProgramSubscriptionId,
+          // Пишемо і в update: за цим полем Declined/Expired-callback повертає
+          // використання в ліміт, а повторний POST розуміє, що воно вже зайняте.
+          promoCodeId: claimedPromoId,
         },
       });
-
-      // Idempotent promo counter: інкрементуємо usedCount лише на першому створенні Payment.
-      // Raw SQL гарантує атомарну перевірку maxUses (CAS) — дві паралельні оплати не зможуть
-      // перевищити ліміт.
-      if (isNewPayment && promoId) {
-        await prisma.$executeRaw`
-          UPDATE "PromoCode"
-          SET "usedCount" = "usedCount" + 1
-          WHERE "id" = ${promoId}
-            AND "active" = true
-            AND ("maxUses" IS NULL OR "usedCount" < "maxUses")
-        `;
-      }
     }
 
     const orderDate = Math.floor(Date.now() / 1000);
@@ -718,7 +789,9 @@ export async function POST(req: NextRequest) {
       'UAH',
       productName,
       productCount,
-      productPrice,
+      // Ціна товару = підсумкова сума (в чеку один товар). Беремо `finalAmount` тут, після
+      // можливого перерахунку без промо — інакше підпис пішов би зі старою ціною.
+      finalAmount,
     ].join(';');
 
     const merchantSignature = crypto
@@ -735,7 +808,7 @@ export async function POST(req: NextRequest) {
       currency: 'UAH',
       orderLifetime: 86400,
       productName: [productName],
-      productPrice: [productPrice],
+      productPrice: [finalAmount],
       productCount: [productCount],
       clientEmail,
       clientFirstName: typeof clientName === 'string' ? clientName.split(' ')[0] || '' : '',

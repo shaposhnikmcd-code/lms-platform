@@ -448,7 +448,7 @@ async function handleReopenAccess(sub: NonNullable<SubWithUser>, actor: string) 
     where: { id: sub.id },
     include: {
       cohort: { select: { startDate: true, endDate: true } },
-      payments: { select: { amount: true, status: true, paidAt: true, createdAt: true } },
+      payments: { select: { amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true } },
     },
   });
   const postAccessMonths = await getYearlyPostAccessMonths(prisma);
@@ -980,7 +980,7 @@ async function handleConvertToYearly(sub: NonNullable<SubWithUser>, actor: strin
     where: { id: sub.id },
     include: {
       cohort: { select: { startDate: true, endDate: true } },
-      payments: { select: { amount: true, status: true, paidAt: true, createdAt: true } },
+      payments: { select: { amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true } },
     },
   });
   const postAccessMonths = await getYearlyPostAccessMonths(prisma);

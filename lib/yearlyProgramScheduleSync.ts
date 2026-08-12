@@ -63,8 +63,11 @@ export async function syncAutopaySchedule(
     include: {
       cohort: { select: { startDate: true, endDate: true } },
       payments: {
-        where: { status: 'PAID' },
-        select: { orderReference: true, amount: true, status: true, paidAt: true, createdAt: true },
+        // `excludedFromAccess` не рахуємо: це списання, які ми не зарахували в доступ
+        // (orphan / понад ліміт / розбіжність суми). Інакше `paidCount` завищувався б і
+        // звірка знімала б живе правило регулярки як «повна оплата 9/9».
+        where: { status: 'PAID', excludedFromAccess: false },
+        select: { orderReference: true, amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true },
         orderBy: { createdAt: 'asc' },
       },
     },

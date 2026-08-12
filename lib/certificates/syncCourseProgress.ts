@@ -4,10 +4,28 @@
 ///   2) оновлює `Enrollment.spProgressPercent` + `spProgressCheckedAt` (для колонки
 ///      "Курс завершено" в адмінці),
 ///   3) видає сертифікат тим, хто має 100% і ще без сертифіката.
+///
+/// Одна видача коштує дорого: ~1.4 с генерації PDF і ~300 МБ RSS на пік (PDF ≈ 3 МБ).
+/// Тому прогін працює з часовим бюджетом і не намагається встигнути все за раз —
+/// краще чисто зупинитись і дообробити наступним проходом, ніж отримати 504/OOM
+/// посеред циклу з половиною записаних станів.
 
 import prisma from '@/lib/prisma';
 import { fetchAllStudentsProgressForCourse } from '@/lib/sendpulse';
 import { issueCourseCertificate } from '@/lib/certificates/service';
+
+/// Курсор ротації: індекс курсу, з якого починає наступний прогін. Зберігаємо саме
+/// індекс (а не id), бо `AppSetting.value` — Int. Порядок курсів стабільний
+/// (`orderBy: id asc`), тож індекс однозначно вказує на місце в списку.
+const ROTATION_KEY = 'certCourseCronCursor';
+
+/// Скільки часу лишаємо на «дохвостити» — записати результат і повернути відповідь.
+/// Нову видачу не починаємо, якщо до кінця бюджету менше цього.
+const RESERVE_MS = 30_000;
+
+/// Дефолтний бюджет прогону. maxDuration роутів = 300 с; лишаємо запас на холодний
+/// старт і на серіалізацію відповіді.
+const DEFAULT_BUDGET_MS = 240_000;
 
 export type CourseSyncResult = {
   courseId: string;
@@ -18,31 +36,81 @@ export type CourseSyncResult = {
   progressUpdated: number;
   newCertificates: number;
   skippedAlreadyIssued: number;
+  /// Скільки кандидатів на видачу лишилось необробленими через вичерпаний бюджет.
+  deferred: number;
   errors: string[];
 };
+
+export type CourseSyncRun = {
+  results: CourseSyncResult[];
+  /// true — бюджет часу вичерпався і частина курсів взагалі не оброблена цього разу.
+  budgetExhausted: boolean;
+  /// Скільки курсів підпадало під фільтр (не лише оброблених).
+  coursesTotal: number;
+  /// З якого індексу почали цей прогін і з якого почнеться наступний.
+  startedAtIndex: number;
+  nextIndex: number;
+};
+
+async function readCursor(): Promise<number> {
+  const row = await prisma.appSetting.findUnique({ where: { key: ROTATION_KEY } });
+  const v = row?.value ?? 0;
+  return Number.isFinite(v) && v >= 0 ? v : 0;
+}
+
+async function writeCursor(value: number): Promise<void> {
+  await prisma.appSetting
+    .upsert({ where: { key: ROTATION_KEY }, create: { key: ROTATION_KEY, value }, update: { value } })
+    .catch(() => {
+      /// Курсор — оптимізація, не факт бізнесу. Його втрата означає лише те, що
+      /// наступний прогін знову почне з початку списку.
+    });
+}
 
 export async function syncCourseProgress(options?: {
   onlyCourseId?: string | null;
   /// `null` — авто-видача йде без actor (system); інакше передається в audit.
   actor?: { id?: string | null; name?: string | null; email?: string | null } | null;
-}): Promise<CourseSyncResult[]> {
+  /// Скільки часу максимум витрачати. За замовчуванням `DEFAULT_BUDGET_MS`.
+  budgetMs?: number;
+}): Promise<CourseSyncRun> {
   const onlyCourseId = options?.onlyCourseId ?? null;
   const actor = options?.actor ?? null;
+  const deadline = Date.now() + (options?.budgetMs ?? DEFAULT_BUDGET_MS);
+  const outOfBudget = () => Date.now() > deadline - RESERVE_MS;
 
-  const courses = await prisma.course.findMany({
+  const allCourses = await prisma.course.findMany({
     where: {
       published: true,
       price: { gt: 0 },
       sendpulseCourseId: { not: null },
       ...(onlyCourseId ? { id: onlyCourseId } : {}),
     },
+    orderBy: { id: 'asc' },
     select: { id: true, title: true, sendpulseCourseId: true },
   });
 
+  /// Ротація стартової позиції. Без неї прогін щоразу починав з першого курсу, і
+  /// «хвостові» курси голодували: бюджет вичерпувався на тих самих перших.
+  /// Точковий запуск (onlyCourseId) курсор не рухає — це разова ручна дія.
+  const rotate = !onlyCourseId && allCourses.length > 1;
+  const startIndex = rotate ? (await readCursor()) % allCourses.length : 0;
+  const courses = rotate
+    ? [...allCourses.slice(startIndex), ...allCourses.slice(0, startIndex)]
+    : allCourses;
+
   const results: CourseSyncResult[] = [];
   const now = new Date();
+  let budgetExhausted = false;
+  let processed = 0;
 
   for (const course of courses) {
+    if (outOfBudget()) {
+      budgetExhausted = true;
+      break;
+    }
+    processed += 1;
+
     const res: CourseSyncResult = {
       courseId: course.id,
       courseTitle: course.title,
@@ -52,6 +120,7 @@ export async function syncCourseProgress(options?: {
       progressUpdated: 0,
       newCertificates: 0,
       skippedAlreadyIssued: 0,
+      deferred: 0,
       errors: [],
     };
 
@@ -119,6 +188,14 @@ export async function syncCourseProgress(options?: {
             continue;
           }
 
+          /// Видача — найдорожча операція циклу (PDF + Resend). Перевіряємо бюджет
+          /// саме тут, щоб перерватись ДО початку генерації, а не посеред неї.
+          if (outOfBudget()) {
+            res.deferred += 1;
+            budgetExhausted = true;
+            continue;
+          }
+
           try {
             await issueCourseCertificate({
               userId: en.userId,
@@ -141,5 +218,14 @@ export async function syncCourseProgress(options?: {
     results.push(res);
   }
 
-  return results;
+  const nextIndex = rotate ? (startIndex + processed) % allCourses.length : startIndex;
+  if (rotate) await writeCursor(nextIndex);
+
+  return {
+    results,
+    budgetExhausted,
+    coursesTotal: allCourses.length,
+    startedAtIndex: startIndex,
+    nextIndex,
+  };
 }

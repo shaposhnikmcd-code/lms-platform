@@ -19,6 +19,7 @@ import { provisionPayment, AMOUNT_MISMATCH_MARKER } from '@/lib/paymentProvision
 import { sendBundlePurchaseEmail } from '@/lib/bundlePurchaseEmail';
 import { getRegularStatus, getWayforpayCreds } from '@/lib/wayforpay';
 import { calculateAccessUntil, maxAutopayChargeCount } from '@/lib/yearlyProgramAccess';
+import { releasePromoUse } from '@/lib/promoUsage';
 import { removeSubscriptionAutopay, recordAutopayRemoveOutcome } from '@/lib/yearlyProgramAutopay';
 import { archiveDuplicatePendingSubscriptions } from '@/lib/yearlyProgramDedup';
 import { CALLBACK_LOG_SUB_ACTION_PREFIX } from '@/lib/yearlyProgramIssues';
@@ -141,78 +142,104 @@ export async function POST(req: NextRequest) {
         });
         prevStatus = existing?.paymentStatus || null;
 
-        // Звірка суми: скільки WFP реально списав проти суми замовлення.
-        const amountCheck = checkAmountMismatch(existing?.amount, body.amount);
-
-        // Claim-then-act: атомарний flip, щоб два одночасних callback-и не задвоїли зміну
-        // orderStatus/paidAt. count=0 ⇒ вже PAID/REFUNDED, skip. REFUNDED недоторканний:
-        // запізнілий Approved після повернення коштів не має воскрешати замовлення.
-        const claim = await prisma.connectorOrder.updateMany({
-          where: { orderReference: orderReference!, paymentStatus: { notIn: ['PAID', 'REFUNDED'] } },
-          data: {
-            paymentStatus: 'PAID',
-            paidAt: new Date(),
-            orderStatus: 'NEW',
-          },
-        });
-        if (claim.count === 0) {
+        // Замовлення з таким orderReference у базі немає ВЗАГАЛІ — а гроші списані.
+        // Раніше цей кейс провалювався в `claim.count === 0` і маркувався як
+        // `already_paid`: тобто «все гаразд, дубль callback-у». Recon-алерт таких не
+        // бачив, і оплачена гра просто зникала. Тепер це окрема причина, яку
+        // денний recon піднімає менеджерам нарівні з `payment_not_found`.
+        if (!existing) {
           skipped = true;
-          skipReason = prevStatus === 'REFUNDED' ? 'already_refunded' : 'already_paid';
+          skipReason = 'order_not_found';
+          errorMsg = `Connector order not found for ${orderReference} — оплату підтверджено, замовлення в базі немає`;
           actions.push(`skip:${skipReason}`);
-          console.log('ℹ️ Конектор уже завершений (claim lost), пропускаю:', orderReference, prevStatus);
+          console.error('🚨 Конектор: Approved по неіснуючому замовленню:', orderReference);
         } else {
-          // Гроші фіксуємо завжди. Якщо сума розійшлась — замовлення все одно PAID, але
-          // і в нотифікації менеджерам, і в самому рядку замовлення (`managerNote`) має
-          // стояти явне «не відправляти»: у списку замовлень видно суму З БД, а не
-          // фактично списану, тож без помітки менеджер відправить гру собі у збиток.
-          const mismatchWarning = amountCheck.mismatch
-            ? `⚠️ РОЗБІЖНІСТЬ СУМИ: сплачено ${amountCheck.callbackAmount} ₴ із ${existing!.amount} ₴ — НЕ відправляти замовлення до з'ясування`
-            : null;
 
-          if (mismatchWarning) {
-            skipped = true;
-            skipReason = 'amount_mismatch';
-            errorMsg = `Amount mismatch: callback=${amountCheck.callbackAmount} ₴, order=${existing!.amount} ₴ — позначено PAID, менеджерам надіслано попередження`;
-            actions.push('connector:paid', `amount-mismatch:${amountCheck.callbackAmount}!=${existing!.amount}`);
-            console.error('🚨 Конектор: сума callback-у не збігається з замовленням:', orderReference, errorMsg);
-            // Помітка в рядку замовлення. Наявний текст менеджера не затираємо —
-            // дописуємо попередження на початок.
-            try {
-              const current = await prisma.connectorOrder.findUnique({
-                where: { orderReference: orderReference! },
-                select: { managerNote: true },
-              });
-              const prevNote = current?.managerNote?.trim();
-              await prisma.connectorOrder.update({
-                where: { orderReference: orderReference! },
-                data: { managerNote: prevNote ? `${mismatchWarning}\n\n${prevNote}` : mismatchWarning },
-              });
-              actions.push('connector:manager_note_warned');
-            } catch (e) {
-              console.error('[wfp callback] connector managerNote update failed:', e);
-            }
-          } else {
-            actions.push('connector:paid');
-            console.log('✅ Конектор оплачено:', orderReference);
-          }
+          // Звірка суми: скільки WFP реально списав проти суми замовлення.
+          const amountCheck = checkAmountMismatch(existing.amount, body.amount);
 
-          // Сповіщення менеджерам про успішну оплату (best-effort, не блокує WFP-ack).
-          // При розбіжності суми лист/повідомлення йдуть із червоним попередженням.
-          const paidOrder = await prisma.connectorOrder.findUnique({
-            where: { orderReference: orderReference! },
+          // Claim-then-act: атомарний flip, щоб два одночасних callback-и не задвоїли зміну
+          // orderStatus/paidAt. count=0 ⇒ вже PAID/REFUNDED, skip. REFUNDED недоторканний:
+          // запізнілий Approved після повернення коштів не має воскрешати замовлення.
+          const claim = await prisma.connectorOrder.updateMany({
+            where: { orderReference: orderReference!, paymentStatus: { notIn: ['PAID', 'REFUNDED'] } },
+            data: {
+              paymentStatus: 'PAID',
+              paidAt: new Date(),
+              orderStatus: 'NEW',
+            },
           });
-          if (paidOrder) {
-            // `paidNotifiedAt` ставимо лише на реальну доставку: recon-cron добере
-            // замовлення з NULL і надішле повторно, якщо і пошта, і Telegram лягли.
-            notifyConnectorManagers('paid', paidOrder, { warning: mismatchWarning })
-              .then(async (r) => {
-                if (!isConnectorNotificationDelivered(r)) return;
-                await prisma.connectorOrder.update({
-                  where: { id: paidOrder.id },
-                  data: { paidNotifiedAt: new Date() },
+          if (claim.count === 0) {
+            skipped = true;
+            skipReason = prevStatus === 'REFUNDED' ? 'already_refunded' : 'already_paid';
+            actions.push(`skip:${skipReason}`);
+            console.log('ℹ️ Конектор уже завершений (claim lost), пропускаю:', orderReference, prevStatus);
+          } else {
+            // Гроші фіксуємо завжди. Якщо сума розійшлась — замовлення все одно PAID, але
+            // і в нотифікації менеджерам, і в самому рядку замовлення (`managerNote`) має
+            // стояти явне «не відправляти»: у списку замовлень видно суму З БД, а не
+            // фактично списану, тож без помітки менеджер відправить гру собі у збиток.
+            const mismatchWarning = amountCheck.mismatch
+              ? `⚠️ РОЗБІЖНІСТЬ СУМИ: сплачено ${amountCheck.callbackAmount} ₴ із ${existing.amount} ₴ — НЕ відправляти замовлення до з'ясування`
+              : null;
+
+            if (mismatchWarning) {
+              skipped = true;
+              skipReason = 'amount_mismatch';
+              errorMsg = `Amount mismatch: callback=${amountCheck.callbackAmount} ₴, order=${existing.amount} ₴ — позначено PAID, менеджерам надіслано попередження`;
+              actions.push('connector:paid', `amount-mismatch:${amountCheck.callbackAmount}!=${existing.amount}`);
+              console.error('🚨 Конектор: сума callback-у не збігається з замовленням:', orderReference, errorMsg);
+              // Помітка в рядку замовлення. Наявний текст менеджера не затираємо —
+              // дописуємо попередження на початок.
+              try {
+                const current = await prisma.connectorOrder.findUnique({
+                  where: { orderReference: orderReference! },
+                  select: { managerNote: true },
                 });
-              })
-              .catch((e) => console.error('[wfp callback] connector notifyManagers failed:', e));
+                const prevNote = current?.managerNote?.trim();
+                await prisma.connectorOrder.update({
+                  where: { orderReference: orderReference! },
+                  data: { managerNote: prevNote ? `${mismatchWarning}\n\n${prevNote}` : mismatchWarning },
+                });
+                actions.push('connector:manager_note_warned');
+              } catch (e) {
+                console.error('[wfp callback] connector managerNote update failed:', e);
+              }
+            } else {
+              actions.push('connector:paid');
+              console.log('✅ Конектор оплачено:', orderReference);
+            }
+
+            // Сповіщення менеджерам про успішну оплату (best-effort, не блокує WFP-ack).
+            // При розбіжності суми лист/повідомлення йдуть із червоним попередженням.
+            const paidOrder = await prisma.connectorOrder.findUnique({
+              where: { orderReference: orderReference! },
+            });
+            if (paidOrder) {
+              // `paidNotifiedAt` ставимо лише на реальну доставку: recon-cron добере
+              // замовлення з NULL і надішле повторно, якщо і пошта, і Telegram лягли.
+              //
+              // AWAIT обов'язковий, попри «best-effort» природу нотифікації. Fire-and-forget
+              // тут програвав гонку самому собі: serverless-інстанс міг завершитись одразу
+              // після відповіді WFP, `paidNotifiedAt` не встигав записатись — і recon-cron
+              // бачив «оплачено, менеджерам не сказано» та слав ДРУГЕ повідомлення про ту
+              // саму гру. Помилки й далі не валять callback: усе в try/catch.
+              try {
+                const notifyResult = await notifyConnectorManagers('paid', paidOrder, { warning: mismatchWarning });
+                if (isConnectorNotificationDelivered(notifyResult)) {
+                  await prisma.connectorOrder.update({
+                    where: { id: paidOrder.id },
+                    data: { paidNotifiedAt: new Date() },
+                  });
+                  actions.push('connector:managers_notified');
+                } else {
+                  actions.push('connector:notify_undelivered');
+                }
+              } catch (e) {
+                console.error('[wfp callback] connector notifyManagers failed:', e);
+                actions.push('connector:notify_failed');
+              }
+            }
           }
         }
       } else if (kind === 'yearly' || kind === 'monthly') {
@@ -408,6 +435,26 @@ export async function POST(req: NextRequest) {
         });
         if (failFlip.count > 0) {
           actions.push('payment:failed');
+          // Промокод, використання якого зайняв цей чекаут, повертаємо в ліміт: оплати
+          // не сталося. Без цього кожна відмова/протермінований інвойс безповоротно
+          // з'їдали одне використання — акція на 50 місць вигорала на невдалих спробах.
+          // Ідемпотентно: `promoCodeId` одразу обнуляється, дубль-Declined уже не зайде.
+          const failedPayment = await prisma.payment.findUnique({
+            where: { orderReference: orderReference! },
+            select: { id: true, promoCodeId: true },
+          });
+          if (failedPayment?.promoCodeId) {
+            try {
+              await releasePromoUse(failedPayment.promoCodeId);
+              await prisma.payment.update({
+                where: { id: failedPayment.id },
+                data: { promoCodeId: null },
+              });
+              actions.push('promo:released');
+            } catch (e) {
+              console.error('[wfp callback] promo release failed:', orderReference, e);
+            }
+          }
         } else {
           const existingPay = await prisma.payment.findUnique({
             where: { orderReference: orderReference! },
@@ -766,6 +813,11 @@ async function recordOrphanRecurringCharge(args: {
           paidAt: new Date(),
           paymentMethod: args.paymentSystem,
           yearlyProgramSubscriptionId: args.subscriptionId,
+          // Ключове: платіж є слідом реального списання, але в доступ НЕ йде. Без цієї
+          // позначки `calculateAccessUntil` рахував його звичайним оплаченим місяцем —
+          // і будь-який наступний перерахунок (cron-звірка, зміна дат набору, ручна дія
+          // менеджера) мовчки продовжував доступ, від якого ми щойно відмовились.
+          excludedFromAccess: true,
         },
       });
       await tx.yearlyProgramSubscriptionEvent.create({
@@ -1026,7 +1078,7 @@ async function handleRefundCallback(args: {
     const postAccessMonths = await getYearlyPostAccessMonths(prisma);
     const remaining = await prisma.payment.findMany({
       where: { yearlyProgramSubscriptionId: sub.id, status: 'PAID' },
-      select: { amount: true, status: true, paidAt: true, createdAt: true },
+      select: { amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true },
     });
     const now = new Date();
     const nothingLeftPaid = remaining.length === 0;
@@ -1474,7 +1526,9 @@ async function handleYearlyProgramCallback(args: {
           } as RecurringCreateResult;
         }
         const paidCount = await tx.payment.count({
-          where: { yearlyProgramSubscriptionId: sub.id, status: 'PAID' },
+          // Орфанні списання (закрита підписка / понад ліміт / розбіжність суми) у кеп
+          // не входять — інакше одне зайве списання назавжди блокувало б легальні.
+          where: { yearlyProgramSubscriptionId: sub.id, status: 'PAID', excludedFromAccess: false },
         });
         if (paidCount >= YEARLY_PROGRAM_CONFIG.totalMonthlyPayments) {
           return {
@@ -1633,6 +1687,63 @@ async function handleYearlyProgramCallback(args: {
     };
   }
 
+  // Звірка суми для ПЕРШОГО платежу Річної (Payment створений на чекауті). Рекурентні
+  // списання таку перевірку вже мають (`expectedAmount` у Serializable-транзакції вище),
+  // а тут її не було зовсім: скільки б WFP не списав, підписка активувалась на повний
+  // строк. Тобто підміна суми на платіжній сторінці давала річний доступ за копійки —
+  // рівно та діра, яку для курсів і пакетів закриває `checkAmountMismatch` (див. Approved
+  // course/bundle гілку). Символічні адмін-тести (1–2 ₴) хелпер пропускає сам.
+  //
+  // Поведінка дзеркалить курси: гроші фіксуємо (PAID), товар — НЕ видаємо. Підписка
+  // лишається неактивованою, платіж позначається `excludedFromAccess`, щоб жоден
+  // наступний перерахунок не зарахував його як оплачений місяць. Розбирає менеджер.
+  const firstPaymentAmountCheck = checkAmountMismatch(payment.amount, args.body.amount);
+  if (firstPaymentAmountCheck.mismatch) {
+    const subId = payment.yearlyProgramSubscriptionId;
+    const errorMsg = `Amount mismatch: callback=${firstPaymentAmountCheck.callbackAmount} ₴, payment=${payment.amount} ₴ — платіж позначено PAID, підписку НЕ активовано`;
+    actions.push(subRefAction(subId));
+    const claim = await prisma.payment.updateMany({
+      where: { id: payment.id, status: { notIn: ['PAID', 'REFUNDED'] } },
+      data: {
+        status: 'PAID',
+        paidAt: new Date(),
+        paymentMethod: typeof args.body.paymentSystem === 'string' ? args.body.paymentSystem : undefined,
+        excludedFromAccess: true,
+      },
+    });
+    if (claim.count > 0) {
+      actions.push('yearly:amount_mismatch_paid_without_access');
+      // Тип події той самий, що й в орфанних списаннях: у вкладці «Помилки» це
+      // ORPHAN_RECURRING_CHARGE (critical) — «гроші є, доступу немає, потрібне рішення».
+      try {
+        await prisma.yearlyProgramSubscriptionEvent.create({
+          data: {
+            subscriptionId: subId,
+            type: 'orphan_recurring_charge',
+            message: `Оплата ${payment.orderReference} на ${firstPaymentAmountCheck.callbackAmount} ₴ не збіглася з виставленою сумою ${payment.amount} ₴. Платіж записано (гроші реально списані), підписку НЕ активовано і доступ НЕ відкрито — потрібне рішення: повернути кошти або зарахувати вручну.`,
+            metadata: {
+              orderReference: payment.orderReference,
+              skipReason: 'first_payment_amount_mismatch',
+              callbackAmount: firstPaymentAmountCheck.callbackAmount,
+              expectedAmount: payment.amount,
+            },
+          },
+        });
+      } catch (e) {
+        console.error('⚠️ Не вдалося записати подію про розбіжність суми:', payment.orderReference, e);
+      }
+    }
+    console.error('🚨 Річна: сума callback-у не збігається з Payment:', args.orderReference, errorMsg);
+    return {
+      prevStatus,
+      skipped: true,
+      skipReason: 'amount_mismatch',
+      errorMsg,
+      actions,
+      sendpulseSlugs,
+    };
+  }
+
   // Atomic: flip Payment → PAID + extend subscription + create renewal event.
   // Якщо будь-який крок падає — rollback. Payment лишається PENDING, WFP retry відпрацює знову.
   // Гарантує: неможливо мати PAID Payment без відповідного extend-у sub.expiresAt.
@@ -1707,8 +1818,10 @@ async function handleYearlyProgramCallback(args: {
       // ВЖЕ є в allPayments. Не пушимо newPaymentAt, інакше платіж рахується двічі
       // (Bug 2026-05-03: давало 2×30=60 днів замість 30 при першій оплаті).
       const allPayments = await tx.payment.findMany({
-        where: { yearlyProgramSubscriptionId: sub.id, status: 'PAID' },
-        select: { amount: true, status: true, paidAt: true, createdAt: true },
+        // Виключені зі заліку списання відсіюємо на рівні запиту: вони не місяць доступу
+        // і не одиниця в лічильнику 9/9.
+        where: { yearlyProgramSubscriptionId: sub.id, status: 'PAID', excludedFromAccess: false },
+        select: { amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true },
       });
       const postAccessMonths = await getYearlyPostAccessMonths(tx);
       const newExpiresAt = calculateAccessUntil({

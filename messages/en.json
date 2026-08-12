@@ -284,6 +284,7 @@
     "teacher": "Teacher",
     "enrolledTitle": "You are already enrolled in this course",
     "btnGoLearn": "Go to learning",
+    "enrolledExternal": "This course is hosted on our learning platform — we have emailed you the access link. If the email is missing, write to edu@uimp.com.ua",
     "lessonNotFound": "Lesson not found",
     "breadcrumbMyCourses": "My courses",
     "btnCompleted": "Completed",

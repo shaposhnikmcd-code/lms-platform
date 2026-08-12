@@ -6,7 +6,13 @@
 /// заголовок, підпис, золоту печатку — потім overlay-имо динамічні поля
 /// (ім'я, рік, QR, cert#) згідно templateConfig.
 ///
-/// Результат — vector на будь-якому зумі, ~100-200 KB PDF.
+/// Результат — vector на будь-якому зумі.
+///
+/// ФАКТИЧНА ЦІНА однієї генерації (виміряно, не оцінка): ~3 МБ готового PDF,
+/// ~1.4 с часу, ~300 МБ RSS на пік. Саме тому пакетна видача йде чанками, cron
+/// працює з часовим бюджетом, а публічна віддача PDF кешується на CDN.
+/// Старі коментарі про «100-200 KB» стосувалися ранньої версії шаблону без
+/// повного ембеду шрифтів — не орієнтуйся на них при плануванні навантаження.
 
 import { PDFDocument, PDFFont, PDFPage, rgb } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
@@ -57,16 +63,16 @@ export async function generateCertificatePdf(input: CertGenerationInput): Promis
 
   const pageSize = PAGE_SIZES[input.templateKey] ?? { w: 1280, h: 906 };
 
-  /// Ембед шрифтів з кешем. Тепер використовуємо static TTFs (не variable),
-  /// тому `subset: true` працює коректно — pdf-lib включає тільки потрібні гліфи,
-  /// PDF ~150-250 KB замість ~2 MB з variable fonts + full embed.
+  /// Ембед шрифтів з кешем (кеш живе в межах ОДНОГО документа — між викликами
+  /// шрифти вбудовуються заново, тому кожна генерація коштує повні ~300 МБ піку).
   const fontCache = new Map<FontKey, PDFFont>();
   const getFont = async (key: FontKey): Promise<PDFFont> => {
     const cached = fontCache.get(key);
     if (cached) return cached;
     /// subset: false — pdf-lib subsetting ламає гліфи у Google Fonts static TTFs
-    /// (ймовірно через CFF outlines). Повний embed ~300KB per font; 6 fonts у
-    /// фінальному PDF ~500-700KB після DEFLATE. Прийнятний tradeoff за коректність.
+    /// (ймовірно через CFF outlines). Платимо за це розміром: повний embed кожного
+    /// шрифту, і готовий PDF виходить ~3 МБ. Прийнятний tradeoff за коректність
+    /// тексту, але саме він робить масову генерацію дорогою.
     ///
     /// Cormorant: вимикаємо лігатури (liga/calt/dlig). Ліга-гліфи (g_g.liga,
     /// T_h.liga, Q.long, f_t.liga…) недосяжні через cmap → pdf-lib не включає їх

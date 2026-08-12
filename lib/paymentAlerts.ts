@@ -22,7 +22,9 @@ import { sendConnectorMessage, escapeHtml, isConnectorBotConfigured } from '@/li
 export interface StuckPaymentAlertItem {
   /// 'provision_failed' — Payment є, гроші є, доступи не видані.
   /// 'payment_not_found' — WFP підтвердив оплату, а Payment із таким orderReference немає.
-  kind: 'provision_failed' | 'payment_not_found';
+  /// 'order_ref_conflict' — зовнішній продаж не записався: номер замовлення вже зайнятий
+  ///   чужим платежем (у нашій базі під цим ref-ом лежить не той запис).
+  kind: 'provision_failed' | 'payment_not_found' | 'order_ref_conflict';
   orderReference: string;
   amount: number | null;
   currency: string;
@@ -47,6 +49,7 @@ export interface PaymentAlertResult {
 const KIND_LABEL: Record<StuckPaymentAlertItem['kind'], string> = {
   provision_failed: 'Оплачено, доступ НЕ видано',
   payment_not_found: 'Оплата без замовлення в базі',
+  order_ref_conflict: 'Зовнішній продаж не записано (номер зайнятий)',
 };
 
 function fmtMoney(value: number | null, currency: string): string {

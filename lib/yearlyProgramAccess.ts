@@ -62,15 +62,25 @@ export interface PaymentLike {
   status: string;
   paidAt: Date | null;
   createdAt: Date;
+  /// true — платіж зафіксовано як факт списання, але в доступ він НЕ йде
+  /// (orphan-списання по закритій підписці, понад ліміт місяців, розбіжність суми).
+  /// Поле опційне: синтетичні платежі в guard-ах і старі виклики його не передають,
+  /// `undefined` читається як «звичайний платіж».
+  excludedFromAccess?: boolean | null;
 }
 
 export type Plan = 'YEARLY' | 'MONTHLY';
 
 /// Підрахунок успішних PAID платежів з валідними paidAt. Платежі без paidAt
 /// (race-у callback-у) використовують createdAt як fallback.
+///
+/// `excludedFromAccess` відсіюється тут — у ЄДИНОМУ місці, де PAID-платежі
+/// перетворюються на місяці доступу. Інакше orphan-списання (записане саме тому, що
+/// система відмовилась продовжувати доступ) при найближчому перерахунку тихо
+/// додавало б людині місяць — і відмова скасовувала б сама себе.
 function paidPaymentDates(payments: PaymentLike[]): Date[] {
   return payments
-    .filter((p) => p.status === 'PAID')
+    .filter((p) => p.status === 'PAID' && !p.excludedFromAccess)
     .map((p) => p.paidAt ?? p.createdAt)
     .sort((a, b) => a.getTime() - b.getTime());
 }

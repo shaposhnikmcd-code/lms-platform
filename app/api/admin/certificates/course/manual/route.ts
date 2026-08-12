@@ -107,14 +107,25 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const cert = await issueCourseCertificate({
+    const result = await issueCourseCertificate({
       userId: user.id,
       courseId,
       recipientName: name,
       actor: guard.actor,
       issuedManually: true,
     });
-    return NextResponse.json({ certificate: cert });
+    return NextResponse.json({
+      certificate: result.certificate,
+      alreadyExisted: result.alreadyExisted,
+      emailStatus: result.certificate.emailStatus,
+      /// Лист не пішов — сертифікат усе одно виданий. Кажемо це прямо, щоб менеджер
+      /// не видавав другий, а дослав лист із таблиці.
+      ...(result.email && !result.email.ok
+        ? {
+            warning: `Сертифікат ${result.certificate.certNumber} видано, але лист не пішов: ${result.email.error ?? 'невідома помилка'}. Дошліть його кнопкою «Надіслати листом».`,
+          }
+        : {}),
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Unknown error';
     return NextResponse.json({ error: msg }, { status: 400 });

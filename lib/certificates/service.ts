@@ -6,9 +6,31 @@ import prisma from '@/lib/prisma';
 import { sendEmail, appBaseUrl, MAILER_FROM_EMAIL } from '@/lib/mailer';
 import { certificateEmailHtml, certificateEmailSubject } from '@/lib/emailTemplates/certificate';
 import { generateCertificatePdf } from './generatePdf';
-import { generateCertNumber, newVerificationToken, hashPdfBytes } from './identifiers';
+import { createWithUniqueCertNumber, newVerificationToken, hashPdfBytes } from './identifiers';
 import { templateKeyFor } from './templateConfig';
 import type { CertCategory, CertLanguages, Certificate } from '@prisma/client';
+
+/// Результат спроби відправити лист із сертифікатом. `ok:false` НЕ означає, що
+/// сертифіката немає — він уже в БД, просто лист не пішов (emailStatus = FAILED).
+export type CertEmailOutcome = {
+  ok: boolean;
+  error?: string;
+  /// true — mailer свідомо нічого не відправив (немає RESEND_API_KEY). Трактуємо
+  /// як невдачу: інакше в адмінці горів би зелений SENT без реального листа.
+  skipped?: boolean;
+};
+
+/// Уніфікований результат будь-якої видачі. Розділяє три стани, які раніше
+/// склеювались в один: створено+лист пішов / створено+лист НЕ пішов / не створено
+/// (винятком). Без цього фронт після часткової невдачі лишав людину «на повтор» і
+/// менеджер видавав їй другий сертифікат.
+export type IssueResult = {
+  certificate: Certificate;
+  /// true — сертифікат уже існував, новий не створювали (ідемпотентність COURSE).
+  alreadyExisted: boolean;
+  /// null — лист свідомо не відправляли (`sendEmail: false`).
+  email: CertEmailOutcome | null;
+};
 
 /// Нормалізує пару (languages, recipientNameEn) до узгодженого стану, який пишемо
 /// у БД і передаємо генератору:
@@ -95,14 +117,15 @@ export function yearlyCategoryLabel(category: CertCategory): string {
 }
 
 /// Видача курсового сертифіката. Ідемпотентно по (userId, COURSE, courseId) — якщо
-/// вже виданий і не revoked, повертає існуючий і НЕ шле листа повторно.
-export async function issueCourseCertificate(input: IssueCourseCertInput): Promise<Certificate> {
+/// вже виданий і не revoked, повертає існуючий (`alreadyExisted: true`) і НЕ шле листа
+/// повторно; стан листа видно у `certificate.emailStatus`.
+export async function issueCourseCertificate(input: IssueCourseCertInput): Promise<IssueResult> {
   const { userId, courseId, actor, issuedManually } = input;
 
   const existing = await prisma.certificate.findFirst({
     where: { userId, type: 'COURSE', courseId, revoked: false },
   });
-  if (existing) return existing;
+  if (existing) return { certificate: existing, alreadyExisted: true, email: null };
 
   const [user, course] = await Promise.all([
     prisma.user.findUnique({ where: { id: userId }, select: { id: true, name: true, email: true } }),
@@ -111,35 +134,52 @@ export async function issueCourseCertificate(input: IssueCourseCertInput): Promi
   if (!user) throw new Error(`User not found: ${userId}`);
   if (!course) throw new Error(`Course not found: ${courseId}`);
 
-  const recipientName = (input.recipientName?.trim() || user.name?.trim() || user.email).trim();
+  /// Автовидача (cron / завершення уроків) без імені — стоп. Fallback на email друкував
+  /// би на сертифікаті «ivan@gmail.com» замість «Іван Петренко», і людина отримала б
+  /// зіпсований документ мовчки. У ручних флоу fallback лишається: там адмін бачить
+  /// прев'ю і може виправити ім'я перед видачею.
+  const explicitName = input.recipientName?.trim();
+  const profileName = user.name?.trim();
+  if (!issuedManually && !explicitName && !profileName) {
+    throw new Error(
+      `Немає імені у профілі (${user.email}) — автовидача пропущена, видайте вручну з іменем.`,
+    );
+  }
+
+  const recipientName = (explicitName || profileName || user.email).trim();
   const issueYear = new Date().getUTCFullYear();
-  const certNumber = await generateCertNumber('COURSE', issueYear);
   const verificationToken = newVerificationToken();
 
-  const certificate = await prisma.certificate.create({
-    data: {
-      certNumber,
-      verificationToken,
-      type: 'COURSE',
-      userId,
-      courseId,
-      recipientName,
-      recipientEmail: user.email,
-      courseName: course.title,
-      issueYear,
-      issuedManually,
-      issuedByUserId: actor?.id ?? null,
-      issuedByName: actor?.name ?? null,
-      issuedByEmail: actor?.email ?? null,
-      emailStatus: 'PENDING',
-    },
-  });
+  const certificate = await createWithUniqueCertNumber('COURSE', issueYear, (certNumber) =>
+    prisma.certificate.create({
+      data: {
+        certNumber,
+        verificationToken,
+        type: 'COURSE',
+        userId,
+        courseId,
+        recipientName,
+        recipientEmail: user.email,
+        courseName: course.title,
+        issueYear,
+        issuedManually,
+        issuedByUserId: actor?.id ?? null,
+        issuedByName: actor?.name ?? null,
+        issuedByEmail: actor?.email ?? null,
+        emailStatus: 'PENDING',
+      },
+    }),
+  );
 
   await logEvent(certificate.id, 'GENERATED', actor, issuedManually ? 'Видано вручну (COURSE)' : 'Видано автоматично (cron)');
 
-  await sendCertificateEmail(certificate, actor, /* isResend */ false);
+  const email = await sendCertificateEmail(certificate, actor, /* isResend */ false);
 
-  return prisma.certificate.findUniqueOrThrow({ where: { id: certificate.id } });
+  return {
+    certificate: await prisma.certificate.findUniqueOrThrow({ where: { id: certificate.id } }),
+    alreadyExisted: false,
+    email,
+  };
 }
 
 /// Знаходить підписку Річної, до якої варто прив'язати персонально виданий сертифікат.
@@ -216,7 +256,7 @@ export async function issueManualYearlyCertificate(input: {
   /// false — без листа (emailStatus лишається PENDING). Default true.
   sendEmail?: boolean;
   actor: Actor;
-}): Promise<Certificate> {
+}): Promise<IssueResult> {
   const { userId, category, actor } = input;
   const sendEmail = input.sendEmail !== false;
 
@@ -246,29 +286,30 @@ export async function issueManualYearlyCertificate(input: {
     }
   }
 
-  const certNumber = await generateCertNumber('YEARLY_PROGRAM', issueYear);
   const verificationToken = newVerificationToken();
 
-  const certificate = await prisma.certificate.create({
-    data: {
-      certNumber,
-      verificationToken,
-      type: 'YEARLY_PROGRAM',
-      category,
-      userId,
-      subscriptionId,
-      recipientName,
-      recipientNameEn,
-      languages,
-      recipientEmail: user.email,
-      issueYear,
-      issuedManually: true,
-      issuedByUserId: actor?.id ?? null,
-      issuedByName: actor?.name ?? null,
-      issuedByEmail: actor?.email ?? null,
-      emailStatus: 'PENDING',
-    },
-  });
+  const certificate = await createWithUniqueCertNumber('YEARLY_PROGRAM', issueYear, (certNumber) =>
+    prisma.certificate.create({
+      data: {
+        certNumber,
+        verificationToken,
+        type: 'YEARLY_PROGRAM',
+        category,
+        userId,
+        subscriptionId,
+        recipientName,
+        recipientNameEn,
+        languages,
+        recipientEmail: user.email,
+        issueYear,
+        issuedManually: true,
+        issuedByUserId: actor?.id ?? null,
+        issuedByName: actor?.name ?? null,
+        issuedByEmail: actor?.email ?? null,
+        emailStatus: 'PENDING',
+      },
+    }),
+  );
 
   await logEvent(
     certificate.id,
@@ -277,15 +318,19 @@ export async function issueManualYearlyCertificate(input: {
     `Видано вручну (Річна, ${YEARLY_CATEGORY_LABELS[category]}, ${subscriptionId ? 'привʼязано до підписки' : 'без підписки'})${sendEmail ? '' : ' — без відправки листа'}`,
   );
 
-  if (sendEmail) await sendCertificateEmail(certificate, actor, false);
+  const email = sendEmail ? await sendCertificateEmail(certificate, actor, false) : null;
 
-  return prisma.certificate.findUniqueOrThrow({ where: { id: certificate.id } });
+  return {
+    certificate: await prisma.certificate.findUniqueOrThrow({ where: { id: certificate.id } }),
+    alreadyExisted: false,
+    email,
+  };
 }
 
 /// Видача сертифіката Річної програми. Має snapshot-фактори — category, recipientName.
 /// Перевіряє: для одного userId+subscriptionId не видаємо повторно (валідація в application code
 /// бо Prisma не підтримує partial unique index).
-export async function issueYearlyCertificate(input: IssueYearlyCertInput): Promise<Certificate> {
+export async function issueYearlyCertificate(input: IssueYearlyCertInput): Promise<IssueResult> {
   const { userId, subscriptionId, category, actor } = input;
   const sendEmail = input.sendEmail !== false;
 
@@ -307,29 +352,30 @@ export async function issueYearlyCertificate(input: IssueYearlyCertInput): Promi
   const recipientName = (input.recipientName?.trim() || user.name?.trim() || user.email).trim();
   const { languages, recipientNameEn } = resolveLanguages(input.languages, input.recipientNameEn);
   const issueYear = new Date().getUTCFullYear();
-  const certNumber = await generateCertNumber('YEARLY_PROGRAM', issueYear);
   const verificationToken = newVerificationToken();
 
-  const certificate = await prisma.certificate.create({
-    data: {
-      certNumber,
-      verificationToken,
-      type: 'YEARLY_PROGRAM',
-      category,
-      userId,
-      subscriptionId,
-      recipientName,
-      recipientNameEn,
-      languages,
-      recipientEmail: user.email,
-      issueYear,
-      issuedManually: true,
-      issuedByUserId: actor?.id ?? null,
-      issuedByName: actor?.name ?? null,
-      issuedByEmail: actor?.email ?? null,
-      emailStatus: 'PENDING',
-    },
-  });
+  const certificate = await createWithUniqueCertNumber('YEARLY_PROGRAM', issueYear, (certNumber) =>
+    prisma.certificate.create({
+      data: {
+        certNumber,
+        verificationToken,
+        type: 'YEARLY_PROGRAM',
+        category,
+        userId,
+        subscriptionId,
+        recipientName,
+        recipientNameEn,
+        languages,
+        recipientEmail: user.email,
+        issueYear,
+        issuedManually: true,
+        issuedByUserId: actor?.id ?? null,
+        issuedByName: actor?.name ?? null,
+        issuedByEmail: actor?.email ?? null,
+        emailStatus: 'PENDING',
+      },
+    }),
+  );
 
   await logEvent(
     certificate.id,
@@ -338,9 +384,13 @@ export async function issueYearlyCertificate(input: IssueYearlyCertInput): Promi
     `Видано вручну (Річна, ${YEARLY_CATEGORY_LABELS[category]})${sendEmail ? '' : ' — без відправки листа'}`,
   );
 
-  if (sendEmail) await sendCertificateEmail(certificate, actor, false);
+  const email = sendEmail ? await sendCertificateEmail(certificate, actor, false) : null;
 
-  return prisma.certificate.findUniqueOrThrow({ where: { id: certificate.id } });
+  return {
+    certificate: await prisma.certificate.findUniqueOrThrow({ where: { id: certificate.id } }),
+    alreadyExisted: false,
+    email,
+  };
 }
 
 /// Форматує дату супервізії як «12 травня 2026 року» — для тіла PDF та email.
@@ -374,7 +424,16 @@ export function formatSupervisionHours(h: number | null | undefined): string | u
 }
 
 /// Внутрішній helper — генерує PDF і шле лист. Оновлює emailStatus у БД і пише event.
-async function sendCertificateEmail(cert: Certificate, actor: Actor, isResend: boolean): Promise<void> {
+///
+/// НЕ кидає винятків: сертифікат на цей момент уже створений у БД, і виняток тут
+/// означав би для викликача «видача не вдалася» → менеджер видав би людині другий
+/// сертифікат. Усі провали (включно з падінням генерації PDF) повертаються як
+/// `{ ok: false }` і фіксуються в emailStatus/emailError + подією EMAIL_FAILED.
+async function sendCertificateEmail(
+  cert: Certificate,
+  actor: Actor,
+  isResend: boolean,
+): Promise<CertEmailOutcome> {
   try {
     const supervisionDateStr = formatSupervisionDate(cert.supervisionDate);
     const supervisionHoursStr = formatSupervisionHours(cert.supervisionHours);
@@ -443,6 +502,19 @@ async function sendCertificateEmail(cert: Certificate, actor: Actor, isResend: b
       ],
     });
 
+    /// `skipped` = mailer повернув ok:true, але нічого не відправив (немає
+    /// RESEND_API_KEY). Раніше це писалося як SENT — сертифікат виглядав доставленим,
+    /// вкладка «Помилки» його не бачила, а лист не існував. Тепер це чесний FAILED.
+    if (result.skipped) {
+      const msg = 'RESEND_API_KEY не заданий — лист не відправлено';
+      await prisma.certificate.update({
+        where: { id: cert.id },
+        data: { emailStatus: 'FAILED', emailError: msg, pdfHash },
+      });
+      await logEvent(cert.id, 'EMAIL_FAILED', actor, msg);
+      return { ok: false, error: msg, skipped: true };
+    }
+
     if (result.ok) {
       await prisma.certificate.update({
         where: { id: cert.id },
@@ -456,22 +528,61 @@ async function sendCertificateEmail(cert: Certificate, actor: Actor, isResend: b
         },
       });
       await logEvent(cert.id, isResend ? 'RESENT' : 'SENT', actor, `Лист відправлено на ${cert.recipientEmail}`);
-    } else {
-      await prisma.certificate.update({
-        where: { id: cert.id },
-        data: { emailStatus: 'FAILED', emailError: result.error ?? 'Unknown error' },
-      });
-      await logEvent(cert.id, 'EMAIL_FAILED', actor, result.error ?? 'Unknown error');
+      return { ok: true };
     }
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+
+    const error = result.error ?? 'Unknown error';
     await prisma.certificate.update({
       where: { id: cert.id },
-      data: { emailStatus: 'FAILED', emailError: msg },
+      data: { emailStatus: 'FAILED', emailError: error },
     });
-    await logEvent(cert.id, 'EMAIL_FAILED', actor, msg);
-    throw err;
+    await logEvent(cert.id, 'EMAIL_FAILED', actor, error);
+    return { ok: false, error };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    await prisma.certificate
+      .update({
+        where: { id: cert.id },
+        data: { emailStatus: 'FAILED', emailError: msg },
+      })
+      .catch(() => {});
+    await logEvent(cert.id, 'EMAIL_FAILED', actor, msg).catch(() => {});
+    return { ok: false, error: msg };
   }
+}
+
+/// Маркер «відправка вже виконується». Окремого стану SENDING в enum немає, тож
+/// лочимося через emailError: умовний updateMany виграє рівно один запит.
+const SENDING_MARKER = '⏳ Відправка триває…';
+/// Скільки маркер вважається живим. Якщо процес упав між claim-ом і відправкою,
+/// через цей час рядок знову можна взяти в роботу (інакше кнопка вмерла б назавжди).
+const SENDING_LOCK_MS = 5 * 60 * 1000;
+
+/// Атомарний «claim» сертифіката під відправку: ставить маркер тільки якщо статус
+/// зараз в одному з `from`-станів І рядок не залочений іншим запитом. Повертає false,
+/// якщо claim не вдався — так подвійний клік по «Надіслати»/«Перевідправити» не шле
+/// людині два листи з двома різними PDF.
+async function claimForSending(
+  certificateId: string,
+  from: ('PENDING' | 'SENT' | 'FAILED' | 'BOUNCED')[],
+): Promise<boolean> {
+  const staleBefore = new Date(Date.now() - SENDING_LOCK_MS);
+  const claimed = await prisma.certificate.updateMany({
+    where: {
+      id: certificateId,
+      revoked: false,
+      emailStatus: { in: from },
+      /// `emailError: null` окремою гілкою свідомо: `not` на nullable-колонці в SQL
+      /// не матчить NULL-рядки, а свіжовиданий сертифікат має саме NULL.
+      OR: [
+        { emailError: null },
+        { emailError: { not: SENDING_MARKER } },
+        { updatedAt: { lt: staleBefore } },
+      ],
+    },
+    data: { emailStatus: 'PENDING', emailError: SENDING_MARKER },
+  });
+  return claimed.count === 1;
 }
 
 /// Перша відправка листа для сертифіката, виданого без листа (emailStatus=PENDING)
@@ -483,14 +594,22 @@ export async function sendCertificateFirstEmail(certificateId: string, actor: Ac
   if (cert.emailStatus === 'SENT') {
     throw new Error('Лист уже надіслано. Для повторної відправки скористайтесь «Перевідправити».');
   }
-  await sendCertificateEmail(cert, actor, false);
+  if (!(await claimForSending(certificateId, ['PENDING', 'FAILED', 'BOUNCED']))) {
+    throw new Error('Відправка вже виконується — зачекайте кілька секунд і оновіть список.');
+  }
+  const outcome = await sendCertificateEmail(cert, actor, false);
+  if (!outcome.ok) throw new Error(outcome.error ?? 'Лист не відправлено');
 }
 
 /// Перевідправка листа — регенерує PDF, шле заново. emailStatus → SENT/FAILED.
 export async function resendCertificate(certificateId: string, actor: Actor): Promise<void> {
   const cert = await prisma.certificate.findUniqueOrThrow({ where: { id: certificateId } });
   if (cert.revoked) throw new Error('Сертифікат відкликано, перевідправка заборонена.');
-  await sendCertificateEmail(cert, actor, true);
+  if (!(await claimForSending(certificateId, ['PENDING', 'SENT', 'FAILED', 'BOUNCED']))) {
+    throw new Error('Відправка вже виконується — зачекайте кілька секунд і оновіть список.');
+  }
+  const outcome = await sendCertificateEmail(cert, actor, true);
+  if (!outcome.ok) throw new Error(outcome.error ?? 'Лист не відправлено');
 }
 
 /// Revoke — помічаємо як відкликаний, НЕ видаляємо. Публічна верифікація показуватиме red banner.
@@ -529,7 +648,7 @@ export type IssueSupervisionCertInput = {
 
 export async function issueSupervisionCertificate(
   input: IssueSupervisionCertInput,
-): Promise<Certificate> {
+): Promise<IssueResult> {
   const email = input.recipientEmail.trim().toLowerCase();
   const recipientName = input.recipientName.trim();
   const topic = input.topic.trim();
@@ -553,30 +672,34 @@ export async function issueSupervisionCertificate(
   }
 
   const issueYear = new Date().getUTCFullYear();
-  const certNumber = await generateCertNumber('SUPERVISION', issueYear);
   const verificationToken = newVerificationToken();
+  /// Витягуємо до замикання: у колбеку TS втрачає narrowing `user` (це `let`).
+  const userId = user.id;
+  const recipientEmail = user.email;
 
-  const certificate = await prisma.certificate.create({
-    data: {
-      certNumber,
-      verificationToken,
-      type: 'SUPERVISION',
-      userId: user.id,
-      courseId: null,
-      subscriptionId: null,
-      recipientName,
-      recipientEmail: user.email,
-      courseName: topic,
-      supervisionDate: input.supervisionDate,
-      supervisionHours: input.supervisionHours,
-      issueYear,
-      issuedManually: true,
-      issuedByUserId: input.actor?.id ?? null,
-      issuedByName: input.actor?.name ?? null,
-      issuedByEmail: input.actor?.email ?? null,
-      emailStatus: 'PENDING',
-    },
-  });
+  const certificate = await createWithUniqueCertNumber('SUPERVISION', issueYear, (certNumber) =>
+    prisma.certificate.create({
+      data: {
+        certNumber,
+        verificationToken,
+        type: 'SUPERVISION',
+        userId,
+        courseId: null,
+        subscriptionId: null,
+        recipientName,
+        recipientEmail,
+        courseName: topic,
+        supervisionDate: input.supervisionDate,
+        supervisionHours: input.supervisionHours,
+        issueYear,
+        issuedManually: true,
+        issuedByUserId: input.actor?.id ?? null,
+        issuedByName: input.actor?.name ?? null,
+        issuedByEmail: input.actor?.email ?? null,
+        emailStatus: 'PENDING',
+      },
+    }),
+  );
 
   await logEvent(
     certificate.id,
@@ -585,9 +708,16 @@ export async function issueSupervisionCertificate(
     `Видано вручну (Супервізія: ${topic})`,
   );
 
-  await sendCertificateEmail(certificate, input.actor, false);
+  /// Провал листа НЕ скасовує видачу: сертифікат уже в БД зі своїм номером. Викликач
+  /// (route) відрізняє «видано + лист не пішов» від «не видано» і не пропонує менеджеру
+  /// повторити рядок — інакше та сама людина отримала б другий сертифікат.
+  const emailOutcome = await sendCertificateEmail(certificate, input.actor, false);
 
-  return prisma.certificate.findUniqueOrThrow({ where: { id: certificate.id } });
+  return {
+    certificate: await prisma.certificate.findUniqueOrThrow({ where: { id: certificate.id } }),
+    alreadyExisted: false,
+    email: emailOutcome,
+  };
 }
 
 /// Регенерація PDF за існуючим certRecord — для download endpoints. Без відправки листа.

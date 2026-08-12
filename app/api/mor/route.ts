@@ -122,7 +122,9 @@ export async function POST(req: NextRequest) {
     // Payment.upsert. amount=0 поки — реальну USD-суму (в центах) випишемо у webhook
     // з data.details.totals.grand_total. currency=USD, provider=paddle.
     const existingPayment = await prisma.payment.findUnique({ where: { orderReference }, select: { status: true, userId: true } });
-    if (existingPayment?.status === 'PAID') {
+    // REFUNDED нарівні з PAID (як у WFP-роуті): повернений платіж — завершений фінансовий
+    // слід, і повторний POST не має переписувати на ньому товар чи суму.
+    if (existingPayment?.status === 'PAID' || existingPayment?.status === 'REFUNDED') {
       return NextResponse.json({ error: 'Payment already finalized' }, { status: 409 });
     }
     // Ownership guard (як у WFP-роуті): чужий orderReference не можна переприсвоїти собі.
