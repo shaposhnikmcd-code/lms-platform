@@ -32,8 +32,10 @@ export async function POST(req: NextRequest) {
     const rl = await checkRateLimit(req, 'forgotPassword', `email:${email}`);
     if (!rl.ok) return rl.response!;
 
+    /// mode:insensitive — історичні акаунти могли зберегтись з великими літерами
+    /// ("Ihor@..."), а input завжди lowercase; точне порівняння їх ніколи не знаходило.
     const user = await prisma.user.findFirst({
-      where: { email, deletedAt: null },
+      where: { email: { equals: email, mode: 'insensitive' }, deletedAt: null },
       select: { id: true, email: true, name: true },
     });
 

@@ -224,7 +224,9 @@ export async function POST(req: NextRequest) {
     const guard = await requireAdmin(req);
     if ('error' in guard) return guard.error;
 
-    const { name, email, role } = await req.json();
+    const { name, email: rawEmail, role } = await req.json();
+    // Email зберігаємо тільки в lowercase — credentials-логін шукає нормалізовано.
+    const email = typeof rawEmail === 'string' ? rawEmail.trim().toLowerCase() : '';
     if (!email) return NextResponse.json({ error: 'Email обовʼязковий' }, { status: 400 });
 
     const validRoles = ['ADMIN', 'MANAGER'];
@@ -239,7 +241,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const existing = await prisma.user.findUnique({ where: { email } });
+    const existing = await prisma.user.findFirst({
+      where: { email: { equals: email, mode: 'insensitive' } },
+    });
     if (existing) {
       if (existing.deletedAt) {
         const restored = await prisma.user.update({

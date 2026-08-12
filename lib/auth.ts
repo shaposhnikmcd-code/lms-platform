@@ -72,7 +72,11 @@ export const authOptions: NextAuthOptions = {
         }
 
         try {
-          const user = await prisma.user.findUnique({ where: { email: credentials.email } });
+          // Регістр email не має значити нічого: і введений, і збережений можуть
+          // відрізнятись капіталізацією (findUnique не вміє insensitive).
+          const user = await prisma.user.findFirst({
+            where: { email: { equals: normalizedEmail, mode: 'insensitive' } },
+          });
           if (!user) return null;
           if (user.deletedAt) return null;
           // Платформа лише для ADMIN/MANAGER. STUDENT/TEACHER (legacy) — login blocked.

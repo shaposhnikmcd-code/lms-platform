@@ -188,6 +188,9 @@ export async function POST(req: NextRequest) {
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clientEmail.trim())) {
         return NextResponse.json({ error: 'Невалідний email' }, { status: 400 });
       }
+      /// Нормалізація ДО пошуку/створення юзера: без неї "Ihor@..." і "ihor@..."
+      /// давали два різні акаунти, і платежі однієї людини розпорошувались.
+      const normalizedEmail = clientEmail.trim().toLowerCase();
       /// Phone: ми приймаємо вже нормалізований номер з prefix (`+380...`). Перевіряємо
       /// тільки що містить розумну кількість цифр (E.164 range 7-15) — детальніша перевірка
       /// на стороні клієнта (per country maxDigits) у CoursePurchaseDialog.
@@ -206,7 +209,7 @@ export async function POST(req: NextRequest) {
       const trimmedName = typeof clientName === 'string' ? clientName.trim() : '';
 
       let user = await prisma.user.findFirst({
-        where: { email: clientEmail, deletedAt: null },
+        where: { email: { equals: normalizedEmail, mode: 'insensitive' }, deletedAt: null },
       });
 
       if (user) {
@@ -217,7 +220,9 @@ export async function POST(req: NextRequest) {
           });
         }
       } else {
-        const zombie = await prisma.user.findUnique({ where: { email: clientEmail } });
+        const zombie = await prisma.user.findFirst({
+          where: { email: { equals: normalizedEmail, mode: 'insensitive' } },
+        });
         if (zombie && zombie.deletedAt) {
           await prisma.user.update({
             where: { id: zombie.id },
@@ -225,7 +230,7 @@ export async function POST(req: NextRequest) {
           });
         }
         user = await prisma.user.create({
-          data: { email: clientEmail, name: trimmedName },
+          data: { email: normalizedEmail, name: trimmedName },
         });
       }
 
