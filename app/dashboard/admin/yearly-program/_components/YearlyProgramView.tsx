@@ -29,6 +29,7 @@ import { FaApplePay, FaGooglePay, FaRegCreditCard } from 'react-icons/fa';
 import type { YearlyProgramSettings } from '@/lib/yearlyProgramSettings';
 import { useAdminTheme, type Theme } from '../../_components/adminTheme';
 import { AdminShell, AdminPanel } from '../../_components/AdminShell';
+import DateRangeFilter, { isWithinDateRange } from '../../_components/DateRangeFilter';
 import type { Row, SubStatus, Plan, SummaryData, CohortListItem, VisionStatus } from './types';
 import CohortHeader from './CohortHeader';
 import CohortActions from './CohortActions';
@@ -304,6 +305,9 @@ function YearlyProgramViewInner({
   const [methodFilter, setMethodFilter] = useState<MethodFilter>('ALL');
   const [visionFilter, setVisionFilter] = useState<VisionFilter>('ALL');
   const [search, setSearch] = useState('');
+  /// Період створення підписки (`YYYY-MM-DD`, TZ Києва). Порожнє поле = межі немає.
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [details, setDetails] = useState<Record<string, SubscriptionDetails | 'loading' | 'error'>>({});
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -352,10 +356,12 @@ function YearlyProgramViewInner({
       if (methodFilter !== 'ALL' && r.paymentMethod !== methodFilter) return false;
       // Vision-фільтр читає override — рядок реагує на зміну крапки без перезавантаження.
       if (visionFilter !== 'ALL' && visionOf(r) !== visionFilter) return false;
+      // Період накладається поверх решти фільтрів — по даті створення підписки.
+      if (!isWithinDateRange(r.createdAt, dateFrom, dateTo)) return false;
       if (q && !r.userEmail.toLowerCase().includes(q) && !(r.userName ?? '').toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [rows, activeCohortId, planFilter, statusFilter, methodFilter, visionFilter, visionOf, search]);
+  }, [rows, activeCohortId, planFilter, statusFilter, methodFilter, visionFilter, visionOf, search, dateFrom, dateTo]);
 
   /// Зведення по сертифікату Vision: підписки вибраного набору (або всі набори), окрім
   /// архіву. Решта фільтрів таблиці (план/статус/метод/пошук) на зведення не впливають.
@@ -393,7 +399,7 @@ function YearlyProgramViewInner({
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   useEffect(() => {
     setPage(1);
-  }, [planFilter, statusFilter, methodFilter, visionFilter, search, pageSize]);
+  }, [planFilter, statusFilter, methodFilter, visionFilter, search, dateFrom, dateTo, pageSize]);
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
   }, [page, totalPages]);
@@ -710,6 +716,13 @@ function YearlyProgramViewInner({
                   : 'bg-white/80 border-stone-300/60 text-stone-800 placeholder:text-stone-400 focus:border-amber-600/50'
               }`}
             />
+            <DateRangeFilter
+              theme={theme}
+              from={dateFrom}
+              to={dateTo}
+              onFrom={setDateFrom}
+              onTo={setDateTo}
+            />
           </div>
         </AdminPanel>
 
@@ -796,6 +809,8 @@ function YearlyProgramViewInner({
             setPlanFilter('ALL');
             setStatusFilter('ALL');
             setVisionFilter('ALL');
+            setDateFrom('');
+            setDateTo('');
             setActiveCohortId(null);
             const idx = rows.findIndex((row) => row.id === subId);
             if (idx >= 0) setPage(Math.floor(idx / pageSize) + 1);

@@ -7,6 +7,7 @@ import { HiOutlineFunnel, HiOutlineBanknotes, HiOutlineCheckCircle, HiOutlineClo
 import { useAdminTheme, type Theme } from '../../_components/adminTheme';
 import { AdminShell, AdminPanel } from '../../_components/AdminShell';
 import SourceBadge, { type SaleSource } from '../../_components/SourceBadge';
+import DateRangeFilter, { isWithinDateRange } from '../../_components/DateRangeFilter';
 
 export type Row = {
   id: string;
@@ -74,6 +75,9 @@ export default function PaymentsView({ rows }: { rows: Row[] }) {
   const [productFilter, setProductFilter] = useState<string>('ALL');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  /// Період створення платежу (`YYYY-MM-DD`, TZ Києва). Порожнє поле = межі немає.
+  const [dateFrom, setDateFrom] = useState<string>('');
+  const [dateTo, setDateTo] = useState<string>('');
   const [pageSize, setPageSize] = useState<number>(25);
   const [page, setPage] = useState<number>(1);
   /// Локальний state-копія `ref` URL-параметра щоб можна було вимкнути підсвітку
@@ -105,6 +109,8 @@ export default function PaymentsView({ rows }: { rows: Row[] }) {
     setProductFilter('ALL');
     setStatusFilter('ALL');
     setSearchQuery('');
+    setDateFrom('');
+    setDateTo('');
   }, [refFromUrl]);
 
   const productOptions = useMemo(() => {
@@ -136,12 +142,13 @@ export default function PaymentsView({ rows }: { rows: Row[] }) {
     if (typeFilter !== 'ALL' && r.source !== typeFilter) return false;
     if (productFilter !== 'ALL' && r.productLabel !== productFilter) return false;
     if (statusFilter !== 'ALL' && r.status !== statusFilter) return false;
+    if (!isWithinDateRange(r.createdAt, dateFrom, dateTo)) return false;
     if (normalizedQuery) {
       const haystack = `${r.clientName} ${r.clientEmail} ${r.clientPhone ?? ''} ${r.clientTelegram ?? ''}`.toLowerCase();
       if (!haystack.includes(normalizedQuery)) return false;
     }
     return true;
-  }), [rows, typeFilter, productFilter, statusFilter, normalizedQuery]);
+  }), [rows, typeFilter, productFilter, statusFilter, normalizedQuery, dateFrom, dateTo]);
 
   // Summary KPIs — рахуємо по ВСІХ рядках, не по фільтру, щоб була загальна картина.
   const totals = useMemo(() => {
@@ -154,10 +161,12 @@ export default function PaymentsView({ rows }: { rows: Row[] }) {
     return { total, paid, pending, paidCount };
   }, [rows]);
 
-  const isFilterActive = typeFilter !== 'ALL' || productFilter !== 'ALL' || statusFilter !== 'ALL' || normalizedQuery.length > 0;
+  const isFilterActive =
+    typeFilter !== 'ALL' || productFilter !== 'ALL' || statusFilter !== 'ALL' || normalizedQuery.length > 0
+    || dateFrom !== '' || dateTo !== '';
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
-  useEffect(() => { setPage(1); }, [typeFilter, productFilter, statusFilter, normalizedQuery, pageSize]);
+  useEffect(() => { setPage(1); }, [typeFilter, productFilter, statusFilter, normalizedQuery, dateFrom, dateTo, pageSize]);
   useEffect(() => { if (page > totalPages) setPage(totalPages); }, [page, totalPages]);
   const pageStart = (page - 1) * pageSize;
   const pageEnd = Math.min(pageStart + pageSize, filtered.length);
@@ -218,7 +227,7 @@ export default function PaymentsView({ rows }: { rows: Row[] }) {
           <>
             {/* Sub-header */}
             <div
-              className={`flex items-center justify-between gap-3 px-5 py-3 border-b ${
+              className={`flex flex-wrap items-center justify-between gap-3 px-5 py-3 border-b ${
                 dark ? 'border-white/[0.06] bg-black/20' : 'border-stone-300/40 bg-stone-50/60'
               }`}
             >
@@ -250,10 +259,18 @@ export default function PaymentsView({ rows }: { rows: Row[] }) {
                   </button>
                 )}
               </div>
+              <DateRangeFilter
+                theme={theme}
+                variant="toolbar"
+                from={dateFrom}
+                to={dateTo}
+                onFrom={setDateFrom}
+                onTo={setDateTo}
+              />
               <div className="flex items-center gap-4 ml-auto">
                 {isFilterActive && (
                   <button
-                    onClick={() => { setTypeFilter('ALL'); setProductFilter('ALL'); setStatusFilter('ALL'); setSearchQuery(''); }}
+                    onClick={() => { setTypeFilter('ALL'); setProductFilter('ALL'); setStatusFilter('ALL'); setSearchQuery(''); setDateFrom(''); setDateTo(''); }}
                     className={`text-[11px] font-medium transition-colors shrink-0 ${
                       dark ? 'text-amber-300 hover:text-amber-200' : 'text-amber-800 hover:text-amber-900'
                     }`}
