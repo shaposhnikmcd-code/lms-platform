@@ -5,6 +5,8 @@ import { FaBrain } from 'react-icons/fa';
 import { Inter } from 'next/font/google';
 import CoursePricingTiers from './_components/CoursePricingTiers';
 import { getTranslatedContent } from '@/lib/translate';
+import { buildCourseLandingMetadata } from '@/lib/seo';
+import type { Metadata } from 'next';
 import { content } from './_content/uk';
 import BackButton from '@/components/BackButton';
 
@@ -20,6 +22,11 @@ const topicIcons = [
   <FaBrain key={2} className="text-2xl text-[#D4A017]" />,
   <FaUsers key={3} className="text-2xl text-[#D4A017]" />,
 ];
+
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
+  const { locale } = await params;
+  return buildCourseLandingMetadata({ locale, slug: 'Fundamentals-of-Christian-Psychology-2.0', content: await getContent(locale) });
+}
 
 export default async function ChristianPsychologyPage({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;

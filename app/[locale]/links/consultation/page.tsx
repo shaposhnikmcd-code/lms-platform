@@ -1,9 +1,17 @@
 import Image from 'next/image';
 import { FaCalendarCheck, FaHeart } from 'react-icons/fa';
 import { Inter } from 'next/font/google';
+import type { Metadata } from 'next';
 import { getTranslations } from 'next-intl/server';
+import { buildPageMetadata } from '@/lib/seo';
 
 const inter = Inter({ subsets: ['latin', 'cyrillic'] });
+
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
+  const { locale } = await params;
+  const t = await getTranslations({ locale, namespace: 'ConsultationLink' });
+  return buildPageMetadata({ locale, path: '/links/consultation', title: `${t('badge')} — ${t('name')}`, description: t('description') });
+}
 
 export default async function ConsultationPage() {
   const t = await getTranslations("ConsultationLink");

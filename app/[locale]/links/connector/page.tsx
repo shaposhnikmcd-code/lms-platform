@@ -1,4 +1,6 @@
+import type { Metadata } from 'next';
 import { getTranslatedContent } from '@/lib/translate';
+import { buildPageMetadata } from '@/lib/seo';
 import { getCurrency } from '@/lib/currency';
 import { connectorContent } from './_content/uk';
 import { getConnectorPricing } from '@/lib/connectorPricing';
@@ -10,6 +12,18 @@ const getContent = getTranslatedContent(connectorContent, 'connector-page', {
   en: () => import('./_content/en').then(m => m.default),
   pl: () => import('./_content/pl').then(m => m.default),
 });
+
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
+  const { locale } = await params;
+  const c = await getContent(locale);
+  return buildPageMetadata({
+    locale,
+    path: '/links/connector',
+    title: `${c.title} — ${c.subtitle}`,
+    description: `${c.totalCards}. ${c.desc1}`,
+    image: { url: '/Connector game.jpg', width: 1024, height: 1280, alt: c.title },
+  });
+}
 
 export default async function ConnectorPage({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;

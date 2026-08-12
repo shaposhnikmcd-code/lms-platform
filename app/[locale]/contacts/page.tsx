@@ -1,4 +1,6 @@
 import { getTranslatedContent } from "@/lib/translate";
+import { buildPageMetadata } from '@/lib/seo';
+import type { Metadata } from 'next';
 import { contactsContent } from "./_content/uk";
 import HeroSection from "./_components/HeroSection";
 import TeamSection from "./_components/TeamSection";
@@ -19,6 +21,12 @@ const getContent = getTranslatedContent(contactsContent, "contacts-page", {
   en: () => import("./_content/en").then(m => m.default),
   pl: () => import("./_content/pl").then(m => m.default),
 });
+
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
+  const { locale } = await params;
+  const c = await getContent(locale);
+  return buildPageMetadata({ locale, path: "/contacts", title: c.sections.hero.title, description: c.sections.hero.subtitle });
+}
 
 export default async function ContactsPage({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;

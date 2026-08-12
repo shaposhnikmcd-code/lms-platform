@@ -7,6 +7,8 @@ import PsychologyPricing from './_components/PsychologyPricing';
 import CoursePurchaseModal from '@/components/CoursePurchaseModal';
 import { PSYCHOLOGY_COURSE } from './config';
 import { getTranslatedContent } from '@/lib/translate';
+import { buildCourseLandingMetadata } from '@/lib/seo';
+import type { Metadata } from 'next';
 import { getCoursePriceInfo } from '@/lib/coursePrice';
 import { content } from './_content/uk';
 
@@ -17,6 +19,11 @@ const getContent = getTranslatedContent(content, 'psychology-basics-page', {
 });
 
 export const revalidate = 60;
+
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
+  const { locale } = await params;
+  return buildCourseLandingMetadata({ locale, slug: 'psychology-basics', content: await getContent(locale) });
+}
 
 export default async function PsychologyBasicsPage({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;

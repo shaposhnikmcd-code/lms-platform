@@ -1,9 +1,17 @@
 import Image from "next/image";
+import type { Metadata } from "next";
 import { getTranslations } from "next-intl/server";
+import { buildPageMetadata } from "@/lib/seo";
 import CharityCard from "@/app/[locale]/courses/_components/CharityCard";
 
 const sysFont = '-apple-system, BlinkMacSystemFont, sans-serif';
 const zhytyUrl = "https://t.me/zhyty_chysto_2_bot";
+
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
+  const { locale } = await params;
+  const t = await getTranslations({ locale, namespace: "CoursesPage" });
+  return buildPageMetadata({ locale, path: "/charity", title: t("charityTitle"), description: t("charitySubtitle") });
+}
 
 export default async function CharityPage() {
   const t = await getTranslations("CoursesPage");

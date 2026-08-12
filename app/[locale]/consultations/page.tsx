@@ -2,6 +2,8 @@ import Image from "next/image";
 import prisma from "@/lib/prisma";
 import { consultationsContent } from "./_content/uk";
 import { getTranslatedContent } from "@/lib/translate";
+import { buildPageMetadata } from '@/lib/seo';
+import type { Metadata } from 'next';
 import SpecialistCard from "./_components/SpecialistCard";
 import NotionButton from "./_components/NotionButton";
 
@@ -12,6 +14,12 @@ const getContent = getTranslatedContent(consultationsContent, 'consultations-pag
   en: () => import('./_content/en').then(m => m.default),
   pl: () => import('./_content/pl').then(m => m.default),
 });
+
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
+  const { locale } = await params;
+  const c = await getContent(locale);
+  return buildPageMetadata({ locale, path: "/consultations", title: c.hero.title, description: c.hero.subtitle });
+}
 
 export default async function ConsultationsPage({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;

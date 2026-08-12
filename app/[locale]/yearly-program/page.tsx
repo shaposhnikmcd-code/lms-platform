@@ -1,6 +1,8 @@
 import { Inter } from 'next/font/google';
 import prisma from '@/lib/prisma';
 import { getTranslatedContent } from '@/lib/translate';
+import { buildPageMetadata } from '@/lib/seo';
+import type { Metadata } from 'next';
 import { getYearlyProgramSettings } from '@/lib/yearlyProgramSettings';
 import { resolveSellableCohort } from '@/lib/yearlyProgramCohort';
 import { verifyInvite, type InvitePayload } from '@/lib/yearlyProgramInvite';
@@ -28,6 +30,19 @@ const getContent = getTranslatedContent(learningContent, 'yearly-program-page', 
   en: () => import('./_content/en').then(m => m.default),
   pl: () => import('./_content/pl').then(m => m.default),
 });
+
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
+  const { locale } = await params;
+  const c = await getContent(locale);
+  return buildPageMetadata({
+    locale,
+    path: '/yearly-program',
+    title: `${c.title1} ${c.title2}`,
+    // badge починається з емодзі («🎓 Сертифікаційна програма UIMP») — зрізаємо його,
+    // лишаючи текст. `\p{L}` з прапорцем `u`, бо `\w` не покриває кирилицю.
+    description: `${c.description}. ${c.duration} — ${c.badge.replace(/^[^\p{L}\p{N}]+/u, '')}.`,
+  });
+}
 
 export default async function YearlyProgramPage({
   params,

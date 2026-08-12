@@ -1,10 +1,18 @@
 import { getTranslatedContent } from '@/lib/translate';
+import { buildPageMetadata } from '@/lib/seo';
+import type { Metadata } from 'next';
 import { termsContent } from './_content/uk';
 
 const getContent = getTranslatedContent(termsContent, 'terms-page', {
   en: () => import('./_content/en').then(m => m.default),
   pl: () => import('./_content/pl').then(m => m.default),
 });
+
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
+  const { locale } = await params;
+  const c = await getContent(locale);
+  return buildPageMetadata({ locale, path: "/terms", title: c.title, description: c.sections[0]?.paragraphs?.[0] ?? c.title });
+}
 
 export default async function TermsPage({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;

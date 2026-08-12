@@ -6,6 +6,8 @@ import SexEducationPricing from './_components/SexEducationPricing';
 import CoursePurchaseModal from '@/components/CoursePurchaseModal';
 import { SEX_EDUCATION_COURSE } from './config';
 import { getTranslatedContent } from '@/lib/translate';
+import { buildCourseLandingMetadata } from '@/lib/seo';
+import type { Metadata } from 'next';
 import { getCoursePriceInfo } from '@/lib/coursePrice';
 import { content } from './_content/uk';
 import BackButton from '@/components/BackButton';
@@ -23,6 +25,11 @@ const audienceIcons = [
 ];
 
 export const revalidate = 60;
+
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
+  const { locale } = await params;
+  return buildCourseLandingMetadata({ locale, slug: 'sex-education', content: await getContent(locale) });
+}
 
 export default async function SexEducationPage({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;

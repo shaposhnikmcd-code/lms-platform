@@ -1,6 +1,14 @@
+import type { Metadata } from "next";
 import { getTranslations } from "next-intl/server";
 
 const sysFont = '-apple-system, BlinkMacSystemFont, sans-serif';
+
+// Сторінка-заглушка («в розробці») — поза індексом, доки не наповнена.
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
+  const { locale } = await params;
+  const t = await getTranslations({ locale, namespace: "Common" });
+  return { title: t("partners"), description: t("underConstruction"), robots: { index: false, follow: true } };
+}
 
 export default async function PartnersPage() {
   const t = await getTranslations("Common");

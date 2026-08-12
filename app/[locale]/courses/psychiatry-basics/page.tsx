@@ -6,6 +6,8 @@ import PsychiatryPricing from './_components/PsychiatryPricing';
 import CoursePurchaseModal from '@/components/CoursePurchaseModal';
 import { PSYCHIATRY_COURSE } from './config';
 import { getTranslatedContent } from '@/lib/translate';
+import { buildCourseLandingMetadata } from '@/lib/seo';
+import type { Metadata } from 'next';
 import { getCoursePriceInfo } from '@/lib/coursePrice';
 import { content } from './_content/uk';
 import BackButton from '@/components/BackButton';
@@ -23,6 +25,11 @@ const featureIcons = [
 ];
 
 export const revalidate = 60;
+
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
+  const { locale } = await params;
+  return buildCourseLandingMetadata({ locale, slug: 'psychiatry-basics', content: await getContent(locale) });
+}
 
 export default async function PsychiatryCoursePage({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;

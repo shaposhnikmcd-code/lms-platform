@@ -9,6 +9,7 @@
 //
 // Force-dynamic — щоб уникнути ISR кешу і авто-publish мутацій під час превʼю.
 
+import type { Metadata } from "next";
 import prisma from "@/lib/prisma";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
@@ -27,6 +28,11 @@ import {
 } from "@/lib/news/render";
 
 export const dynamic = "force-dynamic";
+
+// Адмінське превʼю — поза індексом (дублює публічну /news).
+export const metadata: Metadata = {
+  robots: { index: false, follow: false, googleBot: { index: false, follow: false } },
+};
 
 const getContent = getTranslatedContent(newsContent, "news-page", {
   en: () => import("../_content/en").then(m => m.default),

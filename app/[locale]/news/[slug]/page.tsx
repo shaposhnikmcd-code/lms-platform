@@ -1,5 +1,7 @@
 import Image from "next/image";
+import type { Metadata } from "next";
 import prisma from "@/lib/prisma";
+import { buildPageMetadata } from "@/lib/seo";
 import { notFound } from "next/navigation";
 import { Link } from "@/i18n/navigation";
 import { FaCalendar, FaUser } from "react-icons/fa";
@@ -42,6 +44,78 @@ type Props = {
   params: Promise<{ slug: string; locale: string }>;
   searchParams?: Promise<{ preview?: string }>;
 };
+
+/**
+ * Текстовий fallback для description, коли в новини немає excerpt.
+ * Block-based контент (JSON) свідомо пропускаємо — там немає плаского тексту.
+ */
+function plainTextFromContent(raw: string | null | undefined): string {
+  if (!raw) return "";
+  const trimmed = raw.trim();
+  if (trimmed.startsWith("[") || trimmed.startsWith("{")) return "";
+  return trimmed
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&[a-z]+;/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export async function generateMetadata({ params, searchParams }: Props): Promise<Metadata> {
+  const { slug, locale } = await params;
+  const sp = searchParams ? await searchParams : {};
+  const c = await getContent(locale);
+
+  const item = await prisma.news.findUnique({
+    where: { slug },
+    select: {
+      title: true, titleEn: true, titlePl: true,
+      excerpt: true, excerptEn: true, excerptPl: true,
+      content: true, contentEn: true, contentPl: true,
+      imageUrl: true, published: true, isTemplate: true,
+      suspendedAt: true, resumeAt: true, createdAt: true, updatedAt: true,
+    },
+  });
+
+  const now = new Date();
+  const isSuspended =
+    !!item?.suspendedAt &&
+    new Date(item.suspendedAt) <= now &&
+    (!item.resumeAt || new Date(item.resumeAt) > now);
+  const isPublic = !!item && item.published && !item.isTemplate && !isSuspended;
+
+  // Прев'ю-режим і невидимі новини не мають потрапляти в індекс.
+  if (!isPublic || sp.preview === "1") {
+    return buildPageMetadata({
+      locale,
+      path: `/news/${slug}`,
+      title: item?.title ?? c.title,
+      description: c.subtitle,
+      noindex: true,
+    });
+  }
+
+  const title = locale === "en" ? (item.titleEn ?? item.title)
+    : locale === "pl" ? (item.titlePl ?? item.title)
+    : item.title;
+  const excerpt = locale === "en" ? (item.excerptEn ?? item.excerpt)
+    : locale === "pl" ? (item.excerptPl ?? item.excerpt)
+    : item.excerpt;
+  const body = locale === "en" ? (item.contentEn ?? item.content)
+    : locale === "pl" ? (item.contentPl ?? item.content)
+    : item.content;
+
+  return buildPageMetadata({
+    locale,
+    path: `/news/${slug}`,
+    title,
+    description: excerpt || plainTextFromContent(body) || c.subtitle,
+    type: "article",
+    image: item.imageUrl ? { url: item.imageUrl, alt: title } : null,
+    publishedTime: item.createdAt.toISOString(),
+    modifiedTime: item.updatedAt.toISOString(),
+  });
+}
 
 export default async function NewsItemPage({ params, searchParams }: Props) {
   const { slug, locale } = await params;

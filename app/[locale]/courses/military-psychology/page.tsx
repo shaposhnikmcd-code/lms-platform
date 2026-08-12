@@ -6,6 +6,8 @@ import MilitaryPsychologyPricing from './_components/MilitaryPsychologyPricing';
 import CoursePurchaseModal from '@/components/CoursePurchaseModal';
 import { MILITARY_PSYCHOLOGY_COURSE } from './config';
 import { getTranslatedContent } from '@/lib/translate';
+import { buildCourseLandingMetadata } from '@/lib/seo';
+import type { Metadata } from 'next';
 import { getCoursePriceInfo } from '@/lib/coursePrice';
 import { content } from './_content/uk';
 import BackButton from '@/components/BackButton';
@@ -23,6 +25,11 @@ const audienceIcons = [
 ];
 
 export const revalidate = 60;
+
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
+  const { locale } = await params;
+  return buildCourseLandingMetadata({ locale, slug: 'military-psychology', content: await getContent(locale) });
+}
 
 export default async function MilitaryPsychologyPage({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;

@@ -1,5 +1,7 @@
 import Image from "next/image";
+import type { Metadata } from "next";
 import { getTranslations } from "next-intl/server";
+import { buildPageMetadata } from "@/lib/seo";
 import { PSYCHIATRY_COURSE } from "./psychiatry-basics/config";
 import { PSYCHOLOGY_COURSE } from "./psychology-basics/config";
 import { MENTORSHIP_COURSE } from "./mentorship/config";
@@ -82,6 +84,17 @@ const COURSE_INFO: Record<string, { price: number; icon: string; accent: string;
 const COURSE_TITLE_KEYS: Record<string, string> = Object.fromEntries(
   Object.entries(COURSES_BY_SLUG).map(([slug, c]) => [slug, c.titleKey])
 );
+
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
+  const { locale } = await params;
+  const t = await getTranslations({ locale, namespace: 'CoursesPage' });
+  return buildPageMetadata({
+    locale,
+    path: '/courses',
+    title: t('title'),
+    description: `${t('subtitle')}. ${t('benefits.record.title')}, ${t('benefits.support.title')}, ${t('benefits.cert.title')}.`,
+  });
+}
 
 export default async function CoursesPage({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;

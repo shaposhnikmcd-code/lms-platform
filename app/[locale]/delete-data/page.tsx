@@ -1,3 +1,17 @@
+import type { Metadata } from 'next';
+import { buildPageMetadata } from '@/lib/seo';
+
+// Сторінка написана лише українською (вимога Meta/Google для data-deletion URL).
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
+  const { locale } = await params;
+  return buildPageMetadata({
+    locale,
+    path: '/delete-data',
+    title: 'Видалення даних',
+    description: 'Як подати запит на видалення персональних даних з платформи UIMP.',
+  });
+}
+
 export default function DeleteDataPage() {
   return (
     <div className="container mx-auto px-4 py-12 max-w-4xl">
