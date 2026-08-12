@@ -291,7 +291,9 @@ function OrdersView({
           value={summary.awaitingManager.toLocaleString()}
           tone={summary.awaitingManager > 0 ? 'warning' : 'neutral'}
         />
-        <Kpi theme={theme} icon={HiOutlineBanknotes} label="Загальний дохід" value={`${summary.revenueTotal.toLocaleString()} ₴`} tone="success" />
+        {/* Сума `ConnectorOrder.amount` по оплачених = гроші, які реально пройшли онлайн.
+            Доставка в `amount` не входить (оплачується при отриманні), тож дохід чистий. */}
+        <Kpi theme={theme} icon={HiOutlineBanknotes} label="Дохід (онлайн)" value={`${summary.revenueTotal.toLocaleString()} ₴`} tone="success" />
       </div>
 
       {/* Status row */}
@@ -349,7 +351,7 @@ function OrdersView({
                 <Th theme={theme}>Клієнт</Th>
                 <Th theme={theme}>Телефон</Th>
                 <Th theme={theme} align="center">Тип доставки</Th>
-                <Th theme={theme} align="right">Сума</Th>
+                <Th theme={theme} align="right">Оплачено онлайн</Th>
                 <Th theme={theme} align="center">Оплата</Th>
                 <Th theme={theme} align="center">Статус</Th>
                 <Th theme={theme}>TTN</Th>
@@ -446,6 +448,13 @@ function RowBlock({ r, theme }: { r: Row; theme: Theme }) {
             не стандарт
           </div>
         )}
+        {/* Доставка онлайн не оплачується — показуємо орієнтир НП і фактичну суму,
+            яку менеджер вніс руками, окремим рядком під сумою оплати. */}
+        <div className={`text-[10px] mt-0.5 whitespace-nowrap ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+          {`доставка (орієнт.): ${r.shippingCost ? `${r.shippingCost.toLocaleString()} ₴` : '—'}`}
+          {' · '}
+          {`факт.: ${r.actualShippingCost != null ? `${r.actualShippingCost.toLocaleString()} ₴` : 'при отриманні'}`}
+        </div>
       </Td>
       <Td theme={theme} align="center">
         <PaymentBadge status={r.paymentStatus} theme={theme} />

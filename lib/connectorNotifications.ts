@@ -90,7 +90,8 @@ function buildEmailHtml(event: ConnectorNotificationEvent, order: ConnectorOrder
     ['Email', `<a href="mailto:${esc(order.email)}">${esc(order.email)}</a>`],
     ['Телефон', `<a href="tel:${esc(order.phone)}">${esc(order.phone)}</a>${order.callMe ? ' <span style="color:#b45309">📞 просив передзвонити</span>' : ''}`],
     ['Адреса', esc(`${order.city}, ${order.postOffice}`)],
-    ['Сума', `<strong>${esc(fmtMoney(order.amount))}</strong>${order.gamePrice !== null ? ` <span style="color:#78716c">(гра ${esc(fmtMoney(order.gamePrice))}${order.shippingCost ? ` + доставка ${esc(fmtMoney(order.shippingCost))}` : ''})</span>` : ''}`],
+    ['Оплата онлайн', `<strong>${esc(fmtMoney(order.amount))}</strong>${order.gamePrice !== null ? ` <span style="color:#78716c">(гра ${esc(fmtMoney(order.gamePrice))})</span>` : ''}`],
+    ['Доставка', `при отриманні за тарифом НП${order.shippingCost ? ` <span style="color:#78716c">· орієнтовно ${esc(fmtMoney(order.shippingCost))}</span>` : ''}`],
     [isPaid ? 'Оплачено' : 'Створено', esc(fmtDate(isPaid ? (order.paidAt ?? order.createdAt) : order.createdAt))],
   ];
 
@@ -134,9 +135,10 @@ function buildTelegramText(event: ConnectorNotificationEvent, order: ConnectorOr
 
   const callMeBadge = order.callMe ? '\n📞 <i>клієнт просив передзвонити</i>' : '';
   const priceBreakdown =
-    order.gamePrice !== null
-      ? ` <i>(гра ${escapeHtml(fmtMoney(order.gamePrice))}${order.shippingCost ? ` + дост. ${escapeHtml(fmtMoney(order.shippingCost))}` : ''})</i>`
-      : '';
+    order.gamePrice !== null ? ` <i>(гра ${escapeHtml(fmtMoney(order.gamePrice))})</i>` : '';
+  // Доставка в оплату не входить — покупець платить її на пошті. Орієнтир з калькулятора
+  // НП показуємо окремим рядком, щоб менеджер не сплутав його з оплаченою сумою.
+  const deliveryLine = `📦 доставка при отриманні${order.shippingCost ? ` <i>(орієнт. ${escapeHtml(fmtMoney(order.shippingCost))})</i>` : ''}`;
 
   return [
     ...(warning ? [`<b>${escapeHtml(warning)}</b>`, ''] : []),
@@ -146,7 +148,8 @@ function buildTelegramText(event: ConnectorNotificationEvent, order: ConnectorOr
     `✉️ ${escapeHtml(order.email)}`,
     `📱 ${escapeHtml(order.phone)}${callMeBadge}`,
     `📍 ${escapeHtml(`${order.city}, ${order.postOffice}`)}`,
-    `💰 <b>${escapeHtml(fmtMoney(order.amount))}</b>${priceBreakdown}`,
+    `💰 <b>${escapeHtml(fmtMoney(order.amount))}</b> онлайн${priceBreakdown}`,
+    deliveryLine,
     `🧾 <code>${escapeHtml(order.orderReference)}</code>`,
     `🕐 ${escapeHtml(fmtDate(isPaid ? (order.paidAt ?? order.createdAt) : order.createdAt))}`,
     '',

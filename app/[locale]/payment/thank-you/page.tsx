@@ -83,8 +83,12 @@ export default async function ThankYouPage({ searchParams }: Props) {
         {isConnector ? (
           <>
             <p className="text-gray-700 mb-3">Дякуємо за замовлення гри «Конектор».</p>
-            <p className="text-gray-600 mb-8">
+            <p className="text-gray-600 mb-3">
               {"Ми зв'яжемося з вами найближчим часом для підтвердження доставки."}
+            </p>
+            {/* Онлайн оплачена тільки гра — доставка йде післяплатою за тарифом перевізника. */}
+            <p className="text-gray-500 text-sm mb-8">
+              Вартість доставки оплачується при отриманні за тарифами перевізника.
             </p>
             <Link
               href="/"

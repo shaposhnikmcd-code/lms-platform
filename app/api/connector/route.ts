@@ -26,8 +26,10 @@ const FIELD_LIMITS = {
   postOffice: 300,
 } as const;
 
-/// Стеля доставки. Вище — або помилка, або спроба накрутити суму; нижче нуля —
-/// спроба зменшити підсумок нижче ціни гри.
+/// Стеля довідкової доставки. Саме поле в оплату не входить (доставку покупець платить
+/// при отриманні за тарифом НП), тож це не захист суми, а санітизація числа, яке піде
+/// в БД, в адмінку і в Telegram-нотифікацію менеджерам: без межі туди можна залити
+/// сміття або від'ємний орієнтир.
 const MAX_SHIPPING_COST = 5000;
 
 export async function POST(req: NextRequest) {
@@ -62,12 +64,14 @@ export async function POST(req: NextRequest) {
     if (!postOfficeV || postOfficeV.length > FIELD_LIMITS.postOffice) {
       return NextResponse.json({ success: false, error: 'Невалідне відділення або адреса доставки' }, { status: 400 });
     }
-    // Доставка приходить з клієнта (Nova Poshta API) і напряму додається до суми.
-    // Без перевірки від'ємне значення зменшувало підсумок нижче ціни гри — гра за 1 ₴.
+    // Доставка приходить з клієнта (калькулятор Nova Poshta) і зберігається як орієнтир.
+    // На суму оплати не впливає, але потрапляє в БД/адмінку/нотифікації — тому валідуємо.
+    // НП віддає Cost дробовим (напр. 95.5), тож цілого числа тут вимагати не можна —
+    // раніше на таких містах замовлення взагалі не створювалось. Округлюємо нижче.
     if (shippingCost !== undefined && shippingCost !== null) {
-      if (!Number.isInteger(shippingCost) || shippingCost < 0 || shippingCost > MAX_SHIPPING_COST) {
+      if (typeof shippingCost !== 'number' || !Number.isFinite(shippingCost) || shippingCost < 0 || shippingCost > MAX_SHIPPING_COST) {
         return NextResponse.json(
-          { success: false, error: `Некоректна вартість доставки (очікується ціле число від 0 до ${MAX_SHIPPING_COST} ₴)` },
+          { success: false, error: `Некоректна вартість доставки (очікується число від 0 до ${MAX_SHIPPING_COST} ₴)` },
           { status: 400 },
         );
       }
@@ -77,7 +81,7 @@ export async function POST(req: NextRequest) {
     const sessionRole = (session?.user as { role?: string } | undefined)?.role;
     const isAdmin = sessionRole === 'ADMIN' || sessionRole === 'MANAGER';
 
-    // Промокод (категорійний для конектора) — серверна перевірка, обнуляє доставку.
+    // Промокод (категорійний для конектора) — серверна перевірка, задає фіксовану ціну гри.
     let promoApplied = false;
     let promoFixedPrice: number | null = null;
     if (typeof promoCode === 'string' && promoCode.trim()) {
@@ -117,10 +121,15 @@ export async function POST(req: NextRequest) {
     // Ціна гри резолвиться на сервері з БД (override з адмінки) — не довіряємо клієнту.
     const pricing = await getConnectorPricing();
     const baseGamePrice = isAdmin ? 1 : pricing.price;
-    const baseShippingCost = isAdmin ? 0 : (typeof shippingCost === 'number' ? shippingCost : 0);
     const finalGamePrice = promoApplied ? promoFixedPrice! : baseGamePrice;
-    const finalShippingCost = promoApplied ? 0 : baseShippingCost;
-    const finalAmount = finalGamePrice + finalShippingCost;
+    /// Орієнтир доставки з НП — довідкове поле для менеджера, зберігаємо як прийшло
+    /// (включно з адмін-тестом: менеджеру корисно бачити реальну оцінку). Колонка в БД —
+    /// Int, тому дробовий Cost від НП округлюємо.
+    const finalShippingCost = typeof shippingCost === 'number' ? Math.round(shippingCost) : 0;
+    /// Онлайн оплачується ТІЛЬКИ гра. Доставку покупець платить при отриманні за тарифом
+    /// Нової Пошти, тому в `amount` вона не входить — це ж значення бере
+    /// `resolveServerPricing` як суму до оплати у WayForPay.
+    const finalAmount = finalGamePrice;
 
     // orderReference генерується server-side щоб не довіряти клієнту
     const orderReference = `connector_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;

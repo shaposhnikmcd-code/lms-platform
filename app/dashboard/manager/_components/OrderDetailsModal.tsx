@@ -233,7 +233,7 @@ export default function OrderDetailsModal({
               <Field label="Email" theme={theme}>
                 <span className="break-all">{order.email}</span>
               </Field>
-              <Field label="Сума" theme={theme}>
+              <Field label="Оплачено онлайн" theme={theme}>
                 <span className={`font-semibold tabular-nums ${dark ? 'text-amber-300' : 'text-amber-800'}`}>
                   {order.amount.toLocaleString()}&nbsp;₴
                 </span>

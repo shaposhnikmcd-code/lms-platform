@@ -44,7 +44,8 @@ interface FormLabels {
   selectCity: string;
   selectBranch: string;
   novaPoshtaDelivery: string;
-  plusDelivery: string;
+  deliveryOnReceipt: string;
+  uaPickupNote: string;
   euPickupNote: string;
   currency?: string;
   courierAddressTitle: string;

@@ -606,7 +606,7 @@ export default function ManagerDashboardClient() {
                       Гра<SortArrow k="amount" />
                     </button>
                   </th>
-                  <th>Доставка</th>
+                  <th title="Орієнтовна вартість доставки з калькулятора НП — онлайн не оплачується, клієнт платить при отриманні">Доставка</th>
                   <th>Оплата</th>
                   <th>
                     <button

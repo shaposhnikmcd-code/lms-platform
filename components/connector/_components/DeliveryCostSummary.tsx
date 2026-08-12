@@ -1,5 +1,8 @@
 'use client';
 
+/// Підсумок замовлення. Онлайн оплачується ТІЛЬКИ гра — і для України, і для ЄС.
+/// Доставка показується довідково (орієнтир з калькулятора НП) і оплачується при
+/// отриманні, тому в «Разом» вона не входить.
 interface Props {
   isUkraine: boolean;
   deliveryCost: number | null;
@@ -13,14 +16,14 @@ interface Props {
     selectCity: string;
     selectBranch: string;
     novaPoshtaDelivery: string;
-    plusDelivery: string;
+    deliveryOnReceipt: string;
+    uaPickupNote: string;
     euPickupNote: string;
     currency?: string;
   };
 }
 
 export default function DeliveryCostSummary({ isUkraine, deliveryCost, loadingDeliveryCost, citySelected, gamePrice, labels }: Props) {
-  const totalAmount = deliveryCost ? gamePrice + deliveryCost : gamePrice;
   const cur = labels.currency ?? 'грн';
 
   if (!isUkraine) {
@@ -43,7 +46,8 @@ export default function DeliveryCostSummary({ isUkraine, deliveryCost, loadingDe
 
   const renderDeliveryValue = () => {
     if (loadingDeliveryCost) return <span className="text-gray-400">{labels.calculating}</span>;
-    if (deliveryCost) return <span>{`${deliveryCost} ${cur}`}</span>;
+    // НП може віддати дробовий тариф (95.5) — це орієнтир, показуємо цілим.
+    if (deliveryCost) return <span>{`~${Math.round(deliveryCost)} ${cur}`}</span>;
     if (!citySelected) return <span className="text-gray-400">{labels.selectCity}</span>;
     return <span className="text-gray-400">{labels.selectBranch}</span>;
   };
@@ -55,15 +59,16 @@ export default function DeliveryCostSummary({ isUkraine, deliveryCost, loadingDe
         <span>{`${gamePrice} ${cur}`}</span>
       </div>
       <div className="flex justify-between text-sm text-gray-600">
-        <span>{labels.novaPoshtaDelivery}</span>
+        <span>{`${labels.novaPoshtaDelivery} (${labels.deliveryOnReceipt})`}</span>
         {renderDeliveryValue()}
       </div>
       <div className="border-t border-gray-200 pt-2 flex justify-between font-bold text-[#1C3A2E]">
         <span>{labels.total}</span>
-        <span className="text-[#D4A017]">
-          {deliveryCost ? `${totalAmount} ${cur}` : `${gamePrice} ${cur} ${labels.plusDelivery}`}
-        </span>
+        <span className="text-[#D4A017]">{`${gamePrice} ${cur}`}</span>
       </div>
+      <p className="text-xs text-gray-400 pt-1">
+        {labels.uaPickupNote}
+      </p>
     </div>
   );
 }

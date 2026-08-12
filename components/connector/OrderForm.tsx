@@ -51,7 +51,10 @@ interface FormLabels {
   selectCity: string;
   selectBranch: string;
   novaPoshtaDelivery: string;
-  plusDelivery: string;
+  /// Приписка біля рядка доставки — доставка не входить в онлайн-оплату.
+  deliveryOnReceipt: string;
+  /// Нота під підсумком для України (аналог `euPickupNote` для ЄС).
+  uaPickupNote: string;
   euPickupNote: string;
   currency?: string;
   courierAddressTitle: string;
@@ -120,7 +123,8 @@ const defaultLabels: FormLabels = {
   selectCity: "Оберіть місто",
   selectBranch: "Оберіть відділення",
   novaPoshtaDelivery: "Доставка Нова Пошта",
-  plusDelivery: "+ доставка",
+  deliveryOnReceipt: "при отриманні",
+  uaPickupNote: "Вартість доставки оплачується при отриманні за тарифами Нової Пошти.",
   euPickupNote: "Вартість доставки оплачується окремо при отриманні у відділенні Nova Post.",
   courierAddressTitle: "Адреса доставки кур'єром",
   streetLabel: "Вулиця",
@@ -191,10 +195,14 @@ export default function OrderForm({ isOpen, onClose, labels, gamePrice }: OrderF
 
   const isUkraine = formData.country === 'UA';
   const baseGamePrice = isAdmin ? ADMIN_TEST_PRICE : resolvedGamePrice;
-  const baseDeliveryCost = isAdmin ? 0 : deliveryCost;
   const effectiveGamePrice = promoApplied && promoPrice !== null ? promoPrice : baseGamePrice;
-  const effectiveDeliveryCost = promoApplied ? 0 : baseDeliveryCost;
-  const totalAmount = effectiveDeliveryCost ? effectiveGamePrice + effectiveDeliveryCost : effectiveGamePrice;
+  /// Доставка НЕ входить в онлайн-оплату — покупець платить її при отриманні за тарифом
+  /// Нової Пошти. Значення з калькулятора НП лишається суто довідковим: показуємо його
+  /// в підсумку і кладемо в `ConnectorOrder.shippingCost`, щоб менеджер бачив орієнтир.
+  /// Тому промокод його більше не обнуляє, і для адмін-тесту він теж реальний.
+  const estimatedDeliveryCost = deliveryCost;
+  /// Єдина сума, яка йде у WayForPay.
+  const payableAmount = effectiveGamePrice;
 
   const handleApplyPromo = async () => {
     if (!promoCode.trim()) return;
@@ -381,9 +389,9 @@ export default function OrderForm({ isOpen, onClose, labels, gamePrice }: OrderF
           phone: fullPhone,
           city: isUkraine ? formData.city : `${selectedCountry?.name}, ${formData.city}`,
           postOffice: deliveryAddress,
-          amount: totalAmount,
+          amount: payableAmount,
           gamePrice: effectiveGamePrice,
-          shippingCost: effectiveDeliveryCost ?? 0,
+          shippingCost: estimatedDeliveryCost ?? 0,
           callMe: formData.callMe,
           promoCode: promoApplied ? promoCode.trim() : undefined,
         }),
@@ -397,8 +405,8 @@ export default function OrderForm({ isOpen, onClose, labels, gamePrice }: OrderF
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          orderReference, amount: totalAmount, productName: 'Гра Конектор',
-          productPrice: totalAmount, productCount: 1, clientEmail: formData.email,
+          orderReference, amount: payableAmount, productName: 'Гра Конектор',
+          productPrice: payableAmount, productCount: 1, clientEmail: formData.email,
         }),
       });
       if (!paymentRes.ok) throw new Error('Payment server error');
@@ -632,15 +640,15 @@ export default function OrderForm({ isOpen, onClose, labels, gamePrice }: OrderF
                 {promoError && <p className="text-red-500 text-sm mt-1">{promoError}</p>}
                 {promoApplied && (
                   <p className="text-green-600 text-sm mt-1">
-                    ✓ Промокод застосовано: {promoPrice} ₴ (доставка 0 ₴)
+                    ✓ Промокод застосовано: {promoPrice} ₴
                   </p>
                 )}
               </div>
 
               <DeliveryCostSummary
                 isUkraine={isUkraine}
-                deliveryCost={effectiveDeliveryCost}
-                loadingDeliveryCost={isAdmin ? false : loadingDeliveryCost}
+                deliveryCost={estimatedDeliveryCost}
+                loadingDeliveryCost={loadingDeliveryCost}
                 citySelected={!!selectedCityRef}
                 gamePrice={effectiveGamePrice}
                 labels={l}
