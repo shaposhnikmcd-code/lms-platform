@@ -13,10 +13,10 @@ export const gamesContent = {
   quote: "To nie tylko produkt do budowania bliskich relacji między partnerami. „Konektor” koncentruje się na tym, abyście byli połączeni z najważniejszym źródłem miłości — Bogiem. To On odkrywa prawdziwe potrzeby Twojego partnera i podpowiada, jak je zaspokajać.",
   quoteAuthor: "Tetiana Szaposznyk · Założycielka UIMP",
   price: "1099",
-  deliveryNote: "Uwaga: koszt dostawy zgodnie z taryfami Nova Poshta opłaca zamawiający. W przypadku dostawy pod adres dodatkowo opłacasz koszt dostawy na naszą kartę, a my dokonujemy zapłaty przewoźnikowi — takie są warunki Nova Poshta.",
+  deliveryNote: "Uwaga: koszt dostawy według taryf Nova Poshta nie jest wliczony w cenę zamówienia i jest opłacany przy odbiorze — w oddziale lub kurierowi.",
   btnOrder: "Zamów",
   deliveryBadgeMain: "📦 Dostawa Nova Poshta",
-  deliveryBadgeNote: "(płatne dodatkowo)",
+  deliveryBadgeNote: "(płatność przy odbiorze)",
   comingSoon: "Pracujemy już nad nowymi grami",
   form: {
     title: "Składanie zamówienia",

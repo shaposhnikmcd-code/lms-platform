@@ -13,10 +13,10 @@ export const gamesContent = {
   quote: "This is not just a product for building close relationships between partners. \"Connector\" focuses on keeping you connected to the most important source of love — God. It is He who reveals the true needs of your partner and shows how to meet them.",
   quoteAuthor: "Tetiana Shaposhnyk · Founder of UIMP",
   price: "1099",
-  deliveryNote: "Please note: the cost of delivery according to Nova Poshta tariffs is paid by the customer. In the case of address delivery, you additionally pay the cost of delivery to our card, and we then pay the carrier — these are the conditions of Nova Poshta.",
+  deliveryNote: "Please note: delivery at Nova Poshta tariffs is not included in the order price and is paid on receipt — at the branch or to the courier.",
   btnOrder: "Order",
   deliveryBadgeMain: "📦 Nova Poshta delivery",
-  deliveryBadgeNote: "(charged separately)",
+  deliveryBadgeNote: "(paid on receipt)",
   comingSoon: "We are already working on new games",
   form: {
     title: "Place an Order",

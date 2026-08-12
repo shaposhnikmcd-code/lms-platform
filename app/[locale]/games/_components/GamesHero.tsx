@@ -201,7 +201,7 @@ const oldPriceStyle: React.CSSProperties = {
   marginRight: '0.6rem',
 };
 
-export default function GamesHero({ pageTitle, gameTitle, gameSubtitle, cards, price, oldPrice, currency, btnOrder, deliveryBadgeMain = '📦 Доставка Нова пошта', deliveryBadgeNote = '(оплачується додатково)', onOrder }: Props) {
+export default function GamesHero({ pageTitle, gameTitle, gameSubtitle, cards, price, oldPrice, currency, btnOrder, deliveryBadgeMain = '📦 Доставка Нова пошта', deliveryBadgeNote = '(оплата при отриманні)', onOrder }: Props) {
   return (
     <section style={heroBgStyle}>
       <div style={heroInnerStyle} className="games-hero-grid">
