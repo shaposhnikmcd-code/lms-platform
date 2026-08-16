@@ -58,14 +58,29 @@ const HEAL_UNOPENED_BATCH = 15;
 const HEAL_UNOPENED_BATCH_FRESH_LAUNCH = 300;
 const FRESH_LAUNCH_WINDOW_MS = 7 * DAY_MS;
 
-/// Скільки часу денний прохід віддає одному запланованому запуску набору. Решта кроків
-/// (нагадування, grace, heal) має встигнути в ті самі 300с maxDuration.
-const SCHEDULED_LAUNCH_BUDGET_MS = 150_000;
+/// ЄДИНИЙ бюджет усього денного проходу. Раніше кожен важкий крок мав власний таймер
+/// (150с на КОЖЕН запланований набір + 100с heal при maxDuration=300) — сума перевищувала
+/// ліміт функції, і саме в ніч запуску решта кроків (grace-переходи, листи життєвого циклу)
+/// могла не виконатись узагалі. Тепер дедлайн один на прохід, важкі кроки звіряються з ним.
+const CRON_TOTAL_BUDGET_MS = 240_000;
 
-/// Часовий бюджет кроку heal_unopened. Кап у 300 підписок сам по собі не влазить у
+/// Спільний бюджет на ВСІ заплановані запуски проходу (не на кожен набір окремо).
+const SCHEDULED_LAUNCH_TOTAL_BUDGET_MS = 120_000;
+
+/// Резерв, який важкі кроки лишають «хвосту» проходу (звірки, ретраї, push issue-ів).
+const TAIL_STEPS_RESERVE_MS = 60_000;
+
+/// Стеля часу на крок heal_unopened. Кап у 300 підписок сам по собі не влазить у
 /// maxDuration (кожна — SendPulse + Telegram + лист), тому реальний обмежувач — час:
-/// крок обробляє скільки встигає і зупиняється штатно, лишаючи бюджет решті кроків.
+/// крок обробляє скільки встигає і зупиняється штатно. Фактичний бюджет — мінімум із
+/// цієї стелі й залишку глобального дедлайну.
 const HEAL_UNOPENED_BUDGET_MS = 100_000;
+
+/// Скільки часу лишилось до глобального дедлайну проходу з відрахованим резервом хвоста.
+/// Від'ємне значення = крок треба пропустити цілком.
+function budgetLeftMs(cronDeadlineAt: number, reserveMs: number = TAIL_STEPS_RESERVE_MS): number {
+  return cronDeadlineAt - Date.now() - reserveMs;
+}
 
 /// Скільки welcome-листів максимум досилаємо за прохід (на кожен набір).
 const HEAL_EMAIL_BATCH = 40;
@@ -236,7 +251,11 @@ const NOT_IN_UNLAUNCHED_COHORT = {
 ///   АБО правила регулярки у WFP немає взагалі (див. `cyclicalNeedsWarning`):
 ///     grace-start → mid (≥5д) → last (≥3д) → закриття
 ///
-/// Порядок кроків у GET нижче не випадковий: обидва manual-нагадування йдуть ДО переходу
+/// Порядок кроків у GET нижче не випадковий. По-перше, легкі кроки (статуси, прапорці,
+/// листи життєвого циклу) виконуються ПЕРЕД важкими (запуск набору, heal, масові розсилки):
+/// важкі ділять єдиний бюджет `CRON_TOTAL_BUDGET_MS` і в ніч запуску великого набору
+/// з'їдали б увесь ліміт функції, лишаючи життєвий цикл без жодного проходу.
+/// По-друге, обидва manual-нагадування йдуть ДО переходу
 /// в GRACE (інакше лист «сьогодні останній день» не міг би піти), а grace-start має
 /// 20-годинний гейт — тобто виходить наступним добовим проходом, а не в тому ж, у якому
 /// підписка щойно потрапила в GRACE. Виняток — короткий grace (<3 днів), там лист іде одразу.
@@ -247,9 +266,14 @@ export async function GET(req: NextRequest) {
   }
 
   const results: StepResult[] = [];
+  // Один дедлайн на весь прохід — див. CRON_TOTAL_BUDGET_MS.
+  const cronDeadlineAt = Date.now() + CRON_TOTAL_BUDGET_MS;
 
-  results.push(await runStep('runScheduledCohortLaunches', runScheduledCohortLaunches));
-  results.push(await runStep('heal_unopened', healUnopenedAccess));
+  // === Легкі кроки — ПЕРШИМИ ===
+  // Переходи статусів і листи життєвого циклу коштують копійки, але саме вони найдорожчі
+  // за наслідками (не перевів у GRACE — не закрив доступ; не надіслав «останній день» —
+  // людина не дізналась). Тримати їх після запуску/heal означало, що в ніч запуску великого
+  // набору вони не виконуються взагалі. Тепер вони йдуть до важких і не голодують ніколи.
   results.push(await runStep('archive_stale_pending', archiveStalePending));
   // ВАЖЛИВО: обидва manual-нагадування йдуть ДО transitionActiveToGrace. Вони шукають
   // підписки в статусі ACTIVE, а grace-перехід у той самий прохід забирає з ACTIVE усе,
@@ -262,12 +286,18 @@ export async function GET(req: NextRequest) {
   results.push(await runStep('grace_start', sendGraceStartReminders));
   results.push(await runStep('grace_mid', sendGraceMidReminders));
   results.push(await runStep('grace_last', sendGraceLastReminders));
-  results.push(await runStep('sendScheduledCohortLaunchEmails', sendScheduledCohortLaunchEmails));
+
+  // === Важкі кроки — під спільним дедлайном ===
+  // Порядок усередині групи: спочатку відкрити доступ, потім розіслати листи (розсилка
+  // пропускає тих, у кого доступу ще немає), потім добір того, що не долетіло.
+  results.push(await runStep('runScheduledCohortLaunches', () => runScheduledCohortLaunches(cronDeadlineAt)));
+  results.push(await runStep('sendScheduledCohortLaunchEmails', () => sendScheduledCohortLaunchEmails(cronDeadlineAt)));
+  results.push(await runStep('heal_unopened', () => healUnopenedAccess(cronDeadlineAt)));
   // Після планових розсилок: те, що лишилось без листа після них, — це вже дірка, а не черга.
-  results.push(await runStep('heal_missing_welcome_email', healMissingWelcomeEmails));
+  results.push(await runStep('heal_missing_welcome_email', () => healMissingWelcomeEmails(cronDeadlineAt)));
   results.push(await runStep('sync_progress', syncYearlyCourseProgress));
-  results.push(await runStep('retry_autopay_remove', retryAutopayRemoval));
-  results.push(await runStep('wfp_schedule_cache', refreshWfpScheduleCache));
+  results.push(await runStep('retry_autopay_remove', () => retryAutopayRemoval(cronDeadlineAt)));
+  results.push(await runStep('wfp_schedule_cache', () => refreshWfpScheduleCache(cronDeadlineAt)));
   // Останнім: до цього моменту всі кроки вже полагодили те, що лагодиться само, тож
   // менеджерам іде лише те, що система сама не вирішить.
   results.push(await runStep('push_critical_issues', pushCriticalIssues));
@@ -287,9 +317,15 @@ export async function GET(req: NextRequest) {
 /// AND launchedAt IS NULL → атомарно claim-имо launchedAt і запускаємо executeLaunchLoop
 /// (відкриття SendPulse + перерахунок expiresAt + лог events). Idempotent через атомарний
 /// claim — якщо інший процес встиг раніше, цей пропускає.
-async function runScheduledCohortLaunches(): Promise<StepResult> {
+async function runScheduledCohortLaunches(cronDeadlineAt: number): Promise<StepResult> {
   const errors: string[] = [];
   const now = new Date();
+  // Спільний бюджет на ВСІ набори проходу (а не 150с на кожен): у ніч, коли стартують
+  // два набори, старий підхід сам собою вилітав за maxDuration.
+  const stepDeadlineAt = Math.min(
+    cronDeadlineAt - TAIL_STEPS_RESERVE_MS,
+    Date.now() + SCHEDULED_LAUNCH_TOTAL_BUDGET_MS,
+  );
   const cohorts = await prisma.yearlyProgramCohort.findMany({
     where: {
       launchScheduledFor: { lte: now },
@@ -302,7 +338,15 @@ async function runScheduledCohortLaunches(): Promise<StepResult> {
   const { executeLaunchLoop } = await import('@/lib/yearlyProgramLaunch');
 
   let processed = 0;
+  let deferred = 0;
   for (const c of cohorts) {
+    // Бюджет вичерпано — набір НЕ claim-имо (launchedAt лишається null), щоб завтрашній
+    // прохід узявся за нього з нуля. Claim без роботи був би найгіршим варіантом:
+    // «запущено», але нікому нічого не відкрито, і повторного циклу вже не буде.
+    if (Date.now() >= stepDeadlineAt) {
+      deferred++;
+      continue;
+    }
     try {
       // Атомарний claim, аналогічно до launch-route — захищає від паралельного запуску.
       const claim = await prisma.yearlyProgramCohort.updateMany({
@@ -314,7 +358,7 @@ async function runScheduledCohortLaunches(): Promise<StepResult> {
       const summary = await executeLaunchLoop(
         { id: c.id, startDate: c.startDate, endDate: c.endDate, createdAt: c.createdAt },
         'scheduled-cron',
-        { deadlineAt: new Date(Date.now() + SCHEDULED_LAUNCH_BUDGET_MS) },
+        { deadlineAt: new Date(stepDeadlineAt) },
       );
       processed++;
       if (summary.failed > 0) {
@@ -328,7 +372,14 @@ async function runScheduledCohortLaunches(): Promise<StepResult> {
     }
   }
 
-  return { step: 'runScheduledCohortLaunches', processed, errors };
+  return {
+    step: 'runScheduledCohortLaunches',
+    processed,
+    errors,
+    ...(deferred > 0
+      ? { info: `бюджет проходу вичерпано — ${deferred} набір(ів) не запускали, спроба наступним проходом` }
+      : {}),
+  };
 }
 
 /// Self-healing «доступ не відкрився». Ловить дві дірки:
@@ -354,9 +405,17 @@ async function runScheduledCohortLaunches(): Promise<StepResult> {
 /// Telegram-prestep дзеркалить WFP-callback: якщо канал у режимі autoAdd і студент лишив
 /// @username — генеруємо (ідемпотентно) invite-link ДО листа, щоб у welcome була кнопка
 /// вступу в канал. Помилка генерації не блокує відкриття доступу.
-async function healUnopenedAccess(): Promise<StepResult> {
+async function healUnopenedAccess(cronDeadlineAt: number): Promise<StepResult> {
   const errors: string[] = [];
   const now = new Date();
+
+  // Бюджет кроку = мінімум зі своєї стелі й залишку глобального дедлайну (з резервом
+  // на хвіст проходу). Якщо часу не лишилось — крок не починається взагалі: краще
+  // чесно нічого не зробити й лишити час решті, ніж бути зарубаним посеред роботи.
+  const budgetMs = Math.min(HEAL_UNOPENED_BUDGET_MS, budgetLeftMs(cronDeadlineAt));
+  if (budgetMs <= 0) {
+    return { step: 'heal_unopened', processed: 0, errors, info: 'пропущено — бюджет проходу вичерпано, добір наступним проходом' };
+  }
 
   // Вікно свіжого запуску → більший батч (див. HEAL_UNOPENED_BATCH_FRESH_LAUNCH).
   const freshLaunches = await prisma.yearlyProgramCohort.count({
@@ -397,7 +456,7 @@ async function healUnopenedAccess(): Promise<StepResult> {
 
   let processed = 0;
   let budgetHit = false;
-  const budgetEndsAt = Date.now() + HEAL_UNOPENED_BUDGET_MS;
+  const budgetEndsAt = Date.now() + budgetMs;
   for (const s of subs) {
     if (Date.now() >= budgetEndsAt) {
       budgetHit = true;
@@ -447,7 +506,7 @@ async function healUnopenedAccess(): Promise<StepResult> {
     processed,
     errors,
     ...(budgetHit
-      ? { info: `час кроку вичерпано (${Math.round(HEAL_UNOPENED_BUDGET_MS / 1000)}с) — оброблено ${processed} з ${subs.length}, решта наступним проходом` }
+      ? { info: `час кроку вичерпано (${Math.round(budgetMs / 1000)}с) — оброблено ${processed} з ${subs.length}, решта наступним проходом` }
       : subs.length === batchSize
         ? { info: `batch cap ${batchSize}${freshLaunches > 0 ? ' (свіжий запуск)' : ''} — решта наступним проходом` }
         : {}),
@@ -470,10 +529,16 @@ async function healUnopenedAccess(): Promise<StepResult> {
 ///   • статус ACTIVE/GRACE + є PAID-платіж; сам `sendCohortLaunchEmails` ще раз перевіряє
 ///     і оплату, і відкритий доступ, тож зайвого листа неоплаченому не буде.
 /// Дедуп — по події `launch_email_sent` (її ж пише і сама розсилка).
-async function healMissingWelcomeEmails(): Promise<StepResult> {
+async function healMissingWelcomeEmails(cronDeadlineAt: number): Promise<StepResult> {
   const errors: string[] = [];
   const now = new Date();
   const openedBefore = new Date(now.getTime() - HEAL_EMAIL_MIN_AGE_MS);
+
+  const budgetMs = budgetLeftMs(cronDeadlineAt);
+  if (budgetMs <= 0) {
+    return { step: 'heal_missing_welcome_email', processed: 0, errors, info: 'пропущено — бюджет проходу вичерпано, добір наступним проходом' };
+  }
+  const stepDeadlineAt = new Date(Date.now() + budgetMs);
 
   const cohorts = await prisma.yearlyProgramCohort.findMany({
     where: {
@@ -490,7 +555,12 @@ async function healMissingWelcomeEmails(): Promise<StepResult> {
 
   let processed = 0;
   let capped = false;
+  let deadlineHit = false;
   for (const cohort of cohorts) {
+    if (Date.now() >= stepDeadlineAt.getTime()) {
+      deadlineHit = true;
+      break;
+    }
     try {
       const subs = await prisma.yearlyProgramSubscription.findMany({
         where: {
@@ -513,19 +583,25 @@ async function healMissingWelcomeEmails(): Promise<StepResult> {
         targetIds: subs.map((s) => s.id),
         actorLabel: 'heal-cron',
         source: 'cron',
+        deadlineAt: stepDeadlineAt,
       });
       processed += summary.sent;
       if (summary.failed > 0) errors.push(`${cohort.name}: ${summary.failed}/${summary.total} failed`);
+      if (summary.interrupted) deadlineHit = true;
     } catch (e) {
       errors.push(`cohort ${cohort.id}: ${(e as Error).message.slice(0, 200)}`);
     }
   }
 
+  const infoParts = [
+    deadlineHit ? 'бюджет проходу вичерпано — решта наступним проходом' : null,
+    capped ? `batch cap ${HEAL_EMAIL_BATCH} на набір — решта наступним проходом` : null,
+  ].filter(Boolean);
   return {
     step: 'heal_missing_welcome_email',
     processed,
     errors,
-    ...(capped ? { info: `batch cap ${HEAL_EMAIL_BATCH} на набір — решта наступним проходом` } : {}),
+    ...(infoParts.length > 0 ? { info: infoParts.join(' · ') } : {}),
   };
 }
 
@@ -539,9 +615,16 @@ async function healMissingWelcomeEmails(): Promise<StepResult> {
 /// (виставляє статус ACTIVE), і тільки потім ця функція шле листи. Тому навіть для парного
 /// сценарію launch+email розсилка йде ПІСЛЯ відкриття доступу — посилання у листі вже
 /// працюють.
-async function sendScheduledCohortLaunchEmails(): Promise<StepResult> {
+async function sendScheduledCohortLaunchEmails(cronDeadlineAt: number): Promise<StepResult> {
   const errors: string[] = [];
   const now = new Date();
+
+  const budgetMs = budgetLeftMs(cronDeadlineAt);
+  if (budgetMs <= 0) {
+    return { step: 'sendScheduledCohortLaunchEmails', processed: 0, errors, info: 'пропущено — бюджет проходу вичерпано, розсилка наступним проходом' };
+  }
+  const stepDeadlineAt = new Date(Date.now() + budgetMs);
+
   const cohorts = await prisma.yearlyProgramCohort.findMany({
     where: {
       emailScheduledFor: { lte: now },
@@ -555,22 +638,37 @@ async function sendScheduledCohortLaunchEmails(): Promise<StepResult> {
   const { sendCohortLaunchEmails } = await import('@/lib/yearlyProgramSendEmails');
 
   let processed = 0;
+  let deadlineHit = false;
   for (const cohort of cohorts) {
+    if (Date.now() >= stepDeadlineAt.getTime()) {
+      deadlineHit = true;
+      break;
+    }
     try {
       const summary = await sendCohortLaunchEmails(cohort, {
         actorLabel: 'scheduled-cron',
         source: 'cron',
+        deadlineAt: stepDeadlineAt,
       });
       processed += summary.sent;
       if (summary.failed > 0) {
         errors.push(`${cohort.name}: ${summary.failed}/${summary.total} failed`);
+      }
+      if (summary.interrupted) {
+        deadlineHit = true;
+        errors.push(`${cohort.name}: розсилку перервано за дедлайном, лишилось ${summary.interrupted.remaining} — дошле heal_missing_welcome_email`);
       }
     } catch (e) {
       errors.push(`cohort ${cohort.id}: ${(e as Error).message.slice(0, 200)}`);
     }
   }
 
-  return { step: 'sendScheduledCohortLaunchEmails', processed, errors };
+  return {
+    step: 'sendScheduledCohortLaunchEmails',
+    processed,
+    errors,
+    ...(deadlineHit ? { info: 'бюджет проходу вичерпано — решта наступним проходом' } : {}),
+  };
 }
 
 /// Авто-архів покинутих чекаутів: PENDING без жодного платежу в базі, старші за 24 год.
@@ -1262,7 +1360,7 @@ const REMOVE_EVENT_MAX_ROWS = 2000;
 ///   • остання подія про REMOVE = провал (`wfp_remove_failed` новіша за `wfp_remove_succeeded`).
 /// Успіх чистить кеш і пише подію (вона ж резолвить issue). Провал пише подію з лічильником
 /// спроб поспіль — з третьої вона піднімається у вкладку «Помилки» (WFP_REMOVE_FAILED).
-async function retryAutopayRemoval(): Promise<StepResult> {
+async function retryAutopayRemoval(cronDeadlineAt: number): Promise<StepResult> {
   const errors: string[] = [];
 
   // Останній результат REMOVE по кожній підписці. Вибірку обмежуємо вікном і стелею:
@@ -1336,7 +1434,14 @@ async function retryAutopayRemoval(): Promise<StepResult> {
   }
 
   let processed = 0;
+  let deadlineHit = false;
   for (const s of subs) {
+    // Кожна підписка — HTTP-виклик у WFP на кожен її платіж. Дотягнути до кінця важливо
+    // менше, ніж лишити час на push_critical_issues: недознятий REMOVE повториться завтра.
+    if (Date.now() >= cronDeadlineAt) {
+      deadlineHit = true;
+      break;
+    }
     try {
       // force: план уже міг стати YEARLY (конверсія) — без нього helper вийшов би no-op
       // саме там, де правило найімовірніше й лишилось живим.
@@ -1362,6 +1467,7 @@ async function retryAutopayRemoval(): Promise<StepResult> {
   }
 
   const infoParts = [
+    deadlineHit ? 'бюджет проходу вичерпано — решта наступним проходом' : null,
     subs.length === AUTOPAY_RETRY_BATCH ? `batch cap ${AUTOPAY_RETRY_BATCH} — решта наступним проходом` : null,
     poisonInfo,
   ].filter(Boolean);
@@ -1392,7 +1498,7 @@ async function pushCriticalIssues(): Promise<StepResult> {
 /// Оновлює wfpNextChargeAt/wfpScheduleCheckedAt для всіх автоплатіжних ACTIVE/GRACE —
 /// колонка в адмінці завжди показує реальний графік WFP, розбіжність із «Доступ до»
 /// видно оком. Помилки конкретних підписок не зупиняють решту.
-async function refreshWfpScheduleCache(): Promise<StepResult> {
+async function refreshWfpScheduleCache(cronDeadlineAt: number): Promise<StepResult> {
   const errors: string[] = [];
   const subs = await prisma.yearlyProgramSubscription.findMany({
     where: {
@@ -1409,7 +1515,14 @@ async function refreshWfpScheduleCache(): Promise<StepResult> {
   /// показуємо лічильник, щоб це було видно у відповіді cron-а.
   let inactiveRules = 0;
   let driftDetected = 0;
+  /// Звірка — читаюча і повністю відкладна: пропущені сьогодні підписки перевіряться
+  /// завтра. Тому вона перша поступається часом, коли глобальний дедлайн близько.
+  let skippedByDeadline = 0;
   await processInParallel(subs, async (s) => {
+    if (Date.now() >= cronDeadlineAt) {
+      skippedByDeadline++;
+      return;
+    }
     try {
       const r = await syncAutopaySchedule(s.id, { apply: false, source: 'cron_check' });
       // Підписка оплачена повністю (9/9), а правило регулярки у WFP усе ще живе — тобто
@@ -1453,6 +1566,13 @@ async function refreshWfpScheduleCache(): Promise<StepResult> {
     step: 'wfp_schedule_cache',
     processed,
     errors,
-    ...(infoParts.length > 0 ? { info: `${infoParts.join(' · ')} — деталі у «Помилках»` } : {}),
+    ...(infoParts.length > 0 || skippedByDeadline > 0
+      ? {
+          info: [
+            ...(infoParts.length > 0 ? [`${infoParts.join(' · ')} — деталі у «Помилках»`] : []),
+            ...(skippedByDeadline > 0 ? [`бюджет проходу вичерпано — не звірено ${skippedByDeadline}, звірка наступним проходом`] : []),
+          ].join(' · '),
+        }
+      : {}),
   };
 }

@@ -15,6 +15,12 @@ export const maxDuration = 300;
 /// (partial-summary), а не гине разом із функцією посеред ітерації.
 const LAUNCH_SOFT_DEADLINE_MARGIN_MS = 45_000;
 
+/// Скільки часу з того самого ліміту резервується під welcome-розсилку, коли вона
+/// увімкнена. Без резерву цикл відкриття доступу з'їдав увесь бюджет, розсилка стартувала
+/// вже за дедлайном і не надсилала НІЧОГО — а `emailSentAt` при нульовому старті не
+/// ставиться, тож нічний heal теж не мав за що зачепитись.
+const EMAIL_RESERVE_MS = 60_000;
+
 /// 🚀 Запустити програму. Дія менеджера в адмінці. Об'єднує два кроки в один:
 /// відкриття доступу + (опціонально) розсилка welcome-листа.
 ///
@@ -155,16 +161,20 @@ export async function POST(
   // ЦЬОГО набору» (не мутувати — це retry / пізній покупець / ручний reopen) від «відкрито
   // торік у минулому наборі» (перенесення, треба обробити). Саме createdAt, а не launchedAt:
   // останній обнуляється кнопкою «Відмінити запуск», і повторний запуск мутував би всіх.
+  // Спільний дедлайн на весь запит: цикл відкриття доступу і розсилка ділять один ліміт
+  // функції. Циклу віддається все, крім резерву під листи (якщо вони увімкнені).
+  const willSendEmails = !isRetry && Boolean(body.sendWelcomeEmails);
+  const requestDeadlineAt = startedAt + maxDuration * 1000 - LAUNCH_SOFT_DEADLINE_MARGIN_MS;
   const launchSummary = await executeLaunchLoop(
     { id, startDate: cohort.startDate, endDate: cohort.endDate, createdAt: cohort.createdAt },
     actorLabel,
-    { deadlineAt: new Date(startedAt + maxDuration * 1000 - LAUNCH_SOFT_DEADLINE_MARGIN_MS) },
+    { deadlineAt: new Date(requestDeadlineAt - (willSendEmails ? EMAIL_RESERVE_MS : 0)) },
   );
 
   // Опціональна розсилка welcome-листа одразу після відкриття доступу.
   // На retry емейли НЕ шлемо — це окрема дія через "Дослати лист".
   let emailSummary: Awaited<ReturnType<typeof sendCohortLaunchEmails>> | null = null;
-  if (!isRetry && body.sendWelcomeEmails) {
+  if (willSendEmails) {
     emailSummary = await sendCohortLaunchEmails(
       {
         id,
@@ -174,7 +184,7 @@ export async function POST(
         launchEmailSubject: cohort.launchEmailSubject,
         launchEmailBody: cohort.launchEmailBody,
       },
-      { actorLabel, source: 'launch' },
+      { actorLabel, source: 'launch', deadlineAt: new Date(requestDeadlineAt) },
     );
   }
 
@@ -210,6 +220,9 @@ export async function POST(
           sent: emailSummary.sent,
           skipped: emailSummary.skipped,
           failed: emailSummary.failed,
+          /// Розсилку обірвано дедлайном — решту досилає нічний heal_missing_welcome_email
+          /// (він бачить набір саме тому, що `emailSentAt` ставиться на старті розсилки).
+          interrupted: emailSummary.interrupted ?? null,
           /// Per-recipient результати — потрібні фронту для info-модалки з деталями помилок,
           /// коли частина листів не пішла (SMTP rate-limit, hard bounce тощо).
           results: emailSummary.results,

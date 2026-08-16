@@ -432,13 +432,16 @@ export default function LaunchProgramModal({
           (launchFailed ? ` · помилок: ${ls.failed}` : '') +
           (crashedCount > 0 ? ` · збоїв ітерації: ${crashedCount}` : '') +
           (interruptedLeft > 0 ? `\n⏱ Не встигли обробити ${interruptedLeft} — натисни «Повторити запуск»` : '');
+        // Розсилку могло обірвати тим самим дедлайном — решту досилає нічний heal.
+        const emailInterruptedLeft: number = es?.interrupted?.remaining ?? 0;
         const emailLine = es
           ? `Листи: надіслано ${es.sent}/${es.total}` +
             (emailSkipped > 0 ? ` · пропущено: ${emailSkipped}` : '') +
-            (emailFailed ? ` · помилок: ${es.failed}` : '')
+            (emailFailed ? ` · помилок: ${es.failed}` : '') +
+            (emailInterruptedLeft > 0 ? `\n⏱ Листів не встигли надіслати: ${emailInterruptedLeft} — досилає нічний cron` : '')
           : null;
 
-        if (launchFailed || emailFailed || interruptedLeft > 0 || crashedCount > 0) {
+        if (launchFailed || emailFailed || interruptedLeft > 0 || crashedCount > 0 || emailInterruptedLeft > 0) {
           // Persistent info-модалка з email-ами і текстом помилок. У `results`
           // не-failure записи (skipped, success) фільтруємо тут — показуємо
           // тільки реальні збої. Повний текст (>200 char) — у "Подіях" підписки.
@@ -472,6 +475,9 @@ export default function LaunchProgramModal({
           }
           if (interruptedLeft > 0) {
             bullets.push({ icon: '⏱', text: `Не вистачило часу на ${interruptedLeft} підписок — оброблені збережені, решту добере кнопка «Повторити запуск» (або нічний heal).` });
+          }
+          if (emailInterruptedLeft > 0) {
+            bullets.push({ icon: '✉️', text: `Welcome-листів не встигли надіслати: ${emailInterruptedLeft}. Розсилка позначена як розпочата — нічний cron дошле їх сам, або натисни «Дослати лист».` });
           }
           await confirm({
             title: launchFailed || emailFailed || crashedCount > 0 ? '⚠️ Запуск завершено з помилками' : '⏱ Запуск виконано частково',

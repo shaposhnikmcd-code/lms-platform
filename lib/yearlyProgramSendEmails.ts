@@ -18,9 +18,14 @@
 /// немає або він старший за 25 днів — інакше покупці, що оплатили за місяці до запуску,
 /// отримали б протермінований (30 днів) лінк.
 ///
-/// Контракт `emailSentAt`: оновлюємо тільки коли була повна bulk-розсилка (без `targetIds`)
-/// І реально пішов хоча б один лист — інакше запланована розсилка «згоріла» б, нічого не
-/// надіславши.
+/// Контракт `emailSentAt`: семантика — «масову розсилку по набору РОЗПОЧАТО». Ставиться
+/// перед першим реальним надсиланням (без `targetIds`), а не після повного проходу.
+/// Причина: `heal_missing_welcome_email` у нічному cron-і вимагає `emailSentAt != null`,
+/// тож при обриві посеред розсилки (таймаут функції) частина людей лишалась без листа
+/// НАЗАВЖДИ — планова розсилка вже не спрацює, а heal їх не бачить. Тепер обрив штатний:
+/// прапорець стоїть, і heal досилає пропущених.
+/// Набір без жодного кваліфікованого одержувача таймстемп НЕ отримує — інакше запланована
+/// розсилка «згоріла» б, нічого не надіславши.
 /// Per-recipient resend не зачіпає cohort-таймстемп — він репрезентує "коли по cohort-у
 /// пройшла масова розсилка".
 
@@ -73,6 +78,11 @@ export interface SendLaunchEmailsSummary {
   skipped: number;
   failed: number;
   results: SendLaunchEmailsResult[];
+  /// Розсилку зупинено штатно за м'яким дедлайном (ліміт функції). `remaining` — скільки
+  /// підписок реально отримали б лист (без тих, кого скіп-чеки все одно відсіяли б).
+  /// Решту добирає нічний `heal_missing_welcome_email` — саме тому `emailSentAt`
+  /// виставляється на СТАРТІ розсилки.
+  interrupted?: { reason: 'deadline'; remaining: number };
 }
 
 export interface SendLaunchEmailsOptions {
@@ -87,6 +97,10 @@ export interface SendLaunchEmailsOptions {
   /// Звідки прийшла розсилка — записується у `event.metadata.source` для аудиту.
   /// "manager" (через UI кнопкою), "launch" (одночасно з запуском), "cron" (scheduled).
   source: 'manager' | 'launch' | 'cron';
+  /// М'який дедлайн: коли час вийшов, цикл зупиняється ШТАТНО з partial-звітом замість
+  /// того, щоб платформа зарубала функцію посеред відправки. Той самий дедлайн, що й у
+  /// циклі запуску — обидва живуть у спільному ліміті одного HTTP-виклику / cron-проходу.
+  deadlineAt?: Date | null;
 }
 
 /// Виконує bulk-розсилку welcome-листа всім кваліфікованим підпискам cohort-у.
@@ -125,8 +139,44 @@ export async function sendCohortLaunchEmails(
   const tgActive = Boolean(tgSettings.autoAdd && tgSettings.chatId);
 
   const results: SendLaunchEmailsResult[] = [];
+  let interrupted: SendLaunchEmailsSummary['interrupted'];
 
-  for (const s of subs) {
+  const hasLaunchEmailEvent = (s: (typeof subs)[number]) =>
+    s.events.some((ev) => (ev.metadata as { cohortId?: string } | null)?.cohortId === cohort.id);
+
+  /// Чи підписка реально отримала б лист — дзеркалить скіп-чеки нижче. Потрібно, щоб
+  /// `interrupted.remaining` показував роботу, а не кількість необійдених рядків.
+  const wouldBeSent = (s: (typeof subs)[number]) => {
+    if (!s.user?.email) return false;
+    if (!s.payments.some((p) => p.status === 'PAID')) return false;
+    if (!s.sendpulseAccessOpenedAt) return false;
+    if (!force && hasLaunchEmailEvent(s)) return false;
+    return true;
+  };
+
+  // «Масову розсилку розпочато» — ставиться перед ПЕРШИМ реальним надсиланням (див.
+  // контракт `emailSentAt` у шапці файлу). Прапорець у пам'яті, щоб не бити в БД на
+  // кожній ітерації.
+  let bulkStartMarked = false;
+  const markBulkStarted = async () => {
+    if (targetIds || bulkStartMarked) return;
+    bulkStartMarked = true;
+    await prisma.yearlyProgramCohort.update({
+      where: { id: cohort.id },
+      data: { emailSentAt: new Date(), emailScheduledFor: null },
+    });
+  };
+
+  for (const [idx, s] of subs.entries()) {
+    // М'який дедлайн: віддати чесний partial-звіт краще, ніж бути зарубаним посеред
+    // відправки. Ті, кому не встигли, лишаються без події `launch_email_sent` — їх
+    // добирає нічний `heal_missing_welcome_email`.
+    if (opts.deadlineAt && Date.now() >= opts.deadlineAt.getTime()) {
+      const remaining = subs.slice(idx).filter(wouldBeSent).length;
+      interrupted = { reason: 'deadline', remaining };
+      console.warn(`[yearly-launch-email] cohort ${cohort.id}: м'який дедлайн, оброблено ${idx}/${subs.length}, лишилось у роботі ${remaining}`);
+      break;
+    }
     if (!s.user?.email) {
       results.push({ subscriptionId: s.id, email: '', sent: false, skipped: 'no_email' });
       continue;
@@ -150,14 +200,13 @@ export async function sendCohortLaunchEmails(
       continue;
     }
 
-    const alreadySent = s.events.some((ev) => {
-      const m = ev.metadata as { cohortId?: string } | null;
-      return m?.cohortId === cohort.id;
-    });
-    if (alreadySent && !force) {
+    if (hasLaunchEmailEvent(s) && !force) {
       results.push({ subscriptionId: s.id, email: s.user.email, sent: false, skipped: 'already_sent' });
       continue;
     }
+
+    // Одержувач кваліфікований — з цієї миті розсилка вважається розпочатою.
+    await markBulkStarted();
 
     const { subject, body } = renderLaunchEmailTemplate({
       subject: subjectTpl,
@@ -242,25 +291,16 @@ export async function sendCohortLaunchEmails(
 
   const sentCount = results.filter((r) => r.sent).length;
 
-  // Bulk-розсилка фіксує `emailSentAt` (і чистить `emailScheduledFor` — план виконано).
-  // Per-recipient resend (`targetIds`) не оновлює таймстемп: він репрезентує
-  // "коли востаннє пройшла bulk-розсилка по cohort-у", а не одиничну ручну дію.
-  //
-  // Якщо не пішов ЖОДЕН лист (усі скіпнуті — напр. доступ ще не відкрито, або всі впали) —
-  // таймстемпи не чіпаємо: інакше запланована розсилка «згоряє» (emailScheduledFor
-  // обнулений, cron більше не спробує), а в UI світиться «розіслано», хоч листів не було.
-  if (!targetIds && sentCount > 0) {
-    await prisma.yearlyProgramCohort.update({
-      where: { id: cohort.id },
-      data: { emailSentAt: new Date(), emailScheduledFor: null },
-    });
-  }
-
+  // `emailSentAt`/`emailScheduledFor` виставлені у `markBulkStarted()` — перед першим
+  // реальним надсиланням, а не тут. Набір, у якому жоден одержувач не пройшов скіп-чеки
+  // (доступ ще не відкрито, немає оплати), таймстемпів не отримує взагалі: запланована
+  // розсилка має спробувати ще раз завтра, а не «згоріти» мовчки.
   return {
     total: results.length,
     sent: sentCount,
     skipped: results.filter((r) => r.skipped).length,
     failed: results.filter((r) => !r.sent && !r.skipped).length,
     results,
+    ...(interrupted ? { interrupted } : {}),
   };
 }
