@@ -105,6 +105,12 @@ export interface CohortListItem {
   launchEmailBody: string | null;
   isCurrent: boolean;
   subscriptionsCount: number;
+  /// Скільки підписок набору РЕАЛЬНО отримають доступ на запуску: launch-eligible
+  /// (є зарахована оплата, статус живий, PENDING — тільки з чинним доступом) і
+  /// `sendpulseAccessOpenedAt` ще порожній. Джерело — `countPendingLaunchAccessByCohort`
+  /// у lib/yearlyProgramLaunch.ts, той самий предикат, що й у циклі запуску.
+  /// Після запуску ненульове значення = комусь доступ не відкрився → кнопка «Повторити запуск».
+  pendingAccessCount: number;
 }
 
 export type CohortFilter = 'ALL' | string; // 'ALL' or cohortId

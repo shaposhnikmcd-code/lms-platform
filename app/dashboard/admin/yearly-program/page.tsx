@@ -8,6 +8,7 @@ import { getYearlyProgramTelegramSettings } from '@/lib/yearlyProgramTelegram';
 import { buildYearlyProgramAdminPrewarm } from '@/lib/yearlyProgramAdminPrefetch';
 import { isSuperAdmin } from '@/lib/superAdmin';
 import { collectAllIssues, buildSubscriptionSeverityMap } from '@/lib/yearlyProgramIssues';
+import { countPendingLaunchAccessByCohort } from '@/lib/yearlyProgramLaunch';
 import {
   buildLiveIdentityIndex,
   isVisibleYearlySubscription,
@@ -71,9 +72,7 @@ export default async function AdminYearlyProgramPage() {
     }),
   ]);
 
-  // Рахуємо тільки підписки, які eligible для launch: PENDING/ACTIVE/GRACE + є хоч один PAID-платіж.
-  // Логіка має 1-в-1 збігатись з executeLaunchLoop у lib/yearlyProgramLaunch.ts (інакше counter
-  // у LaunchProgramModal буде брехати).
+  // «Підписок у наборі» для шапки: живий статус + є хоч один PAID-платіж.
   const eligibleSubs = await prisma.yearlyProgramSubscription.findMany({
     where: {
       status: { in: ['PENDING', 'ACTIVE', 'GRACE'] },
@@ -85,6 +84,10 @@ export default async function AdminYearlyProgramPage() {
   for (const s of eligibleSubs) {
     countByCohort.set(s.cohortId, (countByCohort.get(s.cohortId) ?? 0) + 1);
   }
+  // А ось це — число для модалки запуску і для кнопки «Повторити запуск»: рахується ТИМ
+  // САМИМ предикатом, що й цикл запуску (див. countPendingLaunchAccessByCohort), тож
+  // «Відкриє доступ для N» більше не розходиться з тим, скільки цикл реально обробить.
+  const pendingAccessByCohort = await countPendingLaunchAccessByCohort();
 
   const cohortList: CohortListItem[] = cohorts.map((c) => ({
     id: c.id,
@@ -99,6 +102,7 @@ export default async function AdminYearlyProgramPage() {
     launchEmailBody: c.launchEmailBody,
     isCurrent: c.isCurrent,
     subscriptionsCount: countByCohort.get(c.id) ?? 0,
+    pendingAccessCount: pendingAccessByCohort.get(c.id) ?? 0,
   }));
 
   const now = Date.now();

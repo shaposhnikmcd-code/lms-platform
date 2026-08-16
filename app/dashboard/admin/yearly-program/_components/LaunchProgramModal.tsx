@@ -88,12 +88,18 @@ export default function LaunchProgramModal({
   cohort,
   paidPendingCount,
   theme,
+  onLaunched,
   onClose,
 }: {
   cohort: CohortListItem;
   /// К-ть підписок які реально отримають доступ при запуску (paid + access не відкрито).
   paidPendingCount: number;
   theme: Theme;
+  /// Скільки підписок лишилось БЕЗ відкритого доступу після запуску. CohortActions
+  /// тримає на цьому числі кнопку «Повторити запуск» до моменту, поки router.refresh()
+  /// не принесе серверне значення — без цього колбека після часткового запуску кнопка
+  /// була недосяжна (summary жив лише всередині модалки).
+  onLaunched?: (remainingUnopened: number) => void;
   onClose: () => void;
 }) {
   const dark = theme === 'dark';
@@ -388,24 +394,32 @@ export default function LaunchProgramModal({
       } else {
         const ls = data.summary;
         const es = data.emailSummary;
+        // Скільки лишилось без відкритого доступу: ті, кого не встигли обробити
+        // (дедлайн), плюс справжні збої. Skipped сюди не входять — там або немає
+        // оплати, або доступ уже відкрито.
+        onLaunched?.((ls.interrupted?.remaining ?? 0) + (ls.failed ?? 0));
         // Класифікація: `failed` = справжній збій (модалка з деталями),
         // `skipped` = очікуваний пропуск (показуємо як info, не як помилку).
         const launchFailed = (ls.failed ?? 0) > 0;
         const emailFailed = (es?.failed ?? 0) > 0;
         const launchSkipped = ls.skipped ?? 0;
         const emailSkipped = es?.skipped ?? 0;
+        // Цикл зупинився за м'яким дедлайном: частину підписок не встигли обробити.
+        // Це не помилка, але менеджер має знати, що треба натиснути «Повторити запуск».
+        const interruptedLeft: number = ls.interrupted?.remaining ?? 0;
 
         const launchLine =
           `Доступ відкрито: ${ls.opened}/${ls.total}` +
           (launchSkipped > 0 ? ` · пропущено: ${launchSkipped}` : '') +
-          (launchFailed ? ` · помилок: ${ls.failed}` : '');
+          (launchFailed ? ` · помилок: ${ls.failed}` : '') +
+          (interruptedLeft > 0 ? `\n⏱ Не встигли обробити ${interruptedLeft} — натисни «Повторити запуск»` : '');
         const emailLine = es
           ? `Листи: надіслано ${es.sent}/${es.total}` +
             (emailSkipped > 0 ? ` · пропущено: ${emailSkipped}` : '') +
             (emailFailed ? ` · помилок: ${es.failed}` : '')
           : null;
 
-        if (launchFailed || emailFailed) {
+        if (launchFailed || emailFailed || interruptedLeft > 0) {
           // Persistent info-модалка з email-ами і текстом помилок. У `results`
           // не-failure записи (skipped, success) фільтруємо тут — показуємо
           // тільки реальні збої. Повний текст (>200 char) — у "Подіях" підписки.
@@ -430,8 +444,11 @@ export default function LaunchProgramModal({
               bullets.push({ icon: '✕', text: `${r.email || '(без email)'} — ${(r.error ?? 'unknown').slice(0, 200)}` });
             }
           }
+          if (interruptedLeft > 0) {
+            bullets.push({ icon: '⏱', text: `Не вистачило часу на ${interruptedLeft} підписок — оброблені збережені, решту добере кнопка «Повторити запуск» (або нічний heal).` });
+          }
           await confirm({
-            title: `⚠️ Запуск завершено з помилками`,
+            title: launchFailed || emailFailed ? '⚠️ Запуск завершено з помилками' : '⏱ Запуск виконано частково',
             description: `${launchLine}${emailLine ? `\n${emailLine}` : ''}\n\nПовний текст помилок — у вкладці "Події" кожної підписки.`,
             bullets,
             confirmLabel: 'Зрозуміло',

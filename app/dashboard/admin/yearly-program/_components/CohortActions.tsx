@@ -42,9 +42,14 @@ export default function CohortActions({
   const [addStudentOpen, setAddStudentOpen] = useState(false);
   const [launchModalOpen, setLaunchModalOpen] = useState(false);
   const [diagramOpen, setDiagramOpen] = useState(false);
-  // Кількість підписок, яким при запуску не вдалося відкрити доступ. Лишаємо від запуску, поки
-  // менеджер не повторить — кнопка "Повторити запуск" з'являється поряд.
-  const [failedCount, setFailedCount] = useState<number>(0);
+  // Скільки підписок ще чекає відкриття доступу. Базове значення приходить із СЕРВЕРА
+  // (`cohort.pendingAccessCount`, той самий предикат, що й цикл запуску), тож кнопка
+  // «Повторити запуск» жива і після перезавантаження сторінки — раніше вона трималась
+  // лише на локальному стейті всередині retry() і після першого ж запуску з фейлами
+  // ставала недосяжною.
+  // Локальний оверрайд потрібен тільки для миті між відповіддю сервера і router.refresh().
+  const [pendingOverride, setPendingOverride] = useState<number | null>(null);
+  const pendingAccessCount = pendingOverride ?? cohort.pendingAccessCount;
 
   async function unlaunch() {
     const ok = await confirm({
@@ -99,16 +104,16 @@ export default function CohortActions({
         return;
       }
       const s = data.summary;
-      // failedCount — лічильник для жовтої кнопки "Повторити запуск (N)". Лише
-      // справжні fail-и (skipped не вмикає її, бо повторювати no_paid_payments
-      // безсенсу — потрібно щоб юзер оплатив).
-      setFailedCount(s.failed);
+      // Скільки лишилось після цієї спроби. Точне число прийде з router.refresh(),
+      // але до нього кнопка вже має показати актуальний стан.
+      setPendingOverride(Math.max(0, pendingAccessCount - (s.opened ?? 0)));
       const skipped = s.skipped ?? 0;
       const line =
         `Доступ відкрито: ${s.opened}/${s.total}` +
         (skipped > 0 ? ` · пропущено: ${skipped}` : '') +
-        (s.failed > 0 ? ` · помилок: ${s.failed}` : '');
-      const variant: 'success' | 'info' = (s.failed > 0 || skipped > 0) ? 'info' : 'success';
+        (s.failed > 0 ? ` · помилок: ${s.failed}` : '') +
+        (s.interrupted ? `\n⏱ Перервано за таймаутом — не оброблено ${s.interrupted.remaining}, повтори ще раз` : '');
+      const variant: 'success' | 'info' = (s.failed > 0 || skipped > 0 || s.interrupted) ? 'info' : 'success';
       toast(variant, `🔁 Повторний запуск\n${line}`);
       router.refresh();
     } catch (e) {
@@ -242,7 +247,7 @@ export default function CohortActions({
           </div>
         )}
 
-        {cohort.launchedAt && failedCount > 0 && (
+        {cohort.launchedAt && pendingAccessCount > 0 && (
           <div className="flex items-center gap-1.5">
             <button
               type="button"
@@ -255,12 +260,12 @@ export default function CohortActions({
               }`}
             >
               <HiOutlineArrowPath className="text-base" />
-              Повторити запуск ({failedCount})
+              Повторити запуск ({pendingAccessCount})
             </button>
             <HoverInfo
               theme={theme}
               title="Повторний запуск"
-              body={`Минулого запуску у ${failedCount} підписок не вдалося відкрити доступ (SendPulse rate-limit чи мережа).\n\nПовторний запуск спробує знову відкрити доступ — тих, у кого вже відкрито, пропустить (idempotent).`}
+              body={`У ${pendingAccessCount} оплачених підписок цього набору доступ у SendPulse ще не відкрито: збій SendPulse на запуску, обрив по таймауту або пізня оплата.\n\nПовторний запуск пройде по них ще раз — тих, кому доступ уже відкрито в цьому наборі, не чіпає взагалі (ні статус, ні дати, ні лічильники нагадувань).\n\nЯкщо не натиснути — тих самих людей вночі добере автоматичний heal.`}
             />
           </div>
         )}
@@ -301,8 +306,9 @@ export default function CohortActions({
       {launchModalOpen && (
         <LaunchProgramModal
           cohort={cohort}
-          paidPendingCount={cohort.subscriptionsCount}
+          paidPendingCount={pendingAccessCount}
           theme={theme}
+          onLaunched={(remainingUnopened) => setPendingOverride(remainingUnopened)}
           onClose={() => setLaunchModalOpen(false)}
         />
       )}

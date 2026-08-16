@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { isAdmin } from '@/lib/adminAuth';
 import { revalidateLocalized } from '@/lib/revalidatePaths';
+import { countPendingLaunchAccessByCohort } from '@/lib/yearlyProgramLaunch';
 import {
   getDefaultCohortValues,
   normalizeCohortEndDate,
@@ -21,8 +22,7 @@ export async function GET(req: NextRequest) {
     orderBy: { startDate: 'desc' },
   });
 
-  // Лічильник лише launch-eligible підписок: PENDING/ACTIVE/GRACE + хоч один PAID-платіж.
-  // Логіка має 1-в-1 збігатись з executeLaunchLoop у lib/yearlyProgramLaunch.ts.
+  // «Підписок у наборі»: живий статус + хоч один PAID-платіж.
   const eligibleSubs = await prisma.yearlyProgramSubscription.findMany({
     where: {
       status: { in: ['PENDING', 'ACTIVE', 'GRACE'] },
@@ -34,6 +34,8 @@ export async function GET(req: NextRequest) {
   for (const s of eligibleSubs) {
     countByCohort.set(s.cohortId, (countByCohort.get(s.cohortId) ?? 0) + 1);
   }
+  // Скільки ще чекає відкриття доступу — тим самим предикатом, що й цикл запуску.
+  const pendingAccessByCohort = await countPendingLaunchAccessByCohort();
 
   return NextResponse.json({
     cohorts: cohorts.map((c) => ({
@@ -48,6 +50,7 @@ export async function GET(req: NextRequest) {
       launchEmailBody: c.launchEmailBody,
       isCurrent: c.isCurrent,
       subscriptionsCount: countByCohort.get(c.id) ?? 0,
+      pendingAccessCount: pendingAccessByCohort.get(c.id) ?? 0,
       createdAt: c.createdAt.toISOString(),
     })),
   });
