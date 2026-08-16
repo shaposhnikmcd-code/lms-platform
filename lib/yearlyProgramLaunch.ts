@@ -45,16 +45,27 @@ export function launchEligibleSubscriptionWhere(now: Date = new Date()): Prisma.
   };
 }
 
-/// Скільки підписок кожного набору ще ЧЕКАЮТЬ відкриття доступу: launch-eligible і
-/// `sendpulseAccessOpenedAt` порожній. Це й число для модалки запуску («Відкриє доступ
-/// для N»), і умова видимості кнопки «Повторити запуск» після перезавантаження сторінки.
+/// Предикат «підписка ще чекає відкриття доступу»: launch-eligible, `sendpulseAccessOpenedAt`
+/// порожній і набір ЩЕ НЕ завершився. Останнє — симетрично з heal-cron-ом: на торішньому
+/// наборі ніхто вже нічого не відкриває, тож вічна кнопка «Повторити запуск (1)» на ньому
+/// була б неправдою.
+function pendingLaunchAccessWhere(now: Date = new Date()): Prisma.YearlyProgramSubscriptionWhereInput {
+  return {
+    ...launchEligibleSubscriptionWhere(now),
+    sendpulseAccessOpenedAt: null,
+    cohort: { endDate: { gte: now } },
+  };
+}
+
+/// Скільки підписок кожного набору ще ЧЕКАЮТЬ відкриття доступу. Це й число для модалки
+/// запуску («Відкриє доступ для N»), і умова видимості кнопки «Повторити запуск» після
+/// перезавантаження сторінки.
 /// Перенесені з минулого набору (SP-доступ відкритий торік) сюди не входять — їм цикл
 /// лише перерахує `expiresAt`, нічого не відкриваючи.
 export async function countPendingLaunchAccessByCohort(): Promise<Map<string, number>> {
   const rows = await prisma.yearlyProgramSubscription.findMany({
     where: {
-      ...launchEligibleSubscriptionWhere(),
-      sendpulseAccessOpenedAt: null,
+      ...pendingLaunchAccessWhere(),
       cohortId: { not: null },
     },
     select: { cohortId: true },
@@ -65,6 +76,16 @@ export async function countPendingLaunchAccessByCohort(): Promise<Map<string, nu
     byCohort.set(r.cohortId, (byCohort.get(r.cohortId) ?? 0) + 1);
   }
   return byCohort;
+}
+
+/// Те саме число, але для ОДНОГО набору — свіжий стан після циклу запуску. Сервер рахує
+/// його сам і віддає клієнту (`pendingAccessAfter`): фронт не має права віднімати
+/// `opened` від старого лічильника, бо це різні популяції (перенесені студенти входять
+/// в `opened`, але не в лічильник; підписки без email — навпаки).
+export async function countPendingLaunchAccessForCohort(cohortId: string): Promise<number> {
+  return prisma.yearlyProgramSubscription.count({
+    where: { ...pendingLaunchAccessWhere(), cohortId },
+  });
 }
 
 /// Статуси, для яких відкривати доступ не можна ЖОДНИМ шляхом: підписку закрито
@@ -99,6 +120,8 @@ export interface LaunchSummary {
   crashed: Array<{ subscriptionId: string; email: string | null; error: string }>;
   /// Цикл зупинено штатно за м'яким дедлайном (не вистачило ліміту функції). Оброблені
   /// підписки збережені, решту добирає «Повторити запуск» або нічний heal_unopened.
+  /// `remaining` — скільки підписок реально пішли б у роботу (без тих, кого guard-и
+  /// все одно пропустили б), а не скільки рядків лишилось необійденими.
   interrupted?: { reason: 'deadline'; remaining: number };
 }
 
@@ -134,6 +157,23 @@ export async function executeLaunchLoop(
   const crashed: LaunchSummary['crashed'] = [];
   let interrupted: LaunchSummary['interrupted'];
 
+  /// Доступ уже відкривали В МЕЖАХ ЦЬОГО набору — таку підписку цикл не мутує взагалі.
+  /// Винесено в предикат, бо те саме питання ставиться двічі: у циклі (skip) і при
+  /// перериванні за дедлайном (скільки РЕАЛЬНОЇ роботи лишилось).
+  const alreadyOpenedInThisCohort = (s: (typeof subs)[number]) =>
+    Boolean(s.sendpulseAccessOpenedAt && cohort.launchedAt && s.sendpulseAccessOpenedAt >= cohort.launchedAt);
+
+  /// Чи підписка справді пішла б у роботу (SendPulse + мутація), а не була б пропущена
+  /// guard-ами. Дзеркалить порядок перевірок у циклі — потрібно, щоб `interrupted.remaining`
+  /// не лякав менеджера числом рядків, серед яких половина все одно була б skipped.
+  const wouldBeProcessed = (s: (typeof subs)[number]) => {
+    if (!s.user?.email) return false;
+    if (alreadyOpenedInThisCohort(s)) return false;
+    if (!s.payments.some((p) => p.status === 'PAID' && !p.excludedFromAccess)) return false;
+    if (s.status === 'PENDING' && !(s.expiresAt && s.expiresAt >= now)) return false;
+    return true;
+  };
+
   // Ростер SendPulse тягнеться ОДИН раз на весь цикл (див. withSendpulseRosterCache):
   // без цього lookupStudentIdByEmail пагінував увесь курс на кожного студента і запуск
   // на 300 людей не встигав у ліміт функції.
@@ -142,8 +182,12 @@ export async function executeLaunchLoop(
     // М'який дедлайн (див. options.deadlineAt): краще віддати чесний partial-summary
     // «оброблено X з Y», ніж дати платформі зарубати функцію посеред ітерації.
     if (options.deadlineAt && Date.now() >= options.deadlineAt.getTime()) {
-      interrupted = { reason: 'deadline', remaining: subs.length - idx };
-      console.warn(`[yearly-launch] cohort ${cohort.id}: м'який дедлайн, оброблено ${idx}/${subs.length}`);
+      // `remaining` — тільки ті, кого цикл реально мав би обробити. Рахувати всі
+      // необійдені рядки означало б лякати менеджера числом, у якому сидять і ті,
+      // кого guard-и все одно пропустили б (немає оплати, доступ уже відкрито).
+      const remaining = subs.slice(idx).filter(wouldBeProcessed).length;
+      interrupted = { reason: 'deadline', remaining };
+      console.warn(`[yearly-launch] cohort ${cohort.id}: м'який дедлайн, оброблено ${idx}/${subs.length}, лишилось у роботі ${remaining}`);
       break;
     }
     // Кожен студент ізольований: непередбачуваний виняток (обрив БД, конфлікт запису)
@@ -163,11 +207,7 @@ export async function executeLaunchLoop(
       // Порівнюємо саме з `launchedAt` набору, а не просто з наявністю прапорця: у
       // перенесеного з минулого набору студента `sendpulseAccessOpenedAt` стоїть з
       // торішнього запуску, і пропуск лишив би його без перерахованого expiresAt.
-      if (
-        s.sendpulseAccessOpenedAt
-        && cohort.launchedAt
-        && s.sendpulseAccessOpenedAt >= cohort.launchedAt
-      ) {
+      if (alreadyOpenedInThisCohort(s)) {
         results.push({
           subscriptionId: s.id,
           email: s.user.email,
@@ -175,14 +215,10 @@ export async function executeLaunchLoop(
           expiresAt: s.expiresAt?.toISOString() ?? null,
           skipReason: 'already_opened',
         });
-        await prisma.yearlyProgramSubscriptionEvent.create({
-          data: {
-            subscriptionId: s.id,
-            type: 'admin_action',
-            message: `Cohort launch (повтор) by ${actorLabel} · доступ уже відкрито ${s.sendpulseAccessOpenedAt.toISOString().slice(0, 10)} — підписку не змінювали`,
-            metadata: { cohortId: cohort.id, skipReason: 'already_opened' },
-          },
-        });
+        // Подію тут НЕ пишемо: кожен повтор запуску інакше додавав по рядку «доступ уже
+        // відкрито» в лог КОЖНОЇ вже обробленої підписки (набір на 300 людей × кожне
+        // натискання «Повторити запуск» = сотні порожніх записів, у яких тонуть реальні
+        // збої). Факт пропуску видно в summary (`skipReason: already_opened`).
         recorded = true;
         continue;
       }

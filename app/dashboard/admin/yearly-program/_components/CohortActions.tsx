@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { HiOutlineRocketLaunch, HiOutlineEnvelopeOpen, HiOutlineArrowPath, HiOutlineUserPlus, HiOutlineSquares2X2, HiOutlineArrowUturnLeft } from 'react-icons/hi2';
@@ -55,6 +55,15 @@ export default function CohortActions({
   const [pendingOverride, setPendingOverride] = useState<number | null>(null);
   const pendingAccessCount = pendingOverride ?? cohort.pendingAccessCount;
 
+  // Щойно з сервера приїхало нове значення — оверрайд віддає йому кермо. Без цього
+  // будь-яке число, покладене в оверрайд один раз, назавжди перекривало серверне:
+  // лічильник застигав і не реагував ні на router.refresh(), ні на нічний heal.
+  // (Перемикання набору знімає ще й `key={cohort.id}` у YearlyProgramView — стейт
+  // цього компонента не має переїжджати з одного набору на інший.)
+  useEffect(() => {
+    setPendingOverride(null);
+  }, [cohort.pendingAccessCount]);
+
   async function unlaunch() {
     const ok = await confirm({
       title: 'Відмінити запуск програми?',
@@ -108,16 +117,20 @@ export default function CohortActions({
         return;
       }
       const s = data.summary;
-      // Скільки лишилось після цієї спроби. Точне число прийде з router.refresh(),
-      // але до нього кнопка вже має показати актуальний стан.
-      setPendingOverride(Math.max(0, pendingAccessCount - (s.opened ?? 0)));
+      // Скільки лишилось після цієї спроби — ЧИСЛО З СЕРВЕРА (той самий предикат, що й
+      // лічильник сторінки). Жодної арифметики на клієнті: `opened` і лічильник рахують
+      // різні популяції, і віднімання одного від другого давало неправильну кнопку.
+      if (typeof data.pendingAccessAfter === 'number') {
+        setPendingOverride(data.pendingAccessAfter);
+      }
       const skipped = s.skipped ?? 0;
       const line =
         `Доступ відкрито: ${s.opened}/${s.total}` +
         (skipped > 0 ? ` · пропущено: ${skipped}` : '') +
         (s.failed > 0 ? ` · помилок: ${s.failed}` : '') +
+        (s.crashed > 0 ? ` · збоїв: ${s.crashed}` : '') +
         (s.interrupted ? `\n⏱ Перервано за таймаутом — не оброблено ${s.interrupted.remaining}, повтори ще раз` : '');
-      const variant: 'success' | 'info' = (s.failed > 0 || skipped > 0 || s.interrupted) ? 'info' : 'success';
+      const variant: 'success' | 'info' = (s.failed > 0 || skipped > 0 || s.crashed > 0 || s.interrupted) ? 'info' : 'success';
       toast(variant, `🔁 Повторний запуск\n${line}`);
       router.refresh();
     } catch (e) {

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { isAdmin, getAdminActor } from '@/lib/adminAuth';
-import { executeLaunchLoop } from '@/lib/yearlyProgramLaunch';
+import { executeLaunchLoop, countPendingLaunchAccessForCohort } from '@/lib/yearlyProgramLaunch';
 import { sendCohortLaunchEmails } from '@/lib/yearlyProgramSendEmails';
 import { revalidateLocalized } from '@/lib/revalidatePaths';
 
@@ -176,10 +176,17 @@ export async function POST(
     );
   }
 
+  // Скільки підписок ЩЕ чекають відкриття доступу — рахує СЕРВЕР тим самим предикатом,
+  // що й лічильник на сторінці. Клієнт не має віднімати `opened` від старого числа:
+  // це різні популяції (перенесені з минулого набору входять в `opened`, але не в
+  // лічильник; підписки без email — навпаки), і арифметика давала брехливу кнопку.
+  const pendingAccessAfter = await countPendingLaunchAccessForCohort(id);
+
   revalidateLocalized('/yearly-program');
   return NextResponse.json({
     ok: true,
     mode: 'launched',
+    pendingAccessAfter,
     launchedAt: cohort.launchedAt?.toISOString() ?? new Date().toISOString(),
     retry: isRetry,
     summary: {

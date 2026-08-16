@@ -581,6 +581,10 @@ function YearlyProgramViewInner({
           <>
             <div className={dark ? 'border-t border-white/[0.06]' : 'border-t border-stone-300/40'} />
             <CohortActions
+              // Стейт дій прив'язаний до конкретного набору (лічильник «Повторити запуск»,
+              // відкриті модалки). Без key React перевикористовує інстанс при перемиканні
+              // набору — і число з попереднього набору висіло б на новому.
+              key={activeCohort.id}
               cohort={activeCohort}
               theme={theme}
               graceDays={graceDays}
