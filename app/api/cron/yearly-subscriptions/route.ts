@@ -573,10 +573,10 @@ async function sendScheduledCohortLaunchEmails(): Promise<StepResult> {
   return { step: 'sendScheduledCohortLaunchEmails', processed, errors };
 }
 
-/// Авто-архів покинутих чекаутів: PENDING без жодної успішної оплати, старші за 24 год.
+/// Авто-архів покинутих чекаутів: PENDING без жодного платежу в базі, старші за 24 год.
 /// Це незавершені спроби (закрив форму / картку відхилили й не повернувся) — не клієнти,
 /// лише засмічують список. Переводимо в ARCHIVED (зникає з дефолтного вигляду Річної,
-/// лишається доступним через фільтр «Архів»). Guard payments.none(PAID) у updateMany —
+/// лишається доступним через фільтр «Архів»). Guard payments.none у updateMany —
 /// захист від рейсу: якщо людина встигла оплатити саме в цей момент, підписку не чіпаємо.
 ///
 /// ВАЖЛИВО: ручно додані студенти (manuallyAddedAt != null) НЕ архівуються — менеджер
@@ -586,24 +586,48 @@ async function sendScheduledCohortLaunchEmails(): Promise<StepResult> {
 /// Це safety net для тих, хто так і не оплатив. Дублі-спроби клієнтів, які ВЖЕ оплатили,
 /// архівуються одразу в момент успішного платежу — `archiveDuplicatePendingSubscriptions`
 /// (lib/yearlyProgramDedup.ts) з WFP-callback-у, без очікування доби.
+///
+/// ДРУГИЙ ВИНЯТОК — сліди корекції платежу. Підписка, у якої менеджер виключив з доступу
+/// або видалив єдиний платіж, повертається у PENDING (`revertedToPending`) — і без цього
+/// винятку вночі мовчки їхала б в ARCHIVED як «покинутий чекаут». Тому не архівуємо тих,
+/// у кого є БУДЬ-ЯКІ Payment-рядки (не лише PAID — виключені теж рахуються слідом) або
+/// подія корекції платежу в журналі (сам платіж міг бути видалений).
 async function archiveStalePending(): Promise<StepResult> {
   const errors: string[] = [];
   const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  const subs = await prisma.yearlyProgramSubscription.findMany({
+  const candidates = await prisma.yearlyProgramSubscription.findMany({
     where: {
       status: 'PENDING',
       createdAt: { lt: cutoff },
-      payments: { none: { status: 'PAID' } },
+      payments: { none: {} },
       manuallyAddedAt: null,
     },
     select: { id: true },
   });
 
+  // Платежів у БД уже немає (видалили), але слід корекції лишився в подіях — не архівуємо.
+  const correctedIds = candidates.length > 0
+    ? new Set(
+        (await prisma.yearlyProgramSubscriptionEvent.findMany({
+          where: {
+            subscriptionId: { in: candidates.map((s) => s.id) },
+            OR: [
+              { metadata: { path: ['paymentDeleted'], equals: true } },
+              { metadata: { path: ['paymentAccess'], equals: true } },
+            ],
+          },
+          select: { subscriptionId: true },
+          distinct: ['subscriptionId'],
+        })).map((e) => e.subscriptionId),
+      )
+    : new Set<string>();
+  const subs = candidates.filter((s) => !correctedIds.has(s.id));
+
   let processed = 0;
   await processInParallel(subs, async (s) => {
     try {
       const res = await prisma.yearlyProgramSubscription.updateMany({
-        where: { id: s.id, status: 'PENDING', payments: { none: { status: 'PAID' } }, manuallyAddedAt: null },
+        where: { id: s.id, status: 'PENDING', payments: { none: {} }, manuallyAddedAt: null },
         data: { status: 'ARCHIVED' },
       });
       if (res.count === 0) return; // встигли оплатити між вибіркою й апдейтом — не чіпаємо

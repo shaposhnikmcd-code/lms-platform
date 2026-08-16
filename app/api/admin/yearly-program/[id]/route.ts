@@ -1376,22 +1376,34 @@ async function handleEditPayment(
   await prisma.payment.update({ where: { id: paymentId }, data });
 
   // Перерахунок підписки по актуальних платежах (expiresAt/статус; дохід — агрегат amount).
-  // allowRevive:false — правка платежу НЕ воскрешає закриту (EXPIRED/CANCELLED/ARCHIVED) підписку.
-  const { newStatus, newExpiresAt } = await applyPaymentActivation({
+  // context:'correction' — правка платежу нічого не оплачує: статус не апгрейдиться,
+  // закрита підписка не воскресає, SendPulse-маркери не скидаються.
+  const { newStatus, newExpiresAt, revertedToPending, debt } = await applyPaymentActivation({
     subscriptionId: sub.id,
     plan: sub.plan,
     autoRenew: sub.autoRenew,
     prevStatus: sub.status,
     lastPaymentAt: effectivePaidAt,
-    allowRevive: false,
+    context: 'correction',
   });
 
+  // Правка платежу може мовчки скинути підписку в PENDING (напр. суму зробили carryover-ом
+  // або платіж перестав рахуватись) — це помітна зміна стану, тож вона йде і в подію,
+  // і у відповідь для тоста.
+  const pendingNote = revertedToPending
+    ? ' · зарахованих платежів не лишилось — підписка повернулась у PENDING (ще не оплачено)'
+    : '';
+  const spWarning = buildOpenAccessWarning(sub, revertedToPending);
+  const debtNote = debtNoteFor(debt, newExpiresAt);
   await prisma.yearlyProgramSubscriptionEvent.create({
     data: {
       subscriptionId: sub.id,
       type: 'admin_action',
-      message: `Редагування платежу (${actor}): ${changes.join('; ')}`,
-      metadata: { editPayment: true, paymentId, actor, changes },
+      message: `Редагування платежу (${actor}): ${changes.join('; ')}${pendingNote}${debtNote}`,
+      metadata: {
+        editPayment: true, paymentId, actor, changes, newStatus,
+        ...(revertedToPending ? { revertedToPending: true } : {}),
+      },
     },
   });
 
@@ -1399,8 +1411,31 @@ async function handleEditPayment(
     ok: true,
     changes,
     newStatus,
+    revertedToPending,
+    ...(spWarning ? { spWarning } : {}),
     newExpiresAt: newExpiresAt?.toISOString() ?? null,
   });
+}
+
+/// Після корекції підписка лишилась ACTIVE, але розрахована дата вже в минулому.
+/// Нейтральна нотатка в подію (без critical-issue): це штатно підбере нічний cron.
+function debtNoteFor(debt: boolean, newExpiresAt: Date | null): string {
+  if (!debt || !newExpiresAt) return '';
+  return ` · ⚠️ розрахована дата доступу (${newExpiresAt.toISOString().slice(0, 10)}) вже в минулому`
+    + ' — нічний прохід переведе підписку в GRACE';
+}
+
+/// Корекція повернула підписку в PENDING, а доступ у SendPulse лишився відкритим.
+/// Автоматично НЕ закриваємо (це рішення менеджера) — але мовчати теж не можна:
+/// «ще не оплачено» з відкритим курсом = безкоштовний доступ.
+function buildOpenAccessWarning(sub: NonNullable<SubWithUser>, revertedToPending: boolean): string | null {
+  if (!revertedToPending) return null;
+  const opened = sub.sendpulseAccessOpenedAt;
+  if (!opened) return null;
+  // Доступ уже закривали ПІСЛЯ відкриття — попереджати нема про що.
+  const closed = sub.sendpulseAccessClosedAt;
+  if (closed && closed.getTime() >= opened.getTime()) return null;
+  return 'Доступ у SendPulse лишається відкритим — закрий кнопкою «Закрити доступ», якщо потрібно.';
 }
 
 /// Скільки платежів максимум приймає пакетна дія за раз. Реально це кількість часток
@@ -1462,15 +1497,15 @@ async function handleSetPaymentAccess(
     data: { excludedFromAccess: input.excluded },
   });
 
-  // Перерахунок доступу по актуальних платежах. allowRevive:false — виправлення платежу
-  // не має воскрешати закриту підписку (та сама політика, що й у edit_payment).
-  const { newStatus, newExpiresAt, revertedToPending } = await applyPaymentActivation({
+  // Перерахунок доступу по актуальних платежах. context:'correction' — виправлення платежу
+  // не апгрейдить статус (GRACE лишається GRACE) і не воскрешає закриту підписку.
+  const { newStatus, newExpiresAt, revertedToPending, debt } = await applyPaymentActivation({
     subscriptionId: sub.id,
     plan: sub.plan,
     autoRenew: sub.autoRenew,
     prevStatus: sub.status,
     lastPaymentAt: sub.lastPaymentAt ?? changing[0]!.paidAt ?? changing[0]!.createdAt,
-    allowRevive: false,
+    context: 'correction',
   });
 
   const reason = (input.note ?? '').trim().slice(0, 300);
@@ -1480,13 +1515,16 @@ async function handleSetPaymentAccess(
   const pendingNote = revertedToPending
     ? ' · зарахованих платежів не лишилось — підписка повернулась у PENDING (ще не оплачено)'
     : '';
+  const spWarning = buildOpenAccessWarning(sub, revertedToPending);
+  const spNote = spWarning ? ` · ⚠️ ${spWarning}` : '';
+  const debtNote = debtNoteFor(debt, newExpiresAt);
   await prisma.yearlyProgramSubscriptionEvent.create({
     data: {
       subscriptionId: sub.id,
       type: 'admin_action',
       message: input.excluded
-        ? `Виключено з доступу (${actor}): ${changing.length} шт. на ${totalAmount}₴ — місяці доступу за ними більше не рахуються${reason ? ` — ${reason}` : ''}${pendingNote} · expiresAt=${newExpiresAt?.toISOString().slice(0, 10) ?? 'null'}`
-        : `Повернено в доступ (${actor}): ${changing.length} шт. на ${totalAmount}₴ — місяці доступу за ними знову рахуються${reason ? ` — ${reason}` : ''} · expiresAt=${newExpiresAt?.toISOString().slice(0, 10) ?? 'null'}`,
+        ? `Виключено з доступу (${actor}): ${changing.length} шт. на ${totalAmount}₴ — місяці доступу за ними більше не рахуються${reason ? ` — ${reason}` : ''}${pendingNote}${spNote}${debtNote} · expiresAt=${newExpiresAt?.toISOString().slice(0, 10) ?? 'null'}`
+        : `Повернено в доступ (${actor}): ${changing.length} шт. на ${totalAmount}₴ — місяці доступу за ними знову рахуються${reason ? ` — ${reason}` : ''}${debtNote} · expiresAt=${newExpiresAt?.toISOString().slice(0, 10) ?? 'null'}`,
       metadata: {
         paymentAccess: true,
         excluded: input.excluded,
@@ -1507,6 +1545,7 @@ async function handleSetPaymentAccess(
     excluded: input.excluded,
     newStatus,
     revertedToPending,
+    ...(spWarning ? { spWarning } : {}),
     newExpiresAt: newExpiresAt?.toISOString() ?? null,
   });
 }
@@ -1541,24 +1580,27 @@ async function handleDeletePayments(
 
   await prisma.payment.deleteMany({ where: { id: { in: payments.map((p) => p.id) } } });
 
-  const { newStatus, newExpiresAt, revertedToPending } = await applyPaymentActivation({
+  const { newStatus, newExpiresAt, revertedToPending, debt } = await applyPaymentActivation({
     subscriptionId: sub.id,
     plan: sub.plan,
     autoRenew: sub.autoRenew,
     prevStatus: sub.status,
     lastPaymentAt: sub.lastPaymentAt ?? new Date(),
-    allowRevive: false,
+    context: 'correction',
   });
 
   const pendingNote = revertedToPending
     ? ' · зарахованих платежів не лишилось — підписка повернулась у PENDING (ще не оплачено)'
     : '';
+  const spWarning = buildOpenAccessWarning(sub, revertedToPending);
+  const spNote = spWarning ? ` · ⚠️ ${spWarning}` : '';
+  const debtNote = debtNoteFor(debt, newExpiresAt);
   await prisma.yearlyProgramSubscriptionEvent.create({
     data: {
       subscriptionId: sub.id,
       type: 'admin_action',
       message: `🗑 Видалено ${payments.length} ручн. ${payments.length === 1 ? 'платіж' : 'платежів'} на ${totalAmount}₴ (${actor}): `
-        + `${snapshot.map((s) => s.orderReference).join(', ')}${pendingNote} · expiresAt=${newExpiresAt?.toISOString().slice(0, 10) ?? 'null'}`,
+        + `${snapshot.map((s) => s.orderReference).join(', ')}${pendingNote}${spNote}${debtNote} · expiresAt=${newExpiresAt?.toISOString().slice(0, 10) ?? 'null'}`,
       metadata: {
         paymentDeleted: true, actor, totalAmount, payments: snapshot, newStatus,
         ...(revertedToPending ? { revertedToPending: true } : {}),
@@ -1572,6 +1614,7 @@ async function handleDeletePayments(
     totalAmount,
     newStatus,
     revertedToPending,
+    ...(spWarning ? { spWarning } : {}),
     newExpiresAt: newExpiresAt?.toISOString() ?? null,
   });
 }

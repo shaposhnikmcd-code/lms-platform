@@ -126,7 +126,11 @@ export default function EditPaymentModal({
         setError(data.error ?? res.statusText);
         return;
       }
-      toast('success', data.noChanges ? 'Без змін' : 'Платіж оновлено');
+      // Правка платежу може мовчки скинути підписку в PENDING (напр. спосіб змінили на
+      // «Перенесення») — і тоді відкритий доступ у SendPulse лишається за неоплаченим.
+      const pendingNote = data.revertedToPending ? ' · підписка повернулась у «Очікує оплату»' : '';
+      toast('success', data.noChanges ? 'Без змін' : `Платіж оновлено${pendingNote}`);
+      if (data.spWarning) toast('warning', data.spWarning);
       onSaved();
       onClose();
     } catch (e) {
@@ -151,7 +155,7 @@ export default function EditPaymentModal({
   async function post(
     action: string,
     extra: Record<string, unknown>,
-    successMsg: (data: { newExpiresAt?: string | null; revertedToPending?: boolean }) => string,
+    successMsg: (data: { newExpiresAt?: string | null; revertedToPending?: boolean; spWarning?: string }) => string,
   ) {
     setFixing(true);
     setError(null);
@@ -171,6 +175,9 @@ export default function EditPaymentModal({
       // менеджеру одразу, інакше зміна статусу в таблиці виглядає як збій.
       const pendingNote = data.revertedToPending ? ' · підписка повернулась у «Очікує оплату»' : '';
       toast('success', data.noChanges ? 'Без змін' : successMsg(data) + pendingNote);
+      // Підписка «ще не оплачена», а курс у SendPulse лишився відкритим — окремий
+      // warning-тост, бо автоматично доступ ми не закриваємо (це рішення менеджера).
+      if (data.spWarning) toast('warning', data.spWarning);
       onSaved();
       onClose();
     } catch (e) {

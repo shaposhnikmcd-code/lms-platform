@@ -1,21 +1,32 @@
-/// Спільна логіка «активація підписки після зарахування платежу» — використовується
-/// і при ручному підтвердженні оплати (handleManualPayment у [id]/route.ts), і при
-/// перенесенні студента з минулого набору (carryover у manual-add/route.ts), і при
-/// редагуванні ручного платежу (edit_payment).
+/// Спільна логіка «перерахунок підписки по її платежах» — використовується і при ручному
+/// підтвердженні оплати (handleManualPayment у [id]/route.ts), і при перенесенні студента
+/// з минулого набору (carryover у manual-add/route.ts), і при корекціях платежу
+/// (edit_payment / set_payment_access / delete_payment).
 ///
-/// Тягне свіжий стан підписки (cohort + усі payments, включно з щойно створеним),
-/// перераховує expiresAt через calculateAccessUntil (single source of truth) і оновлює
-/// статус за еталоном WFP-callback-а (уніфікація ручного флоу зі стандартною покупкою):
-///   — prevStatus ∈ PENDING/ACTIVE/GRACE → ACTIVE завжди (незалежно від запуску cohort-а);
-///   — prevStatus ∈ EXPIRED/CANCELLED/ARCHIVED → `allowRevive:true` піднімає в ACTIVE,
-///     `allowRevive:false` (edit_payment) — статус не чіпає;
-///   — зарахованих платежів не лишилось узагалі (єдиний виключили з доступу або видалили)
-///     і підписка жива → PENDING з expiresAt=null («ще не оплачено»), див. `revertedToPending`.
-/// startDate виставляється в lastPaymentAt, якщо ще не заданий (як `sub.startDate ?? now`
-/// у callback-у).
+/// ДВА РЕЖИМИ (`context`), бо це два різні за змістом сценарії:
 ///
-/// При РЕАЛЬНОМУ оживленні (див. `revived` нижче) додатково повторює те, що робить
-/// callback: прибирає сліди скасування і скидає SendPulse-маркери, якщо доступ закривали.
+///   • `payment` (default) — «прийшла оплата». Тягне свіжий стан підписки (cohort + усі
+///     payments, включно з щойно створеним), перераховує expiresAt через calculateAccessUntil
+///     (single source of truth) і оновлює статус за еталоном WFP-callback-а:
+///       — prevStatus ∈ PENDING/ACTIVE/GRACE → ACTIVE завжди (незалежно від запуску cohort-а);
+///       — prevStatus ∈ EXPIRED/CANCELLED/ARCHIVED → `allowRevive:true` піднімає в ACTIVE,
+///         `allowRevive:false` — статус не чіпає;
+///     при РЕАЛЬНОМУ оживленні (див. `revived`) додатково повторює те, що робить callback:
+///     прибирає сліди скасування і скидає SendPulse-маркери, якщо доступ закривали, та пише
+///     подію `revived_with_debt`, коли оплачених місяців не вистачає навіть до сьогодні.
+///
+///   • `correction` — «менеджер виправляє платіж» (виключив з доступу / видалив / відредагував).
+///     Тут НІЧОГО не «оплачено», тож статус НЕ апгрейдиться: GRACE лишається GRACE, PENDING —
+///     PENDING, ACTIVE — ACTIVE. Заборонені `revived` / очищення `cancelledAt` / скидання
+///     SendPulse-маркерів (інакше «прибрати платіж» відкривало б студенту доступ нічним heal-ом)
+///     і подія `revived_with_debt` (фальшивий critical «Оплата зарахована… Підписку оживлено»).
+///     Якщо після корекції ACTIVE лишився з датою в минулому — це штатно підбере нічний cron
+///     (ACTIVE→GRACE); прапорець `debt` віддаємо викликачу для нейтральної нотатки в події.
+///
+/// Спільне для обох режимів: зарахованих платежів не лишилось узагалі (єдиний виключили з
+/// доступу або видалили) і підписка жива → PENDING з expiresAt=null («ще не оплачено»),
+/// див. `revertedToPending`. startDate виставляється в lastPaymentAt, якщо ще не заданий
+/// (як `sub.startDate ?? now` у callback-у).
 
 import { Prisma } from '@prisma/client';
 import prisma from '@/lib/prisma';
@@ -31,8 +42,9 @@ export interface PaymentActivationResult {
   revived: boolean;
   /// true — SendPulse-маркери скинуто, щоб наступний extra-launch реально відкрив доступ.
   spMarkersReset: boolean;
-  /// true — підписка активна, але розрахований expiresAt уже в минулому (записано
-  /// подію `revived_with_debt`, у «Помилках» з'явиться critical-issue).
+  /// true — підписка активна, але розрахований expiresAt уже в минулому. У режимі
+  /// `payment` при цьому записано подію `revived_with_debt` (у «Помилках» з'явиться
+  /// critical-issue); у режимі `correction` події немає — прапорець лише інформативний.
   debt: boolean;
   /// true — після перерахунку в підписці не лишилось жодного зарахованого платежу,
   /// тож жива підписка повернулась у PENDING («ще не оплачено»).
@@ -51,10 +63,14 @@ export async function applyPaymentActivation(args: {
   /// lastPaymentAt для оновлення підписки (у ручній оплаті = paidAt, у carryover = now).
   lastPaymentAt: Date;
   /// Дозволити «оживити» мертву підписку (EXPIRED/CANCELLED/ARCHIVED) у ACTIVE.
-  /// manual_payment / carryover → true (реальна оплата відновлює доступ);
-  /// edit_payment → false (правка платежу не має воскрешати закриту підписку). Default false.
+  /// manual_payment / carryover → true (реальна оплата відновлює доступ). Default false.
+  /// У режимі `correction` ігнорується — там статус не апгрейдиться взагалі.
   allowRevive?: boolean;
+  /// `payment` (default) — зарахування оплати; `correction` — виправлення платежу
+  /// (set_payment_access / delete_payment / edit_payment). Різниця — у шапці файлу.
+  context?: 'payment' | 'correction';
 }): Promise<PaymentActivationResult> {
+  const isCorrection = args.context === 'correction';
   const fresh = await prisma.yearlyProgramSubscription.findUnique({
     where: { id: args.subscriptionId },
     include: {
@@ -88,23 +104,30 @@ export async function applyPaymentActivation(args: {
   // все одно відкриваються централізовано на запуску, але сама підписка вже активна).
   // Мертву (EXPIRED/CANCELLED/ARCHIVED) піднімаємо тільки якщо allowRevive.
   //
-  // Виняток — зарахованих платежів не лишилось (менеджер виключив з доступу або видалив
-  // єдиний платіж): жива підписка повертається у PENDING, тобто «ще не оплачено», з
-  // expiresAt=null. Це легальний стан — рівно те, з чого підписка починається. Мертві
-  // статуси не чіпаємо: EXPIRED/CANCELLED — окреме рішення менеджера, і «оживляти» їх
-  // у PENDING через правку платежу неправильно.
+  // У режимі `correction` апгрейду немає взагалі: корекція платежу нічого не оплачує.
+  // Найгірший наслідок старої поведінки — GRACE→ACTIVE після виключення платежу: боржник
+  // виглядав активним, а нічний cron дарував йому ПОВНИЙ новий grace-період.
+  //
+  // Виняток, спільний для обох режимів — зарахованих платежів не лишилось (менеджер
+  // виключив з доступу або видалив єдиний платіж): жива підписка повертається у PENDING,
+  // тобто «ще не оплачено», з expiresAt=null. Це легальний стан — рівно те, з чого
+  // підписка починається. Мертві статуси не чіпаємо: EXPIRED/CANCELLED — окреме рішення
+  // менеджера, і «оживляти» їх у PENDING через правку платежу неправильно.
   const revertedToPending = countedPaid === 0 && REVIVABLE_STATUSES.has(args.prevStatus);
   const newStatus = revertedToPending
     ? 'PENDING'
-    : REVIVABLE_STATUSES.has(args.prevStatus)
-      ? 'ACTIVE'
-      : (args.allowRevive ? 'ACTIVE' : args.prevStatus);
+    : isCorrection
+      ? args.prevStatus
+      : REVIVABLE_STATUSES.has(args.prevStatus)
+        ? 'ACTIVE'
+        : (args.allowRevive ? 'ACTIVE' : args.prevStatus);
 
   // Реальне оживлення = підписку підняли в ACTIVE з мертвого статусу АБО вона несла
   // слід скасування. Друга умова важлива, бо статус могли вже поправити вручну в
   // адмінці — тоді revive за статусом не видно, а `cancelledAt` лишається.
+  // У режимі `correction` оживлення неможливе за визначенням.
   const wasDead = !REVIVABLE_STATUSES.has(args.prevStatus);
-  const revived = newStatus === 'ACTIVE' && (wasDead || !!fresh?.cancelledAt);
+  const revived = !isCorrection && newStatus === 'ACTIVE' && (wasDead || !!fresh?.cancelledAt);
 
   // Дзеркало WFP-callback-а (`handleYearlyProgramCallback`): при оживленні прибираємо
   // сліди скасування і, якщо доступ у SendPulse РЕАЛЬНО закривали, скидаємо обидва
@@ -133,9 +156,14 @@ export async function applyPaymentActivation(args: {
   // із трьох пропущених місяців) проходила тихо: у нас ACTIVE, а доступ уже закінчився.
   // Пишемо лише коли підписка реально стала ACTIVE: edit_payment по закритій підписці
   // (allowRevive:false) не має піднімати critical-issue на рівному місці.
+  //
+  // І тільки в режимі `payment`: у корекції ніхто нічого не зараховував, тож текст
+  // «Оплата зарахована… Підписку оживлено» був би брехнею — а issue з нього ще й
+  // ніколи не знімається у вкладці «Помилки». Прострочений ACTIVE після корекції
+  // штатно підбирає нічний cron (ACTIVE→GRACE).
   const paidCount = (fresh?.payments ?? []).filter((p) => p.status === 'PAID').length;
   const debt = newStatus === 'ACTIVE' && !!newExpiresAt && newExpiresAt.getTime() <= Date.now();
-  if (debt) {
+  if (debt && !isCorrection) {
     const totalSlots = args.plan === 'MONTHLY' ? YEARLY_PROGRAM_CONFIG.totalMonthlyPayments : 1;
     await prisma.yearlyProgramSubscriptionEvent.create({
       data: {
