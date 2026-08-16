@@ -1473,8 +1473,11 @@ async function loadManualPaymentsForBatch(subId: string, rawIds: unknown): Promi
 /// «Виключити з доступу» / «Повернути в доступ» — оборотне виправлення помилкового
 /// ручного платежу. Ставить `Payment.excludedFromAccess` (calculateAccessUntil такі рядки
 /// не рахує як місяць) і перераховує підписку тим самим helper-ом, що й оплата.
-/// Гроші з «Доходу» НЕ зникають: платіж лишається слідом реального внеску, змінюється
-/// лише його вплив на доступ. Для розбитого внесення приходять id усіх часток одразу.
+/// Гроші НЕ зникають: платіж лишається в історії й у «Доході» Річної (там агрегуються всі
+/// PAID-рядки підписки), змінюється лише його вплив на доступ. УВАГА: у глобальній аналітиці
+/// продажів (/dashboard/admin, lib/admin-sales-*.ts) виключені платежі відфільтровані
+/// (`excludedFromAccess: false`) — саме тому тексти в UI формулюють це окремо.
+/// Для розбитого внесення приходять id усіх часток одразу.
 async function handleSetPaymentAccess(
   sub: NonNullable<SubWithUser>,
   input: { paymentIds?: string[]; excluded?: boolean; note?: string },

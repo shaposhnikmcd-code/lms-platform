@@ -46,7 +46,7 @@ export default async function AdminYearlyProgramPage() {
       take: MAX_ROWS,
       include: {
         user: { select: { id: true, name: true, email: true } },
-        payments: { select: { id: true, amount: true, status: true, createdAt: true, paidAt: true, paymentMethod: true, manualMethod: true, orderReference: true } },
+        payments: { select: { id: true, amount: true, status: true, createdAt: true, paidAt: true, paymentMethod: true, manualMethod: true, orderReference: true, excludedFromAccess: true } },
         cohort: { select: { id: true, name: true, startDate: true, launchedAt: true } },
       },
     }),
@@ -166,7 +166,12 @@ export default async function AdminYearlyProgramPage() {
 
   const rows: Row[] = visibleSubs.map((s) => {
     const paidPayments = s.payments.filter((p) => p.status === 'PAID');
+    // «Дохід» рахується по ВСІХ PAID-рядках, включно з виключеними з доступу: гроші
+    // фізично отримані, виключення міняє лише вплив платежу на місяці доступу.
     const totalPaid = paidPayments.reduce((sum, p) => sum + p.amount, 0);
+    // А ось «оплачено» у сенсі доступу — лише зараховані рядки (те саме, що рахує
+    // calculateAccessUntil). Використовується для лейбла PENDING-підписки.
+    const countedPaid = paidPayments.filter((p) => !p.excludedFromAccess);
     // Перенесення з минулого набору: PAID-платіж 0₴ з manualMethod='carryover'.
     const isCarryover = paidPayments.some((p) => p.manualMethod === 'carryover');
     const msLeft = s.expiresAt ? s.expiresAt.getTime() - now : null;
@@ -185,9 +190,11 @@ export default async function AdminYearlyProgramPage() {
     let pendingLabel: string | null = null;
     let pendingTone: 'neutral' | 'reject' | null = null;
     if (s.status === 'PENDING') {
-      if (isCarryover || paidPayments.length > 0) {
+      if (countedPaid.length > 0) {
         // Людина вже заплатила (звичайна ручна оплата чи перенесення) — вона нічого не винна,
         // чекає лише загального запуску програми, а не оплати. Пріоритет над derivePendingLabel.
+        // Рахуємо ЗАРАХОВАНІ платежі: якщо єдиний платіж виключили з доступу, підписка
+        // повернулась у «ще не оплачено» — «Чекає запуску» тут було б брехнею.
         pendingLabel = 'Чекає запуску';
         pendingTone = 'neutral';
       } else {
