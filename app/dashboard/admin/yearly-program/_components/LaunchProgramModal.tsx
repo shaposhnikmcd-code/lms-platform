@@ -32,6 +32,7 @@ import {
   DEFAULT_LAUNCH_EMAIL_BODY,
   DEFAULT_LAUNCH_EMAIL_SUBJECT,
 } from '@/lib/yearlyProgramCohort';
+import { addCalendarMonths } from '@/lib/yearlyProgramAccess';
 
 /// Опис кожного поля cohort welcome-листа — для довідника й попереджень при видаленні.
 /// Cohort використовує double-curly формат `{{name}}`, відмінний від payment/reminder (`{name}`).
@@ -87,6 +88,7 @@ const LAUNCH_MINUTE_UTC = 50;
 export default function LaunchProgramModal({
   cohort,
   paidPendingCount,
+  postAccessMonths,
   theme,
   onLaunched,
   onClose,
@@ -94,6 +96,9 @@ export default function LaunchProgramModal({
   cohort: CohortListItem;
   /// К-ть підписок які реально отримають доступ при запуску (paid + access не відкрито).
   paidPendingCount: number;
+  /// Місяців доступу до матеріалів після завершення програми (AppSetting). Довідково:
+  /// показуємо підсумкову дату доступу, щоб адмін бачив її ще до запуску.
+  postAccessMonths: number;
   theme: Theme;
   /// Скільки підписок лишилось БЕЗ відкритого доступу після запуску. CohortActions
   /// тримає на цьому числі кнопку «Повторити запуск» до моменту, поки router.refresh()
@@ -242,6 +247,13 @@ export default function LaunchProgramModal({
   }, [saveStatus]);
 
   const cohortEnd = useMemo(() => new Date(cohort.endDate), [cohort.endDate]);
+  /// Дата, до якої відкриється доступ до матеріалів: кінець набору + місяці з налаштування
+  /// «Надати доступ до». Формула імпортована з lib/yearlyProgramAccess — та сама, якою
+  /// сервер рахує expiresAt, тож довідка не може розійтися з реальністю.
+  const accessUntil = useMemo(
+    () => addCalendarMonths(new Date(cohort.endDate), postAccessMonths),
+    [cohort.endDate, postAccessMonths],
+  );
   const scheduledDate = useMemo(() => new Date(scheduledFor), [scheduledFor]);
   // Дата вже у минулому = invalid; також забороняємо обрати після завершення cohort-у.
   const scheduleInvalid = scheduledDate.getTime() <= Date.now() || scheduledDate.getTime() > cohortEnd.getTime();
@@ -549,6 +561,23 @@ export default function LaunchProgramModal({
               <div className="flex-1">
                 Підписок з оплатою, готових до відкриття доступу: <b className="tabular-nums">{paidPendingCount}</b>.
                 Дати cohort-у: <b>{fmtDate(cohort.startDate)} — {fmtDate(cohort.endDate)}</b>.
+              </div>
+            </div>
+
+            {/* Довідка про підсумкову дату доступу — рахується тією ж формулою, що й expiresAt
+                підписок (addCalendarMonths від дати завершення набору). Щоб при запуску було
+                видно, до якої дати реально відкриється доступ. */}
+            <div
+              data-launch-access-line
+              className={`-mt-2 rounded-lg px-3.5 py-2 flex items-center gap-2 text-[12px] tabular-nums ${
+                dark ? 'bg-white/[0.03] border border-white/[0.08] text-slate-300' : 'bg-stone-50 border border-stone-200 text-stone-700'
+              }`}
+            >
+              <HiOutlineCalendarDays className="text-base shrink-0 opacity-70" />
+              <div className="flex-1">
+                Період: <b>{fmtDate(cohort.startDate)} – {fmtDate(cohort.endDate)}</b>
+                {' · '}Доступ до: <b className={dark ? 'text-amber-200' : 'text-amber-800'}>{fmtDate(accessUntil.toISOString())}</b>
+                {' '}<span className={dark ? 'text-slate-500' : 'text-stone-500'}>(+{postAccessMonths} міс)</span>
               </div>
             </div>
 
@@ -1160,8 +1189,13 @@ function pluralize(n: number, nom1: string, nom2_4: string, gen: string): string
   return gen;
 }
 
+/// Дати набору — календарні межі, збережені як UTC-інстанти (кінець доби 23:59:59.999Z).
+/// Тому форматуємо в UTC: з локальними геттерами в київському браузері (UTC+2/+3) кінець
+/// набору 31.05 показувався б як 01.06 — на день пізніше за реальну межу.
 function fmtDate(iso: string): string {
-  return new Intl.DateTimeFormat('uk-UA', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(iso));
+  return new Intl.DateTimeFormat('uk-UA', {
+    day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC',
+  }).format(new Date(iso));
 }
 
 /// Date-only humanize: "Завтра", "У середу", "01 вересня 2026". Без часу — час фіксований системою.

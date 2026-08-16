@@ -24,12 +24,16 @@ export default function CohortActions({
   cohort,
   theme,
   graceDays,
+  postAccessMonths,
   telegramSettings,
   isSuperAdmin,
 }: {
   cohort: CohortListItem;
   theme: Theme;
   graceDays: number;
+  /// Місяців доступу до матеріалів після завершення програми — довідково у модалці запуску,
+  /// щоб адмін бачив підсумкову дату доступу ще до натискання «Запустити».
+  postAccessMonths: number;
   telegramSettings: TelegramSettingsState;
   /// Super-admin розблоковує кнопку «Відмінити Запуск програми» (rare-операція).
   isSuperAdmin: boolean;
@@ -307,6 +311,7 @@ export default function CohortActions({
         <LaunchProgramModal
           cohort={cohort}
           paidPendingCount={pendingAccessCount}
+          postAccessMonths={postAccessMonths}
           theme={theme}
           onLaunched={(remainingUnopened) => setPendingOverride(remainingUnopened)}
           onClose={() => setLaunchModalOpen(false)}

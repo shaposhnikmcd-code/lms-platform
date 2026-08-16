@@ -314,7 +314,10 @@ function YearlyProgramViewInner({
   const [pageSize, setPageSize] = useState<number>(25);
   const [page, setPage] = useState<number>(1);
   const [graceModalOpen, setGraceModalOpen] = useState(false);
-  const [postAccessModalOpen, setPostAccessModalOpen] = useState(false);
+  /// Інлайн-редактор «Надати доступ до» живе в CohortHeader (біля періоду набору), але
+  /// відкривається і звідти, і з плашки в панелі налаштувань — тому стан підняли сюди.
+  /// Двох різних UI для одного налаштування свідомо не тримаємо.
+  const [accessEditOpen, setAccessEditOpen] = useState(false);
   const [pricingModalOpen, setPricingModalOpen] = useState(false);
   const [issuesOpen, setIssuesOpen] = useState(false);
   const [manualAddOpen, setManualAddOpen] = useState(false);
@@ -329,6 +332,24 @@ function YearlyProgramViewInner({
   /// Яку таблицю показуємо під спільною KPI-стрічкою і toolbar-ом: підписки (дефолт)
   /// чи реєстр ручних платежів по всіх підписках.
   const [tab, setTab] = useState<'subs' | 'manual'>('subs');
+
+  /// Плашка «Надати доступ до» — не другий редактор, а вхід у той самий інлайн біля періоду
+  /// набору. Дата доступу рахується від дати завершення набору, тому редактору потрібен
+  /// вибраний набір: у зрізі «Усі підписки» спершу показуємо поточний.
+  function openAccessEditor() {
+    if (cohorts.length === 0) {
+      toast('info', 'Спочатку створіть запуск програми — доступ рахується від дати його завершення');
+      return;
+    }
+    if (!activeCohort) {
+      setActiveCohortId(cohorts.find((c) => c.isCurrent)?.id ?? cohorts[0]!.id);
+    }
+    setAccessEditOpen(true);
+    // Плашка стоїть нижче шапки — після відкриття підводимо редактор в зону видимості.
+    setTimeout(() => {
+      document.querySelector('[data-cohort-header]')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 0);
+  }
 
   /// Чинний Vision-статус рядка: щойно виставлений оптимістичний override має пріоритет
   /// над серверним значенням — щоб зведення і фільтр реагували на крапку миттєво.
@@ -548,6 +569,9 @@ function YearlyProgramViewInner({
           onSelect={setActiveCohortId}
           onCreate={() => setCreateCohortOpen(true)}
           theme={theme}
+          postAccessMonths={postAccessMonths}
+          accessEditing={accessEditOpen}
+          onAccessEditingChange={setAccessEditOpen}
         />
         {activeCohort && (
           <>
@@ -556,6 +580,7 @@ function YearlyProgramViewInner({
               cohort={activeCohort}
               theme={theme}
               graceDays={graceDays}
+              postAccessMonths={postAccessMonths}
               telegramSettings={telegramSettings}
               isSuperAdmin={isSuperAdmin}
             />
@@ -675,11 +700,11 @@ function YearlyProgramViewInner({
             <ProgramSettingButton
               theme={theme}
               icon={<HiOutlineCalendarDays className="text-base" />}
-              label="Доступ після курсу"
+              label="Надати доступ до"
               value={`+${postAccessMonths} міс`}
               valueTone="neutral"
-              title="Бонусний доступ до платформи після завершення навчання — скільки місяців"
-              onClick={() => setPostAccessModalOpen(true)}
+              title="Скільки місяців після завершення програми зберігається доступ до матеріалів. Редагується біля періоду набору — клік відкриє це поле."
+              onClick={openAccessEditor}
             />
           </div>
         </AdminPanel>
@@ -770,13 +795,6 @@ function YearlyProgramViewInner({
           theme={theme}
           initialDays={graceDays}
           onClose={() => setGraceModalOpen(false)}
-        />
-      )}
-      {postAccessModalOpen && (
-        <PostAccessSettingsModal
-          theme={theme}
-          initialMonths={postAccessMonths}
-          onClose={() => setPostAccessModalOpen(false)}
         />
       )}
       {pricingModalOpen && (
@@ -3692,328 +3710,6 @@ function GraceSettingsModal({
             <p>
               Застосовується <strong>до нових переходів</strong> ACTIVE → GRACE.
               Уже активні GRACE-записи зберігають свою дату закриття.
-            </p>
-          </div>
-        </div>
-
-        {/* Footer */}
-        <div className={`flex items-center justify-between gap-3 px-6 py-3 border-t ${dark ? 'border-white/10 bg-white/[0.02]' : 'border-stone-200 bg-stone-50/50'}`}>
-          <span className={`text-[11px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
-            {dirty
-              ? <>Зміни <span className={dark ? 'text-amber-300' : 'text-amber-700'}>не збережено</span></>
-              : 'Без змін'}
-          </span>
-          <div className="flex gap-2">
-            <button
-              onClick={onClose}
-              className={`px-4 py-1.5 rounded-lg border text-[12px] font-medium transition-colors ${
-                dark
-                  ? 'bg-white/[0.04] border-white/[0.1] text-slate-300 hover:bg-white/[0.08]'
-                  : 'bg-white border-stone-300 text-stone-700 hover:bg-stone-50'
-              }`}
-            >
-              Скасувати
-            </button>
-            <button
-              onClick={save}
-              disabled={!dirty || saving}
-              className={`px-5 py-1.5 rounded-lg text-[12px] font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
-                dark
-                  ? 'bg-amber-400 text-stone-900 hover:bg-amber-300'
-                  : 'bg-stone-900 text-amber-100 hover:bg-stone-800'
-              }`}
-            >
-              {saving ? 'Збереження...' : 'Зберегти'}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>,
-    document.body,
-  );
-}
-
-function pluralizeMonths(n: number): string {
-  const mod10 = n % 10;
-  const mod100 = n % 100;
-  if (mod10 === 1 && mod100 !== 11) return 'місяць';
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return 'місяці';
-  return 'місяців';
-}
-
-/// Додає N календарних місяців до дати (клемп дня до останнього дня цільового місяця).
-/// Дублює серверну логіку `addCalendarMonths` з lib/yearlyProgramAccess.ts — тому ЛИШЕ
-/// UTC-геттери: сервер рахує доступ у UTC, і на 31-х числах локальні геттери давали б
-/// інший місяць-донор (31.05 у браузері UTC+3 читається як 30.05 у UTC), а прев'ю в
-/// модалці показувало б дату, якої студент насправді не отримає.
-function addCalendarMonthsClient(date: Date, months: number): Date {
-  if (!months) return new Date(date);
-  const day = date.getUTCDate();
-  const r = new Date(date);
-  r.setUTCDate(1);
-  r.setUTCMonth(r.getUTCMonth() + months);
-  const lastDay = new Date(Date.UTC(r.getUTCFullYear(), r.getUTCMonth() + 1, 0)).getUTCDate();
-  r.setUTCDate(Math.min(day, lastDay));
-  return r;
-}
-
-/// Налаштування тривалості доступу до платформи ПІСЛЯ завершення Річної програми (у місяцях).
-/// Зберігає у AppSetting і перераховує expiresAt усіх живих підписок (через PATCH .../settings).
-function PostAccessSettingsModal({
-  theme,
-  initialMonths,
-  onClose,
-}: {
-  theme: Theme;
-  initialMonths: number;
-  onClose: () => void;
-}) {
-  const router = useRouter();
-  const dark = theme === 'dark';
-  const [mounted, setMounted] = useState(false);
-  const [months, setMonths] = useState<string>(String(initialMonths));
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const MIN = 0;
-  const MAX = 24;
-  const PRESETS = [3, 6, 9, 12];
-
-  useEffect(() => { setMounted(true); }, []);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    document.addEventListener('keydown', onKey);
-    document.body.style.overflow = 'hidden';
-    return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = ''; };
-  }, [onClose]);
-
-  const parsed = Number(months);
-  const valid = Number.isInteger(parsed) && parsed >= MIN && parsed <= MAX;
-  const dirty = valid && parsed !== initialMonths;
-  const previewN = valid ? parsed : initialMonths;
-  const previewWord = pluralizeMonths(previewN);
-
-  // Приклад: програма завершується 31.05.2027 → дата закриття доступу.
-  // Дата й формат — у UTC, як і сама формула: інакше в браузері на схід від Гринвіча
-  // прев'ю зсувалось би на день і розходилось із розрахунком сервера.
-  const exampleEnd = new Date(Date.UTC(2027, 4, 31));
-  const exampleAccess = addCalendarMonthsClient(exampleEnd, previewN);
-  const fmt = (d: Date) => `${String(d.getUTCDate()).padStart(2, '0')}.${String(d.getUTCMonth() + 1).padStart(2, '0')}.${d.getUTCFullYear()}`;
-
-  function bump(delta: number) {
-    const base = valid ? parsed : initialMonths;
-    const next = Math.min(MAX, Math.max(MIN, base + delta));
-    setMonths(String(next));
-    setError(null);
-  }
-
-  async function save() {
-    if (!dirty || saving) return;
-    setSaving(true);
-    setError(null);
-    try {
-      const res = await fetch('/api/admin/yearly-program/settings', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ postAccessMonths: parsed }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setError(data?.error || 'Не вдалося зберегти');
-        return;
-      }
-      router.refresh();
-      onClose();
-    } catch (e) {
-      setError(`Помилка: ${(e as Error).message}`);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  if (!mounted) return null;
-  return createPortal(
-    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4" role="dialog" aria-modal="true">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className={`relative max-w-lg w-full rounded-2xl shadow-2xl overflow-hidden ${
-        dark ? 'bg-zinc-900 border border-white/10 text-slate-200' : 'bg-white border border-stone-200 text-stone-800'
-      }`}>
-        {/* Header */}
-        <div className={`flex items-center justify-between px-6 py-4 border-b ${dark ? 'border-white/10' : 'border-stone-200'}`}>
-          <div className="flex items-center gap-3">
-            <span className={`w-9 h-9 rounded-xl flex items-center justify-center text-[18px] ${
-              dark
-                ? 'bg-amber-400/15 text-amber-300 ring-1 ring-amber-400/30'
-                : 'bg-amber-100 text-amber-700 ring-1 ring-amber-300/60'
-            }`} aria-hidden>
-              <HiOutlineCalendarDays className="w-[18px] h-[18px]" />
-            </span>
-            <div>
-              <h3 className="text-[15px] font-bold leading-tight">Доступ після завершення навчання</h3>
-              <p className={`text-[11px] mt-0.5 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
-                Скільки ще студент користується платформою, коли програма закінчилась
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            aria-label="Закрити"
-            className={`w-8 h-8 rounded-full flex items-center justify-center text-[14px] transition-colors ${
-              dark ? 'hover:bg-white/10 text-slate-400 hover:text-slate-200' : 'hover:bg-stone-100 text-stone-500 hover:text-stone-700'
-            }`}
-          >
-            ✕
-          </button>
-        </div>
-
-        <div className="px-6 py-5 space-y-5">
-          {/* Що це — простими словами */}
-          <p className={`text-[13px] leading-relaxed ${dark ? 'text-slate-300' : 'text-stone-700'}`}>
-            Навчання у Річній програмі триває до дати її завершення. Після цієї дати студент
-            ще певний час бачить матеріали на платформі — цей «бонусний» період ви задаєте тут.
-            Коли він спливає, доступ закривається автоматично.
-          </p>
-
-          {/* Hero — current vs new */}
-          <div className={`relative rounded-2xl px-5 py-4 overflow-hidden ${
-            dark
-              ? 'bg-gradient-to-br from-amber-500/[0.12] via-amber-500/[0.06] to-transparent ring-1 ring-amber-400/20'
-              : 'bg-gradient-to-br from-amber-50 via-amber-50/50 to-white ring-1 ring-amber-300/40'
-          }`}>
-            <div className="flex items-end justify-between gap-4">
-              <div>
-                <div className={`text-[10px] uppercase tracking-[0.14em] font-semibold ${dark ? 'text-amber-300/70' : 'text-amber-700/80'}`}>
-                  Зараз бонусний доступ
-                </div>
-                <div className="mt-1 flex items-baseline gap-2">
-                  <span className={`text-[42px] leading-none font-bold tabular-nums ${dark ? 'text-amber-200' : 'text-amber-800'}`}>
-                    {initialMonths}
-                  </span>
-                  <span className={`text-[15px] font-medium ${dark ? 'text-amber-300/80' : 'text-amber-700/90'}`}>
-                    {pluralizeMonths(initialMonths)}
-                  </span>
-                </div>
-              </div>
-              {dirty && (
-                <div className="text-right">
-                  <div className={`text-[10px] uppercase tracking-[0.14em] font-semibold ${dark ? 'text-emerald-300/80' : 'text-emerald-700/80'}`}>
-                    Стане
-                  </div>
-                  <div className="mt-1 flex items-baseline justify-end gap-2">
-                    <span className={`text-[28px] leading-none font-bold tabular-nums ${dark ? 'text-emerald-200' : 'text-emerald-700'}`}>
-                      {parsed}
-                    </span>
-                    <span className={`text-[12px] font-medium ${dark ? 'text-emerald-300/80' : 'text-emerald-700/90'}`}>
-                      {previewWord}
-                    </span>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Stepper + presets */}
-          <div>
-            <label className={`block text-[11px] uppercase tracking-wider font-semibold mb-2 ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
-              Кількість місяців
-            </label>
-            <div className="flex items-stretch gap-2">
-              <button
-                type="button"
-                onClick={() => bump(-1)}
-                disabled={!valid || parsed <= MIN}
-                aria-label="Зменшити"
-                className={`w-10 rounded-xl border text-[18px] font-semibold transition-colors flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed ${
-                  dark
-                    ? 'bg-white/[0.04] border-white/[0.1] text-slate-300 hover:bg-white/[0.08]'
-                    : 'bg-white border-stone-300 text-stone-700 hover:bg-stone-50'
-                }`}
-              >−</button>
-              <div className="relative flex-1">
-                <input
-                  type="number"
-                  min={MIN}
-                  max={MAX}
-                  value={months}
-                  onChange={(e) => { setMonths(e.target.value); setError(null); }}
-                  className={`w-full h-10 px-3 pr-16 rounded-xl border text-[18px] font-semibold tabular-nums text-center outline-none transition-colors ${
-                    dark
-                      ? 'bg-white/[0.04] border-white/[0.1] text-slate-100 focus:border-amber-400/60 focus:bg-white/[0.06]'
-                      : 'bg-white border-stone-300 text-stone-900 focus:border-amber-500/70'
-                  }`}
-                />
-                <span className={`absolute right-3 top-1/2 -translate-y-1/2 text-[12px] font-medium pointer-events-none ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
-                  {previewWord}
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => bump(1)}
-                disabled={!valid || parsed >= MAX}
-                aria-label="Збільшити"
-                className={`w-10 rounded-xl border text-[18px] font-semibold transition-colors flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed ${
-                  dark
-                    ? 'bg-white/[0.04] border-white/[0.1] text-slate-300 hover:bg-white/[0.08]'
-                    : 'bg-white border-stone-300 text-stone-700 hover:bg-stone-50'
-                }`}
-              >+</button>
-            </div>
-
-            {/* Presets */}
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              {PRESETS.map((p) => {
-                const active = valid && parsed === p;
-                return (
-                  <button
-                    key={p}
-                    type="button"
-                    onClick={() => { setMonths(String(p)); setError(null); }}
-                    className={`px-3 py-1 rounded-full text-[12px] font-semibold tabular-nums transition-colors ${
-                      active
-                        ? dark
-                          ? 'bg-amber-400 text-stone-900'
-                          : 'bg-stone-900 text-amber-100'
-                        : dark
-                          ? 'bg-white/[0.04] border border-white/[0.08] text-slate-300 hover:bg-white/[0.08]'
-                          : 'bg-white border border-stone-300 text-stone-600 hover:bg-stone-50'
-                    }`}
-                  >
-                    {p} {pluralizeMonths(p)}
-                  </button>
-                );
-              })}
-            </div>
-
-            {!valid && months !== '' && (
-              <p className={`mt-2 text-[11px] ${dark ? 'text-rose-400' : 'text-rose-700'}`}>
-                Ціле число від {MIN} до {MAX}
-              </p>
-            )}
-            {error && (
-              <p className={`mt-2 text-[11px] ${dark ? 'text-rose-400' : 'text-rose-700'}`}>{error}</p>
-            )}
-          </div>
-
-          {/* Live example */}
-          <div className={`rounded-xl px-4 py-3 ${
-            dark ? 'bg-white/[0.03] border border-white/[0.08]' : 'bg-stone-50 border border-stone-200'
-          }`}>
-            <div className={`text-[10px] uppercase tracking-[0.14em] font-semibold mb-1.5 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
-              Як це рахується
-            </div>
-            <p className={`text-[13px] leading-relaxed ${dark ? 'text-slate-200' : 'text-stone-800'}`}>
-              Навчання завершується <strong>{fmt(exampleEnd)}</strong>, додаємо <strong className={dark ? 'text-amber-300' : 'text-amber-700'}>{previewN} {previewWord}</strong> бонусного доступу —{' '}
-              і платформа закриється <strong className={dark ? 'text-emerald-300' : 'text-emerald-700'}>{fmt(exampleAccess)}</strong>.
-            </p>
-          </div>
-
-          {/* Info */}
-          <div className={`flex gap-2 text-[11.5px] leading-relaxed ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
-            <span className={`flex-shrink-0 mt-0.5 ${dark ? 'text-slate-500' : 'text-stone-400'}`} aria-hidden>ℹ</span>
-            <p>
-              Діє для <strong>всіх студентів Річної</strong>: хто платив одразу за рік — бонус нараховується відразу;
-              хто платить помісячно — після сплати всіх платежів.
-              Щойно натиснете «Зберегти», нові дати закриття проставляться всім активним студентам автоматично.
             </p>
           </div>
         </div>

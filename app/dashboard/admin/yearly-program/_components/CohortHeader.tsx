@@ -8,6 +8,12 @@ import type { Theme } from '../../_components/adminTheme';
 import type { CohortListItem } from './types';
 import { useUIFeedback, HoverInfo } from './UIFeedback';
 import InlineDatePicker, { formatDateChip } from '../../_components/InlineDatePicker';
+import { addCalendarMonths } from '@/lib/yearlyProgramAccess';
+
+/// Межі поля «Надати доступ до» — дзеркалять YEARLY_POST_ACCESS_MIN/MAX_MONTHS на сервері
+/// (валідація там же, у PATCH /api/admin/yearly-program/settings).
+const ACCESS_MIN_MONTHS = 0;
+const ACCESS_MAX_MONTHS = 24;
 
 /// Шапка зі списком cohort-ів — селектор + "+ Новий запуск".
 /// Назва обраного cohort-у показується великим заголовком.
@@ -17,6 +23,9 @@ export default function CohortHeader({
   onSelect,
   onCreate,
   theme,
+  postAccessMonths,
+  accessEditing,
+  onAccessEditingChange,
   rightSlot,
 }: {
   cohorts: CohortListItem[];
@@ -24,6 +33,13 @@ export default function CohortHeader({
   onSelect: (id: string | null) => void;
   onCreate: () => void;
   theme: Theme;
+  /// Скільки місяців доступу до матеріалів надається ПІСЛЯ завершення програми
+  /// (AppSetting `yearlyPostAccessMonths`, спільне для всіх наборів).
+  postAccessMonths: number;
+  /// Редактор «Надати доступ до» — керується ззовні, щоб плашка в панелі налаштувань
+  /// відкривала рівно цей самий інлайн-редактор, а не другий паралельний UI.
+  accessEditing: boolean;
+  onAccessEditingChange: (v: boolean) => void;
   /// Додаткові кнопки/контроли праворуч від "+ Новий запуск" (program-level налаштування).
   rightSlot?: React.ReactNode;
 }) {
@@ -49,6 +65,10 @@ export default function CohortHeader({
   const [recalcReport, setRecalcReport] = useState<
     { scanned: number; recalculated: number; failed: number; warning: string | null; wfpFailed: number } | null
   >(null);
+  /// Драфт поля «Надати доступ до» (місяці після завершення програми) + звіт про перерахунок.
+  const [accessDraft, setAccessDraft] = useState<string>(String(postAccessMonths));
+  const [savingAccess, setSavingAccess] = useState(false);
+  const [accessReport, setAccessReport] = useState<{ months: number; updated: number; total: number } | null>(null);
   const periodRef = useRef<HTMLDivElement | null>(null);
   const calRef = useRef<HTMLDivElement | null>(null);
   const startChipRef = useRef<HTMLButtonElement | null>(null);
@@ -246,6 +266,88 @@ export default function CohortHeader({
     }
   }
 
+  // Драфт «Надати доступ до» синхронізуємо рівно в момент ВІДКРИТТЯ редактора. Робити це
+  // на кожну зміну postAccessMonths не можна: після збереження прилітає router.refresh(),
+  // і такий сброс стирав би щойно показаний звіт про перерахунок.
+  const accessEditingRef = useRef(accessEditing);
+  useEffect(() => {
+    if (accessEditing && !accessEditingRef.current) {
+      setAccessDraft(String(postAccessMonths));
+      setAccessReport(null);
+    }
+    accessEditingRef.current = accessEditing;
+  }, [accessEditing, postAccessMonths]);
+
+  // Escape закриває редактор із будь-якого місця, а не лише з поля вводу: після кліку по
+  // «+»/«−» фокус лишається на кнопці, і локальний onKeyDown інпута вже не спрацював би.
+  useEffect(() => {
+    if (!accessEditing) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') onAccessEditingChange(false);
+    }
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [accessEditing, onAccessEditingChange]);
+
+  const accessParsed = Number(accessDraft);
+  const accessValid =
+    accessDraft.trim() !== '' &&
+    Number.isInteger(accessParsed) &&
+    accessParsed >= ACCESS_MIN_MONTHS &&
+    accessParsed <= ACCESS_MAX_MONTHS;
+  const accessPreviewMonths = accessValid ? accessParsed : postAccessMonths;
+  /// Результуюча дата доступу = дата завершення набору + N місяців. Формула — з
+  /// lib/yearlyProgramAccess (та сама, що рахує expiresAt на сервері), тому прев'ю в UI
+  /// і реальна дата у підписці не можуть розійтись.
+  const accessUntil = active ? addCalendarMonths(new Date(active.endDate), accessPreviewMonths) : null;
+
+  function bumpAccess(delta: number) {
+    const base = accessValid ? accessParsed : postAccessMonths;
+    const next = Math.min(ACCESS_MAX_MONTHS, Math.max(ACCESS_MIN_MONTHS, base + delta));
+    setAccessDraft(String(next));
+  }
+
+  async function handleSaveAccess() {
+    if (!accessValid) {
+      toast('error', `Ціле число від ${ACCESS_MIN_MONTHS} до ${ACCESS_MAX_MONTHS}`);
+      return;
+    }
+    if (accessParsed === postAccessMonths) {
+      onAccessEditingChange(false);
+      return;
+    }
+    setSavingAccess(true);
+    setAccessReport(null);
+    try {
+      const res = await fetch('/api/admin/yearly-program/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ postAccessMonths: accessParsed }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast('error', data.error ?? `Помилка ${res.status}`);
+        return;
+      }
+      // Сервер перерахував «Доступ до» живим підпискам (ACTIVE/GRACE з набором) — показуємо
+      // підсумок окремим блоком, а не лише тостом: менеджер має бачити, скільки студентів
+      // реально отримали нову дату.
+      const updated: number = data.recomputed?.updated ?? 0;
+      const total: number = data.recomputed?.total ?? 0;
+      setAccessReport({ months: accessParsed, updated, total });
+      toast('success', updated > 0
+        ? `Доступ до матеріалів: +${accessParsed} міс — нову дату отримали ${updated} підписок`
+        : 'Збережено — жодну дату доступу міняти не довелось');
+      onAccessEditingChange(false);
+      router.refresh();
+    } catch (e) {
+      toast('error', (e as Error).message);
+    } finally {
+      setSavingAccess(false);
+    }
+  }
+
   async function handleMakeCurrent(cohort: CohortListItem) {
     const ok = await confirm({
       title: `Зробити "${cohort.name}" поточним запуском?`,
@@ -324,7 +426,7 @@ export default function CohortHeader({
   }
 
   return (
-    <div className="overflow-visible">
+    <div className="overflow-visible" data-cohort-header>
       <div className="flex items-stretch flex-wrap">
         <div className="flex-1 px-5 py-4 min-w-[280px]">
           <div className={`text-[10px] uppercase tracking-[0.18em] font-medium mb-1 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
@@ -444,6 +546,152 @@ export default function CohortHeader({
                   <HiOutlineCalendarDays className="text-[13px]" />
                 </button>
               </span>
+            )}
+            {/* «Надати доступ до» — третій елемент періоду. Значення глобальне (AppSetting),
+                але показуємо його як дату: кінець набору + N місяців. */}
+            {active && !editingPeriod && !accessEditing && (
+              <span
+                data-access-until
+                className={`inline-flex items-center gap-1.5 text-[12px] tabular-nums ${dark ? 'text-slate-400' : 'text-stone-600'}`}
+              >
+                <span className={dark ? 'text-slate-500' : 'text-stone-400'}>·</span>
+                Надати доступ до:
+                <b className={dark ? 'text-amber-200' : 'text-amber-800'}>{accessUntil ? fmtUtcDate(accessUntil) : '—'}</b>
+                <span className={`px-1.5 py-0.5 rounded text-[10.5px] font-semibold ${
+                  dark ? 'bg-amber-400/12 text-amber-200 border border-amber-400/25' : 'bg-amber-50 text-amber-800 border border-amber-300/50'
+                }`}>
+                  +{postAccessMonths} міс
+                </span>
+                <HoverInfo
+                  theme={theme}
+                  side="bottom"
+                  align="start"
+                  title="Надати доступ до"
+                  body={
+                    <p>
+                      Скільки місяців після завершення програми зберігається доступ до матеріалів.
+                      Зміна перераховує дату доступу всім активним підпискам.
+                    </p>
+                  }
+                />
+                <button
+                  type="button"
+                  onClick={() => { setEditingPeriod(false); setOpenCal(null); onAccessEditingChange(true); }}
+                  title="Змінити, до якої дати надається доступ"
+                  className={`inline-flex items-center justify-center w-6 h-6 rounded-md border transition-colors ${
+                    dark
+                      ? 'bg-white/[0.04] border-white/10 text-slate-300 hover:bg-white/[0.08] hover:text-amber-200'
+                      : 'bg-stone-50 border-stone-200 text-stone-600 hover:bg-stone-100 hover:text-amber-700'
+                  }`}
+                >
+                  <HiOutlinePencilSquare className="text-[13px]" />
+                </button>
+              </span>
+            )}
+            {active && accessEditing && (
+              <div data-access-editor className="flex items-center gap-2 flex-wrap">
+                <span className={`text-[12px] ${dark ? 'text-slate-400' : 'text-stone-600'}`}>Надати доступ до:</span>
+                <div className="inline-flex items-stretch gap-1">
+                  <button
+                    type="button"
+                    onClick={() => bumpAccess(-1)}
+                    disabled={savingAccess || accessPreviewMonths <= ACCESS_MIN_MONTHS}
+                    aria-label="Менше на місяць"
+                    className={`w-7 h-7 rounded-md border text-[15px] font-semibold flex items-center justify-center transition-colors disabled:opacity-30 ${
+                      dark ? 'bg-zinc-900 border-white/15 text-slate-200 hover:border-amber-400/40' : 'bg-white border-stone-300 text-stone-700 hover:border-amber-400'
+                    }`}
+                  >−</button>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min={ACCESS_MIN_MONTHS}
+                      max={ACCESS_MAX_MONTHS}
+                      value={accessDraft}
+                      onChange={(e) => setAccessDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') { e.preventDefault(); handleSaveAccess(); }
+                        else if (e.key === 'Escape') { e.preventDefault(); onAccessEditingChange(false); }
+                      }}
+                      disabled={savingAccess}
+                      aria-label="Місяців доступу після завершення програми"
+                      className={`w-[92px] h-7 pl-2.5 pr-9 rounded-md border text-[12px] font-semibold tabular-nums outline-none transition-colors disabled:opacity-50 ${
+                        accessValid
+                          ? dark
+                            ? 'bg-zinc-900 border-white/15 text-slate-100 focus:border-amber-400/60'
+                            : 'bg-white border-stone-300 text-stone-900 focus:border-amber-500'
+                          : dark
+                            ? 'bg-zinc-900 border-rose-400/50 text-rose-200'
+                            : 'bg-white border-rose-400 text-rose-800'
+                      }`}
+                    />
+                    <span className={`absolute right-2 top-1/2 -translate-y-1/2 text-[11px] pointer-events-none ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+                      міс
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => bumpAccess(1)}
+                    disabled={savingAccess || accessPreviewMonths >= ACCESS_MAX_MONTHS}
+                    aria-label="Більше на місяць"
+                    className={`w-7 h-7 rounded-md border text-[15px] font-semibold flex items-center justify-center transition-colors disabled:opacity-30 ${
+                      dark ? 'bg-zinc-900 border-white/15 text-slate-200 hover:border-amber-400/40' : 'bg-white border-stone-300 text-stone-700 hover:border-amber-400'
+                    }`}
+                  >+</button>
+                </div>
+                <span className={dark ? 'text-slate-500' : 'text-stone-400'}>→</span>
+                <span
+                  data-access-preview
+                  className={`inline-flex items-center gap-1.5 text-[12px] tabular-nums rounded-md px-2.5 py-1 border ${
+                    dark ? 'bg-amber-400/10 border-amber-400/30 text-amber-100' : 'bg-amber-50 border-amber-300/70 text-amber-900'
+                  }`}
+                >
+                  <HiOutlineCalendarDays className="text-[13px] opacity-70" />
+                  {accessUntil && accessValid ? fmtUtcDate(accessUntil) : '—'}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleSaveAccess}
+                  disabled={savingAccess || !accessValid}
+                  title="Зберегти (Enter)"
+                  className={`inline-flex items-center justify-center w-8 h-8 rounded-md border transition-colors disabled:opacity-50 ${
+                    dark ? 'bg-emerald-500/15 border-emerald-400/30 text-emerald-200 hover:bg-emerald-500/25' : 'bg-emerald-50 border-emerald-300/60 text-emerald-800 hover:bg-emerald-100'
+                  }`}
+                >
+                  <HiOutlineCheck />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onAccessEditingChange(false)}
+                  disabled={savingAccess}
+                  title="Скасувати (Esc)"
+                  className={`inline-flex items-center justify-center w-8 h-8 rounded-md border transition-colors disabled:opacity-50 ${
+                    dark ? 'bg-white/[0.04] border-white/10 text-slate-300 hover:bg-white/[0.08]' : 'bg-stone-100 border-stone-300 text-stone-700 hover:bg-stone-200'
+                  }`}
+                >
+                  <HiOutlineXMark />
+                </button>
+                {!accessValid && (
+                  <span className={`text-[10.5px] ${dark ? 'text-rose-300' : 'text-rose-700'}`}>
+                    Ціле число від {ACCESS_MIN_MONTHS} до {ACCESS_MAX_MONTHS}
+                  </span>
+                )}
+                <span className={`inline-flex items-center gap-1 text-[10.5px] ${dark ? 'text-amber-300/80' : 'text-amber-700'}`}>
+                  Доступ перерахується
+                  <HoverInfo
+                    theme={theme}
+                    side="bottom"
+                    align="start"
+                    title="Надати доступ до"
+                    body={
+                      <div className="space-y-1.5">
+                        <p>Скільки місяців після завершення програми зберігається доступ до матеріалів. Зміна перераховує дату доступу всім активним підпискам.</p>
+                        <p>Стосується <b>всіх студентів Річної</b>: хто платив одразу за рік — отримує ці місяці відразу; хто платить помісячно — після сплати всіх платежів.</p>
+                        <p><b>Гроші й оплати не чіпаються.</b> Змінюється лише дата, до якої відкриті матеріали на платформі.</p>
+                      </div>
+                    }
+                  />
+                </span>
+              </div>
             )}
             {active && editingPeriod && (
               <div ref={periodRef} className="flex items-center gap-2 flex-wrap relative">
@@ -595,6 +843,43 @@ export default function CohortHeader({
             </div>
           )}
 
+          {/* Підсумок перерахунку після зміни «Надати доступ до». Сервер міняє expiresAt
+              лише тим підпискам, у яких дата реально інша, тому показуємо і скільки живих
+              підписок узагалі проглянуто — інакше «оновлено: 0» читалось би як збій. */}
+          {accessReport && (
+            <div
+              data-access-report
+              className={`mt-2.5 rounded-lg border px-3.5 py-2.5 text-[12px] leading-snug flex items-start gap-2 ${
+                dark
+                  ? 'bg-amber-500/10 border-amber-400/25 text-amber-100/90'
+                  : 'bg-amber-50 border-amber-300/70 text-amber-900'
+              }`}
+            >
+              <HiOutlineCalendarDays className="text-base shrink-0 mt-0.5" />
+              <div className="min-w-0 flex-1 space-y-1">
+                <div>
+                  Доступ до матеріалів після завершення програми: <b className="tabular-nums">+{accessReport.months} міс</b>
+                  {active && <> — до <b className="tabular-nums">{fmtUtcDate(addCalendarMonths(new Date(active.endDate), accessReport.months))}</b></>}.
+                </div>
+                <div className={dark ? 'text-amber-200/70' : 'text-amber-800/80'}>
+                  Дату доступу змінено: <b className="tabular-nums">{accessReport.updated}</b> ·
+                  {' '}переглянуто активних підписок: <b className="tabular-nums">{accessReport.total}</b>
+                  {accessReport.updated === 0 && ' — у решти дата вже збігалась'}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAccessReport(null)}
+                aria-label="Сховати"
+                className={`shrink-0 w-6 h-6 rounded-md flex items-center justify-center transition-colors ${
+                  dark ? 'hover:bg-white/10 text-amber-200/70' : 'hover:bg-amber-100 text-amber-800/70'
+                }`}
+              >
+                <HiOutlineXMark className="text-[13px]" />
+              </button>
+            </div>
+          )}
+
           {open && (
             <div
               className={`absolute left-0 top-full z-30 mt-2 max-h-[420px] overflow-y-auto rounded-lg border w-[calc(100vw-32px)] sm:w-auto sm:min-w-[400px] shadow-2xl ${
@@ -736,9 +1021,14 @@ const DateChip = forwardRef<HTMLButtonElement, {
 /// показували б кінець набору 31.05 як «01.06» — і збереження без змін тихо зсувало б
 /// дату на +1 день щоразу. Плюс SSR (UTC) і клієнт дали б різний текст → hydration mismatch.
 function fmtDate(iso: string): string {
+  return fmtUtcDate(new Date(iso));
+}
+
+/// Та сама UTC-нормалізація для вже готового Date (результат addCalendarMonths).
+function fmtUtcDate(d: Date): string {
   return new Intl.DateTimeFormat('uk-UA', {
     day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC',
-  }).format(new Date(iso));
+  }).format(d);
 }
 
 /// 'YYYY-MM-DD' старту → 'YYYY-MM-DD' завершення = +9 місяців −1 день
