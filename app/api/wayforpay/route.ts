@@ -386,6 +386,17 @@ export async function POST(req: NextRequest) {
         // Reuse абандонованої PENDING-спроби або того ж same-plan-у. YEARLY-paid вже відсіяний
         // Rule 1, тут лишається лише YEARLY-PENDING-без-PAID (retry) і MONTHLY same-plan.
         let existing = plan === 'YEARLY' ? yearlySub : monthlySub;
+        // Реюз — ТІЛЬКИ в межах поточного набору, симетрично до пошуку «мертвої» нижче.
+        // Без цього фільтра жива підписка минулорічного набору реюзалась, `repointCohort`
+        // переставляв її `cohortId` на поточний, а старі PAID-платежі лишались на місці:
+        // `calculateAccessUntil` зараховувала торішні місяці в новому наборі (8 старих +
+        // 1 новий = 9/9 → повний доступ і пост-доступ за одну оплату).
+        // Підписка без набору (`cohortId=null`, legacy/абандон) реюзається лише поки на ній
+        // немає жодної зарахованої оплати — тоді repoint нічого не переносить.
+        if (existing && existing.cohortId !== currentCohortId) {
+          const existingPaid = plan === 'YEARLY' ? yearlyPaid : monthlyPaid;
+          if (existing.cohortId !== null || existingPaid) existing = null;
+        }
         // Живої підписки нема → перш ніж заводити нову, шукаємо «мертву» (EXPIRED/CANCELLED)
         // того ж плану В ТОМУ Ж поточному cohort-і й реюзаємо її. Інакше людина, у якої
         // місячна протермінувалась посеред програми, при повторній покупці отримувала б
