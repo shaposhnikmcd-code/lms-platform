@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import prisma from '@/lib/prisma';
 import { openAccessViaEvent, lookupStudentIdByEmail, withSendpulseRosterCache } from '@/lib/sendpulse';
 import { YEARLY_PROGRAM_CONFIG, getYearlyPostAccessMonths, getYearlySendpulseCourseId, RESET_REMINDER_AND_GRACE_FIELDS } from '@/lib/yearlyProgramConfig';
@@ -24,7 +25,47 @@ import { renderTelegramInviteEmailBlock } from '@/lib/yearlyProgramTelegram';
 ///   accessOpened=true                   → opened
 ///   accessOpened=false + skipReason     → skipped (очікуваний пропуск, не помилка)
 ///   accessOpened=false + error          → failed (справжній збій SP/мережі)
-export type LaunchSkipReason = 'no_paid_payments' | 'pending_access_expired';
+export type LaunchSkipReason = 'no_paid_payments' | 'pending_access_expired' | 'already_opened';
+
+/// Єдиний предикат «підписка отримає доступ на запуску» — дзеркало guard-ів у циклі
+/// нижче (`no_paid_payments` + `pending_access_expired`). Лічильники адмінки будують
+/// свій запит ЗВІДСИ, а не копіюють умови: інакше «Відкриє доступ для N» знову розійдеться
+/// з тим, що цикл робить насправді.
+export function launchEligibleSubscriptionWhere(now: Date = new Date()): Prisma.YearlyProgramSubscriptionWhereInput {
+  return {
+    // Хоч одна оплата, ЗАРАХОВАНА в доступ. Виключені списання (orphan, понад ліміт,
+    // розбіжність суми) не є сплаченим місяцем — і для guard-а теж не рахуються.
+    payments: { some: { status: 'PAID', excludedFromAccess: false } },
+    OR: [
+      { status: { in: ['ACTIVE', 'GRACE'] } },
+      // PENDING зі старими PAID, але вичерпаним доступом — залишок минулого циклу,
+      // а не оплачений цикл. Той самий критерій, що в heal-cron-і.
+      { status: 'PENDING', expiresAt: { gte: now } },
+    ],
+  };
+}
+
+/// Скільки підписок кожного набору ще ЧЕКАЮТЬ відкриття доступу: launch-eligible і
+/// `sendpulseAccessOpenedAt` порожній. Це й число для модалки запуску («Відкриє доступ
+/// для N»), і умова видимості кнопки «Повторити запуск» після перезавантаження сторінки.
+/// Перенесені з минулого набору (SP-доступ відкритий торік) сюди не входять — їм цикл
+/// лише перерахує `expiresAt`, нічого не відкриваючи.
+export async function countPendingLaunchAccessByCohort(): Promise<Map<string, number>> {
+  const rows = await prisma.yearlyProgramSubscription.findMany({
+    where: {
+      ...launchEligibleSubscriptionWhere(),
+      sendpulseAccessOpenedAt: null,
+      cohortId: { not: null },
+    },
+    select: { cohortId: true },
+  });
+  const byCohort = new Map<string, number>();
+  for (const r of rows) {
+    if (!r.cohortId) continue;
+    byCohort.set(r.cohortId, (byCohort.get(r.cohortId) ?? 0) + 1);
+  }
+  return byCohort;
+}
 
 /// Статуси, для яких відкривати доступ не можна ЖОДНИМ шляхом: підписку закрито
 /// адміністративно або вона вичерпалась. Старі PAID-платежі в такої підписки лишаються,
@@ -56,11 +97,20 @@ export interface LaunchSummary {
   /// Підписки, на яких ітерація впала з винятком. Порожньо у нормальному запуску.
   /// Менеджеру видно, кого добирати руками (або чекати нічний heal_unopened).
   crashed: Array<{ subscriptionId: string; email: string | null; error: string }>;
+  /// Цикл зупинено штатно за м'яким дедлайном (не вистачило ліміту функції). Оброблені
+  /// підписки збережені, решту добирає «Повторити запуск» або нічний heal_unopened.
+  interrupted?: { reason: 'deadline'; remaining: number };
 }
 
 export async function executeLaunchLoop(
-  cohort: { id: string; startDate: Date; endDate: Date },
+  cohort: { id: string; startDate: Date; endDate: Date; launchedAt?: Date | null },
   actorLabel: string,
+  options: {
+    /// М'який дедлайн: коли час вийшов, цикл переривається ШТАТНО і віддає partial-summary.
+    /// Без нього платформа рубає функцію по `maxDuration` посеред роботи — `launchedAt` уже
+    /// claim-нутий, менеджер не бачить ні прогресу, ні того, кого не встигли обробити.
+    deadlineAt?: Date | null;
+  } = {},
 ): Promise<LaunchSummary> {
   const subs = await prisma.yearlyProgramSubscription.findMany({
     where: {
@@ -82,12 +132,20 @@ export async function executeLaunchLoop(
   const now = new Date();
 
   const crashed: LaunchSummary['crashed'] = [];
+  let interrupted: LaunchSummary['interrupted'];
 
   // Ростер SendPulse тягнеться ОДИН раз на весь цикл (див. withSendpulseRosterCache):
   // без цього lookupStudentIdByEmail пагінував увесь курс на кожного студента і запуск
   // на 300 людей не встигав у ліміт функції.
   await withSendpulseRosterCache(async () => {
-  for (const s of subs) {
+  for (const [idx, s] of subs.entries()) {
+    // М'який дедлайн (див. options.deadlineAt): краще віддати чесний partial-summary
+    // «оброблено X з Y», ніж дати платформі зарубати функцію посеред ітерації.
+    if (options.deadlineAt && Date.now() >= options.deadlineAt.getTime()) {
+      interrupted = { reason: 'deadline', remaining: subs.length - idx };
+      console.warn(`[yearly-launch] cohort ${cohort.id}: м'який дедлайн, оброблено ${idx}/${subs.length}`);
+      break;
+    }
     // Кожен студент ізольований: непередбачуваний виняток (обрив БД, конфлікт запису)
     // раніше клав увесь запуск — усі наступні лишались без доступу, а розсилка кредів
     // взагалі не стартувала, бо помилка вилітала в route. Тепер падіння одного —
@@ -95,7 +153,45 @@ export async function executeLaunchLoop(
     let recorded = false;
     try {
       if (!s.user?.email) continue;
-      const paidPayments = s.payments.filter((p) => p.status === 'PAID');
+
+      // Доступ уже відкривали В ЦЬОМУ наборі (retry після часткового запуску, extra-launch
+      // пізнього покупця, ручний reopen) → підписку НЕ мутуємо взагалі. Раніше цикл
+      // безумовно писав status='ACTIVE' + RESET_REMINDER_AND_GRACE_FIELDS: повторний
+      // запуск піднімав боржника з GRACE назад в ACTIVE (несплачений місяць прощався)
+      // і обнуляв ланцюг нагадувань. Мутації — лише для тих, кому доступ реально
+      // відкривається вперше в цьому проході.
+      // Порівнюємо саме з `launchedAt` набору, а не просто з наявністю прапорця: у
+      // перенесеного з минулого набору студента `sendpulseAccessOpenedAt` стоїть з
+      // торішнього запуску, і пропуск лишив би його без перерахованого expiresAt.
+      if (
+        s.sendpulseAccessOpenedAt
+        && cohort.launchedAt
+        && s.sendpulseAccessOpenedAt >= cohort.launchedAt
+      ) {
+        results.push({
+          subscriptionId: s.id,
+          email: s.user.email,
+          accessOpened: false,
+          expiresAt: s.expiresAt?.toISOString() ?? null,
+          skipReason: 'already_opened',
+        });
+        await prisma.yearlyProgramSubscriptionEvent.create({
+          data: {
+            subscriptionId: s.id,
+            type: 'admin_action',
+            message: `Cohort launch (повтор) by ${actorLabel} · доступ уже відкрито ${s.sendpulseAccessOpenedAt.toISOString().slice(0, 10)} — підписку не змінювали`,
+            metadata: { cohortId: cohort.id, skipReason: 'already_opened' },
+          },
+        });
+        recorded = true;
+        continue;
+      }
+
+      // `excludedFromAccess` — списання, які система свідомо не зарахувала в доступ
+      // (orphan по закритій підписці, понад ліміт, розбіжність суми). Без цього фільтра
+      // підписка, у якої ВСІ платежі виключені, проходила guard, отримувала SP-доступ і
+      // expiresAt=null від calculateAccessUntil — вічний доступ поза полем зору cron-ів.
+      const paidPayments = s.payments.filter((p) => p.status === 'PAID' && !p.excludedFromAccess);
       if (paidPayments.length === 0) {
         // Свідомий пропуск: підписка існує, але платіж ще не пройшов. Не вважається
         // помилкою (counter `skipped`, не `failed`). Не пишемо event — це не failure.
@@ -251,7 +347,7 @@ export async function executeLaunchLoop(
   const opened = results.filter((r) => r.accessOpened).length;
   const skipped = results.filter((r) => !r.accessOpened && r.skipReason).length;
   const failed = results.filter((r) => !r.accessOpened && !r.skipReason).length;
-  return { total: results.length, opened, skipped, failed, results, crashed };
+  return { total: results.length, opened, skipped, failed, results, crashed, ...(interrupted ? { interrupted } : {}) };
 }
 
 export interface ExtraLaunchResult {
@@ -294,7 +390,10 @@ export async function runExtraLaunchForSubscription(
   if (!sub.cohort.launchedAt) return { ok: false, reason: 'cohort_not_launched', expiresAt: null, sendpulseAccessOpened: false, studentId: null, email: { sent: false } };
   if (sub.sendpulseAccessOpenedAt) return { ok: false, reason: 'already_opened', expiresAt: sub.expiresAt?.toISOString() ?? null, sendpulseAccessOpened: true, studentId: sub.sendpulseStudentId, email: { sent: false, skipped: 'already_opened' } };
 
-  const paidPayments = sub.payments.filter((p) => p.status === 'PAID');
+  // Той самий фільтр, що й в executeLaunchLoop: виключені зі заліку списання не дають
+  // права на доступ. Без нього підписка з одними лише orphan-платежами отримувала SP-доступ
+  // і expiresAt=null (вічний доступ, невидимий для cron-ів).
+  const paidPayments = sub.payments.filter((p) => p.status === 'PAID' && !p.excludedFromAccess);
   if (paidPayments.length === 0) return { ok: false, reason: 'no_paid_payments', expiresAt: null, sendpulseAccessOpened: false, studentId: null, email: { sent: false } };
 
   const yearlySpCourseId = await getYearlySendpulseCourseId(prisma);

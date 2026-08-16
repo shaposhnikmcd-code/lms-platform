@@ -10,6 +10,11 @@ import { revalidateLocalized } from '@/lib/revalidatePaths';
 /// (решта студентів лишається без доступу) → Fluid Compute-ліміт 300с.
 export const maxDuration = 300;
 
+/// Запас до `maxDuration`, за який цикл має завершитись штатно і встигнути віддати
+/// summary + revalidate. Якщо не встигає — `executeLaunchLoop` переривається сам
+/// (partial-summary), а не гине разом із функцією посеред ітерації.
+const LAUNCH_SOFT_DEADLINE_MARGIN_MS = 45_000;
+
 /// 🚀 Запустити програму. Дія менеджера в адмінці. Об'єднує два кроки в один:
 /// відкриття доступу + (опціонально) розсилка welcome-листа.
 ///
@@ -115,6 +120,8 @@ export async function POST(
   // кліки не запустили роботу двічі. Перший виграє — другий бачить count=0 і отримує 409.
   // #15 Retry: для повторного запуску (?retry=1) cohort вже має launchedAt — пропускаємо claim;
   // sub-loop сам по собі ідемпотентний (skip-ить тих, у кого sendpulseAccessOpenedAt вже є).
+  const startedAt = Date.now();
+  let launchedAt = cohort.launchedAt;
   if (isRetry) {
     if (!cohort.launchedAt) {
       return NextResponse.json({ error: 'Cohort ще не запущено — використай звичайний запуск' }, { status: 400 });
@@ -123,19 +130,33 @@ export async function POST(
     if (cohort.launchedAt) {
       return NextResponse.json({ error: 'Програма вже запущена' }, { status: 400 });
     }
+    const claimedAt = new Date();
     const claim = await prisma.yearlyProgramCohort.updateMany({
       where: { id, launchedAt: null },
-      data: { launchedAt: new Date(), launchScheduledFor: null },
+      data: {
+        launchedAt: claimedAt,
+        launchScheduledFor: null,
+        // Негайний запуск БЕЗ листа має скасувати і заплановану розсилку. Інакше
+        // сценарій «запланував запуск+лист → передумав → запустив зараз без галочки»
+        // закінчувався тим, що нічний cron усе одно розсилав листи за старим планом.
+        // З галочкою — не чіпаємо: `sendCohortLaunchEmails` нижче сам чистить
+        // `emailScheduledFor` після успішної розсилки.
+        ...(body.sendWelcomeEmails ? {} : { emailScheduledFor: null }),
+      },
     });
     if (claim.count === 0) {
       return NextResponse.json({ error: 'Програма вже запущена або зараз запускається' }, { status: 409 });
     }
+    launchedAt = claimedAt;
   }
 
   // launchedAt вже виставлений атомарним claim-ом вище (для першого запуску) або був раніше (retry).
+  // `launchedAt` передається в цикл: по ньому він відрізняє «доступ відкрито в ЦЬОМУ запуску»
+  // (не мутувати — це retry) від «відкрито торік у минулому наборі» (перенесення, треба обробити).
   const launchSummary = await executeLaunchLoop(
-    { id, startDate: cohort.startDate, endDate: cohort.endDate },
+    { id, startDate: cohort.startDate, endDate: cohort.endDate, launchedAt },
     actorLabel,
+    { deadlineAt: new Date(startedAt + maxDuration * 1000 - LAUNCH_SOFT_DEADLINE_MARGIN_MS) },
   );
 
   // Опціональна розсилка welcome-листа одразу після відкриття доступу.
@@ -169,6 +190,8 @@ export async function POST(
       /// Підписки, на яких ітерація впала з винятком (БД/мережа). Решта cohort-у все одно
       /// відпрацювала — тут видно, кого добирати вручну (або лишити нічному heal_unopened).
       crashed: launchSummary.crashed.length,
+      /// Цикл перервано м'яким дедлайном — решту добирає «Повторити запуск»/нічний heal.
+      interrupted: launchSummary.interrupted ?? null,
     },
     results: launchSummary.results,
     crashed: launchSummary.crashed,

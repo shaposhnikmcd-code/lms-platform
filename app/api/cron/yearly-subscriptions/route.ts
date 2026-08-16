@@ -52,8 +52,20 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 /// `executeLaunchLoop`. По 15 на добу великий набір лікувався б тиждень, тому у вікні
 /// свіжого запуску беремо вчетверо більше; далі повертаємось до економного режиму.
 const HEAL_UNOPENED_BATCH = 15;
-const HEAL_UNOPENED_BATCH_FRESH_LAUNCH = 60;
+/// 300, а не 60: heal — єдиний автоматичний шлях добору для набору, чий запуск обірвався
+/// по таймауту (`launchedAt` уже claim-нутий, повторного проходу циклу не буде). З капом 60
+/// набір на 300 людей лікувався б п'ять діб — реальний старт цього не переживе.
+const HEAL_UNOPENED_BATCH_FRESH_LAUNCH = 300;
 const FRESH_LAUNCH_WINDOW_MS = 7 * DAY_MS;
+
+/// Скільки часу денний прохід віддає одному запланованому запуску набору. Решта кроків
+/// (нагадування, grace, heal) має встигнути в ті самі 300с maxDuration.
+const SCHEDULED_LAUNCH_BUDGET_MS = 150_000;
+
+/// Часовий бюджет кроку heal_unopened. Кап у 300 підписок сам по собі не влазить у
+/// maxDuration (кожна — SendPulse + Telegram + лист), тому реальний обмежувач — час:
+/// крок обробляє скільки встигає і зупиняється штатно, лишаючи бюджет решті кроків.
+const HEAL_UNOPENED_BUDGET_MS = 100_000;
 
 /// Скільки welcome-листів максимум досилаємо за прохід (на кожен набір).
 const HEAL_EMAIL_BATCH = 40;
@@ -300,12 +312,16 @@ async function runScheduledCohortLaunches(): Promise<StepResult> {
       if (claim.count === 0) continue; // інший процес уже claim-ив
 
       const summary = await executeLaunchLoop(
-        { id: c.id, startDate: c.startDate, endDate: c.endDate },
+        { id: c.id, startDate: c.startDate, endDate: c.endDate, launchedAt: now },
         'scheduled-cron',
+        { deadlineAt: new Date(Date.now() + SCHEDULED_LAUNCH_BUDGET_MS) },
       );
       processed++;
       if (summary.failed > 0) {
         errors.push(`${c.name}: ${summary.failed}/${summary.total} failed`);
+      }
+      if (summary.interrupted) {
+        errors.push(`${c.name}: перервано за дедлайном, лишилось ${summary.interrupted.remaining} — добере heal_unopened`);
       }
     } catch (e) {
       errors.push(`cohort ${c.id}: ${(e as Error).message.slice(0, 200)}`);
@@ -348,15 +364,16 @@ async function healUnopenedAccess(): Promise<StepResult> {
   });
   const batchSize = freshLaunches > 0 ? HEAL_UNOPENED_BATCH_FRESH_LAUNCH : HEAL_UNOPENED_BATCH;
 
+  const { runExtraLaunchForSubscription, launchEligibleSubscriptionWhere } = await import('@/lib/yearlyProgramLaunch');
+
+  // Предикат eligibility — спільний з циклом запуску (`launchEligibleSubscriptionWhere`):
+  // статуси + «є оплата, зарахована в доступ». Дублювати умови тут не можна — саме на
+  // розбіжності heal підбирав підписки, які сам extra-launch потім відхиляв.
   const subs = await prisma.yearlyProgramSubscription.findMany({
     where: {
+      ...launchEligibleSubscriptionWhere(now),
       sendpulseAccessOpenedAt: null,
-      OR: [
-        { status: { in: ['ACTIVE', 'GRACE'] } },
-        { status: 'PENDING', expiresAt: { gte: now } },
-      ],
       cohort: { launchedAt: { not: null }, endDate: { gte: now } },
-      payments: { some: { status: 'PAID' } },
     },
     select: {
       id: true,
@@ -370,8 +387,6 @@ async function healUnopenedAccess(): Promise<StepResult> {
   });
   if (subs.length === 0) return { step: 'heal_unopened', processed: 0, errors };
 
-  const { runExtraLaunchForSubscription } = await import('@/lib/yearlyProgramLaunch');
-
   // Налаштування каналу однакові для всього проходу — читаємо один раз.
   let tgSettings: Awaited<ReturnType<typeof getYearlyProgramTelegramSettings>> | null = null;
   try {
@@ -381,7 +396,13 @@ async function healUnopenedAccess(): Promise<StepResult> {
   }
 
   let processed = 0;
+  let budgetHit = false;
+  const budgetEndsAt = Date.now() + HEAL_UNOPENED_BUDGET_MS;
   for (const s of subs) {
+    if (Date.now() >= budgetEndsAt) {
+      budgetHit = true;
+      break;
+    }
     let inviteLink = s.telegramInviteLink ?? null;
     if (tgSettings?.autoAdd && tgSettings.chatId && s.telegramUsername) {
       // Протухлий лінк гірший за його відсутність: людина клікає в листі й отримує
@@ -425,9 +446,11 @@ async function healUnopenedAccess(): Promise<StepResult> {
     step: 'heal_unopened',
     processed,
     errors,
-    ...(subs.length === batchSize
-      ? { info: `batch cap ${batchSize}${freshLaunches > 0 ? ' (свіжий запуск)' : ''} — решта наступним проходом` }
-      : {}),
+    ...(budgetHit
+      ? { info: `час кроку вичерпано (${Math.round(HEAL_UNOPENED_BUDGET_MS / 1000)}с) — оброблено ${processed} з ${subs.length}, решта наступним проходом` }
+      : subs.length === batchSize
+        ? { info: `batch cap ${batchSize}${freshLaunches > 0 ? ' (свіжий запуск)' : ''} — решта наступним проходом` }
+        : {}),
   };
 }
 
