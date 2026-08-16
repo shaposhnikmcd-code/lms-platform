@@ -68,7 +68,9 @@ export default function CohortHeader({
   /// Драфт поля «Надати доступ до» (місяці після завершення програми) + звіт про перерахунок.
   const [accessDraft, setAccessDraft] = useState<string>(String(postAccessMonths));
   const [savingAccess, setSavingAccess] = useState(false);
-  const [accessReport, setAccessReport] = useState<{ months: number; updated: number; total: number } | null>(null);
+  const [accessReport, setAccessReport] = useState<
+    { months: number; updated: number; total: number; failed: number; warning: string | null } | null
+  >(null);
   const periodRef = useRef<HTMLDivElement | null>(null);
   const calRef = useRef<HTMLDivElement | null>(null);
   const startChipRef = useRef<HTMLButtonElement | null>(null);
@@ -299,7 +301,14 @@ export default function CohortHeader({
   /// Результуюча дата доступу = дата завершення набору + N місяців. Формула — з
   /// lib/yearlyProgramAccess (та сама, що рахує expiresAt на сервері), тому прев'ю в UI
   /// і реальна дата у підписці не можуть розійтись.
-  const accessUntil = active ? addCalendarMonths(new Date(active.endDate), accessPreviewMonths) : null;
+  ///
+  /// ДВА різні значення, і плутати їх не можна:
+  ///   • `accessUntilSaved` — від збереженого `postAccessMonths`. Тільки воно показується
+  ///     у режимі перегляду. Раніше рядок брав драфт: після «+ + + Esc» (незбережена зміна)
+  ///     шапка показувала дату неіснуючого значення поруч із плашкою «+N міс» реального.
+  ///   • `accessUntilDraft` — від драфту, живе ЛИШЕ всередині відкритого редактора.
+  const accessUntilSaved = active ? addCalendarMonths(new Date(active.endDate), postAccessMonths) : null;
+  const accessUntilDraft = active ? addCalendarMonths(new Date(active.endDate), accessPreviewMonths) : null;
 
   function bumpAccess(delta: number) {
     const base = accessValid ? accessParsed : postAccessMonths;
@@ -334,11 +343,17 @@ export default function CohortHeader({
       // підсумок окремим блоком, а не лише тостом: менеджер має бачити, скільки студентів
       // реально отримали нову дату.
       const updated: number = data.recomputed?.updated ?? 0;
-      const total: number = data.recomputed?.total ?? 0;
-      setAccessReport({ months: accessParsed, updated, total });
-      toast('success', updated > 0
-        ? `Доступ до матеріалів: +${accessParsed} міс — нову дату отримали ${updated} підписок`
-        : 'Збережено — жодну дату доступу міняти не довелось');
+      const total: number = data.recomputed?.scanned ?? data.recomputed?.total ?? 0;
+      const failed: number = data.recomputed?.failed ?? 0;
+      setAccessReport({ months: accessParsed, updated, total, failed, warning: data.warning ?? null });
+      // Частковий провал — це НЕ помилка збереження: значення записане, частина підписок
+      // лишилась зі старою датою. Тому і тост попереджувальний, і екран однаково
+      // оновлюється: без router.refresh() менеджер бачив би геть старі дані.
+      toast(failed > 0 ? 'error' : 'success', failed > 0
+        ? `Збережено, але ${failed} із ${total} підписок не перерахувались — повторіть збереження`
+        : updated > 0
+          ? `Доступ до матеріалів: +${accessParsed} міс — нову дату отримали ${updated} підписок`
+          : 'Збережено — жодну дату доступу міняти не довелось');
       onAccessEditingChange(false);
       router.refresh();
     } catch (e) {
@@ -556,7 +571,7 @@ export default function CohortHeader({
               >
                 <span className={dark ? 'text-slate-500' : 'text-stone-400'}>·</span>
                 Надати доступ до:
-                <b className={dark ? 'text-amber-200' : 'text-amber-800'}>{accessUntil ? fmtUtcDate(accessUntil) : '—'}</b>
+                <b className={dark ? 'text-amber-200' : 'text-amber-800'}>{accessUntilSaved ? fmtUtcDate(accessUntilSaved) : '—'}</b>
                 <span className={`px-1.5 py-0.5 rounded text-[10.5px] font-semibold ${
                   dark ? 'bg-amber-400/12 text-amber-200 border border-amber-400/25' : 'bg-amber-50 text-amber-800 border border-amber-300/50'
                 }`}>
@@ -646,7 +661,7 @@ export default function CohortHeader({
                   }`}
                 >
                   <HiOutlineCalendarDays className="text-[13px] opacity-70" />
-                  {accessUntil && accessValid ? fmtUtcDate(accessUntil) : '—'}
+                  {accessUntilDraft && accessValid ? fmtUtcDate(accessUntilDraft) : '—'}
                 </span>
                 <button
                   type="button"
@@ -864,8 +879,14 @@ export default function CohortHeader({
                 <div className={dark ? 'text-amber-200/70' : 'text-amber-800/80'}>
                   Дату доступу змінено: <b className="tabular-nums">{accessReport.updated}</b> ·
                   {' '}переглянуто активних підписок: <b className="tabular-nums">{accessReport.total}</b>
-                  {accessReport.updated === 0 && ' — у решти дата вже збігалась'}
+                  {accessReport.updated === 0 && accessReport.failed === 0 && ' — у решти дата вже збігалась'}
                 </div>
+                {accessReport.failed > 0 && (
+                  <div className={`font-semibold ${dark ? 'text-rose-300' : 'text-rose-700'}`}>
+                    ⚠️ Не перерахувалось: <b className="tabular-nums">{accessReport.failed}</b>
+                    {' '}— {accessReport.warning ?? 'повторіть збереження або перевірте лог.'}
+                  </div>
+                )}
               </div>
               <button
                 type="button"

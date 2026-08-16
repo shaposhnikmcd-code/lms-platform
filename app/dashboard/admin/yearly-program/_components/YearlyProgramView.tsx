@@ -1349,7 +1349,7 @@ function RowBlock({
         <td className={`px-2 py-2.5 text-[11px] tabular-nums whitespace-nowrap ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
           {r.expiresAt ? (
             <>
-              <div>{fmtDateShort(r.expiresAt)}</div>
+              <div>{fmtAccessDate(r.expiresAt)}</div>
               {r.daysLeft !== null && (
                 <div className={`text-[10px] ${
                   r.daysLeft < 0 ? (dark ? 'text-rose-400' : 'text-rose-700')
@@ -1393,8 +1393,10 @@ function RowBlock({
             && r.paymentsCount < 9 ? (
             // Разова місячна: автосписання немає — наступний платіж людина робить ВРУЧНУ
             // до кінця оплаченого місяця (= «Доступ до»). 9/9 оплачених — платити нічого.
+            // Формат — той самий UTC-ий: це буквально значення колонки «Доступ до», і два
+            // різні числа для одного поля в одному рядку виглядали б як розбіжність даних.
             <>
-              <div>{fmtDateShort(r.expiresAt)}</div>
+              <div>{fmtAccessDate(r.expiresAt)}</div>
               <div className={`text-[10px] ${dark ? 'text-slate-600' : 'text-stone-400'}`}>вручну</div>
             </>
           ) : (
@@ -2592,6 +2594,21 @@ function fmtDate(iso: string): string {
 
 function fmtDateShort(iso: string): string {
   return KYIV_DATE_FMT.format(new Date(iso));
+}
+
+/// «Доступ до» — БІЗНЕС-дата, а не момент часу. `expiresAt` зберігається як кінець дня в
+/// UTC (23:59:59.999), тож у київському поясі та сама мить рендериться вже наступною датою:
+/// шапка набору показувала 30.11.2027, а колонка таблиці — 01.12.2027 для одного значення.
+/// Тому саме цю колонку (і тільки її — решта таймстемпів лишається київською) форматуємо в
+/// UTC, тим самим форматером, що й шапка/модалки: одна дата — одне число на екрані.
+const UTC_DATE_FMT = new Intl.DateTimeFormat('uk-UA', {
+  timeZone: 'UTC',
+  day: '2-digit',
+  month: '2-digit',
+  year: 'numeric',
+});
+function fmtAccessDate(iso: string): string {
+  return UTC_DATE_FMT.format(new Date(iso));
 }
 
 /// Дата для вузьких колонок «Створено»/«Дата оплати» — той самий дд.мм.рррр.
