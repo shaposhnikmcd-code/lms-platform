@@ -40,21 +40,31 @@ import {
   TelegramApiError,
 } from '@/lib/telegram';
 import { ensureNumericChatId, getYearlyProgramTelegramSettings } from '@/lib/yearlyProgramTelegram';
+import {
+  TG_ERROR_SEGMENT_SEPARATOR,
+  TG_JOIN_DECLINED_EVENT_KIND,
+  TG_JOIN_DECLINED_MARK,
+  TG_JOIN_PENDING_EVENT_KIND,
+  TG_PENDING_JOIN_MARK,
+} from '@/lib/yearlyProgramTelegramMarks';
 import { timingSafeEqualStr } from '@/lib/authTiming';
 
 const LOG_PREFIX = '[yearly-tg-webhook]';
 
 /// Маркер у `metadata.kind` для подій «заявку відхилено через невідповідність особи».
 /// Використовується для дедупу повторних кліків по тому самому лінку.
-const JOIN_DECLINED_EVENT_KIND = 'tg_join_declined_identity';
+const JOIN_DECLINED_EVENT_KIND = TG_JOIN_DECLINED_EVENT_KIND;
 
 /// Маркер для подій «особу звірити нічим — заявка лишена на ручний розгляд».
 /// Окремий від declined: тут нікого не відхиляли, заявка й далі висить у каналі.
-const JOIN_PENDING_EVENT_KIND = 'tg_join_pending_identity';
+const JOIN_PENDING_EVENT_KIND = TG_JOIN_PENDING_EVENT_KIND;
 
 /// Незмінна частина мітки про висячу заявку — за нею впізнаємо власний запис
 /// у `telegramInviteError`, щоб не дублювати його і не затирати чужий текст.
-const PENDING_JOIN_MARK = 'Є нерозглянута заявка на вступ';
+/// Живе у [lib/yearlyProgramTelegramMarks.ts](../../../../lib/yearlyProgramTelegramMarks.ts)
+/// разом з міткою відхиленої заявки: колектор «Помилок» розкладає поле за цими мітками
+/// на три різні issue-и (реальна відмова Bot API / відхилена заявка / висяча заявка).
+const PENDING_JOIN_MARK = TG_PENDING_JOIN_MARK;
 
 interface TgUser {
   id: number;
@@ -264,7 +274,7 @@ async function handleChatJoinRequest(joinReq: TgChatJoinRequest): Promise<void> 
     await prisma.yearlyProgramSubscription.update({
       where: { id: sub.id },
       data: {
-        telegramInviteError: `Заявка від ${joinReq.from.username ? `@${joinReq.from.username}` : `id=${userId}`} відхилена: ${identity.reason} — ${
+        telegramInviteError: `${TG_JOIN_DECLINED_MARK} — від ${joinReq.from.username ? `@${joinReq.from.username}` : `id=${userId}`}: ${identity.reason} — ${
           identity.kind === 'username'
             ? 'перевір username у підписці (можлива друкарська помилка у формі оплати)'
             : 'посиланням скористалась інша людина; згенеруй новий інвайт для студента'
@@ -447,6 +457,26 @@ async function flagPendingJoinRequest(from: TgUser): Promise<void> {
     `${PENDING_JOIN_MARK} від @${handle} — перевірте вручну в каналі`,
     sub.telegramInviteError,
   );
+
+  // Подія дає вкладці «Помилки» ЧАС проблеми: поле `telegramInviteError` часу не зберігає,
+  // а `updatedAt` підписки щоночі зсуває синхронізація прогресу SendPulse. Дедуп — той
+  // самий, що й у решти гілок заявки: одна подія на (підписка, tg-користувач) за годину.
+  const dupe = await findRecentJoinEvent(sub.id, JOIN_PENDING_EVENT_KIND, from.id);
+  if (dupe) return;
+  await prisma.yearlyProgramSubscriptionEvent.create({
+    data: {
+      subscriptionId: sub.id,
+      type: 'admin_action',
+      message: `Telegram: заявка по невідомому лінку чекає ручного підтвердження — @${handle}`,
+      metadata: {
+        kind: JOIN_PENDING_EVENT_KIND,
+        tgUserId: String(from.id),
+        tgUserDesc: describeUser(from),
+        tgUsername: `@${handle}`,
+        reason: 'unknown_invite_link',
+      },
+    },
+  });
 }
 
 /// Пише мітку про висячу заявку в `telegramInviteError` вказаної підписки.
@@ -471,7 +501,9 @@ async function markPendingJoinOnSubscription(
   }
   if (current?.includes(PENDING_JOIN_MARK)) return;
 
-  const next = current?.trim() ? `${current.trim()} · ${message}`.slice(0, 500) : message.slice(0, 500);
+  const next = current?.trim()
+    ? `${current.trim()}${TG_ERROR_SEGMENT_SEPARATOR}${message}`.slice(0, 500)
+    : message.slice(0, 500);
 
   // Умова на where — захист від гонки: якщо між читанням і записом поле змінилось
   // (напр. паралельна генерація інвайта записала свою помилку), UPDATE просто не спрацює.

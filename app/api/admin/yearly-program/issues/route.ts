@@ -2,11 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { isAdmin } from '@/lib/adminAuth';
 import { collectAllIssues } from '@/lib/yearlyProgramIssues';
 
-/// GET /api/admin/yearly-program/issues
+/// GET /api/admin/yearly-program/issues?cohortId=<id|all>
 ///
-/// Повертає всі активні та заглушені issue-и Річної програми. Не має параметрів —
-/// фільтрація (kind / план / cohort) виконується на клієнті, бо payload малий
-/// (~ десятки рядків) і потрібно одночасно рахувати total для toolbar-badge.
+/// Повертає активні та заглушені issue-и Річної програми. Набір фільтрується на СЕРВЕРІ
+/// (`cohortId`), бо без нього у вкладку падають підписки всіх років одночасно — саме це
+/// і робило її нечитабельною. `cohortId` відсутній або `all` → усі набори.
+/// Решта фільтрів (тип / план) лишаються клієнтськими: payload уже звужений, а
+/// лічильники по типах потрібні одразу всі.
 ///
 /// Відповідь: { active: IssueRecord[], dismissed: IssueRecord[],
 ///              activeCounts: Record<IssueKind, number>, activeTotal: number }
@@ -14,6 +16,8 @@ export async function GET(req: NextRequest) {
   if (!(await isAdmin(req))) {
     return NextResponse.json({ error: 'Немає доступу' }, { status: 403 });
   }
-  const payload = await collectAllIssues();
+  const raw = req.nextUrl.searchParams.get('cohortId');
+  const cohortId = raw && raw !== 'all' ? raw : null;
+  const payload = await collectAllIssues({ cohortId });
   return NextResponse.json(payload);
 }

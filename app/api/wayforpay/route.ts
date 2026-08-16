@@ -16,6 +16,7 @@ import { resolveSellableCohort } from '@/lib/yearlyProgramCohort';
 import { verifyInvite, type InvitePayload } from '@/lib/yearlyProgramInvite';
 import { isValidCountryCode } from '@/lib/countries';
 import { parseTelegramUsername } from '@/lib/telegramUsername';
+import { TG_INVITE_FAILED_EVENT_TYPE } from '@/lib/yearlyProgramTelegramMarks';
 
 /// Текст, який пишемо в `YearlyProgramSubscription.telegramInviteError`, коли людина
 /// оформила Річну без валідного Telegram username. Константа — щоб при повторній
@@ -558,6 +559,20 @@ export async function POST(req: NextRequest) {
                   : {}),
               },
             });
+            // Помітка «username не вказано» лягла на ІСНУЮЧУ підписку — фіксуємо подією.
+            // Вкладка «Помилки» бере час помилки саме з неї: поле `telegramInviteError`
+            // часу не зберігає, а fallback (дата створення підписки) тут був би старішим
+            // за попереднє заглушення — свіжа проблема так і не спливла б.
+            if (telegramErrorToSet) {
+              await prisma.yearlyProgramSubscriptionEvent.create({
+                data: {
+                  subscriptionId: existing.id,
+                  type: TG_INVITE_FAILED_EVENT_TYPE,
+                  message: `Telegram invite не згенеровано (нова оплата ${orderReference}): ${telegramErrorToSet}`,
+                  metadata: { error: telegramErrorToSet, triggeredBy: 'wayforpay:new-order' },
+                },
+              });
+            }
             if (markManualAdd && repointCohort) {
               await prisma.yearlyProgramSubscriptionEvent.create({
                 data: {

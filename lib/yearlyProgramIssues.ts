@@ -16,6 +16,12 @@
 /// або таблицю-cache з recompute через cron.
 
 import prisma from '@/lib/prisma';
+import {
+  splitTelegramInviteError,
+  TG_INVITE_FAILED_EVENT_TYPE,
+  TG_JOIN_DECLINED_EVENT_KIND,
+  TG_JOIN_PENDING_EVENT_KIND,
+} from '@/lib/yearlyProgramTelegramMarks';
 
 /// Стабільний enum типів issue. Не перейменовуй значення — вони зберігаються
 /// у `YearlyProgramIssueDismissal.kind` як рядки (історичні dismissal-и зламаються).
@@ -29,6 +35,8 @@ export type IssueKind =
   | 'LAUNCH_EMAIL_FAILED'
   | 'LAUNCH_OVERDUE'
   | 'TG_INVITE_FAILED'
+  | 'TG_JOIN_DECLINED'
+  | 'TG_JOIN_PENDING'
   | 'TG_KICK_FAILED'
   | 'SP_CLOSE_FAILED'
   | 'SP_REOPEN_FAILED'
@@ -39,6 +47,7 @@ export type IssueKind =
   | 'WFP_REMOVE_FAILED'
   | 'WFP_SCHEDULE_DRIFT'
   | 'WFP_RULE_NOT_ACTIVE'
+  | 'WFP_SCHEDULE_SYNC_FAILED'
   | 'ACCESS_OPENED_NO_EMAIL'
   | 'EMAIL_FAILED';
 
@@ -47,6 +56,8 @@ export const ISSUE_KIND_VALUES: IssueKind[] = [
   'LAUNCH_EMAIL_FAILED',
   'LAUNCH_OVERDUE',
   'TG_INVITE_FAILED',
+  'TG_JOIN_DECLINED',
+  'TG_JOIN_PENDING',
   'TG_KICK_FAILED',
   'SP_CLOSE_FAILED',
   'SP_REOPEN_FAILED',
@@ -57,6 +68,7 @@ export const ISSUE_KIND_VALUES: IssueKind[] = [
   'WFP_REMOVE_FAILED',
   'WFP_SCHEDULE_DRIFT',
   'WFP_RULE_NOT_ACTIVE',
+  'WFP_SCHEDULE_SYNC_FAILED',
   'ACCESS_OPENED_NO_EMAIL',
   'EMAIL_FAILED',
 ];
@@ -85,6 +97,10 @@ export const ISSUE_KIND_SEVERITY: Record<IssueKind, IssueSeverity> = {
   LAUNCH_EMAIL_FAILED: 'warning',
   LAUNCH_OVERDUE: 'critical',
   TG_INVITE_FAILED: 'warning',
+  // warning: студент лишився поза каналом — але це не про гроші й не про доступ до навчання.
+  TG_JOIN_DECLINED: 'warning',
+  // info: заявка висить у самому Telegram і нікуди не подінеться; менеджер розбирає її вручну.
+  TG_JOIN_PENDING: 'info',
   TG_KICK_FAILED: 'info',
   // warning, не info: поки закриття не вдалось, студент фактично зберігає платний доступ.
   SP_CLOSE_FAILED: 'warning',
@@ -101,6 +117,9 @@ export const ISSUE_KIND_SEVERITY: Record<IssueKind, IssueSeverity> = {
   // warning: правило у WFP є, але призупинене — чергові списання не пройдуть, і доступ
   // одного дня згасне «без причини». Виправляється тільки в кабінеті WayForPay.
   WFP_RULE_NOT_ACTIVE: 'warning',
+  // warning: спроба перенести графік списань у WFP не пройшла — правило лишилось зі старими
+  // датами. Гроші поки на місці, але наступне списання піде не тоді, коли має.
+  WFP_SCHEDULE_SYNC_FAILED: 'warning',
   // warning: доступ у людини Є (гроші відпрацьовані), бракує лише листа з входом —
   // неприємно, але не про втрату грошей чи доступу.
   ACCESS_OPENED_NO_EMAIL: 'warning',
@@ -143,6 +162,8 @@ export const ISSUE_KIND_LABELS: Record<IssueKind, string> = {
   LAUNCH_EMAIL_FAILED: 'Запуск: welcome-лист не доставлено',
   LAUNCH_OVERDUE: 'Запуск прострочено',
   TG_INVITE_FAILED: 'Telegram: invite-link не згенеровано',
+  TG_JOIN_DECLINED: 'Telegram: заявку на вступ відхилено',
+  TG_JOIN_PENDING: 'Telegram: заявка чекає ручного підтвердження',
   TG_KICK_FAILED: 'Telegram: вилучення/ban не виконано',
   SP_CLOSE_FAILED: 'SendPulse: close-access помилка',
   SP_REOPEN_FAILED: 'SendPulse: reopen-access помилка',
@@ -153,6 +174,7 @@ export const ISSUE_KIND_LABELS: Record<IssueKind, string> = {
   WFP_REMOVE_FAILED: 'Автосписання у WayForPay не вдалося зняти',
   WFP_SCHEDULE_DRIFT: 'Графік списань WayForPay розійшовся з розкладом набору',
   WFP_RULE_NOT_ACTIVE: 'Правило автосписання у WayForPay призупинене',
+  WFP_SCHEDULE_SYNC_FAILED: 'Не вдалося синхронізувати графік списань WayForPay',
   ACCESS_OPENED_NO_EMAIL: 'Доступ відкрито, але welcome-лист не пішов',
   EMAIL_FAILED: 'Лист-нагадування не доставлено',
 };
@@ -164,6 +186,11 @@ export const ISSUE_HAS_RETRY: Record<IssueKind, boolean> = {
   LAUNCH_EMAIL_FAILED: false,   // через окрему "Дослати лист" модалку (per-recipient)
   LAUNCH_OVERDUE: false,        // issue на рівні набору — менеджер тисне 🚀 Запустити в шапці cohort-у
   TG_INVITE_FAILED: true,       // POST /yearly-program/[id]/telegram-invite (force=true)
+  // Регенерація інвайта тут нічого не лікує: заявку вже відхилено, спершу треба виправити
+  // username у підписці (найчастіша причина) — інакше наступна заявка відхилиться так само.
+  TG_JOIN_DECLINED: false,
+  // Заявка висить у самому Telegram — підтвердити/відхилити її можна лише в каналі.
+  TG_JOIN_PENDING: false,
   TG_KICK_FAILED: false,        // одноразова дія, повторювати не варто
   SP_CLOSE_FAILED: false,       // менеджер натискає "Закрити доступ" знову вручну
   SP_REOPEN_FAILED: false,      // менеджер натискає "Відкрити доступ" знову вручну
@@ -174,6 +201,7 @@ export const ISSUE_HAS_RETRY: Record<IssueKind, boolean> = {
   WFP_REMOVE_FAILED: false,          // нічний cron ретраїть сам; ручна дія — зняти правило в кабінеті WFP
   WFP_SCHEDULE_DRIFT: false,         // ручна дія — «Синхронізувати графік» у панелі підписки
   WFP_RULE_NOT_ACTIVE: false,        // виправляється лише в кабінеті WayForPay
+  WFP_SCHEDULE_SYNC_FAILED: false,   // ручна дія — «Синхронізувати графік» у панелі підписки
   ACCESS_OPENED_NO_EMAIL: false,     // нічний heal досилає сам; ручна дія — «Дослати лист» у наборі
   EMAIL_FAILED: false,               // cron сам ретраїть щодня; ручна дія — виправити email студента
 };
@@ -240,9 +268,11 @@ interface RawSubscription {
   id: string;
   plan: 'YEARLY' | 'MONTHLY';
   status: string;
+  /// Стабільна дата, яку не зсуває жоден нічний процес — на відміну від `updatedAt`.
+  /// Використовується як «час виявлення» для state-based issue-ів (див. `STATE_ISSUE_ANCHOR`).
+  createdAt: Date;
   updatedAt: Date;
   telegramInviteError: string | null;
-  telegramInvitedAt: Date | null;
   lastChargeError: string | null;
   failedChargeCount: number;
   lastChargeAttemptAt: Date | null;
@@ -317,13 +347,41 @@ function classifyEvent(e: RawEvent): {
   /// resolve-ить: одна дія менеджера може знімати одразу два різні issue.
   resolvesKind?: IssueKind | IssueKind[];
 } {
+  // Legacy: до явних `*_failed` типів ми писали failure-події з type='admin_action'
+  // або 'access_opened' з мітками FAILED у message. Ловимо їх по тексту.
+  //
+  // ⚠️ Порядок важливий: текст перевіряємо ДО трактування типу. Подія `access_opened`
+  // з міткою «access open FAILED» — це провал, а не успіх; якби спершу спрацювала
+  // гілка типу, така подія знімала б issue замість того, щоб його підняти.
+  if (e.message) {
+    if (/Cohort launch · access open FAILED/i.test(e.message)) return { kind: 'LAUNCH_ACCESS_FAILED' };
+    if (/Extra-launch FAILED \(SendPulse\)/i.test(e.message)) return { kind: 'LAUNCH_ACCESS_FAILED' };
+    if (/Extra-launch email FAILED/i.test(e.message)) return { kind: 'LAUNCH_EMAIL_FAILED' };
+    // Адмін вручну змінив термін доступу — «Продовжити +Nд» або «Ручна оплата» з перерахунком
+    // expiresAt. Обидва означають, що борг опрацьовано і рішення прийнято.
+    if (/^Extended \+\d+d\b/i.test(e.message)) return { kind: null, resolvesKind: 'REVIVED_WITH_DEBT' };
+    // Ручна оплата гасить борг ТІЛЬКИ якщо після неї доступ реально дотягнувся до
+    // майбутнього. Внесення одного місяця з трьох пропущених — це часткове погашення:
+    // студент і далі без доступу, тож critical-issue має лишитись висіти.
+    if (/^Ручна оплата .*expiresAt=/i.test(e.message)) {
+      const at = /expiresAt=(\d{4}-\d{2}-\d{2})/.exec(e.message)?.[1];
+      const resolvedForward = !!at && new Date(`${at}T23:59:59.999Z`).getTime() > Date.now();
+      return resolvedForward ? { kind: null, resolvesKind: 'REVIVED_WITH_DEBT' } : { kind: null };
+    }
+  }
+
   // Success events (resolve відповідного failure):
+  // `access_opened` знімає і провал відкриття доступу при запуску.
   if (e.type === 'access_opened') return { kind: null, resolvesKind: 'LAUNCH_ACCESS_FAILED' };
   if (e.type === 'launch_email_sent') return { kind: null, resolvesKind: 'LAUNCH_EMAIL_FAILED' };
   // Менеджер розібрався з боргом: «Відкрити знову» (reactivated) — доступ і дати виставлені
   // вручну. Та сама подія знімає і невдале повторне відкриття доступу в SP, і зависле
   // «не вдалось закрити» — після свідомого reopen закривати доступ уже не треба.
-  if (e.type === 'reactivated') return { kind: null, resolvesKind: ['REVIVED_WITH_DEBT', 'SP_REOPEN_FAILED', 'SP_CLOSE_FAILED'] };
+  // І LAUNCH_ACCESS_FAILED: адмін-дія «Відкрити доступ» пише саме `reactivated`, тобто
+  // доступ у SendPulse відкритий — провал запуску по цій підписці більше не актуальний.
+  if (e.type === 'reactivated') {
+    return { kind: null, resolvesKind: ['REVIVED_WITH_DEBT', 'SP_REOPEN_FAILED', 'SP_CLOSE_FAILED', 'LAUNCH_ACCESS_FAILED'] };
+  }
 
   // Доступ таки закрито (cron дотиснув наступного дня або менеджер закрив вручну) —
   // знімає попередній `access_close_failed`.
@@ -344,8 +402,12 @@ function classifyEvent(e: RawEvent): {
   // обидва «графікові» issue одразу: після CHANGE дати збігаються, а якщо правило було
   // призупинене — CHANGE по ньому взагалі не пройшов би.
   if (e.type === 'wfp_schedule_synced') {
-    return { kind: null, resolvesKind: ['WFP_SCHEDULE_DRIFT', 'WFP_RULE_NOT_ACTIVE'] };
+    return { kind: null, resolvesKind: ['WFP_SCHEDULE_DRIFT', 'WFP_RULE_NOT_ACTIVE', 'WFP_SCHEDULE_SYNC_FAILED'] };
   }
+  // Дзеркало до `wfp_schedule_synced`: спроба перенести графік у WFP не пройшла (CHANGE
+  // з помилкою або REMOVE після повної оплати). Тип писався у трьох місцях, але у вибірку
+  // не потрапляв і не класифікувався — подія була, у «Помилках» порожньо.
+  if (e.type === 'wfp_schedule_sync_failed') return { kind: 'WFP_SCHEDULE_SYNC_FAILED' };
   if (e.type === 'wfp_remove_failed') {
     const meta = (e.metadata ?? null) as { consecutiveFailures?: number } | null;
     const streak = typeof meta?.consecutiveFailures === 'number' ? meta.consecutiveFailures : 1;
@@ -363,92 +425,185 @@ function classifyEvent(e: RawEvent): {
   // Payment створено і залінковано, але доступ НЕ продовжено — рішення за менеджером.
   if (e.type === 'orphan_recurring_charge') return { kind: 'ORPHAN_RECURRING_CHARGE' };
 
-  // Legacy: до явних `*_failed` типів ми писали failure-події з type='admin_action'
-  // або 'access_opened' з мітками FAILED у message. Ловимо їх по тексту.
-  if (e.message) {
-    if (/Cohort launch · access open FAILED/i.test(e.message)) return { kind: 'LAUNCH_ACCESS_FAILED' };
-    if (/Extra-launch FAILED \(SendPulse\)/i.test(e.message)) return { kind: 'LAUNCH_ACCESS_FAILED' };
-    if (/Extra-launch email FAILED/i.test(e.message)) return { kind: 'LAUNCH_EMAIL_FAILED' };
-    // Адмін вручну змінив термін доступу — «Продовжити +Nд» або «Ручна оплата» з перерахунком
-    // expiresAt. Обидва означають, що борг опрацьовано і рішення прийнято.
-    if (/^Extended \+\d+d\b/i.test(e.message)) return { kind: null, resolvesKind: 'REVIVED_WITH_DEBT' };
-    // Ручна оплата гасить борг ТІЛЬКИ якщо після неї доступ реально дотягнувся до
-    // майбутнього. Внесення одного місяця з трьох пропущених — це часткове погашення:
-    // студент і далі без доступу, тож critical-issue має лишитись висіти.
-    if (/^Ручна оплата .*expiresAt=/i.test(e.message)) {
-      const at = /expiresAt=(\d{4}-\d{2}-\d{2})/.exec(e.message)?.[1];
-      const resolvedForward = !!at && new Date(`${at}T23:59:59.999Z`).getTime() > Date.now();
-      return resolvedForward ? { kind: null, resolvesKind: 'REVIVED_WITH_DEBT' } : { kind: null };
-    }
-  }
-
-  // TG-kick events із масивом помилок у metadata.errors:
+  // TG-kick events: `kickSubscriptionFromChannel` пише подію і на провалі, і на успіху.
+  // Провал (непорожній `metadata.errors`) піднімає issue, успішний кік/розбан — знімає
+  // його. Без resolve-гілки issue був вічним: у «Помилках» назавжди висіло побутове
+  // «user not found» по людині, яку давно вилучили.
   if (e.type === 'admin_action' && e.metadata && typeof e.metadata === 'object') {
     const meta = e.metadata as { mode?: string; errors?: unknown };
-    if ((meta.mode === 'returnable' || meta.mode === 'permanent') && Array.isArray(meta.errors) && meta.errors.length > 0) {
-      return { kind: 'TG_KICK_FAILED' };
+    if (meta.mode === 'returnable' || meta.mode === 'permanent') {
+      const failed = Array.isArray(meta.errors) && meta.errors.length > 0;
+      return failed ? { kind: 'TG_KICK_FAILED' } : { kind: null, resolvesKind: 'TG_KICK_FAILED' };
     }
   }
 
   return { kind: null };
 }
 
-/// Зчитує stateful-issue-и з полів підписки (без потреби в подіях).
-function stateBasedIssues(sub: RawSubscription, hasPaidPayment: boolean): { kind: IssueKind; errorExcerpt: string; lastOccurredAt: Date }[] {
+/// Скільки часу failure-подія лишається «живою проблемою». Без вікна issue висить вічно
+/// навіть тоді, коли за ним ніхто ніколи не прийде: resolve-події для таких kind-ів у
+/// системі немає або вона трапляється рідко.
+///   • TG_KICK_FAILED — одноразова дія, повторів немає. Через місяць після невдалого кіку
+///     ситуацію або розібрали вручну, або вона вже нікого не турбує.
+///   • WFP_SCHEDULE_SYNC_FAILED — нічна звірка йде в read-only режимі і `wfp_schedule_synced`
+///     сама не пише, тож старий провал інакше не згас би ніколи. Якщо графік і далі
+///     розʼїхався — про це окремо кричить WFP_SCHEDULE_DRIFT.
+const KIND_FRESHNESS_WINDOW_MS: Partial<Record<IssueKind, number>> = {
+  TG_KICK_FAILED: 30 * 24 * 60 * 60 * 1000,
+  WFP_SCHEDULE_SYNC_FAILED: 30 * 24 * 60 * 60 * 1000,
+};
+
+/// Час прояву для state-based issue-ів: у полях підписки часу помилки немає, а `updatedAt`
+/// для цього непридатний — нічна синхронізація прогресу SendPulse
+/// ([lib/certificates/syncYearlyProgress.ts](certificates/syncYearlyProgress.ts)) щодня
+/// оновлює його ВСІМ живим підпискам. Заглушений issue через це щоранку ставав «свіжішим
+/// за заглушення» і повертався в активні на верх списку.
+///
+/// Тому беремо: час відповідної події (якщо вона є) → інакше `createdAt` підписки.
+/// Обидва варіанти стабільні: заглушення тримається, поки стан реально не зміниться, а
+/// нова помилка приходить з новою подією і сама піднімає issue назад.
+function stateIssueAnchor(sub: RawSubscription, eventAt: Date | undefined): Date {
+  return eventAt ?? sub.createdAt;
+}
+
+/// Час останніх Telegram-подій підписки, з яких виводиться `lastOccurredAt` для трьох
+/// «телеграмних» issue-ів (поле `telegramInviteError` часу не зберігає).
+interface TelegramErrorTimes {
+  inviteFailedAt?: Date;
+  joinDeclinedAt?: Date;
+  joinPendingAt?: Date;
+}
+
+/// Зчитує stateful-issue-и з полів підписки (час прояву — з подій, див. `stateIssueAnchor`).
+function stateBasedIssues(
+  sub: RawSubscription,
+  hasPaidPayment: boolean,
+  tgTimes: TelegramErrorTimes | undefined,
+): { kind: IssueKind; errorExcerpt: string; lastOccurredAt: Date }[] {
   const out: { kind: IssueKind; errorExcerpt: string; lastOccurredAt: Date }[] = [];
   // Невдалий invite показуємо лише для реальних клієнтів: підписка або оплачена, або
   // вже в робочому статусі. Інакше вкладку засмічують неоплачені чернетки — прямі
   // POST-и з битим @username створюють `telegramInviteError` ще до будь-якої оплати.
   const isRealClient = hasPaidPayment || sub.status === 'ACTIVE' || sub.status === 'GRACE';
-  if (sub.telegramInviteError && isRealClient) {
+  if (!sub.telegramInviteError || !isRealClient) return out;
+
+  // Одне поле — до трьох різних проблем з різними діями менеджера. Webhook дописує свої
+  // мітки до наявного тексту, тож у полі можуть лежати і відмова Bot API, і заявка.
+  const parts = splitTelegramInviteError(sub.telegramInviteError);
+  if (parts.apiError) {
     out.push({
       kind: 'TG_INVITE_FAILED',
-      errorExcerpt: sub.telegramInviteError.slice(0, 200),
-      // Best approximation: останнє ненульове `telegramInvitedAt`, інакше updatedAt.
-      lastOccurredAt: sub.telegramInvitedAt ?? sub.updatedAt,
+      errorExcerpt: parts.apiError.slice(0, 200),
+      lastOccurredAt: stateIssueAnchor(sub, tgTimes?.inviteFailedAt),
+    });
+  }
+  if (parts.declined) {
+    out.push({
+      kind: 'TG_JOIN_DECLINED',
+      errorExcerpt: parts.declined.slice(0, 200),
+      lastOccurredAt: stateIssueAnchor(sub, tgTimes?.joinDeclinedAt),
+    });
+  }
+  if (parts.pending) {
+    out.push({
+      kind: 'TG_JOIN_PENDING',
+      errorExcerpt: parts.pending.slice(0, 200),
+      lastOccurredAt: stateIssueAnchor(sub, tgTimes?.joinPendingAt),
     });
   }
   return out;
 }
 
-/// Збирає всі issue-и (active + dismissed) для всіх підписок. Ефективно: один батч
-/// запитів, далі агрегація в пам'яті. Не залежить від адмін-сесії — викликається з API
-/// route, який сам гейтується isAdmin.
-export async function collectAllIssues(): Promise<IssuesPayload> {
+/// Поля підписки, потрібні детекторам. Один об'єкт на обидві вибірки (жива + дібраний
+/// архів), щоб вони не розʼїжджались.
+const SUBSCRIPTION_SELECT = {
+  id: true,
+  plan: true,
+  status: true,
+  createdAt: true,
+  updatedAt: true,
+  telegramInviteError: true,
+  lastChargeError: true,
+  failedChargeCount: true,
+  lastChargeAttemptAt: true,
+  manuallyAddedAt: true,
+  sendpulseAccessOpenedAt: true,
+  reminderSent3d: true,
+  reminderSentOnExpiry: true,
+  reminderSentGraceStart: true,
+  reminderSentGraceMid: true,
+  reminderSentGraceLast: true,
+  reminderSentExpired: true,
+  user: { select: { id: true, name: true, email: true } },
+  cohort: { select: { name: true } },
+} as const;
+
+/// Події типу `admin_action` пишуть усі підряд (кожен кік, кожна заявка, кожне заглушення),
+/// тож без вікна вибірка росла б назавжди. 180 днів із запасом перекривають усі детектори,
+/// що на них спираються: найдовше вікно серед них — 30 днів (TG_KICK_FAILED).
+const ADMIN_ACTION_WINDOW_MS = 180 * 24 * 60 * 60 * 1000;
+
+/// Виняток із вікна вище: `admin_action`-и, які РЕЗОЛВЛЯТЬ довгограючий issue.
+/// «Продовжити +Nд» і «Ручна оплата» знімають REVIVED_WITH_DEBT, чия failure-подія
+/// (`revived_with_debt`) вікна не має. Якби ці два типи випали з вибірки, давно
+/// розібраний борг воскрес би у «Помилках» рівно на 181-й день.
+const ADMIN_ACTION_RESOLVER_PREFIXES = ['Extended +', 'Ручна оплата '];
+
+/// Типи подій, які читають детектори (окрім `admin_action`, у якого своє вікно).
+const TRACKED_EVENT_TYPES = [
+  'access_open_failed',
+  'launch_email_failed',
+  'access_opened',
+  'launch_email_sent',
+  'orphan_recurring_charge',
+  'revived_with_debt',
+  'reactivated',
+  'reminder_email_failed',
+  'access_close_failed',
+  'access_reopen_failed',
+  'wfp_remove_failed',
+  'wfp_remove_succeeded',
+  'wfp_schedule_synced',
+  'wfp_schedule_drift',
+  'wfp_rule_not_active',
+  'wfp_schedule_sync_failed',
+  TG_INVITE_FAILED_EVENT_TYPE,
+];
+
+export interface CollectIssuesOptions {
+  /// Показати issue-и лише одного набору. `null`/`undefined` — усі набори (так працює
+  /// SSR-бейдж і денні push-алерти; вкладка «Помилки» за замовчуванням просить поточний).
+  cohortId?: string | null;
+}
+
+/// Збирає всі issue-и (active + dismissed). Ефективно: один батч запитів, далі агрегація
+/// в пам'яті. Не залежить від адмін-сесії — викликається з API route, який сам гейтується
+/// isAdmin.
+export async function collectAllIssues(options: CollectIssuesOptions = {}): Promise<IssuesPayload> {
+  const cohortId = options.cohortId ?? null;
   const now = new Date();
   const callbackLogSince = new Date(Date.now() - CALLBACK_LOG_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+  const adminActionSince = new Date(Date.now() - ADMIN_ACTION_WINDOW_MS);
+  /// Фільтр набору для дочірніх таблиць — через звʼязок з підпискою, щоб події й
+  /// заглушення підтягувались рівно по тих підписках, які лишились у вибірці.
+  const cohortScope = cohortId ? { subscription: { cohortId } } : {};
   const [subs, events, dismissals, paidRows, callbackLogs, overdueCohorts] = await Promise.all([
     prisma.yearlyProgramSubscription.findMany({
-      where: { status: { not: 'ARCHIVED' } },
-      select: {
-        id: true,
-        plan: true,
-        status: true,
-        updatedAt: true,
-        telegramInviteError: true,
-        telegramInvitedAt: true,
-        lastChargeError: true,
-        failedChargeCount: true,
-        lastChargeAttemptAt: true,
-        manuallyAddedAt: true,
-        sendpulseAccessOpenedAt: true,
-        reminderSent3d: true,
-        reminderSentOnExpiry: true,
-        reminderSentGraceStart: true,
-        reminderSentGraceMid: true,
-        reminderSentGraceLast: true,
-        reminderSentExpired: true,
-        user: { select: { id: true, name: true, email: true } },
-        cohort: { select: { name: true } },
-      },
+      where: { status: { not: 'ARCHIVED' }, ...(cohortId ? { cohortId } : {}) },
+      select: SUBSCRIPTION_SELECT,
     }),
     /// Тягнемо тільки потенційно-релевантні події: failure-типи + success-типи
     /// для resolve-логіки. Інші типи (created/charge_success/cancelled тощо) пропускаємо.
     prisma.yearlyProgramSubscriptionEvent.findMany({
       where: {
+        ...cohortScope,
         OR: [
-          { type: { in: ['access_open_failed', 'launch_email_failed', 'access_opened', 'launch_email_sent', 'orphan_recurring_charge', 'revived_with_debt', 'reactivated', 'reminder_email_failed', 'access_close_failed', 'access_reopen_failed', 'wfp_remove_failed', 'wfp_remove_succeeded', 'wfp_schedule_synced', 'wfp_schedule_drift', 'wfp_rule_not_active'] } },
-          { type: 'admin_action' },
+          { type: { in: TRACKED_EVENT_TYPES } },
+          { type: 'admin_action', createdAt: { gt: adminActionSince } },
+          ...ADMIN_ACTION_RESOLVER_PREFIXES.map((prefix) => ({
+            type: 'admin_action',
+            message: { startsWith: prefix },
+          })),
         ],
       },
       select: {
@@ -462,6 +617,7 @@ export async function collectAllIssues(): Promise<IssuesPayload> {
       orderBy: { createdAt: 'desc' },
     }),
     prisma.yearlyProgramIssueDismissal.findMany({
+      where: cohortScope,
       select: {
         subscriptionId: true,
         kind: true,
@@ -470,10 +626,13 @@ export async function collectAllIssues(): Promise<IssuesPayload> {
         reason: true,
       },
     }),
-    /// Для детектора цілісності ORPHAN_NO_PAYMENT — множина підписок, що мають
-    /// хоч один PAID-платіж. Підписка в «оплаченому» статусі поза цією множиною = аномалія.
+    /// Для детектора цілісності ORPHAN_NO_PAYMENT — множина підписок, що мають хоч один
+    /// PAID-платіж, який реально дає доступ. `excludedFromAccess` не рахуємо: це списання,
+    /// які система свідомо не зарахувала (орфанне рекурентне після закриття підписки) —
+    /// вони не роблять підписку «оплаченою» ніде більше в коді, тож і тут не мають
+    /// маскувати порушення інваріанта.
     prisma.payment.findMany({
-      where: { yearlyProgramSubscriptionId: { not: null }, status: 'PAID' },
+      where: { yearlyProgramSubscriptionId: { not: null }, status: 'PAID', excludedFromAccess: false },
       select: { yearlyProgramSubscriptionId: true },
       distinct: ['yearlyProgramSubscriptionId'],
     }),
@@ -509,6 +668,7 @@ export async function collectAllIssues(): Promise<IssuesPayload> {
     /// врятує, а вічний critical-бейдж у «Помилках» лише притупляє увагу до свіжих проблем.
     prisma.yearlyProgramCohort.findMany({
       where: {
+        ...(cohortId ? { id: cohortId } : {}),
         startDate: { lte: now },
         endDate: { gte: now },
         launchedAt: null,
@@ -529,34 +689,20 @@ export async function collectAllIssues(): Promise<IssuesPayload> {
   ///   • незняте автосписання у WFP — картку списують далі, попри архів.
   /// Дотягуємо такі підписки точково.
   const ARCHIVED_VISIBLE_EVENT_TYPES = new Set(['orphan_recurring_charge', 'wfp_remove_failed']);
+  /// Рівно ті kind-и, заради яких архівну підписку взагалі дотягли. Решту її історії
+  /// (старі TG-помилки, провали листів, борги) показувати не можна: архів на те й архів,
+  /// а інакше кожен такий добір вивалював у список усі kind-и підписки минулих років.
+  const ARCHIVED_VISIBLE_KINDS = new Set<IssueKind>(['ORPHAN_RECURRING_CHARGE', 'WFP_REMOVE_FAILED']);
   const orphanChargeSubIds = new Set(
     events.filter((e) => ARCHIVED_VISIBLE_EVENT_TYPES.has(e.type)).map((e) => e.subscriptionId),
   );
   const missingSubIds = [...orphanChargeSubIds].filter((id) => !subById.has(id));
+  /// Підписки, яких у «живій» вибірці не було — вони тут ЛИШЕ як носії двох kind-ів вище.
+  const archivedOnlySubIds = new Set(missingSubIds);
   if (missingSubIds.length > 0) {
     const archivedWithCharge = await prisma.yearlyProgramSubscription.findMany({
       where: { id: { in: missingSubIds } },
-      select: {
-        id: true,
-        plan: true,
-        status: true,
-        updatedAt: true,
-        telegramInviteError: true,
-        telegramInvitedAt: true,
-        lastChargeError: true,
-        failedChargeCount: true,
-        lastChargeAttemptAt: true,
-        manuallyAddedAt: true,
-        sendpulseAccessOpenedAt: true,
-        reminderSent3d: true,
-        reminderSentOnExpiry: true,
-        reminderSentGraceStart: true,
-        reminderSentGraceMid: true,
-        reminderSentGraceLast: true,
-        reminderSentExpired: true,
-        user: { select: { id: true, name: true, email: true } },
-        cohort: { select: { name: true } },
-      },
+      select: SUBSCRIPTION_SELECT,
     });
     for (const s of archivedWithCharge) subById.set(s.id, s);
   }
@@ -565,8 +711,24 @@ export async function collectAllIssues(): Promise<IssuesPayload> {
   const resolvedAt = new Map<string, Map<IssueKind, Date>>();
   // Мапа: subId → kind → { latestFailureAt, occurrenceCount, latestErrorExcerpt }
   const failureAgg = new Map<string, Map<IssueKind, { latestAt: Date; count: number; excerpt: string | null }>>();
+  /// Час останніх Telegram-подій — джерело `lastOccurredAt` для трьох state-based
+  /// «телеграмних» issue-ів. `events` відсортовані desc, тож перше влучання і є найсвіжіше.
+  const tgErrorTimes = new Map<string, TelegramErrorTimes>();
+  const rememberTgTime = (subId: string, field: keyof TelegramErrorTimes, at: Date) => {
+    let rec = tgErrorTimes.get(subId);
+    if (!rec) { rec = {}; tgErrorTimes.set(subId, rec); }
+    if (!rec[field]) rec[field] = at;
+  };
 
   for (const e of events) {
+    if (e.type === TG_INVITE_FAILED_EVENT_TYPE) {
+      rememberTgTime(e.subscriptionId, 'inviteFailedAt', e.createdAt);
+    } else if (e.type === 'admin_action' && e.metadata && typeof e.metadata === 'object') {
+      const metaKind = (e.metadata as { kind?: unknown }).kind;
+      if (metaKind === TG_JOIN_DECLINED_EVENT_KIND) rememberTgTime(e.subscriptionId, 'joinDeclinedAt', e.createdAt);
+      else if (metaKind === TG_JOIN_PENDING_EVENT_KIND) rememberTgTime(e.subscriptionId, 'joinPendingAt', e.createdAt);
+    }
+
     const c = classifyEvent(e);
     if (c.resolvesKind) {
       let map = resolvedAt.get(e.subscriptionId);
@@ -606,9 +768,14 @@ export async function collectAllIssues(): Promise<IssuesPayload> {
     const sub = subById.get(subId);
     if (!sub || !sub.user) continue;
     for (const [kind, agg] of kindMap) {
+      // Архівну підписку дотягли заради конкретних kind-ів — решту її історії не показуємо.
+      if (archivedOnlySubIds.has(subId) && !ARCHIVED_VISIBLE_KINDS.has(kind)) continue;
       // Resolve check: якщо є success-подія цього kind після останнього failure → пропускаємо.
       const successAt = resolvedAt.get(subId)?.get(kind);
       if (successAt && successAt > agg.latestAt) continue;
+      // Вікно свіжості (для kind-ів, які самі по собі ніколи не «розсмоктуються»).
+      const window = KIND_FRESHNESS_WINDOW_MS[kind];
+      if (window && now.getTime() - agg.latestAt.getTime() > window) continue;
 
       const dismissal = dismissalMap.get(dismissalKey(subId, kind));
       records.push({
@@ -634,7 +801,7 @@ export async function collectAllIssues(): Promise<IssuesPayload> {
   const haveEventRecord = new Set(records.map(recordKey));
   for (const sub of subs) {
     if (!sub.user) continue;
-    for (const stateIssue of stateBasedIssues(sub, paidSubIds.has(sub.id))) {
+    for (const stateIssue of stateBasedIssues(sub, paidSubIds.has(sub.id), tgErrorTimes.get(sub.id))) {
       if (haveEventRecord.has(`${sub.id}::${stateIssue.kind}`)) continue;
       const dismissal = dismissalMap.get(dismissalKey(sub.id, stateIssue.kind));
       records.push({
@@ -672,7 +839,10 @@ export async function collectAllIssues(): Promise<IssuesPayload> {
       subscriptionId: sub.id,
       sourceId: null,
       kind: 'ORPHAN_NO_PAYMENT',
-      lastOccurredAt: sub.updatedAt.toISOString(),
+      // Дата створення підписки, а НЕ `updatedAt`: стан «статус є, оплати немає» виник
+      // саме тоді і сам собою не змінюється, а `updatedAt` щоночі оновлює синхронізація
+      // прогресу SendPulse — заглушений issue через це щоранку повертався в активні.
+      lastOccurredAt: sub.createdAt.toISOString(),
       occurrenceCount: 1,
       errorExcerpt: `Статус ${sub.status}, але жодного PAID-платежу не знайдено.`,
       user: sub.user,
@@ -719,6 +889,7 @@ export async function collectAllIssues(): Promise<IssuesPayload> {
     for (const [subId, perFlag] of emailFailAgg) {
       const sub = subById.get(subId);
       if (!sub || !sub.user) continue;
+      if (archivedOnlySubIds.has(subId)) continue;
       // Лишаємо тільки нерозвʼязані листи: прапорець true → лист таки пішов наступного
       // проходу. Одна картка на підписку — за найсвіжішим із «живих» фейлів, сумарна
       // кількість повторень по всіх них.
@@ -776,6 +947,7 @@ export async function collectAllIssues(): Promise<IssuesPayload> {
     for (const [subId, perKind] of echoAgg) {
       const sub = subById.get(subId);
       if (!sub || !sub.user) continue;
+      if (archivedOnlySubIds.has(subId)) continue;
       for (const [kind, agg] of perKind) {
         // Успішний sync після останнього сигналу — проблеми вже немає.
         const successAt = resolvedAt.get(subId)?.get(kind);
@@ -946,6 +1118,10 @@ export async function collectAllIssues(): Promise<IssuesPayload> {
 
     for (const group of logGroups.values()) {
       const sub = group.subscriptionId ? subById.get(group.subscriptionId) : undefined;
+      // Фільтр набору: розпізнаний лог показуємо лише якщо його підписка є у вибірці.
+      // Нерозпізнані (без підписки взагалі) лишаємо завжди — це живі гроші, які ніде
+      // більше не видно, і сховати їх через фільтр набору означало б їх втратити.
+      if (cohortId && group.subscriptionId && !sub) continue;
       const dismissal = group.subscriptionId
         ? dismissalMap.get(dismissalKey(group.subscriptionId, 'RECURRING_CALLBACK_SKIPPED'))
         : undefined;

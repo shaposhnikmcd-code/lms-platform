@@ -6,6 +6,7 @@
 
 import prisma from '@/lib/prisma';
 import { esc } from '@/lib/mailer';
+import { TG_INVITE_FAILED_EVENT_TYPE } from '@/lib/yearlyProgramTelegramMarks';
 import {
   banChatMember,
   createChatInviteLink,
@@ -273,6 +274,7 @@ export async function generateInviteForSubscription(args: {
       where: { id: subscriptionId },
       data: { telegramInviteError: err },
     });
+    await recordInviteFailure(subscriptionId, err, triggeredBy);
     return { ok: false, inviteLink: null, error: err, subscriptionId };
   }
 
@@ -348,7 +350,27 @@ export async function generateInviteForSubscription(args: {
       where: { id: subscriptionId },
       data: { telegramInviteError: msg.slice(0, 500) },
     });
+    await recordInviteFailure(subscriptionId, msg, triggeredBy);
     return { ok: false, inviteLink: null, error: msg, subscriptionId };
+  }
+}
+
+/// Подія про невдалу генерацію invite-лінка. Саме вона (а не `updatedAt` підписки) дає
+/// вкладці «Помилки» ЧАС помилки: поле `telegramInviteError` часу не зберігає, а `updatedAt`
+/// щоночі зсуває синхронізація прогресу SendPulse — заглушений issue через це «оживав»
+/// щоранку. Best-effort: збій запису події не має валити основний флоу.
+async function recordInviteFailure(subscriptionId: string, message: string, triggeredBy: string): Promise<void> {
+  try {
+    await prisma.yearlyProgramSubscriptionEvent.create({
+      data: {
+        subscriptionId,
+        type: TG_INVITE_FAILED_EVENT_TYPE,
+        message: `Telegram invite не згенеровано (${triggeredBy}): ${message.slice(0, 300)}`,
+        metadata: { error: message.slice(0, 500), triggeredBy },
+      },
+    });
+  } catch (e) {
+    console.warn(`[yearly-tg] не вдалось записати подію ${TG_INVITE_FAILED_EVENT_TYPE} sub=${subscriptionId}: ${(e as Error).message}`);
   }
 }
 
