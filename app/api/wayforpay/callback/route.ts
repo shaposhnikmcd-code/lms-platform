@@ -1076,8 +1076,14 @@ async function handleRefundCallback(args: {
 
   if (sub) {
     const postAccessMonths = await getYearlyPostAccessMonths(prisma);
+    // `excludedFromAccess: false` — обов'язковий, а не косметика. `calculateAccessUntil`
+    // виключені списання відсіює сама, тож без цього фільтра підписка, у якої після
+    // рефанду лишився тільки orphan-платіж, давала `nothingLeftPaid=false` +
+    // `recalculated=null` → ACTIVE з `expiresAt=null`. Такий запис випадає з усіх
+    // cron-фільтрів (`expiresAt < now`) і доступ не закривається ніколи.
+    // Той самий фільтр — у гілці зарахування платежу нижче і в yearlyProgramScheduleSync.
     const remaining = await prisma.payment.findMany({
-      where: { yearlyProgramSubscriptionId: sub.id, status: 'PAID' },
+      where: { yearlyProgramSubscriptionId: sub.id, status: 'PAID', excludedFromAccess: false },
       select: { amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true },
     });
     const now = new Date();
@@ -1146,7 +1152,7 @@ async function handleRefundCallback(args: {
       data: {
         subscriptionId: sub.id,
         type: 'refunded',
-        message: `Повернення ${refundedAmount}₴ з ${payment.amount}₴ (WFP ${args.transactionStatus}) · оплачених платежів лишилось ${remaining.length} · ${
+        message: `Повернення ${refundedAmount}₴ з ${payment.amount}₴ (WFP ${args.transactionStatus}) · зарахованих у доступ оплат лишилось ${remaining.length} · ${
           nothingLeftPaid
             ? `оплат не лишилось → підписку закрито (EXPIRED), доступ у SendPulse ${
                 closeResult?.spOutcome === 'closed' ? 'закрито'
