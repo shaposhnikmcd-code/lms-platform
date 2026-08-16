@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { HiOutlineBanknotes, HiOutlineCheck, HiOutlineExclamationTriangle } from 'react-icons/hi2';
 import type { Theme } from '../../_components/adminTheme';
@@ -63,10 +63,16 @@ export default function ManualPaymentModal({
   const [split, setSplit] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  /// Не помилка сервера, а інформація для менеджера: анти-дубль (HTTP 409) — оплата з такою
-  /// самою сумою й способом уже зафіксована хвилину тому. Показуємо амбером, а не червоним,
-  /// бо це очікуваний захист від подвійного сабміту, а не збій.
+  /// Не помилка сервера, а інформація для менеджера: анти-дубль (HTTP 409) — таке саме
+  /// внесення (сума + спосіб + день оплати) вже є за останні 24 год. Показуємо амбером,
+  /// бо це попередження, а не збій.
   const [notice, setNotice] = useState<string | null>(null);
+  /// Сервер дозволив повторити з `force: true` — показуємо кнопку «Внести все одно».
+  const [canForce, setCanForce] = useState(false);
+  /// Замок сабміту. React-стан `submitting` оновлюється асинхронно, тому подвійний клік
+  /// (чи Enter + клік) встигав відправити два POST-и до першого ре-рендеру — а це зайвий
+  /// PAID-платіж = зайвий місяць доступу. Ref закривається синхронно, ще до fetch.
+  const submitLock = useRef(false);
 
   useEffect(() => { setMounted(true); }, []);
   useEffect(() => {
@@ -90,11 +96,13 @@ export default function ManualPaymentModal({
   const splitRest = canSplit ? amountNum - fullMonths * monthlyPrice : 0;
   const lastPart = canSplit ? monthlyPrice + splitRest : 0;
 
-  async function submit() {
-    if (!canSubmit) return;
+  async function submit(force = false) {
+    if (!canSubmit || submitLock.current) return;
+    submitLock.current = true;
     setSubmitting(true);
     setError(null);
     setNotice(null);
+    setCanForce(false);
     try {
       const res = await fetch(`/api/admin/yearly-program/${row.id}`, {
         method: 'POST',
@@ -110,14 +118,17 @@ export default function ManualPaymentModal({
           // Прапорець розбивки має сенс лише коли вона взагалі можлива; остаточне рішення
           // (і розрахунок часток) — на сервері, він єдине джерело правди про ціни.
           split: canSplit ? split : undefined,
+          // Повтор після попередження про дубль — менеджер свідомо підтвердив внесення.
+          ...(force ? { force: true } : {}),
         }),
       });
       const data = await res.json();
       if (!res.ok) {
-        // 409 — спрацював анти-дубль. Це не збій сервера: показуємо як інформацію
-        // («Схоже на дубль…»), модалку не закриваємо, введені дані лишаються.
+        // 409 — спрацював анти-дубль. Це не збій сервера: показуємо як інформацію,
+        // модалку не закриваємо, введені дані лишаються, поруч — «Внести все одно».
         if (res.status === 409) {
-          setNotice(`Схоже на дубль: ${data.error ?? 'таку саму оплату вже зафіксовано щойно.'}`);
+          setNotice(data.error ?? 'Таке саме внесення вже зафіксовано.');
+          setCanForce(data.canForce === true);
         } else {
           setError(data.error ?? res.statusText);
         }
@@ -163,6 +174,7 @@ export default function ManualPaymentModal({
     } catch (e) {
       setError((e as Error).message);
     } finally {
+      submitLock.current = false;
       setSubmitting(false);
     }
   }
@@ -249,7 +261,8 @@ export default function ManualPaymentModal({
                 </b>
                 <span className={`block mt-1 ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
                   {split
-                    ? `Закриє ${fullMonths} ${plural(fullMonths, 'місяць', 'місяці', 'місяців')} графіка. Студент отримає ОДНУ квитанцію на всю суму.`
+                    ? `Кожна частка зараховується як 1 місяць доступу — разом закриє ${fullMonths} ${plural(fullMonths, 'місяць', 'місяці', 'місяців')} графіка. `
+                      + 'У списках вони показані одним записом; студент отримає ОДНУ квитанцію на всю суму.'
                     : 'Без розбивки вся сума зарахується як ОДИН місяць графіка.'}
                 </span>
               </span>
@@ -303,11 +316,30 @@ export default function ManualPaymentModal({
           </Field>
 
           {notice && (
-            <div className={`text-[12.5px] px-4 py-3 rounded-xl flex items-start gap-2.5 ${
-              dark ? 'bg-amber-500/10 border border-amber-400/25 text-amber-100/90' : 'bg-amber-50 border border-amber-300/70 text-amber-900'
-            }`}>
+            <div
+              data-duplicate-notice
+              className={`text-[12.5px] px-4 py-3 rounded-xl flex items-start gap-2.5 ${
+                dark ? 'bg-amber-500/10 border border-amber-400/25 text-amber-100/90' : 'bg-amber-50 border border-amber-300/70 text-amber-900'
+              }`}
+            >
               <HiOutlineExclamationTriangle className="text-base shrink-0 mt-0.5" />
-              <span>{notice}</span>
+              <div className="min-w-0">
+                <span>{notice}</span>
+                {canForce && (
+                  <button
+                    type="button"
+                    onClick={() => submit(true)}
+                    disabled={submitting}
+                    className={`mt-2.5 block px-3.5 py-1.5 rounded-lg text-[12px] font-bold border transition-colors disabled:opacity-50 ${
+                      dark
+                        ? 'bg-amber-400/15 border-amber-400/40 text-amber-100 hover:bg-amber-400/25'
+                        : 'bg-amber-100 border-amber-400/70 text-amber-900 hover:bg-amber-200'
+                    }`}
+                  >
+                    Внести все одно
+                  </button>
+                )}
+              </div>
             </div>
           )}
 
@@ -335,7 +367,7 @@ export default function ManualPaymentModal({
           </button>
           <button
             type="button"
-            onClick={submit}
+            onClick={() => submit()}
             disabled={!canSubmit}
             className={`inline-flex items-center gap-1.5 px-5 py-2 rounded-lg text-[13px] font-bold border transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
               dark

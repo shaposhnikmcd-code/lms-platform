@@ -1,10 +1,18 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
-import { HiOutlineArrowPath, HiOutlineBanknotes, HiOutlineExclamationTriangle, HiOutlineMagnifyingGlass } from 'react-icons/hi2';
+import {
+  HiOutlineArrowPath,
+  HiOutlineBanknotes,
+  HiOutlineChevronDown,
+  HiOutlineChevronUp,
+  HiOutlineExclamationTriangle,
+  HiOutlineMagnifyingGlass,
+} from 'react-icons/hi2';
 import type { Theme } from '../../_components/adminTheme';
 import { AdminPanel } from '../../_components/AdminShell';
+import { describeSplitParts, groupManualPayments, pluralParts } from '@/lib/yearlyProgramManualGroups';
 import type { Row } from './types';
 
 const ManualPaymentModal = dynamic(() => import('./ManualPaymentModal'), { ssr: false });
@@ -22,6 +30,8 @@ interface ManualPaymentRow {
   method: string | null;
   note: string | null;
   enteredBy: string | null;
+  /// true — платіж лишається в історії й «Доході», але місяця доступу не дає.
+  excludedFromAccess: boolean;
   subscriptionId: string | null;
   plan: 'YEARLY' | 'MONTHLY' | null;
   autoRenew: boolean | null;
@@ -66,6 +76,15 @@ function fmtDateTime(iso: string | null): string {
 function fmtDate(iso: string | null): string {
   if (!iso) return '—';
   return KYIV_DATE.format(new Date(iso));
+}
+
+/// 1 внесення / 2-4 внесення / 5+ внесень.
+function pluralEntries(n: number): string {
+  const mod100 = Math.abs(n) % 100;
+  const mod10 = Math.abs(n) % 10;
+  if (mod100 >= 11 && mod100 <= 14) return 'внесень';
+  if (mod10 >= 1 && mod10 <= 4) return 'внесення';
+  return 'внесень';
 }
 
 /// Вкладка «Ручні платежі» — реєстр УСІХ оплат поза WayForPay по всіх підписках Річної
@@ -135,7 +154,21 @@ export default function ManualPaymentsPanel({
     [data, methodFilter],
   );
 
+  // Частки авто-розбивки одного внесення (12 800 ₴ = 5 рядків у БД) склеюємо назад в
+  // ОДИН запис реєстру. Без цього менеджер бачив 5 рядків з однаковими датою/сумою/
+  // нотаткою і читав їх як дубль. Гроші від групування не змінюються.
+  const groups = useMemo(() => groupManualPayments(visible), [visible]);
+  const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
+  const toggleGroup = useCallback((key: string) => {
+    setOpenGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }, []);
+
   // Сума показаних платежів — швидка перевірка «скільки прийняли готівкою за період».
+  // Рахується по РЯДКАХ, тому групування її не змінює.
   const shownSum = visible.reduce((s, r) => (r.status === 'PAID' ? s + r.amount : s), 0);
 
   const inputCls = `px-3 py-1.5 rounded-lg border text-[12px] outline-none transition-colors ${
@@ -224,9 +257,12 @@ export default function ManualPaymentsPanel({
         <div className={`flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 border-b text-[12px] ${
           dark ? 'border-white/[0.06] text-slate-400' : 'border-stone-300/40 text-stone-600'
         }`}>
+          {/* Лічильник — ВНЕСЕННЯ (те, що менеджер реально прийняв), а не рядки в БД.
+              Кількість рядків показуємо довідково, коли розбивки є. */}
           <span>
-            Показано <b className="tabular-nums">{visible.length.toLocaleString()}</b>
-            {visible.length !== total && <> з <b className="tabular-nums">{total.toLocaleString()}</b></>}
+            Показано <b className="tabular-nums">{groups.length.toLocaleString()}</b> {pluralEntries(groups.length)}
+            {visible.length !== groups.length && <> ({visible.length.toLocaleString()} платіжних рядків)</>}
+            {visible.length !== total && <> з <b className="tabular-nums">{total.toLocaleString()}</b> у вибірці</>}
             {' '}· сума показаних: <b className="tabular-nums">{shownSum.toLocaleString()} ₴</b>
           </span>
           {truncated && (
@@ -260,10 +296,14 @@ export default function ManualPaymentsPanel({
                   Ручних платежів за цими фільтрами немає.
                 </td></tr>
               ) : (
-                visible.map((p) => {
+                groups.map((g) => {
+                  const p = g.head;
                   const m = p.method ? METHOD_LABELS[p.method] : null;
+                  const open = openGroups.has(g.key);
+                  const allExcluded = g.parts.every((x) => x.excludedFromAccess);
                   return (
-                    <tr key={p.id} className={dark ? 'hover:bg-white/[0.02]' : 'hover:bg-stone-50/60'}>
+                    <Fragment key={g.key}>
+                    <tr data-manual-group={g.key} className={dark ? 'hover:bg-white/[0.02]' : 'hover:bg-stone-50/60'}>
                       <td className={`px-3 py-2.5 whitespace-nowrap tabular-nums text-[12px] ${dark ? 'text-slate-300' : 'text-stone-700'}`}>
                         {fmtDateTime(p.createdAt)}
                       </td>
@@ -283,10 +323,29 @@ export default function ManualPaymentsPanel({
                           {p.plan === 'YEARLY' ? 'Річний' : p.plan === 'MONTHLY' ? (p.autoRenew ? 'Місячний авто' : 'Місячний') : '—'}
                         </span>
                       </td>
-                      <td className={`px-3 py-2.5 text-right tabular-nums font-semibold whitespace-nowrap ${
-                        p.status === 'PAID' ? (dark ? 'text-slate-100' : 'text-stone-900') : (dark ? 'text-slate-500 line-through' : 'text-stone-400 line-through')
-                      }`}>
-                        {p.amount.toLocaleString()} ₴
+                      {/* Сума ВСЬОГО внесення. Розбивка розкривається кліком — так одне
+                          внесення на 12 800 ₴ більше не виглядає як 5 однакових дублів. */}
+                      <td className="px-3 py-2.5 text-right whitespace-nowrap">
+                        <div className={`tabular-nums font-semibold ${
+                          p.status === 'PAID' && !allExcluded
+                            ? (dark ? 'text-slate-100' : 'text-stone-900')
+                            : (dark ? 'text-slate-500 line-through' : 'text-stone-400 line-through')
+                        }`}>
+                          {g.total.toLocaleString()} ₴
+                        </div>
+                        {g.isSplit && (
+                          <button
+                            type="button"
+                            onClick={() => toggleGroup(g.key)}
+                            aria-expanded={open}
+                            className={`mt-0.5 inline-flex items-center gap-1 text-[10.5px] transition-colors ${
+                              dark ? 'text-slate-400 hover:text-slate-200' : 'text-stone-500 hover:text-stone-800'
+                            }`}
+                          >
+                            {open ? <HiOutlineChevronUp className="text-[11px]" /> : <HiOutlineChevronDown className="text-[11px]" />}
+                            розбито на {g.parts.length} {pluralParts(g.parts.length)} ({describeSplitParts(g.amounts)})
+                          </button>
+                        )}
                       </td>
                       <td className="px-3 py-2.5 whitespace-nowrap">
                         <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
@@ -300,8 +359,42 @@ export default function ManualPaymentsPanel({
                       </td>
                       <td className={`px-3 py-2.5 text-[11px] max-w-[280px] ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
                         {p.note ? <span className="italic">«{p.note}»</span> : <span className={dark ? 'text-slate-600' : 'text-stone-400'}>—</span>}
+                        {allExcluded && (
+                          <span className={`block mt-0.5 text-[10px] ${dark ? 'text-amber-300' : 'text-amber-700'}`}>🚫 поза доступом</span>
+                        )}
                       </td>
                     </tr>
+                    {g.isSplit && open && (
+                      <tr data-manual-group-parts={g.key} className={dark ? 'bg-white/[0.02]' : 'bg-stone-50/70'}>
+                        <td colSpan={8} className="px-3 pb-3 pt-0">
+                          <div className={`rounded-lg border text-[11px] max-w-[560px] ${dark ? 'border-white/[0.07]' : 'border-stone-300/50'}`}>
+                            <div className={`px-3 py-1.5 border-b text-[10.5px] ${
+                              dark ? 'border-white/[0.06] text-slate-500' : 'border-stone-300/40 text-stone-500'
+                            }`}>
+                              Одне внесення {g.total.toLocaleString()} ₴, розкладене на місячні слоти — кожна частка зараховується як 1 місяць доступу.
+                            </div>
+                            <div className={dark ? 'divide-y divide-white/[0.05]' : 'divide-y divide-stone-200/60'}>
+                              {g.parts.map((part, i) => (
+                                <div key={part.id} className="px-3 py-1.5 flex items-center justify-between gap-3">
+                                  <span className={dark ? 'text-slate-400' : 'text-stone-600'}>
+                                    Частка {i + 1} з {g.parts.length}
+                                    {part.excludedFromAccess && (
+                                      <span className={dark ? ' text-amber-300' : ' text-amber-700'}> · 🚫 поза доступом</span>
+                                    )}
+                                  </span>
+                                  <span className={`tabular-nums font-semibold ${
+                                    part.excludedFromAccess
+                                      ? (dark ? 'text-slate-600 line-through' : 'text-stone-400 line-through')
+                                      : (dark ? 'text-slate-200' : 'text-stone-800')
+                                  }`}>{part.amount.toLocaleString()} ₴</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   );
                 })
               )}

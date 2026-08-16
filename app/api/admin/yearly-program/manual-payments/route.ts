@@ -71,6 +71,7 @@ export async function GET(req: NextRequest) {
         manualMethod: true,
         manualNote: true,
         manualEnteredBy: true,
+        excludedFromAccess: true,
         user: { select: { id: true, name: true, email: true } },
         yearlyProgramSubscription: {
           select: {
@@ -99,6 +100,7 @@ export async function GET(req: NextRequest) {
       method: p.manualMethod,
       note: p.manualNote,
       enteredBy: p.manualEnteredBy,
+      excludedFromAccess: p.excludedFromAccess,
       subscriptionId: p.yearlyProgramSubscription?.id ?? null,
       plan: p.yearlyProgramSubscription?.plan ?? null,
       autoRenew: p.yearlyProgramSubscription?.autoRenew ?? null,

@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { Prisma, type VisionCertStatus } from '@prisma/client';
+import { Prisma, type Payment, type VisionCertStatus } from '@prisma/client';
 import { getServerSession } from 'next-auth';
 import { getToken } from 'next-auth/jwt';
 import prisma from '@/lib/prisma';
 import { authOptions } from '@/lib/auth';
 import { isAdmin, getAdminActor, type AdminActor } from '@/lib/adminAuth';
+import { isSuperAdmin } from '@/lib/superAdmin';
+import { groupManualPayments, describeSplitParts } from '@/lib/yearlyProgramManualGroups';
 import { closeAccessInCourse, lookupStudentIdByEmail, openAccessViaEvent } from '@/lib/sendpulse';
 import {
   kickSubscriptionFromChannel,
@@ -85,6 +87,12 @@ export async function POST(
     sendWelcome?: boolean;
     visionStatus?: string;
     split?: boolean;
+    /// Пропустити анти-дубль-перевірку ручної оплати (менеджер підтвердив «Внести все одно»).
+    force?: boolean;
+    /// Пакетні дії над платежами (виключення з доступу / видалення). Для розбитого
+    /// внесення сюди йдуть id усіх часток одразу.
+    paymentIds?: string[];
+    excluded?: boolean;
   };
 
   // Менеджеру відкрита рівно одна дія — Vision-статус (він веде видачу цих сертифікатів).
@@ -119,6 +127,7 @@ export async function POST(
         note: body.note,
         paidAt: body.paidAt,
         split: body.split,
+        force: body.force,
       }, actorLabel);
     case 'convert_to_yearly':
       return handleConvertToYearly(sub, actorLabel);
@@ -132,6 +141,22 @@ export async function POST(
         note: body.note,
         paidAt: body.paidAt,
       }, actorLabel);
+    case 'set_payment_access':
+      return handleSetPaymentAccess(sub, {
+        paymentIds: body.paymentIds,
+        excluded: body.excluded,
+        note: body.note,
+      }, actorLabel);
+    case 'delete_payment':
+      // Видалення платежу необоротне і зсуває доступ — тільки super-admin (env-allowlist),
+      // повсякденна дія для менеджера — «Виключити з доступу».
+      if (!(await isSuperAdmin(req))) {
+        return NextResponse.json(
+          { error: 'Видаляти платежі може лише super-admin. Скористайтесь «Виключити з доступу».' },
+          { status: 403 },
+        );
+      }
+      return handleDeletePayments(sub, { paymentIds: body.paymentIds }, actorLabel);
     case 'delete':
       return handleDelete(sub, actorLabel);
     case 'tg_kick':
@@ -710,7 +735,7 @@ function splitManualAmount(amount: number, monthlyPrice: number): number[] {
 
 async function handleManualPayment(
   sub: NonNullable<SubWithUser>,
-  input: { amount?: number; method?: string; note?: string; paidAt?: string; split?: boolean },
+  input: { amount?: number; method?: string; note?: string; paidAt?: string; split?: boolean; force?: boolean },
   actor: string,
 ) {
   if (sub.status === 'ARCHIVED') {
@@ -760,46 +785,62 @@ async function handleManualPayment(
     ? 'сума схожа на оплату кількох місяців — буде зараховано як 1 місяць'
     : undefined;
 
-  // Ідемпотентність: два сабміти підряд (дві вкладки, повтор після таймауту) створювали
-  // два PAID-платежі = зайвий місяць доступу. Дублем вважаємо збіг суми + способу + ДНЯ
-  // оплати у межах 60 секунд. День у ключі обов'язковий: занесення кількох місяців
-  // (3 × 2200 ₴ з різними paidAt) — легітимний сценарій і має проходити підряд.
+  // Анти-дубль. Дублем вважаємо ВНЕСЕННЯ з тим самим ключем (підписка + спосіб + день
+  // оплати + повна сума), зафіксоване за останні 24 години. Порівнюємо саме повну суму
+  // внесення, а не суму рядка: розбите внесення 12 800 ₴ лежить у БД як 5 часток, і
+  // порівняння по частці ловило б хибні збіги (2 200 ₴ = звичайний місячний платіж).
   // День рахуємо в київському календарі (менеджер вводить свій час): оплата о 01:30
   // за Києвом — це ще UTC-«вчора», і в UTC-порівнянні дубль проскакував.
-  const DUPLICATE_WINDOW_MS = 60 * 1000;
+  //
+  // 24 год замість колишньої хвилини: реальний дубль — це «внесла вчора, забула, внесла
+  // сьогодні», а не подвійний клік. Легітимний повтор у той самий день з тією самою сумою
+  // теж буває — тому це не заборона, а підтвердження: менеджер повторює запит із
+  // `force: true` («Внести все одно»), і факт свідомого підтвердження лягає в подію.
+  const DUPLICATE_WINDOW_MS = 24 * 60 * 60 * 1000;
   const kyivDay = (d: Date) => d.toLocaleDateString('uk-UA', { timeZone: 'Europe/Kyiv' });
   const paidAtKyivDay = kyivDay(paidAt);
-  // ±1 доба навколо paidAt покриває будь-який зсув київського дня відносно UTC;
-  // точний збіг дня перевіряємо в JS. Вікно createdAt < 60с тримає вибірку крихітною.
-  // Порівнюємо з сумою РЯДКА, який реально буде записаний: при розбивці це monthlyPrice,
-  // без неї — вся внесена сума. Інакше повторний сабміт розбитої оплати не ловився б.
-  const dupAmount = parts[0]!;
-  const recentSameAmount = await prisma.payment.findMany({
-    where: {
-      yearlyProgramSubscriptionId: sub.id,
-      status: 'PAID',
-      manualMethod: method,
-      amount: dupAmount,
-      paidAt: {
-        gte: new Date(paidAt.getTime() - 24 * 60 * 60 * 1000),
-        lte: new Date(paidAt.getTime() + 24 * 60 * 60 * 1000),
+  const forced = input.force === true;
+  if (!forced) {
+    // ±1 доба навколо paidAt покриває будь-який зсув київського дня відносно UTC;
+    // точний збіг дня перевіряємо в JS.
+    const recent = await prisma.payment.findMany({
+      where: {
+        yearlyProgramSubscriptionId: sub.id,
+        status: 'PAID',
+        manualMethod: method,
+        paidAt: {
+          gte: new Date(paidAt.getTime() - 24 * 60 * 60 * 1000),
+          lte: new Date(paidAt.getTime() + 24 * 60 * 60 * 1000),
+        },
+        createdAt: { gte: new Date(Date.now() - DUPLICATE_WINDOW_MS) },
       },
-      createdAt: { gte: new Date(Date.now() - DUPLICATE_WINDOW_MS) },
-    },
-    orderBy: { createdAt: 'desc' },
-    select: { id: true, orderReference: true, createdAt: true, paidAt: true },
-  });
-  const recentDuplicate = recentSameAmount.find(
-    (p) => p.paidAt && kyivDay(p.paidAt) === paidAtKyivDay,
-  );
-  if (recentDuplicate) {
-    return NextResponse.json({
-      error: `Таку саму оплату (${dupAmount}₴, ${MANUAL_METHOD_LABELS[method] ?? method}, `
-        + `${paidAtKyivDay}) вже зафіксовано менше хвилини тому. `
-        + 'Якщо це справді друга оплата за той самий день — повторіть через хвилину; '
-        + 'для іншого місяця вкажіть свою дату оплати.',
-      duplicateOf: recentDuplicate.orderReference,
-    }, { status: 409 });
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, orderReference: true, amount: true, createdAt: true, paidAt: true },
+    });
+    const sameDay = recent.filter((p) => p.paidAt && kyivDay(p.paidAt) === paidAtKyivDay);
+    // Частки однієї розбивки збираємо назад у внесення — і порівнюємо суму внесення.
+    const duplicateGroup = groupManualPayments(sameDay).find((g) => g.total === amount);
+    if (duplicateGroup) {
+      const enteredAt = duplicateGroup.head.createdAt.toLocaleString('uk-UA', { timeZone: 'Europe/Kyiv' });
+      const composition = duplicateGroup.isSplit
+        ? ` (розбито на ${duplicateGroup.parts.length}: ${describeSplitParts(duplicateGroup.amounts)})`
+        : '';
+      return NextResponse.json({
+        error: `Схоже на дубль: внесення ${amount}₴ (${MANUAL_METHOD_LABELS[method] ?? method}, `
+          + `дата оплати ${paidAtKyivDay}) вже зафіксовано ${enteredAt}${composition}, `
+          + `посилання ${duplicateGroup.head.orderReference}. `
+          + 'Якщо це справді ще одна оплата — натисніть «Внести все одно».',
+        duplicateOf: duplicateGroup.head.orderReference,
+        duplicate: {
+          orderReference: duplicateGroup.head.orderReference,
+          amount: duplicateGroup.total,
+          parts: duplicateGroup.amounts,
+          createdAt: duplicateGroup.head.createdAt.toISOString(),
+          paidAt: duplicateGroup.head.paidAt?.toISOString() ?? null,
+        },
+        canForce: true,
+      }, { status: 409 });
+    }
   }
 
   // orderReference має бути унікальним — timestamp + хвіст id підписки; при розбивці
@@ -872,10 +913,11 @@ async function handleManualPayment(
     data: {
       subscriptionId: sub.id,
       type: 'admin_action',
-      message: `Ручна оплата ${amount}₴ (${methodLabel}) by ${actor}${note ? ` — ${note}` : ''}${splitSummary} · expiresAt=${newExpiresAt?.toISOString().slice(0, 10) ?? 'null'}`,
+      message: `Ручна оплата ${amount}₴ (${methodLabel}) by ${actor}${note ? ` — ${note}` : ''}${splitSummary}${forced ? ' · ⚠️ внесено попри попередження про дубль' : ''} · expiresAt=${newExpiresAt?.toISOString().slice(0, 10) ?? 'null'}`,
       metadata: {
         manualPayment: true, amount, method, note, paidAt: paidAt.toISOString(),
         orderReference: orderReferences[0], orderReferences, parts, actor,
+        ...(forced ? { forcedDuplicate: true } : {}),
         ...(warning ? { warning } : {}),
       },
     },
@@ -1356,6 +1398,164 @@ async function handleEditPayment(
   return NextResponse.json({
     ok: true,
     changes,
+    newStatus,
+    newExpiresAt: newExpiresAt?.toISOString() ?? null,
+  });
+}
+
+/// Скільки платежів максимум приймає пакетна дія за раз. Реально це кількість часток
+/// одного внесення (≤ MAX_SPLIT_PARTS), запас — щоб не дати одним запитом перебрати
+/// всю історію підписки.
+const MAX_PAYMENT_BATCH = 50;
+
+/// Спільна вибірка платежів для пакетних дій: перевіряє, що всі id належать ЦІЙ підписці
+/// і що це РУЧНІ платежі (WFP чіпати не можна — їх стан веде callback).
+type BatchLoad =
+  | { error: NextResponse; payments: null }
+  | { error: null; payments: Payment[] };
+
+async function loadManualPaymentsForBatch(subId: string, rawIds: unknown): Promise<BatchLoad> {
+  const fail = (message: string, status: number): BatchLoad =>
+    ({ error: NextResponse.json({ error: message }, { status }), payments: null });
+
+  const ids = Array.isArray(rawIds)
+    ? Array.from(new Set(rawIds.filter((v): v is string => typeof v === 'string' && v.trim() !== '')))
+    : [];
+  if (ids.length === 0) return fail('Не вказано платіж', 400);
+  if (ids.length > MAX_PAYMENT_BATCH) return fail(`Забагато платежів за раз (максимум ${MAX_PAYMENT_BATCH})`, 400);
+
+  const payments = await prisma.payment.findMany({
+    where: { id: { in: ids }, yearlyProgramSubscriptionId: subId },
+    orderBy: { orderReference: 'asc' },
+  });
+  if (payments.length !== ids.length) return fail('Платіж не знайдено для цієї підписки', 404);
+  if (payments.some((p) => !p.manualMethod)) {
+    return fail('Платежі WayForPay змінювати не можна — тільки ручні', 400);
+  }
+  return { error: null, payments };
+}
+
+/// «Виключити з доступу» / «Повернути в доступ» — оборотне виправлення помилкового
+/// ручного платежу. Ставить `Payment.excludedFromAccess` (calculateAccessUntil такі рядки
+/// не рахує як місяць) і перераховує підписку тим самим helper-ом, що й оплата.
+/// Гроші з «Доходу» НЕ зникають: платіж лишається слідом реального внеску, змінюється
+/// лише його вплив на доступ. Для розбитого внесення приходять id усіх часток одразу.
+async function handleSetPaymentAccess(
+  sub: NonNullable<SubWithUser>,
+  input: { paymentIds?: string[]; excluded?: boolean; note?: string },
+  actor: string,
+) {
+  if (typeof input.excluded !== 'boolean') {
+    return NextResponse.json({ error: 'excluded має бути true/false' }, { status: 400 });
+  }
+  const loaded = await loadManualPaymentsForBatch(sub.id, input.paymentIds);
+  if (loaded.error) return loaded.error;
+  const payments = loaded.payments;
+
+  const changing = payments.filter((p) => p.excludedFromAccess !== input.excluded);
+  if (changing.length === 0) {
+    return NextResponse.json({ ok: true, noChanges: true });
+  }
+
+  await prisma.payment.updateMany({
+    where: { id: { in: changing.map((p) => p.id) } },
+    data: { excludedFromAccess: input.excluded },
+  });
+
+  // Перерахунок доступу по актуальних платежах. allowRevive:false — виправлення платежу
+  // не має воскрешати закриту підписку (та сама політика, що й у edit_payment).
+  const { newStatus, newExpiresAt } = await applyPaymentActivation({
+    subscriptionId: sub.id,
+    plan: sub.plan,
+    autoRenew: sub.autoRenew,
+    prevStatus: sub.status,
+    lastPaymentAt: sub.lastPaymentAt ?? changing[0]!.paidAt ?? changing[0]!.createdAt,
+    allowRevive: false,
+  });
+
+  const reason = (input.note ?? '').trim().slice(0, 300);
+  const totalAmount = changing.reduce((s, p) => s + p.amount, 0);
+  await prisma.yearlyProgramSubscriptionEvent.create({
+    data: {
+      subscriptionId: sub.id,
+      type: 'admin_action',
+      message: input.excluded
+        ? `Виключено з доступу (${actor}): ${changing.length} шт. на ${totalAmount}₴ — місяці доступу за ними більше не рахуються${reason ? ` — ${reason}` : ''} · expiresAt=${newExpiresAt?.toISOString().slice(0, 10) ?? 'null'}`
+        : `Повернено в доступ (${actor}): ${changing.length} шт. на ${totalAmount}₴ — місяці доступу за ними знову рахуються${reason ? ` — ${reason}` : ''} · expiresAt=${newExpiresAt?.toISOString().slice(0, 10) ?? 'null'}`,
+      metadata: {
+        paymentAccess: true,
+        excluded: input.excluded,
+        actor,
+        reason: reason || null,
+        paymentIds: changing.map((p) => p.id),
+        orderReferences: changing.map((p) => p.orderReference),
+        amounts: changing.map((p) => p.amount),
+      },
+    },
+  });
+
+  return NextResponse.json({
+    ok: true,
+    changed: changing.length,
+    excluded: input.excluded,
+    newStatus,
+    newExpiresAt: newExpiresAt?.toISOString() ?? null,
+  });
+}
+
+/// Видалення помилкового РУЧНОГО платежу (super-admin, перевірка ролі — у POST-диспетчері).
+/// Крайній випадок: платежу взагалі не було (помилка менеджера при внесенні), тож у
+/// «Доході» його теж бути не має. Слід лишається у події — повний знімок видалених рядків.
+/// Повсякденна оборотна дія — `set_payment_access`.
+async function handleDeletePayments(
+  sub: NonNullable<SubWithUser>,
+  input: { paymentIds?: string[] },
+  actor: string,
+) {
+  const loaded = await loadManualPaymentsForBatch(sub.id, input.paymentIds);
+  if (loaded.error) return loaded.error;
+  const payments = loaded.payments;
+
+  const snapshot = payments.map((p) => ({
+    id: p.id,
+    orderReference: p.orderReference,
+    amount: p.amount,
+    currency: p.currency,
+    status: p.status,
+    paidAt: p.paidAt?.toISOString() ?? null,
+    createdAt: p.createdAt.toISOString(),
+    manualMethod: p.manualMethod,
+    manualNote: p.manualNote,
+    manualEnteredBy: p.manualEnteredBy,
+    excludedFromAccess: p.excludedFromAccess,
+  }));
+  const totalAmount = payments.reduce((s, p) => s + p.amount, 0);
+
+  await prisma.payment.deleteMany({ where: { id: { in: payments.map((p) => p.id) } } });
+
+  const { newStatus, newExpiresAt } = await applyPaymentActivation({
+    subscriptionId: sub.id,
+    plan: sub.plan,
+    autoRenew: sub.autoRenew,
+    prevStatus: sub.status,
+    lastPaymentAt: sub.lastPaymentAt ?? new Date(),
+    allowRevive: false,
+  });
+
+  await prisma.yearlyProgramSubscriptionEvent.create({
+    data: {
+      subscriptionId: sub.id,
+      type: 'admin_action',
+      message: `🗑 Видалено ${payments.length} ручн. ${payments.length === 1 ? 'платіж' : 'платежів'} на ${totalAmount}₴ (${actor}): `
+        + `${snapshot.map((s) => s.orderReference).join(', ')} · expiresAt=${newExpiresAt?.toISOString().slice(0, 10) ?? 'null'}`,
+      metadata: { paymentDeleted: true, actor, totalAmount, payments: snapshot },
+    },
+  });
+
+  return NextResponse.json({
+    ok: true,
+    deleted: payments.length,
+    totalAmount,
     newStatus,
     newExpiresAt: newExpiresAt?.toISOString() ?? null,
   });

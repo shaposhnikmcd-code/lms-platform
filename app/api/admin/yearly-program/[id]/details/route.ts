@@ -27,6 +27,7 @@ export async function GET(
           paidAt: true,
           manualMethod: true,
           manualNote: true,
+          excludedFromAccess: true,
         },
       },
       events: {
@@ -78,6 +79,7 @@ export async function GET(
       paidAt: p.paidAt?.toISOString() ?? null,
       manualMethod: p.manualMethod,
       manualNote: p.manualNote,
+      excludedFromAccess: p.excludedFromAccess,
     })),
     events: sub.events.map((e) => ({
       id: e.id,

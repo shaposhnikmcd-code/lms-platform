@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { HiOutlinePencilSquare, HiOutlineCheck, HiOutlineExclamationTriangle } from 'react-icons/hi2';
 import type { Theme } from '../../_components/adminTheme';
+import { pluralParts } from '@/lib/yearlyProgramManualGroups';
 import { useUIFeedback } from './UIFeedback';
 
 /// Способи РУЧНОГО платежу. carryover = перенесення з минулого набору (сума 0, дохід не рахується).
@@ -21,6 +22,9 @@ export interface EditablePayment {
   manualNote: string | null;
   paidAt: string | null;
   createdAt: string;
+  /// true — платіж лишається у «Доході», але НЕ дає місяця доступу
+  /// (calculateAccessUntil такі рядки відсіює).
+  excludedFromAccess?: boolean;
 }
 
 /// ISO → рядок для <input type="datetime-local"> (локальний час менеджера).
@@ -33,21 +37,34 @@ function isoToLocalInput(iso: string | null): string {
 /// Модалка «Редагувати платіж» — правка РУЧНОГО платежу (готівка / переказ / ФОП / перенесення).
 /// Передзаповнена поточними значеннями. Вибір «Перенесення» ставить суму 0 і дописує «(було N ₴)».
 /// Після збереження перераховується підписка + «Дохід» (POST action:'edit_payment').
+///
+/// Тут же — виправлення ПОМИЛКОВОГО платежу, бо кожен зайвий PAID-рядок = зайвий місяць
+/// доступу назавжди: «Виключити з доступу» (оборотна повсякденна дія) і «Видалити платіж»
+/// (необоротна, лише super-admin). Для розбитого внесення дію можна застосувати до всіх
+/// часток одразу — інакше довелось би клікати по кожній з п'яти.
 export default function EditPaymentModal({
   subscriptionId,
   payment,
+  groupPayments,
+  isSuperAdmin = false,
   theme,
   onClose,
   onSaved,
 }: {
   subscriptionId: string;
   payment: EditablePayment;
+  /// Усі частки внесення, до якого належить цей платіж (включно з ним). undefined або
+  /// масив з одного елемента = це не розбивка.
+  groupPayments?: EditablePayment[];
+  /// Розблоковує «Видалити платіж» (env-allowlist SUPER_ADMIN_EMAILS). Сервер перевіряє
+  /// це ще раз — кнопка лише ховає дію від звичайного адміна.
+  isSuperAdmin?: boolean;
   theme: Theme;
   onClose: () => void;
   onSaved: () => void;
 }) {
   const dark = theme === 'dark';
-  const { toast } = useUIFeedback();
+  const { toast, confirm } = useUIFeedback();
   const [mounted, setMounted] = useState(false);
   const [amount, setAmount] = useState(String(payment.amount));
   const [method, setMethod] = useState<string>(payment.manualMethod ?? 'cash');
@@ -55,6 +72,10 @@ export default function EditPaymentModal({
   const [paidAt, setPaidAt] = useState(isoToLocalInput(payment.paidAt ?? payment.createdAt));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /// Дія над платежем (виключення/видалення) — окремий індикатор, щоб «Зберегти» не мигало.
+  const [fixing, setFixing] = useState(false);
+  const groupParts = groupPayments && groupPayments.length > 1 ? groupPayments : null;
+  const [applyToGroup, setApplyToGroup] = useState(true);
 
   useEffect(() => { setMounted(true); }, []);
   useEffect(() => {
@@ -67,7 +88,7 @@ export default function EditPaymentModal({
   const amountNum = Number(amount);
   // 0 дозволений (перенесення), на відміну від фіксації нової оплати.
   const validAmount = Number.isInteger(amountNum) && amountNum >= 0 && amountNum <= 1_000_000;
-  const canSubmit = validAmount && !!method && !submitting;
+  const canSubmit = validAmount && !!method && !submitting && !fixing;
   const isCarryover = method === 'carryover';
 
   /// Вибір способу. При «Перенесення» → сума 0 + дописуємо «(було N ₴)» від ОРИГІНАЛЬНОЇ суми.
@@ -113,6 +134,94 @@ export default function EditPaymentModal({
     } finally {
       setSubmitting(false);
     }
+  }
+
+  /// Цілі пакетної дії: або вся розбивка, або тільки цей рядок.
+  function targetIds(): string[] {
+    return groupParts && applyToGroup ? groupParts.map((p) => p.id) : [payment.id];
+  }
+  function targetLabel(): string {
+    const targets = groupParts && applyToGroup ? groupParts : [payment];
+    const sum = targets.reduce((s, p) => s + p.amount, 0);
+    return targets.length > 1
+      ? `Внесення на ${sum.toLocaleString('uk-UA')} ₴ (${targets.length} ${pluralParts(targets.length)})`
+      : `Платіж ${payment.amount.toLocaleString('uk-UA')} ₴`;
+  }
+
+  async function post(
+    action: string,
+    extra: Record<string, unknown>,
+    successMsg: (data: { newExpiresAt?: string | null }) => string,
+  ) {
+    setFixing(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/yearly-program/${subscriptionId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ action, paymentIds: targetIds(), ...extra }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? res.statusText);
+        return;
+      }
+      toast('success', data.noChanges ? 'Без змін' : successMsg(data));
+      onSaved();
+      onClose();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setFixing(false);
+    }
+  }
+
+  /// Виключити з доступу / повернути в доступ. Гроші лишаються в «Доході» — змінюється
+  /// лише кількість місяців, які цей платіж дає студенту.
+  async function toggleAccess() {
+    const excluded = !payment.excludedFromAccess;
+    const ok = await confirm({
+      title: excluded ? 'Виключити з доступу?' : 'Повернути в доступ?',
+      description: excluded
+        ? `${targetLabel()} — місяці доступу за цим платежем більше не рахуються. Сума лишиться в історії платежів і в «Доході»: це не видалення, дію можна відкотити.`
+        : `${targetLabel()} — місяці доступу за цим платежем знову рахуються.`,
+      bullets: excluded
+        ? [{ icon: '📉', text: 'Дата «Доступ до» перерахується одразу — вона зменшиться' }]
+        : [{ icon: '📈', text: 'Дата «Доступ до» перерахується одразу — вона збільшиться' }],
+      confirmLabel: excluded ? 'Виключити' : 'Повернути',
+      destructive: excluded,
+    });
+    if (!ok) return;
+    await post(
+      'set_payment_access',
+      { excluded },
+      (data) => `${excluded ? 'Виключено з доступу' : 'Повернуто в доступ'} · Доступ до: ${data.newExpiresAt ? new Date(data.newExpiresAt).toLocaleDateString('uk-UA') : '—'}`,
+    );
+  }
+
+  /// Видалення — необоротне, тому два кроки підтвердження. Слід лишається у подіях
+  /// підписки (повний знімок видалених рядків пише сервер).
+  async function deletePayment() {
+    const first = await confirm({
+      title: 'Видалити платіж назавжди?',
+      description: `${targetLabel()} буде видалено з бази назавжди. Гроші зникнуть із «Доходу», доступ перерахується.`,
+      bullets: [
+        { icon: '↩️', text: 'Оборотна альтернатива — «Виключити з доступу» (платіж лишається в історії)' },
+        { icon: '🧾', text: 'У подіях підписки лишиться повний знімок видаленого' },
+      ],
+      confirmLabel: 'Далі',
+      destructive: true,
+    });
+    if (!first) return;
+    const second = await confirm({
+      title: 'Точно видалити?',
+      description: 'Відновити видалений платіж з адмінки неможливо — тільки внести його заново вручну.',
+      confirmLabel: 'Так, видалити',
+      destructive: true,
+    });
+    if (!second) return;
+    await post('delete_payment', {}, (data) => `Видалено · Доступ до: ${data.newExpiresAt ? new Date(data.newExpiresAt).toLocaleDateString('uk-UA') : '—'}`);
   }
 
   if (!mounted) return null;
@@ -219,6 +328,75 @@ export default function EditPaymentModal({
               className={`${inputCls(dark)} resize-none`}
             />
           </Field>
+
+          {/* ── Виправлення помилкового платежу ─────────────────────────────────── */}
+          <div className={`pt-4 border-t ${dark ? 'border-white/[0.07]' : 'border-stone-300/60'}`}>
+            <div className={`text-[11px] uppercase tracking-wider font-medium mb-2 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+              Помилковий платіж
+            </div>
+
+            {payment.excludedFromAccess && (
+              <div className={`mb-2.5 px-3 py-2 rounded-lg border text-[11.5px] leading-relaxed ${
+                dark ? 'bg-amber-500/[0.07] border-amber-400/25 text-amber-100/90' : 'bg-amber-50/80 border-amber-300/60 text-amber-900'
+              }`}>
+                🚫 Цей платіж <b>не дає місяця доступу</b> — він виключений. Сума лишається в «Доході».
+              </div>
+            )}
+
+            {groupParts && (
+              <label className={`flex items-start gap-2 mb-2.5 px-3 py-2 rounded-lg border cursor-pointer text-[11.5px] leading-relaxed ${
+                dark ? 'bg-white/[0.03] border-white/10' : 'bg-white border-stone-300'
+              }`}>
+                <input
+                  type="checkbox"
+                  checked={applyToGroup}
+                  onChange={(e) => setApplyToGroup(e.target.checked)}
+                  className="mt-0.5 w-4 h-4 shrink-0 accent-indigo-600"
+                />
+                <span>
+                  Застосувати до всього внесення — <b>{groupParts.length} {pluralParts(groupParts.length)}</b> на{' '}
+                  <b>{groupParts.reduce((s, p) => s + p.amount, 0).toLocaleString('uk-UA')} ₴</b>
+                  <span className={`block ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+                    Зніміть галочку, щоб дія торкнулась лише цієї частки (1 місяць доступу).
+                  </span>
+                </span>
+              </label>
+            )}
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={toggleAccess}
+                disabled={fixing || submitting}
+                className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[12px] font-semibold border transition-colors disabled:opacity-50 ${
+                  payment.excludedFromAccess
+                    ? dark ? 'bg-emerald-500/12 border-emerald-400/35 text-emerald-200 hover:bg-emerald-500/20' : 'bg-emerald-50 border-emerald-300/70 text-emerald-900 hover:bg-emerald-100'
+                    : dark ? 'bg-amber-500/12 border-amber-400/35 text-amber-200 hover:bg-amber-500/20' : 'bg-amber-50 border-amber-300/70 text-amber-900 hover:bg-amber-100'
+                }`}
+              >
+                {payment.excludedFromAccess ? '↩️ Повернути в доступ' : '🚫 Виключити з доступу'}
+              </button>
+
+              {/* Видалення — лише super-admin (env SUPER_ADMIN_EMAILS). Повсякденна дія
+                  для менеджера — «Виключити з доступу», вона оборотна. */}
+              {isSuperAdmin && (
+                <button
+                  type="button"
+                  onClick={deletePayment}
+                  disabled={fixing || submitting}
+                  className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[12px] font-semibold border transition-colors disabled:opacity-50 ${
+                    dark ? 'bg-rose-500/12 border-rose-400/35 text-rose-200 hover:bg-rose-500/20' : 'bg-rose-50 border-rose-300/70 text-rose-900 hover:bg-rose-100'
+                  }`}
+                >
+                  🗑 Видалити платіж
+                </button>
+              )}
+            </div>
+            <p className={`mt-2 text-[11px] leading-relaxed ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+              Кожен зайвий платіж = зайвий місяць доступу. «Виключити з доступу» прибирає цей вплив,
+              не чіпаючи історію{isSuperAdmin ? '; видалення прибирає запис назовсім.' : '.'}
+            </p>
+          </div>
 
           {error && (
             <div className={`text-[12.5px] px-4 py-3 rounded-xl flex items-start gap-2.5 ${

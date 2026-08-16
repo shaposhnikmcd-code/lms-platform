@@ -179,6 +179,10 @@ export async function POST(req: NextRequest) {
         yearlyProgramSubscriptionId: sub.id,
         manualMethod: 'carryover',
         manualNote: note,
+        // Хто вніс — та сама колонка реєстру «Ручні платежі», що й у ручної оплати.
+        // Без цього перенесення, зроблені через «Додати студента вручну», лишались
+        // з порожнім «Хто вніс», а зроблені дією `carryover` — заповненим.
+        manualEnteredBy: managerLabel,
       },
     });
 

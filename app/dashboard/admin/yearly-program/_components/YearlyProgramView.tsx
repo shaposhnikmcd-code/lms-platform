@@ -56,6 +56,7 @@ import ManualAddHelpButton from './ManualAddHelpButton';
 import ProgramSettingButton from './ProgramSettingButton';
 import { type TelegramSettingsState } from './TelegramChannelButton';
 import { sumRealPaid } from '@/lib/yearlyProgramPaidTotals';
+import { groupManualPayments, describeSplitParts, pluralParts } from '@/lib/yearlyProgramManualGroups';
 import { getCountryName, COUNTRIES } from '@/lib/countries';
 import { telegramProfileUrl } from '@/lib/telegramUsername';
 
@@ -96,6 +97,9 @@ interface SubscriptionDetails {
     paidAt: string | null;
     manualMethod: string | null;
     manualNote: string | null;
+    /// true — платіж є в історії й у «Доході», але місяця доступу НЕ дає
+    /// (виправлення помилкового внесення через EditPaymentModal).
+    excludedFromAccess?: boolean;
   }>;
   events: Array<{
     id: string;
@@ -1000,6 +1004,7 @@ function YearlyProgramViewInner({
                     onReload={() => reloadDetails(r.id)}
                     yearlyPrice={programSettings.yearlyPrice}
                     monthlyPrice={programSettings.monthlyPrice}
+                    isSuperAdmin={isSuperAdmin}
                     issueBadge={issueSeverityBySub[r.id]}
                     onOpenIssues={() => setIssuesOpen(true)}
                     onSetVision={(next) => setVisionStatus(r.id, next, r.visionCertStatus)}
@@ -1152,6 +1157,7 @@ function RowBlock({
   onReload,
   yearlyPrice,
   monthlyPrice,
+  isSuperAdmin,
   issueBadge,
   onOpenIssues,
   onSetVision,
@@ -1169,6 +1175,8 @@ function RowBlock({
   /// на Річну і форми ручної оплати.
   yearlyPrice: number;
   monthlyPrice: number;
+  /// Пробрасується до EditPaymentModal — розблоковує «Видалити платіж».
+  isSuperAdmin: boolean;
   issueBadge?: { severity: 'critical' | 'warning' | 'info'; count: number };
   onOpenIssues: () => void;
   onSetVision: (next: VisionStatus) => void;
@@ -1379,6 +1387,7 @@ function RowBlock({
                 onReload={onReload}
                 yearlyPrice={yearlyPrice}
                 monthlyPrice={monthlyPrice}
+                isSuperAdmin={isSuperAdmin}
               />
             </div>
           </td>
@@ -1398,6 +1407,7 @@ function ExpandedRowContent({
   onReload,
   yearlyPrice,
   monthlyPrice,
+  isSuperAdmin,
 }: {
   details: SubscriptionDetails | 'loading' | 'error' | undefined;
   row: Row;
@@ -1408,6 +1418,7 @@ function ExpandedRowContent({
   onReload: () => void;
   yearlyPrice: number;
   monthlyPrice: number;
+  isSuperAdmin: boolean;
 }) {
   const dark = theme === 'dark';
   const { toast, confirm, prompt } = useUIFeedback();
@@ -1420,6 +1431,20 @@ function ExpandedRowContent({
   const [carryoverOpen, setCarryoverOpen] = useState(false);
   const [editPaymentId, setEditPaymentId] = useState<string | null>(null);
   const [extendOpen, setExtendOpen] = useState(false);
+  /// Частки авто-розбивки ручного платежу згорнуті в одне внесення — інакше 5 рядків з
+  /// однаковими датою/сумою/нотаткою читаються як дубль.
+  const paymentGroups = useMemo(
+    () => (details && details !== 'loading' && details !== 'error' ? groupManualPayments(details.payments) : []),
+    [details],
+  );
+  const [openPaymentGroups, setOpenPaymentGroups] = useState<Set<string>>(new Set());
+  const togglePaymentGroup = useCallback((key: string) => {
+    setOpenPaymentGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }, []);
 
   async function sendTelegramInvite(force: boolean) {
     const studentLabel = row.userEmail ?? row.userName ?? 'цього студента';
@@ -1886,7 +1911,9 @@ function ExpandedRowContent({
       </div>
 
       <div className="md:col-span-1">
-        <SectionTitle theme={theme}>Платежі ({details.payments.length})</SectionTitle>
+        {/* Лічильник — ВНЕСЕННЯ, а не рядки в БД: розбите на 5 часток внесення 12 800 ₴
+            це один платіж клієнта, і саме так його треба рахувати менеджеру. */}
+        <SectionTitle theme={theme}>Платежі ({paymentGroups.length})</SectionTitle>
         {/* Для місячної підписки головне питання менеджера — скільки ще винен клієнт
             до повної вартості Річної. Рахуємо реальні гроші (без тест-оплат 1–2 ₴). */}
         {row.plan === 'MONTHLY' && (
@@ -1912,60 +1939,118 @@ function ExpandedRowContent({
             <div className={`px-3 py-4 text-center text-[11px] ${dark ? 'text-slate-600' : 'text-stone-400'}`}>Платежів ще нема</div>
           ) : (
             <div className="divide-y divide-stone-200/30 dark:divide-white/[0.04]">
-              {details.payments.map((p) => (
-                <div key={p.id} className="px-3 py-2 flex items-center justify-between gap-3 text-[11px]">
-                  <div className="min-w-0">
-                    {p.manualMethod ? (
-                      <div className="flex items-center gap-1.5">
-                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-semibold ${
-                          dark ? 'bg-amber-400/15 text-amber-200 border border-amber-400/25' : 'bg-amber-100 text-amber-900 border border-amber-300/50'
-                        }`}>
-                          💵 {manualMethodLabel(p.manualMethod)}
-                        </span>
+              {paymentGroups.map((g) => {
+                const p = g.head;
+                const open = openPaymentGroups.has(g.key);
+                return (
+                  <div key={g.key} data-payment-group={g.key}>
+                    <div className="px-3 py-2 flex items-center justify-between gap-3 text-[11px]">
+                      <div className="min-w-0">
+                        {p.manualMethod ? (
+                          <div className="flex items-center gap-1.5">
+                            <span className={`px-1.5 py-0.5 rounded text-[9px] font-semibold ${
+                              dark ? 'bg-amber-400/15 text-amber-200 border border-amber-400/25' : 'bg-amber-100 text-amber-900 border border-amber-300/50'
+                            }`}>
+                              💵 {manualMethodLabel(p.manualMethod)}
+                            </span>
+                          </div>
+                        ) : (
+                          <div className={`font-mono text-[10px] truncate ${dark ? 'text-slate-400' : 'text-stone-600'}`}>{p.orderReference}</div>
+                        )}
+                        <div className={dark ? 'text-slate-600' : 'text-stone-500'}>{fmtDate(p.paidAt ?? p.createdAt)}</div>
+                        {/* Розбивка — це ОДНЕ внесення клієнта, розкладене на місячні слоти.
+                            Показуємо склад, щоб 5 однакових рядків не читались як дубль. */}
+                        {g.isSplit && (
+                          <button
+                            type="button"
+                            onClick={() => togglePaymentGroup(g.key)}
+                            className={`mt-0.5 inline-flex items-center gap-1 text-[10px] rounded transition-colors ${
+                              dark ? 'text-slate-400 hover:text-slate-200' : 'text-stone-500 hover:text-stone-800'
+                            }`}
+                          >
+                            {open ? <HiOutlineChevronUp className="text-[11px]" /> : <HiOutlineChevronDown className="text-[11px]" />}
+                            розбито на {g.parts.length} {pluralParts(g.parts.length)} ({describeSplitParts(g.amounts)})
+                          </button>
+                        )}
+                        {p.manualNote && (
+                          <div className={`text-[10px] mt-0.5 italic ${dark ? 'text-slate-500' : 'text-stone-500'}`}>«{p.manualNote}»</div>
+                        )}
                       </div>
-                    ) : (
-                      <div className={`font-mono text-[10px] truncate ${dark ? 'text-slate-400' : 'text-stone-600'}`}>{p.orderReference}</div>
-                    )}
-                    <div className={dark ? 'text-slate-600' : 'text-stone-500'}>{fmtDate(p.paidAt ?? p.createdAt)}</div>
-                    {p.manualNote && (
-                      <div className={`text-[10px] mt-0.5 italic ${dark ? 'text-slate-500' : 'text-stone-500'}`}>«{p.manualNote}»</div>
+                      <div className="flex items-center gap-2 whitespace-nowrap">
+                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wider ${
+                          p.status === 'PAID'
+                            ? (dark ? 'bg-emerald-500/20 text-emerald-300' : 'bg-emerald-100 text-emerald-800')
+                            : p.status === 'PENDING'
+                              ? (dark ? 'bg-slate-500/20 text-slate-300' : 'bg-stone-200 text-stone-700')
+                              : (dark ? 'bg-rose-500/20 text-rose-300' : 'bg-rose-100 text-rose-800')
+                        }`}>{p.status}</span>
+                        <span className={`tabular-nums font-semibold ${
+                          g.parts.every((x) => x.excludedFromAccess)
+                            ? (dark ? 'text-slate-500 line-through' : 'text-stone-400 line-through')
+                            : (dark ? 'text-slate-200' : 'text-stone-800')
+                        }`}>{g.total.toLocaleString()}₴</span>
+                        {/* Редагувати можна лише РУЧНІ платежі (WFP — без кнопки). */}
+                        {p.manualMethod && (
+                          <button
+                            type="button"
+                            onClick={() => setEditPaymentId(p.id)}
+                            aria-label="Редагувати платіж"
+                            title={g.isSplit ? 'Редагувати внесення (дію можна застосувати до всіх часток)' : 'Редагувати платіж'}
+                            className={`shrink-0 w-6 h-6 rounded-md flex items-center justify-center text-[11px] border transition-colors ${
+                              dark ? 'border-white/10 text-slate-400 hover:bg-white/[0.08] hover:text-indigo-300' : 'border-stone-300 text-stone-500 hover:bg-stone-100 hover:text-indigo-700'
+                            }`}
+                          >✏️</button>
+                        )}
+                      </div>
+                    </div>
+
+                    {g.isSplit && open && (
+                      <div className={`px-3 pb-2 space-y-1 ${dark ? 'bg-white/[0.02]' : 'bg-stone-50/60'}`}>
+                        {g.parts.map((part, i) => (
+                          <div key={part.id} className="flex items-center justify-between gap-2 text-[10.5px]">
+                            <span className={dark ? 'text-slate-500' : 'text-stone-500'}>
+                              Частка {i + 1} з {g.parts.length} · 1 місяць доступу
+                              {part.excludedFromAccess && <span className={dark ? ' text-amber-300' : ' text-amber-700'}> · 🚫 поза доступом</span>}
+                            </span>
+                            <span className="flex items-center gap-1.5 whitespace-nowrap">
+                              <span className={`tabular-nums ${
+                                part.excludedFromAccess
+                                  ? (dark ? 'text-slate-600 line-through' : 'text-stone-400 line-through')
+                                  : (dark ? 'text-slate-300' : 'text-stone-700')
+                              }`}>{part.amount.toLocaleString()}₴</span>
+                              <button
+                                type="button"
+                                onClick={() => setEditPaymentId(part.id)}
+                                aria-label={`Редагувати частку ${i + 1}`}
+                                title="Редагувати цю частку"
+                                className={`shrink-0 w-5 h-5 rounded flex items-center justify-center text-[10px] border transition-colors ${
+                                  dark ? 'border-white/10 text-slate-500 hover:bg-white/[0.08] hover:text-indigo-300' : 'border-stone-300 text-stone-400 hover:bg-stone-100 hover:text-indigo-700'
+                                }`}
+                              >✏️</button>
+                            </span>
+                          </div>
+                        ))}
+                      </div>
                     )}
                   </div>
-                  <div className="flex items-center gap-2 whitespace-nowrap">
-                    <span className={`px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wider ${
-                      p.status === 'PAID'
-                        ? (dark ? 'bg-emerald-500/20 text-emerald-300' : 'bg-emerald-100 text-emerald-800')
-                        : p.status === 'PENDING'
-                          ? (dark ? 'bg-slate-500/20 text-slate-300' : 'bg-stone-200 text-stone-700')
-                          : (dark ? 'bg-rose-500/20 text-rose-300' : 'bg-rose-100 text-rose-800')
-                    }`}>{p.status}</span>
-                    <span className={`tabular-nums font-semibold ${dark ? 'text-slate-200' : 'text-stone-800'}`}>{p.amount.toLocaleString()}₴</span>
-                    {/* Редагувати можна лише РУЧНІ платежі (WFP — без кнопки). */}
-                    {p.manualMethod && (
-                      <button
-                        type="button"
-                        onClick={() => setEditPaymentId(p.id)}
-                        aria-label="Редагувати платіж"
-                        title="Редагувати платіж"
-                        className={`shrink-0 w-6 h-6 rounded-md flex items-center justify-center text-[11px] border transition-colors ${
-                          dark ? 'border-white/10 text-slate-400 hover:bg-white/[0.08] hover:text-indigo-300' : 'border-stone-300 text-stone-500 hover:bg-stone-100 hover:text-indigo-700'
-                        }`}
-                      >✏️</button>
-                    )}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
         {editPaymentId && (() => {
           const p = details.payments.find((x) => x.id === editPaymentId);
           if (!p) return null;
+          // Внесення, до якого належить платіж — щоб дію («виключити з доступу», «видалити»)
+          // можна було застосувати до всієї розбивки одним кліком.
+          const group = paymentGroups.find((g) => g.parts.some((x) => x.id === p.id));
           return (
             <EditPaymentModal
               theme={theme}
               subscriptionId={row.id}
               payment={p}
+              groupPayments={group?.parts}
+              isSuperAdmin={isSuperAdmin}
               onClose={() => setEditPaymentId(null)}
               onSaved={() => { setEditPaymentId(null); onReload(); router.refresh(); }}
             />
