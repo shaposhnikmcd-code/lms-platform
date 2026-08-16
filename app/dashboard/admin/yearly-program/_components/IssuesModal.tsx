@@ -584,16 +584,25 @@ function recKey(rec: IssueRecord): string {
   return `${rec.subscriptionId ?? rec.sourceId ?? 'unknown'}::${rec.kind}`;
 }
 
+/// Значення селекта «Набір» для зрізу «Без набору» — дзеркалить NO_COHORT_FILTER_VALUE
+/// у lib/yearlyProgramIssues.ts (сервер розуміє його як `cohortId = null`).
+const NO_COHORT_FILTER = 'none';
+
 export default function IssuesModal({
   theme,
   cohorts,
   defaultCohortId,
+  globalActiveTotal,
   onClose,
   onOpenSubscription,
 }: {
   theme: Theme;
   /// Набори для селекта «Набір» — у тому ж порядку, що й у шапці сторінки (новіші зверху).
   cohorts: { id: string; name: string }[];
+  /// Скільки активних issue-ів по ВСІХ наборах (те саме число, що на червоному бейджі
+  /// кнопки «Помилки»). Потрібне для порожнього стану під фільтром: інакше вкладка пише
+  /// «Помилок немає», поки бейдж поруч світиться червоним.
+  globalActiveTotal: number;
   /// Який набір показати першим. Зазвичай — той, що зараз вибраний у таблиці підписок,
   /// щоб вкладка не сипала помилками студентів минулих років. `null` — усі набори.
   defaultCohortId: string | null;
@@ -925,6 +934,9 @@ export default function IssuesModal({
             {cohorts.map((c) => (
               <option key={c.id} value={c.id}>{c.name}</option>
             ))}
+            {/* Підписки без набору не належать до жодного запуску, тож у фільтрі по набору
+                вони невидимі — а саме там живуть списання по закритих підписках. */}
+            <option value={NO_COHORT_FILTER}>Без набору</option>
             <option value="all">Усі набори</option>
           </select>
 
@@ -968,7 +980,18 @@ export default function IssuesModal({
           {loading ? (
             <div className={`text-center py-10 text-[13px] ${dark ? 'text-slate-400' : 'text-stone-500'}`}>Завантажуємо…</div>
           ) : groups.length === 0 ? (
-            <EmptyState dark={dark} tab={tab} hasFilters={kindFilter !== 'ALL' || planFilter !== 'ALL'} />
+            <EmptyState
+              dark={dark}
+              tab={tab}
+              hasFilters={kindFilter !== 'ALL' || planFilter !== 'ALL' || cohortFilter !== null}
+              /// Фільтр набору звужує вибірку на СЕРВЕРІ, тож порожній список під ним не
+              /// означає «помилок немає взагалі» — показуємо, скільки їх поза цим зрізом.
+              scopeNote={
+                cohortFilter !== null && tab === 'active' && globalActiveTotal > 0
+                  ? `у цьому наборі; всього активних: ${globalActiveTotal}`
+                  : null
+              }
+            />
           ) : (
             <div className="space-y-2">
               {groups.map((g) => (
@@ -1032,7 +1055,18 @@ function KindPill({ label, active, onClick, dark }: { label: string; active: boo
   );
 }
 
-function EmptyState({ dark, tab, hasFilters }: { dark: boolean; tab: Tab; hasFilters: boolean }) {
+function EmptyState({
+  dark,
+  tab,
+  hasFilters,
+  scopeNote,
+}: {
+  dark: boolean;
+  tab: Tab;
+  hasFilters: boolean;
+  /// Уточнення під заголовком: чому «порожньо» ще не означає «все чисто».
+  scopeNote: string | null;
+}) {
   return (
     <div className={`text-center py-14 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
       <HiOutlineCheckCircle className={`mx-auto text-3xl mb-2 ${dark ? 'text-emerald-400/60' : 'text-emerald-600/70'}`} />
@@ -1041,6 +1075,7 @@ function EmptyState({ dark, tab, hasFilters }: { dark: boolean; tab: Tab; hasFil
           ? 'Нічого не знайдено за фільтрами'
           : tab === 'active' ? 'Помилок немає — все працює коректно' : 'Немає заглушених issue-ів'}
       </div>
+      {scopeNote && <div className="text-[11.5px] mt-1">{scopeNote}</div>}
     </div>
   );
 }

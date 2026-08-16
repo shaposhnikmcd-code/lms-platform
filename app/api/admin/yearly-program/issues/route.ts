@@ -2,11 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { isAdmin } from '@/lib/adminAuth';
 import { collectAllIssues } from '@/lib/yearlyProgramIssues';
 
-/// GET /api/admin/yearly-program/issues?cohortId=<id|all>
+/// GET /api/admin/yearly-program/issues?cohortId=<id|all|none>
 ///
 /// Повертає активні та заглушені issue-и Річної програми. Набір фільтрується на СЕРВЕРІ
 /// (`cohortId`), бо без нього у вкладку падають підписки всіх років одночасно — саме це
-/// і робило її нечитабельною. `cohortId` відсутній або `all` → усі набори.
+/// і робило її нечитабельною. `cohortId` відсутній або `all` → усі набори;
+/// `none` → лише підписки без набору (їх не видно в жодному наборі, а серед них бувають
+/// списання по закритих підписках).
 /// Решта фільтрів (тип / план) лишаються клієнтськими: payload уже звужений, а
 /// лічильники по типах потрібні одразу всі.
 ///

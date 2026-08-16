@@ -362,6 +362,21 @@ function YearlyProgramViewInner({
     [visionOverrides],
   );
 
+  /// Підвантаження деталей підписки для розгорнутого рядка. Спільне для ручного кліку
+  /// (`toggleExpand`) і програмного «Відкрити» з модалки «Помилки»: без нього панель
+  /// назавжди залишалась би у стані «Завантажуємо…».
+  const loadDetails = useCallback(async (id: string) => {
+    setDetails((d) => ({ ...d, [id]: 'loading' }));
+    try {
+      const res = await fetch(`/api/admin/yearly-program/${id}/details`);
+      if (!res.ok) throw new Error(`${res.status}`);
+      const data = (await res.json()) as SubscriptionDetails;
+      setDetails((d) => ({ ...d, [id]: data }));
+    } catch {
+      setDetails((d) => ({ ...d, [id]: 'error' }));
+    }
+  }, []);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return rows.filter((r) => {
@@ -429,6 +444,37 @@ function YearlyProgramViewInner({
     if (page > totalPages) setPage(totalPages);
   }, [page, totalPages]);
 
+  /// Програмний перехід «Відкрити» з модалки «Помилки»: id підписки, яку треба показати
+  /// розгорнутою, щойно таблиця перерахується під скинутими фільтрами.
+  ///
+  /// Чому окремим ефектом, а не прямо в колбеку: скидання фільтрів тригерить ефект
+  /// `setPage(1)` вище, і він виконується ПІСЛЯ колбека — тобто затирав щойно виставлену
+  /// сторінку, і при будь-якому активному фільтрі рядок «відкривався» на першій сторінці,
+  /// тобто не відкривався взагалі. Цей ефект оголошений нижче, тож у тому ж коміті
+  /// виконується останнім і його `setPage` виграє. Заразом сторінка рахується по
+  /// реальному `filtered` (а не по ручній копії фільтрів) — для архіву теж точно.
+  const [pendingOpenId, setPendingOpenId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!pendingOpenId) return;
+    const subId = pendingOpenId;
+    const idx = filtered.findIndex((row) => row.id === subId);
+    if (idx >= 0) setPage(Math.floor(idx / pageSize) + 1);
+    setExpandedId(subId);
+    // Панель деталей інакше застрягла б на «Завантажуємо…»: розкриття через стан, а не
+    // через `toggleExpand`, само по собі нічого не тягне.
+    if (!details[subId] || details[subId] === 'error') void loadDetails(subId);
+    setPendingOpenId(null);
+    // Чекаємо, поки нова сторінка відрендериться (стейт → filtered → paged → DOM).
+    setTimeout(() => {
+      const el = document.querySelector<HTMLElement>(`[data-sub-row="${subId}"]`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        el.classList.add('ring-2', 'ring-amber-400/60');
+        setTimeout(() => el.classList.remove('ring-2', 'ring-amber-400/60'), 2000);
+      }
+    }, 150);
+  }, [pendingOpenId, filtered, pageSize, details, loadDetails]);
+
   const pageStart = (page - 1) * pageSize;
   const paged = filtered
     .slice(pageStart, pageStart + pageSize)
@@ -441,15 +487,7 @@ function YearlyProgramViewInner({
     }
     setExpandedId(id);
     if (details[id] && details[id] !== 'error') return;
-    setDetails((d) => ({ ...d, [id]: 'loading' }));
-    try {
-      const res = await fetch(`/api/admin/yearly-program/${id}/details`);
-      if (!res.ok) throw new Error(`${res.status}`);
-      const data = (await res.json()) as SubscriptionDetails;
-      setDetails((d) => ({ ...d, [id]: data }));
-    } catch {
-      setDetails((d) => ({ ...d, [id]: 'error' }));
-    }
+    await loadDetails(id);
   }
 
   /// Перезавантажити деталі однієї підписки (після inline-редагування), щоб панель
@@ -820,6 +858,9 @@ function YearlyProgramViewInner({
           // Модалка відкривається на тому ж наборі, що зараз у таблиці — інакше менеджер
           // перед запуском бачив би вперемішку студентів усіх років.
           defaultCohortId={activeCohortId}
+          // Те саме число, що на червоному бейджі кнопки «Помилки» (усі набори) — модалка
+          // показує його в порожньому стані, щоб «помилок немає» не суперечило бейджу.
+          globalActiveTotal={issuesActiveTotal}
           onClose={async () => {
             setIssuesOpen(false);
             // Refresh badge-count після закриття модалки (у ній могли заглушити/повернути).
@@ -833,9 +874,11 @@ function YearlyProgramViewInner({
             } catch { /* badge тимчасово не оновиться — некритично */ }
           }}
           onOpenSubscription={(subId) => {
-            // Очищаємо всі фільтри щоб гарантовано вивести рядок у `filtered`.
-            // Потім обчислюємо сторінку, на якій він знаходиться (rows впорядковані createdAt desc,
-            // filtered зберігає цей порядок), і перемикаємось на неї.
+            // Очищаємо всі фільтри, щоб гарантовано вивести рядок у `filtered`. Сторінку
+            // тут НЕ рахуємо: скидання фільтрів запускає ефект `setPage(1)`, який затер би
+            // будь-яке значення, виставлене в цьому колбеку. Замість цього лишаємо заявку
+            // в `pendingOpenId` — ефект нижче доведе перехід до кінця вже після того, як
+            // `filtered` перерахується під новими фільтрами (див. «Програмний перехід»).
             const target = rows.find((row) => row.id === subId) ?? null;
             setSearch('');
             setPlanFilter('ALL');
@@ -843,25 +886,13 @@ function YearlyProgramViewInner({
             // «Відкрити» без цього перемикача просто нічого не робило.
             setStatusFilter(target?.status === 'ARCHIVED' ? 'ARCHIVED' : 'ALL');
             setVisionFilter('ALL');
+            setMethodFilter('ALL');
             setDateFrom('');
             setDateTo('');
             setActiveCohortId(null);
-            // Сторінку рахуємо в тому ж зрізі, який після скидання фільтрів покаже таблиця
-            // (архів або все крім архіву) — інакше для архівного рядка потрапили б не туди.
-            const wantArchived = target?.status === 'ARCHIVED';
-            const scope = rows.filter((row) => (wantArchived ? row.status === 'ARCHIVED' : row.status !== 'ARCHIVED'));
-            const idx = scope.findIndex((row) => row.id === subId);
-            if (idx >= 0) setPage(Math.floor(idx / pageSize) + 1);
-            setExpandedId(subId);
-            // Чекаємо два render-tick-и (стейт → filtered → paged → DOM) перед scrollIntoView.
-            setTimeout(() => {
-              const el = document.querySelector<HTMLElement>(`[data-sub-row="${subId}"]`);
-              if (el) {
-                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                el.classList.add('ring-2', 'ring-amber-400/60');
-                setTimeout(() => el.classList.remove('ring-2', 'ring-amber-400/60'), 2000);
-              }
-            }, 150);
+            // Рядок живе у таблиці підписок — з реєстру ручних платежів його не видно.
+            setTab('subs');
+            setPendingOpenId(subId);
           }}
         />
       )}

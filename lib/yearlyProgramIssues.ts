@@ -363,9 +363,15 @@ function classifyEvent(e: RawEvent): {
     // Ручна оплата гасить борг ТІЛЬКИ якщо після неї доступ реально дотягнувся до
     // майбутнього. Внесення одного місяця з трьох пропущених — це часткове погашення:
     // студент і далі без доступу, тож critical-issue має лишитись висіти.
+    //
+    // ⚠️ Порівнюємо з часом САМОЇ ПОДІЇ, а не з `Date.now()`. Резолв — це факт із минулого:
+    // борг був закритий тоді, коли менеджер вносив оплату. З `Date.now()` та сама подія
+    // резолвила issue сьогодні і переставала резолвити через місяць — давно розібраний
+    // REVIVED_WITH_DEBT воскресав сам собою. Якщо борг виник заново, про це скаже нова
+    // подія `revived_with_debt` з новішим `createdAt` — вона й підніме issue.
     if (/^Ручна оплата .*expiresAt=/i.test(e.message)) {
       const at = /expiresAt=(\d{4}-\d{2}-\d{2})/.exec(e.message)?.[1];
-      const resolvedForward = !!at && new Date(`${at}T23:59:59.999Z`).getTime() > Date.now();
+      const resolvedForward = !!at && new Date(`${at}T23:59:59.999Z`).getTime() > e.createdAt.getTime();
       return resolvedForward ? { kind: null, resolvesKind: 'REVIVED_WITH_DEBT' } : { kind: null };
     }
   }
@@ -462,6 +468,13 @@ const KIND_FRESHNESS_WINDOW_MS: Partial<Record<IssueKind, number>> = {
 /// Тому беремо: час відповідної події (якщо вона є) → інакше `createdAt` підписки.
 /// Обидва варіанти стабільні: заглушення тримається, поки стан реально не зміниться, а
 /// нова помилка приходить з новою подією і сама піднімає issue назад.
+///
+/// ⚠️ Відоме обмеження fallback-гілки. `createdAt` підписки завжди старіший за будь-яке
+/// заглушення, тож поки нової події немає, заглушений «телеграмний» issue не повернеться
+/// сам — навіть якщо мітка у `telegramInviteError` зʼявилась заново. На практиці це не
+/// проблема: усі три джерела міток (генерація інвайта, decline і pending з webhook-а)
+/// пишуть свою подію, тож fallback лишається тільки для історичних рядків, записаних до
+/// введення подій. Нову мітку без події не додавати — issue по ній буде «німим».
 function stateIssueAnchor(sub: RawSubscription, eventAt: Date | undefined): Date {
   return eventAt ?? sub.createdAt;
 }
@@ -543,11 +556,23 @@ const SUBSCRIPTION_SELECT = {
 /// що на них спираються: найдовше вікно серед них — 30 днів (TG_KICK_FAILED).
 const ADMIN_ACTION_WINDOW_MS = 180 * 24 * 60 * 60 * 1000;
 
-/// Виняток із вікна вище: `admin_action`-и, які РЕЗОЛВЛЯТЬ довгограючий issue.
-/// «Продовжити +Nд» і «Ручна оплата» знімають REVIVED_WITH_DEBT, чия failure-подія
-/// (`revived_with_debt`) вікна не має. Якби ці два типи випали з вибірки, давно
-/// розібраний борг воскрес би у «Помилках» рівно на 181-й день.
-const ADMIN_ACTION_RESOLVER_PREFIXES = ['Extended +', 'Ручна оплата '];
+/// Виняток із вікна вище: `admin_action`-и, яких вікно НЕ стосується взагалі.
+///   • «Продовжити +Nд» / «Ручна оплата» — РЕЗОЛВЕРИ REVIVED_WITH_DEBT, чия failure-подія
+///     (`revived_with_debt`) вікна не має. Випади вони з вибірки — давно розібраний борг
+///     воскрес би у «Помилках» рівно на 181-й день.
+///   • «Extra-launch …» — навпаки, самі FAILURE-події (`Extra-launch FAILED (SendPulse)`,
+///     `Extra-launch email FAILED`). Резолвляться подіями `access_opened`/`launch_email_sent`,
+///     які вікна не мають; без цієї гілки НЕрозвʼязаний провал пізнього запуску просто
+///     мовчки зникав з «Помилок» на 181-й день — без резолву і без сліду.
+///     Успішний extra-launch пишеться типами `access_opened`/`launch_email_sent`, тож під
+///     цей префікс потрапляють рівно провали.
+const ADMIN_ACTION_NO_WINDOW_PREFIXES = ['Extended +', 'Ручна оплата ', 'Extra-launch'];
+
+/// Так само поза вікном — події заявок на вступ у Telegram-канал. Вони теж пишуться типом
+/// `admin_action`, а розпізнаються по `metadata.kind`, і саме з них береться час двох
+/// state-based issue-ів (TG_JOIN_DECLINED / TG_JOIN_PENDING). Мітка у `telegramInviteError`
+/// живе, поки її не зняли, тому й подія-джерело часу має лишатись видимою скільки завгодно.
+const TG_JOIN_EVENT_KINDS = [TG_JOIN_DECLINED_EVENT_KIND, TG_JOIN_PENDING_EVENT_KIND];
 
 /// Типи подій, які читають детектори (окрім `admin_action`, у якого своє вікно).
 const TRACKED_EVENT_TYPES = [
@@ -560,7 +585,13 @@ const TRACKED_EVENT_TYPES = [
   'reactivated',
   'reminder_email_failed',
   'access_close_failed',
+  // Резолвер SP_CLOSE_FAILED. Без нього kind був «мертвий»: подія `access_closed` у лозі
+  // є, але у вибірку не потрапляла — і невдале закриття доступу висіло вічно.
+  'access_closed',
   'access_reopen_failed',
+  // Повний рефанд знімає з платежу статус PAID — саме він може заново створити стан
+  // ORPHAN_NO_PAYMENT. Потрібен як «якір часу» для цього детектора (див. orphanAnchorAt).
+  'refunded',
   'wfp_remove_failed',
   'wfp_remove_succeeded',
   'wfp_schedule_synced',
@@ -570,9 +601,17 @@ const TRACKED_EVENT_TYPES = [
   TG_INVITE_FAILED_EVENT_TYPE,
 ];
 
+/// Значення `cohortId`, яким вкладка просить зріз «Без набору» — підписки з `cohortId = null`.
+/// Вони існують реально (ручне додавання без набору, видалений набір, сирота після імпорту),
+/// і серед них бувають найдорожчі issue-и: ORPHAN_RECURRING_CHARGE і WFP_REMOVE_FAILED, де
+/// картку студента продовжують списувати. У фільтрі по конкретному набору їх не видно, тож
+/// без цієї опції вони лишались видимими тільки у зрізі «Усі набори».
+export const NO_COHORT_FILTER_VALUE = 'none';
+
 export interface CollectIssuesOptions {
   /// Показати issue-и лише одного набору. `null`/`undefined` — усі набори (так працює
   /// SSR-бейдж і денні push-алерти; вкладка «Помилки» за замовчуванням просить поточний).
+  /// `NO_COHORT_FILTER_VALUE` — лише підписки без набору.
   cohortId?: string | null;
 }
 
@@ -580,16 +619,24 @@ export interface CollectIssuesOptions {
 /// в пам'яті. Не залежить від адмін-сесії — викликається з API route, який сам гейтується
 /// isAdmin.
 export async function collectAllIssues(options: CollectIssuesOptions = {}): Promise<IssuesPayload> {
-  const cohortId = options.cohortId ?? null;
+  const rawCohortId = options.cohortId ?? null;
+  /// Зріз «Без набору»: підписки з `cohortId = null`. Далі `cohortId` — це вже рівно
+  /// «конкретний набір або нічого», тому решта коду не мусить знати про сентинел.
+  const noCohortOnly = rawCohortId === NO_COHORT_FILTER_VALUE;
+  const cohortId = noCohortOnly ? null : rawCohortId;
+  /// Чи звужена вибірка взагалі (набором або зрізом «Без набору») — впливає на те, чи
+  /// показувати issue-и, чиї підписки у вибірку не потрапили.
+  const scopedToSubset = cohortId !== null || noCohortOnly;
   const now = new Date();
   const callbackLogSince = new Date(Date.now() - CALLBACK_LOG_WINDOW_DAYS * 24 * 60 * 60 * 1000);
   const adminActionSince = new Date(Date.now() - ADMIN_ACTION_WINDOW_MS);
+  const subCohortWhere = noCohortOnly ? { cohortId: null } : (cohortId ? { cohortId } : {});
   /// Фільтр набору для дочірніх таблиць — через звʼязок з підпискою, щоб події й
   /// заглушення підтягувались рівно по тих підписках, які лишились у вибірці.
-  const cohortScope = cohortId ? { subscription: { cohortId } } : {};
+  const cohortScope = scopedToSubset ? { subscription: subCohortWhere } : {};
   const [subs, events, dismissals, paidRows, callbackLogs, overdueCohorts] = await Promise.all([
     prisma.yearlyProgramSubscription.findMany({
-      where: { status: { not: 'ARCHIVED' }, ...(cohortId ? { cohortId } : {}) },
+      where: { status: { not: 'ARCHIVED' }, ...subCohortWhere },
       select: SUBSCRIPTION_SELECT,
     }),
     /// Тягнемо тільки потенційно-релевантні події: failure-типи + success-типи
@@ -600,9 +647,13 @@ export async function collectAllIssues(options: CollectIssuesOptions = {}): Prom
         OR: [
           { type: { in: TRACKED_EVENT_TYPES } },
           { type: 'admin_action', createdAt: { gt: adminActionSince } },
-          ...ADMIN_ACTION_RESOLVER_PREFIXES.map((prefix) => ({
+          ...ADMIN_ACTION_NO_WINDOW_PREFIXES.map((prefix) => ({
             type: 'admin_action',
             message: { startsWith: prefix },
+          })),
+          ...TG_JOIN_EVENT_KINDS.map((kind) => ({
+            type: 'admin_action',
+            metadata: { path: ['kind'], equals: kind },
           })),
         ],
       },
@@ -666,7 +717,8 @@ export async function collectAllIssues(options: CollectIssuesOptions = {}): Prom
     /// оплачених підписок перевіряємо нижче — без них це просто порожня заготовка.
     /// `endDate >= now` відсікає історію: незапущений набір минулих років уже нікого не
     /// врятує, а вічний critical-бейдж у «Помилках» лише притупляє увагу до свіжих проблем.
-    prisma.yearlyProgramCohort.findMany({
+    /// У зрізі «Без набору» цей детектор не має сенсу — там наборів немає за визначенням.
+    noCohortOnly ? Promise.resolve([] as { id: string; name: string; startDate: Date }[]) : prisma.yearlyProgramCohort.findMany({
       where: {
         ...(cohortId ? { id: cohortId } : {}),
         startDate: { lte: now },
@@ -719,8 +771,23 @@ export async function collectAllIssues(options: CollectIssuesOptions = {}): Prom
     if (!rec) { rec = {}; tgErrorTimes.set(subId, rec); }
     if (!rec[field]) rec[field] = at;
   };
+  /// Найсвіжіша подія, яка могла ЗАНОВО створити стан «статус є, оплати немає»:
+  /// видалення платежу, виключення платежу з доступу, повний рефанд. Це «якір часу»
+  /// для ORPHAN_NO_PAYMENT — без нього issue брав `sub.createdAt`, який завжди старіший
+  /// за будь-яке заглушення, і одного разу заглушений kind не повертався НІКОЛИ, навіть
+  /// коли менеджер сьогодні видалив останній платіж живої підписки.
+  const orphanAnchorAt = new Map<string, Date>();
 
   for (const e of events) {
+    {
+      const meta = (e.metadata ?? null) as { paymentDeleted?: unknown; paymentAccess?: unknown } | null;
+      const isOrphanTrigger = e.type === 'refunded'
+        || (typeof meta === 'object' && meta !== null && (meta.paymentDeleted === true || meta.paymentAccess === true));
+      if (isOrphanTrigger) {
+        const prev = orphanAnchorAt.get(e.subscriptionId);
+        if (!prev || e.createdAt > prev) orphanAnchorAt.set(e.subscriptionId, e.createdAt);
+      }
+    }
     if (e.type === TG_INVITE_FAILED_EVENT_TYPE) {
       rememberTgTime(e.subscriptionId, 'inviteFailedAt', e.createdAt);
     } else if (e.type === 'admin_action' && e.metadata && typeof e.metadata === 'object') {
@@ -762,6 +829,23 @@ export async function collectAllIssues(options: CollectIssuesOptions = {}): Prom
     dismissalMap.set(dismissalKey(d.subscriptionId, d.kind), d);
   }
 
+  /// Compat-read для заглушень, зроблених ДО розкладення «телеграмної» помилки на три kind-и.
+  /// Раніше і відхилена заявка, і висяча заявка жили під `TG_INVITE_FAILED` — саме його
+  /// менеджери й заглушували. Після розділення ті заглушення формально не підходять до
+  /// нових kind-ів, і на першому ж відкритті вкладки випала б пачка «нових» issue-ів по
+  /// давно розібраних випадках. Тому дивимось і на заглушення старого kind тієї ж підписки.
+  /// Міграції свідомо не робимо: старі рядки лишаються як є, читання їх покриває.
+  const DISMISSAL_COMPAT_FALLBACK: Partial<Record<IssueKind, IssueKind>> = {
+    TG_JOIN_DECLINED: 'TG_INVITE_FAILED',
+    TG_JOIN_PENDING: 'TG_INVITE_FAILED',
+  };
+  const lookupDismissal = (subId: string, kind: IssueKind): RawDismissal | undefined => {
+    const direct = dismissalMap.get(dismissalKey(subId, kind));
+    if (direct) return direct;
+    const fallbackKind = DISMISSAL_COMPAT_FALLBACK[kind];
+    return fallbackKind ? dismissalMap.get(dismissalKey(subId, fallbackKind)) : undefined;
+  };
+
   // Збираємо event-based issues.
   const records: IssueRecord[] = [];
   for (const [subId, kindMap] of failureAgg) {
@@ -777,7 +861,7 @@ export async function collectAllIssues(options: CollectIssuesOptions = {}): Prom
       const window = KIND_FRESHNESS_WINDOW_MS[kind];
       if (window && now.getTime() - agg.latestAt.getTime() > window) continue;
 
-      const dismissal = dismissalMap.get(dismissalKey(subId, kind));
+      const dismissal = lookupDismissal(subId, kind);
       records.push({
         subscriptionId: subId,
         sourceId: null,
@@ -803,7 +887,7 @@ export async function collectAllIssues(options: CollectIssuesOptions = {}): Prom
     if (!sub.user) continue;
     for (const stateIssue of stateBasedIssues(sub, paidSubIds.has(sub.id), tgErrorTimes.get(sub.id))) {
       if (haveEventRecord.has(`${sub.id}::${stateIssue.kind}`)) continue;
-      const dismissal = dismissalMap.get(dismissalKey(sub.id, stateIssue.kind));
+      const dismissal = lookupDismissal(sub.id, stateIssue.kind);
       records.push({
         subscriptionId: sub.id,
         sourceId: null,
@@ -834,15 +918,20 @@ export async function collectAllIssues(options: CollectIssuesOptions = {}): Prom
     // безплатна підписка. НЕ вважаємо її «сиротою»/порушенням інваріанта.
     if (sub.manuallyAddedAt) continue;
     if (haveEventRecord.has(`${sub.id}::ORPHAN_NO_PAYMENT`)) continue;
-    const dismissal = dismissalMap.get(dismissalKey(sub.id, 'ORPHAN_NO_PAYMENT'));
+    const dismissal = lookupDismissal(sub.id, 'ORPHAN_NO_PAYMENT');
+    // Якір часу = найпізніше з двох: створення підписки і остання подія, яка могла ЗАНОВО
+    // забрати в неї оплату (видалення платежу / виключення з доступу / повний рефанд).
+    // `updatedAt` тут не годиться взагалі — його щоночі зсуває синхронізація прогресу
+    // SendPulse, і заглушений issue щоранку повертався б у активні. Але й самого лише
+    // `createdAt` замало: він завжди старіший за будь-яке заглушення, тож раз заглушений
+    // kind не повертався НІКОЛИ — навіть коли менеджер сьогодні видалив останній платіж.
+    const orphanAnchor = orphanAnchorAt.get(sub.id);
+    const orphanAt = orphanAnchor && orphanAnchor > sub.createdAt ? orphanAnchor : sub.createdAt;
     records.push({
       subscriptionId: sub.id,
       sourceId: null,
       kind: 'ORPHAN_NO_PAYMENT',
-      // Дата створення підписки, а НЕ `updatedAt`: стан «статус є, оплати немає» виник
-      // саме тоді і сам собою не змінюється, а `updatedAt` щоночі оновлює синхронізація
-      // прогресу SendPulse — заглушений issue через це щоранку повертався в активні.
-      lastOccurredAt: sub.createdAt.toISOString(),
+      lastOccurredAt: orphanAt.toISOString(),
       occurrenceCount: 1,
       errorExcerpt: `Статус ${sub.status}, але жодного PAID-платежу не знайдено.`,
       user: sub.user,
@@ -899,7 +988,7 @@ export async function collectAllIssues(options: CollectIssuesOptions = {}): Prom
         .map(([, v]) => v)
         .reduce((best, v) => (v.latestAt > best.latestAt ? v : best));
       const totalCount = unresolved.reduce((sum, [, v]) => sum + v.count, 0);
-      const dismissal = dismissalMap.get(dismissalKey(subId, 'EMAIL_FAILED'));
+      const dismissal = lookupDismissal(subId, 'EMAIL_FAILED');
       records.push({
         subscriptionId: subId,
         sourceId: null,
@@ -952,7 +1041,7 @@ export async function collectAllIssues(options: CollectIssuesOptions = {}): Prom
         // Успішний sync після останнього сигналу — проблеми вже немає.
         const successAt = resolvedAt.get(subId)?.get(kind);
         if (successAt && successAt > agg.latestAt) continue;
-        const dismissal = dismissalMap.get(dismissalKey(subId, kind));
+        const dismissal = lookupDismissal(subId, kind);
         records.push({
           subscriptionId: subId,
           sourceId: null,
@@ -990,7 +1079,7 @@ export async function collectAllIssues(options: CollectIssuesOptions = {}): Prom
       if (!sub.sendpulseAccessOpenedAt || sub.sendpulseAccessOpenedAt > noEmailCutoff) continue;
       if (emailSentSubIds.has(sub.id)) continue;
       if (haveEventRecord.has(`${sub.id}::ACCESS_OPENED_NO_EMAIL`)) continue;
-      const dismissal = dismissalMap.get(dismissalKey(sub.id, 'ACCESS_OPENED_NO_EMAIL'));
+      const dismissal = lookupDismissal(sub.id, 'ACCESS_OPENED_NO_EMAIL');
       records.push({
         subscriptionId: sub.id,
         sourceId: null,
@@ -1121,9 +1210,9 @@ export async function collectAllIssues(options: CollectIssuesOptions = {}): Prom
       // Фільтр набору: розпізнаний лог показуємо лише якщо його підписка є у вибірці.
       // Нерозпізнані (без підписки взагалі) лишаємо завжди — це живі гроші, які ніде
       // більше не видно, і сховати їх через фільтр набору означало б їх втратити.
-      if (cohortId && group.subscriptionId && !sub) continue;
+      if (scopedToSubset && group.subscriptionId && !sub) continue;
       const dismissal = group.subscriptionId
-        ? dismissalMap.get(dismissalKey(group.subscriptionId, 'RECURRING_CALLBACK_SKIPPED'))
+        ? lookupDismissal(group.subscriptionId, 'RECURRING_CALLBACK_SKIPPED')
         : undefined;
       records.push({
         subscriptionId: group.subscriptionId,

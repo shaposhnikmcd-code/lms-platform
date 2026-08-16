@@ -355,18 +355,40 @@ export async function generateInviteForSubscription(args: {
   }
 }
 
+/// Вікно дедупу подій `tg_invite_failed` — як у cron-і для `reminder_email_failed`.
+/// Нічний heal-крок щоразу пробує згенерувати invite наново, тож без дедупу та сама
+/// відмова Bot API писала б нову подію щодоби. Наслідок не косметичний: кожна нова подія
+/// свіжіша за заглушення, і заглушений менеджером issue щоранку повертався б у «Помилки».
+const INVITE_FAILED_EVENT_DEDUP_MS = 24 * 60 * 60 * 1000;
+
 /// Подія про невдалу генерацію invite-лінка. Саме вона (а не `updatedAt` підписки) дає
 /// вкладці «Помилки» ЧАС помилки: поле `telegramInviteError` часу не зберігає, а `updatedAt`
 /// щоночі зсуває синхронізація прогресу SendPulse — заглушений issue через це «оживав»
 /// щоранку. Best-effort: збій запису події не має валити основний флоу.
-async function recordInviteFailure(subscriptionId: string, message: string, triggeredBy: string): Promise<void> {
+///
+/// Дедуп — по ТЕКСТУ помилки (`metadata.error`), а не по повідомленню: у message є ще й
+/// `triggeredBy`/orderReference, тож однакова відмова з різних джерел мала б різний текст.
+/// Нова, ІНША помилка запишеться одразу — і issue підніметься, як і має.
+export async function recordInviteFailure(subscriptionId: string, message: string, triggeredBy: string): Promise<void> {
+  const error = message.slice(0, 500);
   try {
+    const since = new Date(Date.now() - INVITE_FAILED_EVENT_DEDUP_MS);
+    const recent = await prisma.yearlyProgramSubscriptionEvent.findFirst({
+      where: {
+        subscriptionId,
+        type: TG_INVITE_FAILED_EVENT_TYPE,
+        createdAt: { gte: since },
+        metadata: { path: ['error'], equals: error },
+      },
+      select: { id: true },
+    });
+    if (recent) return;
     await prisma.yearlyProgramSubscriptionEvent.create({
       data: {
         subscriptionId,
         type: TG_INVITE_FAILED_EVENT_TYPE,
         message: `Telegram invite не згенеровано (${triggeredBy}): ${message.slice(0, 300)}`,
-        metadata: { error: message.slice(0, 500), triggeredBy },
+        metadata: { error, triggeredBy },
       },
     });
   } catch (e) {

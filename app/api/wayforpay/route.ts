@@ -16,7 +16,7 @@ import { resolveSellableCohort } from '@/lib/yearlyProgramCohort';
 import { verifyInvite, type InvitePayload } from '@/lib/yearlyProgramInvite';
 import { isValidCountryCode } from '@/lib/countries';
 import { parseTelegramUsername } from '@/lib/telegramUsername';
-import { TG_INVITE_FAILED_EVENT_TYPE } from '@/lib/yearlyProgramTelegramMarks';
+import { recordInviteFailure } from '@/lib/yearlyProgramTelegram';
 
 /// Текст, який пишемо в `YearlyProgramSubscription.telegramInviteError`, коли людина
 /// оформила Річну без валідного Telegram username. Константа — щоб при повторній
@@ -563,15 +563,11 @@ export async function POST(req: NextRequest) {
             // Вкладка «Помилки» бере час помилки саме з неї: поле `telegramInviteError`
             // часу не зберігає, а fallback (дата створення підписки) тут був би старішим
             // за попереднє заглушення — свіжа проблема так і не спливла б.
+            // Через спільний writer: у ньому дедуп на добу по тексту помилки. Людина може
+            // тиснути «Оплатити» кілька разів поспіль — кожна спроба інакше писала б нову
+            // подію, а кожна нова подія свіжіша за заглушення і повертала б issue назад.
             if (telegramErrorToSet) {
-              await prisma.yearlyProgramSubscriptionEvent.create({
-                data: {
-                  subscriptionId: existing.id,
-                  type: TG_INVITE_FAILED_EVENT_TYPE,
-                  message: `Telegram invite не згенеровано (нова оплата ${orderReference}): ${telegramErrorToSet}`,
-                  metadata: { error: telegramErrorToSet, triggeredBy: 'wayforpay:new-order' },
-                },
-              });
+              await recordInviteFailure(existing.id, telegramErrorToSet, `wayforpay:new-order ${orderReference}`);
             }
             if (markManualAdd && repointCohort) {
               await prisma.yearlyProgramSubscriptionEvent.create({

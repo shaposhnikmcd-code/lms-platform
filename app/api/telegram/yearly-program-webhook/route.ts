@@ -271,16 +271,19 @@ async function handleChatJoinRequest(joinReq: TgChatJoinRequest): Promise<void> 
     // на платіжній формі. Без сліду в адмінці студент клікав би вічно і мовчки.
     // `telegramInviteError` показується у вкладці «Помилки» → менеджер бачить і виправляє.
     // Очищається сам при наступній успішній генерації інвайта (generateInviteForSubscription).
-    await prisma.yearlyProgramSubscription.update({
-      where: { id: sub.id },
-      data: {
-        telegramInviteError: `${TG_JOIN_DECLINED_MARK} — від ${joinReq.from.username ? `@${joinReq.from.username}` : `id=${userId}`}: ${identity.reason} — ${
-          identity.kind === 'username'
-            ? 'перевір username у підписці (можлива друкарська помилка у формі оплати)'
-            : 'посиланням скористалась інша людина; згенеруй новий інвайт для студента'
-        }`.slice(0, 500),
-      },
-    });
+    //
+    // ДОПИСУЄМО, а не затираємо (як і pending-гілка): у полі може лежати справжня відмова
+    // Bot API — часто саме вона і є причиною того, що студент ліз по чужому/старому лінку.
+    // Перезапис прибирав би з «Помилок» те, що менеджеру треба лагодити.
+    await appendInviteErrorMark(
+      sub.id,
+      TG_JOIN_DECLINED_MARK,
+      `${TG_JOIN_DECLINED_MARK} — від ${joinReq.from.username ? `@${joinReq.from.username}` : `id=${userId}`}: ${identity.reason} — ${
+        identity.kind === 'username'
+          ? 'перевір username у підписці (можлива друкарська помилка у формі оплати)'
+          : 'посиланням скористалась інша людина; згенеруй новий інвайт для студента'
+      }`,
+    );
 
     await prisma.yearlyProgramSubscriptionEvent.create({
       data: {
@@ -480,13 +483,25 @@ async function flagPendingJoinRequest(from: TgUser): Promise<void> {
 }
 
 /// Пише мітку про висячу заявку в `telegramInviteError` вказаної підписки.
-///
-/// Мітка ніколи не затирає попередній текст: у полі може лежати справжня помилка Bot API
-/// («бот не адмін», «chat not found»), яка і є ПРИЧИНОЮ висячої заявки — стерти її означає
-/// прибрати з «Помилок» те, що менеджеру треба лагодити. Порожньо → пишемо; вже є наша
-/// мітка → нічого не робимо (і це ж дає дедуп повторних заявок); інша помилка → дописуємо.
 async function markPendingJoinOnSubscription(
   subscriptionId: string,
+  message: string,
+  knownCurrent?: string | null,
+): Promise<void> {
+  await appendInviteErrorMark(subscriptionId, PENDING_JOIN_MARK, message, knownCurrent);
+}
+
+/// Дописує мітку webhook-а в `telegramInviteError` підписки.
+///
+/// Мітка ніколи не затирає попередній текст: у полі може лежати справжня помилка Bot API
+/// («бот не адмін», «chat not found»), яка і є ПРИЧИНОЮ проблеми із заявкою — стерти її
+/// означає прибрати з «Помилок» те, що менеджеру треба лагодити. Колектор issue-ів
+/// розкладає поле назад по мітках (`splitTelegramInviteError`), тож кілька сегментів у
+/// ньому — норма, а не сміття. Порожньо → пишемо; наша мітка вже є → нічого не робимо
+/// (це ж дає дедуп повторних заявок); інший текст → дописуємо через сепаратор.
+async function appendInviteErrorMark(
+  subscriptionId: string,
+  mark: string,
   message: string,
   knownCurrent?: string | null,
 ): Promise<void> {
@@ -499,7 +514,7 @@ async function markPendingJoinOnSubscription(
     if (!row) return;
     current = row.telegramInviteError;
   }
-  if (current?.includes(PENDING_JOIN_MARK)) return;
+  if (current?.includes(mark)) return;
 
   const next = current?.trim()
     ? `${current.trim()}${TG_ERROR_SEGMENT_SEPARATOR}${message}`.slice(0, 500)
@@ -512,7 +527,7 @@ async function markPendingJoinOnSubscription(
     data: { telegramInviteError: next },
   });
   if (res.count > 0) {
-    console.log(`${LOG_PREFIX} висяча заявка позначена у підписці sub=${subscriptionId}`);
+    console.log(`${LOG_PREFIX} мітку «${mark}» додано у підписку sub=${subscriptionId}`);
   }
 }
 
