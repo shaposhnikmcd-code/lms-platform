@@ -12,7 +12,12 @@ import {
 } from 'react-icons/hi2';
 import type { Theme } from '../../_components/adminTheme';
 import { AdminPanel } from '../../_components/AdminShell';
-import { describeSplitParts, groupManualPayments, pluralParts } from '@/lib/yearlyProgramManualGroups';
+import {
+  describeSplitParts,
+  groupManualPayments,
+  pluralParts,
+  type ManualPaymentGroup,
+} from '@/lib/yearlyProgramManualGroups';
 import type { Row } from './types';
 
 const ManualPaymentModal = dynamic(() => import('./ManualPaymentModal'), { ssr: false });
@@ -157,7 +162,31 @@ export default function ManualPaymentsPanel({
   // Частки авто-розбивки одного внесення (12 800 ₴ = 5 рядків у БД) склеюємо назад в
   // ОДИН запис реєстру. Без цього менеджер бачив 5 рядків з однаковими датою/сумою/
   // нотаткою і читав їх як дубль. Гроші від групування не змінюються.
-  const groups = useMemo(() => groupManualPayments(visible), [visible]);
+  const rawGroups = useMemo(() => groupManualPayments(visible), [visible]);
+
+  // Реєстр обрізається лімітом (перші 1000 рядків) і фільтрами — внесення може розрізатись
+  // посередині. Показати такий обрубок як «2 200 ₴, розбито на 1 частину» = збрехати про
+  // суму внесення, тому неповні групи розкладаємо назад на окремі рядки-частки з поміткою
+  // «частина внесення» і без total/заголовка розбивки.
+  const groups = useMemo<(ManualPaymentGroup<ManualPaymentRow> & { partial?: boolean })[]>(
+    () => rawGroups.flatMap((g) => (
+      g.isComplete
+        ? [g]
+        : g.parts.map((part) => ({
+            key: `partial:${part.id}`,
+            base: g.base,
+            parts: [part],
+            head: part,
+            total: part.amount,
+            amounts: [part.amount],
+            isSplit: false,
+            maxIndex: g.maxIndex,
+            isComplete: false,
+            partial: true,
+          }))
+    )),
+    [rawGroups],
+  );
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
   const toggleGroup = useCallback((key: string) => {
     setOpenGroups((prev) => {
@@ -345,6 +374,12 @@ export default function ManualPaymentsPanel({
                             {open ? <HiOutlineChevronUp className="text-[11px]" /> : <HiOutlineChevronDown className="text-[11px]" />}
                             розбито на {g.parts.length} {pluralParts(g.parts.length)} ({describeSplitParts(g.amounts)})
                           </button>
+                        )}
+                        {/* Обрубок внесення: показуємо саме частку, а не «повну» суму. */}
+                        {g.partial && (
+                          <div className={`mt-0.5 text-[10.5px] ${dark ? 'text-amber-300/80' : 'text-amber-700'}`}>
+                            частина внесення — повний список у картці підписки
+                          </div>
                         )}
                       </td>
                       <td className="px-3 py-2.5 whitespace-nowrap">

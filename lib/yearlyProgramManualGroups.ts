@@ -40,10 +40,18 @@ export interface ManualPaymentGroup<T> {
   parts: T[];
   /// Перша частка — з неї беруться дата / спосіб / нотатка / клієнт для згорнутого рядка.
   head: T;
-  /// Сума всього внесення (сума часток).
+  /// Сума наявних часток. Дорівнює сумі всього внесення лише коли `isComplete`.
   total: number;
   amounts: number[];
   isSplit: boolean;
+  /// Найбільший номер частки, відомий з orderReference (`…_N`). null — одиночний платіж.
+  maxIndex: number | null;
+  /// false — у списку є НЕ ВСІ частки внесення (вибірку обрізали лімітом / фільтром, або
+  /// частину видалили). Тоді ні `total`, ні «розбито на N частин» показувати не можна:
+  /// внесення 2 200+2 200, обрізане посередині, читалось би як «2 200 ₴, 1 частина».
+  /// Межа методу: неповноту видно лише з номерів наявних часток — якщо загубився саме
+  /// ХВІСТ (лишились _1.._K), відрізнити його від повного внесення з K часток нічим.
+  isComplete: boolean;
 }
 
 /// Збирає плаский список платежів у список внесень, зберігаючи порядок першої появи.
@@ -77,11 +85,17 @@ export function groupManualPayments<T extends GroupableManualPayment>(rows: T[])
         total: single.amount,
         amounts: [single.amount],
         isSplit: false,
+        maxIndex: null,
+        isComplete: true,
       };
     }
     const bucket = byKey.get(key)!;
-    const parts = [...bucket.parts].sort((a, b) => a.index - b.index).map((p) => p.row);
+    const sorted = [...bucket.parts].sort((a, b) => a.index - b.index);
+    const parts = sorted.map((p) => p.row);
     const amounts = parts.map((p) => p.amount);
+    // Розбивка нумерує частки суцільно від 1 до N, тож найбільший індекс = скільки їх було
+    // при внесенні. Менша кількість наявних рядків = список неповний.
+    const maxIndex = sorted[sorted.length - 1]!.index;
     return {
       key,
       base: bucket.base,
@@ -90,6 +104,8 @@ export function groupManualPayments<T extends GroupableManualPayment>(rows: T[])
       total: amounts.reduce((s, a) => s + a, 0),
       amounts,
       isSplit: parts.length > 1,
+      maxIndex,
+      isComplete: parts.length >= maxIndex,
     };
   });
 }
