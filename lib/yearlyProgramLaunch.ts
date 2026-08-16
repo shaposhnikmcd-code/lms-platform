@@ -126,7 +126,7 @@ export interface LaunchSummary {
 }
 
 export async function executeLaunchLoop(
-  cohort: { id: string; startDate: Date; endDate: Date; launchedAt?: Date | null },
+  cohort: { id: string; startDate: Date; endDate: Date; createdAt: Date },
   actorLabel: string,
   options: {
     /// М'який дедлайн: коли час вийшов, цикл переривається ШТАТНО і віддає partial-summary.
@@ -157,11 +157,19 @@ export async function executeLaunchLoop(
   const crashed: LaunchSummary['crashed'] = [];
   let interrupted: LaunchSummary['interrupted'];
 
-  /// Доступ уже відкривали В МЕЖАХ ЦЬОГО набору — таку підписку цикл не мутує взагалі.
+  /// Доступ уже відкривали В МЕЖАХ ЖИТТЯ ЦЬОГО набору — таку підписку цикл не мутує взагалі.
   /// Винесено в предикат, бо те саме питання ставиться двічі: у циклі (skip) і при
   /// перериванні за дедлайном (скільки РЕАЛЬНОЇ роботи лишилось).
+  ///
+  /// Межа — `createdAt` набору, а НЕ `launchedAt`. З launchedAt захист від «воскресіння
+  /// боржників» ламався на кожному unlaunch: він скидає launchedAt, наступний запуск
+  /// claim-ить свіжу дату, і всі відкриття доступу автоматично опиняються «до запуску» —
+  /// цикл заново мутував усіх (GRACE→ACTIVE, обнулені лічильники нагадувань). Те саме
+  /// давав ручний reopen до запуску. З createdAt: перенесені з минулого набору
+  /// (openedAt < createdAt цього набору) далі проходять повну обробку і отримують
+  /// перерахований expiresAt, а всі відкриття в межах цього набору — недоторканні.
   const alreadyOpenedInThisCohort = (s: (typeof subs)[number]) =>
-    Boolean(s.sendpulseAccessOpenedAt && cohort.launchedAt && s.sendpulseAccessOpenedAt >= cohort.launchedAt);
+    Boolean(s.sendpulseAccessOpenedAt && s.sendpulseAccessOpenedAt >= cohort.createdAt);
 
   /// Чи підписка справді пішла б у роботу (SendPulse + мутація), а не була б пропущена
   /// guard-ами. Дзеркалить порядок перевірок у циклі — потрібно, щоб `interrupted.remaining`
@@ -204,9 +212,10 @@ export async function executeLaunchLoop(
       // запуск піднімав боржника з GRACE назад в ACTIVE (несплачений місяць прощався)
       // і обнуляв ланцюг нагадувань. Мутації — лише для тих, кому доступ реально
       // відкривається вперше в цьому проході.
-      // Порівнюємо саме з `launchedAt` набору, а не просто з наявністю прапорця: у
-      // перенесеного з минулого набору студента `sendpulseAccessOpenedAt` стоїть з
-      // торішнього запуску, і пропуск лишив би його без перерахованого expiresAt.
+      // Межа — `createdAt` набору (див. коментар до `alreadyOpenedInThisCohort`), а не
+      // просто наявність прапорця: у перенесеного з минулого набору студента
+      // `sendpulseAccessOpenedAt` стоїть з торішнього запуску, і пропуск лишив би його
+      // без перерахованого expiresAt.
       if (alreadyOpenedInThisCohort(s)) {
         results.push({
           subscriptionId: s.id,

@@ -151,10 +151,12 @@ export async function POST(
   }
 
   // launchedAt вже виставлений атомарним claim-ом вище (для першого запуску) або був раніше (retry).
-  // `launchedAt` передається в цикл: по ньому він відрізняє «доступ відкрито в ЦЬОМУ запуску»
-  // (не мутувати — це retry) від «відкрито торік у минулому наборі» (перенесення, треба обробити).
+  // У цикл передається `createdAt` набору: по ньому він відрізняє «доступ відкрито в межах
+  // ЦЬОГО набору» (не мутувати — це retry / пізній покупець / ручний reopen) від «відкрито
+  // торік у минулому наборі» (перенесення, треба обробити). Саме createdAt, а не launchedAt:
+  // останній обнуляється кнопкою «Відмінити запуск», і повторний запуск мутував би всіх.
   const launchSummary = await executeLaunchLoop(
-    { id, startDate: cohort.startDate, endDate: cohort.endDate, launchedAt },
+    { id, startDate: cohort.startDate, endDate: cohort.endDate, createdAt: cohort.createdAt },
     actorLabel,
     { deadlineAt: new Date(startedAt + maxDuration * 1000 - LAUNCH_SOFT_DEADLINE_MARGIN_MS) },
   );
@@ -187,7 +189,7 @@ export async function POST(
     ok: true,
     mode: 'launched',
     pendingAccessAfter,
-    launchedAt: cohort.launchedAt?.toISOString() ?? new Date().toISOString(),
+    launchedAt: launchedAt?.toISOString() ?? new Date().toISOString(),
     retry: isRetry,
     summary: {
       total: launchSummary.total,

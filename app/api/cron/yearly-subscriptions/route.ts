@@ -295,7 +295,7 @@ async function runScheduledCohortLaunches(): Promise<StepResult> {
       launchScheduledFor: { lte: now },
       launchedAt: null,
     },
-    select: { id: true, name: true, startDate: true, endDate: true, launchScheduledFor: true },
+    select: { id: true, name: true, startDate: true, endDate: true, createdAt: true, launchScheduledFor: true },
   });
   if (cohorts.length === 0) return { step: 'runScheduledCohortLaunches', processed: 0, errors };
 
@@ -312,7 +312,7 @@ async function runScheduledCohortLaunches(): Promise<StepResult> {
       if (claim.count === 0) continue; // інший процес уже claim-ив
 
       const summary = await executeLaunchLoop(
-        { id: c.id, startDate: c.startDate, endDate: c.endDate, launchedAt: now },
+        { id: c.id, startDate: c.startDate, endDate: c.endDate, createdAt: c.createdAt },
         'scheduled-cron',
         { deadlineAt: new Date(Date.now() + SCHEDULED_LAUNCH_BUDGET_MS) },
       );
