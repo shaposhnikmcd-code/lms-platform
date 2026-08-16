@@ -25,6 +25,8 @@ type IssueKind =
   | 'LAUNCH_EMAIL_FAILED'
   | 'LAUNCH_OVERDUE'
   | 'TG_INVITE_FAILED'
+  | 'TG_JOIN_DECLINED'
+  | 'TG_JOIN_PENDING'
   | 'TG_KICK_FAILED'
   | 'SP_CLOSE_FAILED'
   | 'SP_REOPEN_FAILED'
@@ -35,6 +37,7 @@ type IssueKind =
   | 'WFP_REMOVE_FAILED'
   | 'WFP_SCHEDULE_DRIFT'
   | 'WFP_RULE_NOT_ACTIVE'
+  | 'WFP_SCHEDULE_SYNC_FAILED'
   | 'ACCESS_OPENED_NO_EMAIL'
   | 'EMAIL_FAILED';
 
@@ -43,6 +46,8 @@ const ALL_KINDS: IssueKind[] = [
   'LAUNCH_EMAIL_FAILED',
   'LAUNCH_OVERDUE',
   'TG_INVITE_FAILED',
+  'TG_JOIN_DECLINED',
+  'TG_JOIN_PENDING',
   'TG_KICK_FAILED',
   'SP_CLOSE_FAILED',
   'SP_REOPEN_FAILED',
@@ -53,6 +58,7 @@ const ALL_KINDS: IssueKind[] = [
   'WFP_REMOVE_FAILED',
   'WFP_SCHEDULE_DRIFT',
   'WFP_RULE_NOT_ACTIVE',
+  'WFP_SCHEDULE_SYNC_FAILED',
   'ACCESS_OPENED_NO_EMAIL',
   'EMAIL_FAILED',
 ];
@@ -169,18 +175,63 @@ const CATALOG: Record<IssueKind, CatalogEntry> = {
     shortTitle: 'TG-запрошення',
     title: 'Telegram-запрошення не згенероване',
     whatHappened:
-      'Telegram API відмовив у створенні invite-посилання для цієї підписки — студент не отримав посилання на приватний канал програми.',
+      'Telegram API відмовив у створенні invite-посилання для цієї підписки — студент не отримав посилання на приватний канал програми. Це саме технічна відмова: посилання не існує взагалі.',
     causes: [
       'Бот UIMP не доданий у канал як адмін або не має права «Invite Users».',
+      'У підписці не вказано (або вказано з помилкою) Telegram-username студента.',
       'Telegram API rate-limit (забагато запитів за короткий час).',
       'У налаштуваннях канал-id невалідний або канал видалений.',
     ],
     actions: [
       'Перевірте, що бот UIMP є в каналі як адмін з правом «Запрошувати користувачів».',
-      'Натисніть «Спробувати ще» — система перегенерує invite.',
+      'Якщо у тексті помилки — про username: візьміть у студента актуальний і впишіть у підписці, тоді повторіть.',
+      'Натисніть «Спробувати ще» — система перегенерує invite і надішле листа.',
       'Якщо й далі помилка — запросіть студента вручну через Telegram і заглушіть issue.',
     ],
     hasRetry: true,
+  },
+  TG_JOIN_DECLINED: {
+    severity: 'warning',
+    icon: '⛔',
+    shortTitle: 'Заявку відхилено',
+    title: 'Telegram: заявку на вступ відхилено',
+    whatHappened:
+      'Посилання спрацювало, людина натиснула «Приєднатись», але автор заявки не збігся з даними підписки — система її відхилила. Найчастіша причина не витік посилання, а друкарська помилка в Telegram-username на формі оплати.',
+    sideEffects:
+      'Гроші й доступ до навчання не зачеплені — студент лишився поза Telegram-каналом програми.',
+    causes: [
+      'У підписці збережений інший (з помилкою або застарілий) Telegram-username.',
+      'Студент змінив username після оплати.',
+      'Студент переслав своє посилання іншій людині — саме її заявку і відхилено.',
+    ],
+    actions: [
+      'Звірте Telegram-username у підписці з тим, від кого прийшла заявка (він у тексті помилки).',
+      'Виправте username у підписці, потім згенеруйте новий інвайт у панелі підписки — «Спробувати ще» без виправлення нічого не змінить.',
+      'Якщо заявка була не від студента (переслане посилання) — просто перевидайте йому інвайт і заглушіть issue.',
+    ],
+    hasRetry: false,
+  },
+  TG_JOIN_PENDING: {
+    severity: 'info',
+    icon: '⏳',
+    shortTitle: 'Висяча заявка',
+    title: 'Telegram: заявка чекає ручного підтвердження',
+    whatHappened:
+      'У каналі висить заявка на вступ, яку система не змогла звірити з підпискою: у підписці немає ані Telegram-ID, ані username, або людина зайшла по невідомому посиланню. Автоматично її не підтверджують і не відхиляють — відмова знищила б заявку назавжди.',
+    sideEffects:
+      'Заявка нікуди не зникне і сама в канал не пускає. Рішення ухвалюється в самому Telegram — у розділі «Запити на вступ».',
+    causes: [
+      'У підписці не вказаний Telegram-username (ручне додавання або стара оплата без цього поля).',
+      'Студент зайшов по старому/протермінованому посиланню або через основне посилання каналу.',
+      'Заявку подала стороння людина, якої в програмі немає.',
+    ],
+    actions: [
+      'Відкрийте підписку і звірте, чи це справді ваш студент (ім’я, username у тексті помилки).',
+      'Якщо так — підтвердіть заявку в Telegram (Канал → Запити на вступ) і впишіть його username у підписку, щоб наступного разу спрацювало автоматично.',
+      'Якщо ні — відхиліть заявку в Telegram.',
+      'Після розгляду натисніть «Заглушити» — мітка сама не зникне.',
+    ],
+    hasRetry: false,
   },
   TG_KICK_FAILED: {
     severity: 'info',
@@ -348,6 +399,27 @@ const CATALOG: Record<IssueKind, CatalogEntry> = {
     ],
     hasRetry: false,
   },
+  WFP_SCHEDULE_SYNC_FAILED: {
+    severity: 'warning',
+    icon: '🛠️',
+    shortTitle: 'Синк графіка впав',
+    title: 'Не вдалося синхронізувати графік списань WayForPay',
+    whatHappened:
+      'Система намагалась перенести дати автосписань у WayForPay під розклад набору (запуск, зміна дат, перенесення в інший набір або зняття правила після повної оплати), але WayForPay відмовив. Правило лишилось зі старими датами.',
+    sideEffects:
+      'Гроші поки на місці, доступ у студента є. Але наступне списання пройде за старим графіком — раніше або пізніше, ніж має бути.',
+    causes: [
+      'WayForPay API був недоступний або відповів помилкою на момент спроби.',
+      'Не налаштований WAYFORPAY_MERCHANT_PASSWORD (без нього CHANGE/REMOVE неможливі).',
+      'Правило у WayForPay призупинене — CHANGE по неактивному правилу не проходить.',
+    ],
+    actions: [
+      'Відкрийте підписку → панель «Дії» → «Синхронізувати графік» і повторіть.',
+      'У «Подіях» підписки — повний текст відповіді WayForPay.',
+      'Якщо правило призупинене — спершу відновіть його в кабінеті WayForPay, потім повторіть синхронізацію.',
+    ],
+    hasRetry: false,
+  },
   REVIVED_WITH_DEBT: {
     severity: 'critical',
     icon: '⚖️',
@@ -480,6 +552,23 @@ interface IssueRecord {
   dismissedReason: string | null;
 }
 
+/// Усі issue-и однієї людини (або одного джерела, якщо людини немає) — одна картка списку.
+interface IssueGroup {
+  key: string;
+  title: string;
+  email: string | null;
+  cohortName: string | null;
+  plan: 'YEARLY' | 'MONTHLY';
+  /// Спільна підписка групи або `null`, якщо issue-и ведуть у різні (чи в жодну).
+  subscriptionId: string | null;
+  items: IssueRecord[];
+  counts: Record<Severity, number>;
+  /// Найвища гострота серед issue-ів групи.
+  severity: Severity;
+  /// Найсвіжіший прояв (для активних) / найсвіжіше заглушення — для сортування.
+  latestAt: number;
+}
+
 interface IssuesPayload {
   active: IssueRecord[];
   dismissed: IssueRecord[];
@@ -497,10 +586,17 @@ function recKey(rec: IssueRecord): string {
 
 export default function IssuesModal({
   theme,
+  cohorts,
+  defaultCohortId,
   onClose,
   onOpenSubscription,
 }: {
   theme: Theme;
+  /// Набори для селекта «Набір» — у тому ж порядку, що й у шапці сторінки (новіші зверху).
+  cohorts: { id: string; name: string }[];
+  /// Який набір показати першим. Зазвичай — той, що зараз вибраний у таблиці підписок,
+  /// щоб вкладка не сипала помилками студентів минулих років. `null` — усі набори.
+  defaultCohortId: string | null;
   onClose: () => void;
   /// Колбек у parent — відкрити expanded-row підписки в основній таблиці.
   /// Implementation у YearlyProgramView: scrollIntoView + setExpandedId.
@@ -515,6 +611,11 @@ export default function IssuesModal({
   const [tab, setTab] = useState<Tab>('active');
   const [kindFilter, setKindFilter] = useState<'ALL' | IssueKind>('ALL');
   const [planFilter, setPlanFilter] = useState<PlanFilter>('ALL');
+  /// `null` — усі набори; інакше id набору. Фільтрується на сервері (див. GET issues).
+  const [cohortFilter, setCohortFilter] = useState<string | null>(defaultCohortId);
+  /// Розгорнуті групи-картки студентів. За замовчуванням усі згорнуті — інакше вкладка
+  /// перетворюється на кілометровий скрол із розкритими довідками.
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const lastFocusRef = useRef<HTMLElement | null>(null);
 
@@ -537,7 +638,8 @@ export default function IssuesModal({
   const fetchIssues = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/admin/yearly-program/issues', { cache: 'no-store' });
+      const qs = `?cohortId=${encodeURIComponent(cohortFilter ?? 'all')}`;
+      const res = await fetch(`/api/admin/yearly-program/issues${qs}`, { cache: 'no-store' });
       const data = await res.json();
       if (!res.ok) {
         toast('error', data.error ?? res.statusText);
@@ -549,7 +651,7 @@ export default function IssuesModal({
     } finally {
       setLoading(false);
     }
-  }, [toast]);
+  }, [toast, cohortFilter]);
 
   useEffect(() => { fetchIssues(); }, [fetchIssues]);
 
@@ -572,13 +674,72 @@ export default function IssuesModal({
     });
   }, [payload, tab, kindFilter, planFilter]);
 
-  /// Розбивка активних по severity для заголовку.
+  /// Групи-картки по студенту: усі issue-и однієї людини — один рядок списку.
+  /// Раніше та сама людина розсипалась на 3-4 рядки в різних місцях списку, і менеджер
+  /// не бачив, що це один випадок. Ключ — email (він же ідентифікує людину між
+  /// підписками); issue рівня набору (LAUNCH_OVERDUE) і нерозпізнані callback-и email-у
+  /// не мають, тому групуються за власним джерелом.
+  const groups = useMemo(() => {
+    const byKey = new Map<string, IssueGroup>();
+    for (const rec of list) {
+      const email = rec.user.email?.trim().toLowerCase();
+      const key = email && email !== '—' ? `user::${email}` : `src::${rec.sourceId ?? rec.subscriptionId ?? rec.kind}`;
+      const at = new Date(tab === 'active' ? rec.lastOccurredAt : rec.dismissedAt ?? rec.lastOccurredAt).getTime();
+      const sev = entryFor(rec.kind).severity;
+      const existing = byKey.get(key);
+      if (!existing) {
+        byKey.set(key, {
+          key,
+          title: rec.user.name ?? rec.user.email,
+          email: rec.user.email && rec.user.email !== '—' ? rec.user.email : null,
+          cohortName: rec.cohortName,
+          plan: rec.plan,
+          // «Відкрити» на шапці групи має сенс лише коли всі issue-и ведуть в одну підписку.
+          subscriptionId: rec.subscriptionId,
+          items: [rec],
+          counts: { critical: 0, warning: 0, info: 0, [sev]: 1 } as Record<Severity, number>,
+          severity: sev,
+          latestAt: at,
+        });
+      } else {
+        existing.items.push(rec);
+        existing.counts[sev] += 1;
+        if (SEVERITY_ORDER[sev] < SEVERITY_ORDER[existing.severity]) existing.severity = sev;
+        if (at > existing.latestAt) existing.latestAt = at;
+        if (existing.subscriptionId !== rec.subscriptionId) existing.subscriptionId = null;
+        if (!existing.cohortName && rec.cohortName) existing.cohortName = rec.cohortName;
+      }
+    }
+    // Найгостріше — зверху; всередині однакової гостроти — найсвіжіший прояв.
+    return [...byKey.values()].sort((a, b) => {
+      const sa = SEVERITY_ORDER[a.severity];
+      const sb = SEVERITY_ORDER[b.severity];
+      if (sa !== sb) return sa - sb;
+      return b.latestAt - a.latestAt;
+    });
+  }, [list, tab]);
+
+  /// Розбивка по severity для заголовку — рахується по ВИДИМОМУ списку, а не по повному
+  /// payload-у: інакше шапка обіцяла «3 критичні» там, де під фільтрами не видно жодної.
   const severityBreakdown = useMemo(() => {
     const acc: Record<Severity, number> = { critical: 0, warning: 0, info: 0 };
-    if (!payload) return acc;
-    for (const r of payload.active) acc[entryFor(r.kind).severity] += 1;
+    for (const r of list) acc[entryFor(r.kind).severity] += 1;
     return acc;
-  }, [payload]);
+  }, [list]);
+
+  /// Єдина група розкривається одразу: ховати клік там нема сенсу.
+  useEffect(() => {
+    if (groups.length === 1) setOpenGroups({ [groups[0]!.key]: true });
+  }, [groups]);
+
+  /// Перемикання вкладок скидає фільтр типу: у «Заглушених» набір типів інший, і
+  /// залишений від «Активних» фільтр давав порожній список без жодного пояснення.
+  function switchTab(next: Tab) {
+    if (next === tab) return;
+    setTab(next);
+    setKindFilter('ALL');
+    setOpenGroups({});
+  }
 
   async function handleDismiss(rec: IssueRecord) {
     if (!rec.subscriptionId) return;
@@ -688,8 +849,8 @@ export default function IssuesModal({
               </h3>
               {payload && (
                 <span className={`text-[12px] font-medium ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
-                  · активних: {payload.activeTotal}
-                  {payload.activeTotal > 0 && (
+                  · у списку: {list.length}
+                  {list.length > 0 && (
                     <>
                       {' '}(
                       {severityBreakdown.critical > 0 && (
@@ -710,7 +871,7 @@ export default function IssuesModal({
                       )
                     </>
                   )}
-                  {' · заглушених: '}{payload.dismissed.length}
+                  {' · людей: '}{groups.length}
                 </span>
               )}
             </div>
@@ -744,30 +905,28 @@ export default function IssuesModal({
         {/* Tabs + filters */}
         <div className={`px-5 py-3 border-b flex items-center gap-3 flex-wrap ${dark ? 'border-white/10' : 'border-stone-200'}`}>
           <div className={`inline-flex rounded-lg border ${dark ? 'border-white/[0.08] bg-white/[0.02]' : 'border-stone-300/60 bg-stone-50/80'} p-0.5`}>
-            <TabBtn label={`Активні ${payload ? `(${payload.activeTotal})` : ''}`} active={tab === 'active'} onClick={() => setTab('active')} dark={dark} />
-            <TabBtn label={`Заглушені ${payload ? `(${payload.dismissed.length})` : ''}`} active={tab === 'dismissed'} onClick={() => setTab('dismissed')} dark={dark} />
+            <TabBtn label={`Активні ${payload ? `(${payload.activeTotal})` : ''}`} active={tab === 'active'} onClick={() => switchTab('active')} dark={dark} />
+            <TabBtn label={`Заглушені ${payload ? `(${payload.dismissed.length})` : ''}`} active={tab === 'dismissed'} onClick={() => switchTab('dismissed')} dark={dark} />
           </div>
 
           <div className="h-5 w-px bg-current opacity-10" />
 
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <KindPill label="Всі типи" active={kindFilter === 'ALL'} onClick={() => setKindFilter('ALL')} dark={dark} />
-            {ALL_KINDS.map((k) => {
-              const count = payload && tab === 'active' ? payload.activeCounts[k] : null;
-              if (tab === 'active' && count === 0) return null;
-              return (
-                <KindPill
-                  key={k}
-                  label={`${entryFor(k).icon} ${entryFor(k).shortTitle}${count !== null ? ` · ${count}` : ''}`}
-                  active={kindFilter === k}
-                  onClick={() => setKindFilter(k)}
-                  dark={dark}
-                />
-              );
-            })}
-          </div>
-
-          <div className="h-5 w-px bg-current opacity-10" />
+          <select
+            value={cohortFilter ?? 'all'}
+            onChange={(e) => {
+              setCohortFilter(e.target.value === 'all' ? null : e.target.value);
+              setOpenGroups({});
+            }}
+            title="Набір, по якому показувати помилки"
+            className={`px-2 py-1 rounded-md border text-[11px] outline-none max-w-[220px] ${
+              dark ? 'bg-white/[0.04] border-white/[0.08] text-slate-200' : 'bg-white/80 border-stone-300/60 text-stone-800'
+            }`}
+          >
+            {cohorts.map((c) => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+            <option value="all">Усі набори</option>
+          </select>
 
           <select
             value={planFilter}
@@ -780,27 +939,51 @@ export default function IssuesModal({
             <option value="YEARLY">Річний</option>
             <option value="MONTHLY">Місячний</option>
           </select>
+
+          <div className="h-5 w-px bg-current opacity-10" />
+
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <KindPill label="Всі типи" active={kindFilter === 'ALL'} onClick={() => setKindFilter('ALL')} dark={dark} />
+            {ALL_KINDS.map((k) => {
+              const count = payload && tab === 'active' ? payload.activeCounts[k] : null;
+              // Пілюлю з нулем ховаємо — АЛЕ ніколи не ховаємо ту, що зараз увімкнена:
+              // інакше фільтр лишався б активним без жодного видимого сліду, і список
+              // виглядав би порожнім «без причини».
+              if (tab === 'active' && count === 0 && kindFilter !== k) return null;
+              return (
+                <KindPill
+                  key={k}
+                  label={`${entryFor(k).icon} ${entryFor(k).shortTitle}${count !== null ? ` · ${count}` : ''}`}
+                  active={kindFilter === k}
+                  onClick={() => setKindFilter(kindFilter === k ? 'ALL' : k)}
+                  dark={dark}
+                />
+              );
+            })}
+          </div>
         </div>
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-5 py-4">
           {loading ? (
             <div className={`text-center py-10 text-[13px] ${dark ? 'text-slate-400' : 'text-stone-500'}`}>Завантажуємо…</div>
-          ) : list.length === 0 ? (
+          ) : groups.length === 0 ? (
             <EmptyState dark={dark} tab={tab} hasFilters={kindFilter !== 'ALL' || planFilter !== 'ALL'} />
           ) : (
-            <div className="space-y-2.5">
-              {list.map((rec) => (
-                <IssueRow
-                  key={recKey(rec)}
-                  rec={rec}
+            <div className="space-y-2">
+              {groups.map((g) => (
+                <IssueGroupCard
+                  key={g.key}
+                  group={g}
                   tab={tab}
                   dark={dark}
                   busyKey={busyKey}
-                  onOpenSubscription={() => { if (rec.subscriptionId) { onOpenSubscription(rec.subscriptionId); onClose(); } }}
-                  onDismiss={() => handleDismiss(rec)}
-                  onUndismiss={() => handleUndismiss(rec)}
-                  onRetry={() => handleRetry(rec)}
+                  open={!!openGroups[g.key]}
+                  onToggle={() => setOpenGroups((s) => ({ ...s, [g.key]: !s[g.key] }))}
+                  onOpenSubscription={(subId) => { onOpenSubscription(subId); onClose(); }}
+                  onDismiss={handleDismiss}
+                  onUndismiss={handleUndismiss}
+                  onRetry={handleRetry}
                 />
               ))}
             </div>
@@ -862,6 +1045,123 @@ function EmptyState({ dark, tab, hasFilters }: { dark: boolean; tab: Tab; hasFil
   );
 }
 
+/// Картка-група: одна людина (або одне джерело) з усіма її issue-ами всередині.
+/// Згорнута за замовчуванням — у шапці видно ім'я, набір і «скільки чого», цього
+/// достатньо, щоб вирішити, чи взагалі відкривати.
+function IssueGroupCard({
+  group,
+  tab,
+  dark,
+  busyKey,
+  open,
+  onToggle,
+  onOpenSubscription,
+  onDismiss,
+  onUndismiss,
+  onRetry,
+}: {
+  group: IssueGroup;
+  tab: Tab;
+  dark: boolean;
+  busyKey: string | null;
+  open: boolean;
+  onToggle: () => void;
+  onOpenSubscription: (subscriptionId: string) => void;
+  onDismiss: (rec: IssueRecord) => void;
+  onUndismiss: (rec: IssueRecord) => void;
+  onRetry: (rec: IssueRecord) => void;
+}) {
+  const sev = SEVERITY_META[group.severity];
+  const chip = dark ? 'bg-white/[0.04] text-slate-400' : 'bg-stone-100 text-stone-600';
+
+  return (
+    <div
+      className={`relative rounded-lg border overflow-hidden pl-3.5 before:absolute before:left-0 before:top-0 before:bottom-0 before:w-1 ${
+        dark ? 'border-white/[0.06] bg-white/[0.02]' : 'border-stone-300/40 bg-white/80'
+      } ${dark ? sev.railDark : sev.railLight}`}
+    >
+      <div className="flex items-center gap-2 p-2.5 pl-2">
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={open}
+          className={`flex-1 min-w-0 flex items-center gap-2 text-left rounded-md px-1 py-0.5 transition-colors ${
+            dark ? 'hover:bg-white/[0.05]' : 'hover:bg-stone-100/70'
+          }`}
+        >
+          <span className={`shrink-0 text-[13px] ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
+            {open ? <HiOutlineChevronUp /> : <HiOutlineChevronDown />}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="flex items-center gap-2 flex-wrap">
+              <span className={`text-[13px] font-semibold truncate ${dark ? 'text-slate-100' : 'text-stone-900'}`}>
+                {group.title}
+              </span>
+              {group.email && group.email !== group.title && (
+                <span className={`text-[11px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>{group.email}</span>
+              )}
+              {group.cohortName && <span className={`text-[10px] px-1.5 py-0.5 rounded ${chip}`}>{group.cohortName}</span>}
+              <span className={`text-[10px] px-1.5 py-0.5 rounded ${chip}`}>{group.plan}</span>
+            </span>
+            <span className={`mt-1 flex items-center gap-2 flex-wrap text-[11px] ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
+              {(['critical', 'warning', 'info'] as Severity[]).map((s) =>
+                group.counts[s] > 0 ? (
+                  <span
+                    key={s}
+                    className={`text-[10px] px-1.5 py-0.5 rounded border font-medium uppercase tracking-wider ${
+                      dark ? SEVERITY_META[s].chipDark : SEVERITY_META[s].chipLight
+                    }`}
+                  >
+                    {SEVERITY_META[s].label}: {group.counts[s]}
+                  </span>
+                ) : null,
+              )}
+              <span className={dark ? 'text-slate-500' : 'text-stone-500'}>
+                {group.items.length === 1 ? entryFor(group.items[0]!.kind).shortTitle : `проблем: ${group.items.length}`}
+                {' · '}
+                {tab === 'active' ? 'останній прояв' : 'заглушено'}:{' '}
+                <span className="tabular-nums">{fmtDateTime(new Date(group.latestAt).toISOString())}</span>
+              </span>
+            </span>
+          </span>
+        </button>
+        {group.subscriptionId && (
+          <button
+            type="button"
+            onClick={() => onOpenSubscription(group.subscriptionId!)}
+            className={`shrink-0 inline-flex items-center gap-1 px-2.5 py-1 text-[11px] rounded-md border transition-colors ${
+              dark ? 'bg-white/[0.04] border-white/[0.08] text-slate-200 hover:bg-white/[0.08]' : 'bg-white border-stone-300/60 text-stone-700 hover:bg-stone-50'
+            }`}
+            title="Відкрити підписку у таблиці"
+          >
+            <HiOutlineArrowTopRightOnSquare /> Відкрити
+          </button>
+        )}
+      </div>
+
+      {open && (
+        <div className={`px-2 pb-2.5 space-y-2 border-t ${dark ? 'border-white/[0.06]' : 'border-stone-300/40'}`}>
+          <div className="pt-2 space-y-2">
+            {group.items.map((rec) => (
+              <IssueRow
+                key={recKey(rec)}
+                rec={rec}
+                tab={tab}
+                dark={dark}
+                busyKey={busyKey}
+                onOpenSubscription={() => { if (rec.subscriptionId) onOpenSubscription(rec.subscriptionId); }}
+                onDismiss={() => onDismiss(rec)}
+                onUndismiss={() => onUndismiss(rec)}
+                onRetry={() => onRetry(rec)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function IssueRow({
   rec,
   tab,
@@ -891,9 +1191,10 @@ function IssueRow({
 
   const entry = entryFor(rec.kind);
   const sev = SEVERITY_META[entry.severity];
-  /// Активні розкриваємо за замовчуванням (менеджер прийшов сюди діяти),
-  /// заглушені — згорнутими (це довідник).
-  const [expanded, setExpanded] = useState(tab === 'active');
+  /// Довідка «що сталось / причини / що зробити» — завжди згорнута. Розкриті за
+  /// замовчуванням деталі перетворювали вкладку на кілометровий скрол, у якому
+  /// не видно, скільки взагалі проблем і в кого.
+  const [expanded, setExpanded] = useState(false);
   const [techOpen, setTechOpen] = useState(false);
 
   return (
@@ -928,20 +1229,7 @@ function IssueRow({
               {expanded ? 'Сховати деталі' : 'Деталі'}
             </button>
           </div>
-          <div className={`mt-1 text-[11px] flex flex-wrap items-center gap-x-2 gap-y-0.5 ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
-            <span className={dark ? 'text-slate-300' : 'text-stone-700'}>
-              {rec.user.name ?? rec.user.email}
-            </span>
-            <span className={dark ? 'text-slate-500' : 'text-stone-500'}>{rec.user.email}</span>
-            {rec.cohortName && (
-              <span className={`text-[10px] px-1.5 py-0.5 rounded ${dark ? 'bg-white/[0.04] text-slate-400' : 'bg-stone-100 text-stone-600'}`}>
-                {rec.cohortName}
-              </span>
-            )}
-            <span className={`text-[10px] px-1.5 py-0.5 rounded ${dark ? 'bg-white/[0.04] text-slate-400' : 'bg-stone-100 text-stone-600'}`}>
-              {rec.plan}
-            </span>
-          </div>
+          {/* Ім'я / email / набір / план не дублюємо — вони в шапці групи-картки. */}
           <div className={`mt-1 text-[11px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
             {tab === 'active' ? (
               <>

@@ -812,11 +812,16 @@ function YearlyProgramViewInner({
       {issuesOpen && (
         <IssuesModal
           theme={theme}
+          cohorts={cohorts.map((c) => ({ id: c.id, name: c.name }))}
+          // Модалка відкривається на тому ж наборі, що зараз у таблиці — інакше менеджер
+          // перед запуском бачив би вперемішку студентів усіх років.
+          defaultCohortId={activeCohortId}
           onClose={async () => {
             setIssuesOpen(false);
             // Refresh badge-count після закриття модалки (у ній могли заглушити/повернути).
+            // Бейдж у toolbar рахує ВСІ набори — на відміну від модалки, звуженої фільтром.
             try {
-              const res = await fetch('/api/admin/yearly-program/issues', { cache: 'no-store' });
+              const res = await fetch('/api/admin/yearly-program/issues?cohortId=all', { cache: 'no-store' });
               if (res.ok) {
                 const data = await res.json() as { activeTotal?: number };
                 if (typeof data.activeTotal === 'number') setIssuesActiveTotal(data.activeTotal);
@@ -827,14 +832,21 @@ function YearlyProgramViewInner({
             // Очищаємо всі фільтри щоб гарантовано вивести рядок у `filtered`.
             // Потім обчислюємо сторінку, на якій він знаходиться (rows впорядковані createdAt desc,
             // filtered зберігає цей порядок), і перемикаємось на неї.
+            const target = rows.find((row) => row.id === subId) ?? null;
             setSearch('');
             setPlanFilter('ALL');
-            setStatusFilter('ALL');
+            // ARCHIVED сховані з дефолтного вигляду таблиці, тож для архівної підписки
+            // «Відкрити» без цього перемикача просто нічого не робило.
+            setStatusFilter(target?.status === 'ARCHIVED' ? 'ARCHIVED' : 'ALL');
             setVisionFilter('ALL');
             setDateFrom('');
             setDateTo('');
             setActiveCohortId(null);
-            const idx = rows.findIndex((row) => row.id === subId);
+            // Сторінку рахуємо в тому ж зрізі, який після скидання фільтрів покаже таблиця
+            // (архів або все крім архіву) — інакше для архівного рядка потрапили б не туди.
+            const wantArchived = target?.status === 'ARCHIVED';
+            const scope = rows.filter((row) => (wantArchived ? row.status === 'ARCHIVED' : row.status !== 'ARCHIVED'));
+            const idx = scope.findIndex((row) => row.id === subId);
             if (idx >= 0) setPage(Math.floor(idx / pageSize) + 1);
             setExpandedId(subId);
             // Чекаємо два render-tick-и (стейт → filtered → paged → DOM) перед scrollIntoView.
