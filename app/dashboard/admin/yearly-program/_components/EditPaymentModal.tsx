@@ -151,7 +151,7 @@ export default function EditPaymentModal({
   async function post(
     action: string,
     extra: Record<string, unknown>,
-    successMsg: (data: { newExpiresAt?: string | null }) => string,
+    successMsg: (data: { newExpiresAt?: string | null; revertedToPending?: boolean }) => string,
   ) {
     setFixing(true);
     setError(null);
@@ -167,7 +167,10 @@ export default function EditPaymentModal({
         setError(data.error ?? res.statusText);
         return;
       }
-      toast('success', data.noChanges ? 'Без змін' : successMsg(data));
+      // Зарахованих платежів не лишилось → підписка знову «ще не оплачено». Кажемо це
+      // менеджеру одразу, інакше зміна статусу в таблиці виглядає як збій.
+      const pendingNote = data.revertedToPending ? ' · підписка повернулась у «Очікує оплату»' : '';
+      toast('success', data.noChanges ? 'Без змін' : successMsg(data) + pendingNote);
       onSaved();
       onClose();
     } catch (e) {

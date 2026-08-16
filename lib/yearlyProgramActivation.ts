@@ -8,7 +8,9 @@
 /// статус за еталоном WFP-callback-а (уніфікація ручного флоу зі стандартною покупкою):
 ///   — prevStatus ∈ PENDING/ACTIVE/GRACE → ACTIVE завжди (незалежно від запуску cohort-а);
 ///   — prevStatus ∈ EXPIRED/CANCELLED/ARCHIVED → `allowRevive:true` піднімає в ACTIVE,
-///     `allowRevive:false` (edit_payment) — статус не чіпає.
+///     `allowRevive:false` (edit_payment) — статус не чіпає;
+///   — зарахованих платежів не лишилось узагалі (єдиний виключили з доступу або видалили)
+///     і підписка жива → PENDING з expiresAt=null («ще не оплачено»), див. `revertedToPending`.
 /// startDate виставляється в lastPaymentAt, якщо ще не заданий (як `sub.startDate ?? now`
 /// у callback-у).
 ///
@@ -32,6 +34,9 @@ export interface PaymentActivationResult {
   /// true — підписка активна, але розрахований expiresAt уже в минулому (записано
   /// подію `revived_with_debt`, у «Помилках» з'явиться critical-issue).
   debt: boolean;
+  /// true — після перерахунку в підписці не лишилось жодного зарахованого платежу,
+  /// тож жива підписка повернулась у PENDING («ще не оплачено»).
+  revertedToPending: boolean;
 }
 
 /// Статуси «живої» підписки, які завжди активуються після оплати.
@@ -70,13 +75,30 @@ export async function applyPaymentActivation(args: {
   const cohortLaunched = !!fresh?.cohort?.launchedAt;
   const hasCohort = !!fresh?.cohort;
 
+  // Скільки платежів реально йде в доступ. Саме ця лічилка (а не «всі PAID») визначає,
+  // чи є за що тримати підписку активною: excludedFromAccess-рядки відсіює і
+  // calculateAccessUntil, тож ACTIVE без жодного зарахованого платежу означав би
+  // «активна підписка з expiresAt=null» — стан, якого в системі не існує.
+  const countedPaid = (fresh?.payments ?? []).filter(
+    (p) => p.status === 'PAID' && !p.excludedFromAccess,
+  ).length;
+
   // Уніфіковано з callback-ом: жива підписка (PENDING/ACTIVE/GRACE) після оплати завжди
   // стає ACTIVE — незалежно від того, запущений cohort чи ні (доступ до платформи=креди
   // все одно відкриваються централізовано на запуску, але сама підписка вже активна).
   // Мертву (EXPIRED/CANCELLED/ARCHIVED) піднімаємо тільки якщо allowRevive.
-  const newStatus = REVIVABLE_STATUSES.has(args.prevStatus)
-    ? 'ACTIVE'
-    : (args.allowRevive ? 'ACTIVE' : args.prevStatus);
+  //
+  // Виняток — зарахованих платежів не лишилось (менеджер виключив з доступу або видалив
+  // єдиний платіж): жива підписка повертається у PENDING, тобто «ще не оплачено», з
+  // expiresAt=null. Це легальний стан — рівно те, з чого підписка починається. Мертві
+  // статуси не чіпаємо: EXPIRED/CANCELLED — окреме рішення менеджера, і «оживляти» їх
+  // у PENDING через правку платежу неправильно.
+  const revertedToPending = countedPaid === 0 && REVIVABLE_STATUSES.has(args.prevStatus);
+  const newStatus = revertedToPending
+    ? 'PENDING'
+    : REVIVABLE_STATUSES.has(args.prevStatus)
+      ? 'ACTIVE'
+      : (args.allowRevive ? 'ACTIVE' : args.prevStatus);
 
   // Реальне оживлення = підписку підняли в ACTIVE з мертвого статусу АБО вона несла
   // слід скасування. Друга умова важлива, бо статус могли вже поправити вручну в
@@ -131,5 +153,5 @@ export async function applyPaymentActivation(args: {
     });
   }
 
-  return { newStatus, newExpiresAt, cohortLaunched, hasCohort, revived, spMarkersReset, debt };
+  return { newStatus, newExpiresAt, cohortLaunched, hasCohort, revived, spMarkersReset, debt, revertedToPending };
 }

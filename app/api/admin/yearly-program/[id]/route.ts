@@ -1464,7 +1464,7 @@ async function handleSetPaymentAccess(
 
   // Перерахунок доступу по актуальних платежах. allowRevive:false — виправлення платежу
   // не має воскрешати закриту підписку (та сама політика, що й у edit_payment).
-  const { newStatus, newExpiresAt } = await applyPaymentActivation({
+  const { newStatus, newExpiresAt, revertedToPending } = await applyPaymentActivation({
     subscriptionId: sub.id,
     plan: sub.plan,
     autoRenew: sub.autoRenew,
@@ -1475,12 +1475,17 @@ async function handleSetPaymentAccess(
 
   const reason = (input.note ?? '').trim().slice(0, 300);
   const totalAmount = changing.reduce((s, p) => s + p.amount, 0);
+  // Зарахованих платежів не лишилось — підписка повернулась у «ще не оплачено».
+  // Це помітна для менеджера зміна стану, тож пишемо її прямо в текст події.
+  const pendingNote = revertedToPending
+    ? ' · зарахованих платежів не лишилось — підписка повернулась у PENDING (ще не оплачено)'
+    : '';
   await prisma.yearlyProgramSubscriptionEvent.create({
     data: {
       subscriptionId: sub.id,
       type: 'admin_action',
       message: input.excluded
-        ? `Виключено з доступу (${actor}): ${changing.length} шт. на ${totalAmount}₴ — місяці доступу за ними більше не рахуються${reason ? ` — ${reason}` : ''} · expiresAt=${newExpiresAt?.toISOString().slice(0, 10) ?? 'null'}`
+        ? `Виключено з доступу (${actor}): ${changing.length} шт. на ${totalAmount}₴ — місяці доступу за ними більше не рахуються${reason ? ` — ${reason}` : ''}${pendingNote} · expiresAt=${newExpiresAt?.toISOString().slice(0, 10) ?? 'null'}`
         : `Повернено в доступ (${actor}): ${changing.length} шт. на ${totalAmount}₴ — місяці доступу за ними знову рахуються${reason ? ` — ${reason}` : ''} · expiresAt=${newExpiresAt?.toISOString().slice(0, 10) ?? 'null'}`,
       metadata: {
         paymentAccess: true,
@@ -1490,6 +1495,8 @@ async function handleSetPaymentAccess(
         paymentIds: changing.map((p) => p.id),
         orderReferences: changing.map((p) => p.orderReference),
         amounts: changing.map((p) => p.amount),
+        newStatus,
+        ...(revertedToPending ? { revertedToPending: true } : {}),
       },
     },
   });
@@ -1499,6 +1506,7 @@ async function handleSetPaymentAccess(
     changed: changing.length,
     excluded: input.excluded,
     newStatus,
+    revertedToPending,
     newExpiresAt: newExpiresAt?.toISOString() ?? null,
   });
 }
@@ -1533,7 +1541,7 @@ async function handleDeletePayments(
 
   await prisma.payment.deleteMany({ where: { id: { in: payments.map((p) => p.id) } } });
 
-  const { newStatus, newExpiresAt } = await applyPaymentActivation({
+  const { newStatus, newExpiresAt, revertedToPending } = await applyPaymentActivation({
     subscriptionId: sub.id,
     plan: sub.plan,
     autoRenew: sub.autoRenew,
@@ -1542,13 +1550,19 @@ async function handleDeletePayments(
     allowRevive: false,
   });
 
+  const pendingNote = revertedToPending
+    ? ' · зарахованих платежів не лишилось — підписка повернулась у PENDING (ще не оплачено)'
+    : '';
   await prisma.yearlyProgramSubscriptionEvent.create({
     data: {
       subscriptionId: sub.id,
       type: 'admin_action',
       message: `🗑 Видалено ${payments.length} ручн. ${payments.length === 1 ? 'платіж' : 'платежів'} на ${totalAmount}₴ (${actor}): `
-        + `${snapshot.map((s) => s.orderReference).join(', ')} · expiresAt=${newExpiresAt?.toISOString().slice(0, 10) ?? 'null'}`,
-      metadata: { paymentDeleted: true, actor, totalAmount, payments: snapshot },
+        + `${snapshot.map((s) => s.orderReference).join(', ')}${pendingNote} · expiresAt=${newExpiresAt?.toISOString().slice(0, 10) ?? 'null'}`,
+      metadata: {
+        paymentDeleted: true, actor, totalAmount, payments: snapshot, newStatus,
+        ...(revertedToPending ? { revertedToPending: true } : {}),
+      },
     },
   });
 
@@ -1557,6 +1571,7 @@ async function handleDeletePayments(
     deleted: payments.length,
     totalAmount,
     newStatus,
+    revertedToPending,
     newExpiresAt: newExpiresAt?.toISOString() ?? null,
   });
 }
