@@ -31,6 +31,12 @@ function getClientIp(req: NextRequest): string {
   return req.headers.get('x-real-ip') || req.headers.get('cf-connecting-ip') || 'unknown';
 }
 
+/// Callback пізнього покупця Річної робить в одному реквесті все одразу: SendPulse-відкриття
+/// + Telegram-invite + welcome-лист + звірку графіка у WFP. Дефолтного ліміту функції на це
+/// може не вистачити — WFP не бачить нашого 200, ретраїть той самий платіж, і ми ловимо дублі.
+/// Fluid Compute-ліміт 300с (реально callback працює секунди).
+export const maxDuration = 300;
+
 type CallbackKind = 'course' | 'bundle' | 'connector' | 'yearly' | 'monthly' | 'unknown';
 
 /// Статуси повернення коштів у WFP. `RefundInProcessing` — рефанд ініційований і вже

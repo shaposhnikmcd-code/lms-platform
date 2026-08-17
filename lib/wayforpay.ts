@@ -99,6 +99,55 @@ export function buildRegularPurchaseFlags(opts: {
   };
 }
 
+const WFP_REGULAR_API_URL = 'https://api.wayforpay.com/regularApi';
+
+/// Таймаут на КОЖЕН виклик WFP API. Без нього один зависаючий запит усередині циклу
+/// (запуск набору, нічний ретрай REMOVE, звірка графіків) з'їдає весь бюджет функції, і
+/// платформа рубає її посеред ітерації — без partial-звіту і без сліду в подіях.
+/// 15с з запасом перекривають нормальну відповідь regularApi (сотні мс).
+const WFP_API_TIMEOUT_MS = 15_000;
+
+/// Єдина точка мережевого виклику regularApi. Ніколи не кидає: транспортна помилка
+/// (таймаут, обрив, нечитний JSON) повертається як звичайний невдалий результат —
+/// викликач бачить `ok:false` і текст причини в `raw.reason`, а не виняток посеред циклу.
+async function postRegularApi(body: Record<string, unknown>): Promise<{
+  httpOk: boolean;
+  /// null — відповіді як такої не було (транспорт) або тіло не розпарсилось.
+  parsed: Record<string, unknown> | null;
+  transportError: string | null;
+}> {
+  try {
+    const res = await fetch(WFP_REGULAR_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(WFP_API_TIMEOUT_MS),
+    });
+    const parsed = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+    return { httpOk: res.ok, parsed, transportError: null };
+  } catch (e) {
+    const err = e as Error;
+    const timedOut = err.name === 'TimeoutError' || err.name === 'AbortError';
+    return {
+      httpOk: false,
+      parsed: null,
+      transportError: timedOut
+        ? `WFP не відповів за ${Math.round(WFP_API_TIMEOUT_MS / 1000)}с (${String(body.requestType ?? 'request')})`
+        : (err.message || 'network error').slice(0, 200),
+    };
+  }
+}
+
+/// `raw` для викликачів: справжня відповідь WFP або синтетичний об'єкт із причиною збою
+/// (усі три виклики нижче логують саме `raw.reasonCode`/`raw.reason`).
+function rawFromResponse(
+  parsed: Record<string, unknown> | null,
+  transportError: string | null,
+): Record<string, unknown> {
+  if (parsed) return parsed;
+  return transportError ? { reason: transportError, transportError: true } : {};
+}
+
 /// WFP regularApi вимагає `merchantPassword` як MD5-хеш від паролю мерчанта (не plaintext).
 /// Якщо в env вже задано 32-символьний hex (готовий MD5) — використовуємо як є.
 /// Інакше — хешуємо, щоб дозволити користувачу зберігати plaintext-пароль з WFP-кабінету.
@@ -114,18 +163,14 @@ export async function removeRegularSchedule(opts: {
   merchantPassword: string;
   orderReference: string;
 }): Promise<{ ok: boolean; raw: Record<string, unknown> }> {
-  const res = await fetch('https://api.wayforpay.com/regularApi', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      requestType: 'REMOVE',
-      merchantAccount: opts.merchantAccount,
-      merchantPassword: normalizeMerchantPassword(opts.merchantPassword),
-      orderReference: opts.orderReference,
-      apiVersion: 1,
-    }),
+  const { httpOk, parsed, transportError } = await postRegularApi({
+    requestType: 'REMOVE',
+    merchantAccount: opts.merchantAccount,
+    merchantPassword: normalizeMerchantPassword(opts.merchantPassword),
+    orderReference: opts.orderReference,
+    apiVersion: 1,
   });
-  const raw = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  const raw = rawFromResponse(parsed, transportError);
   // WFP regularApi використовує власну таблицю reasonCode (4100=Accept, 4101=Reject,
   // 4102=Rule not found, 4104=Removed). Transaction API натомість використовує 1100=Ok.
   // Тому success тут — будь-який з: status='Accept', reasonCode=4100 (Accept на REMOVE),
@@ -136,7 +181,7 @@ export async function removeRegularSchedule(opts: {
     || raw.reasonCode === 4100
     || raw.reasonCode === 4104
     || raw.reasonCode === 1100;
-  return { ok: res.ok && isSuccess, raw };
+  return { ok: httpOk && isSuccess, raw };
 }
 
 /// Стан правила регулярки у WFP. `found=false` (reasonCode 4102) — правила з таким
@@ -167,23 +212,20 @@ export async function getRegularStatus(opts: {
   merchantPassword: string;
   orderReference: string;
 }): Promise<RegularStatus> {
-  const res = await fetch('https://api.wayforpay.com/regularApi', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      requestType: 'STATUS',
-      merchantAccount: opts.merchantAccount,
-      merchantPassword: normalizeMerchantPassword(opts.merchantPassword),
-      orderReference: opts.orderReference,
-      apiVersion: 1,
-    }),
+  const { httpOk, parsed, transportError } = await postRegularApi({
+    requestType: 'STATUS',
+    merchantAccount: opts.merchantAccount,
+    merchantPassword: normalizeMerchantPassword(opts.merchantPassword),
+    orderReference: opts.orderReference,
+    apiVersion: 1,
   });
-  const parsed = (await res.json().catch(() => null)) as Record<string, unknown> | null;
-  const raw = parsed ?? {};
-  const found = res.ok && raw.reasonCode === 4100;
+  const raw = rawFromResponse(parsed, transportError);
+  const found = httpOk && raw.reasonCode === 4100;
   // 4102 = «Rule not found» — це ЧЕСНА відповідь «правила нема». Усе інше без 4100
-  // (HTTP-помилка, нечитний JSON, чужий reasonCode) — невизначеність, а не відсутність.
-  const inconclusive = !found && !(res.ok && parsed !== null && raw.reasonCode === 4102);
+  // (HTTP-помилка, таймаут, нечитний JSON, чужий reasonCode) — невизначеність, а не
+  // відсутність: саме тому транспортний збій повертається як inconclusive, а не як
+  // «правила немає» (інакше зависання WFP стирало б кеш графіків усім підпискам).
+  const inconclusive = !found && !(httpOk && parsed !== null && raw.reasonCode === 4102);
   const toDate = (v: unknown): Date | null =>
     typeof v === 'number' && v > 0 ? new Date(v * 1000) : null;
   // Статус правила WFP віддає полем `status`; у частині відповідей regularApi те саме
@@ -229,23 +271,19 @@ export async function changeRegularSchedule(opts: {
     const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
     return `${dd}.${mm}.${d.getUTCFullYear()}`;
   };
-  const res = await fetch('https://api.wayforpay.com/regularApi', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      requestType: 'CHANGE',
-      merchantAccount: opts.merchantAccount,
-      merchantPassword: normalizeMerchantPassword(opts.merchantPassword),
-      orderReference: opts.orderReference,
-      regularMode: opts.currentMode,
-      amount: opts.currentAmount,
-      currency: opts.currentCurrency,
-      dateBegin: fmt(opts.nextPaymentAt),
-      dateEnd: fmt(opts.dateEndAt),
-      apiVersion: 1,
-    }),
+  const { httpOk, parsed, transportError } = await postRegularApi({
+    requestType: 'CHANGE',
+    merchantAccount: opts.merchantAccount,
+    merchantPassword: normalizeMerchantPassword(opts.merchantPassword),
+    orderReference: opts.orderReference,
+    regularMode: opts.currentMode,
+    amount: opts.currentAmount,
+    currency: opts.currentCurrency,
+    dateBegin: fmt(opts.nextPaymentAt),
+    dateEnd: fmt(opts.dateEndAt),
+    apiVersion: 1,
   });
-  const raw = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  const raw = rawFromResponse(parsed, transportError);
   const isSuccess = raw.status === 'Accept' || raw.reasonCode === 4100 || raw.reasonCode === 1100;
-  return { ok: res.ok && isSuccess, raw };
+  return { ok: httpOk && isSuccess, raw };
 }

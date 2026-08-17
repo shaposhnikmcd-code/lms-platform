@@ -274,7 +274,11 @@ export async function syncAutopaySchedule(
     let removedErr: string | null = null;
     for (const rule of activeRules) {
       const r = await removeRegularSchedule({ merchantAccount: creds.merchantAccount, merchantPassword, orderReference: rule.ref });
-      if (!r.ok && r.raw.reasonCode !== 4102) removedErr = `REMOVE ${rule.ref}: code=${r.raw.reasonCode}`;
+      // reason у тексті обов'язковий: при транспортному збої (таймаут WFP) reasonCode
+      // порожній, і без причини подія читалась як «code=undefined» без жодного пояснення.
+      if (!r.ok && r.raw.reasonCode !== 4102) {
+        removedErr = `REMOVE ${rule.ref}: code=${r.raw.reasonCode ?? '—'} ${String(r.raw.reason ?? '').slice(0, 80)}`.trim();
+      }
     }
     await cacheUpdate(null, null);
     await prisma.yearlyProgramSubscriptionEvent.create({
