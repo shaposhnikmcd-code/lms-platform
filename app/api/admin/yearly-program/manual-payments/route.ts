@@ -59,7 +59,10 @@ export async function GET(req: NextRequest) {
   const [payments, total] = await Promise.all([
     prisma.payment.findMany({
       where,
-      orderBy: { createdAt: 'desc' },
+      // Другий ключ обов'язковий: частки одного внесення (авто-розбивка) створюються в
+      // одній транзакції й мають ІДЕНТИЧНИЙ createdAt — без tie-breaker-а порядок рядків
+      // між запитами плаває, і групи внесень «розсипаються» по сторінці по-різному.
+      orderBy: [{ createdAt: 'desc' }, { orderReference: 'asc' }],
       take: MAX_ROWS,
       select: {
         id: true,

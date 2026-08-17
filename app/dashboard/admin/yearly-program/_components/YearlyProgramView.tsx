@@ -2400,7 +2400,10 @@ function ExtendAccessModal({
   const currentExpiry = row.expiresAt ? new Date(row.expiresAt) : null;
   const base = currentExpiry && currentExpiry > now ? currentExpiry : now;
   const newExpiry = valid ? new Date(base.getTime() + n * 24 * 60 * 60 * 1000) : null;
-  const fmt = (d: Date | null) => (d ? d.toLocaleDateString('uk-UA', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—');
+  // Той самий UTC-форматер, що й колонка «Доступ до» (`fmtAccessDate`): expiresAt лежить
+  // кінцем доби в UTC, тож у київському поясі та сама мить рендерилась наступною датою —
+  // «Зараз 01.12» проти «30.11» у таблиці для одного значення.
+  const fmt = (d: Date | null) => (d ? fmtAccessDate(d.toISOString()) : '—');
 
   if (!mounted) return null;
   return createPortal(

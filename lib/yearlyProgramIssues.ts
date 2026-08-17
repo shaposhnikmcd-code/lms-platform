@@ -391,7 +391,15 @@ function classifyEvent(e: RawEvent): {
 
   // Доступ таки закрито (cron дотиснув наступного дня або менеджер закрив вручну) —
   // знімає попередній `access_close_failed`.
-  if (e.type === 'access_closed') return { kind: null, resolvesKind: 'SP_CLOSE_FAILED' };
+  //
+  // ⚠️ Крім гілок «локального EXPIRED»: cron пише `access_closed` і тоді, коли закриття в
+  // SendPulse НЕ виконувалось (studentId не знайдено / courseId не налаштований) — там
+  // стоїть `metadata.spClosed = false`. Така подія НЕ резолвить issue: локальний статус
+  // змінився, а платний доступ у SendPulse лишився відкритим.
+  if (e.type === 'access_closed') {
+    const meta = (e.metadata ?? null) as { spClosed?: boolean } | null;
+    return meta?.spClosed === false ? { kind: null } : { kind: null, resolvesKind: 'SP_CLOSE_FAILED' };
+  }
 
   // Збої SendPulse на закритті/повторному відкритті доступу. Пишуться cron-ом (крок
   // expire), рефанд-гілкою WFP-callback-а та адмін-діями. Без цього мапінгу kind-и
@@ -573,6 +581,25 @@ const ADMIN_ACTION_NO_WINDOW_PREFIXES = ['Extended +', 'Ручна оплата 
 /// state-based issue-ів (TG_JOIN_DECLINED / TG_JOIN_PENDING). Мітка у `telegramInviteError`
 /// живе, поки її не зняли, тому й подія-джерело часу має лишатись видимою скільки завгодно.
 const TG_JOIN_EVENT_KINDS = [TG_JOIN_DECLINED_EVENT_KIND, TG_JOIN_PENDING_EVENT_KIND];
+
+/// Compat-read для заглушень, зроблених ДО розкладення «телеграмної» помилки на три kind-и.
+/// Раніше і відхилена заявка, і висяча заявка жили під `TG_INVITE_FAILED` — саме його
+/// менеджери й заглушували. Після розділення ті заглушення формально не підходять до нових
+/// kind-ів, і на першому ж відкритті вкладки випала б пачка «нових» issue-ів по давно
+/// розібраних випадках. Тому дивимось і на заглушення старого kind тієї ж підписки.
+/// Міграції свідомо не робимо: старі рядки лишаються як є, читання їх покриває.
+const DISMISSAL_COMPAT_FALLBACK: Partial<Record<IssueKind, IssueKind>> = {
+  TG_JOIN_DECLINED: 'TG_INVITE_FAILED',
+  TG_JOIN_PENDING: 'TG_INVITE_FAILED',
+};
+
+/// Межа дії compat-read вище — дата розкатки розділення kind-ів. БЕЗ неї fallback
+/// застосовувався б і до СВІЖИХ заглушень: менеджер глушить відмову Bot API
+/// (TG_INVITE_FAILED), а разом із нею мовчки зникає висяча заявка (TG_JOIN_PENDING) —
+/// людина назавжди лишається за дверима каналу. Гірше того, «Повернути» для TG_JOIN_*
+/// видаляло б 0 рядків (прямого dismissal-у не існує), тож issue не повертався б ніколи.
+/// Заглушення, старші за цю дату, — історичні: там fallback і задумувався.
+const TG_SPLIT_DEPLOYED_AT = new Date('2026-08-17T00:00:00Z');
 
 /// Типи подій, які читають детектори (окрім `admin_action`, у якого своє вікно).
 const TRACKED_EVENT_TYPES = [
@@ -829,21 +856,15 @@ export async function collectAllIssues(options: CollectIssuesOptions = {}): Prom
     dismissalMap.set(dismissalKey(d.subscriptionId, d.kind), d);
   }
 
-  /// Compat-read для заглушень, зроблених ДО розкладення «телеграмної» помилки на три kind-и.
-  /// Раніше і відхилена заявка, і висяча заявка жили під `TG_INVITE_FAILED` — саме його
-  /// менеджери й заглушували. Після розділення ті заглушення формально не підходять до
-  /// нових kind-ів, і на першому ж відкритті вкладки випала б пачка «нових» issue-ів по
-  /// давно розібраних випадках. Тому дивимось і на заглушення старого kind тієї ж підписки.
-  /// Міграції свідомо не робимо: старі рядки лишаються як є, читання їх покриває.
-  const DISMISSAL_COMPAT_FALLBACK: Partial<Record<IssueKind, IssueKind>> = {
-    TG_JOIN_DECLINED: 'TG_INVITE_FAILED',
-    TG_JOIN_PENDING: 'TG_INVITE_FAILED',
-  };
   const lookupDismissal = (subId: string, kind: IssueKind): RawDismissal | undefined => {
     const direct = dismissalMap.get(dismissalKey(subId, kind));
     if (direct) return direct;
     const fallbackKind = DISMISSAL_COMPAT_FALLBACK[kind];
-    return fallbackKind ? dismissalMap.get(dismissalKey(subId, fallbackKind)) : undefined;
+    if (!fallbackKind) return undefined;
+    const legacy = dismissalMap.get(dismissalKey(subId, fallbackKind));
+    // Compat лише для ІСТОРИЧНИХ заглушень (див. TG_SPLIT_DEPLOYED_AT). Свіже заглушення
+    // TG_INVITE_FAILED не має ховати сусідні TG_JOIN_*.
+    return legacy && legacy.dismissedAt < TG_SPLIT_DEPLOYED_AT ? legacy : undefined;
   };
 
   // Збираємо event-based issues.
