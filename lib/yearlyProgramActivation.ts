@@ -16,12 +16,20 @@
 ///     подію `revived_with_debt`, коли оплачених місяців не вистачає навіть до сьогодні.
 ///
 ///   • `correction` — «менеджер виправляє платіж» (виключив з доступу / видалив / відредагував).
-///     Тут НІЧОГО не «оплачено», тож статус НЕ апгрейдиться: GRACE лишається GRACE, PENDING —
-///     PENDING, ACTIVE — ACTIVE. Заборонені `revived` / очищення `cancelledAt` / скидання
-///     SendPulse-маркерів (інакше «прибрати платіж» відкривало б студенту доступ нічним heal-ом)
-///     і подія `revived_with_debt` (фальшивий critical «Оплата зарахована… Підписку оживлено»).
-///     Якщо після корекції ACTIVE лишився з датою в минулому — це штатно підбере нічний cron
-///     (ACTIVE→GRACE); прапорець `debt` віддаємо викликачу для нейтральної нотатки в події.
+///     Тут НІЧОГО не «оплачено», тож мертві статуси (EXPIRED/CANCELLED/ARCHIVED) не воскресають,
+///     заборонені `revived` / очищення `cancelledAt` / скидання SendPulse-маркерів (інакше
+///     «прибрати платіж» відкривало б студенту доступ нічним heal-ом) і подія
+///     `revived_with_debt` (фальшивий critical «Оплата зарахована… Підписку оживлено»).
+///     ЄДИНИЙ дозволений апгрейд — `backToLife` (та сама семантика, що в cohorts/settings
+///     routes): перерахований expiresAt у МАЙБУТНЬОМУ ⇒ живий PENDING/GRACE стає ACTIVE, а
+///     при підйомі з GRACE скидаються grace-поля і спожиті прапори нагадувань. Без цього
+///     «Повернути в доступ» після помилкового виключення лишало оплаченого студента в PENDING
+///     назавжди, а виправлений платіж у GRACE не рятував від нічного `expireGraceSubscriptions`
+///     (він дивиться лише на `gracePeriodEndsAt`, не на expiresAt) — доступ закривався оплаченому.
+///     Якщо ж перерахована дата в минулому, статус лишається як був: боржник у GRACE після
+///     виключення платежу лишається GRACE — це і була мета. ACTIVE із простроченою датою
+///     штатно підбере нічний cron (ACTIVE→GRACE); прапорець `debt` віддаємо викликачу для
+///     нейтральної нотатки в події.
 ///
 /// Спільне для обох режимів: зарахованих платежів не лишилось узагалі (єдиний виключили з
 /// доступу або видалили) і підписка жива → PENDING з expiresAt=null («ще не оплачено»),
@@ -31,7 +39,7 @@
 import { Prisma } from '@prisma/client';
 import prisma from '@/lib/prisma';
 import { calculateAccessUntil } from '@/lib/yearlyProgramAccess';
-import { getYearlyPostAccessMonths, YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
+import { getYearlyPostAccessMonths, RESET_REMINDER_AND_GRACE_FIELDS, YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
 
 export interface PaymentActivationResult {
   newStatus: string;
@@ -49,6 +57,9 @@ export interface PaymentActivationResult {
   /// true — після перерахунку в підписці не лишилось жодного зарахованого платежу,
   /// тож жива підписка повернулась у PENDING («ще не оплачено»).
   revertedToPending: boolean;
+  /// true — режим `correction` підняв живу підписку (PENDING/GRACE) назад в ACTIVE, бо
+  /// перерахований доступ знову чинний. Для тексту події менеджера.
+  liftedByCorrection: boolean;
 }
 
 /// Статуси «живої» підписки, які завжди активуються після оплати.
@@ -104,9 +115,11 @@ export async function applyPaymentActivation(args: {
   // все одно відкриваються централізовано на запуску, але сама підписка вже активна).
   // Мертву (EXPIRED/CANCELLED/ARCHIVED) піднімаємо тільки якщо allowRevive.
   //
-  // У режимі `correction` апгрейду немає взагалі: корекція платежу нічого не оплачує.
-  // Найгірший наслідок старої поведінки — GRACE→ACTIVE після виключення платежу: боржник
-  // виглядав активним, а нічний cron дарував йому ПОВНИЙ новий grace-період.
+  // У режимі `correction` апгрейд лише «за фактом дати» (`backToLife`, нижче): корекція
+  // нічого не оплачує, але й тримати оплаченого студента в PENDING/GRACE, коли перерахований
+  // доступ чинний, не можна. Заборона лишається там, де вона й задумувалась: expiresAt у
+  // минулому ⇒ статус не рухаємо (боржник у GRACE після виключення платежу лишається в GRACE,
+  // і нічний cron не дарує йому ПОВНИЙ новий grace-період).
   //
   // Виняток, спільний для обох режимів — зарахованих платежів не лишилось (менеджер
   // виключив з доступу або видалив єдиний платіж): жива підписка повертається у PENDING,
@@ -114,10 +127,16 @@ export async function applyPaymentActivation(args: {
   // підписка починається. Мертві статуси не чіпаємо: EXPIRED/CANCELLED — окреме рішення
   // менеджера, і «оживляти» їх у PENDING через правку платежу неправильно.
   const revertedToPending = countedPaid === 0 && REVIVABLE_STATUSES.has(args.prevStatus);
+  // «Доступ знову чинний» — той самий критерій, що в cohorts/[id] і settings routes.
+  const backToLife = !!newExpiresAt && newExpiresAt.getTime() > Date.now();
+  const liftedByCorrection = isCorrection
+    && !revertedToPending
+    && backToLife
+    && (args.prevStatus === 'PENDING' || args.prevStatus === 'GRACE');
   const newStatus = revertedToPending
     ? 'PENDING'
     : isCorrection
-      ? args.prevStatus
+      ? (liftedByCorrection ? 'ACTIVE' : args.prevStatus)
       : REVIVABLE_STATUSES.has(args.prevStatus)
         ? 'ACTIVE'
         : (args.allowRevive ? 'ACTIVE' : args.prevStatus);
@@ -148,6 +167,11 @@ export async function applyPaymentActivation(args: {
       ...(fresh?.startDate ? {} : { startDate: args.lastPaymentAt }),
       ...(clearCancelTrace ? { cancelledAt: null, cancelledBy: null, cancelledReason: null } : {}),
       ...(spMarkersReset ? { sendpulseAccessOpenedAt: null, sendpulseAccessClosedAt: null } : {}),
+      // Підйом із GRACE після корекції = «звинувачення у простроченні знято»: без скидання
+      // grace-полів нічний `expireGraceSubscriptions` усе одно закрив би доступ по старому
+      // `gracePeriodEndsAt` (він expiresAt не дивиться), а спожиті прапори нагадувань
+      // лишили б новий цикл попереджень німим.
+      ...(liftedByCorrection && args.prevStatus === 'GRACE' ? RESET_REMINDER_AND_GRACE_FIELDS : {}),
     },
   });
 
@@ -162,7 +186,7 @@ export async function applyPaymentActivation(args: {
   // ніколи не знімається у вкладці «Помилки». Прострочений ACTIVE після корекції
   // штатно підбирає нічний cron (ACTIVE→GRACE).
   const paidCount = (fresh?.payments ?? []).filter((p) => p.status === 'PAID').length;
-  const debt = newStatus === 'ACTIVE' && !!newExpiresAt && newExpiresAt.getTime() <= Date.now();
+  const debt = newStatus === 'ACTIVE' && !backToLife && !!newExpiresAt;
   if (debt && !isCorrection) {
     const totalSlots = args.plan === 'MONTHLY' ? YEARLY_PROGRAM_CONFIG.totalMonthlyPayments : 1;
     await prisma.yearlyProgramSubscriptionEvent.create({
@@ -181,5 +205,5 @@ export async function applyPaymentActivation(args: {
     });
   }
 
-  return { newStatus, newExpiresAt, cohortLaunched, hasCohort, revived, spMarkersReset, debt, revertedToPending };
+  return { newStatus, newExpiresAt, cohortLaunched, hasCohort, revived, spMarkersReset, debt, revertedToPending, liftedByCorrection };
 }
