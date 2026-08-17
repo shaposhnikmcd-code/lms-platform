@@ -254,6 +254,12 @@ export async function sendCohortLaunchEmails(
       const html = body + renderTelegramInviteEmailBlock(telegramInviteLink);
       const res = await sendEmail({ to: s.user.email, subject, html });
       if (!res.ok) throw new Error(res.error ?? 'send failed');
+      // `skipped:true` — мейлер не сконфігурований (немає RESEND_API_KEY або не-прод-середовище
+      // без override-адреси): лист лише в консолі. Це НЕ доставка — рахуємо як failed і НЕ
+      // пишемо `launch_email_sent`, інакше вся розсилка звітувала б «надіслано», а дедуп
+      // назавжди закрив би цим людям і повторну спробу, і нічний heal. Так само поводяться
+      // cron-нагадування (`sendReminderOnce`).
+      if (res.skipped) throw new Error('mailer_not_configured');
       await prisma.yearlyProgramSubscriptionEvent.create({
         data: {
           subscriptionId: s.id,

@@ -3,6 +3,16 @@ import prisma from '@/lib/prisma';
 import { isAdmin, getAdminActor } from '@/lib/adminAuth';
 import { sendCohortLaunchEmails } from '@/lib/yearlyProgramSendEmails';
 
+/// «Дослати лист» — послідовна розсилка (Telegram-invite + Resend на кожного одержувача).
+/// Це головна кнопка порятунку після часткового запуску: на дефолтному ліміті функції
+/// платформа рубала її посеред циклу, без partial-звіту менеджеру. Fluid Compute-ліміт 300с.
+export const maxDuration = 300;
+
+/// Запас до `maxDuration`, за який цикл має завершитись штатно і встигнути віддати summary.
+/// Далі `sendCohortLaunchEmails` переривається сам (interrupted), а решту добирає нічний
+/// `heal_missing_welcome_email` — `emailSentAt` уже виставлений на старті розсилки.
+const SEND_EMAILS_SOFT_DEADLINE_MARGIN_MS = 45_000;
+
 /// POST — запустити welcome-розсилку для cohort-у.
 /// Body:
 ///   { mode: 'now' }                  → шле всім негайно (sequential)
@@ -23,6 +33,7 @@ export async function POST(
   if (!(await isAdmin(req))) {
     return NextResponse.json({ error: 'Немає доступу' }, { status: 403 });
   }
+  const startedAt = Date.now();
   const actor = await getAdminActor(req);
   const actorLabel = actor?.email ?? actor?.name ?? 'admin';
   const { id } = await params;
@@ -57,9 +68,13 @@ export async function POST(
     if (Number.isNaN(at.getTime())) {
       return NextResponse.json({ error: 'Невірний формат дати' }, { status: 400 });
     }
+    // `emailSentAt: null` — обов'язково разом із плануванням. Cron шукає заплановані
+    // розсилки умовою `emailScheduledFor <= now AND emailSentAt = null`, а таймстемп міг
+    // лишитись від попереднього (обірваного) запуску з листом. Без скидання менеджер бачив
+    // би «заплановано», а розсилки не сталося б ніколи.
     await prisma.yearlyProgramCohort.update({
       where: { id },
-      data: { emailScheduledFor: at },
+      data: { emailScheduledFor: at, emailSentAt: null },
     });
     return NextResponse.json({ ok: true, scheduledFor: at.toISOString() });
   }
@@ -74,6 +89,7 @@ export async function POST(
     targetIds,
     actorLabel,
     source: 'manager',
+    deadlineAt: new Date(startedAt + maxDuration * 1000 - SEND_EMAILS_SOFT_DEADLINE_MARGIN_MS),
   });
 
   return NextResponse.json({
@@ -84,6 +100,7 @@ export async function POST(
       skipped: summary.skipped,
       failed: summary.failed,
     },
+    ...(summary.interrupted ? { interrupted: summary.interrupted } : {}),
     results: summary.results,
   });
 }
