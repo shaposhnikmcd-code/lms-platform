@@ -528,7 +528,8 @@ async function healUnopenedAccess(cronDeadlineAt: number): Promise<StepResult> {
 ///     ручним запуском, який іде прямо зараз.
 ///   • статус ACTIVE/GRACE + є PAID-платіж; сам `sendCohortLaunchEmails` ще раз перевіряє
 ///     і оплату, і відкритий доступ, тож зайвого листа неоплаченому не буде.
-/// Дедуп — по події `launch_email_sent` (її ж пише і сама розсилка).
+/// Дедуп — по події `launch_email_sent` ЦЬОГО набору (`metadata.cohortId`), як і в самій
+/// розсилці: подія з торішнього набору не має глушити лист нового.
 async function healMissingWelcomeEmails(cronDeadlineAt: number): Promise<StepResult> {
   const errors: string[] = [];
   const now = new Date();
@@ -568,7 +569,16 @@ async function healMissingWelcomeEmails(cronDeadlineAt: number): Promise<StepRes
           status: { in: ['ACTIVE', 'GRACE'] },
           sendpulseAccessOpenedAt: { not: null, lte: openedBefore },
           payments: { some: { status: 'PAID' } },
-          events: { none: { type: 'launch_email_sent' } },
+          // Дедуп — по події ЦЬОГО набору, а не по будь-якій. Без `metadata.cohortId`
+          // перенесений (carryover) чи повторний покупець із торішньою подією
+          // `launch_email_sent` не отримував welcome-лист нового набору НІКОЛИ.
+          // Той самий критерій, що й dedup у lib/yearlyProgramSendEmails.ts.
+          events: {
+            none: {
+              type: 'launch_email_sent',
+              metadata: { path: ['cohortId'], equals: cohort.id },
+            },
+          },
         },
         select: { id: true },
         orderBy: { sendpulseAccessOpenedAt: 'asc' },
@@ -671,10 +681,10 @@ async function sendScheduledCohortLaunchEmails(cronDeadlineAt: number): Promise<
   };
 }
 
-/// Авто-архів покинутих чекаутів: PENDING без жодного платежу в базі, старші за 24 год.
+/// Авто-архів покинутих чекаутів: PENDING без жодного оплаченого платежу, старші за 24 год.
 /// Це незавершені спроби (закрив форму / картку відхилили й не повернувся) — не клієнти,
 /// лише засмічують список. Переводимо в ARCHIVED (зникає з дефолтного вигляду Річної,
-/// лишається доступним через фільтр «Архів»). Guard payments.none у updateMany —
+/// лишається доступним через фільтр «Архів»). Той самий payments-guard в updateMany —
 /// захист від рейсу: якщо людина встигла оплатити саме в цей момент, підписку не чіпаємо.
 ///
 /// ВАЖЛИВО: ручно додані студенти (manuallyAddedAt != null) НЕ архівуються — менеджер
@@ -688,16 +698,27 @@ async function sendScheduledCohortLaunchEmails(cronDeadlineAt: number): Promise<
 /// ДРУГИЙ ВИНЯТОК — сліди корекції платежу. Підписка, у якої менеджер виключив з доступу
 /// або видалив єдиний платіж, повертається у PENDING (`revertedToPending`) — і без цього
 /// винятку вночі мовчки їхала б в ARCHIVED як «покинутий чекаут». Тому не архівуємо тих,
-/// у кого є БУДЬ-ЯКІ Payment-рядки (не лише PAID — виключені теж рахуються слідом) або
-/// подія корекції платежу в журналі (сам платіж міг бути видалений).
+/// у кого є Payment зі слідом реальних грошей (PAID або виключений з доступу) або подія
+/// корекції платежу в журналі (сам платіж міг бути видалений).
+///
+/// ⚠️ Умова саме `none: { PAID | excludedFromAccess }`, а НЕ `none: {}`. Чекаут створює
+/// Payment(PENDING) у тому ж реквесті, що й підписку, тож «жодного Payment-рядка» не буває
+/// ні в кого — з `none: {}` крок не архівував НІКОГО і список засмічувався покинутими
+/// спробами оплати. PENDING/FAILED-рядок — це і є слід покинутого чекауту, він архівуванню
+/// не заважає.
 async function archiveStalePending(): Promise<StepResult> {
   const errors: string[] = [];
   const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  /// «Платіж, який щось означає»: реально оплачений або свідомо виключений з доступу
+  /// менеджером. Спільний предикат для вибірки і для guard-а в updateMany.
+  const NO_MEANINGFUL_PAYMENT = {
+    payments: { none: { OR: [{ status: 'PAID' }, { excludedFromAccess: true }] } },
+  } satisfies Prisma.YearlyProgramSubscriptionWhereInput;
   const candidates = await prisma.yearlyProgramSubscription.findMany({
     where: {
       status: 'PENDING',
       createdAt: { lt: cutoff },
-      payments: { none: {} },
+      ...NO_MEANINGFUL_PAYMENT,
       manuallyAddedAt: null,
     },
     select: { id: true },
@@ -725,7 +746,7 @@ async function archiveStalePending(): Promise<StepResult> {
   await processInParallel(subs, async (s) => {
     try {
       const res = await prisma.yearlyProgramSubscription.updateMany({
-        where: { id: s.id, status: 'PENDING', payments: { none: {} }, manuallyAddedAt: null },
+        where: { id: s.id, status: 'PENDING', ...NO_MEANINGFUL_PAYMENT, manuallyAddedAt: null },
         data: { status: 'ARCHIVED' },
       });
       if (res.count === 0) return; // встигли оплатити між вибіркою й апдейтом — не чіпаємо
@@ -913,6 +934,9 @@ async function expireGraceSubscriptions(): Promise<StepResult> {
               type: 'access_closed',
               message: `SendPulse DELETE /students/${studentId}/${courseId}${wfpSummary}`,
               metadata: {
+                // Доступ реально закритий у SendPulse — ця подія має право резолвити
+                // SP_CLOSE_FAILED (на відміну від «локального EXPIRED» нижче).
+                spClosed: true,
                 wfpRemovedCount: autopay.removed,
                 wfpAttemptedCount: autopay.attempted,
                 wfpError: autopay.error,
@@ -955,6 +979,10 @@ async function expireGraceSubscriptions(): Promise<StepResult> {
               ? 'Marked EXPIRED without SendPulse closure — studentId not found'
               : 'Marked EXPIRED locally — SENDPULSE_YEARLY_COURSE_ID not configured') + wfpSummary,
             metadata: {
+              // ⚠️ Локальний EXPIRED БЕЗ реального закриття в SendPulse. Без цієї мітки
+              // подія `access_closed` знімала critical SP_CLOSE_FAILED, хоча платний
+              // доступ у SP лишився відкритим (див. classifyEvent у yearlyProgramIssues).
+              spClosed: false,
               wfpRemovedCount: autopay.removed,
               wfpAttemptedCount: autopay.attempted,
               wfpError: autopay.error,
