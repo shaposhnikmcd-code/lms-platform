@@ -681,7 +681,7 @@ async function sendScheduledCohortLaunchEmails(cronDeadlineAt: number): Promise<
   };
 }
 
-/// Авто-архів покинутих чекаутів: PENDING без жодного оплаченого платежу, старші за 24 год.
+/// Авто-архів покинутих чекаутів: PENDING без жодного оплаченого платежу, старші за 7 діб.
 /// Це незавершені спроби (закрив форму / картку відхилили й не повернувся) — не клієнти,
 /// лише засмічують список. Переводимо в ARCHIVED (зникає з дефолтного вигляду Річної,
 /// лишається доступним через фільтр «Архів»). Той самий payments-guard в updateMany —
@@ -708,7 +708,12 @@ async function sendScheduledCohortLaunchEmails(cronDeadlineAt: number): Promise<
 /// не заважає.
 async function archiveStalePending(): Promise<StepResult> {
   const errors: string[] = [];
-  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  // 7 діб, а не 24 год: «PENDING-платіж» покинутого чекаута і «загублений callback
+  // реальної оплати» (наш endpoint упав, WFP-ретраї не долетіли) виглядають у БД
+  // ІДЕНТИЧНО. Заархівований платник — це відкочений пізній callback (SUB_ARCHIVED),
+  // платіж навічно PENDING і дубль-підписка при повторній покупці; тиждень дає час
+  // WFP-ретраям, скаргам і оку менеджера. Ціна — покинуті спроби висять у списку 7 днів.
+  const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
   /// «Платіж, який щось означає»: реально оплачений або свідомо виключений з доступу
   /// менеджером. Спільний предикат для вибірки і для guard-а в updateMany.
   const NO_MEANINGFUL_PAYMENT = {
@@ -722,6 +727,11 @@ async function archiveStalePending(): Promise<StepResult> {
       manuallyAddedAt: null,
     },
     select: { id: true },
+    // Кап на прохід: перший запуск після деплою розгрібає багатомісячний беклог покинутих
+    // спроб — без ліміту крок з'їв би час усього нічного проходу (він іде першим і
+    // дедлайну не має). Хвіст добирається наступними ночами.
+    take: 200,
+    orderBy: { createdAt: 'asc' },
   });
 
   // Платежів у БД уже немає (видалили), але слід корекції лишився в подіях — не архівуємо.
@@ -754,7 +764,7 @@ async function archiveStalePending(): Promise<StepResult> {
         data: {
           subscriptionId: s.id,
           type: 'admin_action',
-          message: 'Авто-архів: незавершена спроба оплати без оплати понад 24 год',
+          message: 'Авто-архів: незавершена спроба оплати без оплати понад 7 діб',
           metadata: { reason: 'stale-pending-autocleanup' },
         },
       });

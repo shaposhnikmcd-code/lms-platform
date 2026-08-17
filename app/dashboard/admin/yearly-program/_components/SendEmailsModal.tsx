@@ -461,7 +461,11 @@ export default function SendEmailsModal({
         return;
       }
       const s = data.summary;
-      const text = `Надіслано: ${s.sent} · Пропущено: ${s.skipped} · Помилок: ${s.failed}`;
+      // Розсилку могло штатно обірвати м'яким дедлайном (ліміт функції) — тоді решта
+      // одержувачів навіть не оброблялась, і зелений «Помилок: 0» був би брехнею.
+      const interruptedLeft: number = data.interrupted?.remaining ?? s.interrupted?.remaining ?? 0;
+      const text = `Надіслано: ${s.sent} · Пропущено: ${s.skipped} · Помилок: ${s.failed}`
+        + (interruptedLeft > 0 ? `\n⏱ Перервано за таймаутом — не оброблено ${interruptedLeft}, натисніть «Дослати лист» ще раз` : '');
       setResult({
         kind: 'ok',
         text,
@@ -470,7 +474,7 @@ export default function SendEmailsModal({
           .map((r: { email: string; error?: string }) => `${r.email}: ${r.error}`)
           .join('\n') || undefined,
       });
-      toast(s.failed > 0 ? 'info' : 'success', `✉ Розсилка виконана\n${text}`);
+      toast(s.failed > 0 || interruptedLeft > 0 ? 'info' : 'success', `✉ Розсилка виконана\n${text}`);
       router.refresh();
     } catch (e) {
       setResult({ kind: 'err', text: (e as Error).message });

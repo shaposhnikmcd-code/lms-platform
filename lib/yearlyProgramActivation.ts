@@ -167,11 +167,14 @@ export async function applyPaymentActivation(args: {
       ...(fresh?.startDate ? {} : { startDate: args.lastPaymentAt }),
       ...(clearCancelTrace ? { cancelledAt: null, cancelledBy: null, cancelledReason: null } : {}),
       ...(spMarkersReset ? { sendpulseAccessOpenedAt: null, sendpulseAccessClosedAt: null } : {}),
-      // Підйом із GRACE після корекції = «звинувачення у простроченні знято»: без скидання
+      // Підйом після корекції = «звинувачення у простроченні знято»: без скидання
       // grace-полів нічний `expireGraceSubscriptions` усе одно закрив би доступ по старому
       // `gracePeriodEndsAt` (він expiresAt не дивиться), а спожиті прапори нагадувань
-      // лишили б новий цикл попереджень німим.
-      ...(liftedByCorrection && args.prevStatus === 'GRACE' ? RESET_REMINDER_AND_GRACE_FIELDS : {}),
+      // лишили б новий цикл попереджень німим. Скидаємо для БУДЬ-ЯКОГО liftedByCorrection,
+      // не лише GRACE: шлях «виключив платіж (GRACE→PENDING, поля лишились) → повернув
+      // (PENDING→ACTIVE)» інакше проносив спожиті прапори повз скидання, і наступний цикл
+      // попереджень мовчав. Для здорового PENDING поля й так порожні — скидання no-op.
+      ...(liftedByCorrection ? RESET_REMINDER_AND_GRACE_FIELDS : {}),
     },
   });
 
