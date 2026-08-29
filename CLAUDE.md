@@ -12,16 +12,30 @@
 
 ## Local dev workflow — ЗАВЖДИ
 
-Локальна розробка йде на ізольованій Neon-гілці `dev`, щоб експерименти не торкали живий сайт. Впроваджено 2026-04-22.
+Локальна розробка йде на ізольованій Neon-гілці `dev`. Pre.uimp ізольований у власний Neon-проєкт `uimp-pre` 2026-05-21 — більше не пише в прод.
 
-**DB шари:**
-- `next dev` (localhost) → Neon branch **`dev`** (`ep-sparkling-wave-alq11hyy`), креди в `.env.local` (gitignored).
-- Гілка `pre-production` → Vercel preview на pre.uimp.com.ua → **прод Neon** (`ep-odd-night-alip82dn`).
-- Гілка `main` → Vercel prod на uimp.com.ua → **прод Neon**.
+**Три повністю окремі БД:**
+- `next dev` (localhost) → Neon branch **`dev`** на проєкті `lms-platform` (`ep-sparkling-wave-alq11hyy`), креди в `.env.local` (gitignored).
+- Гілка `pre-production` → Vercel preview на pre.uimp.com.ua → **окремий Neon-проєкт `uimp-pre`** (`ep-proud-paper-aliphx2d`), env vars у Vercel scope=Preview.
+- Гілка `main` → Vercel prod на uimp.com.ua → **прод Neon** проєкт `lms-platform` (`ep-odd-night-alip82dn`), env vars scope=Production.
+
+**Vercel env vars** (Settings → Environment Variables):
+- `DATABASE_URL` × 2: Production → прод-pooled; Preview → pre-pooled.
+- `DIRECT_URL` × 2: Production → прод-direct; Preview → pre-direct.
+- Прод- і pre-credentials повністю окремі.
+
+**Перевірка до якої БД конектиться який deploy:**
+- Локально: `node scripts/whoami-db.mjs` (host/dbName/tag/users count).
+- Runtime (pre/prod): `GET /api/admin/db-info` (admin-only, повертає host/tag/vercelEnv/vercelGitBranch).
+
+**Зовнішні інтеграції — спільні між pre і prod:**
+- **WayForPay** — той самий merchant, callback URL динамічний з host header (pre.uimp callback → пише у pre-БД).
+- **Telegram bot** — один токен/webhook зареєстрований на uimp.com.ua → pre-події приходять на прод-сервер і безпечно відхиляються (subscription не знайдеться у прод-БД).
+- **SendPulse** — фіксований Events URL, тестові оплати на pre реєструють студентів у проді-SP-кабінеті (свідоме рішення для end-to-end тестування воронки).
 
 **Git flow (обов'язковий):**
 1. Зміни → тест локально (`npm run dev`, працює з dev-branch даних).
-2. Коли ок → коміт → `git push origin main:pre-production` → фінальний тест на pre.uimp.com.ua з реальними прод-даними.
+2. Коли ок → коміт → `git push origin main:pre-production` → фінальний тест на pre.uimp.com.ua **в окремій pre-БД, без впливу на прод**.
 3. `git push origin main` → деплой на uimp.com.ua.
 
 ### Env loading — три entry point-и
@@ -181,12 +195,13 @@ Filter dropdown в Платежах і таб у Логах для конект�
 Повноцінна підписка з контролем на нашій стороні. Деталі:
 
 - **Модель даних**: `YearlyProgramSubscription` + `YearlyProgramSubscriptionEvent` в [schema.prisma](prisma/schema.prisma); лінк на `Payment.yearlyProgramSubscriptionId`.
-- **Плани**: `YEARLY` (15000 грн, доступ 365 днів) і `MONTHLY` (2200 грн, +30 днів за успішне авто-списання).
+- **Плани**: `YEARLY` (15000 грн, доступ 365 днів) і `MONTHLY` (2200 грн, разова або автосписання). Місячний графік — календарні місяці від дати старту cohort-у (для старту 01.09 це 01.09 → 01.10 → 01.11 → ...), однаковий для разових і автоплатежу; момент фактичної оплати графік не зсуває ([lib/yearlyProgramAccess.ts](lib/yearlyProgramAccess.ts)).
 - **Статуси**: `PENDING` → `ACTIVE` → `GRACE` → `EXPIRED` / `CANCELLED`. Тривалість grace **конфігурується з адмінки** — ключ `yearlyGraceDays` в `AppSetting` (читається через `getYearlyGraceDays`, межі `YEARLY_GRACE_MIN_DAYS`…`YEARLY_GRACE_MAX_DAYS`); `YEARLY_PROGRAM_CONFIG.graceDays` — лише fallback, коли рядка в БД ще немає. Кількість днів НЕ хардкодити в текстах листів, FAQ і UI — брати з налаштування. Зміна впливає тільки на нові переходи ACTIVE→GRACE: у вже наявних записів межа зафіксована в `gracePeriodEndsAt`.
-- **Флоу перший платіж**: [CoursePurchaseModal](components/CoursePurchaseModal.tsx) → `/api/wayforpay` детектить префікс `yearly-program_` / `yearly-program-monthly_` через [yearlyProgramConfig.ts](lib/yearlyProgramConfig.ts) → створює/знаходить підписку (`PENDING`), для MONTHLY додає `regularOn=1, regularMode=monthly, dateBegin, dateEnd` у payload (токенізація + автосписання на стороні WFP).
+- **Флоу перший платіж**: [CoursePurchaseModal](components/CoursePurchaseModal.tsx) → `/api/wayforpay` детектить префікс `yearly-program_` / `yearly-program-monthly_` через [yearlyProgramConfig.ts](lib/yearlyProgramConfig.ts) → створює/знаходить підписку (`PENDING`), для MONTHLY додає `regularOn=1, regularMode=monthly, dateNext, dateEnd` у payload (токенізація + автосписання на стороні WFP). `dateNext` = якір + 1 місяць (якір = cohort.startDate для покупки до старту, інакше дата покупки); поля `dateBegin` у Purchase WFP не існує — не використовувати.
+- **Назва товару для WFP**: `productName` у Purchase береться з `YEARLY_PROGRAM_CONFIG.yearlyProductLabel` / `monthlyProductLabel` — це те, що клієнт бачить у віджеті оплати, в листах WayForPay («Опис») і в квитанції. НЕ підставляти туди `yearlyOrderPrefix`/`monthlyOrderPrefix` (їх парсить callback) чи `sendpulseEventSlug` — це технічні рядки.
 - **Callback**: `handleYearlyProgramCallback` в [callback/route.ts](app/api/wayforpay/callback/route.ts) — для `Approved` активує підписку, продовжує `expiresAt`, зберігає `recToken`. Для рекурентних callback-ів (orderReference не знайдено) — резолвить підписку по батьківському orderReference (`_WFPREG`), далі по email case-insensitive, і створює новий Payment із лінком на неї.
 - **⚠️ SendPulse-подія з callback-а НЕ шлеться.** Оплата НЕ відкриває доступ до платформи — відкриття відкладене до запуску набору і робиться централізовано: `executeLaunchLoop` (кнопка «🚀 Запустити програму»), `runExtraLaunchForSubscription` (оплата після запуску — «пізній покупець», викликається автоматично з callback-а, і вручну кнопкою «🎯 Екстра Запуск») та крок `heal_unopened` денного cron-а (добирає тих, кому доступ не відкрився). У callback-у на цьому місці стоїть маркер `sendpulse:deferred_until_launch`. До запуску студент отримує лише generic welcome-лист без креденшилів. Якщо десь бачиш «callback шле SendPulse event» — це застарілий опис.
-- **Cron**: [/api/cron/yearly-subscriptions](app/api/cron/yearly-subscriptions/route.ts) щодня о 04:00 — `ACTIVE→GRACE` при `expiresAt<now`, `GRACE→EXPIRED` після grace-періоду (виклик [SendPulse `closeAccessInCourse`](lib/sendpulse.ts) → `DELETE /students/{id}/{courseId}` + кік з Telegram-каналу). Ланцюг нагадувань: за 3 дні до закінчення → у день закінчення → grace-start (наступним добовим проходом) → mid (якщо grace ≥5 днів) → last (≥3 днів) → лист про закриття. Авторизація `Authorization: Bearer ${CRON_SECRET}`.
+- **Cron**: [/api/cron/yearly-subscriptions](app/api/cron/yearly-subscriptions/route.ts) щодня о 04:00 — `ACTIVE→GRACE` при `expiresAt<now`, `GRACE→EXPIRED` після grace-періоду (виклик [SendPulse `closeAccessInCourse`](lib/sendpulse.ts) → `DELETE /students/{id}/{courseId}` + кік з Telegram-каналу). Для MONTHLY з автоплатежем крок `autopay_precharge_notice` шле власний лист «Скоро черговий платіж» за 3 дні до дати з `wfpNextChargeAt` (шаблон `precharge-notice`); дедуп — поле `autopayNoticeSentFor` (дата списання, про яке вже попередили), тому перенесення графіка у WFP автоматично відкриває нове попередження. Ланцюг нагадувань: за 3 дні до закінчення → у день закінчення → grace-start (наступним добовим проходом) → mid (якщо grace ≥5 днів) → last (≥3 днів) → лист про закриття. Авторизація `Authorization: Bearer ${CRON_SECRET}`.
 - **SendPulse Education API**: OAuth2 (`SENDPULSE_API_KEY` + `SENDPULSE_SECRET_KEY` в `.env`), токен кешується на 1 год, закриття через `DELETE /students/{studentId}/{courseId}`. `studentId` знаходиться через `POST /students/by-course/{courseId}` пошуком по email (інтегровано в callback і cron).
 - **Env**: `SENDPULSE_YEARLY_COURSE_ID` — числовий ID курсу в SendPulse (треба заповнити з кабінету SendPulse → Автоматизація → Онлайн-курси → URL). Без нього закриття в SendPulse пропускається; локальне `EXPIRED` ставиться все одно. `WAYFORPAY_MERCHANT_PASSWORD` — для `regularApi REMOVE` при скасуванні.
 - **Адмінка**: `/dashboard/admin/yearly-program` — таблиця з KPI, фільтрами (план/статус/пошук), expandable row (клік по chevron) з трьома панелями: **Дії** (Продовжити/Скасувати/Закрити доступ/Відкрити знову/Видалити — POST на `/api/admin/yearly-program/[id]`), **Платежі** (список orderReference+сума+статус), **Події** (повний лог з `YearlyProgramSubscriptionEvent`). Endpoint `GET /api/admin/yearly-program/[id]/details` тягне все це разом.

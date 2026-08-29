@@ -431,6 +431,12 @@ export default function WorkflowDiagramModal({ theme, graceDays, onClose }: { th
               { who: 'sp', what: 'відкриває курс для решти студентів' },
               { who: 'platform', what: 'фіксує: кому доступ тепер відкрито' },
             ]} accent="amber" />
+            <ScenarioCard dark={dark} c={c} emoji="⏰" title="Попередження перед автосписанням" trigger="Щомісяця за 3 дні до чергового списання (тільки автоплатіж)" steps={[
+              { who: 'platform', what: 'нічний cron бере дату наступного списання з графіка WFP (крок autopay_precharge_notice)' },
+              { who: 'email', what: 'лист «Скоро черговий платіж» — дата, сума, номер списання (шаблон precharge-notice, редагується в Листах Оплат)' },
+              { who: 'student', what: 'може відписати на edu@uimp.com.ua — змінити картку, перенести дату або скасувати до того, як гроші підуть' },
+              { who: 'platform', what: 'один лист на кожну дату списання: повторний прохід cron-а дубль не шле, перенесення дати у WFP — шле заново' },
+            ]} accent="sky" />
             <ScenarioCard dark={dark} c={c} emoji="💸" title="Невдале списання (cyclical)" trigger="WFP не зміг списати чергові 2 200 ₴ з картки (тільки автосписання)" steps={[
               { who: 'wfp', what: 'списання провалилось → callback на сайт' },
               { who: 'platform', what: 'failedChargeCount + 1 на підписці; видно в expand-рядку, не у «Помилки» (це бізнес-подія, не системний збій)' },

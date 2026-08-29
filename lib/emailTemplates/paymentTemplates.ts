@@ -15,6 +15,7 @@ export type PaymentTemplateKey =
   | 'manual-add-invite'
   | 'plan-changed-upgrade'
   | 'plan-changed-downgrade'
+  | 'precharge-notice'
   | 'receipt-autopay'
   | 'receipt-one-time'
   | 'manual-payment-received'
@@ -101,6 +102,10 @@ export const PLACEHOLDER_DESCRIPTIONS: Record<string, { what: string; consequenc
   expiresLine: {
     what: 'Готовий рядок «Доступ діє до: <дата>» (повністю оформлений).',
     consequence: 'БЕЗ цього поля у листі взагалі не буде дати доступу.',
+  },
+  chargeDate: {
+    what: 'Дата найближчого автосписання у форматі ДД.ММ.РРРР — наприклад «05.10.2026».',
+    consequence: 'БЕЗ цього поля клієнт не побачить, коли саме спишуться гроші — лист втрачає сенс.',
   },
   progressLine: {
     what: 'Прогрес автосписань — наприклад «Списання 3 з 9».',
@@ -276,6 +281,32 @@ export const PAYMENT_TEMPLATES: Record<PaymentTemplateKey, PaymentTemplateMeta> 
     <li style="margin-bottom: 8px;">Автосписання вимкнено — наступні платежі не будуть стягуватись автоматично.</li>
     <li style="margin-bottom: 8px;">Поточний місяць доступу залишається активним до вказаної дати.</li>
     <li style="margin-bottom: 8px;">Щоб продовжити навчання — оформте нову оплату на сайті, або поверніться до автосписання.</li>
+  </ul>`),
+  },
+  'precharge-notice': {
+    key: 'precharge-notice',
+    group: 'payment',
+    title: '⏰ Попередження перед автосписанням',
+    when: 'Щомісяця за 3 дні до найближчого автосписання (MONTHLY autoRenew=true). Шлеться нічним cron-ом, один раз на кожну дату списання.',
+    placeholders: ['greeting', 'amount', 'chargeDate', 'progressLine'],
+    sampleData: {
+      greeting: 'Доброго дня, Іван Петренко!',
+      amount: '2200',
+      chargeDate: '05.10.2026',
+      progressLine: '<p style="margin: 0 0 16px; color: #555;">Це буде списання 3 з 9.</p>',
+    },
+    defaultSubject: 'Нагадуємо: {chargeDate} — черговий платіж за Річну програму',
+    defaultBodyHtml: layout(`  <h2 style="color: #1a1a1a; margin: 0 0 16px;">Скоро черговий платіж</h2>
+  <p style="margin: 0 0 12px;">{greeting}</p>
+  <p style="margin: 0 0 16px;">Нагадуємо про найближчий платіж за Річною програмою Українського інституту Душеопіки та Психотерапії (UIMP) — гроші спишуться з тієї самої картки автоматично, нічого робити не потрібно.</p>
+  <p style="margin: 0 0 8px;"><b>Дата списання:</b> {chargeDate}</p>
+  <p style="margin: 0 0 8px;"><b>Сума:</b> {amount} ₴</p>
+  {progressLine}
+  <h3 style="margin: 24px 0 8px;">Якщо потрібно щось змінити</h3>
+  <ul style="margin: 0 0 16px; padding-left: 20px;">
+    <li style="margin-bottom: 8px;">Змінити картку, перенести дату або скасувати автосписання — напишіть нам на <a href="mailto:edu@uimp.com.ua" style="color: #b08d3f;">edu@uimp.com.ua</a>, ми все зробимо зі свого боку.</li>
+    <li style="margin-bottom: 8px;">Писати варто до дати списання — тоді платіж не піде.</li>
+    <li style="margin-bottom: 8px;">Окремо від цього листа сервіс WayForPay може надіслати власне технічне повідомлення про той самий платіж — це нормально, двічі гроші не спишуться.</li>
   </ul>`),
   },
   'receipt-autopay': {

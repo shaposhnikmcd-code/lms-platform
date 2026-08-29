@@ -976,6 +976,12 @@ model YearlyProgramSubscription {
   reminderSentGraceMid   Boolean @default(false) /// manual+cyclical: середина пільгового періоду (graceDays ≥ 5)
   reminderSentGraceLast  Boolean @default(false) /// manual+cyclical: за 1 день до закриття (graceDays ≥ 3)
 
+  /// Дата списання, про яке клієнту вже надіслано попередження «скоро спишеться»
+  /// (нормалізована до UTC-опівночі). НЕ boolean: попередження повторюється щомісяця,
+  /// тому прапорець довелось би скидати після кожного списання — а дата сама себе
+  /// інвалідує, коли WFP посуває графік на наступний місяць.
+  autopayNoticeSentFor DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

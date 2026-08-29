@@ -14,6 +14,8 @@ import {
   WFP_REMOVE_SUCCEEDED_EVENT,
 } from '@/lib/yearlyProgramAutopay';
 import { syncYearlyProgress } from '@/lib/certificates/syncYearlyProgress';
+import { sendYearlyProgramUpcomingChargeEmail } from '@/lib/yearlyProgramUpcomingChargeEmail';
+import { getYearlyProgramSettings } from '@/lib/yearlyProgramSettings';
 import { verifyBearer } from '@/lib/authTiming';
 import { kyivMidnightUtc } from '@/lib/timezone';
 import { WFP_REMOVE_ISSUE_THRESHOLD } from '@/lib/yearlyProgramIssues';
@@ -281,6 +283,8 @@ export async function GET(req: NextRequest) {
   // піти взагалі (підписка вже була в GRACE).
   results.push(await runStep('manual_before_expiry', sendManualBeforeExpiryReminders));
   results.push(await runStep('manual_on_expiry', sendManualOnExpiryReminders));
+  // Перед grace-переходом: крок дивиться на ACTIVE-підписки, і саме тут вони ще ACTIVE.
+  results.push(await runStep('autopay_precharge_notice', sendAutopayPrechargeNotices));
   results.push(await runStep('active_to_grace', transitionActiveToGrace));
   results.push(await runStep('expire_grace', expireGraceSubscriptions));
   results.push(await runStep('grace_start', sendGraceStartReminders));
@@ -1075,6 +1079,146 @@ function storedGraceDays(
   if (!sub.graceStartedAt || !sub.gracePeriodEndsAt) return fallback;
   const days = Math.round((sub.gracePeriodEndsAt.getTime() - sub.graceStartedAt.getTime()) / DAY_MS);
   return days >= 1 ? days : fallback;
+}
+
+/// За скільки днів до автосписання клієнт отримує наше попередження.
+/// 3 дні — щоб встиг написати нам і встигнути щось змінити (картка, дата, скасування)
+/// ДО того, як WFP спише гроші: після списання це вже повернення коштів, а не правка.
+const AUTOPAY_NOTICE_DAYS_BEFORE = 3;
+
+/// AUTOPAY: «через 3 дні з картки спишеться N ₴». Тільки MONTHLY autoRenew=true ACTIVE.
+///
+/// Навіщо взагалі: досі єдиним попередженням про списання був технічний лист самого
+/// WayForPay — з їхнім брендингом, службовою назвою товару і без жодного нашого контакту.
+/// Клієнт бачив листа від невідомого сервісу і не мав куди відповісти. Тепер наш лист іде
+/// першим і дає нормальний контекст + edu@uimp.com.ua.
+///
+/// Дедуп — НЕ boolean-прапорець, а дата у `autopayNoticeSentFor`: попередження
+/// повторюється щомісяця, тож прапорець довелось би скидати після кожного списання
+/// (ще одне місце, яке легко забути). Дата ж інвалідує себе сама, щойно WFP посуне
+/// графік на наступний місяць. Claim атомарний (`updateMany` з умовою «дата ≠ цільова»),
+/// тому паралельний ретрай cron-а другого листа не надішле.
+async function sendAutopayPrechargeNotices(): Promise<StepResult> {
+  const errors: string[] = [];
+  const now = new Date();
+  const windowEnd = new Date(now.getTime() + AUTOPAY_NOTICE_DAYS_BEFORE * DAY_MS);
+  // Нижня межа — початок сьогоднішньої доби, а не `now`: списання, призначене на сьогодні,
+  // ще має сенс анонсувати («сьогодні спишеться»), а вчорашню дату — вже ні.
+  const todayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+
+  const subs = await prisma.yearlyProgramSubscription.findMany({
+    where: {
+      status: 'ACTIVE',
+      plan: 'MONTHLY',
+      autoRenew: true,
+      wfpNextChargeAt: { gte: todayStart, lte: windowEnd },
+      ...NOT_IN_UNLAUNCHED_COHORT,
+    },
+    include: {
+      user: true,
+      ...PAID_COUNT_INCLUDE,
+      // Сума береться з ОСТАННЬОГО реального WFP-списання цієї підписки, а не з
+      // прайсу: у підписки може бути своя ціна (промо, адмін-тест, стара ціна до
+      // підвищення), і саме її WFP спише знову. Прайс — лише fallback.
+      payments: {
+        where: { status: 'PAID', manualMethod: null },
+        orderBy: { createdAt: 'desc' },
+        take: 1,
+        select: { amount: true },
+      },
+    },
+  });
+  if (subs.length === 0) return { step: 'autopay_precharge_notice', processed: 0, errors };
+
+  const settings = await getYearlyProgramSettings(prisma);
+
+  let processed = 0;
+  await processInParallel(subs, async (sub) => {
+    try {
+      if (!sub.user?.email || !sub.wfpNextChargeAt) return;
+      // 9/9 сплачено — правило регулярки має бути вже зняте (це робить крок
+      // wfp_schedule_cache). Якщо кеш дати ще не оновився, попередження про десяте
+      // списання лякало б людину неіснуючим платежем.
+      if (isFullyPaid(sub)) return;
+
+      const chargeAt = sub.wfpNextChargeAt;
+      const target = new Date(Date.UTC(chargeAt.getUTCFullYear(), chargeAt.getUTCMonth(), chargeAt.getUTCDate()));
+      const previous = sub.autopayNoticeSentFor;
+
+      const claim = await prisma.yearlyProgramSubscription.updateMany({
+        where: {
+          id: sub.id,
+          OR: [{ autopayNoticeSentFor: null }, { autopayNoticeSentFor: { not: target } }],
+        },
+        data: { autopayNoticeSentFor: target },
+      });
+      if (claim.count === 0) return;
+
+      const paidCount = sub._count.payments;
+      const amount = sub.payments[0]?.amount ?? settings.monthlyPrice;
+      let error: string | null = null;
+      try {
+        const res = await sendYearlyProgramUpcomingChargeEmail({
+          to: sub.user.email,
+          name: sub.user.name,
+          amount,
+          chargeAt,
+          chargeProgress: { current: paidCount + 1, total: YEARLY_PROGRAM_CONFIG.totalMonthlyPayments },
+        });
+        if (!res.ok) error = res.error ?? 'send failed';
+        // skipped=true → RESEND_API_KEY не заданий (або dev-гард). Це НЕ доставка:
+        // без відкату claim-у лист «згорів» би назавжди — дата вже позначена як
+        // попереджена, а людина нічого не отримала.
+        else if (res.skipped) error = 'mailer_not_configured';
+      } catch (e) {
+        error = (e as Error).message;
+      }
+
+      if (error) {
+        // Відкат claim-у на попереднє значення — завтрашній прохід спробує ще раз
+        // (вікно відкрите на 3 доби, тож запас на кілька спроб є).
+        await prisma.yearlyProgramSubscription.updateMany({
+          where: { id: sub.id },
+          data: { autopayNoticeSentFor: previous },
+        });
+        const since = new Date(Date.now() - FAILED_EVENT_DEDUP_MS);
+        const recent = await prisma.yearlyProgramSubscriptionEvent.findFirst({
+          where: {
+            subscriptionId: sub.id,
+            type: 'reminder_email_failed',
+            createdAt: { gte: since },
+            message: { startsWith: 'reminder_autopay_precharge ' },
+          },
+          select: { id: true },
+        });
+        if (!recent) {
+          await prisma.yearlyProgramSubscriptionEvent.create({
+            data: {
+              subscriptionId: sub.id,
+              type: 'reminder_email_failed',
+              message: `reminder_autopay_precharge не надіслано: ${error.slice(0, 200)}`,
+              metadata: { eventType: 'reminder_autopay_precharge', error: error.slice(0, 500) },
+            },
+          });
+        }
+        errors.push(`${sub.id}: ${error}`);
+        return;
+      }
+
+      await prisma.yearlyProgramSubscriptionEvent.create({
+        data: {
+          subscriptionId: sub.id,
+          type: 'reminder_autopay_precharge',
+          message: `Попередження про автосписання ${target.toISOString().slice(0, 10)} · ${amount} ₴ · списання ${paidCount + 1} з ${YEARLY_PROGRAM_CONFIG.totalMonthlyPayments}`,
+        },
+      });
+      processed++;
+    } catch (e) {
+      errors.push(`${sub.id}: ${(e as Error).message}`);
+    }
+  });
+
+  return { step: 'autopay_precharge_notice', processed, errors };
 }
 
 /// MANUAL #1: за 3 дні до експайру. Тільки MANUAL (autoRenew=false) ACTIVE.

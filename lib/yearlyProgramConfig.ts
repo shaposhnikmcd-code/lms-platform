@@ -8,6 +8,14 @@ export const YEARLY_PROGRAM_CONFIG = {
   /// Префікс orderReference для місячної (регулярної) оплати.
   monthlyOrderPrefix: 'yearly-program-monthly',
 
+  /// Людські назви продукту для WFP Purchase (`productName`). Клієнт бачить їх у
+  /// платіжному віджеті, у листах WayForPay («Опис») і в квитанції — тому це має бути
+  /// назва, а не службовий слаг. НЕ плутати з `yearlyOrderPrefix`/`monthlyOrderPrefix`
+  /// (їх парсить callback) і з `sendpulseEventSlug` (за ним воронка SP відкриває доступ) —
+  /// ті три рядки технічні й змінювати їх не можна.
+  yearlyProductLabel: 'Річна програма UIMP',
+  monthlyProductLabel: 'Річна програма UIMP — щомісячний платіж',
+
   /// Slug/product_name, який шлеться в SendPulse event і за яким воронка відкриває доступ.
   /// Має збігатись з courseId в app/[locale]/yearly-program/config.ts.
   sendpulseEventSlug: 'yearly-program',

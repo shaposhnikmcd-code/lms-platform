@@ -59,7 +59,7 @@ export async function resolveServerPricing(args: {
     return {
       kind: 'monthly',
       basePrice: settings.monthlyPrice,
-      productName: YEARLY_PROGRAM_CONFIG.monthlyOrderPrefix,
+      productName: YEARLY_PROGRAM_CONFIG.monthlyProductLabel,
       productCount: 1,
       bundleId: null,
       paymentCourseId: null,
@@ -70,7 +70,7 @@ export async function resolveServerPricing(args: {
     return {
       kind: 'yearly',
       basePrice: settings.yearlyPrice,
-      productName: YEARLY_PROGRAM_CONFIG.yearlyOrderPrefix,
+      productName: YEARLY_PROGRAM_CONFIG.yearlyProductLabel,
       productCount: 1,
       bundleId: null,
       paymentCourseId: null,
