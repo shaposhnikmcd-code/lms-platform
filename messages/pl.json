@@ -323,10 +323,10 @@
     "payOneTimeUnit": "jednorazowo",
     "payOneTimeHint": "Opłata za bieżący moduł · bez automatycznych obciążeń",
     "payRecurringKicker": "AUTOPŁATNOŚĆ · {count} MIES.",
-    "payRecurringUnit": "/mies · {count} razy",
+    "payRecurringUnit": "/mies · {count} {count, plural, one {raz} few {razy} many {razy} other {razy}}",
     "payRecurringHint": "Automatyczne obciążenie karty · razem {total} UAH",
     "payCurrency": "UAH",
-    "recurringNotice": "Karta będzie obciążana automatycznie {price} UAH pierwszego dnia każdego kolejnego modułu, do końca programu (łącznie {count} płatności). Po ostatniej płatności obciążanie się zakończy. Jeśli kolejna płatność się nie powiedzie (brak środków, bank odrzucił, karta anulowana) — natychmiast wyślemy e-mail z linkiem do płatności ręcznej, dostęp pozostaje przez 7 dni. Można anulować w każdej chwili, pisząc do naszego wsparcia technicznego. Kontakt na stronie O nas.",
+    "recurringNotice": "Karta będzie obciążana automatycznie {price} UAH pierwszego dnia każdego kolejnego modułu, do końca programu (łącznie {count} {count, plural, one {płatność} few {płatności} many {płatności} other {płatności}}). Po ostatniej płatności obciążanie się zakończy. Jeśli kolejna płatność się nie powiedzie (brak środków, bank odrzucił, karta anulowana) — natychmiast wyślemy e-mail z linkiem do płatności ręcznej, dostęp pozostaje przez 7 dni. Można anulować w każdej chwili, pisząc do naszego wsparcia technicznego. Kontakt na stronie O nas.",
     "testModeBadge": "🔧 Tryb testowy: {price} UAH",
     "testModePromo": "W trybie testowym promokod nie jest stosowany — cena już wynosi {price} UAH."
   },

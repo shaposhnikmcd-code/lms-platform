@@ -21,7 +21,7 @@ const { cohortModuleCount, cohortSlotIndex, monthlySchedule } = await import('..
 const { PrismaClient } = await import('@prisma/client');
 const prisma = new PrismaClient();
 
-const d = (v) => (v ? new Date(v).toISOString().slice(0, 10) : '∅');
+const d = (v: Date | string | null | undefined) => (v ? new Date(v).toISOString().slice(0, 10) : '∅');
 
 async function main() {
   const dbHost = (process.env.DATABASE_URL || '').match(/@([^/:?]+)/)?.[1] || 'unknown';

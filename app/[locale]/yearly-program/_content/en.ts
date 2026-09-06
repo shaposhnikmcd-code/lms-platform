@@ -212,7 +212,11 @@ export const learningContent = {
     monthSubtitle: "Pay monthly during the course",
     monthInstallment: "Installments over the 9 months of the program",
     currencyMonth: "UAH / mo",
-    monthCalc: "{count} payments × {price} UAH = {total} UAH",
+    monthCalc: "{count} {paymentsWord} × {price} UAH = {total} UAH",
+    /// Plural forms for {count} in monthCalc — picked by Intl.PluralRules.
+    paymentsWord: { one: "payment", other: "payments" },
+    /// The cohort is already in its last module — nothing left to split.
+    monthLastModule: "Pays one module · this is the last module of the program",
     monthsCalc: "× 9 months = 19,800 UAH",
     promoText: "To pay for one month, use the promo code:",
     btnMonth: "Registration opens soon",

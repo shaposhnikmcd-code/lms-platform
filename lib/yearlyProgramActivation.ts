@@ -202,11 +202,16 @@ export async function applyPaymentActivation(args: {
         }).totalSlots
         : YEARLY_PROGRAM_CONFIG.totalMonthlyPayments)
       : 1;
+    // totalSlots === 0 — платіж поза межами набору (вироджена сітка): «сплачено 1 з 0»
+    // читалось би як помилка системи, а не як стан підписки.
+    const paidLabel = totalSlots > 0
+      ? `сплачено ${paidCount} з ${totalSlots}`
+      : `сплачено ${paidCount}, платіж поза графіком набору`;
     await prisma.yearlyProgramSubscriptionEvent.create({
       data: {
         subscriptionId: args.subscriptionId,
         type: 'revived_with_debt',
-        message: `⚠️ Оплата зарахована, але доступ уже прострочений: сплачено ${paidCount} з ${totalSlots} — розрахована дата завершення ${newExpiresAt!.toISOString().slice(0, 10)} вже в минулому.${revived ? ' Підписку оживлено.' : ''} Потрібне рішення менеджера: допродати місяці або скоригувати дати.`,
+        message: `⚠️ Оплата зарахована, але доступ уже прострочений: ${paidLabel} — розрахована дата завершення ${newExpiresAt!.toISOString().slice(0, 10)} вже в минулому.${revived ? ' Підписку оживлено.' : ''} Потрібне рішення менеджера: допродати місяці або скоригувати дати.`,
         metadata: {
           source: 'manual_activation',
           expiresAt: newExpiresAt!.toISOString(),

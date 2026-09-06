@@ -592,8 +592,12 @@ async function handleReopenAccess(sub: NonNullable<SubWithUser>, actor: string) 
         payments: fresh.payments,
       }).totalSlots
       : YEARLY_PROGRAM_CONFIG.totalMonthlyPayments;
+    // totalMonths === 0 — платежі лежать за кінцем набору (вироджена сітка): «сплачено
+    // 1 з 0 місяців» виглядало б як збій, а не як пояснення, чому доступ не відкрити.
     const detail = sub.plan === 'MONTHLY'
-      ? `сплачено ${paidCount} з ${totalMonths} місяців`
+      ? (totalMonths > 0
+        ? `сплачено ${paidCount} з ${totalMonths} місяців`
+        : `сплачено ${paidCount}, платежі поза графіком набору`)
       : `набір завершився ${newExpiresAt?.toISOString().slice(0, 10) ?? '—'}`;
     return NextResponse.json({
       error: `За графіком набору доступ уже вичерпано (${detail}). `

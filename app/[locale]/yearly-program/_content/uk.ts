@@ -212,7 +212,11 @@ export const learningContent = {
     monthSubtitle: "Платіть помісячно протягом навчання",
     monthInstallment: "Розсрочка на 9 місяців програми",
     currencyMonth: "грн / міс",
-    monthCalc: "{count} платежів × {price} грн = {total} грн",
+    monthCalc: "{count} {paymentsWord} × {price} грн = {total} грн",
+    /// Форми множини для {count} у monthCalc — обирає Intl.PluralRules за локаллю.
+    paymentsWord: { one: "платіж", few: "платежі", many: "платежів", other: "платежів" },
+    /// Набір уже в останньому модулі — розстрочки не лишилось, продаємо один модуль.
+    monthLastModule: "Оплата одного модуля · це останній модуль програми",
     monthsCalc: "× 9 місяців = 19 800 грн",
     promoText: "Для оплати одного місяця скористайтеся промокодом:",
     btnMonth: "Реєстрація незабаром відкриється",

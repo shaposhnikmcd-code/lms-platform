@@ -111,9 +111,9 @@ export const PLACEHOLDER_DESCRIPTIONS: Record<string, { what: string; consequenc
     what: 'Прогрес по модулях набору — наприклад «Оплачено модуль 3 з 9».',
     consequence: 'БЕЗ цього поля отримувач не бачитиме, за який модуль програми він заплатив.',
   },
-  nextChargeDate: {
-    what: 'Дата наступного автосписання — перший день наступного модуля набору, у форматі « 01.11.2026» (з пробілом попереду, тире вже стоїть у тексті листа). Порожньо, якщо списань більше не буде — тоді фраза йде без дати.',
-    consequence: 'БЕЗ цього поля клієнт не побачить дату наступного списання і писатиме менеджеру, щоб її дізнатись.',
+  nextChargeLine: {
+    what: 'Готовий рядок про наступне списання — або «Наступне списання пройде автоматично 01.12.2026 — у перший день наступного модуля.», або «Це був останній платіж за програмою — автосписань більше не буде.» Система сама обирає потрібний варіант.',
+    consequence: 'БЕЗ цього поля клієнт не побачить ані дати наступного списання, ані того, що списань більше не буде — і писатиме менеджеру, щоб дізнатись.',
   },
   autoRenewBullet: {
     what: 'Готовий пункт у списку про автосписання (зʼявляється тільки для планів з автосписанням).',
@@ -318,13 +318,13 @@ export const PAYMENT_TEMPLATES: Record<PaymentTemplateKey, PaymentTemplateMeta> 
     group: 'payment',
     title: '🧾 Receipt — Автосписання',
     when: 'Кожне successful автосписання MONTHLY autoRenew=true (окрім першої оплати = welcome).',
-    placeholders: ['greeting', 'amount', 'expiresAt', 'progressLine', 'nextChargeDate'],
+    placeholders: ['greeting', 'amount', 'expiresAt', 'progressLine', 'nextChargeLine'],
     sampleData: {
       greeting: 'Доброго дня, Іван Петренко!',
       amount: '2200',
       expiresAt: '2026-12-01',
       progressLine: '<p style="margin: 0 0 16px; color: #555;">Оплачено модуль 3 з 9.</p>',
-      nextChargeDate: ' 01.12.2026',
+      nextChargeLine: 'Наступне списання пройде автоматично 01.12.2026 — у перший день наступного модуля.',
     },
     defaultSubject: 'Автосписання по Річній програмі — {amount} ₴',
     defaultBodyHtml: layout(`  <h2 style="color: #1a1a1a; margin: 0 0 16px;">Дякуємо за оплату</h2>
@@ -336,7 +336,7 @@ export const PAYMENT_TEMPLATES: Record<PaymentTemplateKey, PaymentTemplateMeta> 
   {progressLine}
   <h3 style="margin: 24px 0 8px;">Що далі</h3>
   <ul style="margin: 0 0 16px; padding-left: 20px;">
-    <li style="margin-bottom: 8px;">Наступне списання пройде автоматично{nextChargeDate} — у перший день наступного модуля програми.</li>
+    <li style="margin-bottom: 8px;">{nextChargeLine}</li>
     <li style="margin-bottom: 8px;">Скасувати автосписання можна у будь-який момент — напишіть на <a href="mailto:edu@uimp.com.ua" style="color: #b08d3f;">edu@uimp.com.ua</a>.</li>
   </ul>`),
   },

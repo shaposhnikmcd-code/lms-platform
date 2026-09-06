@@ -19,7 +19,7 @@ export async function sendYearlyProgramPaymentReceiptEmail(args: {
   /// модулів усього («модуль 3 з 9»). Для разової оплати — null (там немає графіку).
   chargeProgress: { current: number; total: number } | null;
   /// Дата наступного автосписання = перший день наступного модуля. null, якщо списань
-  /// більше не буде (усі свої модулі сплачені) — тоді фраза в листі йде без дати.
+  /// більше не буде (усі свої модулі сплачені) — тоді в листі стоїть інша фраза.
   nextChargeAt?: Date | null;
 }): Promise<{ ok: boolean; error?: string }> {
   const { to, name, amount, autoRenew, newExpiresAt, chargeProgress, nextChargeAt } = args;
@@ -30,11 +30,13 @@ export async function sendYearlyProgramPaymentReceiptEmail(args: {
     : '';
   // UTC-форматування — уся математика дат Річної живе в UTC, тож дата в листі збігається
   // з датою у графіку WFP і в адмінці.
-  // Тире вже є в тексті шаблону («…автоматично{nextChargeDate} — у перший день…»),
-  // тут лише пробіл + дата, інакше в листі виходило два тире підряд.
-  const nextChargeDate = nextChargeAt
-    ? ` ${String(nextChargeAt.getUTCDate()).padStart(2, '0')}.${String(nextChargeAt.getUTCMonth() + 1).padStart(2, '0')}.${nextChargeAt.getUTCFullYear()}`
-    : '';
+  // Ціле речення, а не сама дата: після ОСТАННЬОГО списання дати немає взагалі
+  // (`nextSlotStart` = null), і шаблон з дірою на місці дати друкував би «Наступне
+  // списання пройде автоматично — у перший день наступного модуля» людині, з якої
+  // більше нічого не спишуть.
+  const nextChargeLine = nextChargeAt
+    ? `Наступне списання пройде автоматично ${String(nextChargeAt.getUTCDate()).padStart(2, '0')}.${String(nextChargeAt.getUTCMonth() + 1).padStart(2, '0')}.${nextChargeAt.getUTCFullYear()} — у перший день наступного модуля.`
+    : 'Це був останній платіж за програмою — автосписань більше не буде.';
 
   const tpl = await getPaymentTemplate(autoRenew ? 'receipt-autopay' : 'receipt-one-time');
   const vars = {
@@ -42,7 +44,7 @@ export async function sendYearlyProgramPaymentReceiptEmail(args: {
     amount: esc(String(amount)),
     expiresAt: esc(newExpiresAt.toISOString().slice(0, 10)),
     progressLine,
-    nextChargeDate: esc(nextChargeDate),
+    nextChargeLine: esc(nextChargeLine),
   };
 
   return sendEmail({

@@ -45,7 +45,7 @@ const RealDate = Date;
 function freeze(iso: string) {
   const fixed = new RealDate(iso).getTime();
   class FrozenDate extends RealDate {
-    constructor(...args: ConstructorParameters<typeof Date>) {
+    constructor(...args: unknown[]) {
       if (args.length === 0) super(fixed);
       // @ts-expect-error — прокидаємо аргументи як є, поведінка як у справжнього Date.
       else super(...args);

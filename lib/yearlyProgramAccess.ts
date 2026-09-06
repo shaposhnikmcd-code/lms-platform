@@ -74,11 +74,14 @@ export interface PaymentLike {
   /// Поле опційне: синтетичні платежі в guard-ах і старі виклики його не передають,
   /// `undefined` читається як «звичайний платіж».
   excludedFromAccess?: boolean | null;
-  /// Спосіб ручної оплати (готівка / переказ / carryover). `null` — платіж WayForPay,
-  /// `undefined` — поле не вибрали в запиті. Визначає, від якої дати платіж займає
-  /// слот у сітці модулів (див. `slotDateOf`), тому у ВСІХ вибірках, що йдуть у
-  /// `monthlySchedule`/`calculateAccessUntil`, це поле треба селектити.
-  manualMethod?: string | null;
+  /// Спосіб ручної оплати (готівка / переказ / carryover). `null` — платіж WayForPay.
+  /// Визначає, від якої дати платіж займає слот у сітці модулів (див. `slotDateOf`).
+  ///
+  /// Поле НЕ опційне свідомо: забутий `manualMethod: true` у select-і має падати на
+  /// компіляції. Раніше воно було опційним, і пропущений select тихо повертав
+  /// платіж WayForPay на гілку `paidAt` — тобто повертав ту саму гонку чекаут/оплата,
+  /// заради якої слот-дату й вводили, але вже без жодного сліду.
+  manualMethod: string | null;
 }
 
 export type Plan = 'YEARLY' | 'MONTHLY';
@@ -109,11 +112,7 @@ function paidPaymentDates(payments: PaymentLike[]): Date[] {
 /// Для РУЧНОГО платежу навпаки: `createdAt` — це момент, коли менеджер вніс рядок
 /// (може бути через місяці після факту), тож слот дає `paidAt`.
 function slotDateOf(p: PaymentLike): Date {
-  // `null` = точно WayForPay. `undefined` (поле не вибрали) читаємо як «не знаємо» і
-  // лишаємо стару поведінку — для ручного платежу вона правильна, а для WFP лише
-  // повертає стару похибку замість того, щоб зіпсувати ручні розбивки.
-  if (p.manualMethod === null) return p.createdAt;
-  return p.paidAt ?? p.createdAt;
+  return p.manualMethod === null ? p.createdAt : (p.paidAt ?? p.createdAt);
 }
 
 /// Слот-дати всіх зарахованих PAID-платежів, за зростанням.

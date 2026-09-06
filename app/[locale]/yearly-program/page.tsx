@@ -144,6 +144,7 @@ export default async function YearlyProgramPage({
         monthlyOldPrice={settings.monthlyOldPrice}
         registrationOpen={registrationOpenForUser}
         recurringCount={recurringCount}
+        locale={locale}
         invite={invitePayload && inviteToken ? {
           token: inviteToken,
           email: invitePayload.email,

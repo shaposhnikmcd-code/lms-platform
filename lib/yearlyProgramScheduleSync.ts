@@ -26,7 +26,7 @@ import {
   getWayforpayCreds,
   removeRegularSchedule,
 } from '@/lib/wayforpay';
-import { addCalendarMonths, monthlySchedule } from '@/lib/yearlyProgramAccess';
+import { cohortModuleCount, cohortModuleStart, monthlySchedule } from '@/lib/yearlyProgramAccess';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 /// Той самий буфер, що й у buildRegularPurchaseFlags: dateEnd ставимо на 10 днів пізніше
@@ -301,9 +301,12 @@ export async function syncAutopaySchedule(
   if (!coveredUntil) return skip('no_recomputed_expiry');
   const tomorrow = new Date(now.getTime() + MS_PER_DAY);
   const desiredNext = coveredUntil > tomorrow ? coveredUntil : tomorrow;
-  const remaining = schedule.remaining;
+  // Кінець графіка — початок ОСТАННЬОГО модуля набору з самої сітки, як `dateEnd` у
+  // роуті. `addCalendarMonths(desiredNext, remaining − 1)` після клемпу з сітки з'їжджає
+  // (набір зі стартом 31.01: 28.02 + 1 міс = 28.03 замість 31.03), і звірка бачила б
+  // вічний дрейф — WFP щоразу «розходився» б із нашою датою на кілька днів.
   const desiredEnd = new Date(
-    addCalendarMonths(desiredNext, remaining - 1).getTime()
+    cohortModuleStart(sub.cohort, cohortModuleCount(sub.cohort) - 1).getTime()
     + REGULAR_DATE_END_BUFFER_DAYS * MS_PER_DAY,
   );
 

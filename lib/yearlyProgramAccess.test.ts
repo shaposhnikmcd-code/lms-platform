@@ -36,6 +36,9 @@ const pay = (iso: string, over: Partial<PaymentLike> = {}): PaymentLike => ({
   status: 'PAID',
   paidAt: new Date(iso),
   createdAt: new Date(iso),
+  excludedFromAccess: false,
+  // Чекаут і оплата в один момент — слот однаковий, звідки б його не брали.
+  manualMethod: null,
   ...over,
 });
 

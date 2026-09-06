@@ -1917,11 +1917,16 @@ async function handleYearlyProgramCallback(args: {
         const totalSlots = sub.plan === 'MONTHLY'
           ? (schedule?.totalSlots ?? YEARLY_PROGRAM_CONFIG.totalMonthlyPayments)
           : 1;
+        // Платіж лежить за кінцем набору (перенесення у завершений набір) — сітки для
+        // нього немає, і «сплачено 1 з 0» тільки збило б менеджера з пантелику.
+        const paidLabel = totalSlots > 0
+          ? `сплачено ${allPayments.length} з ${totalSlots}`
+          : `сплачено ${allPayments.length}, платіж поза графіком набору`;
         await tx.yearlyProgramSubscriptionEvent.create({
           data: {
             subscriptionId: sub.id,
             type: 'revived_with_debt',
-            message: `⚠️ Оплата зарахована, але доступ уже прострочений: сплачено ${allPayments.length} з ${totalSlots} — розрахована дата завершення ${newExpiresAt.toISOString().slice(0, 10)} вже в минулому.${revivedFrom ? ` Підписку оживлено зі статусу ${revivedFrom}.` : ''} Потрібне рішення менеджера: допродати місяці або скоригувати дати.`,
+            message: `⚠️ Оплата зарахована, але доступ уже прострочений: ${paidLabel} — розрахована дата завершення ${newExpiresAt.toISOString().slice(0, 10)} вже в минулому.${revivedFrom ? ` Підписку оживлено зі статусу ${revivedFrom}.` : ''} Потрібне рішення менеджера: допродати місяці або скоригувати дати.`,
             metadata: {
               orderReference: payment!.orderReference,
               expiresAt: newExpiresAt.toISOString(),

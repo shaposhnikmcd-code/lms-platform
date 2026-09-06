@@ -19,6 +19,10 @@ type Props = {
     monthInstallment?: string;
     currencyMonth: string;
     monthCalc?: string;
+    /// Форми множини для слова «платіж» у monthCalc (CLDR-категорії локалі).
+    paymentsWord?: Record<string, string>;
+    /// Підпис, коли платити лишилось за один модуль (розстрочки вже немає).
+    monthLastModule?: string;
     monthsCalc: string;
     promoText: string;
     btnMonth: string;
@@ -33,6 +37,8 @@ type Props = {
   /// серверна сторінка за сіткою модулів: у вересні це 9, у жовтні вже 8. Від нього —
   /// і підпис «N платежів × 2200», і сума, і тексти в модалці оплати.
   recurringCount: number;
+  /// Локаль сторінки — потрібна для правильної форми множини «платіж/платежі/платежів».
+  locale: string;
   /// Invite-flow: якщо передано — обидві карточки активні, email pre-filled у формі.
   /// Студент сам обирає Yearly / Monthly Autopay / Monthly One-time на цьому екрані.
   /// Token + prefill пересилаються в CoursePurchaseModal.
@@ -42,6 +48,16 @@ type Props = {
     name: string | null;
   } | null;
 };
+
+/// Форма слова «платіж» за CLDR-категорією локалі: 1 платіж / 2 платежі / 5 платежів,
+/// 1 payment / 2 payments, 1 płatność / 2 płatności. Без цього підпис показував би
+/// «2 платежів» — те саме число, що й у сумі, але неписьменно.
+function pluralizePayments(locale: string, count: number, forms?: Record<string, string>): string {
+  const fallback: Record<string, string> = { one: 'платіж', few: 'платежі', many: 'платежів', other: 'платежів' };
+  const table = forms ?? fallback;
+  const category = new Intl.PluralRules(locale).select(count);
+  return table[category] ?? table.other ?? '';
+}
 
 function DisabledButton({ label, variant }: { label: string; variant: 'light' | 'dark' }) {
   const base =
@@ -57,8 +73,12 @@ function DisabledButton({ label, variant }: { label: string; variant: 'light' | 
   );
 }
 
-export default function PricingSection({ t, yearlyPrice, yearlyOldPrice, monthlyPrice, monthlyOldPrice, registrationOpen, recurringCount, invite }: Props) {
+export default function PricingSection({ t, yearlyPrice, yearlyOldPrice, monthlyPrice, monthlyOldPrice, registrationOpen, recurringCount, locale, invite }: Props) {
   const open = registrationOpen;
+  // Модуль лишився один — розстрочки не існує: автоплатіж не пропонуємо взагалі.
+  // Інакше сторінка малювала б «АВТОПЛАТІЖ · 1 МІС.» і «1 платежів», а роут усе одно
+  // мовчки робив би покупку разовою (регулярні прапори чіпляються лише коли списань > 1).
+  const installmentsAvailable = recurringCount > 1;
   const totalMonthly = monthlyPrice * recurringCount;
   // Ближче до кінця набору помісячно виходить ДЕШЕВШЕ за річну (модулів лишилось мало),
   // і рядок «Економія» показав би від'ємне число. Тоді просто не показуємо його.
@@ -148,10 +168,13 @@ export default function PricingSection({ t, yearlyPrice, yearlyOldPrice, monthly
               <span className="text-gray-400 text-sm font-medium">{t.currencyMonth}</span>
             </div>
             <p className="text-gray-400 text-xs mb-5">
-              {(t.monthCalc ?? '{count} платежів × {price} грн = {total} грн')
-                .replace('{count}', String(recurringCount))
-                .replace('{price}', String(monthlyPrice))
-                .replace('{total}', totalMonthly.toLocaleString('uk-UA'))}
+              {installmentsAvailable
+                ? (t.monthCalc ?? '{count} {paymentsWord} × {price} грн = {total} грн')
+                  .replace('{count}', String(recurringCount))
+                  .replace('{paymentsWord}', pluralizePayments(locale, recurringCount, t.paymentsWord))
+                  .replace('{price}', String(monthlyPrice))
+                  .replace('{total}', totalMonthly.toLocaleString('uk-UA'))
+                : (t.monthLastModule ?? 'Оплата одного модуля · це останній модуль програми')}
             </p>
 
             <div className="w-16 h-px bg-gray-200 mx-auto mb-5" />
@@ -164,7 +187,7 @@ export default function PricingSection({ t, yearlyPrice, yearlyOldPrice, monthly
                   courseId={YEARLY_PROGRAM.monthlyCourseId}
                   currency={t.currency}
                   buttonLabel={t.btnMonth}
-                  allowRecurringChoice
+                  allowRecurringChoice={installmentsAvailable}
                   recurringCount={recurringCount}
                   inviteToken={invite?.token}
                   invitePrefill={invite ? {
