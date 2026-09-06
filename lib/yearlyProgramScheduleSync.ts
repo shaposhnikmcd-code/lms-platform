@@ -26,8 +26,7 @@ import {
   getWayforpayCreds,
   removeRegularSchedule,
 } from '@/lib/wayforpay';
-import { addCalendarMonths, calculateAccessUntil } from '@/lib/yearlyProgramAccess';
-import { getYearlyPostAccessMonths, YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
+import { addCalendarMonths, monthlySchedule } from '@/lib/yearlyProgramAccess';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 /// Той самий буфер, що й у buildRegularPurchaseFlags: dateEnd ставимо на 10 днів пізніше
@@ -140,7 +139,11 @@ export async function syncAutopaySchedule(
   const creds = getWayforpayCreds();
   const now = new Date();
   const paidCount = sub.payments.length;
-  const fullyPaid = paidCount >= YEARLY_PROGRAM_CONFIG.totalMonthlyPayments;
+  // Сітка модулів набору. «Повна оплата» — це всі СВОЇ слоти, а не завжди 9: пізній
+  // покупець стартує з пізнішого модуля, і після 8 списань правило регулярки треба
+  // знімати так само, як у того, хто купив до старту після 9-го.
+  const schedule = monthlySchedule({ cohort: sub.cohort, payments: sub.payments });
+  const fullyPaid = schedule.isFullyPaid;
 
   // ── Крок 1: знайти живі правила серед PAID orderRef-ів (їх може бути кілька:
   // картка + Apple Pay, апгрейд разова→автоплатіж; child-refs WFPREG дадуть 4102 = not found).
@@ -265,7 +268,7 @@ export async function syncAutopaySchedule(
   }
   const primary = activeRules[0]!;
 
-  // ── Крок 2: повністю оплачена (9/9) — списань більше не має бути. Живе правило знімаємо.
+  // ── Крок 2: сплачені всі свої модулі — списань більше не має бути. Правило знімаємо.
   if (fullyPaid) {
     if (!opts.apply) {
       await cacheUpdate(primary.ref, primary.nextPaymentAt);
@@ -285,27 +288,20 @@ export async function syncAutopaySchedule(
       data: {
         subscriptionId: sub.id,
         type: removedErr ? 'wfp_schedule_sync_failed' : 'wfp_schedule_synced',
-        message: removedErr ?? `Повна оплата ${paidCount}/${YEARLY_PROGRAM_CONFIG.totalMonthlyPayments} — активне правило знято (${opts.source})`,
+        message: removedErr ?? `Повна оплата ${paidCount}/${schedule.totalSlots} — активне правило знято (${opts.source})`,
         metadata: { source: opts.source, rules: activeRules.map((r) => r.ref) },
       },
     });
     return { outcome: removedErr ? 'error' : 'synced', reason: removedErr, ruleRef: null, nextChargeAt: null, desiredNextAt: null, changed: !removedErr };
   }
 
-  // ── Крок 3: бажаний графік. Наступне списання = кінець оплаченого періоду
-  // (та сама cohort-aware логіка, що рахує «Доступ до»), але не раніше завтра.
-  const postAccessMonths = await getYearlyPostAccessMonths(prisma);
-  const recomputedExpires = calculateAccessUntil({
-    plan: sub.plan,
-    autoRenew: sub.autoRenew,
-    cohort: { startDate: sub.cohort.startDate, endDate: sub.cohort.endDate },
-    payments: sub.payments,
-    postAccessMonths,
-  });
-  if (!recomputedExpires) return skip('no_recomputed_expiry');
+  // ── Крок 3: бажаний графік. Наступне списання = перший день першого НЕоплаченого
+  // модуля набору (та сама сітка, що рахує «Доступ до»), але не раніше завтра.
+  const coveredUntil = schedule.nextSlotStart;
+  if (!coveredUntil) return skip('no_recomputed_expiry');
   const tomorrow = new Date(now.getTime() + MS_PER_DAY);
-  const desiredNext = recomputedExpires > tomorrow ? recomputedExpires : tomorrow;
-  const remaining = YEARLY_PROGRAM_CONFIG.totalMonthlyPayments - paidCount;
+  const desiredNext = coveredUntil > tomorrow ? coveredUntil : tomorrow;
+  const remaining = schedule.remaining;
   const desiredEnd = new Date(
     addCalendarMonths(desiredNext, remaining - 1).getTime()
     + REGULAR_DATE_END_BUFFER_DAYS * MS_PER_DAY,
@@ -391,7 +387,7 @@ export async function syncAutopaySchedule(
       type: failed ? 'wfp_schedule_sync_failed' : 'wfp_schedule_synced',
       message: failed
         ? `CHANGE errors: ${changeErrors.join(' | ').slice(0, 300)}`
-        : `Графік WFP: наступне списання ${fmtD(primary.nextPaymentAt)} → ${fmtD(confirmedNext)}, кінець ${fmtD(desiredEnd)} · сплачено ${paidCount}/${YEARLY_PROGRAM_CONFIG.totalMonthlyPayments} (${opts.source})`,
+        : `Графік WFP: наступне списання ${fmtD(primary.nextPaymentAt)} → ${fmtD(confirmedNext)}, кінець ${fmtD(desiredEnd)} · сплачено ${paidCount}/${schedule.totalSlots} (${opts.source})`,
       metadata: {
         source: opts.source,
         rules: activeRules.map((r) => r.ref),

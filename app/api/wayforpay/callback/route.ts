@@ -18,7 +18,7 @@ import { getYearlyProgramSettings } from '@/lib/yearlyProgramSettings';
 import { provisionPayment, AMOUNT_MISMATCH_MARKER } from '@/lib/paymentProvisioning';
 import { sendBundlePurchaseEmail } from '@/lib/bundlePurchaseEmail';
 import { getRegularStatus, getWayforpayCreds } from '@/lib/wayforpay';
-import { calculateAccessUntil, maxAutopayChargeCount } from '@/lib/yearlyProgramAccess';
+import { calculateAccessUntil, cohortModuleCount, monthlySchedule } from '@/lib/yearlyProgramAccess';
 import { releasePromoUse } from '@/lib/promoUsage';
 import { removeSubscriptionAutopay, recordAutopayRemoveOutcome } from '@/lib/yearlyProgramAutopay';
 import { archiveDuplicatePendingSubscriptions } from '@/lib/yearlyProgramDedup';
@@ -1537,16 +1537,29 @@ async function handleYearlyProgramCallback(args: {
             errorMsg: `Recurring charge amount ${amountInt} ≠ expected ${expectedAmount}`,
           } as RecurringCreateResult;
         }
-        const paidCount = await tx.payment.count({
-          // Орфанні списання (закрита підписка / понад ліміт / розбіжність суми) у кеп
-          // не входять — інакше одне зайве списання назавжди блокувало б легальні.
+        // Кеп — на сітці модулів набору: у пізнього покупця своїх слотів менше 9
+        // (купив у жовтні → 8), і після їх сплати доступ уже максимальний, тож наступне
+        // списання було б грошима ні за що.
+        // Орфанні списання (закрита підписка / понад ліміт / розбіжність суми) у кеп
+        // не входять — інакше одне зайве списання назавжди блокувало б легальні.
+        const paidRows = await tx.payment.findMany({
           where: { yearlyProgramSubscriptionId: sub.id, status: 'PAID', excludedFromAccess: false },
+          select: { amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true },
         });
-        if (paidCount >= YEARLY_PROGRAM_CONFIG.totalMonthlyPayments) {
+        const paidCount = paidRows.length;
+        const capCohort = sub.cohortId
+          ? await tx.yearlyProgramCohort.findUnique({
+              where: { id: sub.cohortId },
+              select: { startDate: true, endDate: true },
+            })
+          : null;
+        const capSchedule = capCohort ? monthlySchedule({ cohort: capCohort, payments: paidRows }) : null;
+        const capTotal = capSchedule?.totalSlots ?? YEARLY_PROGRAM_CONFIG.totalMonthlyPayments;
+        if (capSchedule ? capSchedule.isFullyPaid : paidCount >= YEARLY_PROGRAM_CONFIG.totalMonthlyPayments) {
           return {
             kind: 'error',
             skipReason: 'monthly_cap_reached',
-            errorMsg: `MONTHLY already has ${paidCount} paid (cap ${YEARLY_PROGRAM_CONFIG.totalMonthlyPayments})`,
+            errorMsg: `MONTHLY already has ${paidCount} paid (cap ${capTotal})`,
           } as RecurringCreateResult;
         }
         // userId беремо з ПІДПИСКИ, а не з email платіжної сторінки: якщо людина
@@ -2219,24 +2232,25 @@ async function handleYearlyProgramCallback(args: {
           // продовження). Не для YEARLY (там тільки 1 платіж = welcome). Не для
           // плану-зміни (вище). Не для першої оплати (там welcome).
           let chargeProgress: { current: number; total: number } | null = null;
+          let nextChargeAt: Date | null = null;
           if (sub.autoRenew && sub.cohort) {
-            // Для autopay рахуємо порядковий номер списання у графіку cohort-у.
-            const paidPayments = await prisma.payment.count({
-              where: { yearlyProgramSubscriptionId: sub.id, status: 'PAID' },
+            // Номер МОДУЛЯ набору, який покрив цей платіж — абсолютний («модуль 3 з 9»),
+            // а не «списання 1 з 8». Пізній покупець бачить те саме, що й адміністраторка
+            // в таблиці і що написано в графіку: сітка модулів у всіх одна.
+            const paidRows = await prisma.payment.findMany({
+              where: { yearlyProgramSubscriptionId: sub.id, status: 'PAID', excludedFromAccess: false },
+              select: { amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true },
             });
-            const firstPaid = await prisma.payment.findFirst({
-              where: { yearlyProgramSubscriptionId: sub.id, status: 'PAID' },
-              orderBy: { paidAt: 'asc' },
-              select: { paidAt: true, createdAt: true },
-            });
-            const firstPaymentDate = firstPaid?.paidAt ?? firstPaid?.createdAt ?? sub.startDate ?? null;
-            if (firstPaymentDate) {
-              const total = maxAutopayChargeCount({
-                firstPaymentDate,
-                cohortEndDate: sub.cohort.endDate,
-              });
-              chargeProgress = { current: paidPayments, total };
+            const schedule = monthlySchedule({ cohort: sub.cohort, payments: paidRows });
+            if (schedule.currentModuleNumber !== null) {
+              chargeProgress = {
+                current: schedule.currentModuleNumber,
+                total: cohortModuleCount(sub.cohort),
+              };
             }
+            // Дата наступного списання = перший день наступного модуля. null, якщо
+            // сплачено все — тоді в листі фраза йде без дати.
+            nextChargeAt = schedule.nextSlotStart;
           }
           const result = await sendYearlyProgramPaymentReceiptEmail({
             to: user.email,
@@ -2245,6 +2259,7 @@ async function handleYearlyProgramCallback(args: {
             autoRenew: sub.autoRenew,
             newExpiresAt: flipResult.newExpiresAt,
             chargeProgress,
+            nextChargeAt,
           });
           if (result.ok) {
             actions.push('email:receipt_sent');

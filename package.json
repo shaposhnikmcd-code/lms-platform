@@ -11,6 +11,8 @@
     "start": "next start",
     "lint": "next lint",
     "test:visibility": "node --import tsx --test lib/yearlyProgramVisibility.test.ts",
+    "test:access": "node --import tsx --test lib/yearlyProgramAccess.test.ts",
+    "test": "npm run test:visibility && npm run test:access",
     "postinstall": "prisma generate",
     "db:status": "dotenv -e .env.local -- prisma migrate status",
     "db:migrate": "dotenv -e .env.local -- prisma migrate dev",

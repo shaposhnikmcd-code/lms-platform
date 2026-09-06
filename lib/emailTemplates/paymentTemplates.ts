@@ -108,8 +108,12 @@ export const PLACEHOLDER_DESCRIPTIONS: Record<string, { what: string; consequenc
     consequence: 'БЕЗ цього поля клієнт не побачить, коли саме спишуться гроші — лист втрачає сенс.',
   },
   progressLine: {
-    what: 'Прогрес автосписань — наприклад «Списання 3 з 9».',
-    consequence: 'БЕЗ цього поля отримувач не бачитиме на якому місяці підписки він зараз.',
+    what: 'Прогрес по модулях набору — наприклад «Оплачено модуль 3 з 9».',
+    consequence: 'БЕЗ цього поля отримувач не бачитиме, за який модуль програми він заплатив.',
+  },
+  nextChargeDate: {
+    what: 'Дата наступного автосписання — перший день наступного модуля набору, у форматі « — 01.11.2026». Порожньо, якщо списань більше не буде (усі модулі сплачені).',
+    consequence: 'БЕЗ цього поля клієнт не побачить дату наступного списання і писатиме менеджеру, щоб її дізнатись.',
   },
   autoRenewBullet: {
     what: 'Готовий пункт у списку про автосписання (зʼявляється тільки для планів з автосписанням).',
@@ -287,13 +291,13 @@ export const PAYMENT_TEMPLATES: Record<PaymentTemplateKey, PaymentTemplateMeta> 
     key: 'precharge-notice',
     group: 'payment',
     title: '⏰ Попередження перед автосписанням',
-    when: 'Щомісяця за 3 дні до найближчого автосписання (MONTHLY autoRenew=true). Шлеться нічним cron-ом, один раз на кожну дату списання.',
+    when: 'За 3 дні до найближчого автосписання (MONTHLY autoRenew=true) — списання припадає на перший день чергового модуля набору. Шлеться нічним cron-ом, один раз на кожну дату списання.',
     placeholders: ['greeting', 'amount', 'chargeDate', 'progressLine'],
     sampleData: {
       greeting: 'Доброго дня, Іван Петренко!',
       amount: '2200',
-      chargeDate: '05.10.2026',
-      progressLine: '<p style="margin: 0 0 16px; color: #555;">Це буде списання 3 з 9.</p>',
+      chargeDate: '01.11.2026',
+      progressLine: '<p style="margin: 0 0 16px; color: #555;">Це оплата модуля 3 з 9.</p>',
     },
     defaultSubject: 'Нагадуємо: {chargeDate} — черговий платіж за Річну програму',
     defaultBodyHtml: layout(`  <h2 style="color: #1a1a1a; margin: 0 0 16px;">Скоро черговий платіж</h2>
@@ -314,12 +318,13 @@ export const PAYMENT_TEMPLATES: Record<PaymentTemplateKey, PaymentTemplateMeta> 
     group: 'payment',
     title: '🧾 Receipt — Автосписання',
     when: 'Кожне successful автосписання MONTHLY autoRenew=true (окрім першої оплати = welcome).',
-    placeholders: ['greeting', 'amount', 'expiresAt', 'progressLine'],
+    placeholders: ['greeting', 'amount', 'expiresAt', 'progressLine', 'nextChargeDate'],
     sampleData: {
       greeting: 'Доброго дня, Іван Петренко!',
       amount: '2200',
-      expiresAt: '2026-08-15',
-      progressLine: '<p style="margin: 0 0 16px; color: #555;">Списання 3 з 9.</p>',
+      expiresAt: '2026-12-01',
+      progressLine: '<p style="margin: 0 0 16px; color: #555;">Оплачено модуль 3 з 9.</p>',
+      nextChargeDate: ' — 01.12.2026',
     },
     defaultSubject: 'Автосписання по Річній програмі — {amount} ₴',
     defaultBodyHtml: layout(`  <h2 style="color: #1a1a1a; margin: 0 0 16px;">Дякуємо за оплату</h2>
@@ -331,7 +336,7 @@ export const PAYMENT_TEMPLATES: Record<PaymentTemplateKey, PaymentTemplateMeta> 
   {progressLine}
   <h3 style="margin: 24px 0 8px;">Що далі</h3>
   <ul style="margin: 0 0 16px; padding-left: 20px;">
-    <li style="margin-bottom: 8px;">Наступне списання пройде автоматично через місяць.</li>
+    <li style="margin-bottom: 8px;">Наступне списання пройде автоматично{nextChargeDate} — у перший день наступного модуля програми.</li>
     <li style="margin-bottom: 8px;">Скасувати автосписання можна у будь-який момент — напишіть на <a href="mailto:edu@uimp.com.ua" style="color: #b08d3f;">edu@uimp.com.ua</a>.</li>
   </ul>`),
   },

@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import prisma from '@/lib/prisma';
 import { getYearlyGraceDays, getYearlySendpulseCourseId, YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
 import { syncAutopaySchedule } from '@/lib/yearlyProgramScheduleSync';
+import { cohortModuleCount, monthlySchedule } from '@/lib/yearlyProgramAccess';
 import {
   closeAccessInCourse,
   lookupStudentIdByEmail,
@@ -261,7 +262,8 @@ const NOT_IN_UNLAUNCHED_COHORT = {
 /// в GRACE (інакше лист «сьогодні останній день» не міг би піти), а grace-start має
 /// 20-годинний гейт — тобто виходить наступним добовим проходом, а не в тому ж, у якому
 /// підписка щойно потрапила в GRACE. Виняток — короткий grace (<3 днів), там лист іде одразу.
-/// Повністю оплачені підписки (9/9) з усіх платіжних нагадувань виключені (`isFullyPaid`).
+/// Повністю оплачені підписки (усі свої модулі набору) з усіх платіжних нагадувань
+/// виключені (`isFullyPaid`).
 export async function GET(req: NextRequest) {
   if (!verifyBearer(req.headers.get('authorization'), process.env.CRON_SECRET)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -1042,17 +1044,46 @@ async function expireGraceSubscriptions(): Promise<StepResult> {
 }
 
 /// «Оплатіть далі»-нагадування не мають сенсу для повністю оплаченої підписки
-/// (усі 9/9 внесків зроблені — її expiresAt це кінець пост-доступу, платити нічого).
-/// Перевірка спільна для ВСІХ платіжних листів — і manual, і cyclical. Для cyclical це
-/// критично: після 9-го платежу WFP-правило знімається (`wfpRegularRef` → null), тож
-/// `cyclicalNeedsWarning` вважав би таку підписку «регулярка зникла» і слав би
-/// «списання не пройшло, оплатіть» людині, яка оплатила все до копійки.
-function isFullyPaid(sub: { _count: { payments: number } }): boolean {
-  return sub._count.payments >= YEARLY_PROGRAM_CONFIG.totalMonthlyPayments;
+/// (усі СВОЇ модулі набору сплачені — її expiresAt це кінець пост-доступу, платити
+/// нічого). Перевірка спільна для ВСІХ платіжних листів — і manual, і cyclical. Для
+/// cyclical це критично: після останнього платежу WFP-правило знімається
+/// (`wfpRegularRef` → null), тож `cyclicalNeedsWarning` вважав би таку підписку
+/// «регулярка зникла» і слав би «списання не пройшло, оплатіть» людині, яка оплатила
+/// все до копійки.
+///
+/// «Усі свої» — не завжди 9: пізній покупець стартує з пізнішого модуля набору і має
+/// менше слотів (купив у жовтні → 8). Тому рахуємо через сітку `monthlySchedule`, а не
+/// лічильником платежів.
+function isFullyPaid(sub: ScheduleAwareSub): boolean {
+  const schedule = subSchedule(sub);
+  return schedule
+    ? schedule.isFullyPaid
+    : sub.payments.length >= YEARLY_PROGRAM_CONFIG.totalMonthlyPayments;
 }
 
-const PAID_COUNT_INCLUDE = {
-  _count: { select: { payments: { where: { status: 'PAID' as const } } } },
+/// Мінімум даних для читання сітки модулів: межі набору + зараховані PAID-платежі.
+/// Замінило `_count.payments` — самої кількості платежів для сітки не досить.
+type ScheduleAwareSub = {
+  cohort: { startDate: Date; endDate: Date } | null;
+  payments: { amount: number; status: string; paidAt: Date | null; createdAt: Date; excludedFromAccess: boolean | null; manualMethod: string | null }[];
+};
+
+function subSchedule(sub: ScheduleAwareSub) {
+  return sub.cohort ? monthlySchedule({ cohort: sub.cohort, payments: sub.payments }) : null;
+}
+
+const SCHEDULE_INCLUDE = {
+  cohort: { select: { startDate: true, endDate: true } },
+  payments: {
+    // Орфанні списання (`excludedFromAccess`) не є сплаченим модулем — так само, як
+    // у розрахунку доступу. Інакше одне зайве списання «закривало» б людині програму.
+    where: { status: 'PAID' as const, excludedFromAccess: false },
+    select: {
+      amount: true, status: true, paidAt: true, createdAt: true,
+      excludedFromAccess: true, manualMethod: true,
+    },
+    orderBy: [{ paidAt: 'asc' as const }, { createdAt: 'asc' as const }],
+  },
 };
 
 /// Чи попереджати автоплатіжника (autoRenew=true), що доступ ось-ось закриється.
@@ -1116,16 +1147,7 @@ async function sendAutopayPrechargeNotices(): Promise<StepResult> {
     },
     include: {
       user: true,
-      ...PAID_COUNT_INCLUDE,
-      // Сума береться з ОСТАННЬОГО реального WFP-списання цієї підписки, а не з
-      // прайсу: у підписки може бути своя ціна (промо, адмін-тест, стара ціна до
-      // підвищення), і саме її WFP спише знову. Прайс — лише fallback.
-      payments: {
-        where: { status: 'PAID', manualMethod: null },
-        orderBy: { createdAt: 'desc' },
-        take: 1,
-        select: { amount: true },
-      },
+      ...SCHEDULE_INCLUDE,
     },
   });
   if (subs.length === 0) return { step: 'autopay_precharge_notice', processed: 0, errors };
@@ -1154,8 +1176,13 @@ async function sendAutopayPrechargeNotices(): Promise<StepResult> {
       });
       if (claim.count === 0) return;
 
-      const paidCount = sub._count.payments;
-      const amount = sub.payments[0]?.amount ?? settings.monthlyPrice;
+      // Модуль, який покриє це списання: наступний після вже покритих.
+      const schedule = subSchedule(sub);
+      const nextModuleNumber = (schedule?.currentModuleNumber ?? sub.payments.length) + 1;
+      const totalModules = sub.cohort ? cohortModuleCount(sub.cohort) : YEARLY_PROGRAM_CONFIG.totalMonthlyPayments;
+      // Сума — з ОСТАННЬОГО реального WFP-списання (ручні рядки не еталон), прайс — fallback.
+      const lastWfpAmount = [...sub.payments].reverse().find((pay) => pay.manualMethod === null)?.amount;
+      const amount = lastWfpAmount ?? settings.monthlyPrice;
       let error: string | null = null;
       try {
         const res = await sendYearlyProgramUpcomingChargeEmail({
@@ -1163,7 +1190,7 @@ async function sendAutopayPrechargeNotices(): Promise<StepResult> {
           name: sub.user.name,
           amount,
           chargeAt,
-          chargeProgress: { current: paidCount + 1, total: YEARLY_PROGRAM_CONFIG.totalMonthlyPayments },
+          chargeProgress: { current: nextModuleNumber, total: totalModules },
         });
         if (!res.ok) error = res.error ?? 'send failed';
         // skipped=true → RESEND_API_KEY не заданий (або dev-гард). Це НЕ доставка:
@@ -1209,7 +1236,7 @@ async function sendAutopayPrechargeNotices(): Promise<StepResult> {
         data: {
           subscriptionId: sub.id,
           type: 'reminder_autopay_precharge',
-          message: `Попередження про автосписання ${target.toISOString().slice(0, 10)} · ${amount} ₴ · списання ${paidCount + 1} з ${YEARLY_PROGRAM_CONFIG.totalMonthlyPayments}`,
+          message: `Попередження про автосписання ${target.toISOString().slice(0, 10)} · ${amount} ₴ · модуль ${nextModuleNumber} з ${totalModules}`,
         },
       });
       processed++;
@@ -1241,7 +1268,7 @@ async function sendManualBeforeExpiryReminders(): Promise<StepResult> {
       reminderSent3d: false,
       ...NOT_IN_UNLAUNCHED_COHORT,
     },
-    include: { user: true, ...PAID_COUNT_INCLUDE },
+    include: { user: true, ...SCHEDULE_INCLUDE },
   });
 
   let processed = 0;
@@ -1290,7 +1317,7 @@ async function sendManualOnExpiryReminders(): Promise<StepResult> {
       reminderSentOnExpiry: false,
       ...NOT_IN_UNLAUNCHED_COHORT,
     },
-    include: { user: true, ...PAID_COUNT_INCLUDE },
+    include: { user: true, ...SCHEDULE_INCLUDE },
   });
 
   let processed = 0;
@@ -1348,7 +1375,7 @@ async function sendGraceStartReminders(): Promise<StepResult> {
       gracePeriodEndsAt: { not: null },
       ...NOT_IN_UNLAUNCHED_COHORT,
     },
-    include: { user: true, ...PAID_COUNT_INCLUDE },
+    include: { user: true, ...SCHEDULE_INCLUDE },
   });
 
   let processed = 0;
@@ -1407,7 +1434,7 @@ async function sendGraceMidReminders(): Promise<StepResult> {
       gracePeriodEndsAt: { not: null },
       ...NOT_IN_UNLAUNCHED_COHORT,
     },
-    include: { user: true, ...PAID_COUNT_INCLUDE },
+    include: { user: true, ...SCHEDULE_INCLUDE },
   });
 
   let processed = 0;
@@ -1469,7 +1496,7 @@ async function sendGraceLastReminders(): Promise<StepResult> {
       gracePeriodEndsAt: { gt: now },
       ...NOT_IN_UNLAUNCHED_COHORT,
     },
-    include: { user: true, ...PAID_COUNT_INCLUDE },
+    include: { user: true, ...SCHEDULE_INCLUDE },
   });
 
   let processed = 0;

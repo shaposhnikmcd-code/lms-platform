@@ -269,8 +269,8 @@ export default function WorkflowDiagramModal({ theme, graceDays, onClose }: { th
 
               {/* 3 · НАВЧАННЯ */}
               <Activity cx={770} cy={98}  w={180} num={10} kind="student"  title="🎓 Проходить курс" sub="матеріали в SendPulse" c={c} mgrShadowId={managerShadowId} />
-              <Activity cx={770} cy={194} w={180} num={11} kind="wfp"      title="Списує 2 200 ₴ щомісяця" sub="лише при авто · до 9 разів" c={c} mgrShadowId={managerShadowId} />
-              <Activity cx={770} cy={290} w={180} num={12} kind="platform" title="Доступ +30 днів" sub="після кожного успіху" c={c} mgrShadowId={managerShadowId} />
+              <Activity cx={770} cy={194} w={180} num={11} kind="wfp"      title="Списує 2 200 ₴ за модуль" sub="лише при авто · 1-го числа · до 9 разів" c={c} mgrShadowId={managerShadowId} />
+              <Activity cx={770} cy={290} w={180} num={12} kind="platform" title="Доступ +1 модуль" sub="до 1-го числа наступного" c={c} mgrShadowId={managerShadowId} />
               <Activity cx={770} cy={642} w={180} num={13} kind="email"    title="Лист-чек про списання" sub="за кожне успішне (тільки місячна)" editLocation="Листи Платежів" c={c} mgrShadowId={managerShadowId} />
 
               {/* 4 · ПЕРЕД КІНЦЕМ */}
@@ -516,8 +516,8 @@ export default function WorkflowDiagramModal({ theme, graceDays, onClose }: { th
               </thead>
               <tbody className={dark ? 'text-slate-300' : 'text-stone-700'}>
                 <PlanRow dark={dark} label="Ціна" yearly="15 000 ₴ разово" auto="2 200 ₴ × 9 = 19 800 ₴" manual="2 200 ₴ за місяць" />
-                <PlanRow dark={dark} label="Доступ" yearly="до кінця cohort-у" auto="+30 днів за платіж" manual="+30 днів за платіж" />
-                <PlanRow dark={dark} label="Кількість списань" yearly="1 разово" auto="до 9 авто-списань" manual="оплачує сам кожен раз" />
+                <PlanRow dark={dark} label="Доступ" yearly="до кінця cohort-у" auto="+1 модуль за платіж" manual="+1 модуль за платіж" />
+                <PlanRow dark={dark} label="Кількість списань" yearly="1 разово" auto="9 мінус пропущені модулі" manual="оплачує сам кожен раз" />
                 <PlanRow dark={dark} label="Лист-чек після оплати" yearly="welcome (1 раз)" auto="за кожне списання" manual="за кожен платіж" />
                 <PlanRow dark={dark} label="Нагадування −3д / −1д" yearly="—" auto="—" manual="✅ так" />
                 <PlanRow dark={dark} label="Лист «не списали»" yearly="—" auto={midReminderActive ? `✅ старт grace + день ${midGraceDay}` : '✅ старт grace'} manual="—" />

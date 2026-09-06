@@ -5,12 +5,19 @@ import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
 import { Prisma } from '@prisma/client';
 import { buildBundleSlugsSnapshot, type BundleSlugsSnapshot } from '@/lib/paymentProvisioning';
-import { getYearlyPostAccessMonths, isYearlyProgramOrderRef, YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
+import { isYearlyProgramOrderRef, YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
 import { buildRegularPurchaseFlags, getWayforpayCreds } from '@/lib/wayforpay';
 import { applyPromoServerSide, resolveServerPricing } from '@/lib/paymentPricing';
 import { claimPromoUse, releasePromoUse } from '@/lib/promoUsage';
 import { checkRateLimit } from '@/lib/ratelimit';
-import { calculateAccessUntil, lastAutopayChargeDate, maxAutopayChargeCount } from '@/lib/yearlyProgramAccess';
+import {
+  cohortModuleStart,
+  cohortSlotIndex,
+  lastAutopayChargeDate,
+  maxAutopayChargeCount,
+  monthlySchedule,
+  type MonthlySchedule,
+} from '@/lib/yearlyProgramAccess';
 import { removeSubscriptionAutopay, recordAutopayRemoveOutcome } from '@/lib/yearlyProgramAutopay';
 import { resolveSellableCohort } from '@/lib/yearlyProgramCohort';
 import { verifyInvite, type InvitePayload } from '@/lib/yearlyProgramInvite';
@@ -172,11 +179,14 @@ export async function POST(req: NextRequest) {
     /// min(лишок за програмою, слотів до кінця набору). null — не рахували (не MONTHLY).
     /// `<= 1` означає «цей платіж останній» → регулярку не створюємо взагалі.
     let autopayTotalPayments: number | null = null;
-    /// Якщо лишок за програмою жорсткіший за межу набору — dateEnd рахує сам хелпер
-    /// з totalPayments (інакше тримаємо межу набору).
-    let autopayLimitedByProgram = false;
-    /// Якір графіка (дата, яку покриває перший платіж) — спільний для DB-рішення й WFP-флагів.
+    /// Стан сітки модулів набору для вже наявної MONTHLY-підписки (null — cohort-у нема
+    /// або підписка нова). Рахується один раз і живить і guard-и, і якір WFP.
+    let monthlySched: MonthlySchedule | null = null;
+    /// Якір графіка — початок МОДУЛЯ, який покриває цей платіж. Спільний для DB-рішення
+    /// й WFP-флагів: від нього WFP рахує dateNext = перший день наступного модуля.
     let autopayAnchor: Date | null = null;
+    /// Індекс того модуля (0-based) — потрібен для кількості списань і dateEnd.
+    let autopayAnchorSlot: number | null = null;
 
     // Для курсів/пакетів/yearly — створюємо/знаходимо користувача і Payment
     if (!isConnector) {
@@ -443,11 +453,19 @@ export async function POST(req: NextRequest) {
             select: { amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true },
           });
           monthlyPaidCount = paidPayments.length;
+          monthlySched = currentCohortDates
+            ? monthlySchedule({ cohort: currentCohortDates, payments: paidPayments })
+            : null;
 
-          // Cap: усі місяці програми вже сплачені — продавати 10-й місяць нікуди.
+          // Cap: усі СВОЇ модулі вже сплачені — продавати наступний нікуди. Сітка у
+          // пізнього покупця коротша (купив у жовтні → 8 модулів, а не 9), тож і кеп
+          // коротший — інакше з нього взяли б гроші за модуль, якого в його наборі нема.
           // Доступ у такої підписки вже максимальний (cohort.endDate + пост-доступ),
           // новий платіж не дав би нічого, крім списаних грошей.
-          if (monthlyPaidCount >= YEARLY_PROGRAM_CONFIG.totalMonthlyPayments) {
+          const alreadyFullyPaid = monthlySched
+            ? monthlySched.isFullyPaid
+            : monthlyPaidCount >= YEARLY_PROGRAM_CONFIG.totalMonthlyPayments;
+          if (alreadyFullyPaid) {
             return NextResponse.json({
               error: 'Програму вже повністю оплачено. Якщо потрібна допомога — напишіть на edu@uimp.com.ua',
               code: 'monthly_fully_paid',
@@ -455,42 +473,16 @@ export async function POST(req: NextRequest) {
           }
 
           // Guard боргу (тільки MONTHLY — у YEARLY один платіж, борг неможливий).
-          // Місячний графік прив'язаний до КАЛЕНДАРНИХ слотів набору, а не до дати оплати:
-          // наступний платіж «займає» слот `anchor + (сплачено + 1) місяців`. Якщо людина
-          // пропустила кілька місяців, цей слот уже в минулому — оплата відкрила б доступ,
-          // що вже прострочений (callback фіксує такий кейс подією `revived_with_debt`).
-          // Грошей наосліп не беремо: рахуємо дату слота ТІЄЮ Ж формулою, що й доступ
-          // (calculateAccessUntil із синтетичними майбутніми платежами — щоб не дублювати
-          // правила anchor/клемпу/кепа), і відправляємо до менеджера: пропущені місяці
-          // він закриває вручну через ручні платежі.
-          if (monthlyPaidCount > 0 && currentCohortDates) {
-            const postAccessMonths = await getYearlyPostAccessMonths(prisma);
-            const nowTs = new Date();
-            /// Дата завершення доступу, якщо людина зараз зробить `extra` платежів.
-            const accessAfter = (extra: number) => calculateAccessUntil({
-              plan: 'MONTHLY',
-              autoRenew: existing!.autoRenew,
-              cohort: currentCohortDates!,
-              payments: [
-                ...paidPayments,
-                ...Array.from({ length: extra }, () => ({
-                  amount: 0,
-                  status: 'PAID',
-                  paidAt: nowTs,
-                  createdAt: nowTs,
-                })),
-              ],
-              postAccessMonths,
-            });
-            const nextAccessEnd = accessAfter(1);
-            if (nextAccessEnd && nextAccessEnd <= nowTs) {
-              // Скільки слотів поспіль лишились би в минулому = скільки місяців пропущено.
-              let missed = 1;
-              while (missed < YEARLY_PROGRAM_CONFIG.totalMonthlyPayments) {
-                const d = accessAfter(missed + 1);
-                if (!d || d > nowTs) break;
-                missed++;
-              }
+          // Сітка модулів набору жорстка: платіж покриває той модуль, у якому зроблений,
+          // наступні — перші дні наступних модулів. Якщо людина пропустила модулі, її
+          // перший неоплачений слот лежить у минулому — оплата відкрила б доступ, що вже
+          // прострочений (callback фіксує такий кейс подією `revived_with_debt`). Грошей
+          // наосліп не беремо: рахуємо пропущені модулі ТІЄЮ Ж сіткою, що й доступ
+          // (різниця між поточним модулем і першим неоплаченим), і відправляємо до
+          // менеджера — пропущені модулі він закриває вручну через ручні платежі.
+          if (monthlySched?.hasPayments && currentCohortDates) {
+            const missed = cohortSlotIndex(currentCohortDates, new Date()) - monthlySched.nextSlotIndex;
+            if (missed > 0) {
               const monthWord = missed % 10 === 1 && missed % 100 !== 11
                 ? 'місяць'
                 : ([2, 3, 4].includes(missed % 10) && ![12, 13, 14].includes(missed % 100) ? 'місяці' : 'місяців');
@@ -502,24 +494,28 @@ export async function POST(req: NextRequest) {
           }
         }
 
-        // Скільки списань іще має сенс програмувати. Дві межі: лишок за програмою
-        // (9 − уже сплачені цією підпискою) і кількість слотів до кінця набору.
-        // Без цього upgrade разова→автоплатіж після 2 сплачених місяців створював би
-        // регулярку на всі 9 списань — 2 місяці людина оплатила б двічі.
+        // Якір і кількість списань — на сітці модулів набору. Якір = початок МОДУЛЯ,
+        // який покриває цей платіж: поточний модуль (оплата всередині модуля покриває
+        // його цілком), а якщо людина сплатила наперед — перший ще не покритий. Від
+        // якоря WFP рахує dateNext = перший день наступного модуля, тож дати списань
+        // однакові у всіх (1-ше число), а не «6-те» чи «15-те» від дня покупки.
+        // Списань лишається рівно стільки, скільки модулів набору попереду: upgrade
+        // разова→автоплатіж після 2 сплачених модулів не програмує зайвих списань.
         if (plan === 'MONTHLY') {
           const nowTs = new Date();
-          autopayAnchor = currentCohortDates && currentCohortDates.startDate > nowTs
-            ? currentCohortDates.startDate
-            : nowTs;
-          const remainingByProgram = YEARLY_PROGRAM_CONFIG.totalMonthlyPayments - monthlyPaidCount;
-          const remainingBySlots = currentCohortDates
-            ? maxAutopayChargeCount({
-                firstPaymentDate: autopayAnchor,
-                cohortEndDate: currentCohortDates.endDate,
-              })
-            : YEARLY_PROGRAM_CONFIG.totalMonthlyPayments;
-          autopayTotalPayments = Math.min(remainingByProgram, remainingBySlots);
-          autopayLimitedByProgram = remainingByProgram < remainingBySlots;
+          if (currentCohortDates) {
+            const anchorSlot = Math.max(
+              cohortSlotIndex(currentCohortDates, nowTs),
+              monthlySched?.nextSlotIndex ?? 0,
+            );
+            autopayAnchorSlot = anchorSlot;
+            autopayAnchor = cohortModuleStart(currentCohortDates, anchorSlot);
+            autopayTotalPayments = maxAutopayChargeCount({ cohort: currentCohortDates, firstSlot: anchorSlot });
+          } else {
+            // Без cohort (legacy) — стара поведінка: якір «зараз», лишок за програмою.
+            autopayAnchor = nowTs;
+            autopayTotalPayments = YEARLY_PROGRAM_CONFIG.totalMonthlyPayments - monthlyPaidCount;
+          }
         }
 
         if (existing) {
@@ -859,26 +855,18 @@ export async function POST(req: NextRequest) {
       // (9 платежів × 30 днів від моменту покупки).
       const totalPayments = autopayTotalPayments!;
       let regularFlags: ReturnType<typeof buildRegularPurchaseFlags>;
-      if (currentCohortDates && autopayAnchor) {
-        // Покупка ДО старту програми: перший (Purchase) платіж покриває перший місяць
-        // ВІД дати старту cohort-у, тому WFP-графік наступних списань якоримо на
-        // cohort.startDate, а не на дату покупки: dateNext = anchor + 1 місяць.
-        // Друге списання прийде через місяць після старту, а не через місяць після
-        // покупки. Після старту — як раніше (від now).
+      if (currentCohortDates && autopayAnchor && autopayAnchorSlot !== null) {
+        // Якір — початок модуля, який покриває цей Purchase, тож dateNext = перший день
+        // наступного модуля (anchor + 1 місяць), однаковий для всіх. dateEnd — початок
+        // ОСТАННЬОГО модуля набору (+ 10-денний буфер у хелпері), щоб WFP не зрізав
+        // останнє списання і не виходив за межі програми.
         regularFlags = buildRegularPurchaseFlags({
           amount: finalAmount,
           anchor: autopayAnchor,
-          // Межу набору тримаємо лише коли саме вона обмежує кількість списань. Якщо
-          // жорсткіший лишок за програмою (реюз підписки з уже сплаченими місяцями) —
-          // dateEnd рахує хелпер з totalPayments, інакше WFP списував би до кінця набору.
-          ...(autopayLimitedByProgram
-            ? {}
-            : {
-                dateEnd: lastAutopayChargeDate({
-                  firstPaymentDate: autopayAnchor,
-                  cohortEndDate: currentCohortDates.endDate,
-                }),
-              }),
+          dateEnd: lastAutopayChargeDate({
+            cohort: currentCohortDates,
+            firstSlot: autopayAnchorSlot,
+          }),
           totalPayments,
         });
       } else {

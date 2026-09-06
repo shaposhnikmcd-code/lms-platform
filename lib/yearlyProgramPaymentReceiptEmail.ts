@@ -15,15 +15,23 @@ export async function sendYearlyProgramPaymentReceiptEmail(args: {
   autoRenew: boolean;
   /// Дата, до якої тепер відкритий доступ (після цього успішного списання).
   newExpiresAt: Date;
-  /// Для autopay — порядковий номер цього списання у плані cohort-у та загальна кількість.
-  /// Для разової оплати — null (там немає графіку).
+  /// Для autopay — абсолютний номер МОДУЛЯ набору, який покрив цей платіж, і скільки
+  /// модулів усього («модуль 3 з 9»). Для разової оплати — null (там немає графіку).
   chargeProgress: { current: number; total: number } | null;
+  /// Дата наступного автосписання = перший день наступного модуля. null, якщо списань
+  /// більше не буде (усі свої модулі сплачені) — тоді фраза в листі йде без дати.
+  nextChargeAt?: Date | null;
 }): Promise<{ ok: boolean; error?: string }> {
-  const { to, name, amount, autoRenew, newExpiresAt, chargeProgress } = args;
+  const { to, name, amount, autoRenew, newExpiresAt, chargeProgress, nextChargeAt } = args;
 
   const greeting = name && name.trim() ? `Доброго дня, ${esc(name.trim())}!` : 'Доброго дня!';
   const progressLine = chargeProgress
-    ? `<p style="margin: 0 0 16px; color: #555;">Списання ${chargeProgress.current} з ${chargeProgress.total}.</p>`
+    ? `<p style="margin: 0 0 16px; color: #555;">Оплачено модуль ${chargeProgress.current} з ${chargeProgress.total}.</p>`
+    : '';
+  // UTC-форматування — уся математика дат Річної живе в UTC, тож дата в листі збігається
+  // з датою у графіку WFP і в адмінці.
+  const nextChargeDate = nextChargeAt
+    ? ` — ${String(nextChargeAt.getUTCDate()).padStart(2, '0')}.${String(nextChargeAt.getUTCMonth() + 1).padStart(2, '0')}.${nextChargeAt.getUTCFullYear()}`
     : '';
 
   const tpl = await getPaymentTemplate(autoRenew ? 'receipt-autopay' : 'receipt-one-time');
@@ -32,6 +40,7 @@ export async function sendYearlyProgramPaymentReceiptEmail(args: {
     amount: esc(String(amount)),
     expiresAt: esc(newExpiresAt.toISOString().slice(0, 10)),
     progressLine,
+    nextChargeDate: esc(nextChargeDate),
   };
 
   return sendEmail({
