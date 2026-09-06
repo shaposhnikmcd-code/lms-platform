@@ -38,7 +38,7 @@
 
 import { Prisma } from '@prisma/client';
 import prisma from '@/lib/prisma';
-import { calculateAccessUntil } from '@/lib/yearlyProgramAccess';
+import { calculateAccessUntil, monthlySchedule } from '@/lib/yearlyProgramAccess';
 import { getYearlyPostAccessMonths, RESET_REMINDER_AND_GRACE_FIELDS, YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
 
 export interface PaymentActivationResult {
@@ -86,7 +86,7 @@ export async function applyPaymentActivation(args: {
     where: { id: args.subscriptionId },
     include: {
       cohort: true,
-      payments: { select: { amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true } },
+      payments: { select: { amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true, manualMethod: true } },
     },
   });
 
@@ -191,7 +191,17 @@ export async function applyPaymentActivation(args: {
   const paidCount = (fresh?.payments ?? []).filter((p) => p.status === 'PAID').length;
   const debt = newStatus === 'ACTIVE' && !backToLife && !!newExpiresAt;
   if (debt && !isCorrection) {
-    const totalSlots = args.plan === 'MONTHLY' ? YEARLY_PROGRAM_CONFIG.totalMonthlyPayments : 1;
+    // Скільки модулів має сплатити САМЕ ця підписка. У пізнього покупця їх менше 9
+    // (жовтень → 8), і без сітки менеджер із цього повідомлення продавав би модуль,
+    // якого в наборі студента немає.
+    const totalSlots = args.plan === 'MONTHLY'
+      ? (fresh?.cohort
+        ? monthlySchedule({
+          cohort: { startDate: fresh.cohort.startDate, endDate: fresh.cohort.endDate },
+          payments: fresh.payments,
+        }).totalSlots
+        : YEARLY_PROGRAM_CONFIG.totalMonthlyPayments)
+      : 1;
     await prisma.yearlyProgramSubscriptionEvent.create({
       data: {
         subscriptionId: args.subscriptionId,

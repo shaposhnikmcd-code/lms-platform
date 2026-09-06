@@ -59,16 +59,23 @@ export function signFields(fields: (string | number)[], secretKey: string): stri
 /// `totalPayments` задає скільки ВСЬОГО списань має бути (1 Purchase + (N-1) scheduled).
 /// Для Річної програми 9 місяців → 9 платежів → dateEnd = anchor + 8 місяців + 10 днів буфер.
 /// Після dateEnd WFP припиняє автосписання автоматично.
+/// `dateNext` можна передати явно — і для cohort-набору це ОБОВ'ЯЗКОВО: сітка модулів
+/// рахується від `cohort.startDate`, а `anchor + 1 місяць` після клемпу з неї з'їжджає.
+/// Набір зі стартом 31.01: модуль 2 починається 28.02, модуль 3 — 31.03, але
+/// `28.02 + 1 міс` дає 28.03 — списання поїхало б на три дні раніше за модуль і
+/// розійшлося б із датою доступу. Тому виклик із cohort-у передає
+/// `cohortModuleStart(cohort, anchorSlot + 1)`.
 export function buildRegularPurchaseFlags(opts: {
   amount: number;
   anchor?: Date;
+  dateNext?: Date;
   dateEnd?: Date;
   totalPayments?: number;
 }) {
   const begin = opts.anchor ?? new Date();
-  // Клемпований календарний місяць (спільна формула з розрахунком доступу): 31.10 + 1 міс
-  // = 30.11, а не 01.12 — інакше графік WFP розходився з нашими датами доступу.
-  const next = addCalendarMonths(begin, 1);
+  // Без явного dateNext (legacy-гілка без набору) — клемпований календарний місяць:
+  // 31.10 + 1 міс = 30.11, а не 01.12.
+  const next = opts.dateNext ?? addCalendarMonths(begin, 1);
   let end: Date;
   if (opts.dateEnd) {
     // Cohort-гілка: передана дата — це день ОСТАННЬОГО списання. Додаємо той самий

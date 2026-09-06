@@ -48,7 +48,7 @@ async function main() {
       user: { select: { email: true } },
       cohort: true,
       payments: {
-        select: { amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true },
+        select: { amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true, manualMethod: true },
       },
     },
     orderBy: { createdAt: 'asc' },

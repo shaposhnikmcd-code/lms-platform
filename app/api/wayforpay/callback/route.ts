@@ -1090,7 +1090,7 @@ async function handleRefundCallback(args: {
     // Той самий фільтр — у гілці зарахування платежу нижче і в yearlyProgramScheduleSync.
     const remaining = await prisma.payment.findMany({
       where: { yearlyProgramSubscriptionId: sub.id, status: 'PAID', excludedFromAccess: false },
-      select: { amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true },
+      select: { amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true, manualMethod: true },
     });
     const now = new Date();
     const nothingLeftPaid = remaining.length === 0;
@@ -1544,7 +1544,7 @@ async function handleYearlyProgramCallback(args: {
         // не входять — інакше одне зайве списання назавжди блокувало б легальні.
         const paidRows = await tx.payment.findMany({
           where: { yearlyProgramSubscriptionId: sub.id, status: 'PAID', excludedFromAccess: false },
-          select: { amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true },
+          select: { amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true, manualMethod: true },
         });
         const paidCount = paidRows.length;
         const capCohort = sub.cohortId
@@ -1789,8 +1789,12 @@ async function handleYearlyProgramCallback(args: {
         revivedFrom: string | null;
         /// true — SendPulse-доступ був закритий і ми скинули маркери, щоб відкрити його заново.
         accessReset: boolean;
-        /// Скільки PAID-платежів у підписки ПІСЛЯ зарахування цього (для 9/9-перевірки).
+        /// Скільки PAID-платежів у підписки ПІСЛЯ зарахування цього.
         paidCount: number;
+        /// Скільки модулів набору має сплатити ця підписка (у пізнього покупця < 9).
+        totalSlots: number;
+        /// Усі СВОЇ модулі сплачені — після цього регулярку у WFP треба знімати.
+        isFullyPaid: boolean;
       };
 
   const SUB_MISSING_SENTINEL = '__SUB_MISSING_ROLLBACK__';
@@ -1846,9 +1850,17 @@ async function handleYearlyProgramCallback(args: {
         // Виключені зі заліку списання відсіюємо на рівні запиту: вони не місяць доступу
         // і не одиниця в лічильнику 9/9.
         where: { yearlyProgramSubscriptionId: sub.id, status: 'PAID', excludedFromAccess: false },
-        select: { amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true },
+        select: { amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true, manualMethod: true },
       });
       const postAccessMonths = await getYearlyPostAccessMonths(tx);
+      // Сітка модулів цієї підписки — з неї беруться і «сплачено X з Y» у події боргу,
+      // і рішення «знімати регулярку» після останнього платежу.
+      const schedule = sub.plan === 'MONTHLY' && sub.cohort
+        ? monthlySchedule({
+            cohort: { startDate: sub.cohort.startDate, endDate: sub.cohort.endDate },
+            payments: allPayments,
+          })
+        : null;
       const newExpiresAt = calculateAccessUntil({
         plan: sub.plan,
         autoRenew: sub.autoRenew,
@@ -1900,7 +1912,11 @@ async function handleYearlyProgramCallback(args: {
       // але лишаємо слід. Тип події `revived_with_debt` мапиться у вкладку «Помилки» —
       // менеджер має вирішити: допродати місяці чи скоригувати дати.
       if (newExpiresAt.getTime() <= now.getTime()) {
-        const totalSlots = sub.plan === 'MONTHLY' ? YEARLY_PROGRAM_CONFIG.totalMonthlyPayments : 1;
+        // Скільки модулів має сплатити САМЕ ця підписка: у пізнього покупця їх менше 9,
+        // інакше менеджер із цього повідомлення продавав би неіснуючий модуль.
+        const totalSlots = sub.plan === 'MONTHLY'
+          ? (schedule?.totalSlots ?? YEARLY_PROGRAM_CONFIG.totalMonthlyPayments)
+          : 1;
         await tx.yearlyProgramSubscriptionEvent.create({
           data: {
             subscriptionId: sub.id,
@@ -1917,7 +1933,20 @@ async function handleYearlyProgramCallback(args: {
         });
       }
 
-      return { kind: 'ok', sub: sub as SubWithCohort, newExpiresAt, durationDays, wasFirstPayment, revivedFrom, accessReset, paidCount: allPayments.length };
+      return {
+        kind: 'ok',
+        sub: sub as SubWithCohort,
+        newExpiresAt,
+        durationDays,
+        wasFirstPayment,
+        revivedFrom,
+        accessReset,
+        paidCount: allPayments.length,
+        totalSlots: schedule?.totalSlots ?? YEARLY_PROGRAM_CONFIG.totalMonthlyPayments,
+        isFullyPaid: schedule
+          ? schedule.isFullyPaid
+          : allPayments.length >= YEARLY_PROGRAM_CONFIG.totalMonthlyPayments,
+      };
     });
   } catch (e) {
     if (e instanceof Error && e.message === SUB_MISSING_SENTINEL) {
@@ -1991,7 +2020,11 @@ async function handleYearlyProgramCallback(args: {
     actions.push(`dedup:err:${(e as Error).message.slice(0, 40)}`);
   }
 
-  const fullyPaid = flipResult.paidCount >= YEARLY_PROGRAM_CONFIG.totalMonthlyPayments;
+  // Сплачені всі СВОЇ модулі, а не завжди 9: у покупця з жовтня їх 8, і без сітки
+  // після його останнього списання правило регулярки у WFP не знімалось би — WFP
+  // пробував би ще одне списання, ми відхиляли б його по `monthly_cap_reached`, а гроші
+  // менеджер повертав би вручну.
+  const fullyPaid = flipResult.isFullyPaid;
 
   // Прапорець autoRenew вмикається САМЕ ТУТ, за фактом живого правила у WFP. Ініціація
   // оплати (`/api/wayforpay`) навмисно не робить upgrade разова→автоплатіж у БД: інакше
@@ -2048,9 +2081,11 @@ async function handleYearlyProgramCallback(args: {
 
   // Оновлюємо кеш «Наступний платіж» (wfpNextChargeAt) з WFP після успішного списання.
   // Звичайне списання — checkOnly: без CHANGE, бо WFP сам щойно перерахував свій графік.
-  // 9/9 — навпаки, apply:true: гілка `fullyPaid` у sync-у знімає правило регулярки (REMOVE).
-  // Без цього WFP пробує 10-те списання, ми його відхиляємо по monthly_cap_reached, а гроші
-  // доводиться повертати вручну. Помилка не блокує callback.
+  // Останній модуль сплачено — навпаки, apply:true: гілка `fullyPaid` у sync-у знімає
+  // правило регулярки (REMOVE). Без цього WFP пробує зайве списання, ми його відхиляємо
+  // по monthly_cap_reached, а гроші доводиться повертати вручну. «Останній» рахується
+  // за сіткою набору (`totalSlots`), тож пізній покупець отримує REMOVE на своєму
+  // 8-му платежі, а не чекає неіснуючого дев'ятого. Помилка не блокує callback.
   if (sub.plan === 'MONTHLY' && sub.autoRenew) {
     try {
       const syncRes = await syncAutopaySchedule(sub.id, { apply: fullyPaid, source: fullyPaid ? 'callback:fully-paid' : 'callback' });
@@ -2239,7 +2274,7 @@ async function handleYearlyProgramCallback(args: {
             // в таблиці і що написано в графіку: сітка модулів у всіх одна.
             const paidRows = await prisma.payment.findMany({
               where: { yearlyProgramSubscriptionId: sub.id, status: 'PAID', excludedFromAccess: false },
-              select: { amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true },
+              select: { amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true, manualMethod: true },
             });
             const schedule = monthlySchedule({ cohort: sub.cohort, payments: paidRows });
             if (schedule.currentModuleNumber !== null) {

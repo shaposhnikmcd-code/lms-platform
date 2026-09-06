@@ -59,18 +59,30 @@ const access = (payments: PaymentLike[], cohort: CohortLike = COHORT) =>
     postAccessMonths: POST_ACCESS_MONTHS,
   });
 
+/// Платіж WayForPay: `createdAt` — момент чекауту, `paidAt` — коли пройшла картка.
+/// Саме `manualMethod: null` каже сітці, що слот треба брати з чекауту.
+const wfpPay = (createdIso: string, paidIso: string): PaymentLike => ({
+  amount: 2200,
+  status: 'PAID',
+  createdAt: new Date(createdIso),
+  paidAt: new Date(paidIso),
+  excludedFromAccess: false,
+  manualMethod: null,
+});
+
 /// dateNext, який отримає WayForPay для покупки в момент `nowIso` (без уже сплачених
 /// модулів). Саме цей шлях працює в /api/wayforpay.
-const wfpFlags = (nowIso: string) => {
-  const slot = cohortSlotIndex(COHORT, new Date(nowIso));
-  const totalPayments = maxAutopayChargeCount({ cohort: COHORT, firstSlot: slot });
+const wfpFlags = (nowIso: string, cohort: CohortLike = COHORT) => {
+  const slot = cohortSlotIndex(cohort, new Date(nowIso));
+  const totalPayments = maxAutopayChargeCount({ cohort, firstSlot: slot });
   return {
     slot,
     totalPayments,
     ...buildRegularPurchaseFlags({
       amount: 2200,
-      anchor: cohortModuleStart(COHORT, slot),
-      dateEnd: lastAutopayChargeDate({ cohort: COHORT, firstSlot: slot }),
+      anchor: cohortModuleStart(cohort, slot),
+      dateNext: cohortModuleStart(cohort, slot + 1),
+      dateEnd: lastAutopayChargeDate({ cohort, firstSlot: slot }),
       totalPayments,
     }),
   };
@@ -266,4 +278,106 @@ test('endDate, збережений як 00:00Z, не з’їдає останн
 test('cohortSlotIndex: до старту → 0, після кінця → останній модуль', () => {
   assert.equal(cohortSlotIndex(COHORT, new Date('2026-01-01T00:00:00.000Z')), 0);
   assert.equal(cohortSlotIndex(COHORT, new Date('2028-01-01T00:00:00.000Z')), 8);
+});
+
+test('гонка чекаут/оплата: слот бере момент ЧЕКАУТУ, а не проходження картки', () => {
+  // Чекаут 29.09 о 20:00 — /api/wayforpay порахував 9 списань і dateNext 01.10.
+  // Картка пройшла 30.09 о 01:00, уже в іншому модулі за старою логікою.
+  const racy = [wfpPay('2026-09-29T20:00:00.000Z', '2026-09-30T01:00:00.000Z')];
+  const s = monthlySchedule({ cohort: COHORT, payments: racy });
+  const flags = wfpFlags('2026-09-29T20:00:00.000Z');
+  assert.equal(s.firstSlot, flags.slot, 'слот доступу = слот якоря WFP');
+  assert.equal(s.totalSlots, flags.totalPayments, 'слотів доступу = списань у WFP');
+  assert.equal(s.firstSlot, 0);
+  assert.equal(s.totalSlots, 9);
+  assert.equal(flags.dateNext, '01.10.2026');
+  // Дев'ятий платіж має закривати програму, а не впиратись у monthly_cap_reached.
+  const nine = [racy[0]!, ...gridPayments('2026-10-01T00:00:00.000Z', 8)];
+  assert.equal(monthlySchedule({ cohort: COHORT, payments: nine }).isFullyPaid, true);
+  assert.equal(access(nine)!.toISOString(), FULL_ACCESS_END);
+});
+
+test('ручний платіж бере слот з paidAt, а не з дати внесення менеджером', () => {
+  // Менеджер вніс у грудні оплату, зроблену готівкою у вересні.
+  const manual: PaymentLike = {
+    amount: 2200,
+    status: 'PAID',
+    paidAt: new Date('2026-09-15T00:00:00.000Z'),
+    createdAt: new Date('2026-12-20T11:00:00.000Z'),
+    excludedFromAccess: false,
+    manualMethod: 'cash',
+  };
+  const s = monthlySchedule({ cohort: COHORT, payments: [manual] });
+  assert.equal(s.firstSlot, 0);
+  assert.equal(s.coveredUntil!.toISOString(), '2026-10-01T00:00:00.000Z');
+});
+
+test('борг: в останній день модуля боргу немає, з першим днем наступного — 1', () => {
+  // Сплачено лише вересень → перший неоплачений модуль = жовтень (індекс 1).
+  const s = monthlySchedule({ cohort: COHORT, payments: [pay('2026-09-15T10:00:00.000Z')] });
+  assert.equal(s.nextSlotIndex, 1);
+  const missedAt = (iso: string) =>
+    cohortSlotIndex(COHORT, new Date(iso), { edge: false }) - s.nextSlotIndex;
+  // 31.10 студент платить за жовтень в останній його день — це не борг.
+  assert.equal(missedAt('2026-10-30T10:00:00.000Z'), 0);
+  assert.equal(missedAt('2026-10-31T10:00:00.000Z'), 0);
+  assert.equal(missedAt('2026-10-31T23:59:00.000Z'), 0);
+  // 01.11 жовтень уже пропущено.
+  assert.equal(missedAt('2026-11-01T00:00:00.000Z'), 1);
+  // З правилом краю 31.10 хибно читалось би як листопад → фальшивий борг.
+  assert.equal(cohortSlotIndex(COHORT, new Date('2026-10-31T10:00:00.000Z')) - s.nextSlotIndex, 1);
+});
+
+test('правило краю лишається для СЛОТА платежу, але не для питання «який модуль зараз»', () => {
+  const at = new Date('2026-10-31T20:00:00.000Z');
+  assert.equal(cohortSlotIndex(COHORT, at), 2, 'покупка за 4 год до листопада — це вже листопад');
+  assert.equal(cohortSlotIndex(COHORT, at, { edge: false }), 1, 'а йде ще жовтень');
+  // Рівно доба до наступного модуля — ще поточний модуль (порівняння строге).
+  assert.equal(cohortSlotIndex(COHORT, new Date('2026-10-31T00:00:00.000Z')), 1);
+});
+
+test('набір зі стартом 31.01: dateNext іде по сітці, а не «якір + 1 місяць»', () => {
+  const jan31: CohortLike = {
+    startDate: new Date('2027-01-31T00:00:00.000Z'),
+    endDate: new Date('2027-10-30T23:59:59.999Z'),
+  };
+  // Модулі: 31.01 → 28.02 → 31.03 → 30.04 …
+  assert.equal(cohortModuleStart(jan31, 1).toISOString(), '2027-02-28T00:00:00.000Z');
+  assert.equal(cohortModuleStart(jan31, 2).toISOString(), '2027-03-31T00:00:00.000Z');
+  const flags = wfpFlags('2027-03-01T12:00:00.000Z', jan31);
+  assert.equal(flags.slot, 1);
+  // «anchor + 1 місяць» дало б 28.03 — на три дні раніше за початок модуля.
+  assert.equal(flags.dateNext, '31.03.2027');
+  assert.equal(flags.totalPayments, 8);
+});
+
+test('останній модуль набору: 1 платіж, регулярку програмувати нічого', () => {
+  const slot = cohortSlotIndex(COHORT, new Date('2027-05-05T10:00:00.000Z'));
+  assert.equal(slot, 8);
+  assert.equal(maxAutopayChargeCount({ cohort: COHORT, firstSlot: slot }), 1);
+  // Роут вмикає регулярні прапори лише коли списань > 1 — тут вони не чіпляються взагалі.
+  const s = monthlySchedule({ cohort: COHORT, payments: [pay('2027-05-05T10:00:00.000Z')] });
+  assert.equal(s.totalSlots, 1);
+  assert.equal(s.isFullyPaid, true);
+  assert.equal(s.nextSlotStart, null);
+});
+
+test('платіж уже ПІСЛЯ кінця набору: слотів 0, повної оплати немає, пост-доступ не нараховується', () => {
+  const late = [pay('2027-07-10T10:00:00.000Z')];
+  const s = monthlySchedule({ cohort: COHORT, payments: late });
+  assert.equal(s.degenerate, true);
+  assert.equal(s.totalSlots, 0);
+  assert.equal(s.isFullyPaid, false);
+  assert.equal(s.remaining, 0);
+  assert.equal(s.coveredUntil!.toISOString(), COHORT.endDate.toISOString());
+  // Головне: один платіж на 2200 ₴ НЕ відкриває доступ до кінця пост-доступу.
+  assert.equal(access(late)!.toISOString(), COHORT.endDate.toISOString());
+  assert.notEqual(access(late)!.toISOString(), FULL_ACCESS_END);
+});
+
+test('платіж в останній день набору — ще нормальний слот, не вироджений', () => {
+  const s = monthlySchedule({ cohort: COHORT, payments: [pay('2027-05-31T20:00:00.000Z')] });
+  assert.equal(s.degenerate, false);
+  assert.equal(s.firstSlot, 8);
+  assert.equal(s.totalSlots, 1);
 });

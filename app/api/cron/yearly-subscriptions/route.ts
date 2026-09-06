@@ -1082,7 +1082,11 @@ const SCHEDULE_INCLUDE = {
       amount: true, status: true, paidAt: true, createdAt: true,
       excludedFromAccess: true, manualMethod: true,
     },
-    orderBy: [{ paidAt: 'asc' as const }, { createdAt: 'asc' as const }],
+    // createdAt desc: перший рядок — найсвіжіший платіж. `paidAt` для сортування не
+    // годиться — у ручних рядків він буває NULL, і такий рядок опинявся б «найсвіжішим»,
+    // підставляючи в лист-попередження суму платежу без дати оплати.
+    // Сітці порядок байдужий: `monthlySchedule` сортує слот-дати сама.
+    orderBy: { createdAt: 'desc' as const },
   },
 };
 
@@ -1181,7 +1185,7 @@ async function sendAutopayPrechargeNotices(): Promise<StepResult> {
       const nextModuleNumber = (schedule?.currentModuleNumber ?? sub.payments.length) + 1;
       const totalModules = sub.cohort ? cohortModuleCount(sub.cohort) : YEARLY_PROGRAM_CONFIG.totalMonthlyPayments;
       // Сума — з ОСТАННЬОГО реального WFP-списання (ручні рядки не еталон), прайс — fallback.
-      const lastWfpAmount = [...sub.payments].reverse().find((pay) => pay.manualMethod === null)?.amount;
+      const lastWfpAmount = sub.payments.find((pay) => pay.manualMethod === null)?.amount;
       const amount = lastWfpAmount ?? settings.monthlyPrice;
       let error: string | null = null;
       try {

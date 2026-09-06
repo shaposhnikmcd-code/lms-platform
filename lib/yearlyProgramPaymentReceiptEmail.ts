@@ -30,8 +30,10 @@ export async function sendYearlyProgramPaymentReceiptEmail(args: {
     : '';
   // UTC-форматування — уся математика дат Річної живе в UTC, тож дата в листі збігається
   // з датою у графіку WFP і в адмінці.
+  // Тире вже є в тексті шаблону («…автоматично{nextChargeDate} — у перший день…»),
+  // тут лише пробіл + дата, інакше в листі виходило два тире підряд.
   const nextChargeDate = nextChargeAt
-    ? ` — ${String(nextChargeAt.getUTCDate()).padStart(2, '0')}.${String(nextChargeAt.getUTCMonth() + 1).padStart(2, '0')}.${nextChargeAt.getUTCFullYear()}`
+    ? ` ${String(nextChargeAt.getUTCDate()).padStart(2, '0')}.${String(nextChargeAt.getUTCMonth() + 1).padStart(2, '0')}.${nextChargeAt.getUTCFullYear()}`
     : '';
 
   const tpl = await getPaymentTemplate(autoRenew ? 'receipt-autopay' : 'receipt-one-time');

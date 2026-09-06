@@ -117,7 +117,7 @@ export async function syncAutopaySchedule(
         // (orphan / понад ліміт / розбіжність суми). Інакше `paidCount` завищувався б і
         // звірка знімала б живе правило регулярки як «повна оплата 9/9».
         where: { status: 'PAID', excludedFromAccess: false },
-        select: { orderReference: true, amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true },
+        select: { orderReference: true, amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true, manualMethod: true },
         orderBy: { createdAt: 'asc' },
       },
     },

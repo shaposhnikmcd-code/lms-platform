@@ -95,7 +95,7 @@ async function purchase(nowIso: string) {
 
 async function main() {
   console.log(`[e2e-yearly-monthly-schedule] host: ${(process.env.DATABASE_URL || '').match(/@([^/:?]+)/)?.[1]}`);
-  const cohort = await prisma.yearlyProgramCohort.findFirst({ orderBy: { createdAt: 'desc' } });
+  const cohort = await prisma.yearlyProgramCohort.findFirst({ where: { isCurrent: true } });
   console.log(`Набір: ${cohort?.name} · ${cohort?.startDate.toISOString().slice(0, 10)} → ${cohort?.endDate.toISOString().slice(0, 10)}\n`);
 
   await cleanup();
@@ -115,6 +115,15 @@ async function main() {
   check('06.10: dateNext = 01.11.2026', oct.body.dateNext === '01.11.2026', String(oct.body.dateNext));
   check('06.10: dateEnd = 11.05.2027', oct.body.dateEnd === '11.05.2027', String(oct.body.dateEnd));
   check('06.10: регулярка увімкнена', oct.body.regularOn === '1' && oct.body.regularMode === 'monthly');
+
+  await cleanup();
+
+  // Останній модуль набору (травень 2027): списання лишилось рівно одне — Purchase.
+  // Регулярні прапори не чіпляються взагалі, інакше WFP запрограмував би списання
+  // після кінця програми.
+  const may = await purchase('2027-05-05T09:00:00.000Z');
+  console.log('05.05.2027 ->', JSON.stringify({ dateNext: may.body.dateNext, dateEnd: may.body.dateEnd, regularOn: may.body.regularOn }));
+  check('05.05.2027: регулярних прапорів немає', may.body.regularOn === undefined && may.body.dateNext === undefined);
 
   await cleanup();
 

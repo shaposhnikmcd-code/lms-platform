@@ -450,7 +450,7 @@ export async function POST(req: NextRequest) {
             // (orphan по закритій підписці, понад ліміт, розбіжність суми). Вони не є
             // сплаченим місяцем ні для кепу 9/9, ні для guard-а боргу.
             where: { yearlyProgramSubscriptionId: existing.id, status: 'PAID', excludedFromAccess: false },
-            select: { amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true },
+            select: { amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true, manualMethod: true },
           });
           monthlyPaidCount = paidPayments.length;
           monthlySched = currentCohortDates
@@ -481,7 +481,12 @@ export async function POST(req: NextRequest) {
           // (різниця між поточним модулем і першим неоплаченим), і відправляємо до
           // менеджера — пропущені модулі він закриває вручну через ручні платежі.
           if (monthlySched?.hasPayments && currentCohortDates) {
-            const missed = cohortSlotIndex(currentCohortDates, new Date()) - monthlySched.nextSlotIndex;
+            // `edge: false` — тут питання «який модуль іде ЗАРАЗ», а не «який модуль
+            // купують». З правилом краю 31.10 читалось би як листопад, і студент, який
+            // платить за жовтень в останній його день, отримував би 409 «пропущено 1
+            // місяць», а той, хто платить 30.10, — ні.
+            const missed = cohortSlotIndex(currentCohortDates, new Date(), { edge: false })
+              - monthlySched.nextSlotIndex;
             if (missed > 0) {
               const monthWord = missed % 10 === 1 && missed % 100 !== 11
                 ? 'місяць'
@@ -863,6 +868,9 @@ export async function POST(req: NextRequest) {
         regularFlags = buildRegularPurchaseFlags({
           amount: finalAmount,
           anchor: autopayAnchor,
+          // dateNext — початок НАСТУПНОГО модуля з самої сітки, а не `anchor + 1 місяць`:
+          // на наборах зі стартом 29–31 числа клемп місяця з сітки з'їжджає.
+          dateNext: cohortModuleStart(currentCohortDates, autopayAnchorSlot + 1),
           dateEnd: lastAutopayChargeDate({
             cohort: currentCohortDates,
             firstSlot: autopayAnchorSlot,

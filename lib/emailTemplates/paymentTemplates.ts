@@ -112,7 +112,7 @@ export const PLACEHOLDER_DESCRIPTIONS: Record<string, { what: string; consequenc
     consequence: 'БЕЗ цього поля отримувач не бачитиме, за який модуль програми він заплатив.',
   },
   nextChargeDate: {
-    what: 'Дата наступного автосписання — перший день наступного модуля набору, у форматі « — 01.11.2026». Порожньо, якщо списань більше не буде (усі модулі сплачені).',
+    what: 'Дата наступного автосписання — перший день наступного модуля набору, у форматі « 01.11.2026» (з пробілом попереду, тире вже стоїть у тексті листа). Порожньо, якщо списань більше не буде — тоді фраза йде без дати.',
     consequence: 'БЕЗ цього поля клієнт не побачить дату наступного списання і писатиме менеджеру, щоб її дізнатись.',
   },
   autoRenewBullet: {
@@ -324,7 +324,7 @@ export const PAYMENT_TEMPLATES: Record<PaymentTemplateKey, PaymentTemplateMeta> 
       amount: '2200',
       expiresAt: '2026-12-01',
       progressLine: '<p style="margin: 0 0 16px; color: #555;">Оплачено модуль 3 з 9.</p>',
-      nextChargeDate: ' — 01.12.2026',
+      nextChargeDate: ' 01.12.2026',
     },
     defaultSubject: 'Автосписання по Річній програмі — {amount} ₴',
     defaultBodyHtml: layout(`  <h2 style="color: #1a1a1a; margin: 0 0 16px;">Дякуємо за оплату</h2>

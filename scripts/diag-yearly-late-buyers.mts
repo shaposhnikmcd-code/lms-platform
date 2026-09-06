@@ -3,8 +3,8 @@
 /// Нічого не мутує — жодного update/create, тільки select-и.
 ///
 /// Запуск:
-///   node --import tsx scripts/diag-yearly-late-buyers.mjs            (DEV branch, .env.local)
-///   node --import tsx scripts/diag-yearly-late-buyers.mjs --prod     (ПРОД, тільки читання)
+///   node --import tsx scripts/diag-yearly-late-buyers.mts            (DEV branch, .env.local)
+///   node --import tsx scripts/diag-yearly-late-buyers.mts --prod     (ПРОД, тільки читання)
 ///
 /// ⚠️ tsx потрібен, бо скрипт імпортує справжні `monthlySchedule` / `cohortSlotIndex`
 /// з lib/ — дублювати формулу доступу в скриптах заборонено (одна копія вже встигла
@@ -27,11 +27,12 @@ async function main() {
   const dbHost = (process.env.DATABASE_URL || '').match(/@([^/:?]+)/)?.[1] || 'unknown';
   console.log(`[diag-yearly-late-buyers] READ-ONLY · target DB host: ${dbHost} ${USE_PROD ? '(--prod)' : '(dev default)'}`);
 
-  // Поточний набір = останній створений (та сама логіка, що в адмінці).
-  const cohort = await prisma.yearlyProgramCohort.findFirst({
-    orderBy: { createdAt: 'desc' },
-    select: { id: true, name: true, startDate: true, endDate: true, launchedAt: true },
-  });
+  // Поточний набір — за прапорцем `isCurrent`, як його визначає адмінка і як у нього
+  // потрапляють нові оплати. `createdAt desc` брав би щойно створений чернетковий
+  // набір наступного року і показував би порожню таблицю замість живого набору.
+  const select = { id: true, name: true, startDate: true, endDate: true, launchedAt: true };
+  const cohort = (await prisma.yearlyProgramCohort.findFirst({ where: { isCurrent: true }, select }))
+    ?? (await prisma.yearlyProgramCohort.findFirst({ orderBy: { startDate: 'desc' }, select }));
   if (!cohort) {
     console.log('Наборів немає — нічого діагностувати.');
     await prisma.$disconnect();
@@ -49,7 +50,7 @@ async function main() {
       user: { select: { email: true } },
       payments: {
         where: { status: 'PAID', excludedFromAccess: false },
-        select: { amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true },
+        select: { amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true, manualMethod: true },
         orderBy: [{ paidAt: 'asc' }, { createdAt: 'asc' }],
       },
     },

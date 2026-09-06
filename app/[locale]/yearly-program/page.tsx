@@ -4,7 +4,9 @@ import { getTranslatedContent } from '@/lib/translate';
 import { buildPageMetadata } from '@/lib/seo';
 import type { Metadata } from 'next';
 import { getYearlyProgramSettings } from '@/lib/yearlyProgramSettings';
+import { YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
 import { resolveSellableCohort } from '@/lib/yearlyProgramCohort';
+import { cohortSlotIndex, maxAutopayChargeCount } from '@/lib/yearlyProgramAccess';
 import { verifyInvite, type InvitePayload } from '@/lib/yearlyProgramInvite';
 import { learningContent } from './_content/uk';
 import HeroSection from './_components/HeroSection';
@@ -66,16 +68,32 @@ export default async function YearlyProgramPage({
   // (звичайна сторінка), без помилки користувачу.
   let invitePayload: InvitePayload | null = null;
   let inviteCohortName: string | null = null;
+  /// Набір, за яким рахуємо ціну для цього відвідувача: у invite-флоу він береться
+  /// з token-у (менеджер міг запросити в інший набір), інакше — поточний продажний.
+  let pricingCohort: { startDate: Date; endDate: Date } | null = currentCohort;
   if (inviteToken) {
     invitePayload = verifyInvite(inviteToken);
     if (invitePayload) {
       const cohort = await prisma.yearlyProgramCohort.findUnique({
         where: { id: invitePayload.cohortId },
-        select: { name: true },
+        select: { name: true, startDate: true, endDate: true },
       });
       inviteCohortName = cohort?.name ?? null;
+      if (cohort) pricingCohort = { startDate: cohort.startDate, endDate: cohort.endDate };
     }
   }
+
+  // Скільки місячних платежів реально буде у того, хто купує СЬОГОДНІ: модуль, у який
+  // потрапляє покупка, і всі наступні. У вересні це 9, у жовтні — 8. Без цього сторінка
+  // обіцяла б «9 платежів × 2200 = 19 800», а WayForPay програмував би 8 списань.
+  // Сторінка ISR з `revalidate = 3600`, тож на межі модулів число оновлюється протягом
+  // години — набагато частіше за добу.
+  const recurringCount = pricingCohort
+    ? maxAutopayChargeCount({
+      cohort: pricingCohort,
+      firstSlot: cohortSlotIndex(pricingCohort, new Date()),
+    })
+    : YEARLY_PROGRAM_CONFIG.totalMonthlyPayments;
 
   const btnLabel = settings.btnLabel;
   // Реєстрація відкрита для широкої аудиторії ТІЛЬКИ коли:
@@ -125,6 +143,7 @@ export default async function YearlyProgramPage({
         monthlyPrice={settings.monthlyPrice}
         monthlyOldPrice={settings.monthlyOldPrice}
         registrationOpen={registrationOpenForUser}
+        recurringCount={recurringCount}
         invite={invitePayload && inviteToken ? {
           token: inviteToken,
           email: invitePayload.email,

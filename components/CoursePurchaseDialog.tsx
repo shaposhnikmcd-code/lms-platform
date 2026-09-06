@@ -9,6 +9,7 @@ import CoursePhoneInput, { PHONE_CONFIG } from './CoursePhoneInput';
 import CountryPicker from './CountryPicker';
 import { parseTelegramUsername } from '@/lib/telegramUsername';
 import { inferEcommerceCategory, trackBeginCheckout } from '@/lib/analytics/ecommerce';
+import { YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
 
 const capitalizeFirst = (s: string) =>
   s.length > 0 ? s.charAt(0).toLocaleUpperCase('uk-UA') + s.slice(1) : s;
@@ -23,6 +24,11 @@ export interface CoursePurchaseDialogProps {
   selectedFreeSlugs?: string[];
   /// Якщо true — показати toggle "Разова / Циклічна 9 міс." (для yearly-program-monthly).
   allowRecurringChoice?: boolean;
+  /// Скільки списань реально лишилось у наборі (модулів попереду). Приходить із
+  /// серверної сторінки /yearly-program: у жовтні це вже 8, а не 9. Тексти й сума
+  /// рахуються від нього — інакше сторінка обіцяла б 9 платежів і 19 800 ₴ людині,
+  /// якій WayForPay запрограмує 8 списань.
+  recurringCount?: number;
   /// Invite-flow: signed token від менеджера. Прив'язує оплату до конкретного cohort-у
   /// й маркує підписку як manually-added у callback-у.
   inviteToken?: string;
@@ -43,6 +49,7 @@ export default function CoursePurchaseDialog({
   currency = 'грн',
   selectedFreeSlugs,
   allowRecurringChoice = false,
+  recurringCount = YEARLY_PROGRAM_CONFIG.totalMonthlyPayments,
   inviteToken,
   invitePrefill,
   onClose,
@@ -642,9 +649,9 @@ export default function CoursePurchaseDialog({
                     },
                     {
                       value: true as const,
-                      kicker: t('payRecurringKicker'),
-                      unit: t('payRecurringUnit'),
-                      hint: t('payRecurringHint', { total: (price * 9).toLocaleString('uk-UA') }),
+                      kicker: t('payRecurringKicker', { count: recurringCount }),
+                      unit: t('payRecurringUnit', { count: recurringCount }),
+                      hint: t('payRecurringHint', { total: (price * recurringCount).toLocaleString('uk-UA') }),
                       icon: (
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
                           <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
@@ -730,7 +737,7 @@ export default function CoursePurchaseDialog({
                       <path d="M7 11V8a5 5 0 0 1 10 0v3" />
                     </svg>
                     <span>
-                      {t('recurringNotice', { price: price.toLocaleString('uk-UA') })}
+                      {t('recurringNotice', { price: price.toLocaleString('uk-UA'), count: recurringCount })}
                     </span>
                   </div>
                 )}

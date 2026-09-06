@@ -74,6 +74,11 @@ export interface PaymentLike {
   /// Поле опційне: синтетичні платежі в guard-ах і старі виклики його не передають,
   /// `undefined` читається як «звичайний платіж».
   excludedFromAccess?: boolean | null;
+  /// Спосіб ручної оплати (готівка / переказ / carryover). `null` — платіж WayForPay,
+  /// `undefined` — поле не вибрали в запиті. Визначає, від якої дати платіж займає
+  /// слот у сітці модулів (див. `slotDateOf`), тому у ВСІХ вибірках, що йдуть у
+  /// `monthlySchedule`/`calculateAccessUntil`, це поле треба селектити.
+  manualMethod?: string | null;
 }
 
 export type Plan = 'YEARLY' | 'MONTHLY';
@@ -89,6 +94,33 @@ function paidPaymentDates(payments: PaymentLike[]): Date[] {
   return payments
     .filter((p) => p.status === 'PAID' && !p.excludedFromAccess)
     .map((p) => p.paidAt ?? p.createdAt)
+    .sort((a, b) => a.getTime() - b.getTime());
+}
+
+/// Дата, за якою платіж займає СЛОТ у сітці модулів (не плутати з датою факту оплати).
+///
+/// Для платежу WayForPay це `createdAt` — момент ЧЕКАУТУ, тобто той самий «зараз», від
+/// якого `/api/wayforpay` порахував якір і запрограмував `dateNext` у WFP. Сторінка
+/// оплати живе добу (`orderLifetime`), тож чекаут 29.09 о 20:00 і успішна картка 30.09
+/// о 01:00 — звичайна річ. Якби слот брався з `paidAt`, доступ розійшовся б із графіком
+/// WFP на цілий модуль: людині запрограмували 9 списань, а сітка дала б 8 слотів —
+/// дев'яте списання відхилив би `monthly_cap_reached`, і 2200 ₴ зняли б без доступу.
+///
+/// Для РУЧНОГО платежу навпаки: `createdAt` — це момент, коли менеджер вніс рядок
+/// (може бути через місяці після факту), тож слот дає `paidAt`.
+function slotDateOf(p: PaymentLike): Date {
+  // `null` = точно WayForPay. `undefined` (поле не вибрали) читаємо як «не знаємо» і
+  // лишаємо стару поведінку — для ручного платежу вона правильна, а для WFP лише
+  // повертає стару похибку замість того, щоб зіпсувати ручні розбивки.
+  if (p.manualMethod === null) return p.createdAt;
+  return p.paidAt ?? p.createdAt;
+}
+
+/// Слот-дати всіх зарахованих PAID-платежів, за зростанням.
+function paidPaymentSlotDates(payments: PaymentLike[]): Date[] {
+  return payments
+    .filter((p) => p.status === 'PAID' && !p.excludedFromAccess)
+    .map(slotDateOf)
     .sort((a, b) => a.getTime() - b.getTime());
 }
 
@@ -115,15 +147,25 @@ export function cohortModuleStart(cohort: CohortLike, index: number): Date {
 const SLOT_EDGE_MS = MS_PER_DAY;
 
 /// Індекс модуля (0-based), у який потрапляє момент `at`: найбільше `k`, для якого
-/// `cohortModuleStart(cohort, k) <= at` (з поправкою на правило краю). До старту → 0,
-/// після кінця набору → останній модуль.
-export function cohortSlotIndex(cohort: CohortLike, at: Date): number {
+/// `cohortModuleStart(cohort, k) <= at`. До старту → 0, після кінця набору → останній модуль.
+///
+/// `edge` (за замовчуванням true) вмикає правило краю. Воно доречне ЛИШЕ там, де ми
+/// вирішуємо, який модуль КУПУЄ людина: слот першого платежу і якір WFP. Для питання
+/// «який модуль іде зараз» (guard боргу) правило краю шкідливе: 31.10 воно показало б
+/// листопад, і студент, який платить за жовтень в останній його день, отримував би
+/// 409 «пропущено 1 місяць», а той, хто платить 30.10, — ні.
+export function cohortSlotIndex(cohort: CohortLike, at: Date, opts?: { edge?: boolean }): number {
   const maxIndex = cohortModuleCount(cohort) - 1;
-  // Зсув на добу вперед і реалізує правило краю: момент за <24 год до початку
-  // наступного модуля «дотягується» до нього.
-  const probe = new Date(at.getTime() + SLOT_EDGE_MS);
+  // Зсув на добу вперед і реалізує правило краю: момент, до кінця модуля якого лишилось
+  // МЕНШЕ доби, «дотягується» до наступного. Рівно доба — ще поточний модуль, тому
+  // порівняння строге.
+  // Без правила краю — «сирий» індекс: модуль уже почався (`<=`). З правилом — модуль
+  // почнеться менш ніж через добу (`<` до `at + 24 год`; рівно доба — ще поточний модуль).
+  const started = (nextStart: Date) => (opts?.edge === false
+    ? nextStart.getTime() <= at.getTime()
+    : nextStart.getTime() < at.getTime() + SLOT_EDGE_MS);
   let k = 0;
-  while (k < maxIndex && cohortModuleStart(cohort, k + 1) <= probe) k++;
+  while (k < maxIndex && started(cohortModuleStart(cohort, k + 1))) k++;
   return k;
 }
 
@@ -153,12 +195,40 @@ export interface MonthlySchedule {
   currentModuleNumber: number | null;
   /// Дата початку модуля `index` (0-based) цього набору.
   moduleOf(index: number): Date;
+  /// Перший платіж лежить ПІСЛЯ кінця набору — сітки для нього не існує (підписку
+  /// перенесли у вже завершений набір). Слотів 0, повної оплати не буває.
+  degenerate: boolean;
 }
 
 function scheduleFromDates(cohort: CohortLike, dates: Date[]): MonthlySchedule {
   const moduleCount = cohortModuleCount(cohort);
   const paidCount = dates.length;
   const hasPayments = paidCount > 0;
+  const moduleOf = (index: number) => cohortModuleStart(cohort, index);
+
+  // Вироджений випадок: перший платіж лежить уже за кінцем набору (підписку перенесли
+  // в завершений набір, ручний платіж заднім числом). `cohortSlotIndex` притиснув би
+  // його до останнього модуля — вийшло б «totalSlots = 1, сплачено 1 → повна оплата»,
+  // і один платіж на 2200 ₴ відкрив би доступ до кінця набору ПЛЮС увесь пост-доступ.
+  // Сітки для такого платежу немає: слотів 0, повної оплати не буває, доступ упирається
+  // в кінець набору — далі рішення менеджера.
+  if (hasPayments && dates[0]! > endOfUtcDay(cohort.endDate)) {
+    return {
+      firstSlot: moduleCount - 1,
+      totalSlots: 0,
+      paidCount,
+      remaining: 0,
+      isFullyPaid: false,
+      hasPayments,
+      nextSlotIndex: moduleCount,
+      coveredUntil: cohort.endDate,
+      nextSlotStart: null,
+      currentModuleNumber: null,
+      moduleOf,
+      degenerate: true,
+    };
+  }
+
   const firstSlot = hasPayments ? cohortSlotIndex(cohort, dates[0]!) : 0;
   const totalSlots = Math.max(1, moduleCount - firstSlot);
   const isFullyPaid = paidCount >= totalSlots;
@@ -174,7 +244,8 @@ function scheduleFromDates(cohort: CohortLike, dates: Date[]): MonthlySchedule {
     coveredUntil: hasPayments ? cohortModuleStart(cohort, firstSlot + paidCount) : null,
     nextSlotStart: isFullyPaid ? null : cohortModuleStart(cohort, nextSlotIndex),
     currentModuleNumber: hasPayments ? firstSlot + paidCount : null,
-    moduleOf: (index: number) => cohortModuleStart(cohort, index),
+    moduleOf,
+    degenerate: false,
   };
 }
 
@@ -185,7 +256,7 @@ export function monthlySchedule(args: {
   payments: PaymentLike[];
   newPaymentAt?: Date | null;
 }): MonthlySchedule {
-  const dates = paidPaymentDates(args.payments);
+  const dates = paidPaymentSlotDates(args.payments);
   if (args.newPaymentAt) {
     dates.push(args.newPaymentAt);
     dates.sort((a, b) => a.getTime() - b.getTime());
@@ -233,8 +304,14 @@ export function calculateAccessUntil(args: {
   }
 
   // MONTHLY: сітка модулів набору. Оплата покриває свій модуль цілком, доступ триває
-  // до початку першого НЕоплаченого модуля.
-  const schedule = scheduleFromDates(args.cohort, paymentDates);
+  // до початку першого НЕоплаченого модуля. Слот рахується зі СЛОТ-дат (для WFP це
+  // момент чекауту, не момент списання) — інакше доступ розійшовся б з графіком WFP.
+  const slotDates = paidPaymentSlotDates(args.payments);
+  if (args.newPaymentAt) {
+    slotDates.push(args.newPaymentAt);
+    slotDates.sort((a, b) => a.getTime() - b.getTime());
+  }
+  const schedule = scheduleFromDates(args.cohort, slotDates);
 
   // Сплачено всі СВОЇ слоти (у покупця до старту це 9, у жовтневого — 8) → той самий
   // повний доступ, що й у YEARLY, з пост-доступом.

@@ -21,7 +21,7 @@ import {
   getYearlyPostAccessMonths,
   RESET_REMINDER_AND_GRACE_FIELDS,
 } from '@/lib/yearlyProgramConfig';
-import { calculateAccessUntil } from '@/lib/yearlyProgramAccess';
+import { calculateAccessUntil, monthlySchedule } from '@/lib/yearlyProgramAccess';
 import { getYearlyProgramSettings } from '@/lib/yearlyProgramSettings';
 import { parseTelegramUsername } from '@/lib/telegramUsername';
 import { applyPaymentActivation } from '@/lib/yearlyProgramActivation';
@@ -539,7 +539,7 @@ async function handleReopenAccess(sub: NonNullable<SubWithUser>, actor: string) 
     where: { id: sub.id },
     include: {
       cohort: { select: { startDate: true, endDate: true } },
-      payments: { select: { amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true } },
+      payments: { select: { amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true, manualMethod: true } },
     },
   });
   const postAccessMonths = await getYearlyPostAccessMonths(prisma);
@@ -584,7 +584,14 @@ async function handleReopenAccess(sub: NonNullable<SubWithUser>, actor: string) 
   // надіслав «оплатіть». Тому дію не виконуємо і пояснюємо, що робити.
   if (!newExpiresAt || newExpiresAt <= now) {
     const paidCount = (fresh?.payments ?? []).filter((p) => p.status === 'PAID').length;
-    const totalMonths = YEARLY_PROGRAM_CONFIG.totalMonthlyPayments;
+    // Модулів у САМЕ цієї підписки: пізній покупець стартує з пізнішого модуля набору,
+    // і «сплачено 8 з 9» підказувало б менеджеру продати неіснуючий дев'ятий.
+    const totalMonths = fresh?.cohort
+      ? monthlySchedule({
+        cohort: { startDate: fresh.cohort.startDate, endDate: fresh.cohort.endDate },
+        payments: fresh.payments,
+      }).totalSlots
+      : YEARLY_PROGRAM_CONFIG.totalMonthlyPayments;
     const detail = sub.plan === 'MONTHLY'
       ? `сплачено ${paidCount} з ${totalMonths} місяців`
       : `набір завершився ${newExpiresAt?.toISOString().slice(0, 10) ?? '—'}`;
@@ -1123,7 +1130,7 @@ async function handleConvertToYearly(sub: NonNullable<SubWithUser>, actor: strin
     where: { id: sub.id },
     include: {
       cohort: { select: { startDate: true, endDate: true } },
-      payments: { select: { amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true } },
+      payments: { select: { amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true, manualMethod: true } },
     },
   });
   const postAccessMonths = await getYearlyPostAccessMonths(prisma);

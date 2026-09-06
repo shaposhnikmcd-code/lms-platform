@@ -29,6 +29,10 @@ type Props = {
   monthlyPrice: number;
   monthlyOldPrice?: number | null;
   registrationOpen: boolean;
+  /// Скільки місячних платежів реально лишилось у наборі (модулів попереду). Рахує
+  /// серверна сторінка за сіткою модулів: у вересні це 9, у жовтні вже 8. Від нього —
+  /// і підпис «N платежів × 2200», і сума, і тексти в модалці оплати.
+  recurringCount: number;
   /// Invite-flow: якщо передано — обидві карточки активні, email pre-filled у формі.
   /// Студент сам обирає Yearly / Monthly Autopay / Monthly One-time на цьому екрані.
   /// Token + prefill пересилаються в CoursePurchaseModal.
@@ -38,8 +42,6 @@ type Props = {
     name: string | null;
   } | null;
 };
-
-const TOTAL_MONTHLY_PAYMENTS = 9;
 
 function DisabledButton({ label, variant }: { label: string; variant: 'light' | 'dark' }) {
   const base =
@@ -55,9 +57,11 @@ function DisabledButton({ label, variant }: { label: string; variant: 'light' | 
   );
 }
 
-export default function PricingSection({ t, yearlyPrice, yearlyOldPrice, monthlyPrice, monthlyOldPrice, registrationOpen, invite }: Props) {
+export default function PricingSection({ t, yearlyPrice, yearlyOldPrice, monthlyPrice, monthlyOldPrice, registrationOpen, recurringCount, invite }: Props) {
   const open = registrationOpen;
-  const totalMonthly = monthlyPrice * TOTAL_MONTHLY_PAYMENTS;
+  const totalMonthly = monthlyPrice * recurringCount;
+  // Ближче до кінця набору помісячно виходить ДЕШЕВШЕ за річну (модулів лишилось мало),
+  // і рядок «Економія» показав би від'ємне число. Тоді просто не показуємо його.
   const premium = totalMonthly - yearlyPrice;
   const yearlyAvailable = open;
   const monthlyAvailable = open;
@@ -98,10 +102,12 @@ export default function PricingSection({ t, yearlyPrice, yearlyOldPrice, monthly
                   <span className="text-[#D4A017] mt-0.5">✓</span>
                   <span>{t.yearBenefit1 ?? 'Одна оплата — весь курс на 9 місяців'}</span>
                 </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-[#D4A017] mt-0.5">✓</span>
-                  <span>{(t.yearBenefitSavings ?? 'Економія {amount} грн').replace('{amount}', premium.toLocaleString('uk-UA'))}</span>
-                </li>
+                {premium > 0 && (
+                  <li className="flex items-start gap-2">
+                    <span className="text-[#D4A017] mt-0.5">✓</span>
+                    <span>{(t.yearBenefitSavings ?? 'Економія {amount} грн').replace('{amount}', premium.toLocaleString('uk-UA'))}</span>
+                  </li>
+                )}
               </ul>
 
               <div className="mt-auto">
@@ -143,7 +149,7 @@ export default function PricingSection({ t, yearlyPrice, yearlyOldPrice, monthly
             </div>
             <p className="text-gray-400 text-xs mb-5">
               {(t.monthCalc ?? '{count} платежів × {price} грн = {total} грн')
-                .replace('{count}', String(TOTAL_MONTHLY_PAYMENTS))
+                .replace('{count}', String(recurringCount))
                 .replace('{price}', String(monthlyPrice))
                 .replace('{total}', totalMonthly.toLocaleString('uk-UA'))}
             </p>
@@ -159,6 +165,7 @@ export default function PricingSection({ t, yearlyPrice, yearlyOldPrice, monthly
                   currency={t.currency}
                   buttonLabel={t.btnMonth}
                   allowRecurringChoice
+                  recurringCount={recurringCount}
                   inviteToken={invite?.token}
                   invitePrefill={invite ? {
                     email: invite.email,

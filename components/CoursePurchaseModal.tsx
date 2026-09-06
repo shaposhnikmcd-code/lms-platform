@@ -24,8 +24,10 @@ interface CoursePurchaseModalProps {
   selectedFreeSlugs?: string[];
   /// Якщо true — кнопка покупки disabled (наприклад, клієнт не обрав безкоштовний)
   disabled?: boolean;
-  /// Якщо true — показати toggle "Разова / Циклічна 9 міс." (для yearly-program-monthly).
+  /// Якщо true — показати toggle "Разова / Циклічна" (для yearly-program-monthly).
   allowRecurringChoice?: boolean;
+  /// Скільки списань лишилось у наборі (модулів попереду) — рахує серверна сторінка.
+  recurringCount?: number;
   /// Invite-token від менеджера (signed). Якщо переданий — модалка prefill-ить email/name
   /// і блокує email (студент не може змінити). Token пересилається в /api/wayforpay.
   inviteToken?: string;
@@ -47,6 +49,7 @@ export default function CoursePurchaseModal({
   selectedFreeSlugs,
   disabled = false,
   allowRecurringChoice = false,
+  recurringCount,
   inviteToken,
   invitePrefill,
 }: CoursePurchaseModalProps) {
@@ -92,6 +95,7 @@ export default function CoursePurchaseModal({
           compact={compact}
           selectedFreeSlugs={selectedFreeSlugs}
           allowRecurringChoice={allowRecurringChoice}
+          recurringCount={recurringCount}
           inviteToken={inviteToken}
           invitePrefill={invitePrefill}
           onClose={() => setIsOpen(false)}
