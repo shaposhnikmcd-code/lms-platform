@@ -542,13 +542,16 @@ function YearlyProgramViewInner({
     }
   }
 
-  async function runAction(id: string, action: string, payload?: Record<string, unknown>, confirmMsg?: string) {
+  /// Повертає true лише коли сервер підтвердив дію (2xx) — виклики, для яких важливо
+  /// відрізнити «зроблено» від «відмовлено» (напр. `saveNote` скидає чернетку тільки
+  /// при true, інакше нотатка «зникає» з екрана при 400/500, хоч на сервері не збереглась).
+  async function runAction(id: string, action: string, payload?: Record<string, unknown>, confirmMsg?: string): Promise<boolean> {
     if (confirmMsg) {
       const ok = await confirm({
         title: confirmMsg,
         destructive: action === 'cancel' || action === 'close_access' || action === 'delete',
       });
-      if (!ok) return;
+      if (!ok) return false;
     }
     setBusyId(id);
     try {
@@ -567,6 +570,7 @@ function YearlyProgramViewInner({
         // 409 — не збій, а конфлікт стану («за графіком доступ уже вичерпано»,
         // «такий самий платіж щойно зафіксовано»): показуємо амбером, а не червоним.
         toast(res.status === 409 ? 'warning' : 'error', message);
+        return false;
       } else {
         router.refresh();
         setDetails((d) => {
@@ -595,9 +599,11 @@ function YearlyProgramViewInner({
         if (data.telegram && data.telegram.inviteRegenerated === false && data.telegram.error) {
           toast('warning', `Telegram: ${data.telegram.error}`);
         }
+        return true;
       }
     } catch (e) {
       toast('error', (e as Error).message);
+      return false;
     } finally {
       setBusyId(null);
     }
@@ -1232,7 +1238,9 @@ function RowBlock({
   details: SubscriptionDetails | 'loading' | 'error' | undefined;
   busy: boolean;
   onToggle: () => void;
-  onAction: (action: string, payload?: Record<string, unknown>, confirm?: string) => void | Promise<void>;
+  /// true = сервер підтвердив дію (2xx). Викликам, яким важливо не оновлювати
+  /// локальний стан при відмові (напр. `saveNote`), звірятись з результатом.
+  onAction: (action: string, payload?: Record<string, unknown>, confirm?: string) => Promise<boolean>;
   onReload: () => void;
   /// Ціни з налаштувань програми — для блоку «Сплачено / залишок», конфірма переведення
   /// на Річну і форми ручної оплати.
@@ -1488,7 +1496,9 @@ function ExpandedRowContent({
   theme: Theme;
   graceDays: number;
   busy: boolean;
-  onAction: (action: string, payload?: Record<string, unknown>, confirm?: string) => void | Promise<void>;
+  /// true = сервер підтвердив дію (2xx). Викликам, яким важливо не оновлювати
+  /// локальний стан при відмові (напр. `saveNote`), звірятись з результатом.
+  onAction: (action: string, payload?: Record<string, unknown>, confirm?: string) => Promise<boolean>;
   onReload: () => void;
   yearlyPrice: number;
   monthlyPrice: number;
@@ -1644,15 +1654,17 @@ function ExpandedRowContent({
 
   const noteDirty = noteDraft !== (details.adminNote ?? '');
 
-  /// Зберегти нотатку про студента. `onReload()` викликаємо завжди (як і решта дій у цій
-  /// панелі, напр. `convertToYearly`) — при провалі це просто безпечно перезапитує ті самі
-  /// дані, а `runAction` уже показав тост із причиною відмови.
+  /// Зберегти нотатку про студента. На відміну від `convertToYearly` (де `onReload()`
+  /// викликається завжди), тут звіряємось з результатом `onAction`: при 400/500 чернетку
+  /// не можна скидати в «збережено» — менеджер побачив би текст як збережений, хоча
+  /// на сервері нічого не змінилось (тост з причиною відмови вже показав `runAction`).
   async function saveNote() {
     if (noteSaving || !noteDirty) return;
     const trimmed = noteDraft.trim();
     setNoteSaving(true);
     try {
-      await onAction('set_note', { note: trimmed });
+      const ok = await onAction('set_note', { note: trimmed });
+      if (!ok) return;
       setNoteDraft(trimmed);
       onReload();
     } finally {
@@ -1688,11 +1700,13 @@ function ExpandedRowContent({
     <div>
       {helpOpen && <HelpModal theme={theme} graceDays={graceDays} onClose={() => setHelpOpen(false)} />}
       <div className={`mb-5 rounded-lg border p-3 ${dark ? 'border-white/[0.06] bg-white/[0.02]' : 'border-stone-300/50 bg-white/60'}`}>
-        <div className="flex items-center justify-between gap-3 mb-1.5">
-          <SectionTitle theme={theme} className="!mb-0">📝 Нотатка про студента</SectionTitle>
-          <ActionBtn theme={theme} tone="success" disabled={!noteDirty || noteSaving} onClick={() => void saveNote()}>
-            {noteSaving ? 'Зберігаємо…' : '💾 Зберегти'}
-          </ActionBtn>
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 mb-1.5">
+          <SectionTitle theme={theme} className="!mb-0 min-w-0">📝 Нотатка про студента</SectionTitle>
+          <div className="shrink-0">
+            <ActionBtn theme={theme} tone="success" disabled={!noteDirty || noteSaving} onClick={() => void saveNote()}>
+              {noteSaving ? 'Зберігаємо…' : '💾 Зберегти'}
+            </ActionBtn>
+          </div>
         </div>
         <textarea
           ref={noteRef}
@@ -1712,13 +1726,13 @@ function ExpandedRowContent({
               : 'bg-white border-stone-300/70 text-stone-800 placeholder:text-stone-400 focus:border-amber-400/60'
           }`}
         />
-        <div className="mt-1 flex items-center justify-between text-[10px]">
-          <span className={dark ? 'text-slate-500' : 'text-stone-500'}>
+        <div className="mt-1 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-[10px]">
+          <span className={`min-w-0 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
             {details.adminNoteUpdatedAt
               ? `Оновлено ${fmtDate(details.adminNoteUpdatedAt)}${details.adminNoteUpdatedBy ? ` · ${details.adminNoteUpdatedBy}` : ''}`
               : 'Нотатки ще нема'}
           </span>
-          <span className={dark ? 'text-slate-600' : 'text-stone-400'}>{noteDraft.length}/{ADMIN_NOTE_MAX_LENGTH_CLIENT}</span>
+          <span className={`shrink-0 ${dark ? 'text-slate-600' : 'text-stone-400'}`}>{noteDraft.length}/{ADMIN_NOTE_MAX_LENGTH_CLIENT}</span>
         </div>
       </div>
       <div className="grid md:grid-cols-3 gap-5">
