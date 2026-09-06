@@ -68,6 +68,9 @@ export interface Row {
   /// Статус платного сертифіката «Vision»: 🔴 NOT_PAID / 🟢 PAID / 🔵 ISSUED.
   /// Ставиться вручну менеджером з таблиці — автоматики за ним поки немає.
   visionCertStatus: VisionStatus;
+  /// Нотатка про студента (User.adminNote). Живе на User, не на підписці — переживає
+  /// перенесення в новий набір. null = нотатки нема.
+  note: string | null;
 }
 
 export interface SummaryData {
@@ -85,10 +88,14 @@ export interface SummaryData {
   /// Довідкове поле для tooltip-у «Доходу», з основної цифри не віднімається.
   revenueCancelled: number;
   /// Розбивка живих студентів (ACTIVE + GRACE) по видах підписки. Неймінг — як у
-  /// «Тип/Вид» адмінки Платежів. Інваріанта: сума трьох = active + grace.
+  /// «Тип/Вид» адмінки Платежів. Інваріанта: сума чотирьох = active + grace.
+  /// `planYearly` НЕ включає перенесених (carryover) — вони йдуть окремо в `planCarryover`,
+  /// інакше «Річна підписка» рахує людей, які цьогорічну Річну жодного разу не купували.
   planYearly: number;
   planMonthlyAuto: number;
   planMonthlyOnce: number;
+  /// Живі підписки з перенесення з минулого набору (PAID-платіж 0₴, manualMethod='carryover').
+  planCarryover: number;
 }
 
 export interface CohortListItem {

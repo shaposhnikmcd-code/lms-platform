@@ -15,7 +15,7 @@ export async function GET(
   const sub = await prisma.yearlyProgramSubscription.findUnique({
     where: { id },
     include: {
-      user: { select: { id: true, name: true, email: true } },
+      user: { select: { id: true, name: true, email: true, adminNote: true, adminNoteUpdatedAt: true, adminNoteUpdatedBy: true } },
       payments: {
         orderBy: { createdAt: 'desc' },
         select: {
@@ -44,6 +44,9 @@ export async function GET(
   return NextResponse.json({
     id: sub.id,
     user: sub.user,
+    adminNote: sub.user?.adminNote ?? null,
+    adminNoteUpdatedAt: sub.user?.adminNoteUpdatedAt?.toISOString() ?? null,
+    adminNoteUpdatedBy: sub.user?.adminNoteUpdatedBy ?? null,
     plan: sub.plan,
     autoRenew: sub.autoRenew,
     status: sub.status,

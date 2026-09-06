@@ -95,9 +95,10 @@ export async function POST(
     excluded?: boolean;
   };
 
-  // Менеджеру відкрита рівно одна дія — Vision-статус (він веде видачу цих сертифікатів).
+  // Менеджеру відкриті дві дії: Vision-статус (він веде видачу цих сертифікатів) і нотатка
+  // про студента (менеджер веде повсякденне спілкування, нотатка — його робочий інструмент).
   // Решта дій над підпискою (скасування, доступ, платежі, видалення) лишається admin-only.
-  if (!admin && body.action !== 'set_vision_status') {
+  if (!admin && body.action !== 'set_vision_status' && body.action !== 'set_note') {
     return NextResponse.json({ error: 'Немає доступу' }, { status: 403 });
   }
 
@@ -167,6 +168,8 @@ export async function POST(
       return handleSyncWfpSchedule(sub, actorLabel);
     case 'set_vision_status':
       return handleSetVisionStatus(sub, body.visionStatus, actorLabel);
+    case 'set_note':
+      return handleSetNote(sub, body.note, actorLabel);
     default:
       return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
   }
@@ -249,6 +252,65 @@ async function handleSetVisionStatus(
     ok: true,
     visionCertStatus: status,
     message: `Сертифікат Vision: ${VISION_STATUS_LABELS[status]}`,
+  });
+}
+
+const ADMIN_NOTE_MAX_LENGTH = 2000;
+
+/// Нотатка про студента (User.adminNote). Дозволено ADMIN і MANAGER — менеджер веде
+/// повсякденне спілкування зі студентами. Живе на User, а не на підписці: перенесені
+/// студенти щороку отримують нову підписку в новому наборі, нотатка має пережити
+/// перенесення. Порожній рядок = очистити (null). Подія в журналі зберігає previous/next
+/// (обрізані до 300 символів) — коротка історія змін без окремої таблиці.
+async function handleSetNote(
+  sub: NonNullable<SubWithUser>,
+  note: unknown,
+  actor: string,
+) {
+  if (typeof note !== 'string') {
+    return NextResponse.json({ error: 'Некоректна нотатка' }, { status: 400 });
+  }
+  const trimmed = note.trim();
+  if (trimmed.length > ADMIN_NOTE_MAX_LENGTH) {
+    return NextResponse.json(
+      { error: `Нотатка занадто довга (макс. ${ADMIN_NOTE_MAX_LENGTH} символів)` },
+      { status: 400 },
+    );
+  }
+  const nextNote = trimmed.length > 0 ? trimmed : null;
+
+  const currentUser = await prisma.user.findUnique({
+    where: { id: sub.userId },
+    select: { adminNote: true },
+  });
+  const previousNote = currentUser?.adminNote ?? null;
+  const now = new Date();
+
+  await prisma.user.update({
+    where: { id: sub.userId },
+    data: {
+      adminNote: nextNote,
+      adminNoteUpdatedAt: nextNote ? now : null,
+      adminNoteUpdatedBy: nextNote ? actor : null,
+    },
+  });
+  await prisma.yearlyProgramSubscriptionEvent.create({
+    data: {
+      subscriptionId: sub.id,
+      type: 'admin_action',
+      message: `Note updated by ${actor}`,
+      metadata: {
+        previous: previousNote ? previousNote.slice(0, 300) : null,
+        next: nextNote ? nextNote.slice(0, 300) : null,
+      },
+    },
+  });
+
+  return NextResponse.json({
+    ok: true,
+    adminNote: nextNote,
+    adminNoteUpdatedAt: nextNote ? now.toISOString() : null,
+    adminNoteUpdatedBy: nextNote ? actor : null,
   });
 }
 

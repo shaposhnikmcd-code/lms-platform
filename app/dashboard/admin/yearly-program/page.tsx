@@ -45,7 +45,7 @@ export default async function AdminYearlyProgramPage() {
       orderBy: { createdAt: 'desc' },
       take: MAX_ROWS,
       include: {
-        user: { select: { id: true, name: true, email: true } },
+        user: { select: { id: true, name: true, email: true, adminNote: true } },
         payments: { select: { id: true, amount: true, status: true, createdAt: true, paidAt: true, paymentMethod: true, manualMethod: true, orderReference: true, excludedFromAccess: true } },
         cohort: { select: { id: true, name: true, startDate: true, launchedAt: true } },
       },
@@ -67,7 +67,7 @@ export default async function AdminYearlyProgramPage() {
         phone: true,
         telegramUsername: true,
         manuallyAddedAt: true,
-        payments: { where: { status: 'PAID' }, select: { amount: true } },
+        payments: { where: { status: 'PAID' }, select: { amount: true, manualMethod: true } },
       },
     }),
   ]);
@@ -251,6 +251,7 @@ export default async function AdminYearlyProgramPage() {
       telegramJoinedAt: s.telegramJoinedAt?.toISOString() ?? null,
       telegramLeftAt: s.telegramLeftAt?.toISOString() ?? null,
       visionCertStatus: s.visionCertStatus,
+      note: s.user?.adminNote ?? null,
     };
   });
 
@@ -319,9 +320,10 @@ export default async function AdminYearlyProgramPage() {
       cancelled: byStatus('CANCELLED'),
       revenueTotal,
       revenueCancelled,
-      planYearly: liveSubs.filter((s) => s.plan === 'YEARLY').length,
+      planYearly: liveSubs.filter((s) => s.plan === 'YEARLY' && !s.payments.some((p) => p.manualMethod === 'carryover')).length,
       planMonthlyAuto: liveSubs.filter((s) => s.plan === 'MONTHLY' && s.autoRenew).length,
       planMonthlyOnce: liveSubs.filter((s) => s.plan === 'MONTHLY' && !s.autoRenew).length,
+      planCarryover: liveSubs.filter((s) => s.payments.some((p) => p.manualMethod === 'carryover')).length,
     };
   };
 

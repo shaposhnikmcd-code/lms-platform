@@ -24,6 +24,7 @@ import {
   HiOutlineUserPlus,
   HiOutlineArrowPathRoundedSquare,
   HiOutlineCalendar,
+  HiOutlineArrowUturnLeft,
 } from 'react-icons/hi2';
 import { FaApplePay, FaGooglePay, FaRegCreditCard } from 'react-icons/fa';
 import type { YearlyProgramSettings } from '@/lib/yearlyProgramSettings';
@@ -72,6 +73,10 @@ interface SubscriptionDetails {
   telegramJoinedAt: string | null;
   telegramLeftAt: string | null;
   user: { id: string; name: string | null; email: string } | null;
+  /// Нотатка про студента (User.adminNote) + метадані останньої зміни.
+  adminNote: string | null;
+  adminNoteUpdatedAt: string | null;
+  adminNoteUpdatedBy: string | null;
   plan: Plan;
   autoRenew: boolean;
   status: SubStatus;
@@ -110,14 +115,18 @@ interface SubscriptionDetails {
   }>;
 }
 
-type PlanFilter = 'ALL' | 'YEARLY' | 'MONTHLY_AUTO' | 'MONTHLY_ONCE';
+type PlanFilter = 'ALL' | 'YEARLY' | 'MONTHLY_AUTO' | 'MONTHLY_ONCE' | 'CARRYOVER';
 
 const PLAN_OPTIONS: { value: PlanFilter; label: string }[] = [
   { value: 'ALL', label: 'Всі' },
   { value: 'YEARLY', label: 'Річний' },
+  { value: 'CARRYOVER', label: '🔄 Перенесення' },
   { value: 'MONTHLY_AUTO', label: 'Місячний Автоплатіж' },
   { value: 'MONTHLY_ONCE', label: 'Місячний на 1 міс.' },
 ];
+
+/// Ліміт нотатки про студента — має збігатися з ADMIN_NOTE_MAX_LENGTH у [id]/route.ts.
+const ADMIN_NOTE_MAX_LENGTH_CLIENT = 2000;
 
 type MethodFilter = 'ALL' | 'applePay' | 'googlePay' | 'card';
 
@@ -187,6 +196,7 @@ const EMPTY_SUMMARY: SummaryData = {
   planYearly: 0,
   planMonthlyAuto: 0,
   planMonthlyOnce: 0,
+  planCarryover: 0,
 };
 
 export default function YearlyProgramView(props: {
@@ -382,7 +392,8 @@ function YearlyProgramViewInner({
     return rows.filter((r) => {
       // Cohort filter: null = усі. Інакше показуємо тільки підписки активного cohort-у.
       if (activeCohortId !== null && r.cohortId !== activeCohortId) return false;
-      if (planFilter === 'YEARLY' && r.plan !== 'YEARLY') return false;
+      if (planFilter === 'YEARLY' && !(r.plan === 'YEARLY' && !r.isCarryover)) return false;
+      if (planFilter === 'CARRYOVER' && !r.isCarryover) return false;
       if (planFilter === 'MONTHLY_AUTO' && !(r.plan === 'MONTHLY' && r.autoRenew)) return false;
       if (planFilter === 'MONTHLY_ONCE' && !(r.plan === 'MONTHLY' && !r.autoRenew)) return false;
       // Архів сховано з дефолтного вигляду — показуємо лише коли явно обрано фільтр «Архів».
@@ -398,7 +409,12 @@ function YearlyProgramViewInner({
       if (visionFilter !== 'ALL' && visionOf(r) !== visionFilter) return false;
       // Період накладається поверх решти фільтрів — по даті створення підписки.
       if (!isWithinDateRange(r.createdAt, dateFrom, dateTo)) return false;
-      if (q && !r.userEmail.toLowerCase().includes(q) && !(r.userName ?? '').toLowerCase().includes(q)) return false;
+      if (
+        q
+        && !r.userEmail.toLowerCase().includes(q)
+        && !(r.userName ?? '').toLowerCase().includes(q)
+        && !(r.note ?? '').toLowerCase().includes(q)
+      ) return false;
       return true;
     });
   }, [rows, activeCohortId, planFilter, statusFilter, methodFilter, visionFilter, visionOf, search, dateFrom, dateTo]);
@@ -780,7 +796,7 @@ function YearlyProgramViewInner({
               type="search"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Пошук за email або імʼям"
+              placeholder="Пошук за email, імʼям або нотаткою"
               className={`w-full sm:w-[260px] px-3 py-1.5 rounded-lg border text-[12px] outline-none transition-colors ${
                 dark
                   ? 'bg-white/[0.04] border-white/[0.08] text-slate-200 placeholder:text-slate-600 focus:border-amber-400/40'
@@ -1252,6 +1268,15 @@ function RowBlock({
           <div className="flex items-center gap-1.5">
             <VisionStatusDot status={r.visionCertStatus} theme={theme} onChange={onSetVision} />
             <div className={`text-[12px] font-medium ${dark ? 'text-slate-200' : 'text-stone-800'}`}>{r.userName ?? '—'}</div>
+            {r.note && (
+              <span
+                className={`text-[11px] ${dark ? 'text-amber-300/80' : 'text-amber-700/80'}`}
+                title={r.note.length > 120 ? `${r.note.slice(0, 120)}…` : r.note}
+                aria-label="Є нотатка про студента"
+              >
+                📝
+              </span>
+            )}
           </div>
           <div className={`text-[10px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>{r.userEmail}</div>
           {r.phone && (
@@ -1480,6 +1505,27 @@ function ExpandedRowContent({
   const [carryoverOpen, setCarryoverOpen] = useState(false);
   const [editPaymentId, setEditPaymentId] = useState<string | null>(null);
   const [extendOpen, setExtendOpen] = useState(false);
+  /// Нотатка про студента: локальний драфт textarea, синхронізується з сервером лише
+  /// один раз — коли деталі вперше довантажились (loading → готово). Наступні `onReload()`
+  /// від ІНШИХ дій панелі (продовження, ручна оплата…) не перетирають нотатку, яку менеджер
+  /// саме редагує, поки не збережена.
+  const [noteDraft, setNoteDraft] = useState('');
+  const [noteSaving, setNoteSaving] = useState(false);
+  const noteInitializedRef = useRef(false);
+  const noteRef = useRef<HTMLTextAreaElement | null>(null);
+  useEffect(() => {
+    if (details && details !== 'loading' && details !== 'error' && !noteInitializedRef.current) {
+      setNoteDraft(details.adminNote ?? '');
+      noteInitializedRef.current = true;
+    }
+  }, [details]);
+  useEffect(() => {
+    const el = noteRef.current;
+    if (el) {
+      el.style.height = 'auto';
+      el.style.height = `${el.scrollHeight}px`;
+    }
+  }, [noteDraft]);
   /// Частки авто-розбивки ручного платежу згорнуті в одне внесення — інакше 5 рядків з
   /// однаковими датою/сумою/нотаткою читаються як дубль.
   const paymentGroups = useMemo(
@@ -1596,6 +1642,24 @@ function ExpandedRowContent({
   const paidTotal = sumRealPaid(details.payments);
   const remainingToYearly = Math.max(0, yearlyPrice - paidTotal);
 
+  const noteDirty = noteDraft !== (details.adminNote ?? '');
+
+  /// Зберегти нотатку про студента. `onReload()` викликаємо завжди (як і решта дій у цій
+  /// панелі, напр. `convertToYearly`) — при провалі це просто безпечно перезапитує ті самі
+  /// дані, а `runAction` уже показав тост із причиною відмови.
+  async function saveNote() {
+    if (noteSaving || !noteDirty) return;
+    const trimmed = noteDraft.trim();
+    setNoteSaving(true);
+    try {
+      await onAction('set_note', { note: trimmed });
+      setNoteDraft(trimmed);
+      onReload();
+    } finally {
+      setNoteSaving(false);
+    }
+  }
+
   /// «Перевести на Річну»: конфірм показує сплачено/залишок, недоплату не блокує —
   /// рішення за менеджером (клієнт міг домовитись про знижку).
   async function convertToYearly() {
@@ -1621,8 +1685,43 @@ function ExpandedRowContent({
   }
 
   return (
-    <div className="grid md:grid-cols-3 gap-5">
+    <div>
       {helpOpen && <HelpModal theme={theme} graceDays={graceDays} onClose={() => setHelpOpen(false)} />}
+      <div className={`mb-5 rounded-lg border p-3 ${dark ? 'border-white/[0.06] bg-white/[0.02]' : 'border-stone-300/50 bg-white/60'}`}>
+        <div className="flex items-center justify-between gap-3 mb-1.5">
+          <SectionTitle theme={theme} className="!mb-0">📝 Нотатка про студента</SectionTitle>
+          <ActionBtn theme={theme} tone="success" disabled={!noteDirty || noteSaving} onClick={() => void saveNote()}>
+            {noteSaving ? 'Зберігаємо…' : '💾 Зберегти'}
+          </ActionBtn>
+        </div>
+        <textarea
+          ref={noteRef}
+          value={noteDraft}
+          onChange={(e) => setNoteDraft(e.target.value.slice(0, ADMIN_NOTE_MAX_LENGTH_CLIENT))}
+          onKeyDown={(e) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+              e.preventDefault();
+              void saveNote();
+            }
+          }}
+          rows={2}
+          placeholder="Наприклад: домовились про розстрочку, вагітна, просила писати тільки в Telegram…"
+          className={`w-full resize-none overflow-hidden px-3 py-2 rounded-lg border text-[12.5px] outline-none transition-colors ${
+            dark
+              ? 'bg-white/[0.03] border-white/[0.08] text-slate-200 placeholder:text-slate-600 focus:border-amber-400/40'
+              : 'bg-white border-stone-300/70 text-stone-800 placeholder:text-stone-400 focus:border-amber-400/60'
+          }`}
+        />
+        <div className="mt-1 flex items-center justify-between text-[10px]">
+          <span className={dark ? 'text-slate-500' : 'text-stone-500'}>
+            {details.adminNoteUpdatedAt
+              ? `Оновлено ${fmtDate(details.adminNoteUpdatedAt)}${details.adminNoteUpdatedBy ? ` · ${details.adminNoteUpdatedBy}` : ''}`
+              : 'Нотатки ще нема'}
+          </span>
+          <span className={dark ? 'text-slate-600' : 'text-stone-400'}>{noteDraft.length}/{ADMIN_NOTE_MAX_LENGTH_CLIENT}</span>
+        </div>
+      </div>
+      <div className="grid md:grid-cols-3 gap-5">
       <div className="md:col-span-1">
         <div className="flex items-center gap-2 mb-2">
           <SectionTitle theme={theme} className="!mb-0">Дії</SectionTitle>
@@ -1966,21 +2065,25 @@ function ExpandedRowContent({
         {/* Для місячної підписки головне питання менеджера — скільки ще винен клієнт
             до повної вартості Річної. Рахуємо реальні гроші (без тест-оплат 1–2 ₴). */}
         {row.plan === 'MONTHLY' && (
-          <div className={`mb-2 px-3 py-2 rounded-lg border text-[11.5px] flex flex-wrap items-center gap-x-2 gap-y-1 ${
+          <div className={`mb-2 px-3 py-2 rounded-lg border text-[11.5px] ${
             remainingToYearly > 0
               ? dark ? 'border-amber-400/25 bg-amber-400/[0.07] text-amber-100/90' : 'border-amber-300/60 bg-amber-50/80 text-amber-900'
               : dark ? 'border-emerald-400/25 bg-emerald-400/[0.07] text-emerald-100/90' : 'border-emerald-300/60 bg-emerald-50/80 text-emerald-900'
           }`}>
-            <span>
-              Сплачено <b className="tabular-nums">{paidTotal.toLocaleString()}</b> грн з{' '}
-              <b className="tabular-nums">{yearlyPrice.toLocaleString()}</b>
-            </span>
-            <span className={dark ? 'text-slate-500' : 'text-stone-400'}>·</span>
-            <span>
-              {remainingToYearly > 0
-                ? <>залишок <b className="tabular-nums">{remainingToYearly.toLocaleString()}</b> грн</>
-                : <b>оплачено повністю</b>}
-            </span>
+            {/* Місячна коштує не 15 000 — це ціна Річної. Перший рядок називає суму, другий
+                показує прогрес, щоб «Сплачено X з 15000» не читалось як ціна цього тарифу. */}
+            <div className={dark ? 'text-slate-400' : 'text-stone-600'}>
+              До повної вартості Річної (<b className="tabular-nums">{yearlyPrice.toLocaleString()}</b> грн)
+            </div>
+            <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span>сплачено <b className="tabular-nums">{paidTotal.toLocaleString()}</b> грн</span>
+              <span className={dark ? 'text-slate-500' : 'text-stone-400'}>·</span>
+              <span>
+                {remainingToYearly > 0
+                  ? <>лишається <b className="tabular-nums">{remainingToYearly.toLocaleString()}</b> грн</>
+                  : <b>оплачено повністю</b>}
+              </span>
+            </div>
           </div>
         )}
         <div className={`rounded-lg border ${dark ? 'border-white/[0.06] bg-white/[0.02]' : 'border-stone-300/50 bg-white/60'}`}>
@@ -2144,6 +2247,7 @@ function ExpandedRowContent({
             </ul>
           )}
         </div>
+      </div>
       </div>
     </div>
   );
@@ -3088,25 +3192,35 @@ function VisionSummaryRow({
 /// частка у відсотках і тонка смужка-індикатор цієї частки (амбер, палітра сторінки).
 function PlanBreakdownRow({ theme, summary }: { theme: Theme; summary: SummaryData }) {
   const dark = theme === 'dark';
-  const total = summary.planYearly + summary.planMonthlyAuto + summary.planMonthlyOnce;
+  const total = summary.planYearly + summary.planMonthlyAuto + summary.planMonthlyOnce + summary.planCarryover;
   const items = [
     {
       icon: HiOutlineCalendarDays,
       label: 'Річна підписка',
       value: summary.planYearly,
-      hint: 'План YEARLY — одна оплата за весь рік. Рахуються студенти в програмі (ACTIVE + Grace).',
+      hint: 'План YEARLY — одна оплата за весь рік. Рахуються студенти в програмі (ACTIVE + Grace), без перенесених.',
+      tone: 'amber' as const,
     },
     {
       icon: HiOutlineArrowPathRoundedSquare,
       label: 'Місячна Автоплатіж',
       value: summary.planMonthlyAuto,
       hint: 'MONTHLY з автосписанням через WayForPay. Рахуються студенти в програмі (ACTIVE + Grace).',
+      tone: 'amber' as const,
     },
     {
       icon: HiOutlineCalendar,
       label: 'Місячна на 1 міс.',
       value: summary.planMonthlyOnce,
       hint: 'MONTHLY разова оплата за один місяць, без автосписання. Рахуються студенти в програмі (ACTIVE + Grace).',
+      tone: 'amber' as const,
+    },
+    {
+      icon: HiOutlineArrowUturnLeft,
+      label: 'Перенесення',
+      value: summary.planCarryover,
+      hint: 'Перенесено з минулого набору (PAID-платіж 0₴). Рахуються студенти в програмі (ACTIVE + Grace).',
+      tone: 'violet' as const,
     },
   ];
 
@@ -3132,7 +3246,7 @@ function PlanBreakdownRow({ theme, summary }: { theme: Theme; summary: SummaryDa
           className={`sm:mt-0.5 tabular-nums text-[19px] font-semibold leading-none ${
             dark ? 'text-slate-100' : 'text-stone-900'
           }`}
-          title="Активні + Grace. Дорівнює сумі трьох видів підписки праворуч."
+          title="Активні + Grace. Дорівнює сумі чотирьох видів підписки праворуч."
         >
           {total.toLocaleString()}
         </span>
@@ -3150,7 +3264,11 @@ function PlanBreakdownRow({ theme, summary }: { theme: Theme; summary: SummaryDa
             }`}
           >
             <div className="flex items-center gap-1.5">
-              <it.icon className={`shrink-0 text-[13px] ${dark ? 'text-amber-300/75' : 'text-amber-600/85'}`} />
+              <it.icon className={`shrink-0 text-[13px] ${
+                it.tone === 'violet'
+                  ? dark ? 'text-violet-300/85' : 'text-violet-600/85'
+                  : dark ? 'text-amber-300/75' : 'text-amber-600/85'
+              }`} />
               <span
                 className={`min-w-0 truncate text-[10px] uppercase tracking-[0.13em] font-medium whitespace-nowrap ${
                   dark ? 'text-slate-300' : 'text-stone-600'
@@ -3176,7 +3294,11 @@ function PlanBreakdownRow({ theme, summary }: { theme: Theme; summary: SummaryDa
                 }`}
               >
                 <span
-                  className={`block h-full rounded-full ${dark ? 'bg-amber-300/65' : 'bg-amber-500/75'}`}
+                  className={`block h-full rounded-full ${
+                    it.tone === 'violet'
+                      ? dark ? 'bg-violet-300/65' : 'bg-violet-500/75'
+                      : dark ? 'bg-amber-300/65' : 'bg-amber-500/75'
+                  }`}
                   style={{ width: `${share}%` }}
                 />
               </span>

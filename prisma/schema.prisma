@@ -36,6 +36,12 @@ model User {
   deletedById                String?
   deletedByName              String?
   deletedByEmail             String?
+  /// Нотатка адміна/менеджера про студента (вільний текст, до 2000 символів). Живе на
+  /// User, а не на підписці Річної — перенесені студенти щороку отримують нову підписку
+  /// в новому наборі, нотатка має пережити перенесення. Editable з адмінки /yearly-program.
+  adminNote                  String?                     @db.Text
+  adminNoteUpdatedAt         DateTime?
+  adminNoteUpdatedBy         String?
 
   @@index([role])
   @@index([deletedAt])
