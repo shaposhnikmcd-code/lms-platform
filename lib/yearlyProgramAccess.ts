@@ -111,7 +111,9 @@ function paidPaymentDates(payments: PaymentLike[]): Date[] {
 ///
 /// Для РУЧНОГО платежу навпаки: `createdAt` — це момент, коли менеджер вніс рядок
 /// (може бути через місяці після факту), тож слот дає `paidAt`.
-function slotDateOf(p: PaymentLike): Date {
+/// Експортована свідомо: адмінка розкладає ПЛАТЕЖІ по модулях у тому ж порядку, у якому
+/// їх бачить сітка, і власна копія цього правила там розійшлась би з доступом.
+export function slotDateOf(p: PaymentLike): Date {
   return p.manualMethod === null ? p.createdAt : (p.paidAt ?? p.createdAt);
 }
 

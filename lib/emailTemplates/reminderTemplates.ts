@@ -53,8 +53,11 @@ export const REMINDER_TEMPLATE_GROUPS: { id: ReminderTemplateGroup; title: strin
   { id: 'shared',   title: '🚪 Спільний фінал',              description: 'Лист про закриття доступу — однаковий для обох флоу.' },
 ];
 
-const PROGRAM_URL = 'https://www.uimp.com.ua/yearly-program';
-const SUPPORT_TG = 'https://t.me/uimp_support';
+/// Загальний лендінг Річної — дефолт для `{payUrl}`, коли персонального посилання нема.
+export const PROGRAM_URL = 'https://www.uimp.com.ua/yearly-program';
+/// Той самий контакт підтримки, що в листах, показує і сторінка поновлення —
+/// щоб студент з будь-якого глухого кута потрапляв в одне й те саме вікно.
+export const SUPPORT_TG = 'https://t.me/uimp_support';
 
 /// Зовнішній FRAME — DOCTYPE + body-стилі з UIMP-фоном. Не редагується менеджером —
 /// він редагує тільки inner-частину між div-і.
@@ -79,9 +82,15 @@ export function extractReminderInner(fullBodyHtml: string): string {
 
 /// Готові HTML-фрагменти, які менеджер може використовувати в листі:
 /// CTA-кнопка з посиланням на сайт + footer із контактом тех-підтримки.
-const CTA_BUTTON = (label: string) => `    <p style="text-align:center; margin: 28px 0;">
-      <a href="${PROGRAM_URL}" style="display:inline-block; background:#D4A017; color:#fff; font-weight:bold; padding:12px 28px; border-radius:10px; text-decoration:none;">${label}</a>
+/// `href` за замовчуванням — загальний лендінг. Manual-шаблони передають сюди
+/// плейсхолдер `{payUrl}`: у їхні листи підставляється ПЕРСОНАЛЬНЕ посилання на оплату
+/// наступного модуля (email студента вже відомий, вибирати тариф не треба).
+const CTA_BUTTON = (label: string, href: string = PROGRAM_URL) => `    <p style="text-align:center; margin: 28px 0;">
+      <a href="${href}" style="display:inline-block; background:#D4A017; color:#fff; font-weight:bold; padding:12px 28px; border-radius:10px; text-decoration:none;">${label}</a>
     </p>`;
+
+/// Персональна кнопка оплати модуля — саме її ставлять усі manual-нагадування.
+const PAY_BUTTON = (label: string) => CTA_BUTTON(label, '{payUrl}');
 
 const SUPPORT_FOOTER = `    <p>Якщо у вас є питання — напишіть у відповідь на цей лист або до <a href="${SUPPORT_TG}" style="color:#0088cc; font-weight:600; text-decoration:none; white-space:nowrap;">Тех. підтримки в Telegram</a></p>`;
 
@@ -95,13 +104,13 @@ export const REMINDER_TEMPLATES: Record<ReminderTemplateKey, ReminderTemplateMet
     group: 'manual',
     title: '📅 За 3 дні до дати закінчення',
     when: 'Шлемо за 3 дні до того, як закінчиться оплачений місяць (manual flow). Нагадуємо оформити оплату на наступний місяць.',
-    placeholders: ['name', 'expiresAt'],
-    sampleData: { name: 'Іван Петренко', expiresAt: '15.08.2026' },
+    placeholders: ['name', 'expiresAt', 'moduleLine', 'payUrl'],
+    sampleData: { name: 'Іван Петренко', expiresAt: '15.08.2026', moduleLine: 'Наступний модуль: 3 з 9 · листопад 2026.', payUrl: PROGRAM_URL },
     defaultSubject: 'Через 3 дні завершується ваш місяць у Річній програмі',
     defaultBodyHtml: wrapReminderInner(`    <h2 style="color: #1C3A2E; margin-top: 0;">Вітаю, {name}!</h2>
-    <p>Ваш оплачений місяць у <strong>Річній програмі інституту UIMP</strong> завершується <strong>{expiresAt}</strong>.</p>
+    <p>Ваш оплачений місяць у <strong>Річній програмі інституту UIMP</strong> завершується <strong>{expiresAt}</strong>. {moduleLine}</p>
     <p>Якщо плануєте продовжити навчання, оплату на наступний місяць можна оформити вже зараз — щоб не було перерви у доступі:</p>
-${CTA_BUTTON('Оплатити наступний місяць')}
+${PAY_BUTTON('Оплатити наступний модуль')}
 ${SUPPORT_FOOTER}
 ${SIGNATURE_RESPECT}`),
   },
@@ -111,13 +120,13 @@ ${SIGNATURE_RESPECT}`),
     group: 'manual',
     title: '📆 У дату закінчення',
     when: 'Шлемо у день, коли закінчується оплачений місяць (manual flow). Сьогодні останній день — час оплатити.',
-    placeholders: ['name'],
-    sampleData: { name: 'Іван Петренко' },
+    placeholders: ['name', 'moduleLine', 'payUrl'],
+    sampleData: { name: 'Іван Петренко', moduleLine: 'Наступний модуль: 3 з 9 · листопад 2026.', payUrl: PROGRAM_URL },
     defaultSubject: 'Сьогодні завершується ваш місяць у Річній програмі',
     defaultBodyHtml: wrapReminderInner(`    <h2 style="color: #1C3A2E; margin-top: 0;">Вітаю, {name}!</h2>
-    <p>Сьогодні завершується ваш оплачений місяць у <strong>Річній програмі інституту UIMP</strong>.</p>
+    <p>Сьогодні завершується ваш оплачений місяць у <strong>Річній програмі інституту UIMP</strong>. {moduleLine}</p>
     <p>Якщо плануєте продовжити навчання, оплату на наступний місяць можна оформити сьогодні:</p>
-${CTA_BUTTON('Оплатити зараз')}
+${PAY_BUTTON('Оплатити зараз')}
 ${SUPPORT_FOOTER}
 ${SIGNATURE_RESPECT}`),
   },
@@ -127,13 +136,13 @@ ${SIGNATURE_RESPECT}`),
     group: 'manual',
     title: '🛟 Старт пільгового періоду · день +1',
     when: 'Шлемо коли оплачений місяць щойно закінчився, а доступ продовжено на пільговий період grace (manual flow). Спрацьовує завжди.',
-    placeholders: ['name', 'gracePeriodEndsAt', 'graceDays', 'graceDaysWord'],
-    sampleData: { name: 'Іван Петренко', gracePeriodEndsAt: '22.08.2026', graceDays: '7', graceDaysWord: 'днів' },
+    placeholders: ['name', 'gracePeriodEndsAt', 'graceDays', 'graceDaysWord', 'moduleLine', 'payUrl'],
+    sampleData: { name: 'Іван Петренко', gracePeriodEndsAt: '22.08.2026', graceDays: '7', graceDaysWord: 'днів', moduleLine: 'Наступний модуль: 3 з 9 · листопад 2026.', payUrl: PROGRAM_URL },
     defaultSubject: 'Доступ збережено ще на {graceDays} {graceDaysWord}',
     defaultBodyHtml: wrapReminderInner(`    <h2 style="color: #1C3A2E; margin-top: 0;">Вітаю, {name}!</h2>
     <p>Ваш оплачений місяць у <strong>Річній програмі інституту UIMP</strong> вчора завершився. Ми залишили доступ ще на <strong>{graceDays} {graceDaysWord}</strong> — до <strong>{gracePeriodEndsAt}</strong>, щоб у вас був час оформити наступну оплату.</p>
-    <p>Якщо плануєте продовжити навчання:</p>
-${CTA_BUTTON('Оплатити наступний місяць')}
+    <p>{moduleLine} Якщо плануєте продовжити навчання:</p>
+${PAY_BUTTON('Оплатити наступний модуль')}
 ${SUPPORT_FOOTER}
 ${SIGNATURE_RESPECT}`),
   },
@@ -143,14 +152,14 @@ ${SIGNATURE_RESPECT}`),
     group: 'manual',
     title: '📍 Середина пільгового періоду',
     when: 'Шлемо приблизно посередині grace-періоду (manual flow). Спрацьовує тільки якщо тривалість grace ≥ 5 днів — інакше пропускаємо, бо проміжна точка занадто близько до start/last.',
-    placeholders: ['name', 'gracePeriodEndsAt', 'daysLeft', 'daysWord'],
-    sampleData: { name: 'Іван Петренко', gracePeriodEndsAt: '22.08.2026', daysLeft: '4', daysWord: 'дні' },
+    placeholders: ['name', 'gracePeriodEndsAt', 'daysLeft', 'daysWord', 'moduleLine', 'payUrl'],
+    sampleData: { name: 'Іван Петренко', gracePeriodEndsAt: '22.08.2026', daysLeft: '4', daysWord: 'дні', moduleLine: 'Наступний модуль: 3 з 9 · листопад 2026.', payUrl: PROGRAM_URL },
     minGraceDays: 5,
     defaultSubject: 'Пільговий період — залишилось {daysLeft} {daysWord}',
     defaultBodyHtml: wrapReminderInner(`    <h2 style="color: #1C3A2E; margin-top: 0;">Вітаю, {name}!</h2>
-    <p>Нагадуємо: пільговий період у вашій підписці на <strong>Річну програму інституту UIMP</strong> завершується <strong>{gracePeriodEndsAt}</strong> — залишилось <strong>{daysLeft} {daysWord}</strong>.</p>
+    <p>Нагадуємо: пільговий період у вашій підписці на <strong>Річну програму інституту UIMP</strong> завершується <strong>{gracePeriodEndsAt}</strong> — залишилось <strong>{daysLeft} {daysWord}</strong>. {moduleLine}</p>
     <p>Якщо плануєте продовжити навчання, оплату можна оформити за кнопкою нижче:</p>
-${CTA_BUTTON('Оплатити наступний місяць')}
+${PAY_BUTTON('Оплатити наступний модуль')}
 ${SUPPORT_FOOTER}
 ${SIGNATURE_RESPECT}`),
   },
@@ -160,14 +169,14 @@ ${SIGNATURE_RESPECT}`),
     group: 'manual',
     title: '🚨 За 1 день до закриття',
     when: 'Шлемо за день до того, як закінчиться пільговий період і доступ буде закрито (manual flow). Спрацьовує тільки якщо тривалість grace ≥ 3 днів — інакше дублює start.',
-    placeholders: ['name', 'gracePeriodEndsAt'],
-    sampleData: { name: 'Іван Петренко', gracePeriodEndsAt: '22.08.2026' },
+    placeholders: ['name', 'gracePeriodEndsAt', 'moduleLine', 'payUrl'],
+    sampleData: { name: 'Іван Петренко', gracePeriodEndsAt: '22.08.2026', moduleLine: 'Наступний модуль: 3 з 9 · листопад 2026.', payUrl: PROGRAM_URL },
     minGraceDays: 3,
     defaultSubject: 'Завтра завершується пільговий період',
     defaultBodyHtml: wrapReminderInner(`    <h2 style="color: #1C3A2E; margin-top: 0;">Вітаю, {name}!</h2>
-    <p>Завтра, <strong>{gracePeriodEndsAt}</strong>, завершується пільговий період у вашій підписці на <strong>Річну програму інституту UIMP</strong>.</p>
-    <p>Якщо плануєте продовжити навчання — оплату на наступний місяць зручно оформити сьогодні:</p>
-${CTA_BUTTON('Оплатити зараз')}
+    <p>Завтра, <strong>{gracePeriodEndsAt}</strong>, завершується пільговий період у вашій підписці на <strong>Річну програму інституту UIMP</strong>. {moduleLine}</p>
+    <p>Якщо плануєте продовжити навчання — оплату на наступний модуль зручно оформити сьогодні:</p>
+${PAY_BUTTON('Оплатити зараз')}
 ${SUPPORT_FOOTER}
 ${SIGNATURE_RESPECT}`),
   },
@@ -280,8 +289,20 @@ export async function renderReminder(
   const tpl = await getReminderTemplate(key);
   return {
     subject: renderTemplate(tpl.subject, vars),
-    html: renderTemplate(tpl.bodyHtml, vars),
+    html: withPersonalPayUrl(renderTemplate(tpl.bodyHtml, vars), vars.payUrl),
   };
+}
+
+/// Персоналізація кнопки в шаблонах, збережених менеджером ДО появи `{payUrl}`.
+///
+/// Дефолти в цьому файлі містять плейсхолдер, а от DB-override (`EmailTemplate`
+/// `reminder.<key>`) — це HTML, збережений раніше, з посиланням на лендінг ЛІТЕРАЛОМ.
+/// Без цієї заміни персональне посилання отримували б лише ті, чиї шаблони менеджер
+/// не редагував — тобто рівно ті, кому воно найменше потрібне. Пересохранювати всі
+/// шаблони руками теж не варіант: одна забута сторінка = лист без кнопки поновлення.
+function withPersonalPayUrl(html: string, payUrl: string | null | undefined): string {
+  if (!payUrl || payUrl === PROGRAM_URL) return html;
+  return html.split(PROGRAM_URL).join(payUrl);
 }
 
 /// Helpers для зведення raw-args (Date, name|null) до string-vars для placeholder-substitution.
@@ -336,5 +357,13 @@ export const REMINDER_PLACEHOLDER_DESCRIPTIONS: Record<string, { what: string; c
   daysWord: {
     what: 'Українська форма слова «день» залежно від кількості: 1 день, 2 дні, 5 днів. Йде разом з {daysLeft}.',
     consequence: 'БЕЗ цього поля числівник буде у неправильній граматичній формі (наприклад «4 день» замість «4 дні»).',
+  },
+  payUrl: {
+    what: 'ПЕРСОНАЛЬНЕ посилання цього студента на оплату наступного модуля. Відкриває сторінку з уже підставленими даними (email, імʼя, телефон) і однією кнопкою «Оплатити модуль» — без вибору тарифів. Діє 45 днів. Якщо персональне посилання чомусь не сформувалось, підставиться загальна сторінка програми.',
+    consequence: 'БЕЗ цього поля кнопка поведе на загальний лендінг, де студенту доведеться самому шукати картку «Місячна», обирати «РАЗОВА» і вводити email — саме там і губиться більшість оплат.',
+  },
+  moduleLine: {
+    what: 'Рядок про наступний неоплачений модуль — наприклад «Наступний модуль: 3 з 9 · листопад 2026.». Рахується за сіткою модулів набору, тому у пізнього покупця номери свої.',
+    consequence: 'БЕЗ цього поля студент не побачить, за який саме модуль його просять заплатити.',
   },
 };

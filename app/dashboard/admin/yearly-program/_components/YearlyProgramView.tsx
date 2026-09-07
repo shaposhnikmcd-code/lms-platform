@@ -28,6 +28,7 @@ import {
 } from 'react-icons/hi2';
 import { FaApplePay, FaGooglePay, FaRegCreditCard } from 'react-icons/fa';
 import type { YearlyProgramSettings } from '@/lib/yearlyProgramSettings';
+import { YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
 import { useAdminTheme, type Theme } from '../../_components/adminTheme';
 import { AdminShell, AdminPanel } from '../../_components/AdminShell';
 import DateRangeFilter, { isWithinDateRange } from '../../_components/DateRangeFilter';
@@ -105,7 +106,20 @@ interface SubscriptionDetails {
     /// true — платіж є в історії й у «Доході», але місяця доступу НЕ дає
     /// (виправлення помилкового внесення через EditPaymentModal).
     excludedFromAccess?: boolean;
+    /// Модуль набору, який покриває цей платіж. null — платіж не зарахований у доступ
+    /// (PENDING/відхилений/виключений) або сітки для підписки немає.
+    module?: { number: number; total: number; monthLabel: string } | null;
   }>;
+  /// Стан сітки модулів для MONTHLY-підписки з набором; null для решти.
+  schedule?: {
+    firstSlot: number;
+    totalSlots: number;
+    paidCount: number;
+    isFullyPaid: boolean;
+    moduleCount: number;
+    nextModuleNumber: number | null;
+    nextModuleMonth: string | null;
+  } | null;
   events: Array<{
     id: string;
     type: string;
@@ -1398,10 +1412,17 @@ function RowBlock({
           )}
         </td>
         <td className={`px-2 py-2.5 text-[11px] tabular-nums whitespace-nowrap text-center ${dark ? 'text-slate-400' : 'text-stone-600'}`}>
-          {((r.plan === 'YEARLY' && r.paymentsCount >= 1) || (r.plan === 'MONTHLY' && r.paymentsCount >= 9))
+          {((r.plan === 'YEARLY' && r.paymentsCount >= 1) || (r.plan === 'MONTHLY' && monthlyFullyPaid(r)))
             && (r.status === 'ACTIVE' || r.status === 'GRACE') ? (
-            // Сплачено 100% (річний разово / місячний усі 9) — платити більше нічого.
-            <span className={`text-[17px] font-bold leading-none ${dark ? 'text-emerald-300' : 'text-emerald-600'}`} title="Сплачено повністю">✓</span>
+            // Сплачено 100%: річний — одним платежем, місячний — усі СВОЇ модулі набору.
+            // «Свої» рахує сітка, а не лічильник 9: пізній покупець стартує з пізнішого
+            // модуля, і для нього повна оплата — це 8 з 8, а не 9 з 9.
+            <span
+              className={`text-[17px] font-bold leading-none ${dark ? 'text-emerald-300' : 'text-emerald-600'}`}
+              title={r.schedule
+                ? `Сплачено повністю · ${r.schedule.paidCount} з ${r.schedule.totalSlots} модулів набору`
+                : 'Сплачено повністю'}
+            >✓</span>
           ) : r.plan === 'MONTHLY' && r.autoRenew && r.status !== 'CANCELLED' && r.status !== 'EXPIRED' ? (
             r.wfpNextChargeAt ? (
               <>
@@ -1423,14 +1444,18 @@ function RowBlock({
           ) : r.plan === 'MONTHLY' && !r.autoRenew
             && (r.status === 'ACTIVE' || r.status === 'GRACE')
             && r.expiresAt
-            && r.paymentsCount < 9 ? (
+            && !monthlyFullyPaid(r) ? (
             // Разова місячна: автосписання немає — наступний платіж людина робить ВРУЧНУ
             // до кінця оплаченого місяця (= «Доступ до»). 9/9 оплачених — платити нічого.
             // Формат — той самий UTC-ий: це буквально значення колонки «Доступ до», і два
             // різні числа для одного поля в одному рядку виглядали б як розбіжність даних.
             <>
               <div>{fmtAccessDate(r.expiresAt)}</div>
-              <div className={`text-[10px] ${dark ? 'text-slate-600' : 'text-stone-400'}`}>вручну</div>
+              <div className={`text-[10px] ${dark ? 'text-slate-600' : 'text-stone-400'}`}>
+                {r.schedule?.nextModuleNumber
+                  ? `вручну · модуль ${r.schedule.nextModuleNumber}`
+                  : 'вручну'}
+              </div>
             </>
           ) : (
             <span className={dark ? 'text-slate-600' : 'text-stone-400'}>—</span>
@@ -1510,6 +1535,7 @@ function ExpandedRowContent({
   const [helpOpen, setHelpOpen] = useState(false);
   const [extraLaunching, setExtraLaunching] = useState(false);
   const [tgInviting, setTgInviting] = useState(false);
+  const [renewLinking, setRenewLinking] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [manualPayOpen, setManualPayOpen] = useState(false);
   const [carryoverOpen, setCarryoverOpen] = useState(false);
@@ -1550,6 +1576,37 @@ function ExpandedRowContent({
       return next;
     });
   }, []);
+
+  /// Копіює менеджеру персональне посилання студента на оплату наступного модуля —
+  /// те саме, що йде в листах-нагадуваннях. Нічого не надсилає: менеджер зазвичай уже
+  /// в переписці зі студентом і вставляє посилання туди, де розмова.
+  async function copyRenewLink() {
+    if (renewLinking) return;
+    setRenewLinking(true);
+    try {
+      const res = await fetch(`/api/admin/yearly-program/${row.id}/renew-link`, { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast(res.status === 409 ? 'warning' : 'error', data?.error ?? res.statusText);
+        return;
+      }
+      const until = new Date(data.expiresAt).toLocaleDateString('uk-UA', { day: '2-digit', month: '2-digit' });
+      const modulePart = data.module ? ` · модуль ${data.module.number} з ${data.module.total}` : '';
+      try {
+        await navigator.clipboard.writeText(data.url);
+        toast('success', `Скопійовано${modulePart} · дійсне до ${until}`);
+      } catch {
+        // Буфер недоступний (немає HTTPS / дозволу) — посилання все одно видане,
+        // тож показуємо його текстом, щоб менеджер скопіював руками.
+        toast('warning', `Скопіюйте вручну: ${data.url}`);
+      }
+      onReload();
+    } catch (e) {
+      toast('error', (e as Error).message);
+    } finally {
+      setRenewLinking(false);
+    }
+  }
 
   async function sendTelegramInvite(force: boolean) {
     const studentLabel = row.userEmail ?? row.userName ?? 'цього студента';
@@ -1940,6 +1997,20 @@ function ExpandedRowContent({
               ✓ Відкрити доступ до SendPulse
             </ActionBtn>
           )}
+          {/* Персональне посилання на оплату модуля — тільки там, де воно має сенс:
+              місячна разова, не деактивована. Для автоплатежу сторінка все одно
+              скаже «спишеться саме», тому кнопки там немає. */}
+          {row.plan === 'MONTHLY' && !row.autoRenew && row.status !== 'ARCHIVED' && (
+            <ActionBtn
+              theme={theme}
+              disabled={busy || renewLinking}
+              tone="success"
+              title="Скопіювати персональне посилання, за яким студент оплатить наступний модуль без вибору тарифів"
+              onClick={copyRenewLink}
+            >
+              {renewLinking ? '🔗 Готуємо…' : '🔗 Посилання на оплату модуля'}
+            </ActionBtn>
+          )}
           <button
             type="button"
             onClick={() => sendTelegramInvite(!!details.telegramInviteLink)}
@@ -2076,6 +2147,30 @@ function ExpandedRowContent({
         {/* Лічильник — ВНЕСЕННЯ, а не рядки в БД: розбите на 5 часток внесення 12 800 ₴
             це один платіж клієнта, і саме так його треба рахувати менеджеру. */}
         <SectionTitle theme={theme}>Платежі ({paymentGroups.length})</SectionTitle>
+        {/* Сітка модулів набору. У пізнього покупця вона коротша за 9 — тому окремо
+            «Модулі 2–9» (його діапазон) і окремо «сплачено X з Y» (його ж знаменник). */}
+        {details.schedule && (
+          <div className={`mb-2 px-3 py-2 rounded-lg border text-[11.5px] flex flex-wrap items-center gap-x-2 gap-y-1 ${
+            dark ? 'border-white/[0.08] bg-white/[0.03] text-slate-300' : 'border-stone-300/60 bg-stone-50 text-stone-700'
+          }`}>
+            <span>
+              Модулі <b className="tabular-nums">{details.schedule.firstSlot + 1}–{details.schedule.moduleCount}</b>
+            </span>
+            <span className={dark ? 'text-slate-600' : 'text-stone-400'}>·</span>
+            <span>
+              сплачено <b className="tabular-nums">{details.schedule.paidCount}</b> з <b className="tabular-nums">{details.schedule.totalSlots}</b>
+            </span>
+            {details.schedule.nextModuleNumber && (
+              <>
+                <span className={dark ? 'text-slate-600' : 'text-stone-400'}>·</span>
+                <span className={dark ? 'text-amber-200' : 'text-amber-800'}>
+                  наступний — модуль {details.schedule.nextModuleNumber}
+                  {details.schedule.nextModuleMonth ? ` · ${details.schedule.nextModuleMonth}` : ''}
+                </span>
+              </>
+            )}
+          </div>
+        )}
         {/* Для місячної підписки головне питання менеджера — скільки ще винен клієнт
             до повної вартості Річної. Рахуємо реальні гроші (без тест-оплат 1–2 ₴). */}
         {row.plan === 'MONTHLY' && (
@@ -2124,6 +2219,27 @@ function ExpandedRowContent({
                           <div className={`font-mono text-[10px] truncate ${dark ? 'text-slate-400' : 'text-stone-600'}`}>{p.orderReference}</div>
                         )}
                         <div className={dark ? 'text-slate-600' : 'text-stone-500'}>{fmtDate(p.paidAt ?? p.createdAt)}</div>
+                        {/* Який модуль набору закриває це внесення. Для розбитого —
+                            діапазон: одне внесення на 5 модулів має читатись як 3–7. */}
+                        {(() => {
+                          const mods = g.parts
+                            .map((x) => x.module)
+                            .filter((m): m is { number: number; total: number; monthLabel: string } => !!m);
+                          if (mods.length === 0) return null;
+                          // Частки одного внесення мають однакову дату оплати, тож порядок
+                          // у групі (_1…_N) не гарантує зростання номерів модулів — беремо
+                          // мінімум і максимум явно.
+                          const sorted = [...mods].sort((a, b) => a.number - b.number);
+                          const first = sorted[0];
+                          const last = sorted[sorted.length - 1];
+                          return (
+                            <div className={`text-[10px] font-semibold ${dark ? 'text-amber-200/90' : 'text-amber-800'}`}>
+                              {first.number === last.number
+                                ? `Модуль ${first.number} · ${first.monthLabel}`
+                                : `Модулі ${first.number}–${last.number} · ${first.monthLabel} — ${last.monthLabel}`}
+                            </div>
+                          );
+                        })()}
                         {/* Розбивка — це ОДНЕ внесення клієнта, розкладене на місячні слоти.
                             Показуємо склад, щоб 5 однакових рядків не читались як дубль. */}
                         {g.isSplit && (
@@ -2175,7 +2291,9 @@ function ExpandedRowContent({
                         {g.parts.map((part, i) => (
                           <div key={part.id} className="flex items-center justify-between gap-2 text-[10.5px]">
                             <span className={dark ? 'text-slate-500' : 'text-stone-500'}>
-                              Частка {i + 1} з {g.parts.length} · 1 місяць доступу
+                              Частка {i + 1} з {g.parts.length} · {part.module
+                                ? `модуль ${part.module.number} · ${part.module.monthLabel}`
+                                : '1 місяць доступу'}
                               {part.excludedFromAccess && <span className={dark ? ' text-amber-300' : ' text-amber-700'}> · 🚫 поза доступом</span>}
                             </span>
                             <span className="flex items-center gap-1.5 whitespace-nowrap">
@@ -2306,10 +2424,22 @@ function httpFallbackMessage(status: number, statusText: string): string {
 /// Оформлення події у стрічці: іконка + людський лейбл. Для більшості типів лейбл — це
 /// сам machine-name (менеджери вже до нього звикли, а тех-підтримці так простіше шукати
 /// у логах); озаглавлюємо лише ті події, де machine-name нічого не пояснює.
+/// «Місячну сплачено повністю?» — одна відповідь на всю таблицю.
+///
+/// Норма — сітка модулів набору: у пізнього покупця слотів менше за 9, і 8 з 8 у нього
+/// повна оплата. Fallback на лічильник 9 лишається тільки для legacy-рядків БЕЗ набору:
+/// сітки для них не існує, і мовчки перевести їх з «✓» на «винен» було б неправдою.
+function monthlyFullyPaid(r: Row): boolean {
+  return r.schedule
+    ? r.schedule.isFullyPaid
+    : r.paymentsCount >= YEARLY_PROGRAM_CONFIG.totalMonthlyPayments;
+}
+
 const EVENT_LABELS: Record<string, { label: string; icon?: string }> = {
   revived_with_debt: { label: 'оплата з боргом — потрібне рішення', icon: '⚠️' },
   repurchase_initiated: { label: 'повторна покупка — очікує оплату', icon: '🔁' },
   plan_converted: { label: 'план переведено на Річний', icon: '⬆️' },
+  renew_link_used: { label: 'оплата за персональним посиланням', icon: '🔗' },
 };
 
 /// Країни за абеткою (укр. колація) — для випадайки у формі редагування.

@@ -31,12 +31,27 @@ interface CoursePurchaseModalProps {
   /// Invite-token від менеджера (signed). Якщо переданий — модалка prefill-ить email/name
   /// і блокує email (студент не може змінити). Token пересилається в /api/wayforpay.
   inviteToken?: string;
+  /// Renew-token з листа «Оплатити наступний модуль». Прокидається у діалог і далі в
+  /// `/api/wayforpay` полем `renew`; повноважень не дає — лише називає підписку.
+  renewToken?: string;
   invitePrefill?: {
     email: string;
     name?: string | null;
     plan?: 'YEARLY' | 'MONTHLY';
     autoRenew?: boolean;
+    phone?: string | null;
+    country?: string | null;
+    telegram?: string | null;
   };
+  /// Ховає перемикач «РАЗОВА / АВТОПЛАТІЖ» і фіксує разову оплату (renew-флоу).
+  lockRecurring?: boolean;
+  /// `link` — тригер-рядок замість золотої кнопки. Для другорядних входів у ту саму
+  /// оплату (напр. «Уже навчаєтесь? Оплатити наступний модуль» під карткою тарифу),
+  /// які не мають конкурувати з головним CTA секції.
+  variant?: 'button' | 'link';
+  /// Заміняє дефолтну підказку під полем email у формі. Потрібна там, де email — не
+  /// «куди прийде доступ», а «за яким знайти вашу підписку».
+  emailHint?: string;
 }
 
 export default function CoursePurchaseModal({
@@ -51,7 +66,11 @@ export default function CoursePurchaseModal({
   allowRecurringChoice = false,
   recurringCount,
   inviteToken,
+  renewToken,
   invitePrefill,
+  lockRecurring = false,
+  variant = 'button',
+  emailHint,
 }: CoursePurchaseModalProps) {
   const t = useTranslations('PurchaseModal');
   const [isOpen, setIsOpen] = useState(false);
@@ -76,15 +95,26 @@ export default function CoursePurchaseModal({
 
   return (
     <>
-      <button
-        onClick={handleOpen}
-        disabled={disabled}
-        className={`group relative inline-flex items-center gap-3 bg-[#D4A017] text-white font-bold rounded-xl mx-auto justify-center overflow-hidden shadow-md shadow-[#D4A017]/20 transition-all duration-300 hover:bg-[#c69414] hover:shadow-lg hover:shadow-[#D4A017]/30 border border-[#D4A017]/30 disabled:opacity-50 disabled:cursor-not-allowed ${compact ? 'py-2.5 px-6 text-sm' : 'py-2.5 px-3 text-sm'}`}
-      >
-        <span className="absolute inset-0 -translate-x-full group-hover:translate-x-full transition-transform duration-1000 ease-out bg-gradient-to-r from-transparent via-white/15 to-transparent" />
-        <FaWallet className={`relative ${compact ? 'text-base' : 'text-xl'}`} />
-        <span className="relative">{buttonLabel ?? t('btnBuy')}</span>
-      </button>
+      {variant === 'link' ? (
+        <button
+          onClick={handleOpen}
+          disabled={disabled}
+          className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-[#1C3A2E] underline underline-offset-4 decoration-[#D4A017]/60 hover:decoration-[#D4A017] hover:text-[#D4A017] transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <FaWallet className="text-[#D4A017] text-sm" aria-hidden />
+          <span>{buttonLabel ?? t('btnBuy')}</span>
+        </button>
+      ) : (
+        <button
+          onClick={handleOpen}
+          disabled={disabled}
+          className={`group relative inline-flex items-center gap-3 bg-[#D4A017] text-white font-bold rounded-xl mx-auto justify-center overflow-hidden shadow-md shadow-[#D4A017]/20 transition-all duration-300 hover:bg-[#c69414] hover:shadow-lg hover:shadow-[#D4A017]/30 border border-[#D4A017]/30 disabled:opacity-50 disabled:cursor-not-allowed ${compact ? 'py-2.5 px-6 text-sm' : 'py-2.5 px-3 text-sm'}`}
+        >
+          <span className="absolute inset-0 -translate-x-full group-hover:translate-x-full transition-transform duration-1000 ease-out bg-gradient-to-r from-transparent via-white/15 to-transparent" />
+          <FaWallet className={`relative ${compact ? 'text-base' : 'text-xl'}`} />
+          <span className="relative">{buttonLabel ?? t('btnBuy')}</span>
+        </button>
+      )}
 
       {isOpen && (
         <CoursePurchaseDialog
@@ -97,7 +127,10 @@ export default function CoursePurchaseModal({
           allowRecurringChoice={allowRecurringChoice}
           recurringCount={recurringCount}
           inviteToken={inviteToken}
+          renewToken={renewToken}
           invitePrefill={invitePrefill}
+          lockRecurring={lockRecurring}
+          emailHint={emailHint}
           onClose={() => setIsOpen(false)}
         />
       )}

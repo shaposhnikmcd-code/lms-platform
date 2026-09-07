@@ -32,7 +32,10 @@ import {
   accessClosed,
 } from '@/lib/emailTemplates/yearlyProgram';
 
-import { sendEmail } from '@/lib/mailer';
+import { sendEmail, appBaseUrl } from '@/lib/mailer';
+import { PROGRAM_URL } from '@/lib/emailTemplates/reminderTemplates';
+import { nextUnpaidModule } from '@/lib/yearlyProgramModules';
+import { issueRenewLink } from '@/lib/yearlyProgramRenew';
 import {
   getYearlyProgramTelegramSettings,
   generateInviteForSubscription,
@@ -1072,6 +1075,38 @@ function subSchedule(sub: ScheduleAwareSub) {
   return sub.cohort ? monthlySchedule({ cohort: sub.cohort, payments: sub.payments }) : null;
 }
 
+/// Персональна частина manual-нагадування: посилання «Оплатити наступний модуль» з
+/// підписаним токеном і рядок «Наступний модуль: 3 з 9 · листопад 2026».
+///
+/// Токен видається на кожен лист заново (він дешевий і безстанний), живе 45 днів — довше
+/// за весь ланцюг нагадувань разом з grace, тож людина, яка відкриє найперший лист в
+/// останній день пільгового періоду, усе одно потрапить на робочу сторінку.
+///
+/// Без набору або без наступного неоплаченого модуля персоналізації немає: кнопка веде на
+/// загальний лендінг, рядок про модуль порожній. Вигадувати номер модуля там, де сітки не
+/// існує, не можна — лист про гроші не має права припускати.
+function renewMailVars(sub: ScheduleAwareSub & {
+  id: string;
+  cohortId: string | null;
+  user: { email: string } | null;
+}): { payUrl: string; moduleLine: string } {
+  if (!sub.cohort || !sub.cohortId || !sub.user?.email) {
+    return { payUrl: PROGRAM_URL, moduleLine: '' };
+  }
+  const nextModule = nextUnpaidModule({ cohort: sub.cohort, payments: sub.payments });
+  if (!nextModule) return { payUrl: PROGRAM_URL, moduleLine: '' };
+  const { url } = issueRenewLink({
+    subscriptionId: sub.id,
+    email: sub.user.email,
+    cohortId: sub.cohortId,
+    origin: appBaseUrl(),
+  });
+  return {
+    payUrl: url,
+    moduleLine: `Наступний модуль: ${nextModule.number} з ${nextModule.total} · ${nextModule.monthLabel}.`,
+  };
+}
+
 const SCHEDULE_INCLUDE = {
   cohort: { select: { startDate: true, endDate: true } },
   payments: {
@@ -1285,7 +1320,7 @@ async function sendManualBeforeExpiryReminders(): Promise<StepResult> {
         subscriptionId: sub.id,
         flag: 'reminderSent3d',
         to: sub.user.email,
-        render: () => manualBeforeExpiry({ name: sub.user!.name, expiresAt }),
+        render: () => manualBeforeExpiry({ name: sub.user!.name, expiresAt, ...renewMailVars(sub) }),
         eventType: 'reminder_manual_before',
         eventMessage: `Manual 3d-before · expires ${expiresAt.toISOString().slice(0, 10)}`,
       });
@@ -1333,7 +1368,7 @@ async function sendManualOnExpiryReminders(): Promise<StepResult> {
         subscriptionId: sub.id,
         flag: 'reminderSentOnExpiry',
         to: sub.user.email,
-        render: () => manualOnExpiry({ name: sub.user!.name }),
+        render: () => manualOnExpiry({ name: sub.user!.name, ...renewMailVars(sub) }),
         eventType: 'reminder_manual_on_expiry',
         eventMessage: 'Manual on-expiry (last day)',
       });
@@ -1402,7 +1437,7 @@ async function sendGraceStartReminders(): Promise<StepResult> {
         flag: 'reminderSentGraceStart',
         to: sub.user.email,
         render: () => (isManual
-          ? manualGraceStart({ name: sub.user!.name, gracePeriodEndsAt, graceDays: spanDays })
+          ? manualGraceStart({ name: sub.user!.name, gracePeriodEndsAt, graceDays: spanDays, ...renewMailVars(sub) })
           : cyclicalChargeFailed1({ name: sub.user!.name, gracePeriodEndsAt, graceDays: spanDays })),
         eventType: isManual ? 'reminder_manual_grace_start' : 'reminder_cyclical_failed1',
         eventMessage: `Grace ends ${gracePeriodEndsAt.toISOString().slice(0, 10)}`,
@@ -1464,7 +1499,7 @@ async function sendGraceMidReminders(): Promise<StepResult> {
         flag: 'reminderSentGraceMid',
         to: sub.user.email,
         render: () => (isManual
-          ? manualGraceMid({ name: sub.user!.name, gracePeriodEndsAt })
+          ? manualGraceMid({ name: sub.user!.name, gracePeriodEndsAt, ...renewMailVars(sub) })
           : cyclicalGraceMid({ name: sub.user!.name, gracePeriodEndsAt })),
         eventType: isManual ? 'reminder_manual_grace_mid' : 'reminder_cyclical_grace_mid',
         eventMessage: `Grace ends ${gracePeriodEndsAt.toISOString().slice(0, 10)} · midDay=${midDay} · graceDays=${spanDays}`,
@@ -1523,7 +1558,7 @@ async function sendGraceLastReminders(): Promise<StepResult> {
         flag: 'reminderSentGraceLast',
         to: sub.user.email,
         render: () => (isManual
-          ? manualGraceLast({ name: sub.user!.name, gracePeriodEndsAt })
+          ? manualGraceLast({ name: sub.user!.name, gracePeriodEndsAt, ...renewMailVars(sub) })
           : cyclicalGraceLast({ name: sub.user!.name, gracePeriodEndsAt })),
         eventType: isManual ? 'reminder_manual_grace_last' : 'reminder_cyclical_grace_last',
         eventMessage: `Grace ends ${gracePeriodEndsAt.toISOString().slice(0, 10)} · graceDays=${spanDays}`,

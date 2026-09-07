@@ -221,6 +221,10 @@ export const learningContent = {
     promoText: "To pay for one month, use the promo code:",
     btnMonth: "Registration opens soon",
     courseNameMonth: "Yearly program — 1 month",
+    renewPrompt: "Already studying on the monthly plan?",
+    renewLink: "Pay for the next module",
+    renewEmailHint: "Use the same email as for your first payment — the payment will be credited to your subscription.",
+    renewCourseName: "Yearly program — 1 module",
   },
 };
 

@@ -27,6 +27,13 @@ type Props = {
     promoText: string;
     btnMonth: string;
     courseNameMonth: string;
+    /// Запасний вхід для тих, хто вже вчиться помісячно і загубив персональне
+    /// посилання з листа. Веде в ту саму разову оплату модуля, але email вводиться
+    /// вручну — підписку сервер знайде саме за ним.
+    renewPrompt?: string;
+    renewLink?: string;
+    renewEmailHint?: string;
+    renewCourseName?: string;
   };
   yearlyPrice: number;
   yearlyOldPrice?: number | null;
@@ -204,6 +211,29 @@ export default function PricingSection({ t, yearlyPrice, yearlyOldPrice, monthly
           </div>
         </div>
       </div>
+
+      {/* Під місячною карткою: вхід для чинного студента на помісячній оплаті. Тільки
+          коли місячна взагалі продається — інакше рядок обіцяв би оплату, якої нема. */}
+      {monthlyAvailable && (
+        <div className="grid md:grid-cols-2 gap-5 mt-4">
+          <div className="hidden md:block" aria-hidden />
+          <div className="px-6 text-center md:text-left">
+            <p className="text-[13px] text-gray-500 mb-1.5">
+              {t.renewPrompt ?? 'Уже навчаєтесь за місячною оплатою?'}
+            </p>
+            <CoursePurchaseModal
+              courseName={t.renewCourseName ?? t.courseNameMonth}
+              price={monthlyPrice}
+              courseId={YEARLY_PROGRAM.monthlyCourseId}
+              currency={t.currency}
+              variant="link"
+              lockRecurring
+              buttonLabel={t.renewLink ?? 'Оплатити наступний модуль'}
+              emailHint={t.renewEmailHint ?? 'Вкажіть той самий email, що при першій оплаті — платіж зарахується у вашу підписку.'}
+            />
+          </div>
+        </div>
+      )}
     </section>
   );
 }

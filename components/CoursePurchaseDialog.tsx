@@ -14,6 +14,25 @@ import { YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
 const capitalizeFirst = (s: string) =>
   s.length > 0 ? s.charAt(0).toLocaleUpperCase('uk-UA') + s.slice(1) : s;
 
+/// `+380671234567` → `{ country: 'UA', digits: '671234567' }`. Найдовший збіг префікса,
+/// щоб `+380` не програв `+3`; при однакових префіксах (US/CA — обидва `+1`) виграє
+/// перший за алфавітом код — для форми це лише початкове значення, користувач бачить
+/// його і може змінити. Номер, який не лягає в жоден відомий префікс (або має не ту
+/// кількість цифр для країни), не підставляємо взагалі — краще порожнє поле, ніж
+/// мовчазно обрізаний номер у платіжці.
+function splitPhone(full: string | null | undefined): { country: string; digits: string } | null {
+  const raw = typeof full === 'string' ? full.trim() : '';
+  if (!raw.startsWith('+')) return null;
+  const candidates = Object.entries(PHONE_CONFIG)
+    .filter(([, cfg]) => raw.startsWith(cfg.prefix))
+    .sort((a, b) => b[1].prefix.length - a[1].prefix.length || a[0].localeCompare(b[0]));
+  for (const [code, cfg] of candidates) {
+    const digits = raw.slice(cfg.prefix.length).replace(/\D/g, '');
+    if (digits.length === cfg.maxDigits) return { country: code, digits };
+  }
+  return null;
+}
+
 export interface CoursePurchaseDialogProps {
   courseName: string;
   price: number;
@@ -32,12 +51,28 @@ export interface CoursePurchaseDialogProps {
   /// Invite-flow: signed token від менеджера. Прив'язує оплату до конкретного cohort-у
   /// й маркує підписку як manually-added у callback-у.
   inviteToken?: string;
+  /// Renew-flow: signed token з листа-нагадування («Оплатити наступний модуль»). На
+  /// відміну від invite НЕ дає жодних повноважень — лише називає підписку, яку студент
+  /// продовжує. Пересилається в `/api/wayforpay` полем `renew`.
+  renewToken?: string;
+  /// Prefill підписаного посилання (invite менеджера АБО renew студента). Email у обох
+  /// випадках lock-нутий — його підписано в токені, і сервер звіряє body з підписом.
   invitePrefill?: {
     email: string;
     name?: string | null;
     plan?: 'YEARLY' | 'MONTHLY';
     autoRenew?: boolean;
+    /// Контакти з наявної підписки (renew-флоу) — щоб студент не вводив їх заново.
+    /// Телефон у форматі `+380…`; країна — ISO-код; telegram — з `@` або без.
+    phone?: string | null;
+    country?: string | null;
+    telegram?: string | null;
   };
+  /// Тариф зафіксовано: перемикача «РАЗОВА / АВТОПЛАТІЖ» немає, у чекаут іде
+  /// `recurring: false`. Використовує renew-флоу — там купується рівно один модуль.
+  lockRecurring?: boolean;
+  /// Заміняє дефолтну підказку під полем email («на нього прийде доступ до курсу»).
+  emailHint?: string;
   /// Закриття діалогу (викликається на Esc, backdrop-клік, кнопці "×").
   onClose: () => void;
 }
@@ -51,7 +86,10 @@ export default function CoursePurchaseDialog({
   allowRecurringChoice = false,
   recurringCount = YEARLY_PROGRAM_CONFIG.totalMonthlyPayments,
   inviteToken,
+  renewToken,
   invitePrefill,
+  lockRecurring = false,
+  emailHint,
   onClose,
 }: CoursePurchaseDialogProps) {
   const t = useTranslations('PurchaseModal');
@@ -100,14 +138,20 @@ export default function CoursePurchaseDialog({
   const inviteFirstName = inviteName ? inviteName.split(' ')[0] : '';
   const inviteLastName = inviteName ? inviteName.split(' ').slice(1).join(' ') : '';
   const inviteAutoRenew = invitePrefill?.autoRenew ?? null;
+  /// Email підписаний у токені (invite або renew) — редагувати його не можна: сервер
+  /// звіряє `clientEmail` з підписом і відхилить розбіжність.
+  const emailLocked = !!inviteToken || !!renewToken;
+  /// Телефон із підписки приходить одним рядком `+380671234567`, а форма тримає його
+  /// двома полями (код країни + цифри). Розбираємо за найдовшим збігом префікса.
+  const prefilledPhone = splitPhone(invitePrefill?.phone);
 
   const [email, setEmail] = useState(() => invitePrefill?.email || session?.user?.email || '');
   const [firstName, setFirstName] = useState(() => inviteFirstName || session?.user?.name?.split(' ')[0] || '');
   const [lastName, setLastName] = useState(() => inviteLastName || session?.user?.name?.split(' ').slice(1).join(' ') || '');
-  const [phone, setPhone] = useState('');
-  const [phoneCountry, setPhoneCountry] = useState('UA');
-  const [residenceCountry, setResidenceCountry] = useState('UA');
-  const [telegramUsername, setTelegramUsername] = useState('');
+  const [phone, setPhone] = useState(() => prefilledPhone?.digits ?? '');
+  const [phoneCountry, setPhoneCountry] = useState(() => prefilledPhone?.country ?? 'UA');
+  const [residenceCountry, setResidenceCountry] = useState(() => invitePrefill?.country || 'UA');
+  const [telegramUsername, setTelegramUsername] = useState(() => invitePrefill?.telegram ?? '');
   const [promoCode, setPromoCode] = useState('');
   const [promoApplied, setPromoApplied] = useState(false);
   const [promoError, setPromoError] = useState('');
@@ -312,8 +356,12 @@ export default function CoursePurchaseDialog({
           courseId,
           promoCode: promoApplied ? promoCode.trim() : undefined,
           selectedFreeSlugs: selectedFreeSlugs && selectedFreeSlugs.length > 0 ? selectedFreeSlugs : undefined,
-          recurring: allowRecurringChoice ? isRecurring === true : undefined,
+          // `recurring: false` для renew ОБОВ'ЯЗКОВЕ, а не косметика: на сервері регулярні
+          // прапори чіпляються за умовою `recurring !== false`, тож `undefined` перетворив
+          // би оплату одного модуля на автосписання до кінця набору.
+          recurring: allowRecurringChoice ? isRecurring === true : (lockRecurring ? false : undefined),
           invite: inviteToken,
+          renew: renewToken,
           country: isYearlyProgram ? residenceCountry : undefined,
           telegramUsername: isYearlyProgram ? normalizedTelegram : undefined,
         }),
@@ -538,12 +586,12 @@ export default function CoursePurchaseDialog({
                 placeholder="username@gmail.com"
                 autoComplete="email"
                 aria-invalid={!!errors.email}
-                readOnly={!!inviteToken}
-                disabled={!!inviteToken}
+                readOnly={emailLocked}
+                disabled={emailLocked}
                 className={`w-full px-4 ${inputPadY} border rounded-lg outline-none text-gray-900 transition-colors ${
                   errors.email
                     ? 'border-red-400 bg-red-50/30 focus:ring-2 focus:ring-red-300 focus:border-red-400'
-                    : inviteToken
+                    : emailLocked
                       ? 'border-amber-300 bg-amber-50/40 cursor-not-allowed'
                       : 'border-gray-300 focus:ring-2 focus:ring-[#D4A017] focus:border-transparent'
                 }`}
@@ -554,10 +602,16 @@ export default function CoursePurchaseDialog({
                   Запрошення від менеджера UIMP — email зафіксований
                 </p>
               )}
-              {!inviteToken && !errors.email && (
+              {renewToken && !inviteToken && (
+                <p className="mt-1.5 text-xs text-amber-700 flex items-center gap-1">
+                  <span aria-hidden>🔗</span>
+                  Ваша підписка — оплата зарахується саме на цей email
+                </p>
+              )}
+              {!emailLocked && !errors.email && (
                 <p className="mt-1.5 text-xs text-gray-500 flex items-start gap-1">
                   <span aria-hidden>⚠️</span>
-                  <span>Перевірте email перед оплатою — на нього прийде доступ до курсу. Помилка в одній букві створить новий акаунт.</span>
+                  <span>{emailHint ?? 'Перевірте email перед оплатою — на нього прийде доступ до курсу. Помилка в одній букві створить новий акаунт.'}</span>
                 </p>
               )}
               {errors.email && <p className="mt-1.5 text-xs text-red-600 flex items-center gap-1"><span aria-hidden>•</span>{errors.email}</p>}
@@ -625,6 +679,19 @@ export default function CoursePurchaseDialog({
                   )}
                 </div>
               </>
+            )}
+
+            {/* Renew-флоу: тариф зафіксований, перемикача немає. Показуємо ЧОМУ — інакше
+                форма мовчки відрізняється від тієї, що студент бачив у картці «Місячна». */}
+            {lockRecurring && !allowRecurringChoice && (
+              <div className="rounded-xl border-2 border-[#D4A017]/35 bg-gradient-to-br from-[#FDFBF4] to-white px-3 py-2">
+                <div className="text-[9px] font-bold tracking-[0.14em] text-[#1C3A2E]/70">
+                  ОПЛАТА ОДНОГО МОДУЛЯ
+                </div>
+                <p className="mt-0.5 text-[11px] text-gray-600 leading-snug">
+                  Разовий платіж за наступний модуль програми. Автосписання не підключається.
+                </p>
+              </div>
             )}
 
             {allowRecurringChoice && (

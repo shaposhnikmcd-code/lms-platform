@@ -11,6 +11,7 @@ import { applyPromoServerSide, resolveServerPricing } from '@/lib/paymentPricing
 import { claimPromoUse, releasePromoUse } from '@/lib/promoUsage';
 import { checkRateLimit } from '@/lib/ratelimit';
 import {
+  cohortModuleCount,
   cohortModuleStart,
   cohortSlotIndex,
   lastAutopayChargeDate,
@@ -21,6 +22,7 @@ import {
 import { removeSubscriptionAutopay, recordAutopayRemoveOutcome } from '@/lib/yearlyProgramAutopay';
 import { resolveSellableCohort } from '@/lib/yearlyProgramCohort';
 import { verifyInvite, type InvitePayload } from '@/lib/yearlyProgramInvite';
+import { verifyRenewToken, type RenewPayload } from '@/lib/yearlyProgramRenew';
 import { isValidCountryCode } from '@/lib/countries';
 import { parseTelegramUsername } from '@/lib/telegramUsername';
 import { recordInviteFailure } from '@/lib/yearlyProgramTelegram';
@@ -57,7 +59,7 @@ export async function POST(req: NextRequest) {
     const rl = await checkRateLimit(req, 'payment');
     if (!rl.ok) return rl.response!;
 
-    const { orderReference, clientEmail, clientName, clientPhone, courseId, promoCode, selectedFreeSlugs, recurring, invite, country, telegramUsername } = await req.json();
+    const { orderReference, clientEmail, clientName, clientPhone, courseId, promoCode, selectedFreeSlugs, recurring, invite, renew, country, telegramUsername } = await req.json();
 
     if (typeof orderReference !== 'string' || !orderReference) {
       return NextResponse.json({ error: 'Missing orderReference' }, { status: 400 });
@@ -103,6 +105,39 @@ export async function POST(req: NextRequest) {
         if ((recurring === true) !== invitePayload.autoRenew) {
           return NextResponse.json({ error: 'Тип оплати (автосписання) не співпадає з invite-посиланням' }, { status: 400 });
         }
+      }
+    }
+
+    // Renew-посилання «Оплатити наступний модуль» з листа-нагадування (або з рук менеджера).
+    // Токен НЕ дає жодних повноважень: він лише називає підписку, наступний модуль якої
+    // студент збирався оплатити, і фіксує email, щоб адресу не можна було підмінити з
+    // браузера. Усі гварди місячної покупки (`monthly_autopay_active`, `monthly_fully_paid`,
+    // `monthly_schedule_debt`, `no_current_cohort`) нижче працюють так само, як без токена.
+    let renewPayload: RenewPayload | null = null;
+    if (typeof renew === 'string' && renew.length > 0) {
+      renewPayload = verifyRenewToken(renew);
+      if (!renewPayload) {
+        return NextResponse.json(
+          { error: 'Посилання на оплату модуля недійсне або застаріло. Оплатіть у картці «Місячна», обравши «РАЗОВА».', code: 'renew_link_invalid' },
+          { status: 400 },
+        );
+      }
+      // Два підписані посилання в одному чекауті — це або помилка інтеграції, або спроба
+      // склеїти повноваження invite (обхід registrationOpen) з адресною частиною renew.
+      if (invitePayload) {
+        return NextResponse.json({ error: 'Не можна поєднувати invite- і renew-посилання' }, { status: 400 });
+      }
+      if (typeof clientEmail === 'string' && clientEmail.trim().toLowerCase() !== renewPayload.email) {
+        return NextResponse.json({ error: 'Email не співпадає з посиланням на оплату модуля' }, { status: 400 });
+      }
+      // Поновлення — це завжди ОДИН місячний модуль. Річний ордер тут означав би оплату
+      // 15 000 ₴ під виглядом продовження, а `recurring: true` — регулярку, якої студент
+      // на цій сторінці не бачив і не обирав.
+      if (isYearlyProgramOrderRef(orderReference) !== 'monthly') {
+        return NextResponse.json({ error: 'Посилання на оплату модуля працює лише з місячним платежем' }, { status: 400 });
+      }
+      if (recurring === true) {
+        return NextResponse.json({ error: 'Оплата модуля за посиланням завжди разова' }, { status: 400 });
       }
     }
 
@@ -435,6 +470,24 @@ export async function POST(req: NextRequest) {
           }
         }
 
+        // Звірка renew-посилання з тим, що реально вирішив флоу реюзу вище. Токен нічого
+        // не обирає — він лише СТВЕРДЖУЄ, чию підписку студент відкривав у листі. Якщо з
+        // моменту видачі посилання підписку перенесли в інший набір, скасували й завели
+        // нову або людина встигла оформити ще одну — збігу не буде, і брати гроші наосліп
+        // не можна: модуль, який ми «продовжуємо», був би не тим, що показала сторінка.
+        if (renewPayload) {
+          const matches = plan === 'MONTHLY'
+            && !!existing
+            && existing.id === renewPayload.subscriptionId
+            && currentCohortId === renewPayload.cohortId;
+          if (!matches) {
+            return NextResponse.json({
+              error: 'Посилання на оплату модуля більше не актуальне — підписка змінилась. Напишіть менеджеру: edu@uimp.com.ua',
+              code: 'renew_link_stale',
+            }, { status: 409 });
+          }
+        }
+
         // Дати набору тягнемо один раз — їх використовують guard-и нижче і побудова
         // WFP-графіка наприкінці запиту.
         if (currentCohortId) {
@@ -496,6 +549,29 @@ export async function POST(req: NextRequest) {
                 code: 'monthly_schedule_debt',
               }, { status: 409 });
             }
+          }
+
+          // Посилання спрацювало і всі гварди пройдені — фіксуємо факт у стрічці підписки.
+          // Саме тут, а не в callback-у: подія відповідає на питання менеджера «звідки
+          // прийшла ця оплата», і вона однаково цінна, якщо студент так і не доплатив.
+          if (renewPayload) {
+            const moduleNumber = monthlySched ? monthlySched.nextSlotIndex + 1 : null;
+            const totalModules = currentCohortDates ? cohortModuleCount(currentCohortDates) : null;
+            await prisma.yearlyProgramSubscriptionEvent.create({
+              data: {
+                subscriptionId: existing.id,
+                type: 'renew_link_used',
+                message: moduleNumber && totalModules
+                  ? `Оплата за персональним посиланням · модуль ${moduleNumber} з ${totalModules} (${orderReference})`
+                  : `Оплата за персональним посиланням (${orderReference})`,
+                metadata: {
+                  orderReference,
+                  cohortId: currentCohortId,
+                  module: moduleNumber,
+                  totalModules,
+                },
+              },
+            });
           }
         }
 

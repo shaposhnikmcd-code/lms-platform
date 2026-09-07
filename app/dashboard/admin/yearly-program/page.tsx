@@ -8,13 +8,15 @@ import { getYearlyProgramTelegramSettings } from '@/lib/yearlyProgramTelegram';
 import { buildYearlyProgramAdminPrewarm } from '@/lib/yearlyProgramAdminPrefetch';
 import { isSuperAdmin } from '@/lib/superAdmin';
 import { collectAllIssues, buildSubscriptionSeverityMap } from '@/lib/yearlyProgramIssues';
+import { cohortModuleCount, monthlySchedule } from '@/lib/yearlyProgramAccess';
+import { moduleMonthLabel } from '@/lib/yearlyProgramModules';
 import { countPendingLaunchAccessByCohort } from '@/lib/yearlyProgramLaunch';
 import {
   buildLiveIdentityIndex,
   isVisibleYearlySubscription,
 } from '@/lib/yearlyProgramVisibility';
 import YearlyProgramView, { type SummaryData } from './_components/YearlyProgramView';
-import type { Row, CohortListItem } from './_components/types';
+import type { Row, RowSchedule, CohortListItem } from './_components/types';
 
 const MAX_ROWS = 500;
 
@@ -39,6 +41,29 @@ function derivePendingLabel(
   return null; // невідомо → лишаємо дефолтне «Очікує»
 }
 
+/// Стан сітки модулів для рядка таблиці. Читає ту саму `monthlySchedule`, що й доступ,
+/// WFP-графік і нагадування — щоб «сплачено повністю» в адмінці й у чекауті не могли
+/// розійтися. YEARLY і підписки без набору сітки не мають: там питання «який модуль»
+/// не стоїть.
+function buildRowSchedule(
+  cohort: { startDate: Date; endDate: Date } | null,
+  countedPaid: { amount: number; status: string; paidAt: Date | null; createdAt: Date; excludedFromAccess: boolean | null; manualMethod: string | null }[],
+  plan: string,
+): RowSchedule | null {
+  if (plan !== 'MONTHLY' || !cohort) return null;
+  const sched = monthlySchedule({ cohort, payments: countedPaid });
+  const nextStart = sched.nextSlotStart;
+  return {
+    firstSlot: sched.firstSlot,
+    totalSlots: sched.totalSlots,
+    paidCount: sched.paidCount,
+    isFullyPaid: sched.isFullyPaid,
+    moduleCount: cohortModuleCount(cohort),
+    nextModuleNumber: nextStart ? sched.nextSlotIndex + 1 : null,
+    nextModuleMonth: nextStart ? moduleMonthLabel(nextStart) : null,
+  };
+}
+
 export default async function AdminYearlyProgramPage() {
   const [subs, cohorts, allSubsLite] = await Promise.all([
     prisma.yearlyProgramSubscription.findMany({
@@ -47,7 +72,9 @@ export default async function AdminYearlyProgramPage() {
       include: {
         user: { select: { id: true, name: true, email: true, adminNote: true } },
         payments: { select: { id: true, amount: true, status: true, createdAt: true, paidAt: true, paymentMethod: true, manualMethod: true, orderReference: true, excludedFromAccess: true } },
-        cohort: { select: { id: true, name: true, startDate: true, launchedAt: true } },
+        // endDate потрібен сітці модулів (`cohortModuleCount`) — без нього не порахувати,
+        // скільки модулів у наборі, і колонка «сплачено повністю» знову впала б на «>= 9».
+        cohort: { select: { id: true, name: true, startDate: true, endDate: true, launchedAt: true } },
       },
     }),
     prisma.yearlyProgramCohort.findMany({
@@ -252,6 +279,7 @@ export default async function AdminYearlyProgramPage() {
       telegramLeftAt: s.telegramLeftAt?.toISOString() ?? null,
       visionCertStatus: s.visionCertStatus,
       note: s.user?.adminNote ?? null,
+      schedule: buildRowSchedule(s.cohort, countedPaid, s.plan),
     };
   });
 

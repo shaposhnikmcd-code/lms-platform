@@ -10,21 +10,40 @@ import {
   nameOfVar,
   dateOfVar,
   daysWordVar,
+  PROGRAM_URL,
 } from './reminderTemplates';
+
+/// Персональна частина manual-нагадувань: посилання «Оплатити наступний модуль» і рядок
+/// «Наступний модуль: 3 з 9 · листопад 2026». Обидва опційні — legacy-підписка без набору
+/// сітки не має, і тоді лист чесно веде на загальний лендінг без обіцянки номера модуля.
+export interface RenewMailVars {
+  payUrl?: string | null;
+  moduleLine?: string | null;
+}
+
+function renewVars(args: RenewMailVars): { payUrl: string; moduleLine: string } {
+  return {
+    payUrl: args.payUrl || PROGRAM_URL,
+    // Порожній рядок, а не `undefined`: `renderTemplate` і так підставить порожньо, але
+    // явне значення показує, що відсутність рядка — рішення, а не забутий параметр.
+    moduleLine: args.moduleLine ?? '',
+  };
+}
 
 // ==================== MANUAL FLOW (клієнт платить сам) ====================
 
 /// Manual #1: за 3 дні до закінчення оплаченого місяця.
-export async function manualBeforeExpiry(args: { name: string | null; expiresAt: Date }): Promise<{ subject: string; html: string }> {
+export async function manualBeforeExpiry(args: { name: string | null; expiresAt: Date } & RenewMailVars): Promise<{ subject: string; html: string }> {
   return renderReminder('manual-before', {
     name: nameOfVar(args.name),
     expiresAt: dateOfVar(args.expiresAt),
+    ...renewVars(args),
   });
 }
 
 /// Manual #2: у день закінчення оплаченого місяця.
-export async function manualOnExpiry(args: { name: string | null }): Promise<{ subject: string; html: string }> {
-  return renderReminder('manual-on-expiry', { name: nameOfVar(args.name) });
+export async function manualOnExpiry(args: { name: string | null } & RenewMailVars): Promise<{ subject: string; html: string }> {
+  return renderReminder('manual-on-expiry', { name: nameOfVar(args.name), ...renewVars(args) });
 }
 
 /// Manual #3: наступний день після закінчення — стартував пільговий період grace.
@@ -32,12 +51,13 @@ export async function manualGraceStart(args: {
   name: string | null;
   gracePeriodEndsAt: Date;
   graceDays: number;
-}): Promise<{ subject: string; html: string }> {
+} & RenewMailVars): Promise<{ subject: string; html: string }> {
   return renderReminder('manual-grace-start', {
     name: nameOfVar(args.name),
     gracePeriodEndsAt: dateOfVar(args.gracePeriodEndsAt),
     graceDays: String(args.graceDays),
     graceDaysWord: daysWordVar(args.graceDays),
+    ...renewVars(args),
   });
 }
 
@@ -45,13 +65,14 @@ export async function manualGraceStart(args: {
 export async function manualGraceMid(args: {
   name: string | null;
   gracePeriodEndsAt: Date;
-}): Promise<{ subject: string; html: string }> {
+} & RenewMailVars): Promise<{ subject: string; html: string }> {
   const daysLeft = Math.max(0, Math.ceil((args.gracePeriodEndsAt.getTime() - Date.now()) / (24 * 60 * 60 * 1000)));
   return renderReminder('manual-grace-mid', {
     name: nameOfVar(args.name),
     gracePeriodEndsAt: dateOfVar(args.gracePeriodEndsAt),
     daysLeft: String(daysLeft),
     daysWord: daysWordVar(daysLeft),
+    ...renewVars(args),
   });
 }
 
@@ -59,10 +80,11 @@ export async function manualGraceMid(args: {
 export async function manualGraceLast(args: {
   name: string | null;
   gracePeriodEndsAt: Date;
-}): Promise<{ subject: string; html: string }> {
+} & RenewMailVars): Promise<{ subject: string; html: string }> {
   return renderReminder('manual-grace-last', {
     name: nameOfVar(args.name),
     gracePeriodEndsAt: dateOfVar(args.gracePeriodEndsAt),
+    ...renewVars(args),
   });
 }
 
