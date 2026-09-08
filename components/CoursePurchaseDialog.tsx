@@ -295,7 +295,7 @@ export default function CoursePurchaseDialog({
     if (!emailTrimmed) {
       next.email = t('alertEmail');
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailTrimmed)) {
-      next.email = 'Введіть коректну адресу: наприклад name@gmail.com';
+      next.email = t('alertEmailFormat');
     }
     if (!firstName.trim()) next.firstName = t('alertFirstName');
     if (!lastName.trim()) next.lastName = t('alertLastName');
@@ -307,13 +307,17 @@ export default function CoursePurchaseDialog({
     if (!phoneTrimmed) {
       next.phone = t('alertPhone');
     } else if (phoneTrimmed.length !== expectedDigits) {
-      next.phone = `Введіть повний номер: ${expectedDigits} цифр`;
+      next.phone = t('alertPhoneDigits', { digits: expectedDigits });
     }
     let normalizedTelegram: string | null = null;
     if (isYearlyProgram) {
-      if (!residenceCountry) next.country = 'Оберіть країну проживання';
+      if (!residenceCountry) next.country = t('alertCountry');
       const tg = parseTelegramUsername(telegramUsername);
-      if (!tg.ok) next.telegram = tg.error ?? 'Вкажіть Telegram username';
+      // `parseTelegramUsername` — спільний хелпер клієнта і сервера: його текст їде в
+      // `telegramInviteError` адмінки і має лишатись українським. Тому для форми беремо
+      // локалізований текст, а варіант («порожньо» / «не той формат») визначаємо за
+      // самим полем — це та сама розвилка, що всередині хелпера.
+      if (!tg.ok) next.telegram = telegramUsername.trim() ? t('alertTelegramFormat') : t('alertTelegram');
       else normalizedTelegram = tg.normalized;
     }
     if (allowRecurringChoice && isRecurring === null) next.payType = t('alertPayType');
@@ -611,7 +615,7 @@ export default function CoursePurchaseDialog({
               {!emailLocked && !errors.email && (
                 <p className="mt-1.5 text-xs text-gray-500 flex items-start gap-1">
                   <span aria-hidden>⚠️</span>
-                  <span>{emailHint ?? 'Перевірте email перед оплатою — на нього прийде доступ до курсу. Помилка в одній букві створить новий акаунт.'}</span>
+                  <span>{emailHint ?? t('emailHintDefault')}</span>
                 </p>
               )}
               {errors.email && <p className="mt-1.5 text-xs text-red-600 flex items-center gap-1"><span aria-hidden>•</span>{errors.email}</p>}
@@ -621,7 +625,7 @@ export default function CoursePurchaseDialog({
               <>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-0.5">
-                    Країна проживання <span className="text-red-500">*</span>
+                    {t('countryLabel')} <span className="text-red-500">*</span>
                   </label>
                   <CountryPicker
                     value={residenceCountry}
@@ -636,14 +640,14 @@ export default function CoursePurchaseDialog({
                     </p>
                   ) : (
                     <p className="mt-1 text-[11px] text-gray-500 leading-snug">
-                      Потрібно, щоб розуміти, в якій ви тайм-зоні — для кращого поділу на групи.
+                      {t('countryHint')}
                     </p>
                   )}
                 </div>
 
                 <div>
                   <label htmlFor="purchase-telegram" className="block text-sm font-medium text-gray-700 mb-0.5">
-                    Telegram username <span className="text-red-500">*</span>
+                    {t('telegramLabel')} <span className="text-red-500">*</span>
                   </label>
                   <div className="relative">
                     <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none">
@@ -674,7 +678,7 @@ export default function CoursePurchaseDialog({
                     </p>
                   ) : (
                     <p id="purchase-telegram-hint" className="mt-1 text-[11px] text-gray-500 leading-snug">
-                      Додамо вас до закритого Telegram-каналу з організаційними оголошеннями.
+                      {t('telegramHint')}
                     </p>
                   )}
                 </div>
@@ -791,6 +795,18 @@ export default function CoursePurchaseDialog({
                           >
                             {opt.unit}
                           </span>
+                        </div>
+
+                        {/* Підказка під опцією: до цього вона обчислювалась і мовчки
+                            губилась, тож «РАЗОВА» і «АВТОПЛАТІЖ» відрізнялись на око
+                            лише лейблом — а різниця між ними в тому, спишуть з картки
+                            ще раз чи ні. */}
+                        <div
+                          className={`mt-1 text-[9.5px] leading-snug ${
+                            selected ? 'text-[#1C3A2E]/70' : 'text-[#1C3A2E]/55'
+                          }`}
+                        >
+                          {opt.hint}
                         </div>
                       </button>
                     );
@@ -927,10 +943,10 @@ export default function CoursePurchaseDialog({
                   <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-black text-white text-[12px] font-semibold">
                     <FaGooglePay className="text-lg" /> Pay
                   </span>
-                  <span className="text-[12.5px] font-bold">— оплата в один дотик</span>
+                  <span className="text-[12.5px] font-bold">{t('walletBadge')}</span>
                 </div>
                 <p className="px-4 py-2 text-[12px] leading-relaxed">
-                  <strong>Радимо Apple&nbsp;Pay або Google&nbsp;Pay</strong> — без SMS і зайвих кроків (кнопки внизу сторінки оплати). Якщо платите карткою вручну — банк попросить код із SMS, введіть його, щоб завершити.
+                  {t.rich('walletTip', { b: (chunks) => <strong>{chunks}</strong> })}
                 </p>
               </div>
             )}

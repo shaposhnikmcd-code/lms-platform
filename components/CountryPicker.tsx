@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { FaChevronDown, FaSearch } from 'react-icons/fa';
 import { HiOutlineGlobeAlt } from 'react-icons/hi2';
-import { COUNTRIES, getCountry } from '@/lib/countries';
+import { useLocale, useTranslations } from 'next-intl';
+import { COUNTRIES, getCountry, getCountryName } from '@/lib/countries';
 
 /// Прапор країни за ISO 3166-1 alpha-2 кодом. flagcdn.com — стабільний публічний
 /// CDN із SVG/PNG прапорами усіх країн (~70+). Використовуємо PNG @2x для retina.
@@ -33,6 +34,7 @@ interface Props {
   value: string;
   onChange: (code: string) => void;
   invalid?: boolean;
+  /// Явний плейсхолдер. Не заданий — беремо локалізований з `PurchaseModal`.
   placeholder?: string;
   disabled?: boolean;
   /// Override вертикального padding (Tailwind class, напр. 'py-[10px]', 'py-2').
@@ -47,15 +49,25 @@ export default function CountryPicker({
   value,
   onChange,
   invalid = false,
-  placeholder = 'Оберіть країну',
+  placeholder,
   disabled = false,
   paddingY = 'py-3',
 }: Props) {
+  const t = useTranslations('PurchaseModal');
+  const locale = useLocale();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const selected = getCountry(value);
+  /// Назви країн у мові сторінки: список у `lib/countries` український, і на /en та /pl
+  /// у полі стояло «Україна». Порядок списку НЕ чіпаємо — він продуктовий (сусіди й
+  /// країни, де живе аудиторія, зверху), а не алфавітний.
+  const nameOf = (code: string, fallback: string) => getCountryName(code, locale, fallback);
+  const options = useMemo(
+    () => COUNTRIES.map((c) => ({ ...c, label: getCountryName(c.code, locale, c.name) })),
+    [locale],
+  );
 
   // Закриття на клік поза списком.
   useEffect(() => {
@@ -78,13 +90,16 @@ export default function CountryPicker({
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return COUNTRIES;
-    return COUNTRIES.filter(
+    if (!q) return options;
+    // Шукаємо і по локалізованій назві, і по українській: людина на /en може набрати
+    // як «Poland», так і «Польща», і обидва мають знаходити.
+    return options.filter(
       (c) =>
+        c.label.toLowerCase().includes(q) ||
         c.name.toLowerCase().includes(q) ||
         c.code.toLowerCase().includes(q),
     );
-  }, [query]);
+  }, [query, options]);
 
   function pick(code: string) {
     onChange(code);
@@ -112,7 +127,7 @@ export default function CountryPicker({
           <HiOutlineGlobeAlt className="text-base text-gray-400" aria-hidden />
         )}
         <span className={`flex-1 text-sm ${selected ? 'text-gray-900' : 'text-gray-400'}`}>
-          {selected ? selected.name : placeholder}
+          {selected ? nameOf(selected.code, selected.name) : (placeholder ?? t('countryPlaceholder'))}
         </span>
         <FaChevronDown className={`text-gray-400 text-xs transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
@@ -126,13 +141,13 @@ export default function CountryPicker({
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Пошук країни..."
+              placeholder={t('countrySearchPlaceholder')}
               className="flex-1 text-sm bg-transparent outline-none text-gray-700 placeholder:text-gray-400"
             />
           </div>
           <ul role="listbox" className="max-h-60 overflow-y-auto py-1">
             {filtered.length === 0 ? (
-              <li className="px-4 py-3 text-sm text-gray-400 text-center">Нічого не знайдено</li>
+              <li className="px-4 py-3 text-sm text-gray-400 text-center">{t('countryEmpty')}</li>
             ) : (
               filtered.map((c) => {
                 const isSelected = c.code === value;
@@ -148,7 +163,7 @@ export default function CountryPicker({
                       }`}
                     >
                       <FlagImg code={c.code} />
-                      <span className="flex-1 text-left">{c.name}</span>
+                      <span className="flex-1 text-left">{c.label}</span>
                     </button>
                   </li>
                 );
