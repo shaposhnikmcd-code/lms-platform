@@ -269,8 +269,8 @@ export default function WorkflowDiagramModal({ theme, graceDays, onClose }: { th
 
               {/* 3 · НАВЧАННЯ */}
               <Activity cx={770} cy={98}  w={180} num={10} kind="student"  title="🎓 Проходить курс" sub="матеріали в SendPulse" c={c} mgrShadowId={managerShadowId} />
-              <Activity cx={770} cy={194} w={180} num={11} kind="wfp"      title="Списує 2 200 ₴ за модуль" sub="лише при авто · 1-го числа · до 9 разів" c={c} mgrShadowId={managerShadowId} />
-              <Activity cx={770} cy={290} w={180} num={12} kind="platform" title="Доступ +1 модуль" sub="до 1-го числа наступного" c={c} mgrShadowId={managerShadowId} />
+              <Activity cx={770} cy={194} w={180} num={11} kind="wfp"      title="Списує 2 200 ₴ за модуль" sub="лише при авто · у день старту набору · до 9 разів" c={c} mgrShadowId={managerShadowId} />
+              <Activity cx={770} cy={290} w={180} num={12} kind="platform" title="Доступ +1 модуль" sub="до початку наступного модуля" c={c} mgrShadowId={managerShadowId} />
               <Activity cx={770} cy={642} w={180} num={13} kind="email"    title="Лист-чек про списання" sub="за кожне успішне (тільки місячна)" editLocation="Листи Платежів" c={c} mgrShadowId={managerShadowId} />
 
               {/* 4 · ПЕРЕД КІНЦЕМ */}

@@ -355,6 +355,47 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: 'Cohort з invite-посилання не існує' }, { status: 400 });
           }
           currentCohortId = inviteCohort.id;
+        } else if (renewPayload) {
+          // Поновлення йде в набір САМОЇ підписки, а не в той, у якому зараз ідуть продажі.
+          // Ці два набори збігаються лише поки набір один: щойно менеджер заводить наступний
+          // (навесні під продажі 2027, або просто «блукаючий» без `isCurrent`),
+          // `resolveSellableCohort` віддає вже інший — і студент, який доплачує свій модуль,
+          // отримував би або відмову `renew_link_stale`, або, гірше, платіж у чужу сітку.
+          // Ціна і слоти нижче рахуються з цього ж набору.
+          const renewSub = await prisma.yearlyProgramSubscription.findUnique({
+            where: { id: renewPayload.subscriptionId },
+            select: {
+              id: true, plan: true, status: true, autoRenew: true, cohortId: true,
+              user: { select: { email: true } },
+              cohort: { select: { id: true, endDate: true } },
+            },
+          });
+          // Умови ті самі, що показала сторінка поновлення (`resolveRenewState`): та сама
+          // людина, місячний план, підписка жива, автосписання вимкнене, набір не змінився.
+          // Будь-яка розбіжність — відмова з контактом менеджера, а не мовчазний перескок
+          // у поточний набір: платити наосліп за чужий модуль ми не дамо.
+          const renewSubEmail = renewSub?.user?.email?.trim().toLowerCase() ?? '';
+          const usable = !!renewSub
+            && renewSub.plan === 'MONTHLY'
+            && renewSub.status !== 'ARCHIVED'
+            && !renewSub.autoRenew
+            && renewSub.cohortId === renewPayload.cohortId
+            && renewSubEmail === renewPayload.email;
+          if (!usable || !renewSub?.cohort) {
+            return NextResponse.json({
+              error: 'Посилання на оплату модуля більше не актуальне — підписка змінилась. Напишіть менеджеру: edu@uimp.com.ua',
+              code: 'renew_link_stale',
+            }, { status: 409 });
+          }
+          // `endDate >= now` — те саме порівняння, що й у `resolveSellableCohort`. Кінець
+          // набору нормалізований до 23:59:59.999 UTC, тож останній день ще продається.
+          if (renewSub.cohort.endDate.getTime() < Date.now()) {
+            return NextResponse.json({
+              error: 'Ваш набір Річної програми вже завершився — оплатити ще один модуль у ньому не можна. Напишіть менеджеру: edu@uimp.com.ua',
+              code: 'renew_cohort_finished',
+            }, { status: 409 });
+          }
+          currentCohortId = renewSub.cohort.id;
         } else {
           // Той самий резолвер, що й публічна сторінка: «Поточний» або fallback на найближчий
           // незавершений запуск. Має збігатися з page.tsx — інакше кнопка активна, а оплата падає.
@@ -432,6 +473,19 @@ export async function POST(req: NextRequest) {
         if (existing && existing.cohortId !== currentCohortId) {
           const existingPaid = plan === 'YEARLY' ? yearlyPaid : monthlyPaid;
           if (existing.cohortId !== null || existingPaid) existing = null;
+        }
+        // Поновлення за персональним посиланням: реюз вище бере НАЙСВІЖІШУ місячну підписку,
+        // а посилання називає конкретну. Якщо в людини лишилась абандонована PENDING-спроба
+        // в іншому наборі, вона свіжіша за робочу підписку і забирає реюз собі — а потім
+        // фільтр по набору обнуляє `existing`, і чесна доплата падає у `renew_link_stale`.
+        // Тому для renew беремо саме ту підписку, за яку людина прийшла платити; вона все
+        // одно має бути живою, місячною і в тому ж наборі. Гварди Rule 1–3 вище рахувались
+        // по загальному зрізу підписок і лишаються чинними.
+        if (renewPayload && plan === 'MONTHLY' && existing?.id !== renewPayload.subscriptionId) {
+          const tokenSub = activeSubs.find((s) => s.id === renewPayload.subscriptionId) ?? null;
+          if (tokenSub && tokenSub.plan === 'MONTHLY' && tokenSub.cohortId === currentCohortId) {
+            existing = tokenSub;
+          }
         }
         // Живої підписки нема → перш ніж заводити нову, шукаємо «мертву» (EXPIRED/CANCELLED)
         // того ж плану В ТОМУ Ж поточному cohort-і й реюзаємо її. Інакше людина, у якої
@@ -571,7 +625,7 @@ export async function POST(req: NextRequest) {
         // який покриває цей платіж: поточний модуль (оплата всередині модуля покриває
         // його цілком), а якщо людина сплатила наперед — перший ще не покритий. Від
         // якоря WFP рахує dateNext = перший день наступного модуля, тож дати списань
-        // однакові у всіх (1-ше число), а не «6-те» чи «15-те» від дня покупки.
+        // однакові у всіх (число дати старту набору), а не «6-те» чи «15-те» від дня покупки.
         // Списань лишається рівно стільки, скільки модулів набору попереду: upgrade
         // разова→автоплатіж після 2 сплачених модулів не програмує зайвих списань.
         if (plan === 'MONTHLY') {

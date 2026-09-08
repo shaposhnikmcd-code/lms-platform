@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import CoursePurchaseModal from '@/components/CoursePurchaseModal';
 import { SUPPORT_TG } from '@/lib/emailTemplates/reminderTemplates';
 import { RENEW_ANCHOR, RENEW_EXPIRED_FLAG } from '@/lib/yearlyProgramRenew';
+import { RENEW_DEAD_LINK_COPY, renewBlockCopy } from '@/lib/yearlyProgramRenewCopy';
 import type { RenewState } from '@/lib/yearlyProgramRenewState';
 import { YEARLY_PROGRAM } from '../config';
 
@@ -59,67 +60,20 @@ function SupportLine({ text }: { text: string }) {
   );
 }
 
-/// Тексти блокувань дзеркалять 409-і з `/api/wayforpay` — сенс той самий, слова людські.
-function blockedText(state: Extract<RenewState, { kind: 'blocked' }>): { title: string; body: string; support: string } {
-  switch (state.reason) {
-    case 'autopay':
-      return {
-        title: 'У вас підключене автосписання',
-        body: 'Наступний модуль спишеться з картки автоматично в перший день модуля — оплачувати вручну не треба. Якщо списання не пройшло і ви хочете закрити модуль самостійно, спочатку треба вимкнути автосписання.',
-        support: 'Щоб перейти на ручну оплату —',
-      };
-    case 'yearly_active':
-      return {
-        title: 'У вас діє Річна підписка',
-        body: 'Програму оплачено одним платежем на весь рік — окремі модулі докуповувати не потрібно.',
-        support: 'Якщо це помилка —',
-      };
-    case 'fully_paid':
-      return {
-        title: 'Усі ваші модулі вже оплачені',
-        body: 'Програму сплачено повністю — доступ відкритий до кінця набору. Платити більше нема за що.',
-        support: 'Якщо бачите це помилково —',
-      };
-    case 'no_schedule':
-      return {
-        title: 'Графік модулів потребує уточнення',
-        body: 'Ваша підписка не лягає на сітку модулів цього набору — оплату модуля через сайт зараз оформити не можна.',
-        support: 'Щоб узгодити оплату —',
-      };
-    case 'debt': {
-      const n = state.missedModules ?? 0;
-      const word = n % 10 === 1 && n % 100 !== 11
-        ? 'модуль'
-        : ([2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? 'модулі' : 'модулів');
-      return {
-        title: 'Є пропущені модулі',
-        body: `За графіком набору пропущено ${n} ${word}. Оплата через сайт закрила б лише найближчий модуль і не вирівняла б графік, тому пропущене менеджер закриває вручну.`,
-        support: 'Щоб домовитись про оплату —',
-      };
-    }
-    case 'registration_closed':
-      return {
-        title: 'Оплата через сайт тимчасово закрита',
-        body: 'Прийом оплат на сторінці програми зараз призупинено. Ваш доступ це не змінює — модуль можна закрити через менеджера.',
-        support: 'Щоб оплатити модуль —',
-      };
-  }
-}
-
-/// `expired` — редирект із route handler-а по мертвому токену. Ніякого запиту за станом
-/// у цьому випадку немає: показуємо, що робити далі, і все.
-function ExpiredNotice() {
+/// Мертве посилання. Два входи, один текст: `?renew=expired` — редирект route handler-а
+/// по зіпсованому/простроченому токену (до бази ми взагалі не ходили), `kind: 'invalid'` —
+/// підпис живий, але підписка вже не та, для якої посилання видали.
+///
+/// Порожнього рендера тут бути не може: людина прийшла за посиланням з листа про гроші,
+/// і мовчазна сторінка читається як поламаний сайт. Тому кажемо і що сталося, і два
+/// робочі виходи — оплатити нижче або взяти нове посилання в менеджера.
+function DeadLinkNotice() {
   return (
-    <section id={RENEW_ANCHOR} className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 pt-10 pb-0 scroll-mt-24">
-      <div className="rounded-xl border border-[#1C3A2E]/12 bg-[#FDFBF4] px-4 sm:px-5 py-4 flex items-start gap-3">
-        <span className="text-lg leading-none mt-0.5" aria-hidden>⌛</span>
-        <p className="text-[13px] text-[#1C3A2E]/80 leading-relaxed">
-          <span className="font-semibold text-[#1C3A2E]">Посилання застаріло.</span>{' '}
-          Оплатити наступний модуль можна нижче — у картці «Щомісячна оплата» оберіть
-          «РАЗОВА» і вкажіть той самий email, з яким ви оформлювали програму.
-        </p>
-      </div>
-    </section>
+    <Frame>
+      <h2 className="text-xl sm:text-2xl font-bold text-white">{RENEW_DEAD_LINK_COPY.title}</h2>
+      <p className="text-white/80 text-[14px] leading-relaxed mt-4 max-w-2xl">{RENEW_DEAD_LINK_COPY.body}</p>
+      <SupportLine text={RENEW_DEAD_LINK_COPY.support} />
+    </Frame>
   );
 }
 
@@ -151,11 +105,12 @@ export default function RenewPanel() {
     document.getElementById(RENEW_ANCHOR)?.scrollIntoView({ block: 'start' });
   }, [state, expired]);
 
-  if (expired) return <ExpiredNotice />;
-  if (!state || state.kind === 'invalid') return null;
+  if (expired) return <DeadLinkNotice />;
+  if (!state) return null;
+  if (state.kind === 'invalid') return <DeadLinkNotice />;
 
   if (state.kind === 'blocked') {
-    const t = blockedText(state);
+    const t = renewBlockCopy(state.reason, state.missedModules ?? 0);
     return (
       <Frame>
         <h2 className="text-xl sm:text-2xl font-bold text-white">{t.title}</h2>
