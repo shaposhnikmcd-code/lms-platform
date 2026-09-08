@@ -51,10 +51,10 @@ export interface CoursePurchaseDialogProps {
   /// Invite-flow: signed token від менеджера. Прив'язує оплату до конкретного cohort-у
   /// й маркує підписку як manually-added у callback-у.
   inviteToken?: string;
-  /// Renew-flow: signed token з листа-нагадування («Оплатити наступний модуль»). На
-  /// відміну від invite НЕ дає жодних повноважень — лише називає підписку, яку студент
-  /// продовжує. Пересилається в `/api/wayforpay` полем `renew`.
-  renewToken?: string;
+  /// Renew-flow: чекаут продовжує наявну підписку. Сам токен сюди НЕ передається —
+  /// він лежить у httpOnly-cookie `yr_renew`, і `/api/wayforpay` читає його звідти.
+  /// Прапорець лише вмикає відповідний вигляд форми: email зафіксований, підказка своя.
+  renewFlow?: boolean;
   /// Prefill підписаного посилання (invite менеджера АБО renew студента). Email у обох
   /// випадках lock-нутий — його підписано в токені, і сервер звіряє body з підписом.
   invitePrefill?: {
@@ -86,7 +86,7 @@ export default function CoursePurchaseDialog({
   allowRecurringChoice = false,
   recurringCount = YEARLY_PROGRAM_CONFIG.totalMonthlyPayments,
   inviteToken,
-  renewToken,
+  renewFlow = false,
   invitePrefill,
   lockRecurring = false,
   emailHint,
@@ -140,7 +140,7 @@ export default function CoursePurchaseDialog({
   const inviteAutoRenew = invitePrefill?.autoRenew ?? null;
   /// Email підписаний у токені (invite або renew) — редагувати його не можна: сервер
   /// звіряє `clientEmail` з підписом і відхилить розбіжність.
-  const emailLocked = !!inviteToken || !!renewToken;
+  const emailLocked = !!inviteToken || renewFlow;
   /// Телефон із підписки приходить одним рядком `+380671234567`, а форма тримає його
   /// двома полями (код країни + цифри). Розбираємо за найдовшим збігом префікса.
   const prefilledPhone = splitPhone(invitePrefill?.phone);
@@ -365,7 +365,6 @@ export default function CoursePurchaseDialog({
           // би оплату одного модуля на автосписання до кінця набору.
           recurring: allowRecurringChoice ? isRecurring === true : (lockRecurring ? false : undefined),
           invite: inviteToken,
-          renew: renewToken,
           country: isYearlyProgram ? residenceCountry : undefined,
           telegramUsername: isYearlyProgram ? normalizedTelegram : undefined,
         }),
@@ -606,7 +605,7 @@ export default function CoursePurchaseDialog({
                   Запрошення від менеджера UIMP — email зафіксований
                 </p>
               )}
-              {renewToken && !inviteToken && (
+              {renewFlow && !inviteToken && (
                 <p className="mt-1.5 text-xs text-amber-700 flex items-center gap-1">
                   <span aria-hidden>🔗</span>
                   Ваша підписка — оплата зарахується саме на цей email

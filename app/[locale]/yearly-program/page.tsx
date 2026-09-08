@@ -8,7 +8,6 @@ import { YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
 import { resolveSellableCohort } from '@/lib/yearlyProgramCohort';
 import { cohortSlotIndex, maxAutopayChargeCount } from '@/lib/yearlyProgramAccess';
 import { verifyInvite, type InvitePayload } from '@/lib/yearlyProgramInvite';
-import { resolveRenewState, type RenewState } from '@/lib/yearlyProgramRenewState';
 import { learningContent } from './_content/uk';
 import HeroSection from './_components/HeroSection';
 import ForWhomSection from './_components/ForWhomSection';
@@ -53,10 +52,10 @@ export default async function YearlyProgramPage({
   searchParams,
 }: {
   params: Promise<{ locale: string }>;
-  searchParams: Promise<{ invite?: string; renew?: string }>;
+  searchParams: Promise<{ invite?: string }>;
 }) {
   const { locale } = await params;
-  const { invite: inviteToken, renew: renewToken } = await searchParams;
+  const { invite: inviteToken } = await searchParams;
   const [c, settings, currentCohort] = await Promise.all([
     getContent(locale) as Promise<any>,
     getYearlyProgramSettings(prisma),
@@ -106,21 +105,6 @@ export default async function YearlyProgramPage({
   const hasCurrentCohort = !!currentCohort;
   const registrationOpenForUser = (settings.registrationOpen && hasCurrentCohort) || !!invitePayload;
 
-  // Renew-флоу: персональне посилання «Оплатити наступний модуль» з листа-нагадування.
-  // На відміну від invite воно НЕ впливає на `registrationOpenForUser` — жодних обходів
-  // не дає, лише показує власнику підписки його наступний модуль (або чесну причину,
-  // чому платити зараз не треба). Стан рахує `resolveRenewState` тими самими функціями,
-  // якими його перевіряє `/api/wayforpay`.
-  const renewState: RenewState | null = renewToken
-    ? await resolveRenewState({
-      client: prisma,
-      token: renewToken,
-      currentCohort,
-      monthlyPrice: settings.monthlyPrice,
-      registrationOpen: settings.registrationOpen && hasCurrentCohort,
-    })
-    : null;
-
   return (
     <main className={`min-h-screen bg-white ${inter.className}`}>
       {invitePayload && (
@@ -153,7 +137,10 @@ export default async function YearlyProgramPage({
         subtitle={c.modules.subtitle}
         items={c.modules.items}
       />
-      {renewState && <RenewPanel state={renewState} />}
+      {/* Персональний блок поновлення. Дані тягне сам, з cookie, поставленої
+          route handler-ом `/yearly-program/renew/<token>` — сторінка лишається
+          знеособленою і придатною для кешу. Без cookie не рендерить нічого. */}
+      <RenewPanel />
       <PricingSection
         t={{ ...c.pricingSection, btnYear: btnLabel, btnMonth: btnLabel }}
         yearlyPrice={settings.yearlyPrice}

@@ -1,6 +1,9 @@
 import prisma from '@/lib/prisma';
 import { kyivDateDisplay } from '@/lib/timezone';
 import { renderTemplate } from './paymentTemplates';
+import { PROGRAM_URL, withPersonalPayUrl } from './personalPayUrl';
+
+export { PROGRAM_URL };
 
 /// Реєстр email-нагадувань Річної програми. Те саме DB-pattern що й paymentTemplates:
 /// дефолти живуть у коді, custom subject/bodyHtml зберігається у `EmailTemplate` з префіксом
@@ -53,8 +56,6 @@ export const REMINDER_TEMPLATE_GROUPS: { id: ReminderTemplateGroup; title: strin
   { id: 'shared',   title: '🚪 Спільний фінал',              description: 'Лист про закриття доступу — однаковий для обох флоу.' },
 ];
 
-/// Загальний лендінг Річної — дефолт для `{payUrl}`, коли персонального посилання нема.
-export const PROGRAM_URL = 'https://www.uimp.com.ua/yearly-program';
 /// Той самий контакт підтримки, що в листах, показує і сторінка поновлення —
 /// щоб студент з будь-якого глухого кута потрапляв в одне й те саме вікно.
 export const SUPPORT_TG = 'https://t.me/uimp_support';
@@ -289,20 +290,8 @@ export async function renderReminder(
   const tpl = await getReminderTemplate(key);
   return {
     subject: renderTemplate(tpl.subject, vars),
-    html: withPersonalPayUrl(renderTemplate(tpl.bodyHtml, vars), vars.payUrl),
+    html: withPersonalPayUrl(renderTemplate(tpl.bodyHtml, vars), tpl.bodyHtml, vars.payUrl),
   };
-}
-
-/// Персоналізація кнопки в шаблонах, збережених менеджером ДО появи `{payUrl}`.
-///
-/// Дефолти в цьому файлі містять плейсхолдер, а от DB-override (`EmailTemplate`
-/// `reminder.<key>`) — це HTML, збережений раніше, з посиланням на лендінг ЛІТЕРАЛОМ.
-/// Без цієї заміни персональне посилання отримували б лише ті, чиї шаблони менеджер
-/// не редагував — тобто рівно ті, кому воно найменше потрібне. Пересохранювати всі
-/// шаблони руками теж не варіант: одна забута сторінка = лист без кнопки поновлення.
-function withPersonalPayUrl(html: string, payUrl: string | null | undefined): string {
-  if (!payUrl || payUrl === PROGRAM_URL) return html;
-  return html.split(PROGRAM_URL).join(payUrl);
 }
 
 /// Helpers для зведення raw-args (Date, name|null) до string-vars для placeholder-substitution.

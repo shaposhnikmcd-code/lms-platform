@@ -31,9 +31,9 @@ interface CoursePurchaseModalProps {
   /// Invite-token від менеджера (signed). Якщо переданий — модалка prefill-ить email/name
   /// і блокує email (студент не може змінити). Token пересилається в /api/wayforpay.
   inviteToken?: string;
-  /// Renew-token з листа «Оплатити наступний модуль». Прокидається у діалог і далі в
-  /// `/api/wayforpay` полем `renew`; повноважень не дає — лише називає підписку.
-  renewToken?: string;
+  /// Renew-flow: чекаут продовжує наявну підписку. Токен у httpOnly-cookie, сюди не
+  /// потрапляє — прапорець лише вмикає вигляд форми з зафіксованим email.
+  renewFlow?: boolean;
   invitePrefill?: {
     email: string;
     name?: string | null;
@@ -66,7 +66,7 @@ export default function CoursePurchaseModal({
   allowRecurringChoice = false,
   recurringCount,
   inviteToken,
-  renewToken,
+  renewFlow = false,
   invitePrefill,
   lockRecurring = false,
   variant = 'button',
@@ -127,7 +127,7 @@ export default function CoursePurchaseModal({
           allowRecurringChoice={allowRecurringChoice}
           recurringCount={recurringCount}
           inviteToken={inviteToken}
-          renewToken={renewToken}
+          renewFlow={renewFlow}
           invitePrefill={invitePrefill}
           lockRecurring={lockRecurring}
           emailHint={emailHint}

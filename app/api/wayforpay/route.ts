@@ -22,7 +22,7 @@ import {
 import { removeSubscriptionAutopay, recordAutopayRemoveOutcome } from '@/lib/yearlyProgramAutopay';
 import { resolveSellableCohort } from '@/lib/yearlyProgramCohort';
 import { verifyInvite, type InvitePayload } from '@/lib/yearlyProgramInvite';
-import { verifyRenewToken, type RenewPayload } from '@/lib/yearlyProgramRenew';
+import { RENEW_COOKIE_NAME, verifyRenewToken, type RenewPayload } from '@/lib/yearlyProgramRenew';
 import { isValidCountryCode } from '@/lib/countries';
 import { parseTelegramUsername } from '@/lib/telegramUsername';
 import { recordInviteFailure } from '@/lib/yearlyProgramTelegram';
@@ -59,7 +59,7 @@ export async function POST(req: NextRequest) {
     const rl = await checkRateLimit(req, 'payment');
     if (!rl.ok) return rl.response!;
 
-    const { orderReference, clientEmail, clientName, clientPhone, courseId, promoCode, selectedFreeSlugs, recurring, invite, renew, country, telegramUsername } = await req.json();
+    const { orderReference, clientEmail, clientName, clientPhone, courseId, promoCode, selectedFreeSlugs, recurring, invite, country, telegramUsername } = await req.json();
 
     if (typeof orderReference !== 'string' || !orderReference) {
       return NextResponse.json({ error: 'Missing orderReference' }, { status: 400 });
@@ -108,39 +108,6 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Renew-посилання «Оплатити наступний модуль» з листа-нагадування (або з рук менеджера).
-    // Токен НЕ дає жодних повноважень: він лише називає підписку, наступний модуль якої
-    // студент збирався оплатити, і фіксує email, щоб адресу не можна було підмінити з
-    // браузера. Усі гварди місячної покупки (`monthly_autopay_active`, `monthly_fully_paid`,
-    // `monthly_schedule_debt`, `no_current_cohort`) нижче працюють так само, як без токена.
-    let renewPayload: RenewPayload | null = null;
-    if (typeof renew === 'string' && renew.length > 0) {
-      renewPayload = verifyRenewToken(renew);
-      if (!renewPayload) {
-        return NextResponse.json(
-          { error: 'Посилання на оплату модуля недійсне або застаріло. Оплатіть у картці «Місячна», обравши «РАЗОВА».', code: 'renew_link_invalid' },
-          { status: 400 },
-        );
-      }
-      // Два підписані посилання в одному чекауті — це або помилка інтеграції, або спроба
-      // склеїти повноваження invite (обхід registrationOpen) з адресною частиною renew.
-      if (invitePayload) {
-        return NextResponse.json({ error: 'Не можна поєднувати invite- і renew-посилання' }, { status: 400 });
-      }
-      if (typeof clientEmail === 'string' && clientEmail.trim().toLowerCase() !== renewPayload.email) {
-        return NextResponse.json({ error: 'Email не співпадає з посиланням на оплату модуля' }, { status: 400 });
-      }
-      // Поновлення — це завжди ОДИН місячний модуль. Річний ордер тут означав би оплату
-      // 15 000 ₴ під виглядом продовження, а `recurring: true` — регулярку, якої студент
-      // на цій сторінці не бачив і не обирав.
-      if (isYearlyProgramOrderRef(orderReference) !== 'monthly') {
-        return NextResponse.json({ error: 'Посилання на оплату модуля працює лише з місячним платежем' }, { status: 400 });
-      }
-      if (recurring === true) {
-        return NextResponse.json({ error: 'Оплата модуля за посиланням завжди разова' }, { status: 400 });
-      }
-    }
-
     const creds = getWayforpayCreds();
     const merchantLogin = creds.merchantAccount;
     const secretKey = creds.secretKey;
@@ -151,6 +118,29 @@ export async function POST(req: NextRequest) {
 
     const isConnector = orderReference.startsWith('connector_');
     const yearlyKind = isYearlyProgramOrderRef(orderReference);
+
+    // Renew-посилання «Оплатити наступний модуль». Токен приходить httpOnly-cookie, яку
+    // поставив `/yearly-program/renew/<token>` — не з body: у body його міг би підставити
+    // хто завгодно, а в URL сторінки він світився б у GA й ISR-кеші.
+    //
+    // Повноважень токен не дає ЖОДНИХ. Він лише каже, чию підписку людина продовжує, щоб
+    // ми звірили її з тим, що вирішив звичайний флоу реюзу, і записали подію. Усі гварди
+    // місячної покупки (`monthly_autopay_active`, `monthly_fully_paid`,
+    // `monthly_schedule_debt`, `no_current_cohort`) нижче працюють так само, як без нього.
+    //
+    // Cookie живе годину і не зникає після оплати, тож наступна покупка з тієї ж вкладки
+    // може її захопити. Тому будь-яка невідповідність — інший продукт, інший email,
+    // обраний автоплатіж, паралельний invite — просто ІГНОРУЄ cookie і йде звичайним
+    // шляхом. Помилку тут повертати не можна: людина нічого не порушила, вона просто
+    // купує щось інше.
+    let renewPayload: RenewPayload | null = null;
+    if (yearlyKind === 'monthly' && !invitePayload && recurring !== true) {
+      const cookieToken = req.cookies.get(RENEW_COOKIE_NAME)?.value;
+      const payload = cookieToken ? verifyRenewToken(cookieToken) : null;
+      const emailMatches = typeof clientEmail === 'string'
+        && clientEmail.trim().toLowerCase() === payload?.email;
+      if (payload && emailMatches) renewPayload = payload;
+    }
 
     // Серверний price lookup — НЕ довіряємо клієнту. Якщо resolveServerPricing повернув null —
     // орder невідомий (неіснуючий bundle/course, не зареєстрований connector order, etc.).
@@ -561,9 +551,11 @@ export async function POST(req: NextRequest) {
               data: {
                 subscriptionId: existing.id,
                 type: 'renew_link_used',
+                // Формулювання буквальне: подія пишеться на ВІДКРИТТІ чекауту, до того як
+                // людина щось заплатила. Успішну оплату фіксує callback окремим платежем.
                 message: moduleNumber && totalModules
-                  ? `Оплата за персональним посиланням · модуль ${moduleNumber} з ${totalModules} (${orderReference})`
-                  : `Оплата за персональним посиланням (${orderReference})`,
+                  ? `Відкрив оплату за персональним посиланням · модуль ${moduleNumber} з ${totalModules} (${orderReference})`
+                  : `Відкрив оплату за персональним посиланням (${orderReference})`,
                 metadata: {
                   orderReference,
                   cohortId: currentCohortId,

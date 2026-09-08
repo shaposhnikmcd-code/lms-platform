@@ -1,12 +1,20 @@
+'use client';
+
+import { useEffect, useState } from 'react';
 import CoursePurchaseModal from '@/components/CoursePurchaseModal';
 import { SUPPORT_TG } from '@/lib/emailTemplates/reminderTemplates';
-import { RENEW_ANCHOR } from '@/lib/yearlyProgramRenew';
+import { RENEW_ANCHOR, RENEW_EXPIRED_FLAG } from '@/lib/yearlyProgramRenew';
 import type { RenewState } from '@/lib/yearlyProgramRenewState';
 import { YEARLY_PROGRAM } from '../config';
 
-/// Блок «Оплата наступного модуля» над секцією тарифів. Показується лише власнику
-/// персонального посилання з листа-нагадування. Тарифів не пропонує і вибору не дає:
-/// студент уже в програмі, йому лишилось закрити рівно один наступний модуль.
+/// Блок «Оплата наступного модуля» над секцією тарифів. Показується лише тому, хто прийшов
+/// за персональним посиланням із листа: токен лежить у httpOnly-cookie, яку поставив
+/// `/yearly-program/renew/<token>`, а стан приходить з `/api/yearly-program/renew-state`.
+///
+/// Чому компонент клієнтський, хоч дані серверні: сама сторінка /yearly-program статична
+/// (ISR), і читати персональний стан на сервері означало б або зламати кеш, або віддавати
+/// одному студенту сторінку, закешовану для іншого. Тому персональна частина довантажується
+/// окремим запитом, який кешу не має взагалі.
 ///
 /// Мова блоку — українська на всіх локалях, як і `InviteBanner`: посилання приходить
 /// з українського листа конкретній людині, і перекладати шматок її персональної
@@ -98,29 +106,59 @@ function blockedText(state: Extract<RenewState, { kind: 'blocked' }>): { title: 
   }
 }
 
-export default function RenewPanel({ state }: { state: RenewState }) {
-  if (state.kind === 'invalid') {
-    return (
-      <section id={RENEW_ANCHOR} className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 pt-10 pb-0 scroll-mt-24">
-        <div className="rounded-xl border border-[#1C3A2E]/12 bg-[#FDFBF4] px-4 sm:px-5 py-4 flex items-start gap-3">
-          <span className="text-lg leading-none mt-0.5" aria-hidden>⌛</span>
-          <p className="text-[13px] text-[#1C3A2E]/80 leading-relaxed">
-            <span className="font-semibold text-[#1C3A2E]">Посилання застаріло.</span>{' '}
-            Оплатити наступний модуль можна нижче — у картці «Щомісячна оплата» оберіть
-            «РАЗОВА» і вкажіть той самий email, з яким ви оформлювали програму.
-          </p>
-        </div>
-      </section>
-    );
-  }
+/// `expired` — редирект із route handler-а по мертвому токену. Ніякого запиту за станом
+/// у цьому випадку немає: показуємо, що робити далі, і все.
+function ExpiredNotice() {
+  return (
+    <section id={RENEW_ANCHOR} className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 pt-10 pb-0 scroll-mt-24">
+      <div className="rounded-xl border border-[#1C3A2E]/12 bg-[#FDFBF4] px-4 sm:px-5 py-4 flex items-start gap-3">
+        <span className="text-lg leading-none mt-0.5" aria-hidden>⌛</span>
+        <p className="text-[13px] text-[#1C3A2E]/80 leading-relaxed">
+          <span className="font-semibold text-[#1C3A2E]">Посилання застаріло.</span>{' '}
+          Оплатити наступний модуль можна нижче — у картці «Щомісячна оплата» оберіть
+          «РАЗОВА» і вкажіть той самий email, з яким ви оформлювали програму.
+        </p>
+      </div>
+    </section>
+  );
+}
+
+export default function RenewPanel() {
+  const [state, setState] = useState<RenewState | null>(null);
+  const [expired, setExpired] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('renew') === RENEW_EXPIRED_FLAG) {
+      setExpired(true);
+      return;
+    }
+    const ctrl = new AbortController();
+    fetch('/api/yearly-program/renew-state', { signal: ctrl.signal, cache: 'no-store' })
+      .then((r) => (r.status === 204 ? null : r.json()))
+      .then((data) => { if (data) setState(data as RenewState); })
+      // Мережева помилка — просто не показуємо блок. Картки тарифів нижче лишаються
+      // повноцінним шляхом оплати, тож глухого кута немає.
+      .catch(() => {});
+    return () => ctrl.abort();
+  }, []);
+
+  // Скрол до блоку робимо САМІ: браузер відпрацював `#renew` ще до того, як панель
+  // зʼявилась у DOM, тож нативний якір нікуди не привів.
+  useEffect(() => {
+    if (!state && !expired) return;
+    if (window.location.hash !== `#${RENEW_ANCHOR}`) return;
+    document.getElementById(RENEW_ANCHOR)?.scrollIntoView({ block: 'start' });
+  }, [state, expired]);
+
+  if (expired) return <ExpiredNotice />;
+  if (!state || state.kind === 'invalid') return null;
 
   if (state.kind === 'blocked') {
     const t = blockedText(state);
     return (
       <Frame>
-        <div className="flex items-baseline gap-2 flex-wrap">
-          <h2 className="text-xl sm:text-2xl font-bold text-white">{t.title}</h2>
-        </div>
+        <h2 className="text-xl sm:text-2xl font-bold text-white">{t.title}</h2>
         <Who name={state.name} email={state.email} />
         <p className="text-white/80 text-[14px] leading-relaxed mt-4 max-w-2xl">{t.body}</p>
         <SupportLine text={t.support} />
@@ -159,7 +197,7 @@ export default function RenewPanel({ state }: { state: RenewState }) {
             courseId={YEARLY_PROGRAM.monthlyCourseId}
             currency="грн"
             buttonLabel="Оплатити модуль"
-            renewToken={state.token}
+            renewFlow
             lockRecurring
             invitePrefill={{
               email: state.email,

@@ -88,16 +88,45 @@ test('renew-токен НЕ проходить як invite — інакше це
   assert.equal(verifyInvite(renew), null, 'renew не має відкривати invite-флоу');
 });
 
-test('URL збирається без подвійного слеша і з екрануванням токена', () => {
+test('URL веде на route handler, а не на сторінку — токена в query бути не має', () => {
   const url = buildRenewUrl('https://www.uimp.com.ua/', 'a.b+c');
-  assert.equal(url, 'https://www.uimp.com.ua/yearly-program?renew=a.b%2Bc#renew');
+  assert.equal(url, 'https://www.uimp.com.ua/yearly-program/renew/a.b%2Bc');
+  assert.ok(!url.includes('?'), 'токен у query потрапляв би в GA page_view і в ключ ISR-кешу');
+});
+
+test('не-дефолтна локаль отримує свій префікс', () => {
+  assert.equal(
+    buildRenewUrl('https://www.uimp.com.ua', 'tok', 'pl'),
+    'https://www.uimp.com.ua/pl/yearly-program/renew/tok',
+  );
 });
 
 test('issueRenewLink віддає узгоджені токен, URL і дату протермінування', () => {
   const { token, url, expiresAt } = issueRenewLink({ ...SUB, origin: 'http://localhost:3000' });
-  assert.ok(url.startsWith('http://localhost:3000/yearly-program?renew='));
-  assert.ok(url.endsWith('#renew'), 'посилання має вести в якір блоку поновлення');
-  assert.ok(url.includes(encodeURIComponent(token)));
+  assert.equal(url, `http://localhost:3000/yearly-program/renew/${encodeURIComponent(token)}`);
   const payload = verifyRenewToken(token)!;
   assert.ok(Math.abs(expiresAt.getTime() - payload.exp * 1000) < 1000);
+});
+
+/// Сторож сумісності. Токен нижче підписаний КОДОМ ДО рефакторингу на `lib/signedToken.ts`
+/// (`git show 46ea343:lib/yearlyProgramInvite.ts`) тим самим тестовим секретом, що вгорі
+/// файлу. `exp` навмисно зсунутий у 2099 рік — інакше фікстура протухла б за 7 днів і
+/// тест почав би падати сам по собі, без жодної зміни в коді.
+///
+/// Якщо цей тест впав — щось у форматі підпису (base64url, порядок полів, алгоритм HMAC)
+/// змінилось, і всі invite-посилання, які менеджери вже роздали студентам, мертві.
+const LEGACY_INVITE_TOKEN =
+  'eyJlbWFpbCI6ImxlZ2FjeUBleGFtcGxlLmNvbSIsImNvaG9ydElkIjoiY29ob3J0X2xlZ2FjeSIsImludml0ZWRCeSI6Im1hbmFnZXJAdWltcC5jb20udWEiLCJleHAiOjQwNzE1MTM2MDAsIm5vbmNlIjoiNjIwOTcyYzk5MzNjZDE3ZSJ9'
+  + '.Zg1X20PAlJ4UcIlimnzNRTNK0EuU27snExSW4VY7BnU';
+
+test('invite-токен, підписаний ДО рефакторингу, досі приймається', () => {
+  const payload = verifyInvite(LEGACY_INVITE_TOKEN);
+  assert.ok(payload, 'старий формат підпису має лишатись сумісним');
+  assert.equal(payload.email, 'legacy@example.com');
+  assert.equal(payload.cohortId, 'cohort_legacy');
+  assert.equal(payload.invitedBy, 'manager@uimp.com.ua');
+});
+
+test('старий invite-токен НЕ проходить як renew — гард по purpose не залежить від віку токена', () => {
+  assert.equal(verifyRenewToken(LEGACY_INVITE_TOKEN), null);
 });

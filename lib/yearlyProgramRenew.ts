@@ -72,9 +72,30 @@ export function verifyRenewToken(token: string): RenewPayload | null {
 /// лендінга і має проскролити шість секцій до свого блоку — тому посилання веде одразу в нього.
 export const RENEW_ANCHOR = 'renew';
 
+/// Cookie, у яку route handler кладе токен. httpOnly — сторінка його не бачить і не може
+/// злити; `/api/wayforpay` читає звідси, а не з body.
+export const RENEW_COOKIE_NAME = 'yr_renew';
+
+/// Година. Достатньо, щоб спокійно заповнити форму й повернутись із WayForPay, і замало,
+/// щоб токен пережив спільний компʼютер. Сам токен живе 45 днів — його можна відкрити
+/// знову з листа, тож коротка cookie нічого не ламає.
+export const RENEW_COOKIE_MAX_AGE_SECONDS = 60 * 60;
+
+/// Позначка «посилання протермінувалось» у query після редиректу. Токена в URL немає —
+/// тільки це слово, тож у GA й логи не потрапляє нічого чутливого.
+export const RENEW_EXPIRED_FLAG = 'expired';
+
 /// Повне посилання для листа / буфера обміну менеджера. `origin` — без хвостового слеша.
-export function buildRenewUrl(origin: string, token: string): string {
-  return `${origin.replace(/\/+$/, '')}/yearly-program?renew=${encodeURIComponent(token)}#${RENEW_ANCHOR}`;
+///
+/// Токен їде СЕГМЕНТОМ ШЛЯХУ, а не query-параметром, і веде на route handler, а не на
+/// сторінку. Причина: `?renew=<token>` потрапляв у GA page_view (сторінка шле page_path
+/// із query) і в ключ ISR-кешу — тобто підписаний токен розходився по аналітиці та кешу.
+/// Handler забирає його у httpOnly-cookie і одразу редіректить на чистий URL.
+export function buildRenewUrl(origin: string, token: string, locale = 'uk'): string {
+  const base = origin.replace(/\/+$/, '');
+  // Дефолтна локаль на сайті без префікса (`localePrefix: 'as-needed'`), решта — з ним.
+  const prefix = locale === 'uk' ? '' : `/${locale}`;
+  return `${base}${prefix}/yearly-program/renew/${encodeURIComponent(token)}`;
 }
 
 /// Токен + URL + дата протермінування одним викликом — усі три споживачі (cron-листи,
@@ -84,11 +105,13 @@ export function issueRenewLink(input: {
   email: string;
   cohortId: string;
   origin: string;
+  /// Мова посилання. Листи Річної українські, тож дефолт — 'uk'.
+  locale?: string;
 }): { token: string; url: string; expiresAt: Date } {
   const token = signRenewToken(input);
   return {
     token,
-    url: buildRenewUrl(input.origin, token),
+    url: buildRenewUrl(input.origin, token, input.locale),
     expiresAt: new Date(Date.now() + RENEW_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000),
   };
 }

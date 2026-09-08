@@ -31,9 +31,6 @@ export type RenewState =
   | { kind: 'invalid' }
   | {
       kind: 'payable';
-      /// Той самий токен — його треба покласти в body чекауту, щоб сервер звірив
-      /// підпис і записав подію `renew_link_used`.
-      token: string;
       subscriptionId: string;
       name: string | null;
       email: string;
@@ -138,7 +135,6 @@ export async function resolveRenewState(args: {
 
   return {
     kind: 'payable',
-    token: args.token,
     subscriptionId: sub.id,
     name,
     email,
