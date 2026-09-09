@@ -499,6 +499,25 @@ function stateIssueAnchor(sub: RawSubscription, eventAt: Date | undefined): Date
   return eventAt ?? sub.createdAt;
 }
 
+/// Північ поточної UTC-доби — `lastOccurredAt` для issue-ів, які мають самі «оживати»
+/// щодня, поки умова, що їх підняла, реально не зникне. Заглушення звіряється з
+/// `lastOccurredAt`: заглушене сьогодні (dismissedAt > lastOccurredAt=сьогоднішня північ)
+/// лишається прихованим до кінця доби, а завтра нова північ уже пізніша за вчорашній
+/// dismissedAt — issue повертається сам, без нової failure-події.
+/// Використовується для TG_USERNAME_MISSING: `sub.createdAt` як якір робив би заглушення
+/// вічним (createdAt завжди старіший за будь-яке dismissedAt), хоча нік так і не вписано.
+export function startOfUtcDay(at: Date): Date {
+  return new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate()));
+}
+
+/// Спільне визначення «реальний клієнт» (не чернетка/незавершений чекаут) для всіх
+/// telegram-детекторів: підписка або мала хоч один PAID-платіж, або вже в робочому статусі
+/// (ACTIVE/GRACE — включно з manually-added, у яких платежу може не бути). Дублювалось між
+/// `stateBasedIssues` (TG_INVITE_FAILED/TG_JOIN_*) і детектором TG_USERNAME_MISSING.
+export function isRealYearlyClient(status: string, hasPaidPayment: boolean): boolean {
+  return hasPaidPayment || status === 'ACTIVE' || status === 'GRACE';
+}
+
 /// Чи піднімати TG_USERNAME_MISSING: реальний клієнт (оплачений або ACTIVE/GRACE) у наборі,
 /// глобальний autoAdd увімкнений, і нема ні username, ні фактичного приєднання до каналу.
 /// Без username invite нікому слати — це не технічний збій, який cron сам полагодить,
@@ -533,7 +552,7 @@ export function stateBasedIssues(
   // Невдалий invite показуємо лише для реальних клієнтів: підписка або оплачена, або
   // вже в робочому статусі. Інакше вкладку засмічують неоплачені чернетки — прямі
   // POST-и з битим @username створюють `telegramInviteError` ще до будь-якої оплати.
-  const isRealClient = hasPaidPayment || sub.status === 'ACTIVE' || sub.status === 'GRACE';
+  const isRealClient = isRealYearlyClient(sub.status, hasPaidPayment);
   if (!sub.telegramInviteError || !isRealClient) return out;
 
   // Одне поле — до трьох різних проблем з різними діями менеджера. Webhook дописує свої
@@ -974,7 +993,7 @@ export async function collectAllIssues(options: CollectIssuesOptions = {}): Prom
   // не полагодить.
   for (const sub of subs) {
     if (!sub.user) continue;
-    const isRealClient = paidSubIds.has(sub.id) || sub.status === 'ACTIVE' || sub.status === 'GRACE';
+    const isRealClient = isRealYearlyClient(sub.status, paidSubIds.has(sub.id));
     const flag = shouldFlagUsernameMissing({
       hasCohort: sub.cohort != null,
       isRealClient,
@@ -989,7 +1008,10 @@ export async function collectAllIssues(options: CollectIssuesOptions = {}): Prom
       subscriptionId: sub.id,
       sourceId: null,
       kind: 'TG_USERNAME_MISSING',
-      lastOccurredAt: sub.createdAt.toISOString(),
+      // Північ поточної доби, не sub.createdAt — інакше заглушення тримало б issue
+      // прихованим НАЗАВЖДИ, навіть коли username так і не вписали (createdAt завжди
+      // старіший за dismissedAt). З північчю заглушене сьогодні саме повернеться завтра.
+      lastOccurredAt: startOfUtcDay(now).toISOString(),
       occurrenceCount: 1,
       errorExcerpt: 'Не вказано Telegram — запросити нік і вписати через Редагувати.',
       user: sub.user,

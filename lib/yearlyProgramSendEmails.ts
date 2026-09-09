@@ -40,6 +40,7 @@ import { sleep } from '@/lib/telegram';
 import {
   generateInviteForSubscription,
   getYearlyProgramTelegramSettings,
+  recordInviteFailure,
   renderTelegramInviteEmailBlock,
 } from '@/lib/yearlyProgramTelegram';
 
@@ -53,6 +54,12 @@ const INVITE_MAX_AGE_MS = 25 * 24 * 60 * 60 * 1000;
 /// підряд). `createChatInviteLinkWithRetry` уже ретраїть одиничний 429, ця пауза
 /// зменшує сам шанс на нього при пачковій генерації.
 const INVITE_GENERATION_PACE_MS = 1200;
+
+/// Скільки часу до `deadlineAt` треба лишати НЕ зайнятим генерацією invite-а. Один виклик
+/// може всередині ретраїти 429 і чекати до `(CREATE_INVITE_MAX_RETRY_WAIT_SECONDS + 1)с`
+/// (≈31с) — без запасу такий ретрай сам зжер би м'який дедлайн проходу і забрав час у
+/// решти підписок черги (чи навіть у листа цієї самої людини).
+const INVITE_GENERATION_DEADLINE_GUARD_MS = 45 * 1000;
 
 export interface SendLaunchEmailsCohort {
   id: string;
@@ -242,25 +249,48 @@ export async function sendCohortLaunchEmails(
         !s.telegramInviteLink ||
         !s.telegramInvitedAt ||
         Date.now() - s.telegramInvitedAt.getTime() > INVITE_MAX_AGE_MS;
-      try {
-        const invite = await generateInviteForSubscription({
-          subscriptionId: s.id,
-          prefetched: {
-            id: s.id,
-            telegramInviteLink: s.telegramInviteLink,
-            userEmail: s.user.email,
-            userName: s.user.name,
-          },
-          force: stale,
-          triggeredBy: `cohort-launch-email:${opts.actorLabel}`,
-        });
-        telegramInviteLink = invite.inviteLink;
-      } catch (e) {
-        console.error(`[yearly-launch-email] invite generation threw sub=${s.id}:`, e);
+      // Лише коли реально збираємось іти в Bot API (stale/force): ідемпотентне повернення
+      // вже наявного лінка виклику не робить, дедлайн йому не заважає.
+      const msLeftToDeadline = opts.deadlineAt ? opts.deadlineAt.getTime() - Date.now() : null;
+      const tooCloseToDeadline =
+        stale && msLeftToDeadline != null && msLeftToDeadline < INVITE_GENERATION_DEADLINE_GUARD_MS;
+
+      if (tooCloseToDeadline) {
+        // До дедлайну проходу лишилось замало, щоб безпечно пережити можливий ретрай на
+        // 429 усередині createChatInviteLinkWithRetry (до ~31с). Лист іде без кнопки —
+        // той самий слід, що лишає звичайна відмова Bot API, тож TG_INVITE_FAILED
+        // підніметься однаково і менеджер побачить причину.
+        const err = 'Пропущено — до дедлайну проходу лишалось < 45с';
+        try {
+          await prisma.yearlyProgramSubscription.update({
+            where: { id: s.id },
+            data: { telegramInviteError: err },
+          });
+          await recordInviteFailure(s.id, err, `cohort-launch-email:${opts.actorLabel}`);
+        } catch (e) {
+          console.error(`[yearly-launch-email] deadline-guard event write failed sub=${s.id}:`, e);
+        }
+      } else {
+        try {
+          const invite = await generateInviteForSubscription({
+            subscriptionId: s.id,
+            prefetched: {
+              id: s.id,
+              telegramInviteLink: s.telegramInviteLink,
+              userEmail: s.user.email,
+              userName: s.user.name,
+            },
+            force: stale,
+            triggeredBy: `cohort-launch-email:${opts.actorLabel}`,
+          });
+          telegramInviteLink = invite.inviteLink;
+        } catch (e) {
+          console.error(`[yearly-launch-email] invite generation threw sub=${s.id}:`, e);
+        }
+        // Пауза лише коли справді ходили в Bot API (stale/force) — ідемпотентне повернення
+        // вже наявного лінка жодного виклику не робить, чекати після нього нема сенсу.
+        if (shouldPaceInvites && stale) await sleep(INVITE_GENERATION_PACE_MS);
       }
-      // Пауза лише коли справді ходили в Bot API (stale/force) — ідемпотентне повернення
-      // вже наявного лінка жодного виклику не робить, чекати після нього нема сенсу.
-      if (shouldPaceInvites && stale) await sleep(INVITE_GENERATION_PACE_MS);
     }
 
     try {

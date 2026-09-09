@@ -774,9 +774,16 @@ export default function IssuesModal({
   async function handleDismiss(rec: IssueRecord) {
     if (!rec.subscriptionId) return;
     const subscriptionId = rec.subscriptionId;
+    // TG_USERNAME_MISSING «оживає» щодня сам (lastOccurredAt = північ поточної доби,
+    // lib/yearlyProgramIssues.ts), поки username не вписаний — на відміну від решти
+    // типів, де заглушення тримається до нової failure-події. Менеджер має це знати
+    // ДО кліку «Заглушити», а не здивуватись, що issue повернувся без жодної нової помилки.
+    const dismissDescription = rec.kind === 'TG_USERNAME_MISSING'
+      ? `Студент: ${rec.user.email}. Повернеться завтра, якщо нік не вписати — заглушення тримається лише до кінця поточної доби.`
+      : `Студент: ${rec.user.email}. Issue знову зʼявиться, якщо для цієї підписки виникне нова помилка цього типу після заглушення.`;
     const reason = await prompt({
       title: `Заглушити issue: ${entryFor(rec.kind).title}?`,
-      description: `Студент: ${rec.user.email}. Issue знову зʼявиться, якщо для цієї підписки виникне нова помилка цього типу після заглушення.`,
+      description: dismissDescription,
       inputLabel: 'Причина (опційно)',
       placeholder: 'Напр.: студент передзвонив, проблему вирішено вручну',
       multiline: true,
@@ -1345,6 +1352,7 @@ function IssueRow({
             type="button"
             onClick={onDismiss}
             disabled={anyBusy}
+            title={rec.kind === 'TG_USERNAME_MISSING' ? 'Повернеться завтра, якщо нік не вписати' : undefined}
             className={`inline-flex items-center gap-1 px-2.5 py-1 text-[11px] rounded-md border transition-colors disabled:opacity-50 ${
               dark ? 'bg-amber-400/10 border-amber-400/30 text-amber-200 hover:bg-amber-400/20' : 'bg-amber-50 border-amber-300/60 text-amber-900 hover:bg-amber-100'
             }`}

@@ -12,7 +12,7 @@ process.env.TELEGRAM_BOT_TOKEN ??= 'test-bot-token';
 // не має, інакше мутуючі виклики підмінюються заглушкою і фейковий fetch нижче не викличеться.
 delete process.env.VERCEL_ENV;
 
-import { createChatInviteLinkWithRetry, TelegramApiError } from './telegram';
+import { createChatInviteLinkWithRetry, TelegramApiError, CREATE_INVITE_MAX_RETRY_WAIT_SECONDS } from './telegram';
 
 function jsonResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
@@ -60,6 +60,30 @@ test('createChatInviteLinkWithRetry: друга 429 поспіль вже НЕ �
     );
     assert.equal(calls.length, 2, 'один оригінальний виклик + один повтор, без третього');
     assert.deepEqual(waits, [6000]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('createChatInviteLinkWithRetry: 429 з завеликим retry_after (3600с) — без sleep, помилка одразу (не з’їдати бюджет 300с cron-проходу)', async () => {
+  const calls: string[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: string) => {
+    calls.push(String(url));
+    return jsonResponse({ ok: false, error_code: 429, description: 'Too Many Requests: retry after 3600', parameters: { retry_after: 3600 } });
+  }) as typeof fetch;
+
+  const waits: number[] = [];
+  const fakeWait = async (ms: number) => { waits.push(ms); };
+
+  try {
+    assert.ok(3600 > CREATE_INVITE_MAX_RETRY_WAIT_SECONDS, 'тест лишається чинним, якщо стелю колись підкрутять');
+    await assert.rejects(
+      () => createChatInviteLinkWithRetry({ chatId: '-100123', name: 'UIMP test' }, fakeWait),
+      (e: unknown) => e instanceof TelegramApiError && e.errorCode === 429 && e.retryAfter === 3600,
+    );
+    assert.equal(calls.length, 1, 'без повтору — рівно один HTTP-виклик');
+    assert.deepEqual(waits, [], 'waitFn не мав викликатись');
   } finally {
     globalThis.fetch = originalFetch;
   }

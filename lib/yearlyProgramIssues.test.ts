@@ -8,7 +8,22 @@
 /// повторилась мовчки.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { stateBasedIssues, shouldFlagUsernameMissing, type RawSubscription } from './yearlyProgramIssues';
+import {
+  stateBasedIssues,
+  shouldFlagUsernameMissing,
+  startOfUtcDay,
+  isRealYearlyClient,
+  type RawSubscription,
+} from './yearlyProgramIssues';
+
+/// Те саме порівняння, яким `collectAllIssues` ділить `records` на active/dismissed
+/// (lib/yearlyProgramIssues.ts, кінець функції). Не експортоване (не чиста функція —
+/// частина великого агрегатора з побічними DB-запитами), тому дублюємо тут формулу,
+/// а не сам детектор — щоб перевірити РЕАЛЬНУ поведінку «заглушено сьогодні, ожило завтра»
+/// для TG_USERNAME_MISSING без піднімання Prisma.
+function isDismissedNow(lastOccurredAt: Date, dismissedAt: Date): boolean {
+  return lastOccurredAt <= dismissedAt;
+}
 
 function makeSub(overrides: Partial<RawSubscription> = {}): RawSubscription {
   return {
@@ -156,4 +171,56 @@ test('shouldFlagUsernameMissing: не реальний клієнт (PENDING б�
     }),
     false,
   );
+});
+
+test('isRealYearlyClient: PAID платіж без ACTIVE/GRACE все одно реальний клієнт', () => {
+  assert.equal(isRealYearlyClient('PENDING', true), true);
+});
+
+test('isRealYearlyClient: ACTIVE без жодного платежу (manually-added) — реальний клієнт', () => {
+  assert.equal(isRealYearlyClient('ACTIVE', false), true);
+});
+
+test('isRealYearlyClient: GRACE без платежу — реальний клієнт', () => {
+  assert.equal(isRealYearlyClient('GRACE', false), true);
+});
+
+test('isRealYearlyClient: PENDING без платежу — НЕ реальний клієнт (незавершений чекаут)', () => {
+  assert.equal(isRealYearlyClient('PENDING', false), false);
+});
+
+test('isRealYearlyClient: EXPIRED без платежу — НЕ реальний клієнт', () => {
+  assert.equal(isRealYearlyClient('EXPIRED', false), false);
+});
+
+test('startOfUtcDay: обрізає час доби до 00:00:00.000 UTC', () => {
+  const at = new Date('2026-09-09T23:59:59.999Z');
+  assert.equal(startOfUtcDay(at).toISOString(), '2026-09-09T00:00:00.000Z');
+});
+
+test('startOfUtcDay: різний час у межах тієї самої UTC-доби дає однаковий результат', () => {
+  const morning = startOfUtcDay(new Date('2026-09-09T00:00:01Z'));
+  const evening = startOfUtcDay(new Date('2026-09-09T21:44:00Z'));
+  assert.equal(morning.getTime(), evening.getTime());
+});
+
+test('TG_USERNAME_MISSING: заглушене СЬОГОДНІ лишається прихованим сьогодні (lastOccurredAt = сьогоднішня північ ≤ dismissedAt)', () => {
+  const today = new Date('2026-09-09T14:32:00Z');
+  const dismissedAt = new Date('2026-09-09T10:00:00Z');
+  const lastOccurredAt = startOfUtcDay(today);
+  assert.equal(isDismissedNow(lastOccurredAt, dismissedAt), true);
+});
+
+test('TG_USERNAME_MISSING: те саме заглушення повертає issue наступного дня без нової події (lastOccurredAt = завтрашня північ > учорашній dismissedAt)', () => {
+  const tomorrow = new Date('2026-09-10T09:00:00Z');
+  const dismissedAt = new Date('2026-09-09T10:00:00Z');
+  const lastOccurredAt = startOfUtcDay(tomorrow);
+  assert.equal(isDismissedNow(lastOccurredAt, dismissedAt), false);
+});
+
+test('регресія: старий якір sub.createdAt тримав би заглушення НАЗАВЖДИ (лишається як контр-приклад)', () => {
+  const createdAt = new Date('2026-08-01T00:00:00Z');
+  const dismissedAt = new Date('2026-09-09T10:00:00Z');
+  // createdAt завжди старіший за момент заглушення — issue не повернувся б ніколи.
+  assert.equal(isDismissedNow(createdAt, dismissedAt), true);
 });

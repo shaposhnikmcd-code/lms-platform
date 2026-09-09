@@ -184,12 +184,19 @@ export async function createChatInviteLink(args: {
   return call<TgChatInviteLink>('createChatInviteLink', payload);
 }
 
+/// Стеля очікування на 429 — вище цієї межі повтор НЕ робимо, повертаємо помилку одразу.
+/// Nightly cron має `maxDuration=300с` на всю функцію (усі кроки разом); велике
+/// `retry_after` (Telegram інколи каже й «retry after 3600») з'їло б увесь бюджет проходу
+/// заради ОДНОГО invite-а, зупинивши решту нічних кроків.
+export const CREATE_INVITE_MAX_RETRY_WAIT_SECONDS = 30;
+
 /// `createChatInviteLink` з одним повтором на rate-limit (error_code=429). Масова
 /// генерація invite-ів (heal-крок, розсилка по набору) б'є в цей ліміт пачками —
 /// без повтору кожна відмова назавжди лишає студента без запрошення, поки менеджер
 /// не натисне «Спробувати ще» вручну. Bot API каже точно, скільки чекати
-/// (`parameters.retry_after`) — чекаємо цю кількість секунд +1 і пробуємо ще раз.
-/// Друга невдача (або 429 без retry_after) вже не ретраїться — не тягнути бюджет кроку.
+/// (`parameters.retry_after`) — чекаємо цю кількість секунд +1 і пробуємо ще раз, але
+/// лише якщо `retry_after ≤ CREATE_INVITE_MAX_RETRY_WAIT_SECONDS` (див. коментар вище).
+/// Друга невдача (або 429 без retry_after, або завелике retry_after) вже не ретраїться.
 /// `waitFn` — інʼєкція затримки для тестів (дефолт — реальний `sleep`).
 export async function createChatInviteLinkWithRetry(
   args: Parameters<typeof createChatInviteLink>[0],
@@ -198,7 +205,12 @@ export async function createChatInviteLinkWithRetry(
   try {
     return await createChatInviteLink(args);
   } catch (e) {
-    if (e instanceof TelegramApiError && e.errorCode === 429 && e.retryAfter != null) {
+    if (
+      e instanceof TelegramApiError &&
+      e.errorCode === 429 &&
+      e.retryAfter != null &&
+      e.retryAfter <= CREATE_INVITE_MAX_RETRY_WAIT_SECONDS
+    ) {
       await waitFn((e.retryAfter + 1) * 1000);
       return await createChatInviteLink(args);
     }
