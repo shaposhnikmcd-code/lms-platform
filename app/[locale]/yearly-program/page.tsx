@@ -56,12 +56,19 @@ export default async function YearlyProgramPage({
 }) {
   const { locale } = await params;
   const { invite: inviteToken } = await searchParams;
-  const [c, settings, currentCohort] = await Promise.all([
+  const [c, settings, currentCohort, unfinishedCohort] = await Promise.all([
     getContent(locale) as Promise<any>,
     getYearlyProgramSettings(prisma),
     // «Поточний» cohort, або fallback на найближчий незавершений — щоб кнопки оплати
     // були активні за «Реєстрація відкрита» + наявності запуску, без ручного прапорця.
     resolveSellableCohort(prisma),
+    // Будь-який ще не завершений набір — умова показу рядка доплати модуля. Це ШИРШЕ за
+    // sellable: коли поряд зʼявляється набір 2027 під продажі, `resolveSellableCohort`
+    // віддає його, а студент 2026 доплачує у СВІЙ набір, який теж ще живий.
+    prisma.yearlyProgramCohort.findFirst({
+      where: { endDate: { gte: new Date() } },
+      select: { id: true },
+    }),
   ]);
 
   // Invite-flow: парсимо token (якщо є). Якщо валідний — підтягуємо назву cohort-у
@@ -107,10 +114,12 @@ export default async function YearlyProgramPage({
   // Рядок «Уже навчаєтесь за місячною оплатою? Оплатити наступний модуль» — окремий вхід
   // для чинного студента, і рубильник реєстрації його не стосується (рішення власника
   // 09.09.2026): менеджер закриває продажі одразу після запуску набору, а помісячним
-  // студентам платити за модулі ще весь рік. Умова одна — існує набір, у який
-  // `/api/wayforpay` узагалі може прийняти платіж без персонального посилання; там той
-  // самий `resolveSellableCohort`, тож рядок не веде у `no_current_cohort`.
-  const renewEntryOpen = hasCurrentCohort;
+  // студентам платити за модулі ще весь рік.
+  //
+  // Умова — наявність будь-якого НЕзавершеного набору, а не набору під продажі: роут для
+  // такої доплати бере набір із самої підписки студента, тож рядок лишається робочим і
+  // тоді, коли продажі вже перемкнули на наступний набір.
+  const renewEntryOpen = !!unfinishedCohort;
 
   return (
     <main className={`min-h-screen bg-white ${inter.className}`}>

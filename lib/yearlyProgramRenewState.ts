@@ -43,7 +43,14 @@ export type RenewBlockReason =
   /// Набір, у якому людина навчається, уже завершився — доплачувати в нього нічого.
   | 'cohort_finished'
   /// Підписку деактивовано менеджером (ARCHIVED).
-  | 'archived';
+  | 'archived'
+  /// У підписки немає жодного зарахованого платежу. Для системи це не «студент, який
+  /// доплачує модуль», а новий продаж — і при закритій реєстрації `/api/wayforpay`
+  /// відповість 409 `registration_closed`. Панель мусить казати те саме, інакше кнопка
+  /// веде у відмову платіжки (саме так розходились сторінка й роут на manual-add
+  /// підписці в режимі «чекаємо перший платіж»). Перший платіж робиться через
+  /// запрошення менеджера, а не через це посилання.
+  | 'no_payment';
 
 export type RenewState =
   /// Токен зіпсований, прострочений, або підписка вже не та, для якої його видали.
@@ -151,6 +158,10 @@ export async function resolveRenewState(args: {
   });
   if (yearlySub) return blocked('yearly_active', { module: null });
   if (sub.autoRenew && hasLivePayment) return blocked('autopay');
+  // Жодного зарахованого платежу — доплачувати нічого: це перша покупка, а не
+  // поновлення. Стоїть ПЕРЕД сіткою модулів свідомо: без платежів сітка формально
+  // віддала б «модуль 1 з 9», і панель обіцяла б оплату, яку роут не пропустить.
+  if (!schedule.hasPayments) return blocked('no_payment', { module: null });
   if (schedule.degenerate) return blocked('no_schedule', { module: null });
   if (schedule.isFullyPaid || !nextModule) return blocked('fully_paid', { module: null });
 
