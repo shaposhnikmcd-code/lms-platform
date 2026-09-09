@@ -36,6 +36,7 @@ import {
   DEFAULT_LAUNCH_EMAIL_BODY,
   DEFAULT_LAUNCH_EMAIL_SUBJECT,
 } from '@/lib/yearlyProgramCohort';
+import { sleep } from '@/lib/telegram';
 import {
   generateInviteForSubscription,
   getYearlyProgramTelegramSettings,
@@ -46,6 +47,12 @@ import {
 /// у масовій розсилці перегенеровуємо: покупці квітня–червня інакше отримали б на дату
 /// запуску мертве посилання.
 const INVITE_MAX_AGE_MS = 25 * 24 * 60 * 60 * 1000;
+
+/// Пауза між послідовними спробами генерації invite-лінка в масовій розсилці —
+/// щадить rate-limit Bot API (heal-крок і масовий launch добивають десятки інвайтів
+/// підряд). `createChatInviteLinkWithRetry` уже ретраїть одиничний 429, ця пауза
+/// зменшує сам шанс на нього при пачковій генерації.
+const INVITE_GENERATION_PACE_MS = 1200;
 
 export interface SendLaunchEmailsCohort {
   id: string;
@@ -140,6 +147,9 @@ export async function sendCohortLaunchEmails(
 
   const results: SendLaunchEmailsResult[] = [];
   let interrupted: SendLaunchEmailsSummary['interrupted'];
+  // Пауза між генераціями має сенс лише при пачковій обробці — одиничний
+  // per-recipient resend («Дослати лист» на одну людину) не має чекати зайву секунду.
+  const shouldPaceInvites = subs.length > 1;
 
   const hasLaunchEmailEvent = (s: (typeof subs)[number]) =>
     s.events.some((ev) => (ev.metadata as { cohortId?: string } | null)?.cohortId === cohort.id);
@@ -248,6 +258,9 @@ export async function sendCohortLaunchEmails(
       } catch (e) {
         console.error(`[yearly-launch-email] invite generation threw sub=${s.id}:`, e);
       }
+      // Пауза лише коли справді ходили в Bot API (stale/force) — ідемпотентне повернення
+      // вже наявного лінка жодного виклику не робить, чекати після нього нема сенсу.
+      if (shouldPaceInvites && stale) await sleep(INVITE_GENERATION_PACE_MS);
     }
 
     try {

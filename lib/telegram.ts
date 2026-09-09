@@ -25,6 +25,9 @@ interface TgResponse<T> {
   result?: T;
   description?: string;
   error_code?: number;
+  /// При error_code=429 Bot API кладе сюди {retry_after: секунди} — скільки чекати
+  /// до наступної спроби. Інші коди помилок цього поля не мають.
+  parameters?: { retry_after?: number };
 }
 
 /// Методи, які МІНЯЮТЬ стан реального каналу (когось банять, комусь відкривають вхід).
@@ -89,18 +92,31 @@ async function call<T>(method: string, payload: Record<string, unknown>): Promis
   });
   const data = (await res.json()) as TgResponse<T>;
   if (!data.ok || data.result === undefined) {
-    throw new TelegramApiError(data.description ?? `Telegram API error (${method})`, data.error_code ?? null);
+    throw new TelegramApiError(
+      data.description ?? `Telegram API error (${method})`,
+      data.error_code ?? null,
+      data.parameters?.retry_after ?? null,
+    );
   }
   return data.result;
 }
 
 export class TelegramApiError extends Error {
   errorCode: number | null;
-  constructor(message: string, errorCode: number | null) {
+  /// Секунди з `parameters.retry_after` — тільки для error_code=429. Інакше null.
+  retryAfter: number | null;
+  constructor(message: string, errorCode: number | null, retryAfter: number | null = null) {
     super(message);
     this.name = 'TelegramApiError';
     this.errorCode = errorCode;
+    this.retryAfter = retryAfter;
   }
+}
+
+/// Проста затримка для retry-логіки. Іменована й експортована окремо (а не інлайн
+/// `new Promise`), щоб виклики могли підмінити її у тестах фейковою миттєвою версією.
+export function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export interface TgChat {
@@ -166,6 +182,28 @@ export async function createChatInviteLink(args: {
     payload.member_limit = args.memberLimit ?? 1;
   }
   return call<TgChatInviteLink>('createChatInviteLink', payload);
+}
+
+/// `createChatInviteLink` з одним повтором на rate-limit (error_code=429). Масова
+/// генерація invite-ів (heal-крок, розсилка по набору) б'є в цей ліміт пачками —
+/// без повтору кожна відмова назавжди лишає студента без запрошення, поки менеджер
+/// не натисне «Спробувати ще» вручну. Bot API каже точно, скільки чекати
+/// (`parameters.retry_after`) — чекаємо цю кількість секунд +1 і пробуємо ще раз.
+/// Друга невдача (або 429 без retry_after) вже не ретраїться — не тягнути бюджет кроку.
+/// `waitFn` — інʼєкція затримки для тестів (дефолт — реальний `sleep`).
+export async function createChatInviteLinkWithRetry(
+  args: Parameters<typeof createChatInviteLink>[0],
+  waitFn: (ms: number) => Promise<void> = sleep,
+): Promise<TgChatInviteLink> {
+  try {
+    return await createChatInviteLink(args);
+  } catch (e) {
+    if (e instanceof TelegramApiError && e.errorCode === 429 && e.retryAfter != null) {
+      await waitFn((e.retryAfter + 1) * 1000);
+      return await createChatInviteLink(args);
+    }
+    throw e;
+  }
 }
 
 /// Вилучає (банить) учасника з чату. Бот має бути адміном з правом «Ban users».

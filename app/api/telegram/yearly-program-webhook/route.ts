@@ -324,6 +324,10 @@ async function handleChatJoinRequest(joinReq: TgChatJoinRequest): Promise<void> 
       telegramJoinedAt: sub.telegramJoinedAt ?? new Date(),
       // Скидаємо «вийшов» тільки коли approve справді пройшов.
       ...(approveError ? {} : { telegramLeftAt: null }),
+      // Клієнт реально приєднався в канал — усі попередні мітки в telegramInviteError
+      // (відмова Bot API, відхилена/висяча заявка) більше не актуальні. Без цього
+      // TG_INVITE_FAILED/TG_JOIN_* висіли б у «Помилках» назавжди, хоча людина вже в каналі.
+      ...(approveError ? {} : { telegramInviteError: null }),
       // Пишемо ТІЛЬКИ якщо порожньо: перезапис чужим id зламав би «Вилучити з каналу»
       // (забанили б не ту людину). Якщо вже заповнено — воно вже звірене вище.
       ...(sub.telegramTgUserId === null ? { telegramTgUserId: BigInt(userId) } : {}),

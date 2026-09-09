@@ -9,7 +9,7 @@ import { esc } from '@/lib/mailer';
 import { TG_INVITE_FAILED_EVENT_TYPE } from '@/lib/yearlyProgramTelegramMarks';
 import {
   banChatMember,
-  createChatInviteLink,
+  createChatInviteLinkWithRetry,
   getChat,
   normalizeChatId,
   revokeChatInviteLink,
@@ -315,7 +315,7 @@ export async function generateInviteForSubscription(args: {
   }
 
   try {
-    const link = await createChatInviteLink({
+    const link = await createChatInviteLinkWithRetry({
       chatId: settings.chatId,
       // Назва бачиться лише адмінам каналу — для diagnostics.
       name: sub.userEmail ? `UIMP ${sub.userEmail}`.slice(0, 32) : 'UIMP yearly',

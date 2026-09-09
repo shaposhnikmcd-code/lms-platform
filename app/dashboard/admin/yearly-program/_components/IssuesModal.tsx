@@ -28,6 +28,7 @@ type IssueKind =
   | 'TG_JOIN_DECLINED'
   | 'TG_JOIN_PENDING'
   | 'TG_KICK_FAILED'
+  | 'TG_USERNAME_MISSING'
   | 'SP_CLOSE_FAILED'
   | 'SP_REOPEN_FAILED'
   | 'ORPHAN_NO_PAYMENT'
@@ -49,6 +50,7 @@ const ALL_KINDS: IssueKind[] = [
   'TG_JOIN_DECLINED',
   'TG_JOIN_PENDING',
   'TG_KICK_FAILED',
+  'TG_USERNAME_MISSING',
   'SP_CLOSE_FAILED',
   'SP_REOPEN_FAILED',
   'ORPHAN_NO_PAYMENT',
@@ -249,6 +251,25 @@ const CATALOG: Record<IssueKind, CatalogEntry> = {
       'Подивіться вручну в Telegram, чи студент справді ще в каналі.',
       'Якщо ще там — видаліть через інтерфейс Telegram.',
       'Якщо вже немає — натисніть «Заглушити».',
+    ],
+    hasRetry: false,
+  },
+  TG_USERNAME_MISSING: {
+    severity: 'warning',
+    icon: '📨',
+    shortTitle: 'Немає Telegram',
+    title: 'Не вказано Telegram-username студента',
+    whatHappened:
+      'Студент оплатив і канал налаштований на автододавання, але в його підписці немає Telegram-username — invite нема кому генерувати і надсилати.',
+    sideEffects:
+      'Гроші й доступ до навчання не зачеплені — студент просто не потрапить у Telegram-канал програми, поки нік не вписаний.',
+    causes: [
+      'Студент не заповнив поле Telegram на формі оплати.',
+      'Підписку додано вручну (перенесення з минулого набору) без цього поля.',
+    ],
+    actions: [
+      'Звʼяжіться зі студентом (email/телефон) і запросіть його Telegram-username.',
+      'Впишіть username у підписці через «Редагувати» — invite згенерується і піде автоматично при наступній розсилці.',
     ],
     hasRetry: false,
   },

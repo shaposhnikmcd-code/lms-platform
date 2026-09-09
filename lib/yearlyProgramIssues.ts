@@ -22,6 +22,7 @@ import {
   TG_JOIN_DECLINED_EVENT_KIND,
   TG_JOIN_PENDING_EVENT_KIND,
 } from '@/lib/yearlyProgramTelegramMarks';
+import { getYearlyProgramTelegramSettings } from '@/lib/yearlyProgramTelegram';
 
 /// Стабільний enum типів issue. Не перейменовуй значення — вони зберігаються
 /// у `YearlyProgramIssueDismissal.kind` як рядки (історичні dismissal-и зламаються).
@@ -38,6 +39,7 @@ export type IssueKind =
   | 'TG_JOIN_DECLINED'
   | 'TG_JOIN_PENDING'
   | 'TG_KICK_FAILED'
+  | 'TG_USERNAME_MISSING'
   | 'SP_CLOSE_FAILED'
   | 'SP_REOPEN_FAILED'
   | 'ORPHAN_NO_PAYMENT'
@@ -59,6 +61,7 @@ export const ISSUE_KIND_VALUES: IssueKind[] = [
   'TG_JOIN_DECLINED',
   'TG_JOIN_PENDING',
   'TG_KICK_FAILED',
+  'TG_USERNAME_MISSING',
   'SP_CLOSE_FAILED',
   'SP_REOPEN_FAILED',
   'ORPHAN_NO_PAYMENT',
@@ -102,6 +105,9 @@ export const ISSUE_KIND_SEVERITY: Record<IssueKind, IssueSeverity> = {
   // info: заявка висить у самому Telegram і нікуди не подінеться; менеджер розбирає її вручну.
   TG_JOIN_PENDING: 'info',
   TG_KICK_FAILED: 'info',
+  // warning: доки нік не вписаний, людині нема куди слати invite — вона просто не
+  // потрапить у канал, і система сама цього не виправить (не про гроші чи доступ до навчання).
+  TG_USERNAME_MISSING: 'warning',
   // warning, не info: поки закриття не вдалось, студент фактично зберігає платний доступ.
   SP_CLOSE_FAILED: 'warning',
   SP_REOPEN_FAILED: 'warning',
@@ -165,6 +171,7 @@ export const ISSUE_KIND_LABELS: Record<IssueKind, string> = {
   TG_JOIN_DECLINED: 'Telegram: заявку на вступ відхилено',
   TG_JOIN_PENDING: 'Telegram: заявка чекає ручного підтвердження',
   TG_KICK_FAILED: 'Telegram: вилучення/ban не виконано',
+  TG_USERNAME_MISSING: 'Telegram: не вказано username студента',
   SP_CLOSE_FAILED: 'SendPulse: close-access помилка',
   SP_REOPEN_FAILED: 'SendPulse: reopen-access помилка',
   ORPHAN_NO_PAYMENT: 'Цілісність: активна підписка без жодної оплати',
@@ -192,6 +199,7 @@ export const ISSUE_HAS_RETRY: Record<IssueKind, boolean> = {
   // Заявка висить у самому Telegram — підтвердити/відхилити її можна лише в каналі.
   TG_JOIN_PENDING: false,
   TG_KICK_FAILED: false,        // одноразова дія, повторювати не варто
+  TG_USERNAME_MISSING: false,   // нема з чого генерувати invite — спершу менеджер вписує нік вручну
   SP_CLOSE_FAILED: false,       // менеджер натискає "Закрити доступ" знову вручну
   SP_REOPEN_FAILED: false,      // менеджер натискає "Відкрити доступ" знову вручну
   ORPHAN_NO_PAYMENT: false,     // ручний розбір: видалити сироту або знайти втрачений платіж
@@ -264,7 +272,9 @@ export interface IssuesPayload {
   activeTotal: number;
 }
 
-interface RawSubscription {
+/// Експортовано для юніт-тестів `stateBasedIssues` — форма мінімальної вибірки полів
+/// підписки, потрібних детекторам (див. `SUBSCRIPTION_SELECT`).
+export interface RawSubscription {
   id: string;
   plan: 'YEARLY' | 'MONTHLY';
   status: string;
@@ -273,6 +283,8 @@ interface RawSubscription {
   createdAt: Date;
   updatedAt: Date;
   telegramInviteError: string | null;
+  telegramUsername: string | null;
+  telegramJoinedAt: Date | null;
   lastChargeError: string | null;
   failedChargeCount: number;
   lastChargeAttemptAt: Date | null;
@@ -487,6 +499,22 @@ function stateIssueAnchor(sub: RawSubscription, eventAt: Date | undefined): Date
   return eventAt ?? sub.createdAt;
 }
 
+/// Чи піднімати TG_USERNAME_MISSING: реальний клієнт (оплачений або ACTIVE/GRACE) у наборі,
+/// глобальний autoAdd увімкнений, і нема ні username, ні фактичного приєднання до каналу.
+/// Без username invite нікому слати — це не технічний збій, який cron сам полагодить,
+/// а дірка в даних, яку може закрити лише менеджер, спитавши нік у студента.
+export function shouldFlagUsernameMissing(args: {
+  hasCohort: boolean;
+  isRealClient: boolean;
+  autoAddEnabled: boolean;
+  telegramUsername: string | null;
+  telegramJoinedAt: Date | null;
+}): boolean {
+  if (!args.hasCohort || !args.isRealClient || !args.autoAddEnabled) return false;
+  if (args.telegramUsername || args.telegramJoinedAt) return false;
+  return true;
+}
+
 /// Час останніх Telegram-подій підписки, з яких виводиться `lastOccurredAt` для трьох
 /// «телеграмних» issue-ів (поле `telegramInviteError` часу не зберігає).
 interface TelegramErrorTimes {
@@ -496,7 +524,7 @@ interface TelegramErrorTimes {
 }
 
 /// Зчитує stateful-issue-и з полів підписки (час прояву — з подій, див. `stateIssueAnchor`).
-function stateBasedIssues(
+export function stateBasedIssues(
   sub: RawSubscription,
   hasPaidPayment: boolean,
   tgTimes: TelegramErrorTimes | undefined,
@@ -512,11 +540,19 @@ function stateBasedIssues(
   // мітки до наявного тексту, тож у полі можуть лежати і відмова Bot API, і заявка.
   const parts = splitTelegramInviteError(sub.telegramInviteError);
   if (parts.apiError) {
-    out.push({
-      kind: 'TG_INVITE_FAILED',
-      errorExcerpt: parts.apiError.slice(0, 200),
-      lastOccurredAt: stateIssueAnchor(sub, tgTimes?.inviteFailedAt),
-    });
+    const failedAt = stateIssueAnchor(sub, tgTimes?.inviteFailedAt);
+    // Клієнт уже реально в каналі, і приєднався ПІСЛЯ цієї відмови (пізніший invite
+    // спрацював, або approve пройшов і без свіжого success-event встиг записатись
+    // legacy-рядок) — стара мітка в полі більше не описує живу проблему. Без цієї
+    // перевірки 31 з 34 прод-кейсів висіли в «Помилках» попри telegramJoinedAt.
+    const joinedAfterFailure = sub.telegramJoinedAt != null && sub.telegramJoinedAt > failedAt;
+    if (!joinedAfterFailure) {
+      out.push({
+        kind: 'TG_INVITE_FAILED',
+        errorExcerpt: parts.apiError.slice(0, 200),
+        lastOccurredAt: failedAt,
+      });
+    }
   }
   if (parts.declined) {
     out.push({
@@ -544,6 +580,8 @@ const SUBSCRIPTION_SELECT = {
   createdAt: true,
   updatedAt: true,
   telegramInviteError: true,
+  telegramUsername: true,
+  telegramJoinedAt: true,
   lastChargeError: true,
   failedChargeCount: true,
   lastChargeAttemptAt: true,
@@ -664,7 +702,7 @@ export async function collectAllIssues(options: CollectIssuesOptions = {}): Prom
   /// Фільтр набору для дочірніх таблиць — через звʼязок з підпискою, щоб події й
   /// заглушення підтягувались рівно по тих підписках, які лишились у вибірці.
   const cohortScope = scopedToSubset ? { subscription: subCohortWhere } : {};
-  const [subs, events, dismissals, paidRows, callbackLogs, overdueCohorts] = await Promise.all([
+  const [subs, events, dismissals, paidRows, callbackLogs, overdueCohorts, tgSettings] = await Promise.all([
     prisma.yearlyProgramSubscription.findMany({
       where: { status: { not: 'ARCHIVED' }, ...subCohortWhere },
       select: SUBSCRIPTION_SELECT,
@@ -759,6 +797,7 @@ export async function collectAllIssues(options: CollectIssuesOptions = {}): Prom
       select: { id: true, name: true, startDate: true },
       orderBy: { startDate: 'asc' },
     }),
+    getYearlyProgramTelegramSettings(),
   ]);
 
   const paidSubIds = new Set(paidRows.map((r) => r.yearlyProgramSubscriptionId).filter(Boolean) as string[]);
@@ -927,6 +966,39 @@ export async function collectAllIssues(options: CollectIssuesOptions = {}): Prom
         dismissedReason: dismissal?.reason ?? null,
       });
     }
+  }
+
+  // Детектор TG_USERNAME_MISSING: реальний клієнт у наборі з увімкненим autoAdd, без
+  // username і без факту приєднання — invite нема кому генерувати, менеджер має спитати
+  // нік у студента і вписати його через «Редагувати». Без retry-кнопки: авто тут нічого
+  // не полагодить.
+  for (const sub of subs) {
+    if (!sub.user) continue;
+    const isRealClient = paidSubIds.has(sub.id) || sub.status === 'ACTIVE' || sub.status === 'GRACE';
+    const flag = shouldFlagUsernameMissing({
+      hasCohort: sub.cohort != null,
+      isRealClient,
+      autoAddEnabled: tgSettings.autoAdd,
+      telegramUsername: sub.telegramUsername,
+      telegramJoinedAt: sub.telegramJoinedAt,
+    });
+    if (!flag) continue;
+    if (haveEventRecord.has(`${sub.id}::TG_USERNAME_MISSING`)) continue;
+    const dismissal = lookupDismissal(sub.id, 'TG_USERNAME_MISSING');
+    records.push({
+      subscriptionId: sub.id,
+      sourceId: null,
+      kind: 'TG_USERNAME_MISSING',
+      lastOccurredAt: sub.createdAt.toISOString(),
+      occurrenceCount: 1,
+      errorExcerpt: 'Не вказано Telegram — запросити нік і вписати через Редагувати.',
+      user: sub.user,
+      plan: sub.plan,
+      cohortName: sub.cohort?.name ?? null,
+      dismissedAt: dismissal?.dismissedAt.toISOString() ?? null,
+      dismissedBy: dismissal?.dismissedBy ?? null,
+      dismissedReason: dismissal?.reason ?? null,
+    });
   }
 
   // Детектор цілісності ORPHAN_NO_PAYMENT: підписка в «оплаченому» статусі
