@@ -134,12 +134,40 @@ export async function POST(req: NextRequest) {
     // шляхом. Помилку тут повертати не можна: людина нічого не порушила, вона просто
     // купує щось інше.
     let renewPayload: RenewPayload | null = null;
-    if (yearlyKind === 'monthly' && !invitePayload && recurring !== true) {
+    /// Cookie виявилась непридатною (підписка змінилась, набір завершився) — гасимо її
+    /// у відповіді. Інакше вона живе годину, і людина, яка після невдалого поновлення
+    /// просто купує новий набір з тим самим email, тягне мертвий токен у кожну спробу.
+    let dropRenewCookie = false;
+    /// Гасить мертву cookie на відповіді, яка йде людині далі своїм шляхом (успішний
+    /// payload для WFP або відмова через відсутній набір). Решта guard-ів лишає її
+    /// доживати годину — безпечно: renew-гілка перевіряє токен наново на кожному запиті
+    /// й ігнорує його, тож повторної відмови через посилання вже не буде.
+    const withRenewCookieCleanup = (res: NextResponse) => {
+      if (dropRenewCookie) res.cookies.delete(RENEW_COOKIE_NAME);
+      return res;
+    };
+    if (yearlyKind === 'monthly' && !invitePayload) {
       const cookieToken = req.cookies.get(RENEW_COOKIE_NAME)?.value;
       const payload = cookieToken ? verifyRenewToken(cookieToken) : null;
       const emailMatches = typeof clientEmail === 'string'
         && clientEmail.trim().toLowerCase() === payload?.email;
-      if (payload && emailMatches) renewPayload = payload;
+      if (payload && emailMatches) {
+        // `recurring === false` — не формальність. Регулярні прапори для WFP чіпляються
+        // наприкінці роуту за умовою `recurring !== false`, тож на запиті без цього поля
+        // підписка лишилась би разовою (`autoRenew=false`), а у WayForPay народилось би
+        // живе правило щомісячного списання: гроші йшли б за графіком, якого людина не
+        // обирала й не бачила. Здогадуватись за неї тут не можна — вимагаємо явного «ні».
+        if (recurring === false) {
+          renewPayload = payload;
+        } else if (recurring !== true) {
+          return NextResponse.json({
+            error: 'Не вказано тип оплати. Оновіть сторінку й натисніть «Оплатити модуль» ще раз — оплата модуля йде як разова, без автосписання.',
+            code: 'renew_recurring_unset',
+          }, { status: 400 });
+        }
+        // `recurring === true` — людина свідомо обрала автосписання, тобто купує не
+        // «один модуль». Cookie ігноруємо за контрактом вище і йдемо звичайним шляхом.
+      }
     }
 
     // Серверний price lookup — НЕ довіряємо клієнту. Якщо resolveServerPricing повернув null —
@@ -355,60 +383,61 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: 'Cohort з invite-посилання не існує' }, { status: 400 });
           }
           currentCohortId = inviteCohort.id;
-        } else if (renewPayload) {
-          // Поновлення йде в набір САМОЇ підписки, а не в той, у якому зараз ідуть продажі.
-          // Ці два набори збігаються лише поки набір один: щойно менеджер заводить наступний
-          // (навесні під продажі 2027, або просто «блукаючий» без `isCurrent`),
-          // `resolveSellableCohort` віддає вже інший — і студент, який доплачує свій модуль,
-          // отримував би або відмову `renew_link_stale`, або, гірше, платіж у чужу сітку.
-          // Ціна і слоти нижче рахуються з цього ж набору.
-          const renewSub = await prisma.yearlyProgramSubscription.findUnique({
-            where: { id: renewPayload.subscriptionId },
-            select: {
-              id: true, plan: true, status: true, autoRenew: true, cohortId: true,
-              user: { select: { email: true } },
-              cohort: { select: { id: true, endDate: true } },
-            },
-          });
-          // Умови ті самі, що показала сторінка поновлення (`resolveRenewState`): та сама
-          // людина, місячний план, підписка жива, автосписання вимкнене, набір не змінився.
-          // Будь-яка розбіжність — відмова з контактом менеджера, а не мовчазний перескок
-          // у поточний набір: платити наосліп за чужий модуль ми не дамо.
-          const renewSubEmail = renewSub?.user?.email?.trim().toLowerCase() ?? '';
-          const usable = !!renewSub
-            && renewSub.plan === 'MONTHLY'
-            && renewSub.status !== 'ARCHIVED'
-            && !renewSub.autoRenew
-            && renewSub.cohortId === renewPayload.cohortId
-            && renewSubEmail === renewPayload.email;
-          if (!usable || !renewSub?.cohort) {
-            return NextResponse.json({
-              error: 'Посилання на оплату модуля більше не актуальне — підписка змінилась. Напишіть менеджеру: edu@uimp.com.ua',
-              code: 'renew_link_stale',
-            }, { status: 409 });
-          }
-          // `endDate >= now` — те саме порівняння, що й у `resolveSellableCohort`. Кінець
-          // набору нормалізований до 23:59:59.999 UTC, тож останній день ще продається.
-          if (renewSub.cohort.endDate.getTime() < Date.now()) {
-            return NextResponse.json({
-              error: 'Ваш набір Річної програми вже завершився — оплатити ще один модуль у ньому не можна. Напишіть менеджеру: edu@uimp.com.ua',
-              code: 'renew_cohort_finished',
-            }, { status: 409 });
-          }
-          currentCohortId = renewSub.cohort.id;
         } else {
-          // Той самий резолвер, що й публічна сторінка: «Поточний» або fallback на найближчий
-          // незавершений запуск. Має збігатися з page.tsx — інакше кнопка активна, а оплата падає.
-          const currentCohort = await resolveSellableCohort(prisma);
-          currentCohortId = currentCohort?.id ?? null;
-          // Без жодного придатного cohort-у не продаємо доступ — бо немає від чого рахувати дати
-          // (cohort.startDate / cohort.endDate). Це жорсткий контракт продукту: реєстрація
-          // відкрита тільки коли менеджер створив cohort з фіксованими датами.
-          if (!currentCohortId) {
-            return NextResponse.json({
-              error: 'Реєстрація на Річну програму поки закрита. Очікуйте оголошення наступного запуску — ми повідомимо.',
-              code: 'no_current_cohort',
-            }, { status: 409 });
+          if (renewPayload) {
+            // Поновлення йде в набір САМОЇ підписки, а не в той, у якому зараз ідуть продажі.
+            // Ці два набори збігаються лише поки набір один: щойно менеджер заводить наступний
+            // (навесні під продажі 2027, або просто «блукаючий» без `isCurrent`),
+            // `resolveSellableCohort` віддає вже інший — і студент, який доплачує свій модуль,
+            // отримував би або відмову, або, гірше, платіж у чужу сітку.
+            // Ціна і слоти нижче рахуються з цього ж набору.
+            const renewSub = await prisma.yearlyProgramSubscription.findUnique({
+              where: { id: renewPayload.subscriptionId },
+              select: {
+                id: true, plan: true, status: true, autoRenew: true, cohortId: true,
+                user: { select: { email: true } },
+                cohort: { select: { id: true, endDate: true } },
+              },
+            });
+            // Умови ті самі, що показала сторінка поновлення (`resolveRenewState`): та сама
+            // людина, місячний план, підписка жива, автосписання вимкнене, набір не змінився
+            // і ще не завершився (`endDate >= now`, як у `resolveSellableCohort`; кінець
+            // набору нормалізований до 23:59:59.999 UTC, тож останній день ще продається).
+            const renewSubEmail = renewSub?.user?.email?.trim().toLowerCase() ?? '';
+            const usable = !!renewSub
+              && renewSub.plan === 'MONTHLY'
+              && renewSub.status !== 'ARCHIVED'
+              && !renewSub.autoRenew
+              && renewSub.cohortId === renewPayload.cohortId
+              && renewSubEmail === renewPayload.email
+              && !!renewSub.cohort
+              && renewSub.cohort.endDate.getTime() >= Date.now();
+            if (usable) {
+              currentCohortId = renewSub!.cohort!.id;
+            } else {
+              // Відмовляти тут НЕ можна: cookie живе годину і не питає, що людина робить
+              // зараз. Той, у кого набір щойно завершився, наступним кроком купує НОВИЙ —
+              // і на кожній спробі отримував би 409 про чуже посилання. Тому мертву cookie
+              // просто гасимо і йдемо звичайним шляхом покупки, як і при будь-якій іншій
+              // невідповідності (див. контракт на початку роуту).
+              renewPayload = null;
+              dropRenewCookie = true;
+            }
+          }
+          if (!renewPayload) {
+            // Той самий резолвер, що й публічна сторінка: «Поточний» або fallback на найближчий
+            // незавершений запуск. Має збігатися з page.tsx — інакше кнопка активна, а оплата падає.
+            const currentCohort = await resolveSellableCohort(prisma);
+            currentCohortId = currentCohort?.id ?? null;
+            // Без жодного придатного cohort-у не продаємо доступ — бо немає від чого рахувати дати
+            // (cohort.startDate / cohort.endDate). Це жорсткий контракт продукту: реєстрація
+            // відкрита тільки коли менеджер створив cohort з фіксованими датами.
+            if (!currentCohortId) {
+              return withRenewCookieCleanup(NextResponse.json({
+                error: 'Реєстрація на Річну програму поки закрита. Очікуйте оголошення наступного запуску — ми повідомимо.',
+                code: 'no_current_cohort',
+              }, { status: 409 }));
+            }
           }
         }
         const plan = yearlyKind === 'yearly' ? 'YEARLY' : 'MONTHLY';
@@ -481,8 +510,11 @@ export async function POST(req: NextRequest) {
         // Тому для renew беремо саме ту підписку, за яку людина прийшла платити; вона все
         // одно має бути живою, місячною і в тому ж наборі. Гварди Rule 1–3 вище рахувались
         // по загальному зрізу підписок і лишаються чинними.
-        if (renewPayload && plan === 'MONTHLY' && existing?.id !== renewPayload.subscriptionId) {
-          const tokenSub = activeSubs.find((s) => s.id === renewPayload.subscriptionId) ?? null;
+        // Знімок id з токена: `renewPayload` вище міг обнулитись (мертва cookie), і в
+        // колбеку `.find()` звуження типу вже не діє — беремо значення один раз.
+        const renewSubscriptionId = renewPayload?.subscriptionId ?? null;
+        if (renewSubscriptionId && plan === 'MONTHLY' && existing?.id !== renewSubscriptionId) {
+          const tokenSub = activeSubs.find((s) => s.id === renewSubscriptionId) ?? null;
           if (tokenSub && tokenSub.plan === 'MONTHLY' && tokenSub.cohortId === currentCohortId) {
             existing = tokenSub;
           }
@@ -505,6 +537,12 @@ export async function POST(req: NextRequest) {
               plan,
               status: { in: ['EXPIRED', 'CANCELLED'] },
               cohortId: currentCohortId,
+              // Поновлення за посиланням адресує КОНКРЕТНУ підписку, і «найсвіжіша мертва»
+              // — не вона: у людини, у якої в цьому ж наборі лишилась пізніша скасована
+              // спроба, реюз брав саме її, а звірка нижче відповідала «посилання більше не
+              // актуальне» чесному платнику. Тому при renew шукаємо рівно ту, що в токені;
+              // не знайшлась — краще відмова, ніж оплата в чужу підписку.
+              ...(renewPayload ? { id: renewPayload.subscriptionId } : {}),
             },
             orderBy: { createdAt: 'desc' },
           });
@@ -1008,7 +1046,7 @@ export async function POST(req: NextRequest) {
       Object.assign(paymentData, regularFlags);
     }
 
-    return NextResponse.json(paymentData);
+    return withRenewCookieCleanup(NextResponse.json(paymentData));
   } catch (error) {
     console.error('❌ Помилка створення платежу:', error);
     return NextResponse.json({ error: 'Server error' }, { status: 500 });
