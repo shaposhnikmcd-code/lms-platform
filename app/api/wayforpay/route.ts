@@ -21,6 +21,7 @@ import {
 } from '@/lib/yearlyProgramAccess';
 import { removeSubscriptionAutopay, recordAutopayRemoveOutcome } from '@/lib/yearlyProgramAutopay';
 import { resolveSellableCohort } from '@/lib/yearlyProgramCohort';
+import { getYearlyProgramSettings } from '@/lib/yearlyProgramSettings';
 import { verifyInvite, type InvitePayload } from '@/lib/yearlyProgramInvite';
 import { RENEW_COOKIE_NAME, verifyRenewToken, type RenewPayload } from '@/lib/yearlyProgramRenew';
 import { isValidCountryCode } from '@/lib/countries';
@@ -567,6 +568,45 @@ export async function POST(req: NextRequest) {
               error: 'Посилання на оплату модуля більше не актуальне — підписка змінилась. Напишіть менеджеру: edu@uimp.com.ua',
               code: 'renew_link_stale',
             }, { status: 409 });
+          }
+        }
+
+        // ── Рубильник «Реєстрація відкрита» вимикає НОВІ продажі — і тільки їх.
+        //
+        // Досі роут цього прапорця не питав узагалі: закриті продажі трималися виключно
+        // на вимкнених кнопках лендінга, тож прямий POST (або стара відкрита вкладка)
+        // заводив нову підписку в набір, куди менеджер уже нікого не бере. Перевірка
+        // стоїть саме тут — у точці, де вирішується, чи народжується новий студент.
+        //
+        // Чинного студента прапорець НЕ стосується (рішення власника 09.09.2026): оплата
+        // наступного модуля своєї живої підписки — не продаж, а доплата всередині набору,
+        // у якому людина вже навчається. Поки прапорець стосувався і її, менеджер, закривши
+        // реєстрацію одразу після запуску, лишав кожного студента місячної оплати без
+        // легального способу заплатити за наступний модуль — на весь навчальний рік.
+        //
+        // Ознака «чинний» — не статус, а гроші: у підписки, яку реюзає ця покупка, є хоча б
+        // один PAID-платіж. Абандонована PENDING-спроба без оплат — та сама нова покупка,
+        // тільки з учорашньої вкладки, і закритий продаж її стосується. Підписка чужого
+        // набору сюди не доживає: фільтр реюзу вище вже обнулив `existing`, тож перехід у
+        // новий набір — теж новий продаж.
+        //
+        // Invite менеджера обходить прапорець — рівно як на сторінці (`page.tsx`).
+        if (!invitePayload) {
+          const { registrationOpen } = await getYearlyProgramSettings(prisma);
+          if (!registrationOpen) {
+            const paidBefore = existing
+              ? await prisma.payment.findFirst({
+                where: { yearlyProgramSubscriptionId: existing.id, status: 'PAID' },
+                select: { id: true },
+              })
+              : null;
+            if (!paidBefore) {
+              return withRenewCookieCleanup(NextResponse.json({
+                error: 'Реєстрація на Річну програму зараз закрита — набір нових учасників призупинено. '
+                  + 'Якщо ви вже навчаєтесь у програмі, напишіть на edu@uimp.com.ua.',
+                code: 'registration_closed',
+              }, { status: 409 }));
+            }
           }
         }
 

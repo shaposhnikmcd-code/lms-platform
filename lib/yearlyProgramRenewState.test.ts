@@ -78,12 +78,11 @@ function subscription(overrides: Record<string, unknown> = {}) {
 const tokenFor = (cohortId = COHORT_A.id, subscriptionId = 'sub_1', email = EMAIL) =>
   signRenewToken({ subscriptionId, email, cohortId });
 
-const resolve = (client: Client, token: string, opts: { registrationOpen?: boolean; now?: Date } = {}) =>
+const resolve = (client: Client, token: string, opts: { now?: Date } = {}) =>
   resolveRenewState({
     client,
     token,
     monthlyPrice: 2200,
-    registrationOpen: opts.registrationOpen ?? true,
     now: opts.now ?? NOW,
   });
 
@@ -186,13 +185,29 @@ test('пропущені модулі — стан боргу з їх кільк
   assert.match(renewBlockCopy(state.reason, state.missedModules ?? 0).body, /пропущено 1 модуль/);
 });
 
-test('вимкнена реєстрація закриває оплату так само, як картки тарифів', async () => {
-  const state = await resolve(makeClient(subscription()), tokenFor(), { registrationOpen: false });
-  assert.equal(state.kind === 'blocked' && state.reason, 'registration_closed');
+test('закриті продажі НЕ чіпають доплату модуля чинним студентом', async () => {
+  // Рішення власника 09.09.2026. `registrationOpen` вимикає нові продажі — картки
+  // тарифів; доплата всередині свого живого набору продажем не є. Раніше стан ставав
+  // `registration_closed`, і одразу після запуску набору (менеджер закриває реєстрацію)
+  // студент місячної оплати не міг заплатити за наступний модуль увесь навчальний рік.
+  //
+  // Резолвер більше не має входу для цього прапорця взагалі — перевіряємо це типом:
+  // зайве поле в аргументах не скомпілюється, а стан лишається payable.
+  const state = await resolveRenewState({
+    client: makeClient(subscription()),
+    token: tokenFor(),
+    monthlyPrice: 2200,
+    now: NOW,
+  });
+  assert.equal(state.kind, 'payable');
+  if (state.kind !== 'payable') return;
+  assert.equal(state.module.number, 3);
+  // Причини `registration_closed` не існує ні в стані, ні в реєстрі текстів.
+  assert.ok(!RENEW_BLOCK_REASONS.includes('registration_closed' as never));
 });
 
 test('кожен стан блокування має заголовок, пояснення і контакт менеджера', () => {
-  assert.ok(RENEW_BLOCK_REASONS.length >= 8, 'усі причини мають бути в реєстрі текстів');
+  assert.ok(RENEW_BLOCK_REASONS.length >= 7, 'усі причини мають бути в реєстрі текстів');
   for (const reason of RENEW_BLOCK_REASONS) {
     const copy = renewBlockCopy(reason, 2);
     assert.ok(copy.title.trim().length > 0, `${reason}: порожній заголовок`);

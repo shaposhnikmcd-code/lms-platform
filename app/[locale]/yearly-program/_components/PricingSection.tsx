@@ -40,6 +40,11 @@ type Props = {
   monthlyPrice: number;
   monthlyOldPrice?: number | null;
   registrationOpen: boolean;
+  /// Чи показувати рядок-вхід «Оплатити наступний модуль» під місячною карткою.
+  /// Рахується ОКРЕМО від `registrationOpen`: рубильник реєстрації вимикає нові продажі,
+  /// а доплата модуля чинним студентом продажем не є (рішення власника 09.09.2026).
+  /// Тому при закритій реєстрації картки тарифів вимкнені, а цей рядок працює.
+  renewOpen: boolean;
   /// Скільки місячних платежів реально лишилось у наборі (модулів попереду). Рахує
   /// серверна сторінка за сіткою модулів: у вересні це 9, у жовтні вже 8. Від нього —
   /// і підпис «N платежів × 2200», і сума, і тексти в модалці оплати.
@@ -80,7 +85,7 @@ function DisabledButton({ label, variant }: { label: string; variant: 'light' | 
   );
 }
 
-export default function PricingSection({ t, yearlyPrice, yearlyOldPrice, monthlyPrice, monthlyOldPrice, registrationOpen, recurringCount, locale, invite }: Props) {
+export default function PricingSection({ t, yearlyPrice, yearlyOldPrice, monthlyPrice, monthlyOldPrice, registrationOpen, renewOpen, recurringCount, locale, invite }: Props) {
   const open = registrationOpen;
   // Модуль лишився один — розстрочки не існує: автоплатіж не пропонуємо взагалі.
   // Інакше сторінка малювала б «АВТОПЛАТІЖ · 1 МІС.» і «1 платежів», а роут усе одно
@@ -212,9 +217,11 @@ export default function PricingSection({ t, yearlyPrice, yearlyOldPrice, monthly
         </div>
       </div>
 
-      {/* Під місячною карткою: вхід для чинного студента на помісячній оплаті. Тільки
-          коли місячна взагалі продається — інакше рядок обіцяв би оплату, якої нема. */}
-      {monthlyAvailable && (
+      {/* Під місячною карткою: вхід для чинного студента на помісячній оплаті. Живе
+          незалежно від карток тарифів: продажі закривають реєстрацію одразу після
+          запуску набору, а помісячним студентам платити за модулі ще весь рік. Умова —
+          лише наявність набору, у який роут узагалі може прийняти платіж. */}
+      {renewOpen && (
         <div className="grid md:grid-cols-2 gap-5 mt-4">
           <div className="hidden md:block" aria-hidden />
           <div className="px-6 text-center md:text-left">

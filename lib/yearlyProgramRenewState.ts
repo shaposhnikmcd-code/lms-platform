@@ -12,6 +12,15 @@ import { verifyRenewToken } from './yearlyProgramRenew';
 /// Токен нічого не відкриває: він лише називає підписку. Усе, що нижче, — читання стану
 /// цієї підписки тими самими функціями, якими його читає оплата.
 ///
+/// Рубильника «Реєстрація відкрита» тут НЕМАЄ, і це рішення власника (09.09.2026).
+/// `registrationOpen` вимикає НОВІ продажі — картки тарифів на лендінгу. Оплата
+/// наступного модуля чинним студентом свого живого набору продажем не є: це доплата
+/// всередині програми, за яку людина вже заплатила. Поки прапорець стосувався і її,
+/// одразу після запуску набору (менеджер закриває реєстрацію) кожен студент місячної
+/// оплати лишався без легального способу заплатити за наступний модуль — на цілий
+/// навчальний рік. Той самий контракт тримає `/api/wayforpay`: прапорець там перевіряє
+/// лише народження НОВОЇ підписки.
+///
 /// НАБІР беремо з САМОЇ підписки, а не з `resolveSellableCohort`. Це не дрібниця:
 /// sellable-набір відповідає на питання «куди йдуть НОВІ покупці», і навесні, коли
 /// менеджер заводить набір 2027 під продажі, він перестає збігатися з набором тих, хто
@@ -34,13 +43,7 @@ export type RenewBlockReason =
   /// Набір, у якому людина навчається, уже завершився — доплачувати в нього нічого.
   | 'cohort_finished'
   /// Підписку деактивовано менеджером (ARCHIVED).
-  | 'archived'
-  /// Продажі закриті менеджером. Renew-посилання шанує `registrationOpen` — це той самий
-  /// рубильник, що вимикає кнопки в картках тарифів, і вимикає він усі оплати, включно з
-  /// доплатою модуля. НЕ плутати з набором: відсутність набору під продажі (`sellable`)
-  /// поновленню СВІДОМО не заважає — доплата йде всередині живого набору самої підписки,
-  /// навіть коли нових продажів немає взагалі.
-  | 'registration_closed';
+  | 'archived';
 
 export type RenewState =
   /// Токен зіпсований, прострочений, або підписка вже не та, для якої його видали.
@@ -74,10 +77,9 @@ export async function resolveRenewState(args: {
   client: RenewStateClient;
   token: string;
   monthlyPrice: number;
-  registrationOpen: boolean;
   now?: Date;
 }): Promise<RenewState> {
-  const { client, monthlyPrice, registrationOpen } = args;
+  const { client, monthlyPrice } = args;
   const now = args.now ?? new Date();
 
   const payload = verifyRenewToken(args.token);
@@ -159,8 +161,6 @@ export async function resolveRenewState(args: {
     const missed = cohortSlotIndex(cohort, now, { edge: false }) - schedule.nextSlotIndex;
     if (missed > 0) return blocked('debt', { missedModules: missed });
   }
-
-  if (!registrationOpen) return blocked('registration_closed');
 
   return {
     kind: 'payable',

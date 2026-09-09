@@ -29,11 +29,12 @@ export async function GET(req: NextRequest) {
 
   const settings = await getYearlyProgramSettings(prisma);
 
+  // `registrationOpen` сюди НЕ передається: рубильник вимикає нові продажі, а не доплату
+  // модуля чинним студентом (див. `resolveRenewState`). Налаштування читаємо заради ціни.
   const state = await resolveRenewState({
     client: prisma,
     token,
     monthlyPrice: settings.monthlyPrice,
-    registrationOpen: settings.registrationOpen,
   });
 
   const res = NextResponse.json(state);
@@ -44,9 +45,9 @@ export async function GET(req: NextRequest) {
   // cookie тягнулась би в чекаут. Стан цієї людина вже прочитала на екрані.
   //
   // Гасимо лише КІНЦЕВІ стани: `invalid`, завершений набір і деактивована підписка
-  // назад не оживають. Решта блокувань (автосписання, борг, закриті продажі, все
-  // сплачено) — тимчасові: менеджер вимикає автоплатіж чи відкриває реєстрацію, і те
-  // саме посилання має спрацювати без нового листа.
+  // назад не оживають. Решта блокувань (автосписання, борг, усе сплачено) — тимчасові:
+  // менеджер вимикає автоплатіж або закриває борг ручним платежем, і те саме посилання
+  // має спрацювати без нового листа.
   const dead = state.kind === 'invalid'
     || (state.kind === 'blocked' && (state.reason === 'cohort_finished' || state.reason === 'archived'));
   if (dead) res.cookies.delete(RENEW_COOKIE_NAME);

@@ -104,6 +104,13 @@ export default async function YearlyProgramPage({
   // запрошений студент може оплатити навіть коли широка реєстрація закрита.
   const hasCurrentCohort = !!currentCohort;
   const registrationOpenForUser = (settings.registrationOpen && hasCurrentCohort) || !!invitePayload;
+  // Рядок «Уже навчаєтесь за місячною оплатою? Оплатити наступний модуль» — окремий вхід
+  // для чинного студента, і рубильник реєстрації його не стосується (рішення власника
+  // 09.09.2026): менеджер закриває продажі одразу після запуску набору, а помісячним
+  // студентам платити за модулі ще весь рік. Умова одна — існує набір, у який
+  // `/api/wayforpay` узагалі може прийняти платіж без персонального посилання; там той
+  // самий `resolveSellableCohort`, тож рядок не веде у `no_current_cohort`.
+  const renewEntryOpen = hasCurrentCohort;
 
   return (
     <main className={`min-h-screen bg-white ${inter.className}`}>
@@ -148,6 +155,7 @@ export default async function YearlyProgramPage({
         monthlyPrice={settings.monthlyPrice}
         monthlyOldPrice={settings.monthlyOldPrice}
         registrationOpen={registrationOpenForUser}
+        renewOpen={renewEntryOpen}
         recurringCount={recurringCount}
         locale={locale}
         invite={invitePayload && inviteToken ? {
