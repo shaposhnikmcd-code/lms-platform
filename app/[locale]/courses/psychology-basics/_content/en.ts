@@ -64,7 +64,7 @@ export const content = {
     subtitle: "Choose the best option for your development",
     access: "Full access",
     currency: "UAH",
-    features: ["All 15 lectures", "Lifetime access", "Additional materials"],
+    features: ["All 15 lectures", "Additional materials"],
     btnBuy: "Buy course",
   },
 };

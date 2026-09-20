@@ -34,7 +34,7 @@ export const content = {
     label: "Format",
     title: "Jak przebiega nauka",
     items: [
-      { icon: "🎥", title: "Wykłady nagrane", text: "Wszystkie wykłady są nagrane (do 30 min każdy). Możesz je oglądać w dowolnym dogodnym czasie (dostęp — bez ograniczeń czasowych)" },
+      { icon: "🎥", title: "Wykłady nagrane", text: "Wszystkie wykłady są nagrane (do 30 min każdy). Możesz je oglądać w dowolnym dogodnym czasie" },
       { icon: "📝", title: "Materiały praktyczne", text: "Pytania do osobistej refleksji i dodatkowe materiały" },
     ],
   },
@@ -90,9 +90,8 @@ export const content = {
     badge: "🎓 Inwestycja w siebie",
     title: "Cena kursu",
     subtitle: "Wykłady nagrane, pytania do przepracowania i dodatkowe materiały",
-    access: "Bezterminowy dostęp do materiałów",
     currency: "UAH",
-    features: ["Wszystkie wykłady (do 30 min każdy)", "Bezterminowy dostęp", "Pytania do osobistej refleksji", "Dodatkowe materiały"],
+    features: ["Wszystkie wykłady (do 30 min każdy)", "Pytania do osobistej refleksji", "Dodatkowe materiały"],
     btnBuy: "Kup kurs",
   },
 };

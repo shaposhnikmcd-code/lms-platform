@@ -37,8 +37,7 @@ export const content = {
   },
   pricing: {
     title: "Rozpocznij naukę już teraz!",
-    subtitle: "Pełny dostęp do wszystkich materiałów kursu bez ograniczeń czasowych",
-    access: "Bezterminowy dostęp do materiałów",
+    subtitle: "Pełny dostęp do wszystkich materiałów kursu",
     btnBuy: "Kup kurs",
   },
 };

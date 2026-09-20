@@ -44,9 +44,6 @@ export default async function CoursePricing({ course, totalLessons, isLoggedIn }
                   <FaCheck className="text-[#D4A017]" /> {totalLessons} {t("lessons")}
                 </p>
                 <p className="flex items-center justify-center gap-2">
-                  <FaCheck className="text-[#D4A017]" /> {t("accessForever")}
-                </p>
-                <p className="flex items-center justify-center gap-2">
                   <FaCheck className="text-[#D4A017]" /> {t("certAfter")}
                 </p>
               </div>

@@ -142,7 +142,6 @@ export const contactsContent = {
     items: [
       { q: "Jak uzyskać dostęp do kursu po opłaceniu?", a: "Po pomyślnej płatności kurs automatycznie pojawi się w Twoim panelu studenta. Zaloguj się i przejdź do sekcji Moje kursy." },
       { q: "Czy można otrzymać certyfikat po ukończeniu kursu?", a: "Tak! Po ukończeniu kursu w 100% certyfikat jest automatycznie generowany i dostępny do pobrania w panelu studenta." },
-      { q: "Jak długo mam dostęp do kursu?", a: "Po dokonaniu płatności otrzymujesz dożywotni dostęp do materiałów kursu." },
       { q: "Jak otrzymać zwrot środków, jeśli kurs nie pasuje?", a: "Gwarantujemy zwrot środków w ciągu 7 dni od płatności. Napisz do nas mailem." },
       { q: "Czy można uczyć się z telefonu?", a: "Tak, platforma jest w pełni dostosowana do urządzeń mobilnych." },
       { q: "Jak zostać wykładowcą UIMP?", a: "Napisz do nas mailem z krótkim opisem swojej wiedzy i doświadczenia." },

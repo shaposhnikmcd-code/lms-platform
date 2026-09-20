@@ -142,7 +142,6 @@ export const contactsContent = {
     items: [
       { q: "How do I get access to a course after payment?", a: "After successful payment, the course automatically appears in your student dashboard. Sign in and go to the My Courses section." },
       { q: "Can I get a certificate after completing the course?", a: "Yes! Once you complete the course at 100%, the certificate is automatically generated and available for download in your student dashboard." },
-      { q: "How long do I have access to the course?", a: "After payment you receive lifetime access to the course materials." },
       { q: "How can I get a refund if the course is not right for me?", a: "We guarantee a refund within 7 days after payment. Write to us by email." },
       { q: "Can I learn from a phone?", a: "Yes, the platform is fully adapted for mobile devices." },
       { q: "How do I become a UIMP teacher?", a: "Write to us by email with a short description of your expertise and experience." },

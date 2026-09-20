@@ -59,7 +59,6 @@ export const content = {
   pricing: {
     title: "Rozpocznij naukę już teraz!",
     subtitle: "20 godzin wideo, dodatkowe materiały i zadania domowe",
-    access: "Bezterminowy dostęp do materiałów",
     btnBuy: "Kup kurs",
   },
 };
