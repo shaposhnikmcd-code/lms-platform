@@ -237,7 +237,7 @@ export const consultationsContent = {
       ],
       diplomas: [
         { type: "diploma", title: "Dyplom psychologa", org: "Wołyński Narodowy Uniwersytet im. Łesi Ukrainki", detail: "Specjalność „Psychologia” · 2008–2014", year: "2014", tag: "Wyższe wykształcenie" },
-        { type: "diploma", title: "Licencjat z teologii praktycznej", org: "Instytut Teologiczny „Vision”", detail: "Instytut Teologiczny „Vision” · 1999–2003", year: "2003", tag: "Wykształcenie teologiczne" },
+        { type: "diploma", title: "Licencjat z teologii praktycznej", org: "Instytut Teologiczny „Vision”", detail: "Instytut Teologiczny „Vision” · 2026–2030", year: "2030", tag: "Wykształcenie teologiczne" },
         { type: "cert", title: "Trzymodułowy program duchowego uzdrowienia", org: "UIMP", detail: "2023", year: "2023", tag: "Program" },
         { type: "cert", title: "Praktyczna szkoła „Maranatha”", org: "Szkoła praktycznego chrześcijaństwa „Maranatha”", detail: "2024", year: "2024", tag: "Szkoła" },
         { type: "cert", title: "Droga do uzdrowienia", org: "UIMP", detail: "Program praktyczny · 2025", year: "2025", tag: "Program" },

@@ -237,7 +237,7 @@ export const consultationsContent = {
       ],
       diplomas: [
         { type: "diploma", title: "Diploma in Psychology", org: "Lesya Ukrainka Volyn National University", detail: "Specialization \"Psychology\" · 2008–2014", year: "2014", tag: "Higher education" },
-        { type: "diploma", title: "Bachelor of Practical Theology", org: "Vision Theological Institute", detail: "Vision Theological Institute · 1999–2003", year: "2003", tag: "Theological education" },
+        { type: "diploma", title: "Bachelor of Practical Theology", org: "Vision Theological Institute", detail: "Vision Theological Institute · 2026–2030", year: "2030", tag: "Theological education" },
         { type: "cert", title: "Three-module program of spiritual healing", org: "UIMP", detail: "2023", year: "2023", tag: "Program" },
         { type: "cert", title: "Practical school \"Maranatha\"", org: "School of Practical Christianity \"Maranatha\"", detail: "2024", year: "2024", tag: "School" },
         { type: "cert", title: "Path to Healing", org: "UIMP", detail: "Practical program · 2025", year: "2025", tag: "Program" },
