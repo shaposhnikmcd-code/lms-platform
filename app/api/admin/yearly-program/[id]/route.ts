@@ -969,7 +969,7 @@ async function handleManualPayment(
 
   // Перерахунок expiresAt по cohort-логіці + активація статусу (single source of truth,
   // спільний helper з carryover-флоу manual-add). Реальна оплата воскрешає мертву підписку.
-  const { newStatus, newExpiresAt, cohortLaunched } = await applyPaymentActivation({
+  const { newStatus, newExpiresAt, cohortLaunched, remindersReset } = await applyPaymentActivation({
     subscriptionId: sub.id,
     plan: sub.plan,
     autoRenew: sub.autoRenew,
@@ -1005,7 +1005,7 @@ async function handleManualPayment(
     data: {
       subscriptionId: sub.id,
       type: 'admin_action',
-      message: `Ручна оплата ${amount}₴ (${methodLabel}) by ${actor}${note ? ` — ${note}` : ''}${splitSummary}${forced ? ' · ⚠️ внесено попри попередження про дубль' : ''} · expiresAt=${newExpiresAt?.toISOString().slice(0, 10) ?? 'null'}`,
+      message: `Ручна оплата ${amount}₴ (${methodLabel}) by ${actor}${note ? ` — ${note}` : ''}${splitSummary}${forced ? ' · ⚠️ внесено попри попередження про дубль' : ''} · expiresAt=${newExpiresAt?.toISOString().slice(0, 10) ?? 'null'}${remindersReset ? ' · нагадування наступного модуля увімкнено' : ''}`,
       metadata: {
         manualPayment: true, amount, method, note, paidAt: paidAt.toISOString(),
         orderReference: orderReferences[0], orderReferences, parts, actor,
