@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import CoursePurchaseModal from '@/components/CoursePurchaseModal';
 import { SUPPORT_TG } from '@/lib/emailTemplates/reminderTemplates';
-import { RENEW_ANCHOR, RENEW_EXPIRED_FLAG } from '@/lib/yearlyProgramRenew';
+import { RENEW_ANCHOR, RENEW_ENTRY_ANCHOR, RENEW_EXPIRED_FLAG } from '@/lib/yearlyProgramRenew';
 import { RENEW_DEAD_LINK_COPY, renewBlockCopy } from '@/lib/yearlyProgramRenewCopy';
 import type { RenewState } from '@/lib/yearlyProgramRenewState';
 import { YEARLY_PROGRAM } from '../config';
@@ -72,6 +72,12 @@ function DeadLinkNotice() {
     <Frame>
       <h2 className="text-xl sm:text-2xl font-bold text-white">{RENEW_DEAD_LINK_COPY.title}</h2>
       <p className="text-white/80 text-[14px] leading-relaxed mt-4 max-w-2xl">{RENEW_DEAD_LINK_COPY.body}</p>
+      <a
+        href={`#${RENEW_ENTRY_ANCHOR}`}
+        className="inline-flex items-center justify-center min-h-[44px] mt-4 px-5 py-2.5 rounded-xl bg-[#D4A017] hover:bg-[#c29214] text-white text-[14px] font-semibold cursor-pointer transition-colors"
+      >
+        {RENEW_DEAD_LINK_COPY.action}
+      </a>
       <SupportLine text={RENEW_DEAD_LINK_COPY.support} />
     </Frame>
   );
@@ -99,11 +105,16 @@ export default function RenewPanel() {
 
   // Скрол до блоку робимо САМІ: браузер відпрацював `#renew` ще до того, як панель
   // зʼявилась у DOM, тож нативний якір нікуди не привів.
+  //
+  // Мертве посилання скролимо ЗАВЖДИ, незалежно від якоря: редирект `?renew=expired`
+  // якоря не має, а панель стоїть під hero на весь екран — без скролу людина з листа
+  // бачила звичайний лендінг і не дізнавалась, що посилання не спрацювало.
+  const dead = expired || state?.kind === 'invalid';
   useEffect(() => {
     if (!state && !expired) return;
-    if (window.location.hash !== `#${RENEW_ANCHOR}`) return;
+    if (!dead && window.location.hash !== `#${RENEW_ANCHOR}`) return;
     document.getElementById(RENEW_ANCHOR)?.scrollIntoView({ block: 'start' });
-  }, [state, expired]);
+  }, [state, expired, dead]);
 
   if (expired) return <DeadLinkNotice />;
   if (!state) return null;
