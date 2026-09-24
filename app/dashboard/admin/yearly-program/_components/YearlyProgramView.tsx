@@ -2074,6 +2074,12 @@ function ExpandedRowContent({
           if (row.wfpScheduleCheckedAt) {
             items.push(['WFP звірено', fmtDate(row.wfpScheduleCheckedAt)]);
           }
+          // Тільки для підписок, що лишились на СТАРОМУ мерчанті: їхнє правило регулярки
+          // шукати в його кабінеті, а не в поточному. У звичайних підписок поле порожнє
+          // і рядок не рендериться взагалі.
+          if (row.wfpLegacyMerchantAccount) {
+            items.push(['WFP мерчант', `${row.wfpLegacyMerchantAccount} (старий)`]);
+          }
           if (details.failedChargeCount > 0) {
             items.push(['fail count', `⚠ ${details.failedChargeCount}`]);
           }

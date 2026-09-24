@@ -316,6 +316,12 @@ model Payment {
   /// Потрібен, щоб Declined/Expired-callback повернув використання назад у ліміт.
   /// Обнуляється в момент повернення — це і є маркер ідемпотентності.
   promoCodeId                 String?
+  /// Логін мерчанта WayForPay, на якому пройшло ЦЕ замовлення (`merchantAccount`).
+  /// З 30.09.2026 мерчантів два: новий для всіх нових оплат і старий, на якому лишились
+  /// раніше створені правила автосписання Річної. Перевірка статусу, REMOVE/CHANGE і
+  /// повернення коштів по замовленню мають іти кредами САМЕ його мерчанта — ключ до них
+  /// тут. null = основний мерчант (усі наявні записи бекфілені міграцією логіном старого).
+  wfpMerchantAccount          String?
   yearlyProgramSubscription   YearlyProgramSubscription? @relation("YearlyProgramPayments", fields: [yearlyProgramSubscriptionId], references: [id])
   user                        User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
   course                      Course?                    @relation(fields: [courseId], references: [id])
@@ -940,6 +946,13 @@ model YearlyProgramSubscription {
   /// Кандидатів може бути кілька (карта + Apple Pay, апгрейд разова→автоплатіж) — тут перший Active.
   /// Заповнюється syncAutopaySchedule і cron-звіркою.
   wfpRegularRef       String?
+  /// Логін мерчанта WayForPay, у кабінеті якого живе правило регулярки цієї підписки.
+  /// Правило належить тому мерчанту, який його створив, і зміна env на новий мерчант його
+  /// НЕ переносить: callback-и по його списаннях підписані старим секретом, а
+  /// REMOVE/CHANGE/STATUS вимагають старих кредів. Заповнюється першою оплатою/callback-ом
+  /// і уточнюється звіркою графіка за платежем, на якому знайдено активне правило.
+  /// null = основний мерчант (наявні записи бекфілені міграцією логіном старого).
+  wfpMerchantAccount  String?
   /// Кеш дати наступного автосписання з WFP (regularApi STATUS → nextPaymentDate).
   /// Оновлюється щоденним cron-ом, після успішного callback-а та після синку графіка.
   wfpNextChargeAt      DateTime?

@@ -22,9 +22,10 @@
 import prisma from '@/lib/prisma';
 import {
   changeRegularSchedule,
+  getLegacyWayforpayCreds,
   getRegularStatus,
-  getWayforpayCreds,
   removeRegularSchedule,
+  resolveRegularApiCreds,
 } from '@/lib/wayforpay';
 import { cohortModuleCount, cohortModuleStart, monthlySchedule } from '@/lib/yearlyProgramAccess';
 
@@ -117,7 +118,7 @@ export async function syncAutopaySchedule(
         // (orphan / понад ліміт / розбіжність суми). Інакше `paidCount` завищувався б і
         // звірка знімала б живе правило регулярки як «повна оплата 9/9».
         where: { status: 'PAID', excludedFromAccess: false },
-        select: { orderReference: true, amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true, manualMethod: true },
+        select: { orderReference: true, amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true, manualMethod: true, wfpMerchantAccount: true },
         orderBy: { createdAt: 'asc' },
       },
     },
@@ -132,11 +133,20 @@ export async function syncAutopaySchedule(
   if (!sub.cohort) return skip('no_cohort');
   if (sub.payments.length === 0) return skip('no_paid_payments');
 
-  const merchantPassword = process.env.WAYFORPAY_MERCHANT_PASSWORD;
-  if (!merchantPassword) {
-    return { outcome: 'error', reason: 'WAYFORPAY_MERCHANT_PASSWORD не налаштовано', ruleRef: null, nextChargeAt: null, desiredNextAt: null, changed: false };
+  // Кредів для regularApi нема взагалі (ні основних, ні legacy) — звірка неможлива.
+  // Текст лишаємо той самий, що був до двох мерчантів.
+  const primaryCreds = resolveRegularApiCreds(null);
+  if (!primaryCreds.ok && !getLegacyWayforpayCreds()) {
+    return { outcome: 'error', reason: primaryCreds.error, ruleRef: null, nextChargeAt: null, desiredNextAt: null, changed: false };
   }
-  const creds = getWayforpayCreds();
+  /// Креди по КОЖНОМУ orderReference окремо: правило регулярки живе в кабінеті мерчанта,
+  /// який провів той Purchase. У підписки, що пережила перехід на новий мерчант, це може
+  /// бути старий мерчант — STATUS/CHANGE/REMOVE новими кредами повернули б 4102 «правила
+  /// немає», і звірка вирішила б, що автосписання зникло (насправді воно живе й списує).
+  const credsForRef = (ref: string) => {
+    const payment = sub.payments.find((p) => p.orderReference === ref);
+    return resolveRegularApiCreds(payment?.wfpMerchantAccount ?? sub.wfpMerchantAccount);
+  };
   const now = new Date();
   const paidCount = sub.payments.length;
   // Сітка модулів набору. «Повна оплата» — це всі СВОЇ слоти, а не завжди 9: пізній
@@ -154,7 +164,18 @@ export async function syncAutopaySchedule(
   //   • ref порожній (перша звірка / правило щойно знято);
   //   • STATUS по ref дав ЧЕСНУ відповідь «правила нема/не активне» (4102) — кеш застарів;
   //   • підписка вже 9/9 — там треба зняти ВСІ правила, тож маємо знати про кожне.
-  const activeRules: { ref: string; amount: number; currency: string; mode: string; nextPaymentAt: Date | null; dateEndAt: Date | null }[] = [];
+  const activeRules: {
+    ref: string;
+    /// Мерчант, у кабінеті якого знайдено це правило — CHANGE/REMOVE по ньому йдуть
+    /// тими самими кредами, якими його щойно побачив STATUS.
+    merchantAccount: string;
+    merchantPassword: string;
+    amount: number;
+    currency: string;
+    mode: string;
+    nextPaymentAt: Date | null;
+    dateEndAt: Date | null;
+  }[] = [];
   /// Правила, які WFP ЗНАЙШОВ, але їхній статус не 'Active' (Suspended, Paused, ...).
   /// Це НЕ «правила немає»: воно живе в кабінеті мерчанта і може відновитись, тому
   /// ref такої підписки не можна занулювати — інакше вона зникає з нічної звірки і з
@@ -172,10 +193,19 @@ export async function syncAutopaySchedule(
     for (const ref of refs) {
       if (probed.has(ref)) continue;
       probed.add(ref);
+      const creds = credsForRef(ref);
+      if (!creds.ok) {
+        // Кредів цього мерчанта нема — ми НЕ знаємо, чи живе правило. Це саме
+        // невизначеність, а не «правила немає»: інакше відсутня legacy-змінна тихо
+        // стерла б кеш графіка всім підпискам старого мерчанта.
+        inconclusive = true;
+        statusErrors.push(`${ref}: ${creds.error}`);
+        continue;
+      }
       try {
         const st = await getRegularStatus({
           merchantAccount: creds.merchantAccount,
-          merchantPassword,
+          merchantPassword: creds.merchantPassword,
           orderReference: ref,
         });
         if (st.inconclusive) {
@@ -184,6 +214,8 @@ export async function syncAutopaySchedule(
         } else if (st.found && st.status === 'Active') {
           activeRules.push({
             ref,
+            merchantAccount: creds.merchantAccount,
+            merchantPassword: creds.merchantPassword,
             amount: st.amount ?? amountByRef.get(ref) ?? fallbackAmount,
             currency: st.currency ?? 'UAH',
             mode: st.mode ?? 'monthly',
@@ -216,9 +248,23 @@ export async function syncAutopaySchedule(
   }
 
   const cacheUpdate = async (ruleRef: string | null, nextChargeAt: Date | null) => {
+    // Мерчант підписки уточнюється саме тут: правило знайдене STATUS-ом на конкретному
+    // orderReference, і його мерчант — єдина достовірна відповідь на питання «у чийому
+    // кабінеті живе автосписання». Поки правила нема (`ruleRef=null`) поле не чіпаємо:
+    // порожній кеш не означає, що мерчант змінився.
+    const ruleMerchant = ruleRef
+      ? (sub.payments.find((p) => p.orderReference === ruleRef)?.wfpMerchantAccount ?? null)
+      : null;
     await prisma.yearlyProgramSubscription.update({
       where: { id: sub.id },
-      data: { wfpRegularRef: ruleRef, wfpNextChargeAt: nextChargeAt, wfpScheduleCheckedAt: new Date() },
+      data: {
+        wfpRegularRef: ruleRef,
+        wfpNextChargeAt: nextChargeAt,
+        wfpScheduleCheckedAt: new Date(),
+        ...(ruleMerchant && ruleMerchant !== sub.wfpMerchantAccount
+          ? { wfpMerchantAccount: ruleMerchant }
+          : {}),
+      },
     });
   };
 
@@ -276,7 +322,11 @@ export async function syncAutopaySchedule(
     }
     let removedErr: string | null = null;
     for (const rule of activeRules) {
-      const r = await removeRegularSchedule({ merchantAccount: creds.merchantAccount, merchantPassword, orderReference: rule.ref });
+      const r = await removeRegularSchedule({
+        merchantAccount: rule.merchantAccount,
+        merchantPassword: rule.merchantPassword,
+        orderReference: rule.ref,
+      });
       // reason у тексті обов'язковий: при транспортному збої (таймаут WFP) reasonCode
       // порожній, і без причини подія читалась як «code=undefined» без жодного пояснення.
       if (!r.ok && r.raw.reasonCode !== 4102) {
@@ -357,8 +407,8 @@ export async function syncAutopaySchedule(
   for (const rule of activeRules) {
     try {
       const r = await changeRegularSchedule({
-        merchantAccount: creds.merchantAccount,
-        merchantPassword,
+        merchantAccount: rule.merchantAccount,
+        merchantPassword: rule.merchantPassword,
         orderReference: rule.ref,
         currentAmount: rule.amount,
         currentCurrency: rule.currency,
@@ -375,7 +425,11 @@ export async function syncAutopaySchedule(
   // ── Крок 5: контрольний STATUS головного правила → кеш реальним значенням WFP.
   let confirmedNext: Date | null = desiredNext;
   try {
-    const confirm = await getRegularStatus({ merchantAccount: creds.merchantAccount, merchantPassword, orderReference: primary.ref });
+    const confirm = await getRegularStatus({
+      merchantAccount: primary.merchantAccount,
+      merchantPassword: primary.merchantPassword,
+      orderReference: primary.ref,
+    });
     if (confirm.found) confirmedNext = confirm.nextPaymentAt;
   } catch {
     // залишаємо desiredNext — наступна cron-звірка поправить кеш

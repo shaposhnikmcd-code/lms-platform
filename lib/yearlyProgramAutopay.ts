@@ -1,5 +1,5 @@
 import prisma from '@/lib/prisma';
-import { removeRegularSchedule, getWayforpayCreds } from '@/lib/wayforpay';
+import { getLegacyWayforpayCreds, removeRegularSchedule, resolveRegularApiCreds } from '@/lib/wayforpay';
 
 export type AutopayCleanupResult = {
   /// Скільки регулярок дійсно знято на стороні WFP.
@@ -50,11 +50,13 @@ export async function removeSubscriptionAutopay(
     return { removed: 0, attempted: 0, error: null };
   }
 
-  const merchantPassword = process.env.WAYFORPAY_MERCHANT_PASSWORD;
-  if (!merchantPassword) {
-    return { removed: 0, attempted: 0, error: 'WAYFORPAY_MERCHANT_PASSWORD не налаштовано' };
+  // Кредів для regularApi нема ВЗАГАЛІ — ні основних, ні legacy. Знімати нічим, і рання
+  // відповідь тут лишає форму результату такою ж, якою вона була до двох мерчантів
+  // (`attempted: 0` + один текст помилки замість N однакових).
+  const primaryCreds = resolveRegularApiCreds(null);
+  if (!primaryCreds.ok && !getLegacyWayforpayCreds()) {
+    return { removed: 0, attempted: 0, error: primaryCreds.error };
   }
-  const creds = getWayforpayCreds();
 
   const paidPayments = await prisma.payment.findMany({
     where: {
@@ -62,7 +64,11 @@ export async function removeSubscriptionAutopay(
       status: { in: ['PAID', 'PENDING'] },
       manualMethod: null,
     },
-    select: { orderReference: true },
+    // Мерчант — по КОЖНОМУ замовленню окремо: у підписки, яка пережила перехід на новий
+    // мерчант, правило регулярки лишилось у старому кабінеті, і REMOVE нового мерчанта
+    // по ньому повернув би 4102 («правила немає») — ми б вирішили, що знімати нема чого,
+    // а списання йшли б далі.
+    select: { orderReference: true, wfpMerchantAccount: true },
   });
 
   let removed = 0;
@@ -70,10 +76,15 @@ export async function removeSubscriptionAutopay(
   const errors: string[] = [];
 
   for (const p of paidPayments) {
+    const creds = resolveRegularApiCreds(p.wfpMerchantAccount);
+    if (!creds.ok) {
+      errors.push(`${p.orderReference}: ${creds.error}`);
+      continue;
+    }
     try {
       const result = await removeRegularSchedule({
         merchantAccount: creds.merchantAccount,
-        merchantPassword,
+        merchantPassword: creds.merchantPassword,
         orderReference: p.orderReference,
       });
       if (result.ok) {

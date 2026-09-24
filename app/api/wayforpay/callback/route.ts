@@ -13,17 +13,30 @@ import {
 } from '@/lib/yearlyProgramTelegram';
 import { sendYearlyProgramPlanChangedEmail } from '@/lib/yearlyProgramPlanChangedEmail';
 import { sendYearlyProgramPaymentReceiptEmail } from '@/lib/yearlyProgramPaymentReceiptEmail';
-import { timingSafeEqualStr } from '@/lib/authTiming';
 import { getYearlyProgramSettings } from '@/lib/yearlyProgramSettings';
 import { provisionPayment, AMOUNT_MISMATCH_MARKER } from '@/lib/paymentProvisioning';
 import { sendBundlePurchaseEmail } from '@/lib/bundlePurchaseEmail';
-import { getRegularStatus, getWayforpayCreds } from '@/lib/wayforpay';
+import {
+  getRegularStatus,
+  resolveRegularApiCreds,
+  resolveWayforpayMerchant,
+  verifyCallbackSignature,
+} from '@/lib/wayforpay';
 import { calculateAccessUntil, cohortModuleCount, monthlySchedule } from '@/lib/yearlyProgramAccess';
 import { releasePromoUse } from '@/lib/promoUsage';
 import { removeSubscriptionAutopay, recordAutopayRemoveOutcome } from '@/lib/yearlyProgramAutopay';
 import { archiveDuplicatePendingSubscriptions } from '@/lib/yearlyProgramDedup';
 import { CALLBACK_LOG_SUB_ACTION_PREFIX } from '@/lib/yearlyProgramIssues';
 import { notifyManagers as notifyConnectorManagers, isNotificationDelivered as isConnectorNotificationDelivered } from '@/lib/connectorNotifications';
+
+/// Логін мерчанта WayForPay з тіла callback-у — того, чиїм секретом уже перевірено підпис.
+/// Саме він пишеться в `Payment.wfpMerchantAccount`: після переходу на новий мерчант
+/// списання по старих правилах регулярки ще приходять від старого, і STATUS/REMOVE по
+/// такому замовленню треба слати його кредами.
+function callbackMerchantAccount(body: Record<string, unknown>): string | null {
+  const raw = body.merchantAccount;
+  return typeof raw === 'string' && raw.trim() ? raw.trim() : null;
+}
 
 function getClientIp(req: NextRequest): string {
   const xff = req.headers.get('x-forwarded-for');
@@ -91,7 +104,6 @@ export async function POST(req: NextRequest) {
     body = await req.json();
     const orderReference = body.orderReference as string | undefined;
     const transactionStatus = body.transactionStatus as string | undefined;
-    const merchantSignature = body.merchantSignature as string | undefined;
 
     kind = detectKind(orderReference);
 
@@ -102,28 +114,15 @@ export async function POST(req: NextRequest) {
       ip,
     });
 
-    const secretKey = getWayforpayCreds().secretKey;
-    const signatureString = [
-      body.merchantAccount,
-      body.orderReference,
-      body.amount,
-      body.currency,
-      body.authCode,
-      body.cardPan,
-      body.transactionStatus,
-      body.reasonCode,
-    ].join(';');
+    // Мерчанта визначає САМЕ тіло callback-у, а не env: після переходу на новий мерчант
+    // списання по старим правилам регулярки Річної ще місяцями приходять від старого і
+    // підписані його секретом. Невідомий `merchantAccount` — відмова (креди не підбираємо).
+    const callbackMerchant = resolveWayforpayMerchant(body.merchantAccount as string | undefined);
 
-    const expectedSignature = crypto
-      .createHmac('md5', secretKey)
-      .update(signatureString)
-      .digest('hex');
+    signatureValid = verifyCallbackSignature(body, callbackMerchant);
 
-    signatureValid = typeof merchantSignature === 'string'
-      && timingSafeEqualStr(merchantSignature, expectedSignature);
-
-    if (!signatureValid) {
-      console.error('❌ Невірний підпис WayForPay:', orderReference);
+    if (!callbackMerchant || !signatureValid) {
+      console.error('❌ Невірний підпис WayForPay:', orderReference, callbackMerchant ? '' : '(невідомий merchantAccount)');
       await writeLog({
         kind,
         body,
@@ -133,12 +132,20 @@ export async function POST(req: NextRequest) {
         actions,
         sendpulseSlugs,
         skipped: true,
+        // skipReason лишається тим самим: на нього зав'язані детектори «Помилок».
+        // Причину «мерчант чужий» несе errorMsg.
         skipReason: 'invalid_signature',
         prevStatus,
-        errorMsg: 'Invalid signature',
+        errorMsg: callbackMerchant
+          ? 'Invalid signature'
+          : `Invalid signature: невідомий merchantAccount «${String(body.merchantAccount ?? '—').slice(0, 60)}»`,
       });
       return NextResponse.json({ status: 'error', message: 'Invalid signature' }, { status: 400 });
     }
+    // Відповідь-acknowledge підписуємо секретом ТОГО САМОГО мерчанта, що прислав callback:
+    // підпис чужим секретом WFP не приймає і ретраїть те саме списання до доби.
+    const secretKey = callbackMerchant.secretKey;
+    if (callbackMerchant.isLegacy) actions.push('wfp:legacy_merchant');
 
     if (transactionStatus === 'Approved') {
       if (kind === 'connector') {
@@ -783,6 +790,9 @@ async function recordOrphanRecurringCharge(args: {
   orderReference: string;
   amountInt: number;
   paymentSystem: string | undefined;
+  /// Мерчант, який провів це списання. Для orphan-платежу він критичний: саме в його
+  /// кабінеті менеджер шукатиме транзакцію для повернення і живе правило регулярки.
+  merchantAccount: string | null;
   /// Причина: 'closed_subscription' (дефолт), 'subscription_closed_race',
   /// 'plan_not_monthly', 'amount_mismatch', 'monthly_cap_reached'.
   skipReason?: string;
@@ -818,6 +828,7 @@ async function recordOrphanRecurringCharge(args: {
           status: 'PAID',
           paidAt: new Date(),
           paymentMethod: args.paymentSystem,
+          wfpMerchantAccount: args.merchantAccount,
           yearlyProgramSubscriptionId: args.subscriptionId,
           // Ключове: платіж є слідом реального списання, але в доступ НЕ йде. Без цієї
           // позначки `calculateAccessUntil` рахував його звичайним оплаченим місяцем —
@@ -1326,6 +1337,7 @@ async function handleYearlyProgramFailedCallback(args: {
           orderReference: args.orderReference,
           amount: amountInt || 0,
           status: 'FAILED',
+          wfpMerchantAccount: callbackMerchantAccount(args.body),
           yearlyProgramSubscriptionId: targetSub.id,
         },
       });
@@ -1444,6 +1456,7 @@ async function handleYearlyProgramCallback(args: {
         orderReference: args.orderReference,
         amountInt,
         paymentSystem: typeof args.body.paymentSystem === 'string' ? args.body.paymentSystem : undefined,
+        merchantAccount: callbackMerchantAccount(args.body),
       });
       actions.push(...orphanActions);
       return {
@@ -1469,6 +1482,7 @@ async function handleYearlyProgramCallback(args: {
         orderReference: args.orderReference,
         amountInt,
         paymentSystem: typeof args.body.paymentSystem === 'string' ? args.body.paymentSystem : undefined,
+        merchantAccount: callbackMerchantAccount(args.body),
         skipReason: 'plan_not_monthly',
         detail: `plan=${targetSub.plan}`,
       });
@@ -1573,6 +1587,10 @@ async function handleYearlyProgramCallback(args: {
             amount: amountInt || 0,
             status: 'PENDING',
             yearlyProgramSubscriptionId: sub.id,
+            // Мерчант — той, що реально провів списання (підпис уже перевірено його
+            // секретом). Для автосписань по старих правилах це старий мерчант, і саме
+            // його креди знадобляться для STATUS/REMOVE по цьому orderReference.
+            wfpMerchantAccount: callbackMerchantAccount(args.body),
           },
           include: { user: true },
         });
@@ -1612,6 +1630,7 @@ async function handleYearlyProgramCallback(args: {
           orderReference: args.orderReference,
           amountInt,
           paymentSystem: typeof args.body.paymentSystem === 'string' ? args.body.paymentSystem : undefined,
+          merchantAccount: callbackMerchantAccount(args.body),
           skipReason: createResult.skipReason,
           detail: createResult.errorMsg,
         });
@@ -2008,6 +2027,26 @@ async function handleYearlyProgramCallback(args: {
   }
   actions.push('payment:paid');
 
+  // Мерчант підписки — страхувальний запис для підписок, створених повз `/api/wayforpay`
+  // (де він ставиться одразу). Пишемо ТІЛЬКИ в порожнє: у підписки старого мерчанта з
+  // живим правилом регулярки доплата модуля вже на новому мерчанті не має переписувати
+  // поле — правило й далі живе в старому кабінеті. Уточнює його звірка графіка, яка
+  // знає, на якому саме платежі знайдено активне правило.
+  if (!sub.wfpMerchantAccount) {
+    const merchantFromCallback = callbackMerchantAccount(args.body);
+    if (merchantFromCallback) {
+      try {
+        await prisma.yearlyProgramSubscription.updateMany({
+          where: { id: sub.id, wfpMerchantAccount: null },
+          data: { wfpMerchantAccount: merchantFromCallback },
+        });
+        sub.wfpMerchantAccount = merchantFromCallback;
+      } catch (e) {
+        actions.push(`wfp_merchant:err:${(e as Error).message.slice(0, 40)}`);
+      }
+    }
+  }
+
   // Підписка щойно стала ACTIVE — одразу прибираємо осиротілі PENDING-дублі тієї самої
   // людини (невдала спроба перед успішною оплатою, можливо з іншим email, але тим самим
   // телефоном/Telegram). Без цього дубль жив би до нічного cron-а і KPI «В очікуванні»
@@ -2039,14 +2078,19 @@ async function handleYearlyProgramCallback(args: {
   // `sub` мутуємо в пам'яті, щоб уся логіка нижче (лейбли, листи, receipt) бачила правду.
   if (sub.plan === 'MONTHLY' && !sub.autoRenew && !fullyPaid) {
     try {
-      const merchantPassword = process.env.WAYFORPAY_MERCHANT_PASSWORD;
-      if (!merchantPassword) {
+      // Креди — мерчанта ЦЬОГО платежу (він же підписав callback), а не глобальні:
+      // правило регулярки створене Purchase-ом у його кабінеті, і STATUS від імені
+      // іншого мерчанта повернув би 4102 «правила немає» — прапорець автоплатежу
+      // не ввімкнувся б, хоча списання вже заплановані.
+      const credsResult = resolveRegularApiCreds(
+        payment.wfpMerchantAccount ?? callbackMerchantAccount(args.body),
+      );
+      if (!credsResult.ok) {
         actions.push('autopay:probe_skipped:no_password');
       } else {
-        const creds = getWayforpayCreds();
         const st = await getRegularStatus({
-          merchantAccount: creds.merchantAccount,
-          merchantPassword,
+          merchantAccount: credsResult.merchantAccount,
+          merchantPassword: credsResult.merchantPassword,
           orderReference: payment.orderReference,
         });
         if (st.inconclusive) {

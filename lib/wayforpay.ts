@@ -2,6 +2,7 @@
 
 import crypto from 'crypto';
 import { addCalendarMonths } from './yearlyProgramAccess';
+import { timingSafeEqualStr } from './authTiming';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 /// Буфер до дати завершення регулярки. WFP припиняє списання після `dateEnd`, тож якщо
@@ -19,21 +20,163 @@ const WFP_TEST_SECRET = 'flk3409refn54t54t*FNJRET';
 const WFP_TEST_DOMAIN = 'www.market.ua';
 const WFP_PROD_DOMAIN = 'www.uimp.com.ua';
 
-export function getWayforpayCreds(): { merchantAccount: string; secretKey: string; merchantDomainName: string; isTest: boolean } {
-  if (process.env.WAYFORPAY_TEST_MODE === '1') {
-    return {
-      merchantAccount: WFP_TEST_MERCHANT,
-      secretKey: WFP_TEST_SECRET,
-      merchantDomainName: WFP_TEST_DOMAIN,
-      isTest: true,
-    };
-  }
+/// ── ДВА МЕРЧАНТИ WayForPay одночасно ─────────────────────────────────────────────
+///
+/// З 30.09.2026 нові оплати йдуть на новий мерчант (`www_uimp_com_ua`, ФОП Тараненко),
+/// але вже створені правила автосписання Річної лишаються на старому
+/// (`freelance_user_6682b2f59c38a`). Правило регулярки НЕ мігрує разом з env: воно живе
+/// в кабінеті того мерчанта, який його створив. Тому callback-и по таких списаннях
+/// підписані СТАРИМ секретом, а REMOVE/CHANGE/STATUS по них треба слати СТАРИМИ кредами —
+/// інакше підпис не зійдеться, а regularApi відповість «правила немає» (4102), і звірка
+/// вирішить, що автосписання зникло.
+///
+///   WAYFORPAY_MERCHANT_LOGIN / _SECRET_KEY / _MERCHANT_PASSWORD
+///     — ОСНОВНИЙ мерчант: усі НОВІ оплати (курси, пакети, конектор, Річна).
+///   WAYFORPAY_LEGACY_MERCHANT_LOGIN / _LEGACY_SECRET_KEY / _LEGACY_MERCHANT_PASSWORD
+///     — СТАРИЙ мерчант: ТІЛЬКИ обслуговування вже наявних платежів і регулярок.
+///
+/// Поки legacy-змінні не задані, все працює рівно як до двох мерчантів: невідомий
+/// мерчант — це відмова з явною причиною, а не тихий фолбек на основні креди.
+export interface WayforpayMerchant {
+  merchantAccount: string;
+  secretKey: string;
+  /// Пароль для regularApi (REMOVE/CHANGE/STATUS). null — не налаштований саме для
+  /// цього мерчанта: виклик робити не можна, бо WFP відкине його по підпису.
+  merchantPassword: string | null;
+  merchantDomainName: string;
+  isTest: boolean;
+  /// true — старий мерчант. Нові оплати на нього не заводяться ніколи.
+  isLegacy: boolean;
+}
+
+function isTestMode(): boolean {
+  return process.env.WAYFORPAY_TEST_MODE === '1';
+}
+
+function testMerchant(): WayforpayMerchant {
+  return {
+    merchantAccount: WFP_TEST_MERCHANT,
+    secretKey: WFP_TEST_SECRET,
+    merchantPassword: WFP_TEST_SECRET,
+    merchantDomainName: WFP_TEST_DOMAIN,
+    isTest: true,
+    isLegacy: false,
+  };
+}
+
+/// Креди ОСНОВНОГО мерчанта — для всіх нових оплат. Назва історична: до двох мерчантів
+/// це були єдині креди взагалі, і всі викликачі «створюю новий платіж» лишаються на ній.
+export function getWayforpayCreds(): WayforpayMerchant {
+  if (isTestMode()) return testMerchant();
   return {
     merchantAccount: process.env.WAYFORPAY_MERCHANT_LOGIN!,
     secretKey: process.env.WAYFORPAY_SECRET_KEY!,
+    merchantPassword: process.env.WAYFORPAY_MERCHANT_PASSWORD ?? null,
     merchantDomainName: WFP_PROD_DOMAIN,
     isTest: false,
+    isLegacy: false,
   };
+}
+
+/// Креди СТАРОГО мерчанта або null, якщо legacy-змінні не задані (стан до перемикання).
+/// Логін і секрет обов'язкові разом: без секрета ми не перевіримо підпис його callback-ів,
+/// а самого логіна достатньо лише щоб помилково вирішити «мерчант відомий».
+export function getLegacyWayforpayCreds(): WayforpayMerchant | null {
+  const merchantAccount = process.env.WAYFORPAY_LEGACY_MERCHANT_LOGIN?.trim();
+  const secretKey = process.env.WAYFORPAY_LEGACY_SECRET_KEY;
+  if (!merchantAccount || !secretKey) return null;
+  return {
+    merchantAccount,
+    secretKey,
+    merchantPassword: process.env.WAYFORPAY_LEGACY_MERCHANT_PASSWORD ?? null,
+    merchantDomainName: WFP_PROD_DOMAIN,
+    isTest: false,
+    isLegacy: true,
+  };
+}
+
+/// Резолвер «чиї це гроші»: за `merchantAccount` (логін мерчанта, який WFP кладе і в тіло
+/// callback-у, і в наш Purchase-payload) повертає креди САМЕ цього мерчанта.
+///
+/// `null`/порожньо — основний мерчант. Це безпечно саме тому, що наявні записи
+/// бекфіляться міграцією логіном старого мерчанта: після неї порожнє поле може означати
+/// лише рядок, створений уже після переходу, тобто основний мерчант.
+///
+/// Невідомий логін — `null`, тобто ВІДМОВА, а не фолбек. Фолбек тут означав би підписати
+/// чужий платіж своїм секретом: підпис не зійшовся б, але діагностика звелася б до
+/// «невірний підпис», а REMOVE полетів би не в той кабінет.
+export function resolveWayforpayMerchant(merchantAccount: string | null | undefined): WayforpayMerchant | null {
+  // Тест-режим як і раніше перекриває все: у ньому і платежі, і callback-и йдуть через
+  // тестовий gateway, тож будь-який merchantAccount підписується тестовим секретом.
+  if (isTestMode()) return testMerchant();
+  const wanted = typeof merchantAccount === 'string' ? merchantAccount.trim() : '';
+  const primary = getWayforpayCreds();
+  if (!wanted || wanted === primary.merchantAccount) return primary;
+  const legacy = getLegacyWayforpayCreds();
+  if (legacy && wanted === legacy.merchantAccount) return legacy;
+  return null;
+}
+
+/// Креди для СЕРВЕРНОГО виклику regularApi (REMOVE/CHANGE/STATUS) по конкретному
+/// платежу/підписці. Окремо від `resolveWayforpayMerchant`, бо тут потрібен ще й пароль:
+/// без нього виклик неможливий, і краще сказати це причиною, ніж отримати відмову WFP.
+export function resolveRegularApiCreds(merchantAccount: string | null | undefined):
+  | { ok: true; merchantAccount: string; merchantPassword: string; isLegacy: boolean }
+  | { ok: false; error: string } {
+  const merchant = resolveWayforpayMerchant(merchantAccount);
+  if (!merchant) {
+    return {
+      ok: false,
+      error: `Невідомий мерчант WayForPay «${String(merchantAccount).slice(0, 60)}» — креди не налаштовані (перевір WAYFORPAY_LEGACY_MERCHANT_LOGIN/_SECRET_KEY)`,
+    };
+  }
+  if (!merchant.merchantPassword) {
+    // Текст для основного мерчанта лишаємо буквально той самий, що був до двох мерчантів:
+    // на нього зав'язані підказки у вкладці «Помилки» адмінки.
+    return {
+      ok: false,
+      error: merchant.isLegacy
+        ? 'WAYFORPAY_LEGACY_MERCHANT_PASSWORD не налаштовано'
+        : 'WAYFORPAY_MERCHANT_PASSWORD не налаштовано',
+    };
+  }
+  return {
+    ok: true,
+    merchantAccount: merchant.merchantAccount,
+    merchantPassword: merchant.merchantPassword,
+    isLegacy: merchant.isLegacy,
+  };
+}
+
+/// Рядок, над яким WFP рахує підпис callback-у. Винесено з роуту, щоб маршрутизацію
+/// підпису за мерчантом можна було перевірити тестом без підняття Next-роуту.
+export function callbackSignatureString(body: Record<string, unknown>): string {
+  return [
+    body.merchantAccount,
+    body.orderReference,
+    body.amount,
+    body.currency,
+    body.authCode,
+    body.cardPan,
+    body.transactionStatus,
+    body.reasonCode,
+  ].join(';');
+}
+
+/// Перевірка підпису callback-у секретом КОНКРЕТНОГО мерчанта.
+/// `null` мерчант (невідомий merchantAccount) — завжди false: перевіряти нічим.
+export function verifyCallbackSignature(
+  body: Record<string, unknown>,
+  merchant: WayforpayMerchant | null,
+): boolean {
+  if (!merchant) return false;
+  const merchantSignature = body.merchantSignature;
+  if (typeof merchantSignature !== 'string') return false;
+  const expected = crypto
+    .createHmac('md5', merchant.secretKey)
+    .update(callbackSignatureString(body))
+    .digest('hex');
+  return timingSafeEqualStr(merchantSignature, expected);
 }
 
 /// Побудова HMAC-MD5 підпису з масиву полів, розділених `;`.

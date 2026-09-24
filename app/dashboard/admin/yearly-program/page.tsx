@@ -11,6 +11,7 @@ import { collectAllIssues, buildSubscriptionSeverityMap } from '@/lib/yearlyProg
 import { cohortModuleCount, monthlySchedule } from '@/lib/yearlyProgramAccess';
 import { moduleMonthLabel } from '@/lib/yearlyProgramModules';
 import { countPendingLaunchAccessByCohort } from '@/lib/yearlyProgramLaunch';
+import { getWayforpayCreds } from '@/lib/wayforpay';
 import {
   buildLiveIdentityIndex,
   isVisibleYearlySubscription,
@@ -191,6 +192,10 @@ export default async function AdminYearlyProgramPage() {
     });
   }
 
+  /// Логін ОСНОВНОГО мерчанта WayForPay — усе, що відрізняється від нього, обслуговується
+  /// старим кабінетом (правила регулярки не переносяться разом зі зміною env).
+  const primaryMerchantLogin = getWayforpayCreds().merchantAccount;
+
   const rows: Row[] = visibleSubs.map((s) => {
     const paidPayments = s.payments.filter((p) => p.status === 'PAID');
     // «Дохід» рахується по ВСІХ PAID-рядках, включно з виключеними з доступу: гроші
@@ -265,6 +270,12 @@ export default async function AdminYearlyProgramPage() {
       isCarryover,
       wfpNextChargeAt: s.wfpNextChargeAt?.toISOString() ?? null,
       wfpScheduleCheckedAt: s.wfpScheduleCheckedAt?.toISOString() ?? null,
+      // Порівняння з основним мерчантом робимо на сервері: у браузера немає env, а
+      // менеджеру важливий лише сам факт «ця підписка обслуговується старим кабінетом».
+      wfpLegacyMerchantAccount:
+        s.wfpMerchantAccount && s.wfpMerchantAccount !== primaryMerchantLogin
+          ? s.wfpMerchantAccount
+          : null,
       paymentMethod: latestPaid?.paymentMethod ?? null,
       pendingLabel,
       pendingTone,

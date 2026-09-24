@@ -926,6 +926,9 @@ export async function POST(req: NextRequest) {
               status: 'PENDING',
               autoRenew,
               cohortId: currentCohortId,
+              // Мерчант, у кабінеті якого народиться правило регулярки цієї підписки.
+              // Нові підписки — завжди основний мерчант.
+              wfpMerchantAccount: merchantLogin,
               ...(parsedCountry ? { country: parsedCountry } : {}),
               ...(normalizedTelegramUsername ? { telegramUsername: normalizedTelegramUsername } : {}),
               ...(normalizedPhone ? { phone: normalizedPhone } : {}),
@@ -1033,6 +1036,10 @@ export async function POST(req: NextRequest) {
           bundleSlugsSnapshot: bundleSnapshot ?? Prisma.DbNull,
           yearlyProgramSubscriptionId,
           promoCodeId: claimedPromoId,
+          // Мерчант, на якому це замовлення реально піде в оплату — завжди ОСНОВНИЙ
+          // (payload нижче підписується його секретом). Старий мерчант обслуговує лише
+          // раніше створені платежі й регулярки, нових замовлень на нього не заводимо.
+          wfpMerchantAccount: merchantLogin,
         },
         // ВАЖЛИВО: update переписує і ТОВАР, не лише суму. Інакше повторний POST з тим
         // самим orderReference, але іншим courseId/bundleId, змінював суму на дешевшу,
@@ -1051,6 +1058,9 @@ export async function POST(req: NextRequest) {
           // Пишемо і в update: за цим полем Declined/Expired-callback повертає
           // використання в ліміт, а повторний POST розуміє, що воно вже зайняте.
           promoCodeId: claimedPromoId,
+          // Ретрай незавершеної оплати після перемикання мерчанта піде вже на новий —
+          // payload підписується поточними основними кредами, тож і поле має оновитись.
+          wfpMerchantAccount: merchantLogin,
         },
       });
     }
