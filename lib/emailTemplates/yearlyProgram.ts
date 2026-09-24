@@ -104,12 +104,13 @@ export async function cyclicalChargeFailed1(args: {
   name: string | null;
   gracePeriodEndsAt: Date;
   graceDays: number;
-}): Promise<{ subject: string; html: string }> {
+} & RenewMailVars): Promise<{ subject: string; html: string }> {
   return renderReminder('cyclical-failed-1', {
     name: nameOfVar(args.name),
     gracePeriodEndsAt: dateOfVar(args.gracePeriodEndsAt),
     graceDays: String(args.graceDays),
     graceDaysWord: daysWordVar(args.graceDays),
+    ...renewVars(args),
   });
 }
 
@@ -117,13 +118,14 @@ export async function cyclicalChargeFailed1(args: {
 export async function cyclicalGraceMid(args: {
   name: string | null;
   gracePeriodEndsAt: Date;
-}): Promise<{ subject: string; html: string }> {
+} & RenewMailVars): Promise<{ subject: string; html: string }> {
   const daysLeft = Math.max(0, Math.ceil((args.gracePeriodEndsAt.getTime() - Date.now()) / (24 * 60 * 60 * 1000)));
   return renderReminder('cyclical-grace-mid', {
     name: nameOfVar(args.name),
     gracePeriodEndsAt: dateOfVar(args.gracePeriodEndsAt),
     daysLeft: String(daysLeft),
     daysWord: daysWordVar(daysLeft),
+    ...renewVars(args),
   });
 }
 
@@ -131,10 +133,11 @@ export async function cyclicalGraceMid(args: {
 export async function cyclicalGraceLast(args: {
   name: string | null;
   gracePeriodEndsAt: Date;
-}): Promise<{ subject: string; html: string }> {
+} & RenewMailVars): Promise<{ subject: string; html: string }> {
   return renderReminder('cyclical-grace-last', {
     name: nameOfVar(args.name),
     gracePeriodEndsAt: dateOfVar(args.gracePeriodEndsAt),
+    ...renewVars(args),
   });
 }
 

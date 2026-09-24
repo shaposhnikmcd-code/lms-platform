@@ -25,6 +25,7 @@ import { getYearlyProgramSettings } from '@/lib/yearlyProgramSettings';
 import { isBlockedByClosedRegistration } from '@/lib/yearlyProgramSalesGate';
 import { verifyInvite, type InvitePayload } from '@/lib/yearlyProgramInvite';
 import { RENEW_COOKIE_NAME, verifyRenewToken, type RenewPayload } from '@/lib/yearlyProgramRenew';
+import { autopayAllowsManualTopUp } from '@/lib/yearlyProgramRenewState';
 import { isValidCountryCode } from '@/lib/countries';
 import { parseTelegramUsername } from '@/lib/telegramUsername';
 import { recordInviteFailure } from '@/lib/yearlyProgramTelegram';
@@ -401,20 +402,21 @@ export async function POST(req: NextRequest) {
             const renewSub = await prisma.yearlyProgramSubscription.findUnique({
               where: { id: renewPayload.subscriptionId },
               select: {
-                id: true, plan: true, status: true, autoRenew: true, cohortId: true,
+                id: true, plan: true, status: true, autoRenew: true, failedChargeCount: true, cohortId: true,
                 user: { select: { email: true } },
                 cohort: { select: { id: true, endDate: true } },
               },
             });
             // Умови ті самі, що показала сторінка поновлення (`resolveRenewState`): та сама
-            // людина, місячний план, підписка жива, автосписання вимкнене, набір не змінився
+            // людина, місячний план, підписка жива, автосписання вимкнене АБО зламане
+            // (`autopayAllowsManualTopUp`: списання не пройшло / GRACE), набір не змінився
             // і ще не завершився (`endDate >= now`, як у `resolveSellableCohort`; кінець
             // набору нормалізований до 23:59:59.999 UTC, тож останній день ще продається).
             const renewSubEmail = renewSub?.user?.email?.trim().toLowerCase() ?? '';
             const usable = !!renewSub
               && renewSub.plan === 'MONTHLY'
               && renewSub.status !== 'ARCHIVED'
-              && !renewSub.autoRenew
+              && (!renewSub.autoRenew || autopayAllowsManualTopUp(renewSub))
               && renewSub.cohortId === renewPayload.cohortId
               && renewSubEmail === renewPayload.email
               && !!renewSub.cohort
@@ -450,7 +452,13 @@ export async function POST(req: NextRequest) {
               where: {
                 userId: user.id,
                 plan: 'MONTHLY',
-                autoRenew: false,
+                // Разова підписка — або автоплатник, у якого списання не пройшло / GRACE
+                // (дзеркало `autopayAllowsManualTopUp`: доплата дозволена, Rule 2 нижче теж).
+                OR: [
+                  { autoRenew: false },
+                  { status: 'GRACE' },
+                  { failedChargeCount: { gt: 0 } },
+                ],
                 status: { not: 'ARCHIVED' },
                 cohort: { endDate: { gte: new Date() } },
                 payments: { some: { status: 'PAID', excludedFromAccess: false } },
@@ -513,7 +521,18 @@ export async function POST(req: NextRequest) {
         }
         // Rule 2: активний MONTHLY автоплатіж → блокує все. Спочатку треба скасувати
         // автосписання, потім зможе купити заново.
-        if (monthlyPaid && monthlySub!.autoRenew) {
+        //
+        // Виняток — РАЗОВА доплата модуля автоплатником, у якого списання вже не пройшло
+        // або підписка в GRACE (`autopayAllowsManualTopUp`). Чекати автосписання там нема
+        // чого, а вимкнути його сам студент не може — без винятку він тихо втрачав доступ.
+        // Правило регулярки знімає гілка downgrade нижче (existing.autoRenew && !desired),
+        // щоб WFP не списав той самий модуль вдруге. Новий АВТОПЛАТІЖ поверх зламаного —
+        // як і раніше, через менеджера.
+        const brokenAutopayTopUp = monthlyPaid
+          && plan === 'MONTHLY'
+          && recurring === false
+          && autopayAllowsManualTopUp(monthlySub!);
+        if (monthlyPaid && monthlySub!.autoRenew && !brokenAutopayTopUp) {
           return NextResponse.json({
             error: 'У вас активна Місячна підписка з автосписанням. Спочатку скасуйте автосписання, потім зможете оформити нову оплату. Допомога: edu@uimp.com.ua',
             code: 'monthly_autopay_active',
@@ -892,8 +911,11 @@ export async function POST(req: NextRequest) {
               data: {
                 subscriptionId: existing.id,
                 type: 'autorenew_downgraded',
-                message: `Downgraded to РАЗОВА on new payment · WFP REMOVE: ${autopay.removed}/${autopay.attempted}${autopay.error ? ` (errors: ${autopay.error.slice(0, 200)})` : ''}`,
+                message: brokenAutopayTopUp
+                  ? `Автосписання не пройшло — студент оплачує модуль сам (${orderReference}). Автоплатіж вимкнено · WFP REMOVE: ${autopay.removed}/${autopay.attempted}${autopay.error ? ` (errors: ${autopay.error.slice(0, 200)})` : ''}`
+                  : `Downgraded to РАЗОВА on new payment · WFP REMOVE: ${autopay.removed}/${autopay.attempted}${autopay.error ? ` (errors: ${autopay.error.slice(0, 200)})` : ''}`,
                 metadata: {
+                  reason: brokenAutopayTopUp ? 'failed_autopay_manual_topup' : 'checkout_one_time',
                   wfpRemovedCount: autopay.removed,
                   wfpAttemptedCount: autopay.attempted,
                   wfpRemoveError: autopay.error,

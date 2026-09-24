@@ -137,6 +137,13 @@ export default function RenewPanel() {
           <p className="text-white/60 text-[13px] mt-2 max-w-md leading-relaxed">
             Один платіж за цей модуль. Дані підставлені з вашої підписки — вибирати тариф не треба.
           </p>
+          {state.stopsAutopay ? (
+            <p className="text-white/80 text-[13px] mt-2 max-w-md leading-relaxed">
+              Автосписання з картки не пройшло, тому цей модуль ви оплачуєте самі. Після оплати
+              автосписання вимкнеться, щоб з картки не списали двічі, — за наступні модулі ми
+              надсилатимемо лист із посиланням на оплату.
+            </p>
+          ) : null}
         </div>
 
         <div className="shrink-0 md:text-right">

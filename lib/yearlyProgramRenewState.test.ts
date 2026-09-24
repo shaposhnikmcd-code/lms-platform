@@ -14,7 +14,7 @@ process.env.NEXTAUTH_SECRET ??= 'test-secret-for-renew-state-unit-tests';
 
 import { signRenewToken } from './yearlyProgramRenew';
 import { RENEW_BLOCK_REASONS, RENEW_DEAD_LINK_COPY, renewBlockCopy } from './yearlyProgramRenewCopy';
-import { resolveRenewState } from './yearlyProgramRenewState';
+import { autopayAllowsManualTopUp, resolveRenewState } from './yearlyProgramRenewState';
 
 type Client = Parameters<typeof resolveRenewState>[0]['client'];
 
@@ -170,6 +170,45 @@ test('автосписання і повна оплата блокують кн�
   ].map((d) => paidPayment(`${d}T10:00:00Z`));
   const paid = await resolve(makeClient(subscription({ payments: allNine })), tokenFor());
   assert.equal(paid.kind === 'blocked' && paid.reason, 'fully_paid');
+});
+
+test('автоплатник, у якого списання не пройшло або підписка в GRACE, може доплатити модуль сам', async () => {
+  // Дефект аудиту 24.09: Rule 2 («спочатку скасуйте автосписання») блокував і тих, у кого
+  // автосписання вже зламалось — студент у GRACE не мав жодного шляху заплатити.
+  const grace = await resolve(
+    makeClient(subscription({ autoRenew: true, status: 'GRACE', failedChargeCount: 0 })),
+    tokenFor(),
+  );
+  assert.equal(grace.kind, 'payable');
+  if (grace.kind === 'payable') {
+    assert.equal(grace.stopsAutopay, true);
+    assert.equal(grace.module.number, 3);
+  }
+
+  const failed = await resolve(
+    makeClient(subscription({ autoRenew: true, status: 'ACTIVE', failedChargeCount: 1 })),
+    tokenFor(),
+  );
+  assert.equal(failed.kind === 'payable' && failed.stopsAutopay, true);
+
+  // Справне автосписання — як і раніше блок: модуль спишеться сам.
+  const healthy = await resolve(
+    makeClient(subscription({ autoRenew: true, status: 'ACTIVE', failedChargeCount: 0 })),
+    tokenFor(),
+  );
+  assert.equal(healthy.kind === 'blocked' && healthy.reason, 'autopay');
+
+  // Разова підписка в GRACE — звичайна доплата, автосписання вимикати нічого.
+  const oneTime = await resolve(makeClient(subscription({ status: 'GRACE' })), tokenFor());
+  assert.equal(oneTime.kind === 'payable' && oneTime.stopsAutopay, false);
+});
+
+test('autopayAllowsManualTopUp — лише для зламаного автосписання', () => {
+  assert.equal(autopayAllowsManualTopUp({ autoRenew: false, status: 'GRACE', failedChargeCount: 3 }), false);
+  assert.equal(autopayAllowsManualTopUp({ autoRenew: true, status: 'ACTIVE', failedChargeCount: 0 }), false);
+  assert.equal(autopayAllowsManualTopUp({ autoRenew: true, status: 'ACTIVE', failedChargeCount: null }), false);
+  assert.equal(autopayAllowsManualTopUp({ autoRenew: true, status: 'ACTIVE', failedChargeCount: 2 }), true);
+  assert.equal(autopayAllowsManualTopUp({ autoRenew: true, status: 'GRACE', failedChargeCount: 0 }), true);
 });
 
 test('пропущені модулі — стан боргу з їх кількістю', async () => {

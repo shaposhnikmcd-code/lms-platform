@@ -93,7 +93,8 @@ const CTA_BUTTON = (label: string, href: string = PROGRAM_URL) => `    <p style=
       <a href="${href}" style="display:inline-block; background:#D4A017; color:#fff; font-weight:bold; padding:12px 28px; border-radius:10px; text-decoration:none;">${label}</a>
     </p>`;
 
-/// Персональна кнопка оплати модуля — саме її ставлять усі manual-нагадування.
+/// Персональна кнопка оплати модуля — її ставлять усі manual-нагадування і листи
+/// автоплатника про неуспішне списання (там доплата дозволена — `autopayAllowsManualTopUp`).
 const PAY_BUTTON = (label: string) => CTA_BUTTON(label, '{payUrl}');
 
 const SUPPORT_FOOTER = `    <p>Якщо у вас є питання — напишіть у відповідь на цей лист або до <a href="${SUPPORT_TG}" style="color:#0088cc; font-weight:600; text-decoration:none; white-space:nowrap;">Тех. підтримки в Telegram</a></p>`;
@@ -207,19 +208,15 @@ ${SIGNATURE_RESPECT}`),
     group: 'cyclical',
     title: '⚠ Старт пільгового періоду · день +1 (autopay)',
     when: 'Шлемо коли WFP не зміг автоматично списати оплату — на наступний день після експайру. Спрацьовує завжди при failed charge.',
-    placeholders: ['name', 'gracePeriodEndsAt', 'graceDays', 'graceDaysWord'],
-    sampleData: { name: 'Іван Петренко', gracePeriodEndsAt: '22.08.2026', graceDays: '7', graceDaysWord: 'днів' },
+    placeholders: ['name', 'gracePeriodEndsAt', 'graceDays', 'graceDaysWord', 'moduleLine', 'payUrl'],
+    sampleData: { name: 'Іван Петренко', gracePeriodEndsAt: '22.08.2026', graceDays: '7', graceDaysWord: 'днів', moduleLine: 'Наступний модуль: 3 з 9 · листопад 2026.', payUrl: PROGRAM_URL },
     defaultSubject: 'Автосписання не пройшло — є кілька варіантів',
     defaultBodyHtml: wrapReminderInner(`    <h2 style="color: #1C3A2E; margin-top: 0;">Вітаю, {name}!</h2>
     <p>Сьогодні WayForPay спробував автоматично списати оплату за наступний місяць у <strong>Річній програмі інституту UIMP</strong>, але списання не пройшло. Це могло статись з кількох причин — наприклад, тимчасова затримка банку, недостатньо коштів або термін дії картки.</p>
     <p>Доступ зберігається ще на <strong>{graceDays} {graceDaysWord}</strong> — до <strong>{gracePeriodEndsAt}</strong>.</p>
-    <p style="margin-top: 18px;"><strong>Як завершити оплату:</strong></p>
-    <ol style="margin: 8px 0 16px 0; padding-left: 20px; line-height: 1.7;">
-      <li><strong>Поповнити рахунок</strong> або оновити картку — WayForPay автоматично спробує списати ще раз протягом {graceDays} {graceDaysWord}.</li>
-      <li><strong>Або оплатити вручну</strong> за кнопкою нижче. На сторінці оберіть варіант <strong style="color:#1C3A2E;">«Місячна — РАЗОВА»</strong> (а не АВТОПЛАТІЖ) — щоб з картки не списали двічі.</li>
-    </ol>
-${CTA_BUTTON('Оплатити вручну (РАЗОВА)')}
-    <p style="font-size: 13px; color: #6b7280;">Якщо хочете, щоб автосписання продовжило працювати в наступних місяцях — нічого більше робити не треба, просто поповніть картку. Якщо зручніше платити вручну — оберіть РАЗОВА, і автосписання вимкнеться.</p>
+    <p>{moduleLine} Оплатити модуль можна самостійно за кнопкою нижче — сторінка відкриється вже з вашими даними, вибирати тариф не треба.</p>
+${PAY_BUTTON('Оплатити модуль')}
+    <p style="font-size: 13px; color: #6b7280;">Після такої оплати автосписання вимкнеться, щоб з картки не списали двічі. За наступні модулі ми надсилатимемо лист із посиланням на оплату. Якщо хочете зберегти автосписання — напишіть нам, допоможемо.</p>
 ${SUPPORT_FOOTER}
 ${SIGNATURE_RESPECT}`),
   },
@@ -229,21 +226,16 @@ ${SIGNATURE_RESPECT}`),
     group: 'cyclical',
     title: '📍 Середина пільгового періоду (autopay)',
     when: 'Шлемо приблизно посередині grace-періоду — нагадуємо що автосписання все ще не відбулось. Спрацьовує тільки якщо тривалість grace ≥ 5 днів.',
-    placeholders: ['name', 'gracePeriodEndsAt', 'daysLeft', 'daysWord'],
-    sampleData: { name: 'Іван Петренко', gracePeriodEndsAt: '22.08.2026', daysLeft: '4', daysWord: 'дні' },
+    placeholders: ['name', 'gracePeriodEndsAt', 'daysLeft', 'daysWord', 'moduleLine', 'payUrl'],
+    sampleData: { name: 'Іван Петренко', gracePeriodEndsAt: '22.08.2026', daysLeft: '4', daysWord: 'дні', moduleLine: 'Наступний модуль: 3 з 9 · листопад 2026.', payUrl: PROGRAM_URL },
     minGraceDays: 5,
     defaultSubject: 'Пільговий період — залишилось {daysLeft} {daysWord}',
     defaultBodyHtml: wrapReminderInner(`    <h2 style="color: #1C3A2E; margin-top: 0;">Вітаю, {name}!</h2>
-    <p>Автосписання за наступний місяць у <strong>Річній програмі інституту UIMP</strong> досі не пройшло — WayForPay робив кілька спроб, але без успіху.</p>
-    <p>До завершення пільгового періоду залишилось <strong>{daysLeft} {daysWord}</strong> — до <strong>{gracePeriodEndsAt}</strong>.</p>
-    <p style="margin-top: 18px;"><strong>Як завершити оплату:</strong></p>
-    <ol style="margin: 8px 0 16px 0; padding-left: 20px; line-height: 1.7;">
-      <li>Натисніть кнопку нижче.</li>
-      <li>На сторінці оберіть варіант <strong style="color:#1C3A2E;">«Місячна — РАЗОВА»</strong> (а не АВТОПЛАТІЖ) — щоб з картки не списали двічі.</li>
-      <li>Завершіть оплату.</li>
-    </ol>
-${CTA_BUTTON('Оплатити вручну (РАЗОВА)')}
-    <p style="font-size: 13px; color: #6b7280;">Або поповніть картку — WayForPay може автоматично повторити списання у залишені дні.</p>
+    <p>Оплата за наступний модуль у <strong>Річній програмі інституту UIMP</strong> досі не надійшла.</p>
+    <p>До завершення пільгового періоду залишилось <strong>{daysLeft} {daysWord}</strong> — до <strong>{gracePeriodEndsAt}</strong>. {moduleLine}</p>
+    <p>Оплатити модуль можна самостійно за кнопкою нижче — сторінка відкриється вже з вашими даними:</p>
+${PAY_BUTTON('Оплатити модуль')}
+    <p style="font-size: 13px; color: #6b7280;">Після такої оплати автосписання вимкнеться, щоб з картки не списали двічі.</p>
 ${SUPPORT_FOOTER}
 ${SIGNATURE_RESPECT}`),
   },
@@ -253,14 +245,14 @@ ${SIGNATURE_RESPECT}`),
     group: 'cyclical',
     title: '🚨 За 1 день до закриття (autopay)',
     when: 'Шлемо за день до закриття доступу. Спрацьовує тільки якщо тривалість grace ≥ 3 днів — інакше дублює start.',
-    placeholders: ['name', 'gracePeriodEndsAt'],
-    sampleData: { name: 'Іван Петренко', gracePeriodEndsAt: '22.08.2026' },
+    placeholders: ['name', 'gracePeriodEndsAt', 'moduleLine', 'payUrl'],
+    sampleData: { name: 'Іван Петренко', gracePeriodEndsAt: '22.08.2026', moduleLine: 'Наступний модуль: 3 з 9 · листопад 2026.', payUrl: PROGRAM_URL },
     minGraceDays: 3,
     defaultSubject: 'Завтра завершується пільговий період',
     defaultBodyHtml: wrapReminderInner(`    <h2 style="color: #1C3A2E; margin-top: 0;">Вітаю, {name}!</h2>
-    <p>Завтра, <strong>{gracePeriodEndsAt}</strong>, завершується пільговий період у вашій підписці на <strong>Річну програму інституту UIMP</strong>.</p>
-    <p>Якщо плануєте продовжити навчання — поповніть картку (WayForPay спробує списати автоматично) або оплатіть вручну:</p>
-${CTA_BUTTON('Оплатити вручну (РАЗОВА)')}
+    <p>Завтра, <strong>{gracePeriodEndsAt}</strong>, завершується пільговий період у вашій підписці на <strong>Річну програму інституту UIMP</strong>. {moduleLine}</p>
+    <p>Якщо плануєте продовжити навчання — оплатіть модуль сьогодні за кнопкою нижче:</p>
+${PAY_BUTTON('Оплатити модуль')}
 ${SUPPORT_FOOTER}
 ${SIGNATURE_RESPECT}`),
   },

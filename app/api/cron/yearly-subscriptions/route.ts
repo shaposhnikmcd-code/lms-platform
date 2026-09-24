@@ -1100,8 +1100,10 @@ function subSchedule(sub: ScheduleAwareSub) {
   return sub.cohort ? monthlySchedule({ cohort: sub.cohort, payments: sub.payments }) : null;
 }
 
-/// Персональна частина manual-нагадування: посилання «Оплатити наступний модуль» з
-/// підписаним токеном і рядок «Наступний модуль: 3 з 9 · листопад 2026».
+/// Персональна частина manual-нагадування і cyclical-листа автоплатника в grace: посилання
+/// «Оплатити наступний модуль» з підписаним токеном і рядок «Наступний модуль: 3 з 9 ·
+/// листопад 2026». Автоплатнику в GRACE сторінка поновлення доплату дозволяє
+/// (`autopayAllowsManualTopUp`), тож і в його листі кнопка — персональна, а не лендінг.
 ///
 /// Токен видається на кожен лист заново (він дешевий і безстанний), живе 45 днів — довше
 /// за весь ланцюг нагадувань разом з grace, тож людина, яка відкриє найперший лист в
@@ -1550,7 +1552,7 @@ async function sendGraceStartReminders(): Promise<StepResult> {
         to: sub.user.email,
         render: () => (isManual
           ? manualGraceStart({ name: sub.user!.name, gracePeriodEndsAt, graceDays: spanDays, ...renewMailVars(sub) })
-          : cyclicalChargeFailed1({ name: sub.user!.name, gracePeriodEndsAt, graceDays: spanDays })),
+          : cyclicalChargeFailed1({ name: sub.user!.name, gracePeriodEndsAt, graceDays: spanDays, ...renewMailVars(sub) })),
         eventType: isManual ? 'reminder_manual_grace_start' : 'reminder_cyclical_failed1',
         eventMessage: `Grace ends ${gracePeriodEndsAt.toISOString().slice(0, 10)}`,
       });
@@ -1612,7 +1614,7 @@ async function sendGraceMidReminders(): Promise<StepResult> {
         to: sub.user.email,
         render: () => (isManual
           ? manualGraceMid({ name: sub.user!.name, gracePeriodEndsAt, ...renewMailVars(sub) })
-          : cyclicalGraceMid({ name: sub.user!.name, gracePeriodEndsAt })),
+          : cyclicalGraceMid({ name: sub.user!.name, gracePeriodEndsAt, ...renewMailVars(sub) })),
         eventType: isManual ? 'reminder_manual_grace_mid' : 'reminder_cyclical_grace_mid',
         eventMessage: `Grace ends ${gracePeriodEndsAt.toISOString().slice(0, 10)} · midDay=${midDay} · graceDays=${spanDays}`,
       });
@@ -1671,7 +1673,7 @@ async function sendGraceLastReminders(): Promise<StepResult> {
         to: sub.user.email,
         render: () => (isManual
           ? manualGraceLast({ name: sub.user!.name, gracePeriodEndsAt, ...renewMailVars(sub) })
-          : cyclicalGraceLast({ name: sub.user!.name, gracePeriodEndsAt })),
+          : cyclicalGraceLast({ name: sub.user!.name, gracePeriodEndsAt, ...renewMailVars(sub) })),
         eventType: isManual ? 'reminder_manual_grace_last' : 'reminder_cyclical_grace_last',
         eventMessage: `Grace ends ${gracePeriodEndsAt.toISOString().slice(0, 10)} · graceDays=${spanDays}`,
       });
