@@ -1,5 +1,6 @@
 import { sendEmail, esc } from '@/lib/mailer';
 import { getPaymentTemplate, renderTemplate } from '@/lib/emailTemplates/paymentTemplates';
+import { kyivDateDisplay } from '@/lib/timezone';
 
 /// Попередження «за кілька днів з картки спишеться N ₴» для MONTHLY-підписок з автоплатежем.
 /// Шлеться нічним cron-ом (крок `autopay_precharge_notice`) за `AUTOPAY_NOTICE_DAYS_BEFORE`
@@ -27,9 +28,14 @@ export async function sendYearlyProgramUpcomingChargeEmail(args: {
   const { to, name, amount, chargeAt, chargeProgress } = args;
 
   const greeting = name && name.trim() ? `Доброго дня, ${esc(name.trim())}!` : 'Доброго дня!';
-  // UTC-форматування — уся математика дат Річної програми живе в UTC (на Vercel локальний
-  // час і так UTC), тож дата в листі збігається з датою у графіку WFP і в адмінці.
-  const chargeDate = `${String(chargeAt.getUTCDate()).padStart(2, '0')}.${String(chargeAt.getUTCMonth() + 1).padStart(2, '0')}.${chargeAt.getUTCFullYear()}`;
+  // Київський календар, а не UTC. `wfpNextChargeAt` — це `nextPaymentDate` з regularApi
+  // (unix-секунди); WayForPay — український сервіс і день списання «05.10» віддає як
+  // київську північ, тобто 04.10 21:00Z (взимку 22:00Z). `getUTCDate()` друкував би
+  // «04.10» — на добу раніше, ніж спишуть. Київське форматування дає «05.10» і для
+  // київської півночі, і для UTC-півночі (= 03:00 Київ того ж дня), тож не залежить від
+  // того, як саме WFP закодує дату. Так само форматуються всі інші дати в листах Річної
+  // (`dateOfVar` → `kyivDateDisplay`).
+  const chargeDate = kyivDateDisplay(chargeAt);
   const progressLine = chargeProgress
     ? `<p style="margin: 0 0 16px; color: #555;">Це оплата модуля ${chargeProgress.current} з ${chargeProgress.total}.</p>`
     : '';

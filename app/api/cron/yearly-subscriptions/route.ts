@@ -1203,8 +1203,10 @@ async function sendAutopayPrechargeNotices(): Promise<StepResult> {
   const now = new Date();
   const windowEnd = new Date(now.getTime() + AUTOPAY_NOTICE_DAYS_BEFORE * DAY_MS);
   // Нижня межа — початок сьогоднішньої доби, а не `now`: списання, призначене на сьогодні,
-  // ще має сенс анонсувати («сьогодні спишеться»), а вчорашню дату — вже ні.
-  const todayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  // ще має сенс анонсувати («сьогодні спишеться»), а вчорашню дату — вже ні. Доба —
+  // київська: WFP кодує день списання київською північчю (21:00Z напередодні), і з
+  // UTC-межею списання «сьогодні» о 07:00 за Києвом уже вважалось би вчорашнім.
+  const todayStart = kyivMidnightUtc(now);
 
   const subs = await prisma.yearlyProgramSubscription.findMany({
     where: {
