@@ -59,7 +59,7 @@ const VISION_STATUS_LABELS: Record<VisionCertStatus, string> = {
 };
 
 /// Admin actions над конкретною підпискою Річної програми.
-/// Body: { action: "cancel" | "close_access" | "reopen_access" | "extend" | "carryover" | "delete",
+/// Body: { action: "cancel_autopay" | "close_access" | "reopen_access" | "extend" | "carryover" | "delete",
 ///         daysToAdd?: number, reason?: string, note?: string, sendWelcome?: boolean }
 export async function POST(
   req: NextRequest,
@@ -111,8 +111,10 @@ export async function POST(
   }
 
   switch (body.action) {
+    // 'cancel' — стара назва тієї ж дії (відкриті вкладки адмінки до оновлення).
     case 'cancel':
-      return handleCancel(sub, actorLabel, body.reason);
+    case 'cancel_autopay':
+      return handleCancelAutopay(sub, actorLabel, body.reason);
     case 'close_access':
       return handleCloseAccess(sub, actorLabel);
     case 'reopen_access':
@@ -348,11 +350,26 @@ async function handleSyncWfpSchedule(sub: NonNullable<SubWithUser>, actor: strin
   }, { status: r.outcome === 'error' ? 500 : 200 });
 }
 
-async function handleCancel(sub: NonNullable<SubWithUser>, actor: string, reason?: string) {
-  // Вимогу `autoRenew=true` свідомо прибрано: саме коли прапорець збитий (inconclusive
+/// «🚫 Скасувати автосписання» — рівно те, що написано на кнопці: зняти правило регулярки
+/// у WFP і погасити `autoRenew`. Більше НІЧОГО.
+///
+/// Досі дія ставила `CANCELLED`, викидала людину з Telegram-каналу (permanent ban +
+/// revoke) і слала лист «Підписку скасовано», хоча кнопка і діалог обіцяли «доступ
+/// зберігається до кінця оплаченого місяця». Статус CANCELLED ще й вибивав підписку з
+/// усіх кроків ланцюга нагадувань (вони дивляться на ACTIVE/GRACE) — студент, якого
+/// лише перевели на ручну оплату, не отримував жодного листа з посиланням на оплату і
+/// тихо втрачав навчання. Тепер статус не чіпаємо: ACTIVE лишається ACTIVE до
+/// `expiresAt`, GRACE — GRACE до `gracePeriodEndsAt`, далі йде звичайний ланцюг разової
+/// оплати («за 3 дні», «за 1 день», «останній день», grace) з персональним `{payUrl}`.
+/// Telegram і SendPulse не чіпаємо. Лист «Підписку скасовано» НЕ шлемо — він
+/// неправдивий; про оплату наступного модуля людині нагадає ланцюг разової оплати.
+///
+/// Повне припинення навчання — окремими діями з явними назвами: «✕ Закрити доступ у
+/// SendPulse» (EXPIRED, можна відкрити знову) і «Деактивувати та Вилучити» (ARCHIVED).
+async function handleCancelAutopay(sub: NonNullable<SubWithUser>, actor: string, reason?: string) {
+  // Вимогу `autoRenew=true` свідомо не ставимо: саме коли прапорець збитий (inconclusive
   // probe у callback-у, ручна правка, недокручений REMOVE), у WFP і може лишатись жива
-  // регулярка — а стара перевірка не давала її зняти. REMOVE по всіх WFP-ref-ах
-  // безпечний: якщо правила немає, WFP віддає 4102, і ми його ігноруємо.
+  // регулярка. REMOVE по всіх WFP-ref-ах безпечний: якщо правила немає, WFP віддає 4102.
   if (sub.plan !== 'MONTHLY') {
     return NextResponse.json({
       error: 'Скасування автосписання доступне тільки для місячних підписок. Для дострокового закриття доступу використай "Закрити доступ у SendPulse" або "Деактивувати та Вилучити студента з програми".',
@@ -361,66 +378,43 @@ async function handleCancel(sub: NonNullable<SubWithUser>, actor: string, reason
   const hadAutoRenew = sub.autoRenew;
   const autopay = await removeSubscriptionAutopay(sub.id);
   const { removed: wfpRemovedCount, attempted: wfpAttemptedCount, error: wfpError } = autopay;
-  await recordAutopayRemoveOutcome({ subscriptionId: sub.id, result: autopay, source: `admin:${actor} · cancel` });
+  await recordAutopayRemoveOutcome({ subscriptionId: sub.id, result: autopay, source: `admin:${actor} · cancel_autopay` });
 
   await prisma.yearlyProgramSubscription.update({
     where: { id: sub.id },
     data: {
-      status: 'CANCELLED',
-      // Регулярку у WFP уже знято — гасимо і прапор у себе, інакше підписка виглядає
-      // як «з автоплатежем» і UI/крон-звірки продовжують чекати списань.
+      // Регулярку у WFP уже знято — гасимо і прапор у себе: з цього моменту cron веде
+      // підписку ланцюгом разової оплати.
       autoRenew: false,
       // Кеш графіка більше не має сенсу — списань не буде. `wfpRegularRef` чистимо
       // ТІЛЬКИ при успішному REMOVE: якщо він провалився, ref лишається маркером
       // «правило ще живе» — по ньому ретрай-крок нічного cron-а знайде цю підписку.
       wfpNextChargeAt: null,
+      autopayNoticeSentFor: null,
       ...(wfpError ? {} : { wfpRegularRef: null }),
-      cancelledAt: new Date(),
-      cancelledBy: actor,
-      cancelledReason: reason ?? null,
     },
   });
 
-  const wfpSummary = sub.plan === 'MONTHLY'
-    ? ` · WFP REMOVE: ${wfpRemovedCount}/${wfpAttemptedCount}${wfpError ? ` (errors: ${wfpError.slice(0, 200)})` : ''}`
-    : '';
+  const until = sub.status === 'GRACE' && sub.gracePeriodEndsAt
+    ? `пільговий період до ${sub.gracePeriodEndsAt.toISOString().slice(0, 10)}`
+    : sub.expiresAt
+      ? `доступ до ${sub.expiresAt.toISOString().slice(0, 10)}`
+      : 'доступ без змін';
   await prisma.yearlyProgramSubscriptionEvent.create({
     data: {
       subscriptionId: sub.id,
-      type: 'cancelled',
-      message: `Cancelled by ${actor}${reason ? ` — ${reason}` : ''}${wfpSummary}`,
-      metadata: { wfpRemovedCount, wfpAttemptedCount, wfpError, reason },
+      type: 'autorenew_cancelled',
+      message: `Автосписання скасовано by ${actor}${reason ? ` — ${reason}` : ''} · статус ${sub.status} без змін, ${until}; далі — нагадування разової оплати · WFP REMOVE: ${wfpRemovedCount}/${wfpAttemptedCount}${wfpError ? ` (errors: ${wfpError.slice(0, 200)})` : ''}`,
+      metadata: { wfpRemovedCount, wfpAttemptedCount, wfpError, reason, hadAutoRenew, status: sub.status },
     },
   });
 
-  // Best-effort вилучення з ТГ-каналу у permanent-режимі (ban + revoke invite) — як у
-  // «Деактивувати та Вилучити». Скасована підписка не має лишати людину в каналі, а її
-  // invite-link — робочим. Помилка TG не блокує скасування: статус уже CANCELLED у БД.
-  const tg = await kickSubscriptionFromChannel({
-    subscriptionId: sub.id,
-    mode: 'permanent',
-    triggeredBy: `admin:${actor} · cancel`,
-  }).catch((e) => ({ ok: false, kicked: false, inviteRevoked: false, skipped: null, error: (e as Error).message }));
-  if (!tg.ok) {
-    // Сам kick пише подію лише коли дійшов до Telegram API; ранні виходи й throw — ні.
-    await prisma.yearlyProgramSubscriptionEvent.create({
-      data: {
-        subscriptionId: sub.id,
-        type: 'admin_action',
-        message: `TG kick (cancel) не виконано: ${(tg.error ?? tg.skipped ?? 'unknown').slice(0, 200)}`,
-        metadata: { cancelKick: true, ...tg },
-      },
-    });
-  }
-
-  await notifyUserSubscriptionEnded(sub, 'cancelled', hadAutoRenew, sub.expiresAt ?? null);
-
   return NextResponse.json({
     ok: true,
+    status: sub.status,
     wfpRemovedCount,
     wfpAttemptedCount,
     wfpError,
-    telegram: tg,
   });
 }
 

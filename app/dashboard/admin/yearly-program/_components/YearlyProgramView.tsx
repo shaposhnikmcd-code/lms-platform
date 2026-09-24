@@ -563,7 +563,7 @@ function YearlyProgramViewInner({
     if (confirmMsg) {
       const ok = await confirm({
         title: confirmMsg,
-        destructive: action === 'cancel' || action === 'close_access' || action === 'delete',
+        destructive: action === 'cancel_autopay' || action === 'close_access' || action === 'delete',
       });
       if (!ok) return false;
     }
@@ -1956,7 +1956,7 @@ function ExpandedRowContent({
             <ActionBtn theme={theme} disabled={busy || row.status === 'CANCELLED' || row.status === 'ARCHIVED'} tone="warning" onClick={async () => {
               const reason = await prompt({
                 title: 'Скасувати автосписання?',
-                description: 'WFP більше не списуватиме картку. Доступ зберігається до кінця оплаченого місяця. Причина зберігається в журналі підписки.',
+                description: 'WayForPay більше не списуватиме картку. Статус і доступ не змінюються — доступ діє до кінця оплаченого модуля, з Telegram-каналу студента не вилучаємо. Далі студент отримуватиме листи з посиланням на разову оплату модуля. Причина зберігається в журналі підписки.',
                 inputLabel: 'Причина скасування',
                 placeholder: 'Напр.: студент написав у підтримку',
                 required: true,
@@ -1967,7 +1967,7 @@ function ExpandedRowContent({
                 destructive: true,
               });
               if (reason === null) return;
-              onAction('cancel', { reason });
+              onAction('cancel_autopay', { reason });
             }}>
               🚫 Скасувати автосписання
             </ActionBtn>
@@ -2405,7 +2405,7 @@ function eventTypeColor(type: string, dark: boolean): string {
   if (type === 'created' || type === 'access_opened' || type === 'reactivated') return dark ? 'text-emerald-300' : 'text-emerald-700';
   if (type === 'renewed') return dark ? 'text-sky-300' : 'text-sky-700';
   if (type === 'plan_converted') return dark ? 'text-amber-300' : 'text-amber-700';
-  if (type === 'cancelled') return dark ? 'text-slate-400' : 'text-stone-600';
+  if (type === 'cancelled' || type === 'autorenew_cancelled') return dark ? 'text-slate-400' : 'text-stone-600';
   if (type.startsWith('reminder')) return dark ? 'text-amber-300' : 'text-amber-700';
   return dark ? 'text-slate-400' : 'text-stone-600';
 }
