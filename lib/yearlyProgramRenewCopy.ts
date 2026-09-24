@@ -1,3 +1,4 @@
+import type { AutopayGraceReason } from './yearlyProgramReminderSchedule';
 import type { RenewBlockReason } from './yearlyProgramRenewState';
 
 /// Тексти панелі поновлення («Оплата наступного модуля») — адаптер над `messages/*.json`
@@ -60,6 +61,19 @@ export function renewDeadLinkCopy(t: RenewTranslator): RenewCopy {
     support: t('dead.support'),
   };
 }
+
+/// Пояснення над кнопкою оплати для автоплатника, у якого автосписання не спрацювало.
+/// Текст залежить від причини: «не пройшло» чесне лише для відмови банку.
+export function renewStopsAutopayCopy(t: RenewTranslator, reason: AutopayGraceReason): string {
+  return t(`stopsAutopay.${reason}`);
+}
+
+const STOPS_AUTOPAY_REASONS: Record<AutopayGraceReason, true> = {
+  charge_failed: true,
+  no_rule: true,
+  not_charged: true,
+};
+export const RENEW_STOPS_AUTOPAY_REASONS = Object.keys(STOPS_AUTOPAY_REASONS) as AutopayGraceReason[];
 
 /// Усі стани блокування — для тестів і для перебору. Ключі `Record` вище повні за типом.
 export const RENEW_BLOCK_REASONS = Object.keys(BLOCK_REASONS) as RenewBlockReason[];

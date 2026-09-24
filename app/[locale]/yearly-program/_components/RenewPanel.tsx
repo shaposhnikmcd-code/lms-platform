@@ -5,7 +5,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import CoursePurchaseModal from '@/components/CoursePurchaseModal';
 import { SUPPORT_TG } from '@/lib/emailTemplates/reminderTemplates';
 import { RENEW_ANCHOR, RENEW_ENTRY_ANCHOR, RENEW_EXPIRED_FLAG } from '@/lib/yearlyProgramRenew';
-import { renewBlockCopy, renewDeadLinkCopy, type RenewTranslator } from '@/lib/yearlyProgramRenewCopy';
+import { renewBlockCopy, renewDeadLinkCopy, renewStopsAutopayCopy, type RenewTranslator } from '@/lib/yearlyProgramRenewCopy';
 import type { RenewState } from '@/lib/yearlyProgramRenewState';
 import { YEARLY_PROGRAM } from '../config';
 
@@ -170,9 +170,9 @@ export default function RenewPanel() {
           <p className="text-white/60 text-[13px] mt-2 max-w-md leading-relaxed">
             {t('oneModuleNote')}
           </p>
-          {state.stopsAutopay ? (
+          {state.stopsAutopay && state.stopsAutopayReason ? (
             <p className="text-white/80 text-[13px] mt-2 max-w-md leading-relaxed">
-              {t('stopsAutopay')}
+              {renewStopsAutopayCopy(rt, state.stopsAutopayReason)}
             </p>
           ) : null}
         </div>

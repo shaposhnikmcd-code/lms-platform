@@ -2,6 +2,7 @@ import type { PrismaClient } from '@prisma/client';
 import { cohortSlotIndex, monthlySchedule } from './yearlyProgramAccess';
 import { nextUnpaidModule, type ModuleRef } from './yearlyProgramModules';
 import { verifyRenewToken } from './yearlyProgramRenew';
+import { autopayGraceReason, type AutopayGraceReason } from './yearlyProgramReminderSchedule';
 
 /// Що показати на `/yearly-program` тому, хто прийшов за персональним посиланням. Уся
 /// логіка «чи можна зараз продати цій людині наступний модуль» — тут, в ОДНОМУ місці,
@@ -89,6 +90,9 @@ export type RenewState =
       /// Автоплатник, у якого списання не пройшло: ця оплата вимкне автосписання
       /// (див. `autopayAllowsManualTopUp`). Панель має сказати це до оплати.
       stopsAutopay: boolean;
+      /// Чому автосписання не спрацювало (`autopayGraceReason`) — панель називає саме цю
+      /// причину, а не завжди «не пройшло». null, коли `stopsAutopay` = false.
+      stopsAutopayReason: AutopayGraceReason | null;
     }
   | {
       kind: 'blocked';
@@ -125,6 +129,7 @@ export async function resolveRenewState(args: {
       status: true,
       autoRenew: true,
       failedChargeCount: true,
+      wfpRegularRef: true,
       cohortId: true,
       phone: true,
       country: true,
@@ -210,5 +215,8 @@ export async function resolveRenewState(args: {
     price: monthlyPrice,
     prefill: { phone: sub.phone, country: sub.country, telegram: sub.telegramUsername },
     stopsAutopay,
+    stopsAutopayReason: stopsAutopay
+      ? autopayGraceReason({ failedChargeCount: sub.failedChargeCount, wfpRegularRef: sub.wfpRegularRef ?? null })
+      : null,
   };
 }

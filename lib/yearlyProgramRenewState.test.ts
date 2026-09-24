@@ -17,7 +17,14 @@ import { createTranslator } from 'use-intl/core';
 import ukMessages from '../messages/uk.json';
 import enMessages from '../messages/en.json';
 import plMessages from '../messages/pl.json';
-import { RENEW_BLOCK_REASONS, renewBlockCopy, renewDeadLinkCopy, type RenewTranslator } from './yearlyProgramRenewCopy';
+import {
+  RENEW_BLOCK_REASONS,
+  RENEW_STOPS_AUTOPAY_REASONS,
+  renewBlockCopy,
+  renewDeadLinkCopy,
+  renewStopsAutopayCopy,
+  type RenewTranslator,
+} from './yearlyProgramRenewCopy';
 import { autopayAllowsManualTopUp, resolveRenewState } from './yearlyProgramRenewState';
 
 type Client = Parameters<typeof resolveRenewState>[0]['client'];
@@ -207,6 +214,19 @@ test('автоплатник, у якого списання не пройшло
     tokenFor(),
   );
   assert.equal(failed.kind === 'payable' && failed.stopsAutopay, true);
+  assert.equal(failed.kind === 'payable' && failed.stopsAutopayReason, 'charge_failed');
+
+  // Причина — з `autopayGraceReason`: «не пройшло» лише для відмови банку.
+  const noRule = await resolve(
+    makeClient(subscription({ autoRenew: true, status: 'GRACE', failedChargeCount: 0, wfpRegularRef: null })),
+    tokenFor(),
+  );
+  assert.equal(noRule.kind === 'payable' && noRule.stopsAutopayReason, 'no_rule');
+  const notCharged = await resolve(
+    makeClient(subscription({ autoRenew: true, status: 'GRACE', failedChargeCount: 0, wfpRegularRef: 'ref_1' })),
+    tokenFor(),
+  );
+  assert.equal(notCharged.kind === 'payable' && notCharged.stopsAutopayReason, 'not_charged');
 
   // Справне автосписання — як і раніше блок: модуль спишеться сам.
   const healthy = await resolve(
@@ -218,6 +238,7 @@ test('автоплатник, у якого списання не пройшло
   // Разова підписка в GRACE — звичайна доплата, автосписання вимикати нічого.
   const oneTime = await resolve(makeClient(subscription({ status: 'GRACE' })), tokenFor());
   assert.equal(oneTime.kind === 'payable' && oneTime.stopsAutopay, false);
+  assert.equal(oneTime.kind === 'payable' && oneTime.stopsAutopayReason, null);
 });
 
 test('autopayAllowsManualTopUp — лише для зламаного автосписання', () => {
@@ -278,6 +299,23 @@ test('кожен стан блокування має заголовок, поя
         assert.ok(!text.includes('RenewPanel.'), `${locale}/${reason}: немає перекладу ${part}`);
       }
     }
+  }
+});
+
+test('текст «оплата вимикає автосписання» — для кожної причини, у кожній локалі, чесний щодо моменту', () => {
+  assert.deepEqual([...RENEW_STOPS_AUTOPAY_REASONS].sort(), ['charge_failed', 'no_rule', 'not_charged']);
+  // Правило у WFP знімається вже при відкритті оплати (downgrade у /api/wayforpay),
+  // тож текст має казати «навіть якщо оплату не завершити», а не «після оплати».
+  const whenMarker = { uk: 'навіть якщо оплату не завершити', en: 'even if you do not complete the payment', pl: 'nawet jeśli nie dokończysz płatności' };
+  for (const locale of Object.keys(LOCALES) as (keyof typeof LOCALES)[]) {
+    const t = translator(locale);
+    const texts = RENEW_STOPS_AUTOPAY_REASONS.map((r) => renewStopsAutopayCopy(t, r));
+    for (const [i, text] of texts.entries()) {
+      const r = RENEW_STOPS_AUTOPAY_REASONS[i];
+      assert.ok(!text.includes('RenewPanel.'), `${locale}/${r}: немає перекладу`);
+      assert.ok(text.includes(whenMarker[locale]), `${locale}/${r}: має казати, що автосписання вимикається одразу`);
+    }
+    assert.equal(new Set(texts).size, texts.length, `${locale}: тексти причин мають відрізнятись`);
   }
 });
 

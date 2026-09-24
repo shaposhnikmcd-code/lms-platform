@@ -363,7 +363,11 @@
     "badge": "PŁATNOŚĆ ZA KOLEJNY MODUŁ",
     "moduleOf": "Moduł {number} z {total}",
     "oneModuleNote": "Jedna płatność za ten moduł. Dane uzupełniliśmy z Twojej subskrypcji — nie trzeba wybierać planu.",
-    "stopsAutopay": "Automatyczne obciążenie karty nie powiodło się, dlatego za ten moduł płacisz samodzielnie. Po tej płatności automatyczne obciążenia zostaną wyłączone, aby karta nie została obciążona dwa razy — za kolejne moduły wyślemy e-mail z linkiem do płatności.",
+    "stopsAutopay": {
+      "charge_failed": "Automatyczne obciążenie karty nie powiodło się, dlatego za ten moduł płacisz samodzielnie. Płatność za ten moduł wyłącza automatyczne obciążenia karty, nawet jeśli nie dokończysz płatności — dzięki temu karta nie zostanie obciążona dwa razy. Za kolejne moduły wyślemy e-mail z linkiem do płatności.",
+      "no_rule": "Automatyczne obciążenia karty nie są ustawione dla Twojej subskrypcji, dlatego za ten moduł płacisz samodzielnie. Płatność za ten moduł wyłącza automatyczne obciążenia karty, nawet jeśli nie dokończysz płatności — dzięki temu karta nie zostanie obciążona dwa razy. Za kolejne moduły wyślemy e-mail z linkiem do płatności.",
+      "not_charged": "Automatyczne obciążenie za ten moduł nie zostało pobrane, dlatego płacisz za niego samodzielnie. Płatność za ten moduł wyłącza automatyczne obciążenia karty, nawet jeśli nie dokończysz płatności — dzięki temu karta nie zostanie obciążona dwa razy. Za kolejne moduły wyślemy e-mail z linkiem do płatności."
+    },
     "currency": "UAH",
     "courseName": "Program roczny — 1 moduł",
     "payButton": "Opłać moduł",

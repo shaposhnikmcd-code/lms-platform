@@ -363,7 +363,11 @@
     "badge": "NEXT MODULE PAYMENT",
     "moduleOf": "Module {number} of {total}",
     "oneModuleNote": "A single payment for this module. Your subscription details are already filled in — no need to choose a plan.",
-    "stopsAutopay": "The automatic card charge did not go through, so you are paying for this module yourself. After this payment automatic charging will be turned off so your card is not charged twice — for the next modules we will email you a payment link.",
+    "stopsAutopay": {
+      "charge_failed": "The automatic card charge did not go through, so you are paying for this module yourself. Paying for this module turns off automatic card charging, even if you do not complete the payment, so your card is never charged twice. For the next modules we will email you a payment link.",
+      "no_rule": "Automatic card charging is not set up for your subscription, so you are paying for this module yourself. Paying for this module turns off automatic card charging, even if you do not complete the payment, so your card is never charged twice. For the next modules we will email you a payment link.",
+      "not_charged": "The automatic charge for this module did not happen, so you are paying for it yourself. Paying for this module turns off automatic card charging, even if you do not complete the payment, so your card is never charged twice. For the next modules we will email you a payment link."
+    },
     "currency": "UAH",
     "courseName": "Yearly program — 1 module",
     "payButton": "Pay for the module",
