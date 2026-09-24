@@ -2001,9 +2001,12 @@ function ExpandedRowContent({
             </ActionBtn>
           )}
           {/* Персональне посилання на оплату модуля — тільки там, де воно має сенс:
-              місячна разова, не деактивована. Для автоплатежу сторінка все одно
-              скаже «спишеться саме», тому кнопки там немає. */}
-          {row.plan === 'MONTHLY' && !row.autoRenew && row.status !== 'ARCHIVED' && (
+              місячна, не деактивована, разова АБО автоплатіж, що зламався (GRACE чи
+              списання не пройшло — дзеркало `autopayAllowsManualTopUp` з
+              lib/yearlyProgramRenewState.ts; сюди не імпортуємо, бо модуль серверний).
+              Для справного автоплатежу сторінка скаже «спишеться саме» — кнопки там немає. */}
+          {row.plan === 'MONTHLY' && row.status !== 'ARCHIVED'
+            && (!row.autoRenew || row.status === 'GRACE' || details.failedChargeCount > 0) && (
             <ActionBtn
               theme={theme}
               disabled={busy || renewLinking}
