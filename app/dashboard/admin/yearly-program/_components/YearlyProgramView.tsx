@@ -640,7 +640,10 @@ function YearlyProgramViewInner({
           ширшою за свій контент вона не стає. */}
       {/* На мобільному `w-fit` дає рвану ширину під найдовший чип — там панель на всю
           ширину екрана; з sm: повертається десктопний shrink-to-fit. */}
-      <AdminPanel theme={theme} padding="p-0" className="mb-5 w-full sm:w-fit max-w-full sm:max-w-[1200px]">
+      {/* `z-20`: панель — окремий stacking context (`relative` + `backdrop-blur`), тож без
+          власного z-index список наборів (z-30 усередині) малювався ПІД наступними панелями
+          «Активація сторінки / Grace» і пошуком, які йдуть нижче в DOM. */}
+      <AdminPanel theme={theme} padding="p-0" className="relative z-20 mb-5 w-full sm:w-fit max-w-full sm:max-w-[1200px]">
         <CohortHeader
           cohorts={cohorts}
           activeCohortId={activeCohortId}
