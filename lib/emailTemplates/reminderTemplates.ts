@@ -10,19 +10,21 @@ export { PROGRAM_URL };
 /// `reminder.<key>` щоб не плутатись з payment-шаблонами.
 ///
 /// Розклад адаптивний за `graceDays` із налаштувань:
-///   • start (день +1) — завжди
+///   • start (день +1) — при graceDays ≥ 2 (manual); при 1 дні доступ закривається наступного
+///     ранку і лист про «пільговий період» не шлеться
 ///   • mid (≈ середина grace) — тільки якщо graceDays ≥ 5
 ///   • last (за 1 день до закриття) — тільки якщо graceDays ≥ 3
 ///   • closed — у день закриття
 /// Manual і cyclical потоки мають окремі шаблони, але однаковий розклад.
 ///
-/// 9 шаблонів:
-///   manual-before, manual-on-expiry, manual-grace-start, manual-grace-mid, manual-grace-last
+/// 10 шаблонів:
+///   manual-before, manual-before-1d, manual-on-expiry, manual-grace-start, manual-grace-mid, manual-grace-last
 ///   cyclical-failed-1, cyclical-grace-mid, cyclical-grace-last
 ///   closed
 
 export type ReminderTemplateKey =
   | 'manual-before'
+  | 'manual-before-1d'
   | 'manual-on-expiry'
   | 'manual-grace-start'
   | 'manual-grace-mid'
@@ -44,7 +46,8 @@ export interface ReminderTemplateMeta {
   defaultSubject: string;
   defaultBodyHtml: string; // повний HTML з FRAME wrapper-ом
   /// Мінімальна тривалість grace, при якій cron шле цей шаблон.
-  /// undefined = шаблон активний завжди (start, before, on-expiry, closed).
+  /// undefined = шаблон активний завжди (before, before-1d, on-expiry, closed).
+  /// 2 = шле тільки при graceDays ≥ 2 (manual grace-start: при 1 дні не шлеться).
   /// 5 = шле тільки при graceDays ≥ 5 (mid-templates).
   /// 3 = шле тільки при graceDays ≥ 3 (last-templates).
   minGraceDays?: number;
@@ -116,6 +119,22 @@ ${SUPPORT_FOOTER}
 ${SIGNATURE_RESPECT}`),
   },
 
+  'manual-before-1d': {
+    key: 'manual-before-1d',
+    group: 'manual',
+    title: '⏰ За 1 день до дати закінчення',
+    when: 'Шлемо за день до того, як закінчиться оплачений місяць (manual flow): завтра — останній день доступу. Нагадуємо оплатити наступний модуль, щоб не було перерви.',
+    placeholders: ['name', 'expiresAt', 'moduleLine', 'payUrl'],
+    sampleData: { name: 'Іван Петренко', expiresAt: '15.08.2026', moduleLine: 'Наступний модуль: 3 з 9 · листопад 2026.', payUrl: PROGRAM_URL },
+    defaultSubject: 'Завтра завершується ваш місяць у Річній програмі',
+    defaultBodyHtml: wrapReminderInner(`    <h2 style="color: #1C3A2E; margin-top: 0;">Вітаю, {name}!</h2>
+    <p>Завтра, <strong>{expiresAt}</strong>, завершується ваш оплачений місяць у <strong>Річній програмі інституту UIMP</strong>. {moduleLine}</p>
+    <p>Якщо плануєте продовжити навчання, оплату на наступний модуль зручно оформити сьогодні — щоб не було перерви у доступі:</p>
+${PAY_BUTTON('Оплатити наступний модуль')}
+${SUPPORT_FOOTER}
+${SIGNATURE_RESPECT}`),
+  },
+
   'manual-on-expiry': {
     key: 'manual-on-expiry',
     group: 'manual',
@@ -136,9 +155,10 @@ ${SIGNATURE_RESPECT}`),
     key: 'manual-grace-start',
     group: 'manual',
     title: '🛟 Старт пільгового періоду · день +1',
-    when: 'Шлемо коли оплачений місяць щойно закінчився, а доступ продовжено на пільговий період grace (manual flow). Спрацьовує завжди.',
+    when: 'Шлемо коли оплачений місяць щойно закінчився, а доступ продовжено на пільговий період grace (manual flow). Спрацьовує, якщо тривалість grace ≥ 2 днів; при 1 дні доступ закривається наступного ранку і цей лист не шлеться.',
     placeholders: ['name', 'gracePeriodEndsAt', 'graceDays', 'graceDaysWord', 'moduleLine', 'payUrl'],
     sampleData: { name: 'Іван Петренко', gracePeriodEndsAt: '22.08.2026', graceDays: '7', graceDaysWord: 'днів', moduleLine: 'Наступний модуль: 3 з 9 · листопад 2026.', payUrl: PROGRAM_URL },
+    minGraceDays: 2,
     defaultSubject: 'Доступ збережено ще на {graceDays} {graceDaysWord}',
     defaultBodyHtml: wrapReminderInner(`    <h2 style="color: #1C3A2E; margin-top: 0;">Вітаю, {name}!</h2>
     <p>Ваш оплачений місяць у <strong>Річній програмі інституту UIMP</strong> вчора завершився. Ми залишили доступ ще на <strong>{graceDays} {graceDaysWord}</strong> — до <strong>{gracePeriodEndsAt}</strong>, щоб у вас був час оформити наступну оплату.</p>

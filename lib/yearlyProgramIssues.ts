@@ -291,6 +291,7 @@ export interface RawSubscription {
   manuallyAddedAt: Date | null;
   sendpulseAccessOpenedAt: Date | null;
   reminderSent3d: boolean;
+  reminderSent1d: boolean;
   reminderSentOnExpiry: boolean;
   reminderSentGraceStart: boolean;
   reminderSentGraceMid: boolean;
@@ -305,6 +306,7 @@ export interface RawSubscription {
 /// усе ще `false` (тобто лист так і не пішов).
 const REMINDER_FLAG_KEYS = [
   'reminderSent3d',
+  'reminderSent1d',
   'reminderSentOnExpiry',
   'reminderSentGraceStart',
   'reminderSentGraceMid',
@@ -607,6 +609,7 @@ const SUBSCRIPTION_SELECT = {
   manuallyAddedAt: true,
   sendpulseAccessOpenedAt: true,
   reminderSent3d: true,
+  reminderSent1d: true,
   reminderSentOnExpiry: true,
   reminderSentGraceStart: true,
   reminderSentGraceMid: true,

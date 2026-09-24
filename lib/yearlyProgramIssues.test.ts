@@ -41,6 +41,7 @@ function makeSub(overrides: Partial<RawSubscription> = {}): RawSubscription {
     manuallyAddedAt: null,
     sendpulseAccessOpenedAt: null,
     reminderSent3d: false,
+    reminderSent1d: false,
     reminderSentOnExpiry: false,
     reminderSentGraceStart: false,
     reminderSentGraceMid: false,

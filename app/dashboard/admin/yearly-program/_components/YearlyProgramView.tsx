@@ -3883,12 +3883,12 @@ function GraceSettingsModal({
   const [days, setDays] = useState<string>(String(initialDays));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // MIN=2 — при grace=1 cron-розклад не має сенсу: «start» (день +1) і «закриття» (день +2)
-  // йдуть поспіль за 24h, студент отримує плутанину «доступ продовжено на 1 день» → одразу
-  // «доступ закрито». Мінімум 2 дні дають хоча б один день тиші між повідомленнями.
-  const MIN = 2;
+  // MIN=1 — дзеркало YEARLY_GRACE_MIN_DAYS (lib/yearlyProgramConfig.ts; сервер перевіряє
+  // межу сам). При 1 дні доступ закривається наступного ранку після дня закінчення, а лист
+  // «пільговий період почався» не шлеться — див. підказку нижче.
+  const MIN = 1;
   const MAX = 30;
-  const PRESETS = [3, 5, 7, 14, 30];
+  const PRESETS = [1, 3, 5, 7, 14, 30];
 
   useEffect(() => { setMounted(true); }, []);
   useEffect(() => {
@@ -4120,7 +4120,9 @@ function GraceSettingsModal({
               У листі студенту
             </div>
             <p className={`text-[13px] leading-relaxed ${dark ? 'text-slate-200' : 'text-stone-800'}`}>
-              «Доступ ще на <strong className={dark ? 'text-amber-300' : 'text-amber-700'}>{previewN} {previewWord}</strong> — встигніть оформити нову оплату до закриття».
+              {previewN === 1
+                ? 'Листа про пільговий період немає: наступного ранку після дати закінчення доступ закривається і студент отримує лист про закриття.'
+                : <>«Доступ ще на <strong className={dark ? 'text-amber-300' : 'text-amber-700'}>{previewN} {previewWord}</strong> — встигніть оформити нову оплату до закриття».</>}
             </p>
           </div>
 
@@ -4130,6 +4132,13 @@ function GraceSettingsModal({
             <p>
               Застосовується <strong>до нових переходів</strong> ACTIVE → GRACE.
               Уже активні GRACE-записи зберігають свою дату закриття.
+              {previewN === 1 && (
+                <>
+                  {' '}При <strong>1 дні</strong> доступ закривається наступного ранку після дати
+                  закінчення. Студент отримує листи за 3 дні, за 1 день і в день закінчення, а
+                  лист про пільговий період не надсилається.
+                </>
+              )}
             </p>
           </div>
         </div>

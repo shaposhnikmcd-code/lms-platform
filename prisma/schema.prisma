@@ -976,6 +976,7 @@ model YearlyProgramSubscription {
   ///   closed   — у день закриття (завжди)
   /// MANUAL і CYCLICAL шари — окремі шаблони з однаковим розкладом.
   reminderSent3d         Boolean @default(false) /// manual: 3 дні до закінчення
+  reminderSent1d         Boolean @default(false) /// manual: 1 день до закінчення (завтра останній день)
   reminderSentExpired    Boolean @default(false) /// shared: accessClosed у день закриття
   reminderSentOnExpiry   Boolean @default(false) /// manual: у день закінчення
   reminderSentGraceStart Boolean @default(false) /// manual+cyclical: день +1 (grace стартував)

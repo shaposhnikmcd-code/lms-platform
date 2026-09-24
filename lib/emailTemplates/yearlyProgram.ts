@@ -41,6 +41,15 @@ export async function manualBeforeExpiry(args: { name: string | null; expiresAt:
   });
 }
 
+/// Manual #1b: за 1 день до закінчення — завтра останній день оплаченого модуля.
+export async function manualBeforeExpiry1d(args: { name: string | null; expiresAt: Date } & RenewMailVars): Promise<{ subject: string; html: string }> {
+  return renderReminder('manual-before-1d', {
+    name: nameOfVar(args.name),
+    expiresAt: dateOfVar(args.expiresAt),
+    ...renewVars(args),
+  });
+}
+
 /// Manual #2: у день закінчення оплаченого місяця.
 export async function manualOnExpiry(args: { name: string | null } & RenewMailVars): Promise<{ subject: string; html: string }> {
   return renderReminder('manual-on-expiry', { name: nameOfVar(args.name), ...renewVars(args) });
