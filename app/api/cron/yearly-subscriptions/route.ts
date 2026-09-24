@@ -20,6 +20,7 @@ import { getYearlyProgramSettings } from '@/lib/yearlyProgramSettings';
 import { verifyBearer } from '@/lib/authTiming';
 import { kyivMidnightUtc } from '@/lib/timezone';
 import {
+  autopayGraceReason,
   graceStartDecision,
   manualBefore1dCutoff,
   manualBefore3dWindowEnd,
@@ -269,8 +270,8 @@ const NOT_IN_UNLAUNCHED_COHORT = {
 ///     ранку — закриття + лист про закриття. Листа «пільговий період почався» при такому
 ///     grace немає зовсім (`graceStartDecision` → 'suppress'): він стояв би між «останнім
 ///     днем» і «закрито» і обіцяв би доступ, який закриється за кілька годин.
-///   CYCLICAL (автоплатіж) — коли є про що попереджати, тобто списання провалилось
-///   АБО правила регулярки у WFP немає взагалі (див. `cyclicalNeedsWarning`):
+///   CYCLICAL (автоплатіж) — ЗАВЖДИ, щойно підписка в GRACE; перше речення листа — правдива
+///   причина (`autopayGraceReason`: відмова банку / правила у WFP немає / графік зсунуто):
 ///     grace-start → mid (≥5д) → last (≥3д) → закриття
 ///
 /// Порядок кроків у GET нижче не випадковий. По-перше, легкі кроки (статуси, прапорці,
@@ -1075,8 +1076,8 @@ async function expireGraceSubscriptions(): Promise<StepResult> {
 /// (усі СВОЇ модулі набору сплачені — її expiresAt це кінець пост-доступу, платити
 /// нічого). Перевірка спільна для ВСІХ платіжних листів — і manual, і cyclical. Для
 /// cyclical це критично: після останнього платежу WFP-правило знімається
-/// (`wfpRegularRef` → null), тож `cyclicalNeedsWarning` вважав би таку підписку
-/// «регулярка зникла» і слав би «списання не пройшло, оплатіть» людині, яка оплатила
+/// (`wfpRegularRef` → null), тож `autopayGraceReason` назвав би таку підписку
+/// «регулярка зникла» і слав би «оплата не надійшла, оплатіть» людині, яка оплатила
 /// все до копійки.
 ///
 /// «Усі свої» — не завжди 9: пізній покупець стартує з пізнішого модуля набору і має
@@ -1152,15 +1153,15 @@ const SCHEDULE_INCLUDE = {
   },
 };
 
-/// Чи попереджати автоплатіжника (autoRenew=true), що доступ ось-ось закриється.
-/// Дві причини для листа:
-///   • `failedChargeCount > 0` — списання реально провалилось (картка/ліміт);
-///   • `wfpRegularRef == null` — правила регулярки у WFP взагалі немає (зняли вручну,
-///     не створилось при токенізації, підписку переносили). Списання не буде ніколи,
-///     тому мовчати не можна: без цієї гілки людина втрачала доступ без жодного листа.
-function cyclicalNeedsWarning(sub: { failedChargeCount: number | null; wfpRegularRef: string | null }): boolean {
-  return (sub.failedChargeCount ?? 0) > 0 || sub.wfpRegularRef === null;
-}
+/// Автоплатник у GRACE отримує листи ЗАВЖДИ, а причина лише вибирає перше речення
+/// (`autopayGraceReason` у lib/yearlyProgramReminderSchedule.ts).
+///
+/// Досі тут стояв фільтр `cyclicalNeedsWarning` (лист лише при `failedChargeCount > 0`
+/// або відсутньому правилі WFP). Автоплатник з живим правилом, у якого оплата просто
+/// не надійшла (графік у WFP зсунуто за кінець модуля, WFP мовчки не списав), проходив
+/// 2-денний буфер `active_to_grace`, потрапляв у GRACE — і не отримував НІЧОГО аж до
+/// листа про закриття. У GRACE автоплатник потрапляє лише після буфера або після
+/// реальної відмови, тож «хибної тривоги» тут не буває.
 
 /// Тривалість grace, ЗАФІКСОВАНА в момент переходу ACTIVE→GRACE (gracePeriodEndsAt −
 /// graceStartedAt). Увесь розклад листів усередині grace має рахуватись від неї, а не від
@@ -1542,8 +1543,9 @@ async function sendGraceStartReminders(): Promise<StepResult> {
       // Повністю оплачені (9/9) не отримують ЖОДНОГО платіжного нагадування — ні manual,
       // ні cyclical: платити нема за що, це просто кінець пост-доступу.
       if (isFullyPaid(sub)) return;
-      // Для manual (autoRenew=false) — шлемо завжди (grace стартував).
-      if (!isManual && !cyclicalNeedsWarning(sub)) return;
+      // І manual, і автоплатник — завжди: grace стартував, людина має знати, що доступ
+      // закриється і як заплатити. Для автоплатника перше речення — правдива причина.
+      const reason = isManual ? null : autopayGraceReason(sub);
 
       const gracePeriodEndsAt = sub.gracePeriodEndsAt;
       const r = await sendReminderOnce({
@@ -1552,9 +1554,16 @@ async function sendGraceStartReminders(): Promise<StepResult> {
         to: sub.user.email,
         render: () => (isManual
           ? manualGraceStart({ name: sub.user!.name, gracePeriodEndsAt, graceDays: spanDays, ...renewMailVars(sub) })
-          : cyclicalChargeFailed1({ name: sub.user!.name, gracePeriodEndsAt, graceDays: spanDays, ...renewMailVars(sub) })),
+          : cyclicalChargeFailed1({
+            name: sub.user!.name,
+            gracePeriodEndsAt,
+            graceDays: spanDays,
+            reason: reason!,
+            wfpNextChargeAt: sub.wfpNextChargeAt,
+            ...renewMailVars(sub),
+          })),
         eventType: isManual ? 'reminder_manual_grace_start' : 'reminder_cyclical_failed1',
-        eventMessage: `Grace ends ${gracePeriodEndsAt.toISOString().slice(0, 10)}`,
+        eventMessage: `Grace ends ${gracePeriodEndsAt.toISOString().slice(0, 10)}${reason ? ` · причина: ${reason}` : ''}`,
       });
       if (r.outcome === 'failed') errors.push(`${sub.id}: ${r.error}`);
       if (r.outcome === 'sent') processed++;
@@ -1569,7 +1578,7 @@ async function sendGraceStartReminders(): Promise<StepResult> {
 /// MID — день grace-періоду номер `midDay = ceil(graceDays/2)`.
 /// Тригер: минуло щонайменше `midDay - 1` днів від graceStartedAt → сьогодні і є день номер midDay.
 /// Спрацьовує тільки якщо graceDays ≥ 5 (інакше точка занадто близько до start/last → колізія).
-/// Manual (autoRenew=false) і cyclical (autoRenew=true з failedChargeCount > 0) обробляються разом —
+/// Manual (autoRenew=false) і cyclical (autoRenew=true, будь-яка причина GRACE) обробляються разом —
 /// різні шаблони, спільне поле reminderSentGraceMid.
 async function sendGraceMidReminders(): Promise<StepResult> {
   const graceDays = await getYearlyGraceDays(prisma);
@@ -1603,9 +1612,6 @@ async function sendGraceMidReminders(): Promise<StepResult> {
       // 9/9 — платити нема за що, платіжні листи не шлемо нікому (див. isFullyPaid).
       if (isFullyPaid(sub)) return;
       const isManual = !sub.autoRenew;
-      // Cyclical-mid — тільки коли є про що попереджати (провалене списання або зникле
-      // WFP-правило); інакше підписка не в реальному grace-флоу autopay.
-      if (!isManual && !cyclicalNeedsWarning(sub)) return;
 
       const gracePeriodEndsAt = sub.gracePeriodEndsAt;
       const r = await sendReminderOnce({
@@ -1664,7 +1670,6 @@ async function sendGraceLastReminders(): Promise<StepResult> {
       // 9/9 — платити нема за що, платіжні листи не шлемо нікому (див. isFullyPaid).
       if (isFullyPaid(sub)) return;
       const isManual = !sub.autoRenew;
-      if (!isManual && !cyclicalNeedsWarning(sub)) return;
 
       const gracePeriodEndsAt = sub.gracePeriodEndsAt;
       const r = await sendReminderOnce({

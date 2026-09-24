@@ -9,6 +9,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  autopayGraceReason,
   dueManualReminders,
   graceStartDecision,
   manualBefore1dCutoff,
@@ -81,4 +82,16 @@ test('grace_start: 2 дні — одразу, ≥3 дні — наступним
   assert.equal(graceStartDecision(3, started, started, true), 'wait');
   assert.equal(graceStartDecision(7, started, new Date('2026-10-06T04:00:00Z'), true), 'send');
   assert.equal(graceStartDecision(7, null, started, true), 'send');
+});
+
+test('autopayGraceReason: причина листа автоплатника в GRACE', () => {
+  // Відмова банку — найконкретніша причина, навіть якщо WFP після неї зняв правило.
+  assert.equal(autopayGraceReason({ failedChargeCount: 1, wfpRegularRef: 'ref' }), 'charge_failed');
+  assert.equal(autopayGraceReason({ failedChargeCount: 2, wfpRegularRef: null }), 'charge_failed');
+  // Правила немає — спроби списання не було, «не пройшло» було б неправдою.
+  assert.equal(autopayGraceReason({ failedChargeCount: 0, wfpRegularRef: null }), 'no_rule');
+  assert.equal(autopayGraceReason({ failedChargeCount: null, wfpRegularRef: null }), 'no_rule');
+  // Правило є, відмов не було, а оплати нема — графік зсунуто / WFP мовчить. Раніше
+  // такий автоплатник не отримував жодного листа до закриття доступу.
+  assert.equal(autopayGraceReason({ failedChargeCount: 0, wfpRegularRef: 'ref' }), 'not_charged');
 });

@@ -107,3 +107,22 @@ export function graceStartDecision(
   ) return 'wait';
   return 'send';
 }
+
+/// Чому автоплатник опинився в GRACE — від цього залежить перше речення його листа.
+///   'charge_failed' — WFP повідомив про неуспішне списання (`failedChargeCount > 0`);
+///   'no_rule'       — правила регулярки у WFP немає (`wfpRegularRef == null`): зняли,
+///                     не створилось при токенізації, підписку переносили;
+///   'not_charged'   — правило є і відмов не було, але оплата за графіком не надійшла
+///                     (найчастіше графік у WFP зсунуто за кінець оплаченого модуля).
+/// Порядок перевірок — від найконкретнішої причини: відмова банку важливіша за
+/// відсутність правила (після відмови WFP міг правило й призупинити).
+export type AutopayGraceReason = 'charge_failed' | 'no_rule' | 'not_charged';
+
+export function autopayGraceReason(sub: {
+  failedChargeCount: number | null;
+  wfpRegularRef: string | null;
+}): AutopayGraceReason {
+  if ((sub.failedChargeCount ?? 0) > 0) return 'charge_failed';
+  if (sub.wfpRegularRef === null) return 'no_rule';
+  return 'not_charged';
+}
