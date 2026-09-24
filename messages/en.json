@@ -308,6 +308,10 @@
     "promoError": "Promo code check error",
     "loading": "Loading...",
     "btnPay": "Purchase course",
+    "btnPayModule": "Pay for the module",
+    "moduleBoxTitle": "ONE MODULE PAYMENT",
+    "moduleBoxText": "A one-time payment for the next module of the program. Automatic charging is not set up.",
+    "renewEmailLocked": "Your subscription — the payment will be credited to this email",
     "btnBuy": "Buy course",
     "alertEmail": "Please provide an email",
     "alertFirstName": "Please provide a first name",
@@ -354,5 +358,63 @@
     "btnBook": "Book a consultation",
     "calendarHint": "Choose a convenient time in the calendar",
     "description": "An individual meeting for support in difficult life situations, spiritual healing and professional help"
+  },
+  "RenewPanel": {
+    "badge": "NEXT MODULE PAYMENT",
+    "moduleOf": "Module {number} of {total}",
+    "oneModuleNote": "A single payment for this module. Your subscription details are already filled in — no need to choose a plan.",
+    "stopsAutopay": "The automatic card charge did not go through, so you are paying for this module yourself. After this payment automatic charging will be turned off so your card is not charged twice — for the next modules we will email you a payment link.",
+    "currency": "UAH",
+    "courseName": "Yearly program — 1 module",
+    "payButton": "Pay for the module",
+    "managerLink": "message the manager",
+    "dead": {
+      "title": "This link is invalid or has expired",
+      "body": "You can still pay for the next module without it: below, under the “Monthly payment” card, click “Pay for the next module” and enter the same email you used to join the program.",
+      "action": "Go to module payment",
+      "support": "To get a new working link,"
+    },
+    "blocks": {
+      "autopay": {
+        "title": "You have automatic charging enabled",
+        "body": "The next module will be charged to your card automatically on the first day of the module — no need to pay manually. If the charge fails, we will email you, and you will be able to pay for the module yourself using this same link.",
+        "support": "To switch to manual payment,"
+      },
+      "yearly_active": {
+        "title": "You have an active yearly subscription",
+        "body": "The program is paid for the whole year in one payment — there is no need to buy separate modules.",
+        "support": "If this is a mistake,"
+      },
+      "fully_paid": {
+        "title": "All your modules are already paid",
+        "body": "The program is fully paid — access stays open until the end of the cohort. There is nothing more to pay.",
+        "support": "If you see this by mistake,"
+      },
+      "debt": {
+        "title": "Some modules were missed",
+        "body": "According to the cohort schedule, {missed, plural, one {# module was} other {# modules were}} missed. Paying on the website would only cover the nearest module and would not fix the schedule, so the manager settles missed modules manually.",
+        "support": "To arrange the payment,"
+      },
+      "no_schedule": {
+        "title": "Your module schedule needs clarification",
+        "body": "Your subscription does not fit the module schedule of this cohort, so a module cannot be paid on the website right now.",
+        "support": "To arrange the payment,"
+      },
+      "cohort_finished": {
+        "title": "Your cohort has already finished",
+        "body": "The study period of your cohort has ended, so another module in it can no longer be paid.",
+        "support": "About access to materials and the next cohort,"
+      },
+      "no_payment": {
+        "title": "There have been no payments on this subscription yet",
+        "body": "This link continues studies that have already started; the first payment is arranged separately — through an invitation from the manager, who will send you a personal payment link.",
+        "support": "To get an invitation,"
+      },
+      "archived": {
+        "title": "The subscription has been deactivated",
+        "body": "This subscription is no longer active, so a module cannot be paid on the website.",
+        "support": "To resume your studies,"
+      }
+    }
   }
 }

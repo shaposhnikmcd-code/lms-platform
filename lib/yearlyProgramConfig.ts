@@ -80,7 +80,11 @@ export const YEARLY_GRACE_SETTING_KEY = 'yearlyGraceDays';
 /// lib/yearlyProgramReminderSchedule.ts): інакше він обіцяв би «доступ продовжено» за кілька
 /// годин до «доступ закрито». Попередження людина має раніше — за 3 дні і за 1 день.
 export const YEARLY_GRACE_MIN_DAYS = 1;
-export const YEARLY_GRACE_MAX_DAYS = 90;
+/// MAX=30 — межа, яку показує модалка «Grace» (пресети до 30). Раніше API приймав до 90,
+/// а модалка — до 30: два різні «максимуми» для одного налаштування. Єдине джерело для
+/// сервера (`/api/admin/yearly-program/settings`) і модалки. На читання межа не діє —
+/// значення, збережене раніше, `getYearlyGraceDays` віддає як є.
+export const YEARLY_GRACE_MAX_DAYS = 30;
 
 /// Читає актуальне значення graceDays з БД. Fallback на константу з config —
 /// означає «ніхто ще не змінював із UI» (рядок у AppSetting не створено).

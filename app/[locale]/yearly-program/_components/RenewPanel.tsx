@@ -1,10 +1,11 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useLocale, useTranslations } from 'next-intl';
 import CoursePurchaseModal from '@/components/CoursePurchaseModal';
 import { SUPPORT_TG } from '@/lib/emailTemplates/reminderTemplates';
 import { RENEW_ANCHOR, RENEW_ENTRY_ANCHOR, RENEW_EXPIRED_FLAG } from '@/lib/yearlyProgramRenew';
-import { RENEW_DEAD_LINK_COPY, renewBlockCopy } from '@/lib/yearlyProgramRenewCopy';
+import { renewBlockCopy, renewDeadLinkCopy, type RenewTranslator } from '@/lib/yearlyProgramRenewCopy';
 import type { RenewState } from '@/lib/yearlyProgramRenewState';
 import { YEARLY_PROGRAM } from '../config';
 
@@ -17,9 +18,25 @@ import { YEARLY_PROGRAM } from '../config';
 /// одному студенту сторінку, закешовану для іншого. Тому персональна частина довантажується
 /// окремим запитом, який кешу не має взагалі.
 ///
-/// Мова блоку — українська на всіх локалях, як і `InviteBanner`: посилання приходить
-/// з українського листа конкретній людині, і перекладати шматок її персональної
-/// переписки в англомовну версію сторінки не було б послідовно.
+/// Тексти — з `messages/*.json` (простір `RenewPanel`): рядок «Оплатити наступний модуль»
+/// під карткою тарифу на /en і /pl уже перекладений, і панель, яка веде в ту саму оплату,
+/// не має обривати сторінку українським блоком.
+
+/// `useTranslations` типізований під конкретні ключі; адаптер у `lib/yearlyProgramRenewCopy`
+/// будує ключі динамічно (`blocks.<reason>.title`), тож звужуємо до простого підпису.
+function useRenewT(): RenewTranslator {
+  const t = useTranslations('RenewPanel');
+  return (key, values) => t(key as never, values as never);
+}
+
+/// Назва місяця модуля мовою сторінки. Для uk — готовий `monthLabel` з сервера (він і
+/// так український); для інших локалей — з `startsAt` тим самим форматом (UTC, як сітка).
+function monthLabelFor(locale: string, module: { monthLabel: string; startsAt: Date | string }): string {
+  if (locale === 'uk') return module.monthLabel;
+  const tag = locale === 'pl' ? 'pl-PL' : 'en-GB';
+  return new Intl.DateTimeFormat(tag, { month: 'long', year: 'numeric', timeZone: 'UTC' })
+    .format(new Date(module.startsAt));
+}
 
 function Frame({ children }: { children: React.ReactNode }) {
   return (
@@ -44,6 +61,7 @@ function Who({ name, email }: { name: string | null; email: string }) {
 }
 
 function SupportLine({ text }: { text: string }) {
+  const t = useTranslations('RenewPanel');
   return (
     <p className="text-white/70 text-[13px] leading-relaxed mt-3">
       {text}{' '}
@@ -53,7 +71,7 @@ function SupportLine({ text }: { text: string }) {
         rel="noopener noreferrer"
         className="text-[#D4A017] font-semibold underline underline-offset-2 cursor-pointer whitespace-nowrap"
       >
-        напишіть менеджеру
+        {t('managerLink')}
       </a>
       .
     </p>
@@ -68,22 +86,26 @@ function SupportLine({ text }: { text: string }) {
 /// і мовчазна сторінка читається як поламаний сайт. Тому кажемо і що сталося, і два
 /// робочі виходи — оплатити нижче або взяти нове посилання в менеджера.
 function DeadLinkNotice() {
+  const copy = renewDeadLinkCopy(useRenewT());
   return (
     <Frame>
-      <h2 className="text-xl sm:text-2xl font-bold text-white">{RENEW_DEAD_LINK_COPY.title}</h2>
-      <p className="text-white/80 text-[14px] leading-relaxed mt-4 max-w-2xl">{RENEW_DEAD_LINK_COPY.body}</p>
+      <h2 className="text-xl sm:text-2xl font-bold text-white">{copy.title}</h2>
+      <p className="text-white/80 text-[14px] leading-relaxed mt-4 max-w-2xl">{copy.body}</p>
       <a
         href={`#${RENEW_ENTRY_ANCHOR}`}
         className="inline-flex items-center justify-center min-h-[44px] mt-4 px-5 py-2.5 rounded-xl bg-[#D4A017] hover:bg-[#c29214] text-white text-[14px] font-semibold cursor-pointer transition-colors"
       >
-        {RENEW_DEAD_LINK_COPY.action}
+        {copy.action}
       </a>
-      <SupportLine text={RENEW_DEAD_LINK_COPY.support} />
+      <SupportLine text={copy.support} />
     </Frame>
   );
 }
 
 export default function RenewPanel() {
+  const rt = useRenewT();
+  const t = useTranslations('RenewPanel');
+  const locale = useLocale();
   const [state, setState] = useState<RenewState | null>(null);
   const [expired, setExpired] = useState(false);
 
@@ -121,13 +143,13 @@ export default function RenewPanel() {
   if (state.kind === 'invalid') return <DeadLinkNotice />;
 
   if (state.kind === 'blocked') {
-    const t = renewBlockCopy(state.reason, state.missedModules ?? 0);
+    const copy = renewBlockCopy(rt, state.reason, state.missedModules ?? 0);
     return (
       <Frame>
-        <h2 className="text-xl sm:text-2xl font-bold text-white">{t.title}</h2>
+        <h2 className="text-xl sm:text-2xl font-bold text-white">{copy.title}</h2>
         <Who name={state.name} email={state.email} />
-        <p className="text-white/80 text-[14px] leading-relaxed mt-4 max-w-2xl">{t.body}</p>
-        <SupportLine text={t.support} />
+        <p className="text-white/80 text-[14px] leading-relaxed mt-4 max-w-2xl">{copy.body}</p>
+        <SupportLine text={copy.support} />
       </Frame>
     );
   }
@@ -138,21 +160,19 @@ export default function RenewPanel() {
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
         <div className="min-w-0">
           <div className="inline-block px-3 py-1 bg-[#D4A017] text-white rounded-full text-[11px] font-semibold tracking-wide mb-3">
-            ОПЛАТА НАСТУПНОГО МОДУЛЯ
+            {t('badge')}
           </div>
           <Who name={state.name} email={state.email} />
           <div className="mt-4 text-white text-lg sm:text-xl font-bold">
-            Модуль {nextModule.number} з {nextModule.total}
-            <span className="text-[#D4A017] font-semibold"> · {nextModule.monthLabel}</span>
+            {t('moduleOf', { number: nextModule.number, total: nextModule.total })}
+            <span className="text-[#D4A017] font-semibold"> · {monthLabelFor(locale, nextModule)}</span>
           </div>
           <p className="text-white/60 text-[13px] mt-2 max-w-md leading-relaxed">
-            Один платіж за цей модуль. Дані підставлені з вашої підписки — вибирати тариф не треба.
+            {t('oneModuleNote')}
           </p>
           {state.stopsAutopay ? (
             <p className="text-white/80 text-[13px] mt-2 max-w-md leading-relaxed">
-              Автосписання з картки не пройшло, тому цей модуль ви оплачуєте самі. Після оплати
-              автосписання вимкнеться, щоб з картки не списали двічі, — за наступні модулі ми
-              надсилатимемо лист із посиланням на оплату.
+              {t('stopsAutopay')}
             </p>
           ) : null}
         </div>
@@ -162,14 +182,14 @@ export default function RenewPanel() {
             <span className="text-4xl sm:text-5xl font-black text-white tracking-tight tabular-nums">
               {state.price}
             </span>
-            <span className="text-white/50 text-sm font-medium">грн</span>
+            <span className="text-white/50 text-sm font-medium">{t('currency')}</span>
           </div>
           <CoursePurchaseModal
-            courseName="Річна програма — 1 модуль"
+            courseName={t('courseName')}
             price={state.price}
             courseId={YEARLY_PROGRAM.monthlyCourseId}
-            currency="грн"
-            buttonLabel="Оплатити модуль"
+            currency={t('currency')}
+            buttonLabel={t('payButton')}
             renewFlow
             lockRecurring
             invitePrefill={{

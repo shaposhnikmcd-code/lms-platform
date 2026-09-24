@@ -28,7 +28,7 @@ import {
 } from 'react-icons/hi2';
 import { FaApplePay, FaGooglePay, FaRegCreditCard } from 'react-icons/fa';
 import type { YearlyProgramSettings } from '@/lib/yearlyProgramSettings';
-import { YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
+import { YEARLY_GRACE_MAX_DAYS, YEARLY_GRACE_MIN_DAYS, YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
 import { useAdminTheme, type Theme } from '../../_components/adminTheme';
 import { AdminShell, AdminPanel } from '../../_components/AdminShell';
 import DateRangeFilter, { isWithinDateRange } from '../../_components/DateRangeFilter';
@@ -1795,7 +1795,10 @@ function ExpandedRowContent({
           <span className={`shrink-0 ${dark ? 'text-slate-600' : 'text-stone-400'}`}>{noteDraft.length}/{ADMIN_NOTE_MAX_LENGTH_CLIENT}</span>
         </div>
       </div>
-      <div className="grid md:grid-cols-3 gap-5">
+      {/* `minmax(0,1fr)` замість неявного `auto`-треку: на телефоні колонка одна, і без цього
+          вона розтягувалась до найширшого вмісту (довгий orderReference у «Платежах»), тож
+          кнопки «Дії» обрізались правим краєм картки на 360px. */}
+      <div className="grid grid-cols-[minmax(0,1fr)] md:grid-cols-3 gap-5">
       <div className="md:col-span-1">
         <div className="flex items-center gap-2 mb-2">
           <SectionTitle theme={theme} className="!mb-0">Дії</SectionTitle>
@@ -3892,8 +3895,8 @@ function GraceSettingsModal({
   // MIN=1 — дзеркало YEARLY_GRACE_MIN_DAYS (lib/yearlyProgramConfig.ts; сервер перевіряє
   // межу сам). При 1 дні доступ закривається наступного ранку після дня закінчення, а лист
   // «пільговий період почався» не шлеться — див. підказку нижче.
-  const MIN = 1;
-  const MAX = 30;
+  const MIN = YEARLY_GRACE_MIN_DAYS;
+  const MAX = YEARLY_GRACE_MAX_DAYS;
   const PRESETS = [1, 3, 5, 7, 14, 30];
 
   useEffect(() => { setMounted(true); }, []);

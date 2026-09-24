@@ -308,6 +308,10 @@
     "promoError": "Błąd weryfikacji kodu promocyjnego",
     "loading": "Ładowanie...",
     "btnPay": "Kup kurs",
+    "btnPayModule": "Opłać moduł",
+    "moduleBoxTitle": "PŁATNOŚĆ ZA JEDEN MODUŁ",
+    "moduleBoxText": "Jednorazowa płatność za kolejny moduł programu. Automatyczne obciążenia nie są włączane.",
+    "renewEmailLocked": "Twoja subskrypcja — płatność zostanie zaliczona na ten e-mail",
     "btnBuy": "Kup kurs",
     "alertEmail": "Podaj email",
     "alertFirstName": "Podaj imię",
@@ -354,5 +358,63 @@
     "btnBook": "Umów konsultację",
     "calendarHint": "Wybierz dogodny czas w kalendarzu",
     "description": "Indywidualne spotkanie dla wsparcia w trudnych sytuacjach życiowych, duchowego uzdrowienia i profesjonalnej pomocy"
+  },
+  "RenewPanel": {
+    "badge": "PŁATNOŚĆ ZA KOLEJNY MODUŁ",
+    "moduleOf": "Moduł {number} z {total}",
+    "oneModuleNote": "Jedna płatność za ten moduł. Dane uzupełniliśmy z Twojej subskrypcji — nie trzeba wybierać planu.",
+    "stopsAutopay": "Automatyczne obciążenie karty nie powiodło się, dlatego za ten moduł płacisz samodzielnie. Po tej płatności automatyczne obciążenia zostaną wyłączone, aby karta nie została obciążona dwa razy — za kolejne moduły wyślemy e-mail z linkiem do płatności.",
+    "currency": "UAH",
+    "courseName": "Program roczny — 1 moduł",
+    "payButton": "Opłać moduł",
+    "managerLink": "napisz do menedżera",
+    "dead": {
+      "title": "Link jest nieważny lub wygasł",
+      "body": "Za kolejny moduł możesz zapłacić i bez niego: poniżej, pod kartą „Płatność miesięczna”, kliknij „Opłać kolejny moduł” i podaj ten sam e-mail, którego użyto przy zapisie na program.",
+      "action": "Przejdź do płatności za moduł",
+      "support": "Aby otrzymać nowy działający link,"
+    },
+    "blocks": {
+      "autopay": {
+        "title": "Masz włączone automatyczne obciążenia",
+        "body": "Kolejny moduł zostanie pobrany z karty automatycznie pierwszego dnia modułu — nie trzeba płacić ręcznie. Jeśli obciążenie się nie powiedzie, wyślemy e-mail i pod tym samym linkiem zapłacisz za moduł samodzielnie.",
+        "support": "Aby przejść na płatność ręczną,"
+      },
+      "yearly_active": {
+        "title": "Masz aktywną subskrypcję roczną",
+        "body": "Program jest opłacony jedną płatnością za cały rok — nie trzeba dokupować osobnych modułów.",
+        "support": "Jeśli to pomyłka,"
+      },
+      "fully_paid": {
+        "title": "Wszystkie Twoje moduły są już opłacone",
+        "body": "Program jest opłacony w całości — dostęp pozostaje otwarty do końca edycji. Nie ma już nic do zapłaty.",
+        "support": "Jeśli widzisz to przez pomyłkę,"
+      },
+      "debt": {
+        "title": "Pominięto moduły",
+        "body": "Według harmonogramu edycji {missed, plural, one {pominięto # moduł} few {pominięto # moduły} many {pominięto # modułów} other {pominięto # modułu}}. Płatność przez stronę pokryłaby tylko najbliższy moduł i nie wyrównałaby harmonogramu, dlatego pominięte moduły menedżer rozlicza ręcznie.",
+        "support": "Aby ustalić płatność,"
+      },
+      "no_schedule": {
+        "title": "Harmonogram modułów wymaga wyjaśnienia",
+        "body": "Twoja subskrypcja nie pasuje do harmonogramu modułów tej edycji — opłacenie modułu przez stronę jest teraz niemożliwe.",
+        "support": "Aby ustalić płatność,"
+      },
+      "cohort_finished": {
+        "title": "Twoja edycja już się zakończyła",
+        "body": "Okres nauki w Twojej edycji dobiegł końca — nie można już opłacić w niej kolejnego modułu.",
+        "support": "W sprawie dostępu do materiałów i kolejnej edycji"
+      },
+      "no_payment": {
+        "title": "Ta subskrypcja nie ma jeszcze płatności",
+        "body": "Ten link kontynuuje rozpoczętą już naukę, a pierwszą płatność ustalamy osobno — przez zaproszenie od menedżera, który wyśle osobisty link do płatności.",
+        "support": "Aby otrzymać zaproszenie,"
+      },
+      "archived": {
+        "title": "Subskrypcja została dezaktywowana",
+        "body": "Ta subskrypcja nie jest już aktywna, więc opłacenie modułu przez stronę nie jest możliwe.",
+        "support": "Aby wznowić naukę,"
+      }
+    }
   }
 }
