@@ -10,7 +10,7 @@
 /// Нижньої межі в жодного вікна немає: пропущений прохід cron-а не має з'їдати лист назавжди,
 /// від дублів захищають прапорці `reminderSent*` (атомарний claim у cron-і).
 
-import { kyivMidnightUtc } from './timezone';
+import { kyivMidnightUtc, kyivParts } from './timezone';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -137,4 +137,18 @@ export function autopayGraceReason(sub: {
   if ((sub.failedChargeCount ?? 0) > 0) return 'charge_failed';
   if (sub.wfpRegularRef === null) return 'no_rule';
   return 'not_charged';
+}
+
+/// Тривалість grace (у днях), зафіксована в момент переходу в GRACE.
+///
+/// `gracePeriodEndsAt` = київська північ через N діб після дня переходу, а `graceStartedAt`
+/// — момент проходу cron-а. Тому рахуємо різницю КИЇВСЬКИХ календарних дат, а не годин:
+/// `Math.round(годин / 24)` давав правильне N лише для проходу зранку. Прохід після
+/// полудня за Києвом (ретрай, ручний запуск) при grace = 2 мав 35 год → 1 день, і
+/// разовий платник потрапляв у гілку «grace 1 день» — лист «пільговий період почався»
+/// не надходив узагалі.
+export function graceSpanDays(graceStartedAt: Date, gracePeriodEndsAt: Date): number {
+  const a = kyivParts(graceStartedAt);
+  const b = kyivParts(gracePeriodEndsAt);
+  return Math.round((Date.UTC(b.year, b.month - 1, b.day) - Date.UTC(a.year, a.month - 1, a.day)) / 86_400_000);
 }

@@ -11,6 +11,7 @@ import assert from 'node:assert/strict';
 import {
   autopayGraceReason,
   dueManualReminders,
+  graceSpanDays,
   graceStartDecision,
   manualBefore1dCutoff,
   manualStepAction,
@@ -108,4 +109,20 @@ test('autopayGraceReason: причина листа автоплатника в 
   // Правило є, відмов не було, а оплати нема — графік зсунуто / WFP мовчить. Раніше
   // такий автоплатник не отримував жодного листа до закриття доступу.
   assert.equal(autopayGraceReason({ failedChargeCount: 0, wfpRegularRef: 'ref' }), 'not_charged');
+});
+
+test('graceSpanDays: тривалість grace не залежить від години проходу cron-а', () => {
+  // Межа grace — київська північ через N діб після дня переходу (kyivMidnightUtc(now, N)).
+  // Штатний прохід 07:00 Київ, ретрай о 14:00 і пізній прохід о 23:30 — усі дають N.
+  for (const iso of ['2026-10-05T04:00:00Z', '2026-10-05T11:00:00Z', '2026-10-05T20:30:00Z']) {
+    const started = new Date(iso);
+    // 2026-10-06 21:00Z = 07.10 00:00 Київ; 2026-10-05 21:00Z = 06.10 00:00 Київ.
+    assert.equal(graceSpanDays(started, new Date('2026-10-06T21:00:00Z')), 2, iso);
+    assert.equal(graceSpanDays(started, new Date('2026-10-05T21:00:00Z')), 1, iso);
+  }
+  // Перехід на зимовий час (25.10.2026): межа — 22:00Z, днів однаково 2.
+  assert.equal(graceSpanDays(new Date('2026-10-24T04:00:00Z'), new Date('2026-10-25T22:00:00Z')), 2);
+  // Раніше (Math.round годин/24) прохід о 14:00 Києва при grace 2 давав 1 → «suppress».
+  const afternoon = new Date('2026-10-05T11:00:00Z');
+  assert.equal(graceStartDecision(graceSpanDays(afternoon, new Date('2026-10-06T21:00:00Z')), afternoon, afternoon, true), 'wait');
 });

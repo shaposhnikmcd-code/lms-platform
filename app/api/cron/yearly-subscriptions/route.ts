@@ -21,6 +21,7 @@ import { verifyBearer } from '@/lib/authTiming';
 import { kyivMidnightUtc } from '@/lib/timezone';
 import {
   autopayGraceReason,
+  graceSpanDays,
   graceStartDecision,
   manualBefore1dCutoff,
   manualBefore3dWindowEnd,
@@ -1177,7 +1178,7 @@ function storedGraceDays(
   fallback: number,
 ): number {
   if (!sub.graceStartedAt || !sub.gracePeriodEndsAt) return fallback;
-  const days = Math.round((sub.gracePeriodEndsAt.getTime() - sub.graceStartedAt.getTime()) / DAY_MS);
+  const days = graceSpanDays(sub.graceStartedAt, sub.gracePeriodEndsAt);
   return days >= 1 ? days : fallback;
 }
 
