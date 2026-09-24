@@ -76,9 +76,23 @@ test('grace_start: автоплатіж із grace 1 день — лист «с�
   assert.equal(graceStartDecision(1, started, started, false), 'send');
 });
 
-test('grace_start: 2 дні — одразу, ≥3 дні — наступним добовим проходом', () => {
+test('grace_start: разова оплата з grace 2 дні — не в ранок «останнього дня», а наступним проходом', () => {
+  // Дефект аудиту 24.09: 05.10 о 07:00 приходили «Сьогодні завершується ваш місяць» і одразу
+  // «Ваш місяць вчора завершився, доступ ще на 2 дні». Тепер лист чекає доби…
   const started = new Date('2026-10-05T04:00:00Z');
-  assert.equal(graceStartDecision(2, started, started, true), 'send');
+  assert.equal(graceStartDecision(2, started, started, true), 'wait');
+  // …і йде 06.10 о 07:00 — ще до закриття (межа grace 07.10 00:00 Київ, закриття — проходом 07.10).
+  assert.equal(graceStartDecision(2, started, new Date('2026-10-06T04:00:00Z'), true), 'send');
+});
+
+test('grace_start: автоплатник з grace 2 дні — одразу (листа «останній день» він не отримує)', () => {
+  const started = new Date('2026-10-05T04:00:00Z');
+  assert.equal(graceStartDecision(2, started, started, false), 'send');
+  assert.equal(graceStartDecision(3, started, started, false), 'wait');
+});
+
+test('grace_start: ≥3 дні — наступним добовим проходом', () => {
+  const started = new Date('2026-10-05T04:00:00Z');
   assert.equal(graceStartDecision(3, started, started, true), 'wait');
   assert.equal(graceStartDecision(7, started, new Date('2026-10-06T04:00:00Z'), true), 'send');
   assert.equal(graceStartDecision(7, null, started, true), 'send');
