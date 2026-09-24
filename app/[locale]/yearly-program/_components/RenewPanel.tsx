@@ -8,7 +8,7 @@ import { RENEW_DEAD_LINK_COPY, renewBlockCopy } from '@/lib/yearlyProgramRenewCo
 import type { RenewState } from '@/lib/yearlyProgramRenewState';
 import { YEARLY_PROGRAM } from '../config';
 
-/// Блок «Оплата наступного модуля» над секцією тарифів. Показується лише тому, хто прийшов
+/// Блок «Оплата наступного модуля» одразу під hero сторінки. Показується лише тому, хто прийшов
 /// за персональним посиланням із листа: токен лежить у httpOnly-cookie, яку поставив
 /// `/yearly-program/renew/<token>`, а стан приходить з `/api/yearly-program/renew-state`.
 ///
