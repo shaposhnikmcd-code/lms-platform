@@ -144,6 +144,13 @@ export default async function YearlyProgramPage({
         stats={c.stats}
         registrationOpen={registrationOpenForUser}
       />
+      {/* Персональний блок поновлення — одразу під шапкою, перед усім іншим контентом:
+          людина прийшла з листа саме заплатити за модуль, і першим, що вона бачить після
+          hero, має бути її панель оплати, а не опис програми. Дані тягне сам, з cookie,
+          поставленої route handler-ом `/yearly-program/renew/<token>` — сторінка лишається
+          знеособленою і придатною для кешу. Без cookie не рендерить нічого, тож для всіх
+          інших відвідувачів сторінка не змінюється. */}
+      <RenewPanel />
       <ForWhomSection title={c.forWhom.title} items={c.forWhom.items} label={c.forWhom.label} />
       <FormatSection label={c.format.label} title={c.format.title} items={c.format.items} />
       <CertificatesSection t={c.certificatesSection} />
@@ -153,10 +160,6 @@ export default async function YearlyProgramPage({
         subtitle={c.modules.subtitle}
         items={c.modules.items}
       />
-      {/* Персональний блок поновлення. Дані тягне сам, з cookie, поставленої
-          route handler-ом `/yearly-program/renew/<token>` — сторінка лишається
-          знеособленою і придатною для кешу. Без cookie не рендерить нічого. */}
-      <RenewPanel />
       <PricingSection
         t={{ ...c.pricingSection, btnYear: btnLabel, btnMonth: btnLabel }}
         yearlyPrice={settings.yearlyPrice}

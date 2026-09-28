@@ -10,19 +10,21 @@ export { PROGRAM_URL };
 /// `reminder.<key>` щоб не плутатись з payment-шаблонами.
 ///
 /// Розклад адаптивний за `graceDays` із налаштувань:
-///   • start (день +1) — завжди
+///   • start (день +1) — при graceDays ≥ 2 (manual); при 1 дні доступ закривається наступного
+///     ранку і лист про «пільговий період» не шлеться
 ///   • mid (≈ середина grace) — тільки якщо graceDays ≥ 5
 ///   • last (за 1 день до закриття) — тільки якщо graceDays ≥ 3
 ///   • closed — у день закриття
 /// Manual і cyclical потоки мають окремі шаблони, але однаковий розклад.
 ///
-/// 9 шаблонів:
-///   manual-before, manual-on-expiry, manual-grace-start, manual-grace-mid, manual-grace-last
+/// 10 шаблонів:
+///   manual-before, manual-before-1d, manual-on-expiry, manual-grace-start, manual-grace-mid, manual-grace-last
 ///   cyclical-failed-1, cyclical-grace-mid, cyclical-grace-last
 ///   closed
 
 export type ReminderTemplateKey =
   | 'manual-before'
+  | 'manual-before-1d'
   | 'manual-on-expiry'
   | 'manual-grace-start'
   | 'manual-grace-mid'
@@ -44,7 +46,8 @@ export interface ReminderTemplateMeta {
   defaultSubject: string;
   defaultBodyHtml: string; // повний HTML з FRAME wrapper-ом
   /// Мінімальна тривалість grace, при якій cron шле цей шаблон.
-  /// undefined = шаблон активний завжди (start, before, on-expiry, closed).
+  /// undefined = шаблон активний завжди (before, before-1d, on-expiry, closed).
+  /// 2 = шле тільки при graceDays ≥ 2 (manual grace-start: при 1 дні не шлеться).
   /// 5 = шле тільки при graceDays ≥ 5 (mid-templates).
   /// 3 = шле тільки при graceDays ≥ 3 (last-templates).
   minGraceDays?: number;
@@ -52,7 +55,7 @@ export interface ReminderTemplateMeta {
 
 export const REMINDER_TEMPLATE_GROUPS: { id: ReminderTemplateGroup; title: string; description: string }[] = [
   { id: 'manual',   title: '💳 Manual — клієнт платить сам', description: 'Лист-нагадування про оплату наступного місяця для тих, хто платить вручну (без автосписання).' },
-  { id: 'cyclical', title: '🔄 Cyclical — автосписання',     description: 'Шлемо тільки при невдалому списанні з картки.' },
+  { id: 'cyclical', title: '🔄 Cyclical — автосписання',     description: 'Шлемо автоплатнику, коли оплата за модуль не надійшла (списання не пройшло, автосписання не підключене або графік зсунуто) і доступ перейшов у пільговий період.' },
   { id: 'shared',   title: '🚪 Спільний фінал',              description: 'Лист про закриття доступу — однаковий для обох флоу.' },
 ];
 
@@ -90,7 +93,8 @@ const CTA_BUTTON = (label: string, href: string = PROGRAM_URL) => `    <p style=
       <a href="${href}" style="display:inline-block; background:#D4A017; color:#fff; font-weight:bold; padding:12px 28px; border-radius:10px; text-decoration:none;">${label}</a>
     </p>`;
 
-/// Персональна кнопка оплати модуля — саме її ставлять усі manual-нагадування.
+/// Персональна кнопка оплати модуля — її ставлять усі manual-нагадування і листи
+/// автоплатника про неуспішне списання (там доплата дозволена — `autopayAllowsManualTopUp`).
 const PAY_BUTTON = (label: string) => CTA_BUTTON(label, '{payUrl}');
 
 const SUPPORT_FOOTER = `    <p>Якщо у вас є питання — напишіть у відповідь на цей лист або до <a href="${SUPPORT_TG}" style="color:#0088cc; font-weight:600; text-decoration:none; white-space:nowrap;">Тех. підтримки в Telegram</a></p>`;
@@ -116,6 +120,22 @@ ${SUPPORT_FOOTER}
 ${SIGNATURE_RESPECT}`),
   },
 
+  'manual-before-1d': {
+    key: 'manual-before-1d',
+    group: 'manual',
+    title: '⏰ За 1 день до дати закінчення',
+    when: 'Шлемо за день до того, як закінчиться оплачений місяць (manual flow): завтра — останній день доступу. Нагадуємо оплатити наступний модуль, щоб не було перерви.',
+    placeholders: ['name', 'expiresAt', 'moduleLine', 'payUrl'],
+    sampleData: { name: 'Іван Петренко', expiresAt: '15.08.2026', moduleLine: 'Наступний модуль: 3 з 9 · листопад 2026.', payUrl: PROGRAM_URL },
+    defaultSubject: 'Завтра завершується ваш місяць у Річній програмі',
+    defaultBodyHtml: wrapReminderInner(`    <h2 style="color: #1C3A2E; margin-top: 0;">Вітаю, {name}!</h2>
+    <p>Завтра, <strong>{expiresAt}</strong>, завершується ваш оплачений місяць у <strong>Річній програмі інституту UIMP</strong>. {moduleLine}</p>
+    <p>Якщо плануєте продовжити навчання, оплату на наступний модуль зручно оформити сьогодні — щоб не було перерви у доступі:</p>
+${PAY_BUTTON('Оплатити наступний модуль')}
+${SUPPORT_FOOTER}
+${SIGNATURE_RESPECT}`),
+  },
+
   'manual-on-expiry': {
     key: 'manual-on-expiry',
     group: 'manual',
@@ -136,9 +156,10 @@ ${SIGNATURE_RESPECT}`),
     key: 'manual-grace-start',
     group: 'manual',
     title: '🛟 Старт пільгового періоду · день +1',
-    when: 'Шлемо коли оплачений місяць щойно закінчився, а доступ продовжено на пільговий період grace (manual flow). Спрацьовує завжди.',
+    when: 'Шлемо коли оплачений місяць щойно закінчився, а доступ продовжено на пільговий період grace (manual flow). Спрацьовує, якщо тривалість grace ≥ 2 днів; при 1 дні доступ закривається наступного ранку і цей лист не шлеться.',
     placeholders: ['name', 'gracePeriodEndsAt', 'graceDays', 'graceDaysWord', 'moduleLine', 'payUrl'],
     sampleData: { name: 'Іван Петренко', gracePeriodEndsAt: '22.08.2026', graceDays: '7', graceDaysWord: 'днів', moduleLine: 'Наступний модуль: 3 з 9 · листопад 2026.', payUrl: PROGRAM_URL },
+    minGraceDays: 2,
     defaultSubject: 'Доступ збережено ще на {graceDays} {graceDaysWord}',
     defaultBodyHtml: wrapReminderInner(`    <h2 style="color: #1C3A2E; margin-top: 0;">Вітаю, {name}!</h2>
     <p>Ваш оплачений місяць у <strong>Річній програмі інституту UIMP</strong> вчора завершився. Ми залишили доступ ще на <strong>{graceDays} {graceDaysWord}</strong> — до <strong>{gracePeriodEndsAt}</strong>, щоб у вас був час оформити наступну оплату.</p>
@@ -186,20 +207,16 @@ ${SIGNATURE_RESPECT}`),
     key: 'cyclical-failed-1',
     group: 'cyclical',
     title: '⚠ Старт пільгового періоду · день +1 (autopay)',
-    when: 'Шлемо коли WFP не зміг автоматично списати оплату — на наступний день після експайру. Спрацьовує завжди при failed charge.',
-    placeholders: ['name', 'gracePeriodEndsAt', 'graceDays', 'graceDaysWord'],
-    sampleData: { name: 'Іван Петренко', gracePeriodEndsAt: '22.08.2026', graceDays: '7', graceDaysWord: 'днів' },
-    defaultSubject: 'Автосписання не пройшло — є кілька варіантів',
+    when: 'Шлемо автоплатнику, коли оплата за модуль не надійшла і доступ перейшов у пільговий період, — завжди, за будь-якої причини. Перше речення ({reasonLine}) система підставляє сама: списання не пройшло / автосписання не підключене у WayForPay / графік автосписання зсунуто.',
+    placeholders: ['name', 'reasonLine', 'gracePeriodEndsAt', 'graceDays', 'graceDaysWord', 'moduleLine', 'payUrl'],
+    sampleData: { name: 'Іван Петренко', reasonLine: 'Автоматичне списання оплати за наступний модуль у Річній програмі інституту UIMP не пройшло. Найчастіше причина — недостатньо коштів, ліміт на картці або закінчився термін її дії.', gracePeriodEndsAt: '22.08.2026', graceDays: '7', graceDaysWord: 'днів', moduleLine: 'Наступний модуль: 3 з 9 · листопад 2026.', payUrl: PROGRAM_URL },
+    defaultSubject: 'Оплата за модуль не надійшла — доступ збережено до {gracePeriodEndsAt}',
     defaultBodyHtml: wrapReminderInner(`    <h2 style="color: #1C3A2E; margin-top: 0;">Вітаю, {name}!</h2>
-    <p>Сьогодні WayForPay спробував автоматично списати оплату за наступний місяць у <strong>Річній програмі інституту UIMP</strong>, але списання не пройшло. Це могло статись з кількох причин — наприклад, тимчасова затримка банку, недостатньо коштів або термін дії картки.</p>
+    <p>{reasonLine}</p>
     <p>Доступ зберігається ще на <strong>{graceDays} {graceDaysWord}</strong> — до <strong>{gracePeriodEndsAt}</strong>.</p>
-    <p style="margin-top: 18px;"><strong>Як завершити оплату:</strong></p>
-    <ol style="margin: 8px 0 16px 0; padding-left: 20px; line-height: 1.7;">
-      <li><strong>Поповнити рахунок</strong> або оновити картку — WayForPay автоматично спробує списати ще раз протягом {graceDays} {graceDaysWord}.</li>
-      <li><strong>Або оплатити вручну</strong> за кнопкою нижче. На сторінці оберіть варіант <strong style="color:#1C3A2E;">«Місячна — РАЗОВА»</strong> (а не АВТОПЛАТІЖ) — щоб з картки не списали двічі.</li>
-    </ol>
-${CTA_BUTTON('Оплатити вручну (РАЗОВА)')}
-    <p style="font-size: 13px; color: #6b7280;">Якщо хочете, щоб автосписання продовжило працювати в наступних місяцях — нічого більше робити не треба, просто поповніть картку. Якщо зручніше платити вручну — оберіть РАЗОВА, і автосписання вимкнеться.</p>
+    <p>{moduleLine} Оплатити модуль можна самостійно за кнопкою нижче — сторінка відкриється вже з вашими даними, вибирати тариф не треба.</p>
+${PAY_BUTTON('Оплатити модуль')}
+    <p style="font-size: 13px; color: #6b7280;">Після такої оплати автосписання вимкнеться, щоб з картки не списали двічі. За наступні модулі ми надсилатимемо лист із посиланням на оплату. Якщо хочете зберегти автосписання — напишіть нам, допоможемо.</p>
 ${SUPPORT_FOOTER}
 ${SIGNATURE_RESPECT}`),
   },
@@ -209,21 +226,16 @@ ${SIGNATURE_RESPECT}`),
     group: 'cyclical',
     title: '📍 Середина пільгового періоду (autopay)',
     when: 'Шлемо приблизно посередині grace-періоду — нагадуємо що автосписання все ще не відбулось. Спрацьовує тільки якщо тривалість grace ≥ 5 днів.',
-    placeholders: ['name', 'gracePeriodEndsAt', 'daysLeft', 'daysWord'],
-    sampleData: { name: 'Іван Петренко', gracePeriodEndsAt: '22.08.2026', daysLeft: '4', daysWord: 'дні' },
+    placeholders: ['name', 'gracePeriodEndsAt', 'daysLeft', 'daysWord', 'moduleLine', 'payUrl'],
+    sampleData: { name: 'Іван Петренко', gracePeriodEndsAt: '22.08.2026', daysLeft: '4', daysWord: 'дні', moduleLine: 'Наступний модуль: 3 з 9 · листопад 2026.', payUrl: PROGRAM_URL },
     minGraceDays: 5,
     defaultSubject: 'Пільговий період — залишилось {daysLeft} {daysWord}',
     defaultBodyHtml: wrapReminderInner(`    <h2 style="color: #1C3A2E; margin-top: 0;">Вітаю, {name}!</h2>
-    <p>Автосписання за наступний місяць у <strong>Річній програмі інституту UIMP</strong> досі не пройшло — WayForPay робив кілька спроб, але без успіху.</p>
-    <p>До завершення пільгового періоду залишилось <strong>{daysLeft} {daysWord}</strong> — до <strong>{gracePeriodEndsAt}</strong>.</p>
-    <p style="margin-top: 18px;"><strong>Як завершити оплату:</strong></p>
-    <ol style="margin: 8px 0 16px 0; padding-left: 20px; line-height: 1.7;">
-      <li>Натисніть кнопку нижче.</li>
-      <li>На сторінці оберіть варіант <strong style="color:#1C3A2E;">«Місячна — РАЗОВА»</strong> (а не АВТОПЛАТІЖ) — щоб з картки не списали двічі.</li>
-      <li>Завершіть оплату.</li>
-    </ol>
-${CTA_BUTTON('Оплатити вручну (РАЗОВА)')}
-    <p style="font-size: 13px; color: #6b7280;">Або поповніть картку — WayForPay може автоматично повторити списання у залишені дні.</p>
+    <p>Оплата за наступний модуль у <strong>Річній програмі інституту UIMP</strong> досі не надійшла.</p>
+    <p>До завершення пільгового періоду залишилось <strong>{daysLeft} {daysWord}</strong> — до <strong>{gracePeriodEndsAt}</strong>. {moduleLine}</p>
+    <p>Оплатити модуль можна самостійно за кнопкою нижче — сторінка відкриється вже з вашими даними:</p>
+${PAY_BUTTON('Оплатити модуль')}
+    <p style="font-size: 13px; color: #6b7280;">Після такої оплати автосписання вимкнеться, щоб з картки не списали двічі.</p>
 ${SUPPORT_FOOTER}
 ${SIGNATURE_RESPECT}`),
   },
@@ -233,14 +245,14 @@ ${SIGNATURE_RESPECT}`),
     group: 'cyclical',
     title: '🚨 За 1 день до закриття (autopay)',
     when: 'Шлемо за день до закриття доступу. Спрацьовує тільки якщо тривалість grace ≥ 3 днів — інакше дублює start.',
-    placeholders: ['name', 'gracePeriodEndsAt'],
-    sampleData: { name: 'Іван Петренко', gracePeriodEndsAt: '22.08.2026' },
+    placeholders: ['name', 'gracePeriodEndsAt', 'moduleLine', 'payUrl'],
+    sampleData: { name: 'Іван Петренко', gracePeriodEndsAt: '22.08.2026', moduleLine: 'Наступний модуль: 3 з 9 · листопад 2026.', payUrl: PROGRAM_URL },
     minGraceDays: 3,
     defaultSubject: 'Завтра завершується пільговий період',
     defaultBodyHtml: wrapReminderInner(`    <h2 style="color: #1C3A2E; margin-top: 0;">Вітаю, {name}!</h2>
-    <p>Завтра, <strong>{gracePeriodEndsAt}</strong>, завершується пільговий період у вашій підписці на <strong>Річну програму інституту UIMP</strong>.</p>
-    <p>Якщо плануєте продовжити навчання — поповніть картку (WayForPay спробує списати автоматично) або оплатіть вручну:</p>
-${CTA_BUTTON('Оплатити вручну (РАЗОВА)')}
+    <p>Завтра, <strong>{gracePeriodEndsAt}</strong>, завершується пільговий період у вашій підписці на <strong>Річну програму інституту UIMP</strong>. {moduleLine}</p>
+    <p>Якщо плануєте продовжити навчання — оплатіть модуль сьогодні за кнопкою нижче:</p>
+${PAY_BUTTON('Оплатити модуль')}
 ${SUPPORT_FOOTER}
 ${SIGNATURE_RESPECT}`),
   },
@@ -350,6 +362,10 @@ export const REMINDER_PLACEHOLDER_DESCRIPTIONS: Record<string, { what: string; c
   payUrl: {
     what: 'ПЕРСОНАЛЬНЕ посилання цього студента на оплату наступного модуля. Відкриває сторінку з уже підставленими даними (email, імʼя, телефон) і однією кнопкою «Оплатити модуль» — без вибору тарифів. Діє 45 днів. Якщо персональне посилання чомусь не сформувалось, підставиться загальна сторінка програми.',
     consequence: 'БЕЗ цього поля кнопка поведе на загальний лендінг, де студенту доведеться самому шукати картку «Місячна», обирати «РАЗОВА» і вводити email — саме там і губиться більшість оплат.',
+  },
+  reasonLine: {
+    what: 'Перше речення листа автоплатнику — ПРАВДИВА причина, чому оплата за модуль не надійшла. Система обирає сама: «списання не пройшло» (відмова банку), «автосписання більше не підключене у WayForPay» (правила немає) або «наступне автосписання заплановане лише на ДД.ММ.РРРР» (графік зсунуто).',
+    consequence: 'БЕЗ цього поля лист не пояснить причину, або (якщо написати причину текстом) казатиме «списання не пройшло» навіть тим, у кого спроби списання не було.',
   },
   moduleLine: {
     what: 'Рядок про наступний неоплачений модуль — наприклад «Наступний модуль: 3 з 9 · листопад 2026.». Рахується за сіткою модулів набору, тому у пізнього покупця номери свої.',

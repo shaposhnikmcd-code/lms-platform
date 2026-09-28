@@ -13,10 +13,30 @@ import assert from 'node:assert/strict';
 process.env.NEXTAUTH_SECRET ??= 'test-secret-for-renew-state-unit-tests';
 
 import { signRenewToken } from './yearlyProgramRenew';
-import { RENEW_BLOCK_REASONS, RENEW_DEAD_LINK_COPY, renewBlockCopy } from './yearlyProgramRenewCopy';
-import { resolveRenewState } from './yearlyProgramRenewState';
+import { createTranslator } from 'use-intl/core';
+import ukMessages from '../messages/uk.json';
+import enMessages from '../messages/en.json';
+import plMessages from '../messages/pl.json';
+import {
+  RENEW_BLOCK_REASONS,
+  RENEW_STOPS_AUTOPAY_REASONS,
+  renewBlockCopy,
+  renewDeadLinkCopy,
+  renewStopsAutopayCopy,
+  type RenewTranslator,
+} from './yearlyProgramRenewCopy';
+import { autopayAllowsManualTopUp, resolveRenewState } from './yearlyProgramRenewState';
 
 type Client = Parameters<typeof resolveRenewState>[0]['client'];
+
+/// Тексти панелі живуть у `messages/*.json` (простір `RenewPanel`) — перевіряємо їх тим
+/// самим механізмом, яким їх рендерить сторінка (ICU, плюралізація).
+const LOCALES = { uk: ukMessages, en: enMessages, pl: plMessages } as const;
+function translator(locale: keyof typeof LOCALES): RenewTranslator {
+  const t = createTranslator({ locale, messages: LOCALES[locale] as never, namespace: 'RenewPanel' as never });
+  return (key, values) => (t as unknown as RenewTranslator)(key, values);
+}
+const UK = translator('uk');
 
 const EMAIL = 'student@example.com';
 const NOW = new Date('2026-11-10T09:00:00Z');
@@ -117,7 +137,7 @@ test('набір А завершився — не payable, стан із тек�
   assert.equal(state.kind, 'blocked');
   if (state.kind !== 'blocked') return;
   assert.equal(state.reason, 'cohort_finished');
-  const copy = renewBlockCopy(state.reason);
+  const copy = renewBlockCopy(UK, state.reason);
   assert.ok(copy.title.length > 0 && copy.body.length > 0 && copy.support.length > 0);
 });
 
@@ -135,9 +155,13 @@ test('межа завершення набору — рівно `endDate >= now`
 test('зіпсований токен дає invalid — і на нього є текст, а не порожній рендер', async () => {
   const state = await resolve(makeClient(subscription()), 'not-a-token');
   assert.equal(state.kind, 'invalid');
-  assert.ok(RENEW_DEAD_LINK_COPY.title.length > 0);
-  assert.ok(RENEW_DEAD_LINK_COPY.body.length > 0);
-  assert.ok(RENEW_DEAD_LINK_COPY.support.length > 0);
+  for (const locale of Object.keys(LOCALES) as (keyof typeof LOCALES)[]) {
+    const dead = renewDeadLinkCopy(translator(locale));
+    assert.ok(dead.title.length > 0 && dead.body.length > 0 && dead.support.length > 0, locale);
+    assert.ok((dead.action ?? '').length > 0, `${locale}: немає кнопки переходу до оплати`);
+    // Порада веде в рядок під карткою, а не в неактивну при закритій реєстрації картку.
+    assert.doesNotMatch(dead.body, /РАЗОВА/, locale);
+  }
 });
 
 test('підписку перенесли в інший набір — посилання недійсне', async () => {
@@ -172,6 +196,59 @@ test('автосписання і повна оплата блокують кн�
   assert.equal(paid.kind === 'blocked' && paid.reason, 'fully_paid');
 });
 
+test('автоплатник, у якого списання не пройшло або підписка в GRACE, може доплатити модуль сам', async () => {
+  // Дефект аудиту 24.09: Rule 2 («спочатку скасуйте автосписання») блокував і тих, у кого
+  // автосписання вже зламалось — студент у GRACE не мав жодного шляху заплатити.
+  const grace = await resolve(
+    makeClient(subscription({ autoRenew: true, status: 'GRACE', failedChargeCount: 0 })),
+    tokenFor(),
+  );
+  assert.equal(grace.kind, 'payable');
+  if (grace.kind === 'payable') {
+    assert.equal(grace.stopsAutopay, true);
+    assert.equal(grace.module.number, 3);
+  }
+
+  const failed = await resolve(
+    makeClient(subscription({ autoRenew: true, status: 'ACTIVE', failedChargeCount: 1 })),
+    tokenFor(),
+  );
+  assert.equal(failed.kind === 'payable' && failed.stopsAutopay, true);
+  assert.equal(failed.kind === 'payable' && failed.stopsAutopayReason, 'charge_failed');
+
+  // Причина — з `autopayGraceReason`: «не пройшло» лише для відмови банку.
+  const noRule = await resolve(
+    makeClient(subscription({ autoRenew: true, status: 'GRACE', failedChargeCount: 0, wfpRegularRef: null })),
+    tokenFor(),
+  );
+  assert.equal(noRule.kind === 'payable' && noRule.stopsAutopayReason, 'no_rule');
+  const notCharged = await resolve(
+    makeClient(subscription({ autoRenew: true, status: 'GRACE', failedChargeCount: 0, wfpRegularRef: 'ref_1' })),
+    tokenFor(),
+  );
+  assert.equal(notCharged.kind === 'payable' && notCharged.stopsAutopayReason, 'not_charged');
+
+  // Справне автосписання — як і раніше блок: модуль спишеться сам.
+  const healthy = await resolve(
+    makeClient(subscription({ autoRenew: true, status: 'ACTIVE', failedChargeCount: 0 })),
+    tokenFor(),
+  );
+  assert.equal(healthy.kind === 'blocked' && healthy.reason, 'autopay');
+
+  // Разова підписка в GRACE — звичайна доплата, автосписання вимикати нічого.
+  const oneTime = await resolve(makeClient(subscription({ status: 'GRACE' })), tokenFor());
+  assert.equal(oneTime.kind === 'payable' && oneTime.stopsAutopay, false);
+  assert.equal(oneTime.kind === 'payable' && oneTime.stopsAutopayReason, null);
+});
+
+test('autopayAllowsManualTopUp — лише для зламаного автосписання', () => {
+  assert.equal(autopayAllowsManualTopUp({ autoRenew: false, status: 'GRACE', failedChargeCount: 3 }), false);
+  assert.equal(autopayAllowsManualTopUp({ autoRenew: true, status: 'ACTIVE', failedChargeCount: 0 }), false);
+  assert.equal(autopayAllowsManualTopUp({ autoRenew: true, status: 'ACTIVE', failedChargeCount: null }), false);
+  assert.equal(autopayAllowsManualTopUp({ autoRenew: true, status: 'ACTIVE', failedChargeCount: 2 }), true);
+  assert.equal(autopayAllowsManualTopUp({ autoRenew: true, status: 'GRACE', failedChargeCount: 0 }), true);
+});
+
 test('пропущені модулі — стан боргу з їх кількістю', async () => {
   // Сплачено лише вересень; NOW = 10.11 → поточний модуль листопад, пропущено жовтень.
   const state = await resolve(
@@ -182,7 +259,11 @@ test('пропущені модулі — стан боргу з їх кільк
   if (state.kind !== 'blocked') return;
   assert.equal(state.reason, 'debt');
   assert.equal(state.missedModules, 1);
-  assert.match(renewBlockCopy(state.reason, state.missedModules ?? 0).body, /пропущено 1 модуль/);
+  assert.match(renewBlockCopy(UK, state.reason, state.missedModules ?? 0).body, /пропущено 1 модуль\./);
+  assert.match(renewBlockCopy(UK, 'debt', 3).body, /пропущено 3 модулі\./);
+  assert.match(renewBlockCopy(UK, 'debt', 5).body, /пропущено 5 модулів\./);
+  assert.match(renewBlockCopy(translator('en'), 'debt', 2).body, /2 modules were missed/);
+  assert.match(renewBlockCopy(translator('pl'), 'debt', 2).body, /pominięto 2 moduły/);
 });
 
 test('закриті продажі НЕ чіпають доплату модуля чинним студентом', async () => {
@@ -206,12 +287,43 @@ test('закриті продажі НЕ чіпають доплату моду�
   assert.ok(!RENEW_BLOCK_REASONS.includes('registration_closed' as never));
 });
 
-test('кожен стан блокування має заголовок, пояснення і контакт менеджера', () => {
+test('кожен стан блокування має заголовок, пояснення і контакт менеджера — у кожній локалі', () => {
   assert.ok(RENEW_BLOCK_REASONS.length >= 7, 'усі причини мають бути в реєстрі текстів');
-  for (const reason of RENEW_BLOCK_REASONS) {
-    const copy = renewBlockCopy(reason, 2);
-    assert.ok(copy.title.trim().length > 0, `${reason}: порожній заголовок`);
-    assert.ok(copy.body.trim().length > 0, `${reason}: порожнє пояснення`);
-    assert.ok(copy.support.trim().length > 0, `${reason}: немає рядка з менеджером`);
+  for (const locale of Object.keys(LOCALES) as (keyof typeof LOCALES)[]) {
+    const t = translator(locale);
+    for (const reason of RENEW_BLOCK_REASONS) {
+      const copy = renewBlockCopy(t, reason, 2);
+      // Відсутній ключ use-intl повертає як сам шлях («RenewPanel.blocks.x.title»).
+      for (const [part, text] of Object.entries(copy)) {
+        assert.ok(text && text.trim().length > 0, `${locale}/${reason}: порожнє ${part}`);
+        assert.ok(!text.includes('RenewPanel.'), `${locale}/${reason}: немає перекладу ${part}`);
+      }
+    }
   }
+});
+
+test('текст «оплата вимикає автосписання» — для кожної причини, у кожній локалі, чесний щодо моменту', () => {
+  assert.deepEqual([...RENEW_STOPS_AUTOPAY_REASONS].sort(), ['charge_failed', 'no_rule', 'not_charged']);
+  // Правило у WFP знімається вже при відкритті оплати (downgrade у /api/wayforpay),
+  // тож текст має казати «навіть якщо оплату не завершити», а не «після оплати».
+  const whenMarker = { uk: 'навіть якщо оплату не завершити', en: 'even if you do not complete the payment', pl: 'nawet jeśli nie dokończysz płatności' };
+  for (const locale of Object.keys(LOCALES) as (keyof typeof LOCALES)[]) {
+    const t = translator(locale);
+    const texts = RENEW_STOPS_AUTOPAY_REASONS.map((r) => renewStopsAutopayCopy(t, r));
+    for (const [i, text] of texts.entries()) {
+      const r = RENEW_STOPS_AUTOPAY_REASONS[i];
+      assert.ok(!text.includes('RenewPanel.'), `${locale}/${r}: немає перекладу`);
+      assert.ok(text.includes(whenMarker[locale]), `${locale}/${r}: має казати, що автосписання вимикається одразу`);
+    }
+    assert.equal(new Set(texts).size, texts.length, `${locale}: тексти причин мають відрізнятись`);
+  }
+});
+
+test('простір RenewPanel однаковий у uk/en/pl — жодного ключа без перекладу', () => {
+  const paths = (o: unknown, pre = ''): string[] =>
+    Object.entries(o as Record<string, unknown>).flatMap(([k, v]) =>
+      v && typeof v === 'object' ? paths(v, `${pre}${k}.`) : [`${pre}${k}`]).sort();
+  const uk = paths(ukMessages.RenewPanel);
+  assert.deepEqual(paths(enMessages.RenewPanel), uk);
+  assert.deepEqual(paths(plMessages.RenewPanel), uk);
 });

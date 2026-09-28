@@ -19,9 +19,20 @@ import { sendYearlyProgramUpcomingChargeEmail } from '@/lib/yearlyProgramUpcomin
 import { getYearlyProgramSettings } from '@/lib/yearlyProgramSettings';
 import { verifyBearer } from '@/lib/authTiming';
 import { kyivMidnightUtc } from '@/lib/timezone';
+import {
+  autopayGraceReason,
+  graceSpanDays,
+  graceStartDecision,
+  manualBefore1dCutoff,
+  manualBefore3dWindowEnd,
+  manualOnExpiryCutoff,
+  manualStepAction,
+  type ManualReminderKind,
+} from '@/lib/yearlyProgramReminderSchedule';
 import { WFP_REMOVE_ISSUE_THRESHOLD } from '@/lib/yearlyProgramIssues';
 import {
   manualBeforeExpiry,
+  manualBeforeExpiry1d,
   manualOnExpiry,
   manualGraceStart,
   manualGraceMid,
@@ -125,6 +136,7 @@ async function runStep(step: string, fn: () => Promise<StepResult>): Promise<Ste
 /// Прапорці «лист надіслано» — по одному на кожен лист життєвого циклу підписки.
 type ReminderFlag =
   | 'reminderSent3d'
+  | 'reminderSent1d'
   | 'reminderSentOnExpiry'
   | 'reminderSentGraceStart'
   | 'reminderSentGraceMid'
@@ -252,9 +264,15 @@ const NOT_IN_UNLAUNCHED_COHORT = {
 ///   (`storedGraceDays`), тож зміна налаштування посеред чужого grace нікому не бреше.
 ///   mid/last вмикаються лише за достатньої зафіксованої тривалості:
 ///   MANUAL (разова оплата, autoRenew=false):
-///     за 3 дні до закінчення → у день закінчення → grace-start → mid (≥5д) → last (≥3д) → закриття
-///   CYCLICAL (автоплатіж) — коли є про що попереджати, тобто списання провалилось
-///   АБО правила регулярки у WFP немає взагалі (див. `cyclicalNeedsWarning`):
+///     за 3 дні → за 1 день → у день закінчення → grace-start (≥2д) → mid (≥5д) → last (≥3д) → закриття
+///     За один прохід людина отримує не більше ОДНОГО з перших трьох листів — найпізнішого
+///     з тих, що дозріли (`manualStepAction`); ранніші позначаються спожитими без відправки.
+///     graceDays=1: у день закінчення — «сьогодні останній день» + перехід у GRACE, наступного
+///     ранку — закриття + лист про закриття. Листа «пільговий період почався» при такому
+///     grace немає зовсім (`graceStartDecision` → 'suppress'): він стояв би між «останнім
+///     днем» і «закрито» і обіцяв би доступ, який закриється за кілька годин.
+///   CYCLICAL (автоплатіж) — ЗАВЖДИ, щойно підписка в GRACE; перше речення листа — правдива
+///   причина (`autopayGraceReason`: відмова банку / правила у WFP немає / графік зсунуто):
 ///     grace-start → mid (≥5д) → last (≥3д) → закриття
 ///
 /// Порядок кроків у GET нижче не випадковий. По-перше, легкі кроки (статуси, прапорці,
@@ -264,7 +282,10 @@ const NOT_IN_UNLAUNCHED_COHORT = {
 /// По-друге, обидва manual-нагадування йдуть ДО переходу
 /// в GRACE (інакше лист «сьогодні останній день» не міг би піти), а grace-start має
 /// 20-годинний гейт — тобто виходить наступним добовим проходом, а не в тому ж, у якому
-/// підписка щойно потрапила в GRACE. Виняток — короткий grace (<3 днів), там лист іде одразу.
+/// підписка щойно потрапила в GRACE. Для разової оплати це діє і при grace у 2 дні
+/// (інакше «сьогодні останній день» і «пільговий період почався» приходили в один ранок);
+/// автоплатнику при grace < 3 днів лист іде одразу — «останнього дня» він не отримує.
+/// При grace в 1 день (разова оплата) grace-start не шлеться взагалі.
 /// Повністю оплачені підписки (усі свої модулі набору) з усіх платіжних нагадувань
 /// виключені (`isFullyPaid`).
 export async function GET(req: NextRequest) {
@@ -286,8 +307,16 @@ export async function GET(req: NextRequest) {
   // підписки в статусі ACTIVE, а grace-перехід у той самий прохід забирає з ACTIVE усе,
   // що протермінувалось — при зворотному порядку лист «сьогодні останній день» не міг
   // піти взагалі (підписка вже була в GRACE).
-  results.push(await runStep('manual_before_expiry', sendManualBeforeExpiryReminders));
-  results.push(await runStep('manual_on_expiry', sendManualOnExpiryReminders));
+  //
+  // Ланцюг «за 3 дні → за 1 день → останній день» дає не більше одного листа за прохід:
+  // кожен крок сам визначає, чи його лист — найпізніший із дозрілих (`manualStepAction`),
+  // а не покладається на порядок рядків нижче. Додатково `manualMailedThisPass` —
+  // запобіжник на рівні проходу: підписці, якій цим проходом уже пішов manual-лист,
+  // наступні кроки ланцюга не шлють нічого.
+  const manualMailedThisPass = new Set<string>();
+  results.push(await runStep('manual_before_expiry', () => sendManualBeforeExpiryReminders(manualMailedThisPass)));
+  results.push(await runStep('manual_before_expiry_1d', () => sendManualBeforeExpiry1dReminders(manualMailedThisPass)));
+  results.push(await runStep('manual_on_expiry', () => sendManualOnExpiryReminders(manualMailedThisPass)));
   // Перед grace-переходом: крок дивиться на ACTIVE-підписки, і саме тут вони ще ACTIVE.
   results.push(await runStep('autopay_precharge_notice', sendAutopayPrechargeNotices));
   results.push(await runStep('active_to_grace', transitionActiveToGrace));
@@ -1050,8 +1079,8 @@ async function expireGraceSubscriptions(): Promise<StepResult> {
 /// (усі СВОЇ модулі набору сплачені — її expiresAt це кінець пост-доступу, платити
 /// нічого). Перевірка спільна для ВСІХ платіжних листів — і manual, і cyclical. Для
 /// cyclical це критично: після останнього платежу WFP-правило знімається
-/// (`wfpRegularRef` → null), тож `cyclicalNeedsWarning` вважав би таку підписку
-/// «регулярка зникла» і слав би «списання не пройшло, оплатіть» людині, яка оплатила
+/// (`wfpRegularRef` → null), тож `autopayGraceReason` назвав би таку підписку
+/// «регулярка зникла» і слав би «оплата не надійшла, оплатіть» людині, яка оплатила
 /// все до копійки.
 ///
 /// «Усі свої» — не завжди 9: пізній покупець стартує з пізнішого модуля набору і має
@@ -1075,8 +1104,10 @@ function subSchedule(sub: ScheduleAwareSub) {
   return sub.cohort ? monthlySchedule({ cohort: sub.cohort, payments: sub.payments }) : null;
 }
 
-/// Персональна частина manual-нагадування: посилання «Оплатити наступний модуль» з
-/// підписаним токеном і рядок «Наступний модуль: 3 з 9 · листопад 2026».
+/// Персональна частина manual-нагадування і cyclical-листа автоплатника в grace: посилання
+/// «Оплатити наступний модуль» з підписаним токеном і рядок «Наступний модуль: 3 з 9 ·
+/// листопад 2026». Автоплатнику в GRACE сторінка поновлення доплату дозволяє
+/// (`autopayAllowsManualTopUp`), тож і в його листі кнопка — персональна, а не лендінг.
 ///
 /// Токен видається на кожен лист заново (він дешевий і безстанний), живе 45 днів — довше
 /// за весь ланцюг нагадувань разом з grace, тож людина, яка відкриє найперший лист в
@@ -1125,15 +1156,15 @@ const SCHEDULE_INCLUDE = {
   },
 };
 
-/// Чи попереджати автоплатіжника (autoRenew=true), що доступ ось-ось закриється.
-/// Дві причини для листа:
-///   • `failedChargeCount > 0` — списання реально провалилось (картка/ліміт);
-///   • `wfpRegularRef == null` — правила регулярки у WFP взагалі немає (зняли вручну,
-///     не створилось при токенізації, підписку переносили). Списання не буде ніколи,
-///     тому мовчати не можна: без цієї гілки людина втрачала доступ без жодного листа.
-function cyclicalNeedsWarning(sub: { failedChargeCount: number | null; wfpRegularRef: string | null }): boolean {
-  return (sub.failedChargeCount ?? 0) > 0 || sub.wfpRegularRef === null;
-}
+/// Автоплатник у GRACE отримує листи ЗАВЖДИ, а причина лише вибирає перше речення
+/// (`autopayGraceReason` у lib/yearlyProgramReminderSchedule.ts).
+///
+/// Досі тут стояв фільтр `cyclicalNeedsWarning` (лист лише при `failedChargeCount > 0`
+/// або відсутньому правилі WFP). Автоплатник з живим правилом, у якого оплата просто
+/// не надійшла (графік у WFP зсунуто за кінець модуля, WFP мовчки не списав), проходив
+/// 2-денний буфер `active_to_grace`, потрапляв у GRACE — і не отримував НІЧОГО аж до
+/// листа про закриття. У GRACE автоплатник потрапляє лише після буфера або після
+/// реальної відмови, тож «хибної тривоги» тут не буває.
 
 /// Тривалість grace, ЗАФІКСОВАНА в момент переходу ACTIVE→GRACE (gracePeriodEndsAt −
 /// graceStartedAt). Увесь розклад листів усередині grace має рахуватись від неї, а не від
@@ -1147,7 +1178,7 @@ function storedGraceDays(
   fallback: number,
 ): number {
   if (!sub.graceStartedAt || !sub.gracePeriodEndsAt) return fallback;
-  const days = Math.round((sub.gracePeriodEndsAt.getTime() - sub.graceStartedAt.getTime()) / DAY_MS);
+  const days = graceSpanDays(sub.graceStartedAt, sub.gracePeriodEndsAt);
   return days >= 1 ? days : fallback;
 }
 
@@ -1173,8 +1204,10 @@ async function sendAutopayPrechargeNotices(): Promise<StepResult> {
   const now = new Date();
   const windowEnd = new Date(now.getTime() + AUTOPAY_NOTICE_DAYS_BEFORE * DAY_MS);
   // Нижня межа — початок сьогоднішньої доби, а не `now`: списання, призначене на сьогодні,
-  // ще має сенс анонсувати («сьогодні спишеться»), а вчорашню дату — вже ні.
-  const todayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  // ще має сенс анонсувати («сьогодні спишеться»), а вчорашню дату — вже ні. Доба —
+  // київська: WFP кодує день списання київською північчю (21:00Z напередодні), і з
+  // UTC-межею списання «сьогодні» о 07:00 за Києвом уже вважалось би вчорашнім.
+  const todayStart = kyivMidnightUtc(now);
 
   const subs = await prisma.yearlyProgramSubscription.findMany({
     where: {
@@ -1287,8 +1320,25 @@ async function sendAutopayPrechargeNotices(): Promise<StepResult> {
   return { step: 'autopay_precharge_notice', processed, errors };
 }
 
+/// Прапорець «лист надіслано» для кожного листа ланцюга manual-нагадувань.
+const MANUAL_FLAG: Record<ManualReminderKind, ReminderFlag> = {
+  before3d: 'reminderSent3d',
+  before1d: 'reminderSent1d',
+  onExpiry: 'reminderSentOnExpiry',
+};
+
+/// Лист `kind` дозрів, але цим самим проходом піде пізніший (нова підписка з близьким
+/// expiresAt, пропущені проходи cron-а). Позначаємо його спожитим без відправки: інакше
+/// людина отримала б два-три листи підряд про одну й ту саму дату, а вибірка кроку росла б.
+async function consumeSupersededManualFlag(subscriptionId: string, kind: ManualReminderKind): Promise<void> {
+  await prisma.yearlyProgramSubscription.updateMany({
+    where: { id: subscriptionId, ...flagWhere(MANUAL_FLAG[kind], false) },
+    data: flagData(MANUAL_FLAG[kind], true),
+  });
+}
+
 /// MANUAL #1: за 3 дні до експайру. Тільки MANUAL (autoRenew=false) ACTIVE.
-async function sendManualBeforeExpiryReminders(): Promise<StepResult> {
+async function sendManualBeforeExpiryReminders(mailedThisPass: Set<string>): Promise<StepResult> {
   const errors: string[] = [];
   const now = new Date();
   // ВІДКРИТЕ вікно, не смуга [now+2d, now+3d). Жорстка смуга означала «лист має бути
@@ -1296,7 +1346,7 @@ async function sendManualBeforeExpiryReminders(): Promise<StepResult> {
   // запустив, деплой, збій БД) — і лист не піде НІКОЛИ, бо завтра підписка з вікна
   // випадає. Від дублів захищає не вікно, а прапорець `reminderSent3d`: він claim-иться
   // атомарно перед відправкою, тож «перестигла» підписка отримає лист рівно один раз.
-  const windowEnd = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
+  const windowEnd = manualBefore3dWindowEnd(now);
 
   const subs = await prisma.yearlyProgramSubscription.findMany({
     where: {
@@ -1316,6 +1366,12 @@ async function sendManualBeforeExpiryReminders(): Promise<StepResult> {
       if (!sub.user?.email || !sub.expiresAt) return;
       if (isFullyPaid(sub)) return;
       const expiresAt = sub.expiresAt;
+      const action = manualStepAction('before3d', expiresAt, now);
+      if (action === 'skip' || mailedThisPass.has(sub.id)) return;
+      if (action === 'supersede') {
+        await consumeSupersededManualFlag(sub.id, 'before3d');
+        return;
+      }
       const r = await sendReminderOnce({
         subscriptionId: sub.id,
         flag: 'reminderSent3d',
@@ -1325,7 +1381,7 @@ async function sendManualBeforeExpiryReminders(): Promise<StepResult> {
         eventMessage: `Manual 3d-before · expires ${expiresAt.toISOString().slice(0, 10)}`,
       });
       if (r.outcome === 'failed') errors.push(`${sub.id}: ${r.error}`);
-      if (r.outcome === 'sent') processed++;
+      if (r.outcome === 'sent') { processed++; mailedThisPass.add(sub.id); }
     } catch (e) {
       errors.push(`${sub.id}: ${(e as Error).message}`);
     }
@@ -1334,8 +1390,62 @@ async function sendManualBeforeExpiryReminders(): Promise<StepResult> {
   return { step: 'manual_before_expiry', processed, errors };
 }
 
-/// MANUAL #2: у день закінчення. Тільки MANUAL.
-async function sendManualOnExpiryReminders(): Promise<StepResult> {
+/// MANUAL #2: за 1 день до закінчення — завтра останній день оплаченого модуля.
+/// Тільки MANUAL (autoRenew=false) ACTIVE.
+async function sendManualBeforeExpiry1dReminders(mailedThisPass: Set<string>): Promise<StepResult> {
+  const errors: string[] = [];
+  const now = new Date();
+  // Верхня межа — початок київської доби «післязавтра»: у вікні все, що спливає протягом
+  // завтрашньої київської доби. Нижньої межі немає з тієї ж причини, що й у «останньому
+  // дні» (див. нижче): пропущений прогін cron-а не має з'їдати лист назавжди. Якщо
+  // пропущених проходів було кілька і вже настав сам день закінчення, цей лист
+  // перекриває «останній день» (`manualStepAction` → 'supersede'), дубля не буде.
+  const cutoff = manualBefore1dCutoff(now);
+
+  const subs = await prisma.yearlyProgramSubscription.findMany({
+    where: {
+      status: 'ACTIVE',
+      plan: 'MONTHLY',
+      autoRenew: false,
+      expiresAt: { lt: cutoff },
+      reminderSent1d: false,
+      ...NOT_IN_UNLAUNCHED_COHORT,
+    },
+    include: { user: true, ...SCHEDULE_INCLUDE },
+  });
+
+  let processed = 0;
+  await processInParallel(subs, async (sub) => {
+    try {
+      if (!sub.user?.email || !sub.expiresAt) return;
+      if (isFullyPaid(sub)) return;
+      const expiresAt = sub.expiresAt;
+      const action = manualStepAction('before1d', expiresAt, now);
+      if (action === 'skip' || mailedThisPass.has(sub.id)) return;
+      if (action === 'supersede') {
+        await consumeSupersededManualFlag(sub.id, 'before1d');
+        return;
+      }
+      const r = await sendReminderOnce({
+        subscriptionId: sub.id,
+        flag: 'reminderSent1d',
+        to: sub.user.email,
+        render: () => manualBeforeExpiry1d({ name: sub.user!.name, expiresAt, ...renewMailVars(sub) }),
+        eventType: 'reminder_manual_before_1d',
+        eventMessage: `Manual 1d-before · expires ${expiresAt.toISOString().slice(0, 10)}`,
+      });
+      if (r.outcome === 'failed') errors.push(`${sub.id}: ${r.error}`);
+      if (r.outcome === 'sent') { processed++; mailedThisPass.add(sub.id); }
+    } catch (e) {
+      errors.push(`${sub.id}: ${(e as Error).message}`);
+    }
+  });
+
+  return { step: 'manual_before_expiry_1d', processed, errors };
+}
+
+/// MANUAL #3: у день закінчення. Тільки MANUAL.
+async function sendManualOnExpiryReminders(mailedThisPass: Set<string>): Promise<StepResult> {
   const errors: string[] = [];
   const now = new Date();
   // Верхня межа доби — київська, не UTC. З `setUTCHours(0)` доба різалась о 03:00 за
@@ -1345,7 +1455,7 @@ async function sendManualOnExpiryReminders(): Promise<StepResult> {
   // Нижньої межі свідомо НЕМАЄ (було `gte: startOfToday`): вікно в одну добу означало,
   // що пропущений прогін cron-а назавжди з'їдає цей лист. Дублі виключає прапорець
   // `reminderSentOnExpiry` (атомарний claim перед відправкою), а не вузьке вікно.
-  const startOfTomorrow = kyivMidnightUtc(now, 1);
+  const startOfTomorrow = manualOnExpiryCutoff(now);
 
   const subs = await prisma.yearlyProgramSubscription.findMany({
     where: {
@@ -1362,8 +1472,11 @@ async function sendManualOnExpiryReminders(): Promise<StepResult> {
   let processed = 0;
   await processInParallel(subs, async (sub) => {
     try {
-      if (!sub.user?.email) return;
+      if (!sub.user?.email || !sub.expiresAt) return;
       if (isFullyPaid(sub)) return;
+      // Найпізніший лист ланцюга — 'supersede' тут неможливий, але перевірка вікна
+      // і запобіжник проходу ті самі, що в сусідніх кроках.
+      if (manualStepAction('onExpiry', sub.expiresAt, now) !== 'send' || mailedThisPass.has(sub.id)) return;
       const r = await sendReminderOnce({
         subscriptionId: sub.id,
         flag: 'reminderSentOnExpiry',
@@ -1373,7 +1486,7 @@ async function sendManualOnExpiryReminders(): Promise<StepResult> {
         eventMessage: 'Manual on-expiry (last day)',
       });
       if (r.outcome === 'failed') errors.push(`${sub.id}: ${r.error}`);
-      if (r.outcome === 'sent') processed++;
+      if (r.outcome === 'sent') { processed++; mailedThisPass.add(sub.id); }
     } catch (e) {
       errors.push(`${sub.id}: ${(e as Error).message}`);
     }
@@ -1382,7 +1495,7 @@ async function sendManualOnExpiryReminders(): Promise<StepResult> {
   return { step: 'manual_on_expiry', processed, errors };
 }
 
-/// MANUAL #3 + CYCLICAL #1: день +1 після експайру.
+/// MANUAL #4 + CYCLICAL #1: день +1 після експайру.
 /// Manual: "grace стартував". Cyclical: "charge failed" (тільки якщо є про що попереджати).
 async function sendGraceStartReminders(): Promise<StepResult> {
   const errors: string[] = [];
@@ -1392,17 +1505,18 @@ async function sendGraceStartReminders(): Promise<StepResult> {
   // щоб текст не суперечив реальній даті закриття.
   const graceDays = await getYearlyGraceDays(prisma);
 
-  // «День +1»: не шлемо в тому ж проході, у якому підписка щойно перейшла в GRACE.
-  // Інакше людина за секунди отримує два суперечливі листи — «сьогодні останній день
-  // доступу» (manual_on_expiry) і одразу «пільговий період стартував». 20 годин, а не
-  // 24 — щоб лист гарантовано пішов наступного добового проходу cron-а навіть якщо той
-  // трохи «плаває» у часі.
-  //
-  // Виняток — короткий grace (graceDays < 3): mid/last там вимкнені, а закриття доступу
-  // настане раніше за наступний добовий прохід, тож із затримкою лист не пішов би взагалі.
-  // На такому налаштуванні шлемо одразу: краще двоє листів поспіль, ніж жодного попередження.
-  const GRACE_START_MIN_AGE_MS = 20 * 60 * 60 * 1000;
-  const graceStartCutoff = new Date(now.getTime() - GRACE_START_MIN_AGE_MS);
+  // Рішення per-subscription — `graceStartDecision` (lib/yearlyProgramReminderSchedule.ts):
+  // • «День +1»: не шлемо в тому ж проході, у якому підписка щойно перейшла в GRACE.
+  //   Інакше людина за секунди отримує два суперечливі листи — «сьогодні останній день
+  //   доступу» (manual_on_expiry) і одразу «пільговий період стартував».
+  // • Grace у 2 дні, разова оплата: теж «день +1» — лист іде наступним проходом, ще до
+  //   закриття (межа grace — друга київська північ, закриває прохід після неї).
+  //   Автоплатник при grace < 3 днів отримує лист одразу: «останнього дня» він не має.
+  // • Grace в 1 день, разова оплата: листа немає ЗОВСІМ. Людина вже отримала «сьогодні
+  //   останній день», наступного ранку `expire_grace` закриє доступ і надішле лист про
+  //   закриття; «доступ продовжено» між ними лише заплутав би. Прапорець ставимо, щоб
+  //   вибірка не росла. Автоплатіж цим правилом не зачеплено — його «списання не пройшло»
+  //   єдине попередження перед закриттям.
 
   // Гейт «день +1» застосовується per-subscription (за її власною тривалістю grace),
   // тому у вибірку беремо всіх, а відсіюємо в циклі.
@@ -1422,14 +1536,22 @@ async function sendGraceStartReminders(): Promise<StepResult> {
     try {
       if (!sub.user?.email || !sub.gracePeriodEndsAt) return;
       const spanDays = storedGraceDays(sub, graceDays);
-      // Короткий grace (<3 днів) — шлемо одразу, інакше лист не встиг би піти взагалі.
-      if (spanDays >= 3 && sub.graceStartedAt && sub.graceStartedAt > graceStartCutoff) return;
+      const isManual = !sub.autoRenew;
+      const decision = graceStartDecision(spanDays, sub.graceStartedAt, now, isManual);
+      if (decision === 'wait') return;
+      if (decision === 'suppress') {
+        await prisma.yearlyProgramSubscription.updateMany({
+          where: { id: sub.id, reminderSentGraceStart: false },
+          data: { reminderSentGraceStart: true },
+        });
+        return;
+      }
       // Повністю оплачені (9/9) не отримують ЖОДНОГО платіжного нагадування — ні manual,
       // ні cyclical: платити нема за що, це просто кінець пост-доступу.
       if (isFullyPaid(sub)) return;
-      // Для manual (autoRenew=false) — шлемо завжди (grace стартував).
-      const isManual = !sub.autoRenew;
-      if (!isManual && !cyclicalNeedsWarning(sub)) return;
+      // І manual, і автоплатник — завжди: grace стартував, людина має знати, що доступ
+      // закриється і як заплатити. Для автоплатника перше речення — правдива причина.
+      const reason = isManual ? null : autopayGraceReason(sub);
 
       const gracePeriodEndsAt = sub.gracePeriodEndsAt;
       const r = await sendReminderOnce({
@@ -1438,9 +1560,16 @@ async function sendGraceStartReminders(): Promise<StepResult> {
         to: sub.user.email,
         render: () => (isManual
           ? manualGraceStart({ name: sub.user!.name, gracePeriodEndsAt, graceDays: spanDays, ...renewMailVars(sub) })
-          : cyclicalChargeFailed1({ name: sub.user!.name, gracePeriodEndsAt, graceDays: spanDays })),
+          : cyclicalChargeFailed1({
+            name: sub.user!.name,
+            gracePeriodEndsAt,
+            graceDays: spanDays,
+            reason: reason!,
+            wfpNextChargeAt: sub.wfpNextChargeAt,
+            ...renewMailVars(sub),
+          })),
         eventType: isManual ? 'reminder_manual_grace_start' : 'reminder_cyclical_failed1',
-        eventMessage: `Grace ends ${gracePeriodEndsAt.toISOString().slice(0, 10)}`,
+        eventMessage: `Grace ends ${gracePeriodEndsAt.toISOString().slice(0, 10)}${reason ? ` · причина: ${reason}` : ''}`,
       });
       if (r.outcome === 'failed') errors.push(`${sub.id}: ${r.error}`);
       if (r.outcome === 'sent') processed++;
@@ -1455,7 +1584,7 @@ async function sendGraceStartReminders(): Promise<StepResult> {
 /// MID — день grace-періоду номер `midDay = ceil(graceDays/2)`.
 /// Тригер: минуло щонайменше `midDay - 1` днів від graceStartedAt → сьогодні і є день номер midDay.
 /// Спрацьовує тільки якщо graceDays ≥ 5 (інакше точка занадто близько до start/last → колізія).
-/// Manual (autoRenew=false) і cyclical (autoRenew=true з failedChargeCount > 0) обробляються разом —
+/// Manual (autoRenew=false) і cyclical (autoRenew=true, будь-яка причина GRACE) обробляються разом —
 /// різні шаблони, спільне поле reminderSentGraceMid.
 async function sendGraceMidReminders(): Promise<StepResult> {
   const graceDays = await getYearlyGraceDays(prisma);
@@ -1489,9 +1618,6 @@ async function sendGraceMidReminders(): Promise<StepResult> {
       // 9/9 — платити нема за що, платіжні листи не шлемо нікому (див. isFullyPaid).
       if (isFullyPaid(sub)) return;
       const isManual = !sub.autoRenew;
-      // Cyclical-mid — тільки коли є про що попереджати (провалене списання або зникле
-      // WFP-правило); інакше підписка не в реальному grace-флоу autopay.
-      if (!isManual && !cyclicalNeedsWarning(sub)) return;
 
       const gracePeriodEndsAt = sub.gracePeriodEndsAt;
       const r = await sendReminderOnce({
@@ -1500,7 +1626,7 @@ async function sendGraceMidReminders(): Promise<StepResult> {
         to: sub.user.email,
         render: () => (isManual
           ? manualGraceMid({ name: sub.user!.name, gracePeriodEndsAt, ...renewMailVars(sub) })
-          : cyclicalGraceMid({ name: sub.user!.name, gracePeriodEndsAt })),
+          : cyclicalGraceMid({ name: sub.user!.name, gracePeriodEndsAt, ...renewMailVars(sub) })),
         eventType: isManual ? 'reminder_manual_grace_mid' : 'reminder_cyclical_grace_mid',
         eventMessage: `Grace ends ${gracePeriodEndsAt.toISOString().slice(0, 10)} · midDay=${midDay} · graceDays=${spanDays}`,
       });
@@ -1550,7 +1676,6 @@ async function sendGraceLastReminders(): Promise<StepResult> {
       // 9/9 — платити нема за що, платіжні листи не шлемо нікому (див. isFullyPaid).
       if (isFullyPaid(sub)) return;
       const isManual = !sub.autoRenew;
-      if (!isManual && !cyclicalNeedsWarning(sub)) return;
 
       const gracePeriodEndsAt = sub.gracePeriodEndsAt;
       const r = await sendReminderOnce({
@@ -1559,7 +1684,7 @@ async function sendGraceLastReminders(): Promise<StepResult> {
         to: sub.user.email,
         render: () => (isManual
           ? manualGraceLast({ name: sub.user!.name, gracePeriodEndsAt, ...renewMailVars(sub) })
-          : cyclicalGraceLast({ name: sub.user!.name, gracePeriodEndsAt })),
+          : cyclicalGraceLast({ name: sub.user!.name, gracePeriodEndsAt, ...renewMailVars(sub) })),
         eventType: isManual ? 'reminder_manual_grace_last' : 'reminder_cyclical_grace_last',
         eventMessage: `Grace ends ${gracePeriodEndsAt.toISOString().slice(0, 10)} · graceDays=${spanDays}`,
       });

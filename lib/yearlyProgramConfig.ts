@@ -52,6 +52,7 @@ export const YEARLY_PROGRAM_CONFIG = {
 /// Додаєш новий reminderSent*-прапор у схему — додай його СЮДИ, і всі три місця підхоплять.
 export const RESET_REMINDER_AND_GRACE_FIELDS = {
   reminderSent3d: false,
+  reminderSent1d: false,
   reminderSentOnExpiry: false,
   reminderSentExpired: false,
   reminderSentGraceStart: false,
@@ -72,11 +73,18 @@ export function isYearlyProgramOrderRef(orderReference: string): 'yearly' | 'mon
 /// Зміна з адмінки впливає тільки на нові переходи ACTIVE→GRACE —
 /// існуючі GRACE-записи мають `gracePeriodEndsAt` зафіксованим.
 export const YEARLY_GRACE_SETTING_KEY = 'yearlyGraceDays';
-/// MIN=2 щоб уникнути сценарію «start + closed в один день/24h»: при graceDays=1
-/// cron-розклад вироджується і студент отримує «доступ продовжено на 1 день» одразу
-/// перед «доступ закрито». 2 дні дають хоча б один день буфера між листами.
-export const YEARLY_GRACE_MIN_DAYS = 2;
-export const YEARLY_GRACE_MAX_DAYS = 90;
+/// MIN=1 — Інститут закриває доступ разовим місячним студентам уже наступного ранку після
+/// кінця модуля. Розклад при graceDays=1 визначений явно, а не «як вийде»: у день закінчення —
+/// лист «сьогодні останній день» і перехід у GRACE, наступного ранку — закриття доступу і лист
+/// про закриття. Листа «пільговий період почався» при 1 дні немає (`graceStartDecision` у
+/// lib/yearlyProgramReminderSchedule.ts): інакше він обіцяв би «доступ продовжено» за кілька
+/// годин до «доступ закрито». Попередження людина має раніше — за 3 дні і за 1 день.
+export const YEARLY_GRACE_MIN_DAYS = 1;
+/// MAX=30 — межа, яку показує модалка «Grace» (пресети до 30). Раніше API приймав до 90,
+/// а модалка — до 30: два різні «максимуми» для одного налаштування. Єдине джерело для
+/// сервера (`/api/admin/yearly-program/settings`) і модалки. На читання межа не діє —
+/// значення, збережене раніше, `getYearlyGraceDays` віддає як є.
+export const YEARLY_GRACE_MAX_DAYS = 30;
 
 /// Читає актуальне значення graceDays з БД. Fallback на константу з config —
 /// означає «ніхто ще не змінював із UI» (рядок у AppSetting не створено).

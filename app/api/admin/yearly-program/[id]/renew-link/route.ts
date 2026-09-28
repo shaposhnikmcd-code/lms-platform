@@ -3,6 +3,7 @@ import prisma from '@/lib/prisma';
 import { getStaffActor } from '@/lib/adminAuth';
 import { issueRenewLink } from '@/lib/yearlyProgramRenew';
 import { nextUnpaidModule } from '@/lib/yearlyProgramModules';
+import { autopayAllowsManualTopUp } from '@/lib/yearlyProgramRenewState';
 
 /// POST /api/admin/yearly-program/[id]/renew-link
 /// Повертає: { url, expiresAt, module? }
@@ -32,6 +33,7 @@ export async function POST(
       plan: true,
       status: true,
       autoRenew: true,
+      failedChargeCount: true,
       cohortId: true,
       user: { select: { email: true } },
       cohort: { select: { startDate: true, endDate: true } },
@@ -59,9 +61,11 @@ export async function POST(
       { status: 400 },
     );
   }
-  // Автоплатіж списує сам. Посилання відкриє сторінку, яка чесно скаже «у вас підключене
-  // автосписання» — і менеджер даремно надішле студенту глухий кут. Краще відмовити тут.
-  if (sub.autoRenew) {
+  // Справний автоплатіж списує сам. Посилання відкриє сторінку, яка чесно скаже «у вас
+  // підключене автосписання» — і менеджер даремно надішле студенту глухий кут. Краще
+  // відмовити тут. Зламаний (GRACE або списання не пройшло) — навпаки: студент доплачує
+  // модуль сам, і посилання саме для цього (той самий предикат, що в роуті оплати).
+  if (sub.autoRenew && !autopayAllowsManualTopUp(sub)) {
     return NextResponse.json(
       { error: 'У підписки увімкнене автосписання — модуль спишеться сам. Спочатку вимкніть автоплатіж.' },
       { status: 409 },

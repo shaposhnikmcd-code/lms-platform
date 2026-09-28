@@ -808,6 +808,96 @@ export default function CohortHeader({
                 )}
               </div>
             )}
+            {/* Список наборів живе ВСЕРЕДИНІ `dropdownRef` (relative-рядок з назвою). Досі він
+                стояв поза ним: (1) закриття «клік поза дропдауном» ловило mousedown по самому
+                пункту списку і ховало список раніше, ніж спрацьовував click — набір не
+                перемикався; (2) `top-full` рахувався від усієї панелі, і список вилазив під
+                сусідні блоки «Активація сторінки / Grace» і пошук. На мобільному ширина —
+                по рядку (left-0 right-0), а не `100vw`, яка вилазила за правий край. */}
+            {open && (
+              <div
+                className={`absolute left-0 right-0 sm:right-auto top-full z-30 mt-2 max-h-[420px] overflow-y-auto rounded-lg border sm:w-auto sm:min-w-[400px] shadow-2xl ${
+                  dark ? 'bg-zinc-900 border-white/10' : 'bg-white border-stone-200'
+                }`}
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    onSelect(null);
+                    setOpen(false);
+                  }}
+                  className={`w-full px-3 py-2 text-left flex items-center justify-between gap-3 text-[13px] transition-colors cursor-pointer ${
+                    activeCohortId === null
+                      ? dark ? 'bg-amber-400/10 text-amber-200' : 'bg-amber-50 text-amber-900'
+                      : dark ? 'hover:bg-white/[0.06] text-slate-200' : 'hover:bg-stone-100 text-stone-800'
+                  }`}
+                >
+                  <span>Усі підписки</span>
+                  {activeCohortId === null && <HiOutlineCheck />}
+                </button>
+                <div className={`h-px ${dark ? 'bg-white/[0.05]' : 'bg-stone-200'}`} />
+                {cohorts.length === 0 ? (
+                  <div className={`px-3 py-3 text-[12px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+                    Запусків ще немає. Натисни "+ Новий запуск" щоб створити перший.
+                  </div>
+                ) : (
+                  cohorts.map((c) => (
+                    <div
+                      key={c.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => {
+                        onSelect(c.id);
+                        setOpen(false);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          onSelect(c.id);
+                          setOpen(false);
+                        }
+                      }}
+                      className={`w-full px-3 py-2 text-left flex items-start justify-between gap-3 text-[13px] transition-colors cursor-pointer ${
+                        c.id === activeCohortId
+                          ? dark ? 'bg-amber-400/10 text-amber-200' : 'bg-amber-50 text-amber-900'
+                          : dark ? 'hover:bg-white/[0.06] text-slate-200' : 'hover:bg-stone-100 text-stone-800'
+                      }`}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="font-medium truncate">{c.name}</div>
+                        <div className={`text-[11px] mt-0.5 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+                          {fmtDate(c.startDate)} — {fmtDate(c.endDate)} · {c.subscriptionsCount} підписок
+                          {c.isCurrent && <span className={`ml-2 ${dark ? 'text-emerald-300' : 'text-emerald-700'}`}>· поточний</span>}
+                          {c.launchedAt && !c.isCurrent && <span className={`ml-2 ${dark ? 'text-amber-300' : 'text-amber-700'}`}>· запущено</span>}
+                        </div>
+                      </div>
+                      <div className="shrink-0 flex items-center gap-2 mt-0.5">
+                        {!c.isCurrent && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleMakeCurrent(c);
+                            }}
+                            disabled={makingCurrentId === c.id}
+                            title="Зробити цей запуск поточним — нові оплати потраплятимуть сюди"
+                            className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10.5px] font-semibold border transition-colors disabled:opacity-50 ${
+                              dark
+                                ? 'bg-emerald-500/10 border-emerald-400/30 text-emerald-200 hover:bg-emerald-500/20'
+                                : 'bg-emerald-50 border-emerald-300/60 text-emerald-800 hover:bg-emerald-100'
+                            }`}
+                          >
+                            <HiOutlineStar className="text-[12px]" />
+                            {makingCurrentId === c.id ? 'Роблю…' : 'Зробити поточним'}
+                          </button>
+                        )}
+                        {c.id === activeCohortId && <HiOutlineCheck className="mt-0.5" />}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
           </div>
 
           {/* Частковий перерахунок після зміни дат: дати збережені, але не всі підписки
@@ -898,91 +988,6 @@ export default function CohortHeader({
               >
                 <HiOutlineXMark className="text-[13px]" />
               </button>
-            </div>
-          )}
-
-          {open && (
-            <div
-              className={`absolute left-0 top-full z-30 mt-2 max-h-[420px] overflow-y-auto rounded-lg border w-[calc(100vw-32px)] sm:w-auto sm:min-w-[400px] shadow-2xl ${
-                dark ? 'bg-zinc-900 border-white/10' : 'bg-white border-stone-200'
-              }`}
-            >
-              <button
-                type="button"
-                onClick={() => {
-                  onSelect(null);
-                  setOpen(false);
-                }}
-                className={`w-full px-3 py-2 text-left flex items-center justify-between gap-3 text-[13px] transition-colors ${
-                  activeCohortId === null
-                    ? dark ? 'bg-amber-400/10 text-amber-200' : 'bg-amber-50 text-amber-900'
-                    : dark ? 'hover:bg-white/[0.06] text-slate-200' : 'hover:bg-stone-100 text-stone-800'
-                }`}
-              >
-                <span>Усі підписки</span>
-                {activeCohortId === null && <HiOutlineCheck />}
-              </button>
-              <div className={`h-px ${dark ? 'bg-white/[0.05]' : 'bg-stone-200'}`} />
-              {cohorts.length === 0 ? (
-                <div className={`px-3 py-3 text-[12px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
-                  Запусків ще немає. Натисни "+ Новий запуск" щоб створити перший.
-                </div>
-              ) : (
-                cohorts.map((c) => (
-                  <div
-                    key={c.id}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => {
-                      onSelect(c.id);
-                      setOpen(false);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        onSelect(c.id);
-                        setOpen(false);
-                      }
-                    }}
-                    className={`w-full px-3 py-2 text-left flex items-start justify-between gap-3 text-[13px] transition-colors cursor-pointer ${
-                      c.id === activeCohortId
-                        ? dark ? 'bg-amber-400/10 text-amber-200' : 'bg-amber-50 text-amber-900'
-                        : dark ? 'hover:bg-white/[0.06] text-slate-200' : 'hover:bg-stone-100 text-stone-800'
-                    }`}
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="font-medium truncate">{c.name}</div>
-                      <div className={`text-[11px] mt-0.5 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
-                        {fmtDate(c.startDate)} — {fmtDate(c.endDate)} · {c.subscriptionsCount} підписок
-                        {c.isCurrent && <span className={`ml-2 ${dark ? 'text-emerald-300' : 'text-emerald-700'}`}>· поточний</span>}
-                        {c.launchedAt && !c.isCurrent && <span className={`ml-2 ${dark ? 'text-amber-300' : 'text-amber-700'}`}>· запущено</span>}
-                      </div>
-                    </div>
-                    <div className="shrink-0 flex items-center gap-2 mt-0.5">
-                      {!c.isCurrent && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleMakeCurrent(c);
-                          }}
-                          disabled={makingCurrentId === c.id}
-                          title="Зробити цей запуск поточним — нові оплати потраплятимуть сюди"
-                          className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10.5px] font-semibold border transition-colors disabled:opacity-50 ${
-                            dark
-                              ? 'bg-emerald-500/10 border-emerald-400/30 text-emerald-200 hover:bg-emerald-500/20'
-                              : 'bg-emerald-50 border-emerald-300/60 text-emerald-800 hover:bg-emerald-100'
-                          }`}
-                        >
-                          <HiOutlineStar className="text-[12px]" />
-                          {makingCurrentId === c.id ? 'Роблю…' : 'Зробити поточним'}
-                        </button>
-                      )}
-                      {c.id === activeCohortId && <HiOutlineCheck className="mt-0.5" />}
-                    </div>
-                  </div>
-                ))
-              )}
             </div>
           )}
         </div>

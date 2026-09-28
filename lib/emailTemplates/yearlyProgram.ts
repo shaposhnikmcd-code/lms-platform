@@ -12,6 +12,7 @@ import {
   daysWordVar,
   PROGRAM_URL,
 } from './reminderTemplates';
+import type { AutopayGraceReason } from '@/lib/yearlyProgramReminderSchedule';
 
 /// Персональна частина manual-нагадувань: посилання «Оплатити наступний модуль» і рядок
 /// «Наступний модуль: 3 з 9 · листопад 2026». Обидва опційні — legacy-підписка без набору
@@ -35,6 +36,15 @@ function renewVars(args: RenewMailVars): { payUrl: string; moduleLine: string } 
 /// Manual #1: за 3 дні до закінчення оплаченого місяця.
 export async function manualBeforeExpiry(args: { name: string | null; expiresAt: Date } & RenewMailVars): Promise<{ subject: string; html: string }> {
   return renderReminder('manual-before', {
+    name: nameOfVar(args.name),
+    expiresAt: dateOfVar(args.expiresAt),
+    ...renewVars(args),
+  });
+}
+
+/// Manual #1b: за 1 день до закінчення — завтра останній день оплаченого модуля.
+export async function manualBeforeExpiry1d(args: { name: string | null; expiresAt: Date } & RenewMailVars): Promise<{ subject: string; html: string }> {
+  return renderReminder('manual-before-1d', {
     name: nameOfVar(args.name),
     expiresAt: dateOfVar(args.expiresAt),
     ...renewVars(args),
@@ -90,17 +100,44 @@ export async function manualGraceLast(args: {
 
 // ==================== CYCLICAL FLOW (автосписання, тільки при помилці) ====================
 
-/// Cyclical #1: через 1 день після експайру — WFP не зміг списати.
+/// Перше речення листа автоплатника в GRACE — ПРАВДИВА причина, чому оплата не надійшла.
+/// Досі лист завжди казав «Сьогодні WayForPay спробував списати… але не пройшло», навіть
+/// коли спроби не було взагалі (правила регулярки немає, графік зсунуто) — або мовчав.
+export function cyclicalReasonLine(
+  reason: AutopayGraceReason,
+  wfpNextChargeAt: Date | null = null,
+): string {
+  if (reason === 'charge_failed') {
+    return 'Автоматичне списання оплати за наступний модуль у Річній програмі інституту UIMP не пройшло. '
+      + 'Найчастіше причина — недостатньо коштів, ліміт на картці або закінчився термін її дії.';
+  }
+  if (reason === 'no_rule') {
+    return 'Автоматичне списання за наступний модуль у Річній програмі інституту UIMP не відбулося: '
+      + 'автосписання з вашої картки у WayForPay більше не підключене.';
+  }
+  if (wfpNextChargeAt) {
+    return 'Оплата за наступний модуль у Річній програмі інституту UIMP не надійшла: наступне автосписання '
+      + `у WayForPay заплановане лише на ${dateOfVar(wfpNextChargeAt)} — пізніше, ніж закінчився оплачений модуль.`;
+  }
+  return 'Оплата за наступний модуль у Річній програмі інституту UIMP за графіком автосписання не надійшла.';
+}
+
+/// Cyclical #1: перший лист автоплатнику в GRACE — причина залежить від `reason`.
 export async function cyclicalChargeFailed1(args: {
   name: string | null;
   gracePeriodEndsAt: Date;
   graceDays: number;
-}): Promise<{ subject: string; html: string }> {
+  /// Причина — з `autopayGraceReason`. Без неї (прев'ю адмінки) — «списання не пройшло».
+  reason?: AutopayGraceReason;
+  wfpNextChargeAt?: Date | null;
+} & RenewMailVars): Promise<{ subject: string; html: string }> {
   return renderReminder('cyclical-failed-1', {
     name: nameOfVar(args.name),
+    reasonLine: cyclicalReasonLine(args.reason ?? 'charge_failed', args.wfpNextChargeAt ?? null),
     gracePeriodEndsAt: dateOfVar(args.gracePeriodEndsAt),
     graceDays: String(args.graceDays),
     graceDaysWord: daysWordVar(args.graceDays),
+    ...renewVars(args),
   });
 }
 
@@ -108,13 +145,14 @@ export async function cyclicalChargeFailed1(args: {
 export async function cyclicalGraceMid(args: {
   name: string | null;
   gracePeriodEndsAt: Date;
-}): Promise<{ subject: string; html: string }> {
+} & RenewMailVars): Promise<{ subject: string; html: string }> {
   const daysLeft = Math.max(0, Math.ceil((args.gracePeriodEndsAt.getTime() - Date.now()) / (24 * 60 * 60 * 1000)));
   return renderReminder('cyclical-grace-mid', {
     name: nameOfVar(args.name),
     gracePeriodEndsAt: dateOfVar(args.gracePeriodEndsAt),
     daysLeft: String(daysLeft),
     daysWord: daysWordVar(daysLeft),
+    ...renewVars(args),
   });
 }
 
@@ -122,10 +160,11 @@ export async function cyclicalGraceMid(args: {
 export async function cyclicalGraceLast(args: {
   name: string | null;
   gracePeriodEndsAt: Date;
-}): Promise<{ subject: string; html: string }> {
+} & RenewMailVars): Promise<{ subject: string; html: string }> {
   return renderReminder('cyclical-grace-last', {
     name: nameOfVar(args.name),
     gracePeriodEndsAt: dateOfVar(args.gracePeriodEndsAt),
+    ...renewVars(args),
   });
 }
 

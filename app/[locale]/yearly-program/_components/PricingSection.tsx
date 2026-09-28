@@ -1,5 +1,6 @@
 import CoursePurchaseModal from '@/components/CoursePurchaseModal';
 import { YEARLY_PROGRAM } from '../config';
+import { RENEW_ENTRY_ANCHOR } from '@/lib/yearlyProgramRenew';
 
 type Props = {
   t: {
@@ -222,7 +223,7 @@ export default function PricingSection({ t, yearlyPrice, yearlyOldPrice, monthly
           запуску набору, а помісячним студентам платити за модулі ще весь рік. Умова —
           лише наявність набору, у який роут узагалі може прийняти платіж. */}
       {renewOpen && (
-        <div className="grid md:grid-cols-2 gap-5 mt-4">
+        <div id={RENEW_ENTRY_ANCHOR} className="grid md:grid-cols-2 gap-5 mt-4 scroll-mt-24">
           <div className="hidden md:block" aria-hidden />
           <div className="px-6 text-center md:text-left">
             <p className="text-[13px] text-gray-500 mb-1.5">

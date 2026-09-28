@@ -608,7 +608,7 @@ export default function CoursePurchaseDialog({
               {renewFlow && !inviteToken && (
                 <p className="mt-1.5 text-xs text-amber-700 flex items-center gap-1">
                   <span aria-hidden>🔗</span>
-                  Ваша підписка — оплата зарахується саме на цей email
+                  {t('renewEmailLocked')}
                 </p>
               )}
               {!emailLocked && !errors.email && (
@@ -689,10 +689,10 @@ export default function CoursePurchaseDialog({
             {lockRecurring && !allowRecurringChoice && (
               <div className="rounded-xl border-2 border-[#D4A017]/35 bg-gradient-to-br from-[#FDFBF4] to-white px-3 py-2">
                 <div className="text-[9px] font-bold tracking-[0.14em] text-[#1C3A2E]/70">
-                  ОПЛАТА ОДНОГО МОДУЛЯ
+                  {t('moduleBoxTitle')}
                 </div>
                 <p className="mt-0.5 text-[11px] text-gray-600 leading-snug">
-                  Разовий платіж за наступний модуль програми. Автосписання не підключається.
+                  {t('moduleBoxText')}
                 </p>
               </div>
             )}
@@ -967,6 +967,10 @@ export default function CoursePurchaseDialog({
                 ? 'Курс уже у вас'
                 : isBundlePurchase && bundleOverlap.length > 0
                 ? 'Все одно купити пакет'
+                // Оплата модуля Річної (renew-панель і рядок «Оплатити наступний модуль»):
+                // людина платить за модуль програми, а не купує курс.
+                : lockRecurring && !allowRecurringChoice
+                ? t('btnPayModule')
                 : t('btnPay')}
             </button>
           </div>

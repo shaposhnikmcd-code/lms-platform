@@ -2,6 +2,7 @@ import type { PrismaClient } from '@prisma/client';
 import { cohortSlotIndex, monthlySchedule } from './yearlyProgramAccess';
 import { nextUnpaidModule, type ModuleRef } from './yearlyProgramModules';
 import { verifyRenewToken } from './yearlyProgramRenew';
+import { autopayGraceReason, type AutopayGraceReason } from './yearlyProgramReminderSchedule';
 
 /// Що показати на `/yearly-program` тому, хто прийшов за персональним посиланням. Уся
 /// логіка «чи можна зараз продати цій людині наступний модуль» — тут, в ОДНОМУ місці,
@@ -29,8 +30,29 @@ import { verifyRenewToken } from './yearlyProgramRenew';
 /// саме робив будь-який «блукаючий» набір без `isCurrent`. Поновлення — це доплата
 /// всередині СВОГО набору: з нього рахуються сітка модулів, номер модуля і дати.
 
+/// Чи можна автоплатнику доплатити модуль РАЗОВО, не вимикаючи автосписання наперед.
+///
+/// Rule 2 у `/api/wayforpay` («спочатку скасуйте автосписання») захищає від подвійного
+/// списання, поки регулярка у WFP робоча: модуль і так спишеться сам. Але коли списання
+/// вже не пройшло (`failedChargeCount > 0`) або підписка дійшла до GRACE (регулярки
+/// немає, графік зсунуто, WFP мовчки перестав списувати), чекати нема чого — а студент,
+/// який сам вимкнути автосписання не може, лишався без жодного шляху заплатити і тихо
+/// втрачав доступ. Тож у цих станах разова доплата дозволена; саме правило регулярки
+/// роут знімає при відкритті оплати (гілка downgrade), щоб WFP не списав той самий
+/// модуль вдруге.
+///
+/// Єдине джерело правди для роуту, сторінки поновлення і листів автоплатника.
+export function autopayAllowsManualTopUp(sub: {
+  autoRenew: boolean;
+  status: string;
+  failedChargeCount: number | null;
+}): boolean {
+  if (!sub.autoRenew) return false;
+  return sub.status === 'GRACE' || (sub.failedChargeCount ?? 0) > 0;
+}
+
 export type RenewBlockReason =
-  /// Rule 2 у роуті: `monthly_autopay_active`.
+  /// Rule 2 у роуті: `monthly_autopay_active` — автосписання справне, модуль спишеться сам.
   | 'autopay'
   /// Rule 1 у роуті: `yearly_already_purchased`.
   | 'yearly_active'
@@ -65,6 +87,12 @@ export type RenewState =
       module: ModuleRef;
       price: number;
       prefill: { phone: string | null; country: string | null; telegram: string | null };
+      /// Автоплатник, у якого списання не пройшло: ця оплата вимкне автосписання
+      /// (див. `autopayAllowsManualTopUp`). Панель має сказати це до оплати.
+      stopsAutopay: boolean;
+      /// Чому автосписання не спрацювало (`autopayGraceReason`) — панель називає саме цю
+      /// причину, а не завжди «не пройшло». null, коли `stopsAutopay` = false.
+      stopsAutopayReason: AutopayGraceReason | null;
     }
   | {
       kind: 'blocked';
@@ -100,6 +128,8 @@ export async function resolveRenewState(args: {
       plan: true,
       status: true,
       autoRenew: true,
+      failedChargeCount: true,
+      wfpRegularRef: true,
       cohortId: true,
       phone: true,
       country: true,
@@ -157,7 +187,10 @@ export async function resolveRenewState(args: {
     select: { id: true },
   });
   if (yearlySub) return blocked('yearly_active', { module: null });
-  if (sub.autoRenew && hasLivePayment) return blocked('autopay');
+  // Справне автосписання — блок (модуль спишеться сам). Зламане — пропускаємо далі до
+  // звичайних перевірок: людина може закрити модуль сама.
+  const stopsAutopay = autopayAllowsManualTopUp(sub);
+  if (sub.autoRenew && hasLivePayment && !stopsAutopay) return blocked('autopay');
   // Жодного зарахованого платежу — доплачувати нічого: це перша покупка, а не
   // поновлення. Стоїть ПЕРЕД сіткою модулів свідомо: без платежів сітка формально
   // віддала б «модуль 1 з 9», і панель обіцяла б оплату, яку роут не пропустить.
@@ -181,5 +214,9 @@ export async function resolveRenewState(args: {
     module: nextModule,
     price: monthlyPrice,
     prefill: { phone: sub.phone, country: sub.country, telegram: sub.telegramUsername },
+    stopsAutopay,
+    stopsAutopayReason: stopsAutopay
+      ? autopayGraceReason({ failedChargeCount: sub.failedChargeCount, wfpRegularRef: sub.wfpRegularRef ?? null })
+      : null,
   };
 }

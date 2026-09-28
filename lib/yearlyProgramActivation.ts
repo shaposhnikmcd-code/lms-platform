@@ -60,6 +60,9 @@ export interface PaymentActivationResult {
   /// true — режим `correction` підняв живу підписку (PENDING/GRACE) назад в ACTIVE, бо
   /// перерахований доступ знову чинний. Для тексту події менеджера.
   liftedByCorrection: boolean;
+  /// true — режим `payment` посунув expiresAt уперед, тож прапорці нагадувань і grace-дати
+  /// скинуто (новий цикл листів), як після WFP-callback-а.
+  remindersReset: boolean;
 }
 
 /// Статуси «живої» підписки, які завжди активуються після оплати.
@@ -156,6 +159,23 @@ export async function applyPaymentActivation(args: {
   const clearCancelTrace = revived && !!fresh?.cancelledAt;
   const spMarkersReset = revived && !!fresh?.sendpulseAccessClosedAt;
 
+  // Оплата посунула доступ уперед → новий цикл життя підписки, як після WFP-callback-а
+  // (`handleYearlyProgramCallback` скидає ті самі поля на кожному Approved). Без цього
+  // «Внести оплату» за наступний модуль лишала спожитими прапорці `reminderSent*` від
+  // попереднього модуля, і наступного місяця студент не отримував жодного нагадування
+  // («за 3 дні», «останній день», grace) — доступ закривався мовчки. Grace-дати теж
+  // скидаємо: інакше нічний `expireGraceSubscriptions` закрив би доступ по старому
+  // `gracePeriodEndsAt`. Лічильник неуспішних списань — так само, як у callback-у:
+  // успішна оплата модуля його обнуляє.
+  //
+  // Лише коли дата справді пізніша: повторне зарахування, що нічого не додало (або
+  // платіж у минуле), не має «перезаряджати» вже надіслані листи поточного циклу.
+  const prevExpiresAt = fresh?.expiresAt ?? null;
+  const extendsAccess = !isCorrection
+    && newStatus === 'ACTIVE'
+    && !!newExpiresAt
+    && (!prevExpiresAt || newExpiresAt.getTime() > prevExpiresAt.getTime());
+
   await prisma.yearlyProgramSubscription.update({
     where: { id: args.subscriptionId },
     data: {
@@ -175,6 +195,7 @@ export async function applyPaymentActivation(args: {
       // (PENDING→ACTIVE)» інакше проносив спожиті прапори повз скидання, і наступний цикл
       // попереджень мовчав. Для здорового PENDING поля й так порожні — скидання no-op.
       ...(liftedByCorrection ? RESET_REMINDER_AND_GRACE_FIELDS : {}),
+      ...(extendsAccess ? { ...RESET_REMINDER_AND_GRACE_FIELDS, failedChargeCount: 0, lastChargeError: null } : {}),
     },
   });
 
@@ -223,5 +244,5 @@ export async function applyPaymentActivation(args: {
     });
   }
 
-  return { newStatus, newExpiresAt, cohortLaunched, hasCohort, revived, spMarkersReset, debt, revertedToPending, liftedByCorrection };
+  return { newStatus, newExpiresAt, cohortLaunched, hasCohort, revived, spMarkersReset, debt, revertedToPending, liftedByCorrection, remindersReset: extendsAccess };
 }

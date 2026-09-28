@@ -4,6 +4,7 @@ import { isAdmin } from '@/lib/adminAuth';
 import { getYearlyGraceDays } from '@/lib/yearlyProgramConfig';
 import {
   manualBeforeExpiry,
+  manualBeforeExpiry1d,
   manualOnExpiry,
   manualGraceStart,
   manualGraceMid,
@@ -15,7 +16,7 @@ import {
 } from '@/lib/emailTemplates/yearlyProgram';
 
 /// Повертає HTML рендер email-шаблону для попереднього перегляду в адмінці.
-/// ?type=manual-before | manual-on-expiry | manual-grace-start | manual-grace-mid | manual-grace-last
+/// ?type=manual-before | manual-before-1d | manual-on-expiry | manual-grace-start | manual-grace-mid | manual-grace-last
 ///       cyclical-failed-1 | cyclical-grace-mid | cyclical-grace-last
 ///       closed
 export async function GET(req: NextRequest) {
@@ -40,6 +41,9 @@ export async function GET(req: NextRequest) {
   switch (type) {
     case 'manual-before':
       html = (await manualBeforeExpiry({ name: sampleName, expiresAt: in3Days })).html;
+      break;
+    case 'manual-before-1d':
+      html = (await manualBeforeExpiry1d({ name: sampleName, expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) })).html;
       break;
     case 'manual-on-expiry':
       html = (await manualOnExpiry({ name: sampleName })).html;

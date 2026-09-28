@@ -28,7 +28,7 @@ import {
 } from 'react-icons/hi2';
 import { FaApplePay, FaGooglePay, FaRegCreditCard } from 'react-icons/fa';
 import type { YearlyProgramSettings } from '@/lib/yearlyProgramSettings';
-import { YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
+import { YEARLY_GRACE_MAX_DAYS, YEARLY_GRACE_MIN_DAYS, YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
 import { useAdminTheme, type Theme } from '../../_components/adminTheme';
 import { AdminShell, AdminPanel } from '../../_components/AdminShell';
 import DateRangeFilter, { isWithinDateRange } from '../../_components/DateRangeFilter';
@@ -563,7 +563,7 @@ function YearlyProgramViewInner({
     if (confirmMsg) {
       const ok = await confirm({
         title: confirmMsg,
-        destructive: action === 'cancel' || action === 'close_access' || action === 'delete',
+        destructive: action === 'cancel_autopay' || action === 'close_access' || action === 'delete',
       });
       if (!ok) return false;
     }
@@ -640,7 +640,10 @@ function YearlyProgramViewInner({
           ширшою за свій контент вона не стає. */}
       {/* На мобільному `w-fit` дає рвану ширину під найдовший чип — там панель на всю
           ширину екрана; з sm: повертається десктопний shrink-to-fit. */}
-      <AdminPanel theme={theme} padding="p-0" className="mb-5 w-full sm:w-fit max-w-full sm:max-w-[1200px]">
+      {/* `z-20`: панель — окремий stacking context (`relative` + `backdrop-blur`), тож без
+          власного z-index список наборів (z-30 усередині) малювався ПІД наступними панелями
+          «Активація сторінки / Grace» і пошуком, які йдуть нижче в DOM. */}
+      <AdminPanel theme={theme} padding="p-0" className="relative z-20 mb-5 w-full sm:w-fit max-w-full sm:max-w-[1200px]">
         <CohortHeader
           cohorts={cohorts}
           activeCohortId={activeCohortId}
@@ -1792,7 +1795,10 @@ function ExpandedRowContent({
           <span className={`shrink-0 ${dark ? 'text-slate-600' : 'text-stone-400'}`}>{noteDraft.length}/{ADMIN_NOTE_MAX_LENGTH_CLIENT}</span>
         </div>
       </div>
-      <div className="grid md:grid-cols-3 gap-5">
+      {/* `minmax(0,1fr)` замість неявного `auto`-треку: на телефоні колонка одна, і без цього
+          вона розтягувалась до найширшого вмісту (довгий orderReference у «Платежах»), тож
+          кнопки «Дії» обрізались правим краєм картки на 360px. */}
+      <div className="grid grid-cols-[minmax(0,1fr)] md:grid-cols-3 gap-5">
       <div className="md:col-span-1">
         <div className="flex items-center gap-2 mb-2">
           <SectionTitle theme={theme} className="!mb-0">Дії</SectionTitle>
@@ -1956,7 +1962,7 @@ function ExpandedRowContent({
             <ActionBtn theme={theme} disabled={busy || row.status === 'CANCELLED' || row.status === 'ARCHIVED'} tone="warning" onClick={async () => {
               const reason = await prompt({
                 title: 'Скасувати автосписання?',
-                description: 'WFP більше не списуватиме картку. Доступ зберігається до кінця оплаченого місяця. Причина зберігається в журналі підписки.',
+                description: 'WayForPay більше не списуватиме картку. Статус і доступ не змінюються — доступ діє до кінця оплаченого модуля, з Telegram-каналу студента не вилучаємо. Далі студент отримуватиме листи з посиланням на разову оплату модуля. Причина зберігається в журналі підписки.',
                 inputLabel: 'Причина скасування',
                 placeholder: 'Напр.: студент написав у підтримку',
                 required: true,
@@ -1967,7 +1973,7 @@ function ExpandedRowContent({
                 destructive: true,
               });
               if (reason === null) return;
-              onAction('cancel', { reason });
+              onAction('cancel_autopay', { reason });
             }}>
               🚫 Скасувати автосписання
             </ActionBtn>
@@ -1998,9 +2004,12 @@ function ExpandedRowContent({
             </ActionBtn>
           )}
           {/* Персональне посилання на оплату модуля — тільки там, де воно має сенс:
-              місячна разова, не деактивована. Для автоплатежу сторінка все одно
-              скаже «спишеться саме», тому кнопки там немає. */}
-          {row.plan === 'MONTHLY' && !row.autoRenew && row.status !== 'ARCHIVED' && (
+              місячна, не деактивована, разова АБО автоплатіж, що зламався (GRACE чи
+              списання не пройшло — дзеркало `autopayAllowsManualTopUp` з
+              lib/yearlyProgramRenewState.ts; сюди не імпортуємо, бо модуль серверний).
+              Для справного автоплатежу сторінка скаже «спишеться саме» — кнопки там немає. */}
+          {row.plan === 'MONTHLY' && row.status !== 'ARCHIVED'
+            && (!row.autoRenew || row.status === 'GRACE' || details.failedChargeCount > 0) && (
             <ActionBtn
               theme={theme}
               disabled={busy || renewLinking}
@@ -2411,7 +2420,7 @@ function eventTypeColor(type: string, dark: boolean): string {
   if (type === 'created' || type === 'access_opened' || type === 'reactivated') return dark ? 'text-emerald-300' : 'text-emerald-700';
   if (type === 'renewed') return dark ? 'text-sky-300' : 'text-sky-700';
   if (type === 'plan_converted') return dark ? 'text-amber-300' : 'text-amber-700';
-  if (type === 'cancelled') return dark ? 'text-slate-400' : 'text-stone-600';
+  if (type === 'cancelled' || type === 'autorenew_cancelled') return dark ? 'text-slate-400' : 'text-stone-600';
   if (type.startsWith('reminder')) return dark ? 'text-amber-300' : 'text-amber-700';
   return dark ? 'text-slate-400' : 'text-stone-600';
 }
@@ -3566,7 +3575,7 @@ function StatusInfoButton({ theme, graceDays }: { theme: Theme; graceDays: numbe
     { status: 'ACTIVE', desc: 'Оплата пройшла, доступ до курсу відкрито — людина навчається.' },
     { status: 'GRACE', desc: `Термін доступу закінчився, але триває пільговий період (${graceDays} ${pluralizeDays(graceDays)}) — щоб встигнути продовжити без втрати доступу.` },
     { status: 'EXPIRED', desc: 'Доступ до курсу в SendPulse закрито — автоматично після grace-періоду або вручну менеджером.' },
-    { status: 'CANCELLED', desc: 'Платну підписку скасовано (користувачем або менеджером). Для місячної автосписання зупинено; доступ зберігається до кінця вже оплаченого періоду.' },
+    { status: 'CANCELLED', desc: 'Ставиться лише ручною правкою статусу менеджером. Кнопка «Скасувати автосписання» цей статус НЕ ставить — підписка лишається Активною до кінця оплаченого модуля.' },
     { status: 'ARCHIVED', desc: 'Відкладено як неактуальне: незавершені спроби оплати (авто-архів через 24 год) або заархівоване менеджером вручну. У списку за замовчуванням сховано — щоб побачити, оберіть фільтр «Архів».' },
   ];
 
@@ -3785,7 +3794,7 @@ function HelpModal({ theme, graceDays, onClose }: { theme: Theme; graceDays: num
     { badge: 'ACTIVE',    name: 'Активний',   desc: 'Все добре — оплата пройшла, доступ відкрито, користувач навчається.', cls: dark ? 'bg-emerald-500/15 text-emerald-300' : 'bg-emerald-100 text-emerald-800' },
     { badge: 'GRACE',     name: 'Grace',      desc: `Термін доступу закінчився, але є ${graceDays} ${graceWord} пільгового періоду — встигнемо продовжити без втрати доступу.`, cls: dark ? 'bg-amber-500/15 text-amber-300' : 'bg-amber-100 text-amber-800' },
     { badge: 'EXPIRED',   name: 'Доступ закрито', desc: 'Доступ до курсу в SendPulse закрито — автоматично після grace-періоду або вручну менеджером.', cls: dark ? 'bg-rose-500/15 text-rose-300' : 'bg-rose-100 text-rose-800' },
-    { badge: 'CANCELLED', name: 'Скасовано',  desc: 'Користувач/адмін скасував підписку. Для MONTHLY автосписання зупинено. Доступ зберігається до кінця оплаченого періоду.', cls: dark ? 'bg-slate-500/15 text-slate-300' : 'bg-stone-200 text-stone-700' },
+    { badge: 'CANCELLED', name: 'Скасовано',  desc: 'Лише ручна правка статусу менеджером. «Скасувати автосписання» цей статус не ставить — підписка лишається Активною до кінця оплаченого модуля.', cls: dark ? 'bg-slate-500/15 text-slate-300' : 'bg-stone-200 text-stone-700' },
     { badge: 'ARCHIVED',  name: 'Архів',      desc: 'Адмін заархівував. Доступ у SendPulse закрито, технічні поля очищено. Картка лишається як історичний запис, але відновити не можна.', cls: dark ? 'bg-zinc-700/30 text-zinc-400' : 'bg-zinc-200 text-zinc-600' },
   ];
 
@@ -3795,7 +3804,7 @@ function HelpModal({ theme, graceDays, onClose }: { theme: Theme; graceDays: num
     { icon: '➕', name: 'Додати студента вручну (кнопка вгорі, над таблицею)', desc: 'Заводить студента у програму без оплати через сайт — наприклад, щоб перенести людину з минулорічного набору. Ви вказуєте email, імʼя, план і набір (запуск); за потреби система створює новий акаунт і надсилає лист для встановлення пароля. Студент додається у статусі «Очікує» — доступу ще немає і дохід не змінюється. Коли отримаєте від нього оплату — відкрийте його картку та натисніть «Підтвердити оплату вручну»: тоді він стане «Активним» і отримає доступ.' },
     { icon: '🎯', name: 'Екстра Запуск нового студента', desc: 'Зʼявляється, коли студент оплатив підписку ПІСЛЯ того, як набір уже запущено. Загальна кнопка «Запустити програму» відпрацювала раніше і цього новачка пропустила. Ця кнопка точково відкриває йому доступ у SendPulse і надсилає вітальний лист — так само, як усім іншим при загальному запуску.' },
     { icon: '⏱', name: 'Продовжити доступ до SendPulse', desc: 'Відкриває вікно, де ви вказуєте, на скільки днів подовжити доступ. Ці дні додаються до поточної дати закінчення (а якщо доступ уже сплив — відлік іде від сьогодні). Зручно для бонусів, подарунків чи компенсацій. Змінює лише дату закінчення в нашій базі — гроші не списуються.' },
-    { icon: '🚫', name: 'Скасувати автосписання', desc: 'Зупиняє автоматичні списання з картки на боці WayForPay і ставить статус CANCELLED. Доступ зберігається до кінця оплаченого місяця. Кнопка з\'являється тільки для місячних підписок з активним автоплатежем — для річних і одноразових місячних її нема.' },
+    { icon: '🚫', name: 'Скасувати автосписання', desc: 'Зупиняє автоматичні списання з картки на боці WayForPay. Статус лишається Активним, доступ — до кінця оплаченого модуля, далі студент оплачує модулі сам за посиланням з листа. Кнопка з\'являється тільки для місячних підписок з активним автоплатежем — для річних і одноразових місячних її нема.' },
     { icon: '✕', name: 'Закрити доступ у SendPulse', desc: 'Миттєво забирає доступ до курсу в SendPulse. Підписка стає EXPIRED. Заодно вилучає студента з Telegram-каналу у returnable-режимі (invite-link лишається валідним — за потреби студент може повернутись через "Відкрити доступ до SendPulse"). Для MONTHLY-автоплатежів додатково знімає WFP-регулярки, щоб не йшли orphan-списання.' },
     { icon: '✓', name: 'Відкрити доступ до SendPulse', desc: 'Відновлює доступ у SendPulse через event + продовжує термін згідно плану (YEARLY +365д, MONTHLY +30д). Якщо студент був забанений у ТГ-каналі (через "Вилучити з ТГ та закрити доступ" або "Деактивувати") — окремо тисни 📨, тоді auto-unban зробить його придатним для нового invite. Не працює для статусу ARCHIVED.' },
     { icon: '📨', name: 'Надіслати / Перенадіслати Welcome E-mail з запрошенням в Telegram', desc: 'Генерує одноразовий invite-link у ТГ-канал і шле його студенту листом. Перед генерацією виконує auto-unban (only_if_banned=true) — якщо студент раніше був вилучений+забанений, він зможе зайти за новим посиланням. Idempotent: якщо invite-link уже згенерований і не передано force — повертає існуючий без створення дубля.' },
@@ -3889,12 +3898,12 @@ function GraceSettingsModal({
   const [days, setDays] = useState<string>(String(initialDays));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // MIN=2 — при grace=1 cron-розклад не має сенсу: «start» (день +1) і «закриття» (день +2)
-  // йдуть поспіль за 24h, студент отримує плутанину «доступ продовжено на 1 день» → одразу
-  // «доступ закрито». Мінімум 2 дні дають хоча б один день тиші між повідомленнями.
-  const MIN = 2;
-  const MAX = 30;
-  const PRESETS = [3, 5, 7, 14, 30];
+  // MIN=1 — дзеркало YEARLY_GRACE_MIN_DAYS (lib/yearlyProgramConfig.ts; сервер перевіряє
+  // межу сам). При 1 дні доступ закривається наступного ранку після дня закінчення, а лист
+  // «пільговий період почався» не шлеться — див. підказку нижче.
+  const MIN = YEARLY_GRACE_MIN_DAYS;
+  const MAX = YEARLY_GRACE_MAX_DAYS;
+  const PRESETS = [1, 3, 5, 7, 14, 30];
 
   useEffect(() => { setMounted(true); }, []);
   useEffect(() => {
@@ -4126,7 +4135,9 @@ function GraceSettingsModal({
               У листі студенту
             </div>
             <p className={`text-[13px] leading-relaxed ${dark ? 'text-slate-200' : 'text-stone-800'}`}>
-              «Доступ ще на <strong className={dark ? 'text-amber-300' : 'text-amber-700'}>{previewN} {previewWord}</strong> — встигніть оформити нову оплату до закриття».
+              {previewN === 1
+                ? 'Листа про пільговий період немає: наступного ранку після дати закінчення доступ закривається і студент отримує лист про закриття.'
+                : <>«Доступ ще на <strong className={dark ? 'text-amber-300' : 'text-amber-700'}>{previewN} {previewWord}</strong> — встигніть оформити нову оплату до закриття».</>}
             </p>
           </div>
 
@@ -4136,6 +4147,13 @@ function GraceSettingsModal({
             <p>
               Застосовується <strong>до нових переходів</strong> ACTIVE → GRACE.
               Уже активні GRACE-записи зберігають свою дату закриття.
+              {previewN === 1 && (
+                <>
+                  {' '}При <strong>1 дні</strong> доступ закривається наступного ранку після дати
+                  закінчення. Студент отримує листи за 3 дні, за 1 день і в день закінчення, а
+                  лист про пільговий період не надсилається.
+                </>
+              )}
             </p>
           </div>
         </div>
