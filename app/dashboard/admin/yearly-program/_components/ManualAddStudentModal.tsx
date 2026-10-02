@@ -118,11 +118,11 @@ export default function ManualAddStudentModal({
         style={{ maxWidth: 'min(540px, 96vw)' }}
       >
         {/* HEADER */}
-        <header className={`shrink-0 flex items-center justify-between px-6 py-4 border-b ${
+        <header className={`shrink-0 flex items-center justify-between px-6 py-2.5 border-b ${
           dark ? 'bg-zinc-900/95 border-white/10' : 'bg-white/95 border-stone-200'
         }`}>
           <div className="flex items-center gap-3 min-w-0">
-            <div className={`shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-[18px] ${
+            <div className={`shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-[18px] ${
               dark ? 'bg-sky-400/15 text-sky-300 border border-sky-400/30' : 'bg-sky-100 text-sky-800 border border-sky-300/60'
             }`}>
               <HiOutlineUserPlus />
@@ -139,14 +139,14 @@ export default function ManualAddStudentModal({
           <button
             onClick={onClose}
             aria-label="Закрити"
-            className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-[14px] transition-colors ${
+            className={`shrink-0 w-8 h-8 cursor-pointer rounded-full flex items-center justify-center text-[14px] transition-colors ${
               dark ? 'hover:bg-white/10 text-slate-400' : 'hover:bg-stone-100 text-stone-500'
             }`}
           >✕</button>
         </header>
 
         {/* BODY */}
-        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
+        <div className="flex-1 overflow-y-auto px-6 py-3 space-y-2.5">
           <Field theme={theme} label="Тип додавання" required>
             <div className="grid grid-cols-2 gap-2">
               {([['pending', '⏳ Очікує оплату'], ['carryover', '🔄 Перенесення з минулого року']] as const).map(([v, label]) => {
@@ -156,7 +156,7 @@ export default function ManualAddStudentModal({
                     key={v}
                     type="button"
                     onClick={() => setMode(v)}
-                    className={`px-3 py-2.5 rounded-lg border text-[12px] font-semibold transition-colors leading-tight ${
+                    className={`px-3 py-2.5 cursor-pointer rounded-lg border text-[12px] font-semibold transition-colors leading-tight ${
                       active
                         ? dark ? 'bg-sky-500/15 border-sky-400/40 text-sky-200' : 'bg-sky-50 border-sky-400/70 text-sky-900'
                         : dark ? 'bg-zinc-800 border-white/10 text-slate-300 hover:bg-white/[0.06]' : 'bg-white border-stone-300 text-stone-700 hover:bg-stone-50'
@@ -170,7 +170,7 @@ export default function ManualAddStudentModal({
           </Field>
 
           {mode === 'carryover' ? (
-            <div className={`flex items-start gap-2.5 px-4 py-3 rounded-xl border text-[12px] leading-relaxed ${
+            <div className={`flex items-start gap-2.5 px-4 py-2 rounded-xl border text-[12px] leading-relaxed ${
               dark ? 'bg-violet-500/[0.06] border-violet-400/20 text-violet-100/90' : 'bg-violet-50/70 border-violet-200/70 text-violet-900'
             }`}>
               <span className="shrink-0">🔄</span>
@@ -182,7 +182,7 @@ export default function ManualAddStudentModal({
               </span>
             </div>
           ) : (
-            <div className={`flex items-start gap-2.5 px-4 py-3 rounded-xl border text-[12px] leading-relaxed ${
+            <div className={`flex items-start gap-2.5 px-4 py-2 rounded-xl border text-[12px] leading-relaxed ${
               dark ? 'bg-sky-500/[0.05] border-sky-400/20 text-sky-100/90' : 'bg-sky-50/60 border-sky-200/70 text-sky-900'
             }`}>
               <span className="shrink-0">ℹ️</span>
@@ -235,7 +235,7 @@ export default function ManualAddStudentModal({
                       key={v}
                       type="button"
                       onClick={() => setPlan(v)}
-                      className={`px-3 py-2.5 rounded-lg border text-[12px] font-semibold transition-colors ${
+                      className={`px-3 py-2.5 cursor-pointer rounded-lg border text-[12px] font-semibold transition-colors ${
                         active
                           ? dark ? 'bg-sky-500/15 border-sky-400/40 text-sky-200' : 'bg-sky-50 border-sky-400/70 text-sky-900'
                           : dark ? 'bg-zinc-800 border-white/10 text-slate-300 hover:bg-white/[0.06]' : 'bg-white border-stone-300 text-stone-700 hover:bg-stone-50'
@@ -274,7 +274,7 @@ export default function ManualAddStudentModal({
             />
           </Field>
 
-          <div className="space-y-2.5 pt-1">
+          <div className="space-y-2.5 pt-0.5">
             <Checkbox
               theme={theme}
               checked={sendPasswordEmail}
@@ -295,12 +295,12 @@ export default function ManualAddStudentModal({
         </div>
 
         {/* FOOTER */}
-        <footer className={`shrink-0 flex items-center justify-end gap-2 px-6 py-4 border-t ${
+        <footer className={`shrink-0 flex items-center justify-end gap-2 px-6 py-2.5 border-t ${
           dark ? 'bg-zinc-900/95 border-white/10' : 'bg-white/95 border-stone-200'
         }`}>
           <button
             onClick={onClose}
-            className={`px-4 py-2 rounded-lg text-[13px] font-medium border ${
+            className={`px-4 py-2 cursor-pointer rounded-lg text-[13px] font-medium border ${
               dark ? 'border-white/10 text-slate-300 hover:bg-white/[0.06]' : 'border-stone-300 text-stone-700 hover:bg-stone-50'
             }`}
           >
@@ -310,7 +310,7 @@ export default function ManualAddStudentModal({
             type="button"
             onClick={submit}
             disabled={!canSubmit}
-            className={`inline-flex items-center gap-1.5 px-5 py-2 rounded-lg text-[13px] font-bold border transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+            className={`inline-flex items-center cursor-pointer gap-1.5 px-5 py-2 rounded-lg text-[13px] font-bold border transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
               dark
                 ? 'bg-sky-500/15 text-sky-200 border-sky-400/30 hover:bg-sky-500/25'
                 : 'bg-sky-50 text-sky-900 border-sky-300/60 hover:bg-sky-100'
@@ -332,7 +332,7 @@ function Field({ theme, label, required, children }: { theme: Theme; label: stri
   const dark = theme === 'dark';
   return (
     <div>
-      <label className={`block text-[11px] uppercase tracking-wider font-medium mb-1.5 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
+      <label className={`block text-[11px] uppercase tracking-wider font-medium mb-1 ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
         {label} {required && <span className={dark ? 'text-rose-300' : 'text-rose-500'}>*</span>}
       </label>
       {children}
