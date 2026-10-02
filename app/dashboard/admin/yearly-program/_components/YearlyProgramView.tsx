@@ -54,6 +54,7 @@ const EditPaymentModal = dynamic(() => import('./EditPaymentModal'), { ssr: fals
 const CarryoverModal = dynamic(() => import('./CarryoverModal'), { ssr: false });
 const ManualAddStudentModal = dynamic(() => import('./ManualAddStudentModal'), { ssr: false });
 const ManualPaymentsPanel = dynamic(() => import('./ManualPaymentsPanel'), { ssr: false });
+import RenewLinkModal from './RenewLinkModal';
 import ManualAddHelpButton from './ManualAddHelpButton';
 import ProgramSettingButton from './ProgramSettingButton';
 import { type TelegramSettingsState } from './TelegramChannelButton';
@@ -1548,6 +1549,7 @@ function ExpandedRowContent({
   const [extraLaunching, setExtraLaunching] = useState(false);
   const [tgInviting, setTgInviting] = useState(false);
   const [renewLinking, setRenewLinking] = useState(false);
+  const [renewLinkInfo, setRenewLinkInfo] = useState<{ url: string; moduleNumber?: number; moduleTotal?: number; expiresAt?: string } | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [manualPayOpen, setManualPayOpen] = useState(false);
   const [carryoverOpen, setCarryoverOpen] = useState(false);
@@ -1589,7 +1591,7 @@ function ExpandedRowContent({
     });
   }, []);
 
-  /// Копіює менеджеру персональне посилання студента на оплату наступного модуля —
+  /// Показує менеджеру вікно з персональним посилання студента на оплату наступного модуля —
   /// те саме, що йде в листах-нагадуваннях. Нічого не надсилає: менеджер зазвичай уже
   /// в переписці зі студентом і вставляє посилання туди, де розмова.
   async function copyRenewLink() {
@@ -1602,16 +1604,12 @@ function ExpandedRowContent({
         toast(res.status === 409 ? 'warning' : 'error', data?.error ?? res.statusText);
         return;
       }
-      const until = new Date(data.expiresAt).toLocaleDateString('uk-UA', { day: '2-digit', month: '2-digit' });
-      const modulePart = data.module ? ` · модуль ${data.module.number} з ${data.module.total}` : '';
-      try {
-        await navigator.clipboard.writeText(data.url);
-        toast('success', `Скопійовано${modulePart} · дійсне до ${until}`);
-      } catch {
-        // Буфер недоступний (немає HTTPS / дозволу) — посилання все одно видане,
-        // тож показуємо його текстом, щоб менеджер скопіював руками.
-        toast('warning', `Скопіюйте вручну: ${data.url}`);
-      }
+      setRenewLinkInfo({
+        url: data.url,
+        moduleNumber: data.module?.number,
+        moduleTotal: data.module?.total,
+        expiresAt: data.expiresAt,
+      });
       onReload();
     } catch (e) {
       toast('error', (e as Error).message);
@@ -1862,6 +1860,14 @@ function ExpandedRowContent({
               Підтвердити оплату вручну
             </button>
           )}
+          {renewLinkInfo && (
+            <RenewLinkModal
+              theme={theme}
+              studentLabel={[row.userName, row.userEmail].filter(Boolean).join(' · ') || 'Студент'}
+              {...renewLinkInfo}
+              onClose={() => setRenewLinkInfo(null)}
+            />
+          )}
           {manualPayOpen && (
             <ManualPaymentModal
               row={row}
@@ -2023,7 +2029,7 @@ function ExpandedRowContent({
               theme={theme}
               disabled={busy || renewLinking}
               tone="success"
-              title="Скопіювати персональне посилання, за яким студент оплатить наступний модуль без вибору тарифів"
+              title="Показати персональне посилання, за яким студент оплатить наступний модуль без вибору тарифів"
               onClick={copyRenewLink}
             >
               {renewLinking ? '🔗 Готуємо…' : '🔗 Посилання на оплату модуля'}
