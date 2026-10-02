@@ -43,6 +43,11 @@ export interface Row {
   wfpNextChargeAt: string | null;
   /// Коли кеш востаннє звіряли з WFP (wfpScheduleCheckedAt).
   wfpScheduleCheckedAt: string | null;
+  /// Логін мерчанта WayForPay, у кабінеті якого живе правило регулярки цієї підписки —
+  /// але ЛИШЕ якщо це НЕ поточний основний мерчант. Заповнено = підписку обслуговує
+  /// старий мерчант (правило не переносить зміна env), і шукати її треба в його кабінеті.
+  /// null = звичайний випадок, основний мерчант; рядок в адмінці не показуємо.
+  wfpLegacyMerchantAccount: string | null;
   /// Метод останньої успішної оплати: "applePay" | "googlePay" | "card" | null.
   paymentMethod: string | null;
   /// Для PENDING — реальна причина з останньої спроби оплати (замість «Очікує»). null для не-PENDING.

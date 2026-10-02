@@ -1023,6 +1023,9 @@ export async function POST(req: NextRequest) {
               status: 'PENDING',
               autoRenew,
               cohortId: currentCohortId,
+              // Мерчант, у кабінеті якого народиться правило регулярки цієї підписки.
+              // Нові підписки — завжди основний мерчант.
+              wfpMerchantAccount: merchantLogin,
               ...(parsedCountry ? { country: parsedCountry } : {}),
               ...(normalizedTelegramUsername ? { telegramUsername: normalizedTelegramUsername } : {}),
               ...(normalizedPhone ? { phone: normalizedPhone } : {}),
@@ -1131,6 +1134,10 @@ export async function POST(req: NextRequest) {
           yearlyProgramSubscriptionId,
           promoCodeId: claimedPromoId,
           moduleCount: modulesRequested,
+          // Мерчант, на якому це замовлення реально піде в оплату — завжди ОСНОВНИЙ
+          // (payload нижче підписується його секретом). Старий мерчант обслуговує лише
+          // раніше створені платежі й регулярки, нових замовлень на нього не заводимо.
+          wfpMerchantAccount: merchantLogin,
         },
         // ВАЖЛИВО: update переписує і ТОВАР, не лише суму. Інакше повторний POST з тим
         // самим orderReference, але іншим courseId/bundleId, змінював суму на дешевшу,
@@ -1152,6 +1159,9 @@ export async function POST(req: NextRequest) {
           // Кількість модулів — частина ТОВАРУ: повторний POST того ж ref-у з іншою
           // кількістю переписує і суму, і кількість разом.
           moduleCount: modulesRequested,
+          // Ретрай незавершеної оплати після перемикання мерчанта піде вже на новий —
+          // payload підписується поточними основними кредами, тож і поле має оновитись.
+          wfpMerchantAccount: merchantLogin,
         },
       });
     }
