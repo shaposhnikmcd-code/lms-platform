@@ -44,6 +44,7 @@ export type IssueKind =
   | 'SP_REOPEN_FAILED'
   | 'ORPHAN_NO_PAYMENT'
   | 'ORPHAN_RECURRING_CHARGE'
+  | 'MODULES_OVERPAID'
   | 'RECURRING_CALLBACK_SKIPPED'
   | 'REVIVED_WITH_DEBT'
   | 'WFP_REMOVE_FAILED'
@@ -66,6 +67,7 @@ export const ISSUE_KIND_VALUES: IssueKind[] = [
   'SP_REOPEN_FAILED',
   'ORPHAN_NO_PAYMENT',
   'ORPHAN_RECURRING_CHARGE',
+  'MODULES_OVERPAID',
   'RECURRING_CALLBACK_SKIPPED',
   'REVIVED_WITH_DEBT',
   'WFP_REMOVE_FAILED',
@@ -113,6 +115,9 @@ export const ISSUE_KIND_SEVERITY: Record<IssueKind, IssueSeverity> = {
   SP_REOPEN_FAILED: 'warning',
   ORPHAN_NO_PAYMENT: 'critical',
   ORPHAN_RECURRING_CHARGE: 'critical',
+  // warning: доступ і гроші на місці, але студент заплатив за модулі, яких у наборі вже
+  // немає — переплату менеджер має повернути вручну; система сама її не виправить.
+  MODULES_OVERPAID: 'warning',
   RECURRING_CALLBACK_SKIPPED: 'critical',
   REVIVED_WITH_DEBT: 'critical',
   // critical: поки правило живе, картку клієнта списують за доступ, якого вже немає.
@@ -176,6 +181,7 @@ export const ISSUE_KIND_LABELS: Record<IssueKind, string> = {
   SP_REOPEN_FAILED: 'SendPulse: reopen-access помилка',
   ORPHAN_NO_PAYMENT: 'Цілісність: активна підписка без жодної оплати',
   ORPHAN_RECURRING_CHARGE: 'Гроші списані після закриття підписки',
+  MODULES_OVERPAID: 'Оплачено більше модулів, ніж лишалось у наборі',
   RECURRING_CALLBACK_SKIPPED: 'Автосписання не зараховано (callback пропущено)',
   REVIVED_WITH_DEBT: 'Оплата з боргом — потрібне рішення менеджера',
   WFP_REMOVE_FAILED: 'Автосписання у WayForPay не вдалося зняти',
@@ -204,6 +210,7 @@ export const ISSUE_HAS_RETRY: Record<IssueKind, boolean> = {
   SP_REOPEN_FAILED: false,      // менеджер натискає "Відкрити доступ" знову вручну
   ORPHAN_NO_PAYMENT: false,     // ручний розбір: видалити сироту або знайти втрачений платіж
   ORPHAN_RECURRING_CHARGE: false, // ручне рішення: повернути гроші або поновити підписку
+  MODULES_OVERPAID: false,        // ручна дія — повернути переплату в кабінеті WayForPay
   RECURRING_CALLBACK_SKIPPED: false, // ручний розбір: звірити з кабінетом WFP
   REVIVED_WITH_DEBT: false,          // рішення менеджера: «Продовжити» / «Ручна оплата» / повернення
   WFP_REMOVE_FAILED: false,          // нічний cron ретраїть сам; ручна дія — зняти правило в кабінеті WFP
@@ -452,6 +459,9 @@ function classifyEvent(e: RawEvent): {
   // Рекурентне списання прийшло на закриту (EXPIRED/CANCELLED/ARCHIVED) підписку:
   // Payment створено і залінковано, але доступ НЕ продовжено — рішення за менеджером.
   if (e.type === 'orphan_recurring_charge') return { kind: 'ORPHAN_RECURRING_CHARGE' };
+  // Разова оплата кількох модулів наперед перекрила кінець набору (дві вкладки з тим самим
+  // посиланням). Це не рекурентне списання і не закрита підписка — окремий kind.
+  if (e.type === 'modules_overpaid') return { kind: 'MODULES_OVERPAID' };
 
   // TG-kick events: `kickSubscriptionFromChannel` пише подію і на провалі, і на успіху.
   // Провал (непорожній `metadata.errors`) піднімає issue, успішний кік/розбан — знімає
@@ -671,6 +681,7 @@ const TRACKED_EVENT_TYPES = [
   'access_opened',
   'launch_email_sent',
   'orphan_recurring_charge',
+  'modules_overpaid',
   'revived_with_debt',
   'reactivated',
   'reminder_email_failed',

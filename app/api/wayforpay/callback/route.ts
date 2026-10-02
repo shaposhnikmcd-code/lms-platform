@@ -1971,13 +1971,15 @@ async function handleYearlyProgramCallback(args: {
       // Оплачено більше модулів, ніж у наборі лишалось (дві вкладки з посиланням оплатили
       // одночасно, і чекаут кожної бачив стару сітку). Гроші прийшли — зараховуємо, доступ
       // однаково впирається в кінець набору (`calculateAccessUntil`), але зайві модулі —
-      // переплата, яку менеджер має повернути. Тип події мапиться у вкладку «Помилки».
+      // переплата, яку менеджер має повернути. Власний тип `modules_overpaid` (kind
+      // MODULES_OVERPAID у вкладці «Помилки»), а не `orphan_recurring_charge`: це разова
+      // оплата на живу підписку, і читатись як «автосписання після закриття» вона не має.
       if (schedule && schedule.totalSlots > 0 && schedule.paidCount > schedule.totalSlots) {
         const extra = schedule.paidCount - schedule.totalSlots;
         await tx.yearlyProgramSubscriptionEvent.create({
           data: {
             subscriptionId: sub.id,
-            type: 'orphan_recurring_charge',
+            type: 'modules_overpaid',
             message: `⚠️ Оплата ${payment!.orderReference} покрила більше модулів, ніж лишалось у наборі: сплачено ${schedule.paidCount} з ${schedule.totalSlots}, зайвих — ${extra}. Доступ відкрито до кінця набору; переплату за ${extra} мод. треба повернути студенту.`,
             metadata: {
               orderReference: payment!.orderReference,
