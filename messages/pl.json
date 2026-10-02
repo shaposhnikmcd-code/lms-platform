@@ -374,6 +374,7 @@
     "allRemaining": "Wszystkie pozostałe ({count})",
     "autopayLabel": "Włącz płatność automatyczną",
     "autopayOff": "Teraz płacisz za jeden moduł, a kolejne będą pobierane z karty automatycznie na początku każdego modułu.",
+    "autopayOffManyModules": "Z płatnością automatyczną teraz płacisz za jeden moduł, a kolejne będą pobierane automatycznie na początku każdego modułu. Jeśli zaznaczysz to pole, liczba modułów zmieni się na 1.",
     "autopayOn": "Teraz — {price} UAH za moduł {number}. Następnie z tej karty będzie automatycznie pobierane {price} UAH na początku każdego modułu: od {first} do {last}, {count, plural, one {# obciążenie} few {# obciążenia} many {# obciążeń} other {# obciążenia}}. Kilku modułów z góry nie można połączyć z płatnością automatyczną.",
     "autopayReplaces": "Poprzednie automatyczne obciążenie nie zadziałało — zostanie wyłączone, a nowe zostanie podłączone do karty, którą zapłacisz teraz.",
     "perModule": "{count} × {price} UAH",

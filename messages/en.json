@@ -374,6 +374,7 @@
     "allRemaining": "All remaining ({count})",
     "autopayLabel": "Turn on automatic payments",
     "autopayOff": "You pay for one module now, and the next ones are charged to your card automatically at the start of each module.",
+    "autopayOffManyModules": "With autopay you pay for one module now, and the next ones are charged automatically at the start of each module. If you tick the box, the number of modules will change to 1.",
     "autopayOn": "Now — {price} UAH for module {number}. After that, {price} UAH will be charged to this card automatically at the start of each module: from {first} to {last}, {count, plural, one {# charge} other {# charges}}. Several modules in advance cannot be combined with automatic payments.",
     "autopayReplaces": "Your previous automatic charge did not work — it will be turned off, and the new one will be linked to the card you pay with now.",
     "perModule": "{count} × {price} UAH",

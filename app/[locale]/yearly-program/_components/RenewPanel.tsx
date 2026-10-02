@@ -277,7 +277,7 @@ function PayableRenew({ state }: { state: PayableState }) {
                         last: dayLabelFor(locale, offer.lastChargeAt),
                         count: offer.charges,
                       })
-                    : t('autopayOff')}
+                    : n > 1 ? t('autopayOffManyModules') : t('autopayOff')}
                 </span>
               </span>
             </label>
