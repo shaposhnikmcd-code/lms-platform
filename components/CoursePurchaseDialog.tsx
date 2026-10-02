@@ -404,6 +404,11 @@ export default function CoursePurchaseDialog({
           inFlightRef.current = false;
           return;
         }
+        // Старе автосписання не знялось — нове правило не відкриваємо (див. роут). Текст
+        // з перекладів: студент за посиланням може бути на en/pl, а роут відповідає укр.
+        if (errBody.code === 'autopay_resubscribe_remove_failed') {
+          throw new Error(t('errorAutopayResubscribe'));
+        }
         throw new Error(errBody.error || t('errorPayment'));
       }
       const paymentData = await response.json();

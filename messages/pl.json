@@ -319,6 +319,7 @@
     "alertPhone": "Podaj numer telefonu",
     "errorPayment": "Błąd tworzenia płatności",
     "errorPaymentRetry": "Błąd płatności. Spróbuj ponownie.",
+    "errorAutopayResubscribe": "Nie udało się teraz włączyć płatności automatycznej: poprzednia płatność automatyczna nie została jeszcze anulowana. Spróbuj później lub opłać moduł jednorazowo (bez zaznaczenia płatności automatycznej).",
     "alertLogin": "Zaloguj się przed dokonaniem płatności",
     "payTypeLabel": "Rodzaj płatności",
     "alertPayType": "Wybierz rodzaj płatności",

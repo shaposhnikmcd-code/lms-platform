@@ -28,7 +28,7 @@ import { getYearlyProgramSettings } from '@/lib/yearlyProgramSettings';
 import { isBlockedByClosedRegistration } from '@/lib/yearlyProgramSalesGate';
 import { verifyInvite, type InvitePayload } from '@/lib/yearlyProgramInvite';
 import { RENEW_COOKIE_NAME, verifyRenewToken, type RenewPayload } from '@/lib/yearlyProgramRenew';
-import { autopayAllowsManualTopUp } from '@/lib/yearlyProgramRenewState';
+import { autopayAllowsManualTopUp, resubscribeAllowedAfterRemove } from '@/lib/yearlyProgramRenewState';
 import { isValidCountryCode } from '@/lib/countries';
 import { parseTelegramUsername } from '@/lib/telegramUsername';
 import { recordInviteFailure } from '@/lib/yearlyProgramTelegram';
@@ -974,6 +974,30 @@ export async function POST(req: NextRequest) {
               result: autopay,
               source: `checkout:${orderReference} · ${resubscribeBrokenAutopay ? 'resubscribe_broken_autopay' : 'downgrade_to_one_time'}`,
             });
+            // Підключення автоплатежу наново — лише коли старе правило точно знято. Інакше
+            // WFP створив би друге правило поруч із живим старим, а нічний ретрай REMOVE
+            // autoRenew=true-підписки не бере: старе списувало б той самий модуль вдруге
+            // назавжди. Підписку лишаємо як є (autoRenew=true, правило живе) — це чесний
+            // стан, а студент може оплатити модуль разово або спробувати пізніше.
+            if (resubscribeBrokenAutopay && !resubscribeAllowedAfterRemove(autopay)) {
+              await prisma.yearlyProgramSubscriptionEvent.create({
+                data: {
+                  subscriptionId: existing.id,
+                  type: 'autopay_resubscribe_blocked',
+                  message: `Підключення автоплатежу наново (${orderReference}) зупинено: старе правило у WFP не вдалося зняти (знято ${autopay.removed}/${autopay.attempted}). Оплату не відкрито, щоб не було двох правил. ${String(autopay.error).slice(0, 200)}`,
+                  metadata: {
+                    orderReference,
+                    wfpRemovedCount: autopay.removed,
+                    wfpAttemptedCount: autopay.attempted,
+                    wfpRemoveError: autopay.error,
+                  },
+                },
+              });
+              return NextResponse.json({
+                error: 'Зараз не вдалося підключити автоплатіж: попереднє автосписання ще не знято. Спробуйте пізніше або оплатіть модуль разово (без галочки автоплатежу).',
+                code: 'autopay_resubscribe_remove_failed',
+              }, { status: 409 });
+            }
             await prisma.yearlyProgramSubscription.update({
               where: { id: existing.id },
               data: { autoRenew: false },

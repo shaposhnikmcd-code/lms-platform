@@ -319,6 +319,7 @@
     "alertPhone": "Please provide a phone number",
     "errorPayment": "Payment creation error",
     "errorPaymentRetry": "Payment error. Please try again.",
+    "errorAutopayResubscribe": "We could not turn on automatic payments right now: the previous automatic payment has not been cancelled yet. Please try again later or pay for the module once (without the automatic payment checkbox).",
     "alertLogin": "Please sign in before paying",
     "payTypeLabel": "Payment type",
     "alertPayType": "Choose a payment type",

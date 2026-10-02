@@ -59,6 +59,27 @@ export function autopayAllowsManualTopUp(sub: {
   return sub.status === 'GRACE' || (sub.failedChargeCount ?? 0) > 0;
 }
 
+/// Чи можна відкривати чекаут з НОВИМ правилом автосписання для автоплатника зі зламаним
+/// списанням (`resubscribe_broken_autopay`), коли вже відомий результат зняття СТАРИХ правил.
+///
+/// Ні — якщо хоч одне старе правило не знялось. `error` у результаті
+/// `removeSubscriptionAutopay` збирає рівно ці випадки: відмова WFP з кодом ≠ 4102,
+/// мережа/таймаут, не налаштовані креди мерчанта. 4102 («правила немає») туди не
+/// потрапляє — це «знімати нічого», а не провал; тому `removed < attempted` без `error`
+/// провалом не є.
+///
+/// Чому блок, а не «лог і далі», як у downgrade: на downgrade підписка стає разовою
+/// (`autoRenew=false`), і нічний крок `retry_autopay_remove` дознімає правило. Тут нове
+/// правило народилось би поруч зі старим, а ретрай autoRenew=true-підписок не бере —
+/// старе правило жило б назавжди, і кожен модуль списувався б двічі.
+export function resubscribeAllowedAfterRemove(result: {
+  removed: number;
+  attempted: number;
+  error: string | null;
+}): boolean {
+  return result.error === null;
+}
+
 export type RenewBlockReason =
   /// Rule 2 у роуті: `monthly_autopay_active` — автосписання справне, модуль спишеться сам.
   | 'autopay'

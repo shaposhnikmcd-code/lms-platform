@@ -25,7 +25,7 @@ import {
   renewStopsAutopayCopy,
   type RenewTranslator,
 } from './yearlyProgramRenewCopy';
-import { autopayAllowsManualTopUp, resolveRenewState } from './yearlyProgramRenewState';
+import { autopayAllowsManualTopUp, resolveRenewState, resubscribeAllowedAfterRemove } from './yearlyProgramRenewState';
 
 type Client = Parameters<typeof resolveRenewState>[0]['client'];
 
@@ -403,5 +403,31 @@ test('тексти вибору модулів і автоплатежу — ICU
     }
     const on = t('autopayOn', { price: 2200, number: 3, first: 1, last: 2, count: 6 });
     assert.ok(on.includes('2200') && on.includes('6'), `${locale}/autopayOn: ${on}`);
+  }
+});
+
+// Автоплатник зі зламаним списанням підключає автоплатіж наново. Нове правило можна
+// відкривати ЛИШЕ коли старе точно знято: інакше два живі правила списують модуль двічі,
+// а нічний ретрай REMOVE autoRenew=true-підписки не бере.
+test('resubscribe: нове правило лише після чистого зняття старого', () => {
+  // усе знято
+  assert.equal(resubscribeAllowedAfterRemove({ removed: 2, attempted: 2, error: null }), true);
+  // частина рефів — разові оплати без правила (4102): це не провал
+  assert.equal(resubscribeAllowedAfterRemove({ removed: 1, attempted: 3, error: null }), true);
+  // жодного правила не було (усі 4102)
+  assert.equal(resubscribeAllowedAfterRemove({ removed: 0, attempted: 2, error: null }), true);
+  // WFP відмовив з кодом ≠ 4102 на одному з рефів — блок, навіть якщо інший знято
+  assert.equal(resubscribeAllowedAfterRemove({ removed: 1, attempted: 2, error: 'ref2: code=1113 reason=x' }), false);
+  // мережа/таймаут
+  assert.equal(resubscribeAllowedAfterRemove({ removed: 0, attempted: 1, error: 'ref1: fetch failed' }), false);
+  // кредів нема (ні основних, ні legacy) — знімати нічим
+  assert.equal(resubscribeAllowedAfterRemove({ removed: 0, attempted: 0, error: 'WAYFORPAY_MERCHANT_PASSWORD не налаштовано' }), false);
+  // невідомий мерчант платежу (legacy-env не задані)
+  assert.equal(resubscribeAllowedAfterRemove({ removed: 0, attempted: 1, error: 'ref1: Невідомий мерчант WayForPay «freelance_x»' }), false);
+});
+
+test('текст «не вдалося підключити автоплатіж» є в uk/en/pl', () => {
+  for (const m of [ukMessages, enMessages, plMessages] as Array<{ PurchaseModal: Record<string, string> }>) {
+    assert.ok(typeof m.PurchaseModal.errorAutopayResubscribe === 'string' && m.PurchaseModal.errorAutopayResubscribe.length > 20);
   }
 });
