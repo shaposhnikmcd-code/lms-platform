@@ -345,11 +345,13 @@ export const PAYMENT_TEMPLATES: Record<PaymentTemplateKey, PaymentTemplateMeta> 
     group: 'payment',
     title: '🧾 Receipt — Разова оплата (продовження)',
     when: 'Повторна MONTHLY-разова оплата (продовжує доступ ще на місяць). Не для першої оплати = welcome.',
-    placeholders: ['greeting', 'amount', 'expiresAt'],
+    placeholders: ['greeting', 'amount', 'expiresAt', 'progressLine'],
     sampleData: {
       greeting: 'Доброго дня, Іван Петренко!',
       amount: '2200',
       expiresAt: '2026-08-15',
+      // Порожньо для одного модуля; при оплаті кількох наперед — рядок «модулі 4–6 з 9».
+      progressLine: '',
     },
     defaultSubject: 'Оплата по Річній програмі — {amount} ₴',
     defaultBodyHtml: layout(`  <h2 style="color: #1a1a1a; margin: 0 0 16px;">Дякуємо за оплату</h2>
@@ -358,6 +360,7 @@ export const PAYMENT_TEMPLATES: Record<PaymentTemplateKey, PaymentTemplateMeta> 
   <p style="margin: 0 0 8px;"><b>Сума:</b> {amount} ₴</p>
   <p style="margin: 0 0 8px;"><b>План:</b> Місячна оплата (одноразова)</p>
   <p style="margin: 0 0 16px;"><b>Доступ продовжено до:</b> {expiresAt}</p>
+  {progressLine}
   <h3 style="margin: 24px 0 8px;">Що далі</h3>
   <ul style="margin: 0 0 16px; padding-left: 20px;">
     <li style="margin-bottom: 8px;">Щоб продовжити навчання наступного місяця — оформте нову оплату на сайті.</li>

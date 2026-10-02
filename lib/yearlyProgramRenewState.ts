@@ -1,6 +1,14 @@
 import type { PrismaClient } from '@prisma/client';
-import { cohortSlotIndex, monthlySchedule } from './yearlyProgramAccess';
-import { nextUnpaidModule, type ModuleRef } from './yearlyProgramModules';
+import {
+  cohortModuleStart,
+  cohortSlotIndex,
+  lastAutopayChargeDate,
+  maxAutopayChargeCount,
+  maxPrepayModules,
+  monthlySchedule,
+  purchaseAnchorSlot,
+} from './yearlyProgramAccess';
+import { moduleMonthLabel, nextUnpaidModule, type ModuleRef } from './yearlyProgramModules';
 import { verifyRenewToken } from './yearlyProgramRenew';
 import { autopayGraceReason, type AutopayGraceReason } from './yearlyProgramReminderSchedule';
 
@@ -74,6 +82,36 @@ export type RenewBlockReason =
   /// запрошення менеджера, а не через це посилання.
   | 'no_payment';
 
+/// Один варіант «оплатити N модулів одним платежем» для панелі поновлення.
+export interface RenewModuleOption {
+  /// Скільки модулів покриває платіж (1…`maxModules`).
+  modules: number;
+  /// Останній модуль, який покриває цей платіж (для N=1 — той самий, що `module`).
+  last: { number: number; monthLabel: string };
+  /// Сума до оплати = N × ціна модуля (без адмін-тестової ціни — її панель рахує сама).
+  amount: number;
+  /// ОСТАННІЙ день, оплачений цим платежем (день перед початком першого неоплаченого
+  /// модуля; не далі кінця набору). Для `coversAll` — кінець набору. Панель пише
+  /// «оплачено по <дата> включно» — тому саме останній день, а не початок наступного.
+  paidThrough: Date;
+  /// Цей платіж закриває ВСІ модулі, що лишились у наборі.
+  coversAll: boolean;
+}
+
+/// Пропозиція підключити автоплатіж за посиланням: що саме і коли спишеться далі.
+/// Ті самі функції, якими `/api/wayforpay` програмує WFP (`purchaseAnchorSlot`,
+/// `maxAutopayChargeCount`, `lastAutopayChargeDate`) — панель не обіцяє інших дат.
+export interface RenewAutopayOffer {
+  /// Перше автоматичне списання (початок модуля після того, що оплачується зараз).
+  nextChargeAt: Date;
+  /// Останнє автоматичне списання (початок останнього модуля набору).
+  lastChargeAt: Date;
+  /// Скільки автоматичних списань буде ПІСЛЯ цієї оплати.
+  charges: number;
+  /// Сума кожного списання = ціна модуля.
+  amount: number;
+}
+
 export type RenewState =
   /// Токен зіпсований, прострочений, або підписка вже не та, для якої його видали.
   /// Панель показує це ТЕКСТОМ («напишіть менеджеру — надішле нове»), а не порожнечею:
@@ -93,6 +131,12 @@ export type RenewState =
       /// Чому автосписання не спрацювало (`autopayGraceReason`) — панель називає саме цю
       /// причину, а не завжди «не пройшло». null, коли `stopsAutopay` = false.
       stopsAutopayReason: AutopayGraceReason | null;
+      /// Скільки модулів можна оплатити одним платежем (`maxPrepayModules`) — ≥ 1.
+      maxModules: number;
+      /// Варіанти N = 1…maxModules, по порядку.
+      options: RenewModuleOption[];
+      /// null — автоплатіж підключати нема чого (лишився один модуль).
+      autopay: RenewAutopayOffer | null;
     }
   | {
       kind: 'blocked';
@@ -141,7 +185,7 @@ export async function resolveRenewState(args: {
         where: { status: 'PAID', excludedFromAccess: false },
         select: {
           amount: true, status: true, paidAt: true, createdAt: true,
-          excludedFromAccess: true, manualMethod: true,
+          excludedFromAccess: true, manualMethod: true, moduleCount: true,
         },
       },
     },
@@ -206,6 +250,38 @@ export async function resolveRenewState(args: {
     if (missed > 0) return blocked('debt', { missedModules: missed });
   }
 
+  // Скільки модулів можна закрити одним платежем — рівно стільки, скільки лишилось
+  // своїх (роут відповість 409 `monthly_modules_exceed` на більше).
+  const maxModules = Math.max(1, maxPrepayModules(schedule));
+  const options: RenewModuleOption[] = [];
+  for (let n = 1; n <= maxModules; n++) {
+    const lastIndex = schedule.nextSlotIndex + n - 1;
+    const coversAll = n >= schedule.remaining;
+    const until = schedule.moduleOf(schedule.nextSlotIndex + n);
+    options.push({
+      modules: n,
+      last: { number: lastIndex + 1, monthLabel: moduleMonthLabel(schedule.moduleOf(lastIndex)) },
+      amount: monthlyPrice * n,
+      paidThrough: coversAll || until > cohort.endDate
+        ? cohort.endDate
+        : new Date(until.getTime() - 24 * 60 * 60 * 1000),
+      coversAll,
+    });
+  }
+
+  // Автоплатіж: той самий якір, що й у роуті. Якщо після цієї оплати списувати нічого
+  // (лишився останній модуль) — роут регулярку не програмує, і галочки не показуємо.
+  const anchor = purchaseAnchorSlot({ cohort, schedule, now });
+  const totalCharges = maxAutopayChargeCount({ cohort, firstSlot: anchor });
+  const autopay: RenewAutopayOffer | null = totalCharges > 1 && maxModules > 1
+    ? {
+        nextChargeAt: cohortModuleStart(cohort, anchor + 1),
+        lastChargeAt: lastAutopayChargeDate({ cohort, firstSlot: anchor }),
+        charges: totalCharges - 1,
+        amount: monthlyPrice,
+      }
+    : null;
+
   return {
     kind: 'payable',
     subscriptionId: sub.id,
@@ -213,6 +289,9 @@ export async function resolveRenewState(args: {
     email,
     module: nextModule,
     price: monthlyPrice,
+    maxModules,
+    options,
+    autopay,
     prefill: { phone: sub.phone, country: sub.country, telegram: sub.telegramUsername },
     stopsAutopay,
     stopsAutopayReason: stopsAutopay

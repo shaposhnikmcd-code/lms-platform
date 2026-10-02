@@ -71,7 +71,7 @@ export async function GET(req: NextRequest) {
         status: true,
         createdAt: true,
         paidAt: true,
-        manualMethod: true,
+        manualMethod: true, moduleCount: true,
         manualNote: true,
         manualEnteredBy: true,
         excludedFromAccess: true,

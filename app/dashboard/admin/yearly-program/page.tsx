@@ -47,7 +47,7 @@ function derivePendingLabel(
 /// не стоїть.
 function buildRowSchedule(
   cohort: { startDate: Date; endDate: Date } | null,
-  countedPaid: { amount: number; status: string; paidAt: Date | null; createdAt: Date; excludedFromAccess: boolean | null; manualMethod: string | null }[],
+  countedPaid: { amount: number; status: string; paidAt: Date | null; createdAt: Date; excludedFromAccess: boolean | null; manualMethod: string | null; moduleCount: number }[],
   plan: string,
 ): RowSchedule | null {
   if (plan !== 'MONTHLY' || !cohort) return null;
@@ -71,7 +71,7 @@ export default async function AdminYearlyProgramPage() {
       take: MAX_ROWS,
       include: {
         user: { select: { id: true, name: true, email: true, adminNote: true } },
-        payments: { select: { id: true, amount: true, status: true, createdAt: true, paidAt: true, paymentMethod: true, manualMethod: true, orderReference: true, excludedFromAccess: true } },
+        payments: { select: { id: true, amount: true, status: true, createdAt: true, paidAt: true, paymentMethod: true, manualMethod: true, moduleCount: true, orderReference: true, excludedFromAccess: true } },
         // endDate потрібен сітці модулів (`cohortModuleCount`) — без нього не порахувати,
         // скільки модулів у наборі, і колонка «сплачено повністю» знову впала б на «>= 9».
         cohort: { select: { id: true, name: true, startDate: true, endDate: true, launchedAt: true } },
@@ -94,7 +94,7 @@ export default async function AdminYearlyProgramPage() {
         phone: true,
         telegramUsername: true,
         manuallyAddedAt: true,
-        payments: { where: { status: 'PAID' }, select: { amount: true, manualMethod: true } },
+        payments: { where: { status: 'PAID' }, select: { amount: true, manualMethod: true, moduleCount: true } },
       },
     }),
   ]);

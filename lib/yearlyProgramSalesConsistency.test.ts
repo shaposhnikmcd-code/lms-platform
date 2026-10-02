@@ -30,14 +30,15 @@ const COHORT = {
   endDate: new Date('2027-05-31T23:59:59.999Z'),
 };
 
-function paidPayment(createdAt: string) {
+function paidPayment(createdAt: string, moduleCount = 1) {
   return {
-    amount: 2200,
+    amount: 2200 * moduleCount,
     status: 'PAID',
     paidAt: new Date(createdAt),
     createdAt: new Date(createdAt),
     excludedFromAccess: false,
     manualMethod: null,
+    moduleCount,
   };
 }
 

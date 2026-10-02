@@ -16,12 +16,42 @@ import { signSignedToken, verifySignedToken } from './signedToken';
 ///
 /// Підпис: HMAC-SHA256(payload-base64url, NEXTAUTH_SECRET) — механіка в `lib/signedToken.ts`.
 
-/// 45 днів. Нижня межа — ланцюг нагадувань: перший лист іде за 3 дні до кінця модуля,
-/// далі grace (до 90 днів за налаштуванням, у нормі 7) і лист про закриття. Посилання
-/// має лишатись живим увесь цей час, інакше студент отримає «застаріло» у листі, який
-/// система щойно надіслала. Верхня — здоровий глузд: модуль триває місяць, і посилання
-/// не повинно переживати кілька модулів поспіль.
+/// Нижня межа строку посилання — 45 днів. Це ланцюг нагадувань: перший лист іде за 3 дні
+/// до кінця модуля, далі grace (до 90 днів за налаштуванням, у нормі 7) і лист про
+/// закриття. Посилання має лишатись живим увесь цей час, інакше студент отримає
+/// «застаріло» у листі, який система щойно надіслала. Також це строк для посилань без
+/// відомого набору (fallback).
 export const RENEW_TOKEN_TTL_DAYS = 45;
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+/// До якого моменту живе нове персональне посилання: до кінця навчання набору підписки
+/// (останній день набору + пільговий період), але не менше `RENEW_TOKEN_TTL_DAYS`.
+///
+/// Чому весь набір, а не 45 днів (рішення власника 02.10.2026): адміністраторка видає
+/// студенту ОДНЕ посилання, і він оплачує ним модуль за модулем (або кілька наперед)
+/// до кінця навчання — без щомісячного «посилання застаріло, попросіть нове». Ризику це
+/// не додає: посилання лише називає підписку, за ним можна тільки заплатити за неї, а
+/// перенесення в інший набір чи зміна email однаково роблять його недійсним
+/// (`resolveRenewState`, звірка в `/api/wayforpay`).
+///
+/// Уже видані посилання несуть свій `exp` у підписаному тілі — їх ця функція не чіпає.
+export function renewTokenExpiresAt(input: {
+  /// `cohort.endDate` набору підписки; null — набір невідомий (лише нижня межа).
+  cohortEndDate?: Date | null;
+  /// Тривалість пільгового періоду в днях (`getYearlyGraceDays`).
+  graceDays?: number | null;
+  now?: Date;
+}): Date {
+  const now = (input.now ?? new Date()).getTime();
+  const floor = now + RENEW_TOKEN_TTL_DAYS * MS_PER_DAY;
+  if (!input.cohortEndDate) return new Date(floor);
+  const end = input.cohortEndDate;
+  // Кінець ДОБИ останнього дня набору (UTC, як уся сітка) + пільгові дні.
+  const endOfDay = Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate(), 23, 59, 59, 999);
+  const grace = Math.max(0, Math.floor(input.graceDays ?? 0));
+  return new Date(Math.max(floor, endOfDay + grace * MS_PER_DAY));
+}
 
 export interface RenewPayload {
   /// Розрізнювач типу токена. Присутній ЗАВЖДИ — на ньому тримається невзаємозамінність
@@ -45,13 +75,16 @@ export function signRenewToken(input: {
   subscriptionId: string;
   email: string;
   cohortId: string;
+  /// Момент протермінування (`renewTokenExpiresAt`). Без нього — нижня межа, 45 днів.
+  expiresAt?: Date;
 }): string {
+  const expiresAt = input.expiresAt ?? renewTokenExpiresAt({});
   const payload: RenewPayload = {
     purpose: 'renew',
     subscriptionId: input.subscriptionId,
     email: input.email.trim().toLowerCase(),
     cohortId: input.cohortId,
-    exp: Math.floor(Date.now() / 1000) + RENEW_TOKEN_TTL_DAYS * 24 * 60 * 60,
+    exp: Math.floor(expiresAt.getTime() / 1000),
     nonce: crypto.randomBytes(8).toString('hex'),
   };
   return signSignedToken(payload);
@@ -77,8 +110,8 @@ export const RENEW_ANCHOR = 'renew';
 export const RENEW_COOKIE_NAME = 'yr_renew';
 
 /// Година. Достатньо, щоб спокійно заповнити форму й повернутись із WayForPay, і замало,
-/// щоб токен пережив спільний компʼютер. Сам токен живе 45 днів — його можна відкрити
-/// знову з листа, тож коротка cookie нічого не ламає.
+/// щоб токен пережив спільний компʼютер. Сам токен живе до кінця навчання набору — його
+/// можна відкрити знову з листа, тож коротка cookie нічого не ламає.
 export const RENEW_COOKIE_MAX_AGE_SECONDS = 60 * 60;
 
 /// Позначка «посилання протермінувалось» у query після редиректу. Токена в URL немає —
@@ -113,11 +146,19 @@ export function issueRenewLink(input: {
   origin: string;
   /// Мова посилання. Листи Річної українські, тож дефолт — 'uk'.
   locale?: string;
+  /// Кінець набору підписки і пільговий період — посилання живе до кінця навчання
+  /// (`renewTokenExpiresAt`). Не передані — 45 днів.
+  cohortEndDate?: Date | null;
+  graceDays?: number | null;
 }): { token: string; url: string; expiresAt: Date } {
-  const token = signRenewToken(input);
+  const expiresAt = renewTokenExpiresAt({ cohortEndDate: input.cohortEndDate, graceDays: input.graceDays });
+  // `exp` у токені — цілі секунди; повертаємо ту саму округлену дату, щоб тост менеджера
+  // і подія показували рівно той момент, після якого посилання перестане працювати.
+  const expSec = Math.floor(expiresAt.getTime() / 1000);
+  const token = signRenewToken({ ...input, expiresAt: new Date(expSec * 1000) });
   return {
     token,
     url: buildRenewUrl(input.origin, token, input.locale),
-    expiresAt: new Date(Date.now() + RENEW_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000),
+    expiresAt: new Date(expSec * 1000),
   };
 }

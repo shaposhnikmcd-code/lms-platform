@@ -59,6 +59,7 @@ import ProgramSettingButton from './ProgramSettingButton';
 import { type TelegramSettingsState } from './TelegramChannelButton';
 import { sumRealPaid } from '@/lib/yearlyProgramPaidTotals';
 import { groupManualPayments, describeSplitParts, pluralParts } from '@/lib/yearlyProgramManualGroups';
+import { pluralModules } from '@/lib/yearlyProgramModules';
 import { getCountryName, COUNTRIES } from '@/lib/countries';
 import { telegramProfileUrl } from '@/lib/telegramUsername';
 
@@ -108,7 +109,15 @@ interface SubscriptionDetails {
     excludedFromAccess?: boolean;
     /// Модуль набору, який покриває цей платіж. null — платіж не зарахований у доступ
     /// (PENDING/відхилений/виключений) або сітки для підписки немає.
-    module?: { number: number; total: number; monthLabel: string } | null;
+    module?: {
+      number: number;
+      total: number;
+      monthLabel: string;
+      /// Платіж за кілька модулів наперед — останній покритий модуль.
+      last?: { number: number; monthLabel: string };
+    } | null;
+    /// Скільки модулів покриває платіж (1 — звичайна оплата).
+    moduleCount?: number;
   }>;
   /// Стан сітки модулів для MONTHLY-підписки з набором; null для решти.
   schedule?: {
@@ -2231,9 +2240,10 @@ function ExpandedRowContent({
                         {/* Який модуль набору закриває це внесення. Для розбитого —
                             діапазон: одне внесення на 5 модулів має читатись як 3–7. */}
                         {(() => {
+                          // Платіж за кілька модулів наперед (`module.last`) дає і перший, і
+                          // останній модуль діапазону — так само, як розбите ручне внесення.
                           const mods = g.parts
-                            .map((x) => x.module)
-                            .filter((m): m is { number: number; total: number; monthLabel: string } => !!m);
+                            .flatMap((x) => (x.module ? [x.module, ...(x.module.last ? [x.module.last] : [])] : []));
                           if (mods.length === 0) return null;
                           // Частки одного внесення мають однакову дату оплати, тож порядок
                           // у групі (_1…_N) не гарантує зростання номерів модулів — беремо
@@ -2241,11 +2251,13 @@ function ExpandedRowContent({
                           const sorted = [...mods].sort((a, b) => a.number - b.number);
                           const first = sorted[0];
                           const last = sorted[sorted.length - 1];
+                          const prepaid = !g.isSplit && (p.moduleCount ?? 1) > 1 ? p.moduleCount : null;
                           return (
                             <div className={`text-[10px] font-semibold ${dark ? 'text-amber-200/90' : 'text-amber-800'}`}>
                               {first.number === last.number
                                 ? `Модуль ${first.number} · ${first.monthLabel}`
                                 : `Модулі ${first.number}–${last.number} · ${first.monthLabel} — ${last.monthLabel}`}
+                              {prepaid ? ` · ${prepaid} ${pluralModules(prepaid)} одним платежем` : ''}
                             </div>
                           );
                         })()}

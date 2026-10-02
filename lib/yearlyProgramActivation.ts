@@ -89,7 +89,7 @@ export async function applyPaymentActivation(args: {
     where: { id: args.subscriptionId },
     include: {
       cohort: true,
-      payments: { select: { amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true, manualMethod: true } },
+      payments: { select: { amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true, manualMethod: true, moduleCount: true } },
     },
   });
 

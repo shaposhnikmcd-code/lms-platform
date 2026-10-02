@@ -3,7 +3,7 @@ import { Prisma } from '@prisma/client';
 import prisma from '@/lib/prisma';
 import { getYearlyGraceDays, getYearlySendpulseCourseId, YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
 import { syncAutopaySchedule } from '@/lib/yearlyProgramScheduleSync';
-import { cohortModuleCount, monthlySchedule } from '@/lib/yearlyProgramAccess';
+import { cohortModuleCount, monthlySchedule, paymentModuleCount } from '@/lib/yearlyProgramAccess';
 import {
   closeAccessInCourse,
   lookupStudentIdByEmail,
@@ -1097,7 +1097,7 @@ function isFullyPaid(sub: ScheduleAwareSub): boolean {
 /// Замінило `_count.payments` — самої кількості платежів для сітки не досить.
 type ScheduleAwareSub = {
   cohort: { startDate: Date; endDate: Date } | null;
-  payments: { amount: number; status: string; paidAt: Date | null; createdAt: Date; excludedFromAccess: boolean | null; manualMethod: string | null }[];
+  payments: { amount: number; status: string; paidAt: Date | null; createdAt: Date; excludedFromAccess: boolean | null; manualMethod: string | null; moduleCount: number }[];
 };
 
 function subSchedule(sub: ScheduleAwareSub) {
@@ -1109,9 +1109,10 @@ function subSchedule(sub: ScheduleAwareSub) {
 /// листопад 2026». Автоплатнику в GRACE сторінка поновлення доплату дозволяє
 /// (`autopayAllowsManualTopUp`), тож і в його листі кнопка — персональна, а не лендінг.
 ///
-/// Токен видається на кожен лист заново (він дешевий і безстанний), живе 45 днів — довше
-/// за весь ланцюг нагадувань разом з grace, тож людина, яка відкриє найперший лист в
-/// останній день пільгового періоду, усе одно потрапить на робочу сторінку.
+/// Токен видається на кожен лист заново (він дешевий і безстанний), живе до кінця
+/// навчання набору + пільговий період (мінімум 45 днів) — довше за весь ланцюг нагадувань,
+/// тож людина, яка відкриє найперший лист в останній день пільгового періоду, усе одно
+/// потрапить на робочу сторінку, а сама кнопка з листа годиться і на наступні модулі.
 ///
 /// Без набору або без наступного неоплаченого модуля персоналізації немає: кнопка веде на
 /// загальний лендінг, рядок про модуль порожній. Вигадувати номер модуля там, де сітки не
@@ -1120,7 +1121,7 @@ function renewMailVars(sub: ScheduleAwareSub & {
   id: string;
   cohortId: string | null;
   user: { email: string } | null;
-}): { payUrl: string; moduleLine: string } {
+}, graceDays: number): { payUrl: string; moduleLine: string } {
   if (!sub.cohort || !sub.cohortId || !sub.user?.email) {
     return { payUrl: PROGRAM_URL, moduleLine: '' };
   }
@@ -1131,6 +1132,8 @@ function renewMailVars(sub: ScheduleAwareSub & {
     email: sub.user.email,
     cohortId: sub.cohortId,
     origin: appBaseUrl(),
+    cohortEndDate: sub.cohort.endDate,
+    graceDays,
   });
   return {
     payUrl: url,
@@ -1146,7 +1149,7 @@ const SCHEDULE_INCLUDE = {
     where: { status: 'PAID' as const, excludedFromAccess: false },
     select: {
       amount: true, status: true, paidAt: true, createdAt: true,
-      excludedFromAccess: true, manualMethod: true,
+      excludedFromAccess: true, manualMethod: true, moduleCount: true,
     },
     // createdAt desc: перший рядок — найсвіжіший платіж. `paidAt` для сортування не
     // годиться — у ручних рядків він буває NULL, і такий рядок опинявся б «найсвіжішим»,
@@ -1253,7 +1256,10 @@ async function sendAutopayPrechargeNotices(): Promise<StepResult> {
       const nextModuleNumber = (schedule?.currentModuleNumber ?? sub.payments.length) + 1;
       const totalModules = sub.cohort ? cohortModuleCount(sub.cohort) : YEARLY_PROGRAM_CONFIG.totalMonthlyPayments;
       // Сума — з ОСТАННЬОГО реального WFP-списання (ручні рядки не еталон), прайс — fallback.
-      const lastWfpAmount = sub.payments.find((pay) => pay.manualMethod === null)?.amount;
+      // Ділимо на кількість модулів платежу: оплата кількох модулів наперед має суму ціна × N,
+      // а автосписання — завжди один модуль.
+      const lastWfpPay = sub.payments.find((pay) => pay.manualMethod === null);
+      const lastWfpAmount = lastWfpPay ? lastWfpPay.amount / paymentModuleCount(lastWfpPay) : undefined;
       const amount = lastWfpAmount ?? settings.monthlyPrice;
       let error: string | null = null;
       try {
@@ -1339,6 +1345,8 @@ async function consumeSupersededManualFlag(subscriptionId: string, kind: ManualR
 
 /// MANUAL #1: за 3 дні до експайру. Тільки MANUAL (autoRenew=false) ACTIVE.
 async function sendManualBeforeExpiryReminders(mailedThisPass: Set<string>): Promise<StepResult> {
+  // Строк персонального посилання в листі — до кінця набору + пільговий період.
+  const graceDays = await getYearlyGraceDays(prisma);
   const errors: string[] = [];
   const now = new Date();
   // ВІДКРИТЕ вікно, не смуга [now+2d, now+3d). Жорстка смуга означала «лист має бути
@@ -1376,7 +1384,7 @@ async function sendManualBeforeExpiryReminders(mailedThisPass: Set<string>): Pro
         subscriptionId: sub.id,
         flag: 'reminderSent3d',
         to: sub.user.email,
-        render: () => manualBeforeExpiry({ name: sub.user!.name, expiresAt, ...renewMailVars(sub) }),
+        render: () => manualBeforeExpiry({ name: sub.user!.name, expiresAt, ...renewMailVars(sub, graceDays) }),
         eventType: 'reminder_manual_before',
         eventMessage: `Manual 3d-before · expires ${expiresAt.toISOString().slice(0, 10)}`,
       });
@@ -1393,6 +1401,8 @@ async function sendManualBeforeExpiryReminders(mailedThisPass: Set<string>): Pro
 /// MANUAL #2: за 1 день до закінчення — завтра останній день оплаченого модуля.
 /// Тільки MANUAL (autoRenew=false) ACTIVE.
 async function sendManualBeforeExpiry1dReminders(mailedThisPass: Set<string>): Promise<StepResult> {
+  // Строк персонального посилання в листі — до кінця набору + пільговий період.
+  const graceDays = await getYearlyGraceDays(prisma);
   const errors: string[] = [];
   const now = new Date();
   // Верхня межа — початок київської доби «післязавтра»: у вікні все, що спливає протягом
@@ -1430,7 +1440,7 @@ async function sendManualBeforeExpiry1dReminders(mailedThisPass: Set<string>): P
         subscriptionId: sub.id,
         flag: 'reminderSent1d',
         to: sub.user.email,
-        render: () => manualBeforeExpiry1d({ name: sub.user!.name, expiresAt, ...renewMailVars(sub) }),
+        render: () => manualBeforeExpiry1d({ name: sub.user!.name, expiresAt, ...renewMailVars(sub, graceDays) }),
         eventType: 'reminder_manual_before_1d',
         eventMessage: `Manual 1d-before · expires ${expiresAt.toISOString().slice(0, 10)}`,
       });
@@ -1446,6 +1456,8 @@ async function sendManualBeforeExpiry1dReminders(mailedThisPass: Set<string>): P
 
 /// MANUAL #3: у день закінчення. Тільки MANUAL.
 async function sendManualOnExpiryReminders(mailedThisPass: Set<string>): Promise<StepResult> {
+  // Строк персонального посилання в листі — до кінця набору + пільговий період.
+  const graceDays = await getYearlyGraceDays(prisma);
   const errors: string[] = [];
   const now = new Date();
   // Верхня межа доби — київська, не UTC. З `setUTCHours(0)` доба різалась о 03:00 за
@@ -1481,7 +1493,7 @@ async function sendManualOnExpiryReminders(mailedThisPass: Set<string>): Promise
         subscriptionId: sub.id,
         flag: 'reminderSentOnExpiry',
         to: sub.user.email,
-        render: () => manualOnExpiry({ name: sub.user!.name, ...renewMailVars(sub) }),
+        render: () => manualOnExpiry({ name: sub.user!.name, ...renewMailVars(sub, graceDays) }),
         eventType: 'reminder_manual_on_expiry',
         eventMessage: 'Manual on-expiry (last day)',
       });
@@ -1559,14 +1571,14 @@ async function sendGraceStartReminders(): Promise<StepResult> {
         flag: 'reminderSentGraceStart',
         to: sub.user.email,
         render: () => (isManual
-          ? manualGraceStart({ name: sub.user!.name, gracePeriodEndsAt, graceDays: spanDays, ...renewMailVars(sub) })
+          ? manualGraceStart({ name: sub.user!.name, gracePeriodEndsAt, graceDays: spanDays, ...renewMailVars(sub, graceDays) })
           : cyclicalChargeFailed1({
             name: sub.user!.name,
             gracePeriodEndsAt,
             graceDays: spanDays,
             reason: reason!,
             wfpNextChargeAt: sub.wfpNextChargeAt,
-            ...renewMailVars(sub),
+            ...renewMailVars(sub, graceDays),
           })),
         eventType: isManual ? 'reminder_manual_grace_start' : 'reminder_cyclical_failed1',
         eventMessage: `Grace ends ${gracePeriodEndsAt.toISOString().slice(0, 10)}${reason ? ` · причина: ${reason}` : ''}`,
@@ -1625,8 +1637,8 @@ async function sendGraceMidReminders(): Promise<StepResult> {
         flag: 'reminderSentGraceMid',
         to: sub.user.email,
         render: () => (isManual
-          ? manualGraceMid({ name: sub.user!.name, gracePeriodEndsAt, ...renewMailVars(sub) })
-          : cyclicalGraceMid({ name: sub.user!.name, gracePeriodEndsAt, ...renewMailVars(sub) })),
+          ? manualGraceMid({ name: sub.user!.name, gracePeriodEndsAt, ...renewMailVars(sub, graceDays) })
+          : cyclicalGraceMid({ name: sub.user!.name, gracePeriodEndsAt, ...renewMailVars(sub, graceDays) })),
         eventType: isManual ? 'reminder_manual_grace_mid' : 'reminder_cyclical_grace_mid',
         eventMessage: `Grace ends ${gracePeriodEndsAt.toISOString().slice(0, 10)} · midDay=${midDay} · graceDays=${spanDays}`,
       });
@@ -1683,8 +1695,8 @@ async function sendGraceLastReminders(): Promise<StepResult> {
         flag: 'reminderSentGraceLast',
         to: sub.user.email,
         render: () => (isManual
-          ? manualGraceLast({ name: sub.user!.name, gracePeriodEndsAt, ...renewMailVars(sub) })
-          : cyclicalGraceLast({ name: sub.user!.name, gracePeriodEndsAt, ...renewMailVars(sub) })),
+          ? manualGraceLast({ name: sub.user!.name, gracePeriodEndsAt, ...renewMailVars(sub, graceDays) })
+          : cyclicalGraceLast({ name: sub.user!.name, gracePeriodEndsAt, ...renewMailVars(sub, graceDays) })),
         eventType: isManual ? 'reminder_manual_grace_last' : 'reminder_cyclical_grace_last',
         eventMessage: `Grace ends ${gracePeriodEndsAt.toISOString().slice(0, 10)} · graceDays=${spanDays}`,
       });

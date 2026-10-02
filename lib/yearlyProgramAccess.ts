@@ -82,6 +82,21 @@ export interface PaymentLike {
   /// платіж WayForPay на гілку `paidAt` — тобто повертав ту саму гонку чекаут/оплата,
   /// заради якої слот-дату й вводили, але вже без жодного сліду.
   manualMethod: string | null;
+  /// Скільки модулів покриває платіж (`Payment.moduleCount`, норма 1). Оплата кількох
+  /// модулів наперед одним платежем займає в сітці N слотів поспіль.
+  ///
+  /// НЕ опційне з тієї ж причини, що й `manualMethod`: забутий `moduleCount: true` у
+  /// select-і тихо рахував би платіж за 3 модулі як один — доступ коротший за сплачений,
+  /// а кеп і борг рахувались би з хибного лічильника.
+  moduleCount: number;
+}
+
+/// Скільки слотів сітки займає платіж. Нуль, від'ємне чи не-число читаємо як 1:
+/// рядок у базі має DEFAULT 1, тож інше — лише сміття, і воно не має ні з'їдати
+/// оплачений модуль, ні множити доступ.
+export function paymentModuleCount(p: Pick<PaymentLike, 'moduleCount'>): number {
+  const n = p.moduleCount;
+  return Number.isInteger(n) && n > 1 ? n : 1;
 }
 
 export type Plan = 'YEARLY' | 'MONTHLY';
@@ -117,11 +132,16 @@ export function slotDateOf(p: PaymentLike): Date {
   return p.manualMethod === null ? p.createdAt : (p.paidAt ?? p.createdAt);
 }
 
-/// Слот-дати всіх зарахованих PAID-платежів, за зростанням.
+/// Слот-дати всіх зарахованих PAID-платежів, за зростанням. Платіж за N модулів дає N
+/// однакових дат: сітка рахує слоти КІЛЬКІСТЮ, тож він займає N модулів поспіль рівно
+/// так, як N окремих платежів того самого дня.
 function paidPaymentSlotDates(payments: PaymentLike[]): Date[] {
   return payments
     .filter((p) => p.status === 'PAID' && !p.excludedFromAccess)
-    .map(slotDateOf)
+    .flatMap((p) => {
+      const slot = slotDateOf(p);
+      return Array.from({ length: paymentModuleCount(p) }, () => slot);
+    })
     .sort((a, b) => a.getTime() - b.getTime());
 }
 
@@ -263,6 +283,30 @@ export function monthlySchedule(args: {
     dates.sort((a, b) => a.getTime() - b.getTime());
   }
   return scheduleFromDates(args.cohort, dates);
+}
+
+/// Модуль-якір покупки (0-based): модуль, який покриває платіж, зроблений зараз.
+/// Поточний модуль (з правилом краю), а якщо людина вже сплатила наперед — перший ще
+/// не покритий. Від нього WFP рахує `dateNext` (початок наступного модуля) і кількість
+/// автосписань. Спільний для `/api/wayforpay` і сторінки поновлення: панель має обіцяти
+/// рівно ті дати, які роут запрограмує у WFP.
+export function purchaseAnchorSlot(args: {
+  cohort: CohortLike;
+  schedule: MonthlySchedule | null;
+  now?: Date;
+}): number {
+  return Math.max(
+    cohortSlotIndex(args.cohort, args.now ?? new Date()),
+    args.schedule?.nextSlotIndex ?? 0,
+  );
+}
+
+/// Скільки модулів можна оплатити одним платежем прямо зараз: рівно стільки, скільки
+/// СВОЇХ модулів лишилось несплаченими (`remaining`). Більше — означало б гроші за
+/// модулі, яких у цьому наборі немає. 0 — продавати нічого (сплачено все / сітки нема).
+export function maxPrepayModules(schedule: MonthlySchedule): number {
+  if (schedule.degenerate || schedule.isFullyPaid) return 0;
+  return schedule.remaining;
 }
 
 /// Розрахунок expiresAt для підписки з огляду на cohort. Без cohort — fallback на legacy.

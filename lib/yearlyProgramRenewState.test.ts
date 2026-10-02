@@ -55,14 +55,15 @@ const COHORT_B = {
   endDate: new Date('2028-05-31T23:59:59.999Z'),
 };
 
-function paidPayment(createdAt: string) {
+function paidPayment(createdAt: string, moduleCount = 1) {
   return {
-    amount: 2200,
+    amount: 2200 * moduleCount,
     status: 'PAID',
     paidAt: new Date(createdAt),
     createdAt: new Date(createdAt),
     excludedFromAccess: false,
     manualMethod: null,
+    moduleCount,
   };
 }
 
@@ -326,4 +327,81 @@ test('простір RenewPanel однаковий у uk/en/pl — жодног�
   const uk = paths(ukMessages.RenewPanel);
   assert.deepEqual(paths(enMessages.RenewPanel), uk);
   assert.deepEqual(paths(plMessages.RenewPanel), uk);
+});
+
+// ── Кілька модулів одним платежем і автоплатіж за посиланням ──────────────────────
+
+test('payable: варіанти N = 1…залишок, сума N × ціна, «оплачено по» — останній день останнього модуля', async () => {
+  const state = await resolve(makeClient(subscription()), tokenFor());
+  assert.equal(state.kind, 'payable');
+  if (state.kind !== 'payable') return;
+  // Сплачено 2 з 9 → можна наперед 7.
+  assert.equal(state.maxModules, 7);
+  assert.deepEqual(state.options.map((o) => o.modules), [1, 2, 3, 4, 5, 6, 7]);
+  const three = state.options[2]!;
+  assert.equal(three.amount, 6600);
+  assert.equal(three.last.number, 5);
+  assert.equal(three.last.monthLabel, 'січень 2027');
+  assert.equal(new Date(three.paidThrough).toISOString(), '2027-01-31T00:00:00.000Z');
+  assert.equal(three.coversAll, false);
+  const all = state.options[6]!;
+  assert.equal(all.coversAll, true);
+  assert.equal(new Date(all.paidThrough).toISOString(), COHORT_A.endDate.toISOString());
+});
+
+test('payable: пропозиція автоплатежу — дати й кількість списань, як їх запрограмує WFP', async () => {
+  const state = await resolve(makeClient(subscription()), tokenFor());
+  if (state.kind !== 'payable') return assert.fail('очікували payable');
+  assert.ok(state.autopay);
+  // Зараз оплачується листопад (модуль 3) → перше автосписання 01.12, останнє 01.05, 6 списань.
+  assert.equal(new Date(state.autopay.nextChargeAt).toISOString(), '2026-12-01T00:00:00.000Z');
+  assert.equal(new Date(state.autopay.lastChargeAt).toISOString(), '2027-05-01T00:00:00.000Z');
+  assert.equal(state.autopay.charges, 6);
+  assert.equal(state.autopay.amount, 2200);
+});
+
+test('останній неоплачений модуль: N лише 1, галочки автоплатежу немає', async () => {
+  const payments = [paidPayment('2026-09-14T10:00:00Z'), paidPayment('2026-10-01T08:00:00Z', 7)];
+  const state = await resolve(makeClient(subscription({ payments })), tokenFor(), { now: new Date('2027-05-03T09:00:00Z') });
+  if (state.kind !== 'payable') return assert.fail(`очікували payable, а маємо ${state.kind}`);
+  assert.equal(state.module.number, 9);
+  assert.equal(state.maxModules, 1);
+  assert.equal(state.options.length, 1);
+  assert.equal(state.options[0]!.coversAll, true);
+  assert.equal(state.autopay, null);
+});
+
+test('оплачено наперед: наступний модуль і автоплатіж рахуються від першого НЕпокритого', async () => {
+  const payments = [paidPayment('2026-09-14T10:00:00Z'), paidPayment('2026-10-01T08:00:00Z', 3)];
+  const state = await resolve(makeClient(subscription({ payments })), tokenFor());
+  if (state.kind !== 'payable') return assert.fail('очікували payable');
+  assert.equal(state.module.number, 5);
+  assert.equal(state.maxModules, 5);
+  assert.equal(new Date(state.autopay!.nextChargeAt).toISOString(), '2027-02-01T00:00:00.000Z');
+  assert.equal(state.autopay!.charges, 4);
+});
+
+test('автоплатник зі зламаним списанням (GRACE) бачить і варіанти, і повторне підключення автоплатежу', async () => {
+  const state = await resolve(
+    makeClient(subscription({ autoRenew: true, status: 'GRACE', failedChargeCount: 1, wfpRegularRef: 'ref_1' })),
+    tokenFor(),
+  );
+  if (state.kind !== 'payable') return assert.fail('очікували payable');
+  assert.equal(state.stopsAutopay, true);
+  assert.ok(state.autopay);
+  assert.equal(state.maxModules, 7);
+});
+
+test('тексти вибору модулів і автоплатежу — ICU-плюралізація без сирих ключів у кожній локалі', () => {
+  for (const locale of Object.keys(LOCALES) as (keyof typeof LOCALES)[]) {
+    const t = translator(locale);
+    for (const count of [1, 2, 3, 5, 7, 21]) {
+      for (const key of ['manyModulesNote', 'courseNameMany', 'payButtonMany', 'boxManyTitle', 'boxManyText']) {
+        const text = t(key, { count });
+        assert.ok(!text.includes('RenewPanel.') && text.includes(String(count)), `${locale}/${key}/${count}: ${text}`);
+      }
+    }
+    const on = t('autopayOn', { price: 2200, number: 3, first: 1, last: 2, count: 6 });
+    assert.ok(on.includes('2200') && on.includes('6'), `${locale}/autopayOn: ${on}`);
+  }
 });

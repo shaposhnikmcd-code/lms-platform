@@ -1,6 +1,7 @@
 import {
   cohortModuleCount,
   monthlySchedule,
+  paymentModuleCount,
   slotDateOf,
   type CohortLike,
   type MonthlySchedule,
@@ -34,6 +35,9 @@ export interface ModuleRef {
   startsAt: Date;
   /// «листопад 2026»
   monthLabel: string;
+  /// Лише для платежу за КІЛЬКА модулів наперед (`Payment.moduleCount` > 1): останній
+  /// модуль, який він покриває. Відсутнє — платіж за один модуль.
+  last?: { number: number; monthLabel: string };
 }
 
 function moduleRef(cohort: CohortLike, index: number, schedule: MonthlySchedule): ModuleRef {
@@ -77,8 +81,28 @@ export function assignPaymentModules<T extends PaymentLike & { id: string }>(arg
     // Тай-брейк по id — щоб два платежі з однаковою слот-датою (авто-розбивка ручного
     // внесення) отримували стабільні номери між перезавантаженнями сторінки.
     .sort((a, b) => a.slot.getTime() - b.slot.getTime() || (a.p.id < b.p.id ? -1 : 1));
-  counted.forEach(({ p }, i) => {
-    result.set(p.id, moduleRef(args.cohort, schedule.firstSlot + i, schedule));
+  // Платіж за N модулів займає N слотів поспіль (`paymentModuleCount`) — рівно як у
+  // сітці доступу, тож наступний платіж стає вже після них, а не на «+1».
+  let offset = 0;
+  counted.forEach(({ p }) => {
+    const n = paymentModuleCount(p);
+    const ref = moduleRef(args.cohort, schedule.firstSlot + offset, schedule);
+    if (n > 1) {
+      const lastRef = moduleRef(args.cohort, schedule.firstSlot + offset + n - 1, schedule);
+      ref.last = { number: lastRef.number, monthLabel: lastRef.monthLabel };
+    }
+    result.set(p.id, ref);
+    offset += n;
   });
   return result;
+}
+
+/// «1 модуль / 3 модулі / 5 модулів» — для адмінки (Платежі, Логи, картка підписки),
+/// де платіж за кілька модулів наперед підписується кількістю.
+export function pluralModules(n: number): string {
+  const m10 = n % 10;
+  const m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return 'модуль';
+  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return 'модулі';
+  return 'модулів';
 }

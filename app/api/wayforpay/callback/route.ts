@@ -18,7 +18,7 @@ import { getYearlyProgramSettings } from '@/lib/yearlyProgramSettings';
 import { provisionPayment, AMOUNT_MISMATCH_MARKER } from '@/lib/paymentProvisioning';
 import { sendBundlePurchaseEmail } from '@/lib/bundlePurchaseEmail';
 import { getRegularStatus, getWayforpayCreds } from '@/lib/wayforpay';
-import { calculateAccessUntil, cohortModuleCount, monthlySchedule } from '@/lib/yearlyProgramAccess';
+import { calculateAccessUntil, cohortModuleCount, monthlySchedule, paymentModuleCount } from '@/lib/yearlyProgramAccess';
 import { releasePromoUse } from '@/lib/promoUsage';
 import { removeSubscriptionAutopay, recordAutopayRemoveOutcome } from '@/lib/yearlyProgramAutopay';
 import { archiveDuplicatePendingSubscriptions } from '@/lib/yearlyProgramDedup';
@@ -1090,7 +1090,7 @@ async function handleRefundCallback(args: {
     // Той самий фільтр — у гілці зарахування платежу нижче і в yearlyProgramScheduleSync.
     const remaining = await prisma.payment.findMany({
       where: { yearlyProgramSubscriptionId: sub.id, status: 'PAID', excludedFromAccess: false },
-      select: { amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true, manualMethod: true },
+      select: { amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true, manualMethod: true, moduleCount: true },
     });
     const now = new Date();
     const nothingLeftPaid = remaining.length === 0;
@@ -1526,10 +1526,15 @@ async function handleYearlyProgramCallback(args: {
         const firstPaid = await tx.payment.findFirst({
           where: { yearlyProgramSubscriptionId: sub.id, status: 'PAID', manualMethod: null },
           orderBy: [{ paidAt: 'asc' }, { createdAt: 'asc' }],
-          select: { amount: true },
+          select: { amount: true, moduleCount: true },
         });
         const settings = firstPaid ? null : await getYearlyProgramSettings(tx);
-        const expectedAmount = firstPaid ? firstPaid.amount : settings?.monthlyPrice;
+        // Еталон — ціна ОДНОГО модуля: регулярка завжди списує один. Якщо першим WFP-платежем
+        // студент оплатив кілька модулів наперед (персональне посилання), його сума = ціна × N,
+        // і без ділення кожне легальне списання падало б у amount_mismatch.
+        const expectedAmount = firstPaid
+          ? firstPaid.amount / paymentModuleCount(firstPaid)
+          : settings?.monthlyPrice;
         if (typeof expectedAmount === 'number' && Number.isFinite(expectedAmount) && Math.abs(amountInt - expectedAmount) > 1) {
           return {
             kind: 'error',
@@ -1544,9 +1549,10 @@ async function handleYearlyProgramCallback(args: {
         // не входять — інакше одне зайве списання назавжди блокувало б легальні.
         const paidRows = await tx.payment.findMany({
           where: { yearlyProgramSubscriptionId: sub.id, status: 'PAID', excludedFromAccess: false },
-          select: { amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true, manualMethod: true },
+          select: { amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true, manualMethod: true, moduleCount: true },
         });
-        const paidCount = paidRows.length;
+        // Модулі, а не рядки: платіж за N модулів наперед — це N сплачених місяців.
+        const paidCount = paidRows.reduce((acc, r) => acc + paymentModuleCount(r), 0);
         const capCohort = sub.cohortId
           ? await tx.yearlyProgramCohort.findUnique({
               where: { id: sub.cohortId },
@@ -1850,8 +1856,12 @@ async function handleYearlyProgramCallback(args: {
         // Виключені зі заліку списання відсіюємо на рівні запиту: вони не місяць доступу
         // і не одиниця в лічильнику 9/9.
         where: { yearlyProgramSubscriptionId: sub.id, status: 'PAID', excludedFromAccess: false },
-        select: { amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true, manualMethod: true },
+        select: { amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true, manualMethod: true, moduleCount: true },
       });
+      /// Сплачено МОДУЛІВ (не рядків): платіж за N модулів наперед рахується як N.
+      const paidModules = allPayments.reduce((acc, p) => acc + paymentModuleCount(p), 0);
+      /// Скільки модулів покриває САМЕ цей платіж (зафіксовано на чекауті).
+      const thisModules = paymentModuleCount(payment!);
       const postAccessMonths = await getYearlyPostAccessMonths(tx);
       // Сітка модулів цієї підписки — з неї беруться і «сплачено X з Y» у події боргу,
       // і рішення «знімати регулярку» після останнього платежу.
@@ -1897,11 +1907,12 @@ async function handleYearlyProgramCallback(args: {
         data: {
           subscriptionId: sub.id,
           type: wasFirstPayment ? 'created' : 'renewed',
-          message: `Payment ${payment!.orderReference} · +${durationDays}d · expires ${newExpiresAt.toISOString().slice(0, 10)}${revivedFrom ? ` · оживлено з ${revivedFrom}` : ''}`,
+          message: `Payment ${payment!.orderReference}${thisModules > 1 ? ` · ${thisModules} модулі наперед` : ''} · +${durationDays}d · expires ${newExpiresAt.toISOString().slice(0, 10)}${revivedFrom ? ` · оживлено з ${revivedFrom}` : ''}`,
           metadata: {
             amount: payment!.amount,
             paymentId: payment!.id,
             recurring: isRecurring,
+            moduleCount: thisModules,
             ...(revivedFrom ? { revivedFrom, accessReset } : {}),
           },
         },
@@ -1920,8 +1931,8 @@ async function handleYearlyProgramCallback(args: {
         // Платіж лежить за кінцем набору (перенесення у завершений набір) — сітки для
         // нього немає, і «сплачено 1 з 0» тільки збило б менеджера з пантелику.
         const paidLabel = totalSlots > 0
-          ? `сплачено ${allPayments.length} з ${totalSlots}`
-          : `сплачено ${allPayments.length}, платіж поза графіком набору`;
+          ? `сплачено ${paidModules} з ${totalSlots}`
+          : `сплачено ${paidModules}, платіж поза графіком набору`;
         await tx.yearlyProgramSubscriptionEvent.create({
           data: {
             subscriptionId: sub.id,
@@ -1930,9 +1941,31 @@ async function handleYearlyProgramCallback(args: {
             metadata: {
               orderReference: payment!.orderReference,
               expiresAt: newExpiresAt.toISOString(),
-              paidPayments: allPayments.length,
+              paidPayments: paidModules,
               totalSlots,
               revivedFrom,
+            },
+          },
+        });
+      }
+
+      // Оплачено більше модулів, ніж у наборі лишалось (дві вкладки з посиланням оплатили
+      // одночасно, і чекаут кожної бачив стару сітку). Гроші прийшли — зараховуємо, доступ
+      // однаково впирається в кінець набору (`calculateAccessUntil`), але зайві модулі —
+      // переплата, яку менеджер має повернути. Тип події мапиться у вкладку «Помилки».
+      if (schedule && schedule.totalSlots > 0 && schedule.paidCount > schedule.totalSlots) {
+        const extra = schedule.paidCount - schedule.totalSlots;
+        await tx.yearlyProgramSubscriptionEvent.create({
+          data: {
+            subscriptionId: sub.id,
+            type: 'orphan_recurring_charge',
+            message: `⚠️ Оплата ${payment!.orderReference} покрила більше модулів, ніж лишалось у наборі: сплачено ${schedule.paidCount} з ${schedule.totalSlots}, зайвих — ${extra}. Доступ відкрито до кінця набору; переплату за ${extra} мод. треба повернути студенту.`,
+            metadata: {
+              orderReference: payment!.orderReference,
+              skipReason: 'modules_overpaid',
+              moduleCount: thisModules,
+              paidModules: schedule.paidCount,
+              totalSlots: schedule.totalSlots,
             },
           },
         });
@@ -1946,11 +1979,11 @@ async function handleYearlyProgramCallback(args: {
         wasFirstPayment,
         revivedFrom,
         accessReset,
-        paidCount: allPayments.length,
+        paidCount: paidModules,
         totalSlots: schedule?.totalSlots ?? YEARLY_PROGRAM_CONFIG.totalMonthlyPayments,
         isFullyPaid: schedule
           ? schedule.isFullyPaid
-          : allPayments.length >= YEARLY_PROGRAM_CONFIG.totalMonthlyPayments,
+          : paidModules >= YEARLY_PROGRAM_CONFIG.totalMonthlyPayments,
       };
     });
   } catch (e) {
@@ -2279,7 +2312,7 @@ async function handleYearlyProgramCallback(args: {
             // в таблиці і що написано в графіку: сітка модулів у всіх одна.
             const paidRows = await prisma.payment.findMany({
               where: { yearlyProgramSubscriptionId: sub.id, status: 'PAID', excludedFromAccess: false },
-              select: { amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true, manualMethod: true },
+              select: { amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true, manualMethod: true, moduleCount: true },
             });
             const schedule = monthlySchedule({ cohort: sub.cohort, payments: paidRows });
             if (schedule.currentModuleNumber !== null) {
@@ -2292,6 +2325,22 @@ async function handleYearlyProgramCallback(args: {
             // сплачено все — тоді в листі фраза йде без дати.
             nextChargeAt = schedule.nextSlotStart;
           }
+          // Разова оплата кількох модулів наперед: у листі — які саме модулі покрито,
+          // щоб сума «3 × ціна» не читалась як помилка.
+          let prepaidModules: { from: number; to: number; total: number } | null = null;
+          const thisModules = paymentModuleCount(payment);
+          if (!sub.autoRenew && sub.cohort && thisModules > 1) {
+            const paidRows = await prisma.payment.findMany({
+              where: { yearlyProgramSubscriptionId: sub.id, status: 'PAID', excludedFromAccess: false },
+              select: { amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true, manualMethod: true, moduleCount: true },
+            });
+            const schedule = monthlySchedule({ cohort: sub.cohort, payments: paidRows });
+            if (schedule.currentModuleNumber !== null) {
+              const total = cohortModuleCount(sub.cohort);
+              const to = Math.min(schedule.currentModuleNumber, total);
+              prepaidModules = { from: Math.max(1, to - thisModules + 1), to, total };
+            }
+          }
           const result = await sendYearlyProgramPaymentReceiptEmail({
             to: user.email,
             name: user.name ?? null,
@@ -2300,6 +2349,7 @@ async function handleYearlyProgramCallback(args: {
             newExpiresAt: flipResult.newExpiresAt,
             chargeProgress,
             nextChargeAt,
+            prepaidModules,
           });
           if (result.ok) {
             actions.push('email:receipt_sent');

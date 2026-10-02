@@ -16,7 +16,10 @@ import {
   cohortSlotIndex,
   lastAutopayChargeDate,
   maxAutopayChargeCount,
+  maxPrepayModules,
   monthlySchedule,
+  paymentModuleCount,
+  purchaseAnchorSlot,
   type MonthlySchedule,
 } from '@/lib/yearlyProgramAccess';
 import { removeSubscriptionAutopay, recordAutopayRemoveOutcome } from '@/lib/yearlyProgramAutopay';
@@ -62,7 +65,26 @@ export async function POST(req: NextRequest) {
     const rl = await checkRateLimit(req, 'payment');
     if (!rl.ok) return rl.response!;
 
-    const { orderReference, clientEmail, clientName, clientPhone, courseId, promoCode, selectedFreeSlugs, recurring, invite, country, telegramUsername } = await req.json();
+    const { orderReference, clientEmail, clientName, clientPhone, courseId, promoCode: rawPromoCode, selectedFreeSlugs, recurring, invite, country, telegramUsername, modules } = await req.json();
+
+    // Скільки модулів Річної оплачується цим платежем (оплата наперед за персональним
+    // посиланням). Браузер присилає ЛИШЕ кількість — суму рахує сервер нижче, а межі
+    // («не більше, ніж лишилось у наборі») звіряються з сіткою підписки. Відсутнє поле = 1.
+    const modulesRequested = modules === undefined || modules === null ? 1 : modules;
+    if (!Number.isInteger(modulesRequested) || modulesRequested < 1 || modulesRequested > YEARLY_PROGRAM_CONFIG.totalMonthlyPayments) {
+      return NextResponse.json({ error: 'Некоректна кількість модулів', code: 'invalid_modules' }, { status: 400 });
+    }
+    // Кілька модулів — лише разовою оплатою: автоплатіж = 1 модуль зараз, решта
+    // списується сама в день старту кожного модуля. Разом вони дали б подвійну оплату.
+    if (modulesRequested > 1 && recurring !== false) {
+      return NextResponse.json({
+        error: 'Автоплатіж оплачує один модуль зараз — кілька модулів наперед можна оплатити лише разовим платежем.',
+        code: 'modules_with_autopay',
+      }, { status: 400 });
+    }
+    // Промокод на кілька модулів не діє (знижки за кілька модулів немає — рішення
+    // продукту): інакше одне використання коду різало б ціну N модулів.
+    const promoCode = modulesRequested > 1 ? undefined : rawPromoCode;
 
     if (typeof orderReference !== 'string' || !orderReference) {
       return NextResponse.json({ error: 'Missing orderReference' }, { status: 400 });
@@ -165,17 +187,30 @@ export async function POST(req: NextRequest) {
         // підписка лишилась би разовою (`autoRenew=false`), а у WayForPay народилось би
         // живе правило щомісячного списання: гроші йшли б за графіком, якого людина не
         // обирала й не бачила. Здогадуватись за неї тут не можна — вимагаємо явного «ні».
-        if (recurring === false) {
+        //
+        // `recurring === true` — студент свідомо поставив у панелі поновлення галочку
+        // «Підключити автоплатіж»: 1 модуль зараз, далі списання в день старту кожного
+        // наступного модуля. Це та сама підписка, тож посилання пінить її так само, як
+        // разову доплату. Інакше набір брався б з `resolveSellableCohort`, і після появи
+        // набору 2027 студент 2026 отримав би нову підписку замість автоплатежу на своїй.
+        if (recurring === false || recurring === true) {
           renewPayload = payload;
-        } else if (recurring !== true) {
+        } else {
           return NextResponse.json({
-            error: 'Не вказано тип оплати. Оновіть сторінку й натисніть «Оплатити модуль» ще раз — оплата модуля йде як разова, без автосписання.',
+            error: 'Не вказано тип оплати. Оновіть сторінку й натисніть «Оплатити модуль» ще раз.',
             code: 'renew_recurring_unset',
           }, { status: 400 });
         }
-        // `recurring === true` — людина свідомо обрала автосписання, тобто купує не
-        // «один модуль». Cookie ігноруємо за контрактом вище і йдемо звичайним шляхом.
       }
+    }
+    // Кілька модулів продаються ТІЛЬКИ за живим персональним посиланням: лише воно
+    // називає конкретну підписку, сітку якої ми звіряємо нижче. Без нього «3 модулі»
+    // могли б стати новим продажем на 3 × ціну.
+    if (modulesRequested > 1 && !renewPayload) {
+      return NextResponse.json({
+        error: 'Оплатити кілька модулів можна лише за персональним посиланням. Відкрийте посилання з листа ще раз або напишіть менеджеру: edu@uimp.com.ua',
+        code: 'modules_need_renew_link',
+      }, { status: 409 });
     }
 
     // Серверний price lookup — НЕ довіряємо клієнту. Якщо resolveServerPricing повернув null —
@@ -214,7 +249,10 @@ export async function POST(req: NextRequest) {
     const adminTestPrice = yearlyKind === 'yearly' ? 2 : 1;
     /// НЕ const: якщо лічильник промокоду не вдасться зайняти (ліміт вичерпали
     /// паралельні покупці), ціна нижче перераховується без знижки.
-    let finalAmount = isAdmin ? adminTestPrice : promoFinalPrice;
+    ///
+    /// Кілька модулів: ціна одного модуля × N. Для ADMIN/MANAGER тестова ціна масштабується
+    /// так само — 1 ₴ × N, щоб callback і адмінка бачили «N модулів» на символічній сумі.
+    let finalAmount = (isAdmin ? adminTestPrice : promoFinalPrice) * modulesRequested;
     /// `PromoCode.id`, використання якого ми реально зайняли під цей платіж. Пишеться
     /// у `Payment.promoCodeId`, щоб Declined/Expired міг повернути його в ліміт.
     let claimedPromoId: string | null = null;
@@ -432,6 +470,14 @@ export async function POST(req: NextRequest) {
               // невідповідності (див. контракт на початку роуту).
               renewPayload = null;
               dropRenewCookie = true;
+              // Кілька модулів без живого посилання не продаємо (див. вище): посилання
+              // щойно виявилось непридатним — зупиняємо і багатомодульний чекаут.
+              if (modulesRequested > 1) {
+                return withRenewCookieCleanup(NextResponse.json({
+                  error: 'Посилання на оплату модулів більше не актуальне — підписка змінилась. Напишіть менеджеру: edu@uimp.com.ua',
+                  code: 'renew_link_stale',
+                }, { status: 409 }));
+              }
             }
           }
           // Доплата модуля БЕЗ персонального посилання — запасний вхід з лендінгу («Уже
@@ -527,10 +573,11 @@ export async function POST(req: NextRequest) {
         // чого, а вимкнути його сам студент не може — без винятку він тихо втрачав доступ.
         // Правило регулярки знімає гілка downgrade нижче (existing.autoRenew && !desired),
         // щоб WFP не списав той самий модуль вдруге. Новий АВТОПЛАТІЖ поверх зламаного —
-        // як і раніше, через менеджера.
+        // лише за персональним посиланням (`renewPayload`): старе правило гілка
+        // `resubscribeBrokenAutopay` нижче знімає ДО того, як WFP створить нове.
         const brokenAutopayTopUp = monthlyPaid
           && plan === 'MONTHLY'
-          && recurring === false
+          && (recurring === false || (recurring === true && !!renewPayload))
           && autopayAllowsManualTopUp(monthlySub!);
         if (monthlyPaid && monthlySub!.autoRenew && !brokenAutopayTopUp) {
           return NextResponse.json({
@@ -693,9 +740,10 @@ export async function POST(req: NextRequest) {
             // (orphan по закритій підписці, понад ліміт, розбіжність суми). Вони не є
             // сплаченим місяцем ні для кепу 9/9, ні для guard-а боргу.
             where: { yearlyProgramSubscriptionId: existing.id, status: 'PAID', excludedFromAccess: false },
-            select: { amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true, manualMethod: true },
+            select: { amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true, manualMethod: true, moduleCount: true },
           });
-          monthlyPaidCount = paidPayments.length;
+          // Модулі, а не рядки: платіж за N модулів наперед — це N сплачених місяців.
+          monthlyPaidCount = paidPayments.reduce((acc, p) => acc + paymentModuleCount(p), 0);
           monthlySched = currentCohortDates
             ? monthlySchedule({ cohort: currentCohortDates, payments: paidPayments })
             : null;
@@ -713,6 +761,20 @@ export async function POST(req: NextRequest) {
               error: 'Програму вже повністю оплачено. Якщо потрібна допомога — напишіть на edu@uimp.com.ua',
               code: 'monthly_fully_paid',
             }, { status: 409 });
+          }
+          // Не більше модулів, ніж у цієї підписки лишилось несплаченими в її наборі.
+          // Рахується тією самою сіткою, що й доступ: інакше 3 модулі за 2, що лишились,
+          // давали б гроші за модуль, якого в наборі немає.
+          if (modulesRequested > 1) {
+            const maxModules = monthlySched ? maxPrepayModules(monthlySched) : 0;
+            if (modulesRequested > maxModules) {
+              return NextResponse.json({
+                error: maxModules > 0
+                  ? `У наборі лишилось несплачених модулів: ${maxModules}. Оновіть сторінку і оберіть кількість ще раз.`
+                  : 'Оплатити кілька модулів зараз не можна. Оновіть сторінку або напишіть менеджеру: edu@uimp.com.ua',
+                code: 'monthly_modules_exceed',
+              }, { status: 409 });
+            }
           }
 
           // Guard боргу (тільки MONTHLY — у YEARLY один платіж, борг неможливий).
@@ -747,6 +809,9 @@ export async function POST(req: NextRequest) {
           if (renewPayload) {
             const moduleNumber = monthlySched ? monthlySched.nextSlotIndex + 1 : null;
             const totalModules = currentCohortDates ? cohortModuleCount(currentCohortDates) : null;
+            const modulesLabel = modulesRequested > 1 && moduleNumber
+              ? `модулі ${moduleNumber}–${moduleNumber + modulesRequested - 1} з ${totalModules} (${modulesRequested} шт.)`
+              : `модуль ${moduleNumber} з ${totalModules}`;
             await prisma.yearlyProgramSubscriptionEvent.create({
               data: {
                 subscriptionId: existing.id,
@@ -754,13 +819,15 @@ export async function POST(req: NextRequest) {
                 // Формулювання буквальне: подія пишеться на ВІДКРИТТІ чекауту, до того як
                 // людина щось заплатила. Успішну оплату фіксує callback окремим платежем.
                 message: moduleNumber && totalModules
-                  ? `Відкрив оплату за персональним посиланням · модуль ${moduleNumber} з ${totalModules} (${orderReference})`
+                  ? `Відкрив оплату за персональним посиланням · ${modulesLabel}${recurring === true ? ' · з автоплатежем' : ''} (${orderReference})`
                   : `Відкрив оплату за персональним посиланням (${orderReference})`,
                 metadata: {
                   orderReference,
                   cohortId: currentCohortId,
                   module: moduleNumber,
+                  modules: modulesRequested,
                   totalModules,
+                  autopay: recurring === true,
                 },
               },
             });
@@ -777,10 +844,7 @@ export async function POST(req: NextRequest) {
         if (plan === 'MONTHLY') {
           const nowTs = new Date();
           if (currentCohortDates) {
-            const anchorSlot = Math.max(
-              cohortSlotIndex(currentCohortDates, nowTs),
-              monthlySched?.nextSlotIndex ?? 0,
-            );
+            const anchorSlot = purchaseAnchorSlot({ cohort: currentCohortDates, schedule: monthlySched, now: nowTs });
             autopayAnchorSlot = anchorSlot;
             autopayAnchor = cohortModuleStart(currentCohortDates, anchorSlot);
             autopayTotalPayments = maxAutopayChargeCount({ cohort: currentCohortDates, firstSlot: anchorSlot });
@@ -891,7 +955,14 @@ export async function POST(req: NextRequest) {
           // ── АВТОПЛАТІЖ → РАЗОВА (downgrade): застосовуємо одразу на ініціації.
           // Ідемпотентно і безпечно: знімаємо правила у WFP і гасимо прапорець. Навіть якщо
           // людина не доплатить, стан «немає регулярки + autoRenew=false» коректний.
-          if (existing.autoRenew && !desiredAutoRenew) {
+          //
+          // Те саме — коли автоплатник зі зламаним списанням підключає автоплатіж НАНОВО
+          // (персональне посилання, галочка «Підключити автоплатіж»). Старе правило у WFP
+          // треба зняти ДО того, як WFP створить нове на цьому Purchase: інакше живуть два
+          // правила, і кожен модуль може списатись двічі. Прапорець гасимо, як у downgrade:
+          // увімкне його callback за фактом нового правила (гілка upgrade нижче).
+          const resubscribeBrokenAutopay = existing.autoRenew && desiredAutoRenew && brokenAutopayTopUp;
+          if (existing.autoRenew && (!desiredAutoRenew || resubscribeBrokenAutopay)) {
             // Якщо REMOVE впаде — все одно мутимо БД, щоб уникнути неконсистентного стану;
             // помилку логуємо в subscription event для діагностики.
             const autopay = await removeSubscriptionAutopay(existing.id);
@@ -901,7 +972,7 @@ export async function POST(req: NextRequest) {
             await recordAutopayRemoveOutcome({
               subscriptionId: existing.id,
               result: autopay,
-              source: `checkout:${orderReference} · downgrade_to_one_time`,
+              source: `checkout:${orderReference} · ${resubscribeBrokenAutopay ? 'resubscribe_broken_autopay' : 'downgrade_to_one_time'}`,
             });
             await prisma.yearlyProgramSubscription.update({
               where: { id: existing.id },
@@ -911,11 +982,15 @@ export async function POST(req: NextRequest) {
               data: {
                 subscriptionId: existing.id,
                 type: 'autorenew_downgraded',
-                message: brokenAutopayTopUp
+                message: resubscribeBrokenAutopay
+                  ? `Автосписання не пройшло — студент підключає автоплатіж наново (${orderReference}). Старе правило знято · WFP REMOVE: ${autopay.removed}/${autopay.attempted}${autopay.error ? ` (errors: ${autopay.error.slice(0, 200)})` : ''}`
+                  : brokenAutopayTopUp
                   ? `Автосписання не пройшло — студент оплачує модуль сам (${orderReference}). Автоплатіж вимкнено · WFP REMOVE: ${autopay.removed}/${autopay.attempted}${autopay.error ? ` (errors: ${autopay.error.slice(0, 200)})` : ''}`
                   : `Downgraded to РАЗОВА on new payment · WFP REMOVE: ${autopay.removed}/${autopay.attempted}${autopay.error ? ` (errors: ${autopay.error.slice(0, 200)})` : ''}`,
                 metadata: {
-                  reason: brokenAutopayTopUp ? 'failed_autopay_manual_topup' : 'checkout_one_time',
+                  reason: resubscribeBrokenAutopay
+                    ? 'failed_autopay_resubscribe'
+                    : brokenAutopayTopUp ? 'failed_autopay_manual_topup' : 'checkout_one_time',
                   wfpRemovedCount: autopay.removed,
                   wfpAttemptedCount: autopay.attempted,
                   wfpRemoveError: autopay.error,
@@ -929,7 +1004,7 @@ export async function POST(req: NextRequest) {
           // яка перемкнула тумблер і закрила вкладку не заплативши, лишалась би з
           // autoRenew=true без жодної регулярки, і Rule 2 («скасуйте автосписання»)
           // блокував би їй наступну оплату — самоблокування без виходу.
-          else if (!existing.autoRenew && desiredAutoRenew) {
+          if ((!existing.autoRenew || resubscribeBrokenAutopay) && desiredAutoRenew) {
             await prisma.yearlyProgramSubscriptionEvent.create({
               data: {
                 subscriptionId: existing.id,
@@ -1055,6 +1130,7 @@ export async function POST(req: NextRequest) {
           bundleSlugsSnapshot: bundleSnapshot ?? Prisma.DbNull,
           yearlyProgramSubscriptionId,
           promoCodeId: claimedPromoId,
+          moduleCount: modulesRequested,
         },
         // ВАЖЛИВО: update переписує і ТОВАР, не лише суму. Інакше повторний POST з тим
         // самим orderReference, але іншим courseId/bundleId, змінював суму на дешевшу,
@@ -1073,11 +1149,20 @@ export async function POST(req: NextRequest) {
           // Пишемо і в update: за цим полем Declined/Expired-callback повертає
           // використання в ліміт, а повторний POST розуміє, що воно вже зайняте.
           promoCodeId: claimedPromoId,
+          // Кількість модулів — частина ТОВАРУ: повторний POST того ж ref-у з іншою
+          // кількістю переписує і суму, і кількість разом.
+          moduleCount: modulesRequested,
         },
       });
     }
 
     const orderDate = Math.floor(Date.now() / 1000);
+
+    // Кілька модулів: у чеку WFP — один товар «модуль» у кількості N за ціною модуля,
+    // разом рівно `finalAmount` (він уже = ціна модуля × N, див. вище). Для решти
+    // покупок — як було: один товар за повну суму.
+    const wfpProductCount = modulesRequested > 1 ? modulesRequested : productCount;
+    const wfpProductPrice = modulesRequested > 1 ? finalAmount / modulesRequested : finalAmount;
 
     const signatureString = [
       merchantLogin,
@@ -1087,10 +1172,10 @@ export async function POST(req: NextRequest) {
       finalAmount,
       'UAH',
       productName,
-      productCount,
-      // Ціна товару = підсумкова сума (в чеку один товар). Беремо `finalAmount` тут, після
-      // можливого перерахунку без промо — інакше підпис пішов би зі старою ціною.
-      finalAmount,
+      wfpProductCount,
+      // Ціна товару = підсумкова сума (в чеку один товар) або ціна модуля при N модулях.
+      // Беремо після можливого перерахунку без промо — інакше підпис пішов би зі старою ціною.
+      wfpProductPrice,
     ].join(';');
 
     const merchantSignature = crypto
@@ -1107,8 +1192,8 @@ export async function POST(req: NextRequest) {
       currency: 'UAH',
       orderLifetime: 86400,
       productName: [productName],
-      productPrice: [finalAmount],
-      productCount: [productCount],
+      productPrice: [wfpProductPrice],
+      productCount: [wfpProductCount],
       clientEmail,
       clientFirstName: typeof clientName === 'string' ? clientName.split(' ')[0] || '' : '',
       clientLastName: typeof clientName === 'string' ? clientName.split(' ').slice(1).join(' ') || '' : '',

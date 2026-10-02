@@ -564,7 +564,8 @@ function ProductCell({ row, theme }: { row: Row; theme: Theme }) {
     const yearlyTone =
       row.productLabel === 'Місячна Автоплатіж'
         ? { dark: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20', light: 'bg-emerald-500/10 text-emerald-800 border-emerald-500/25' }
-        : row.productLabel === 'Місячна на 1 міс.'
+        // «Місячна на 3 модулі» — та сама разова оплата, лише кількох модулів наперед.
+        : row.productLabel === 'Місячна на 1 міс.' || row.productLabel.startsWith('Місячна на ')
           ? { dark: 'bg-sky-500/10 text-sky-300 border-sky-500/20', light: 'bg-sky-500/10 text-sky-800 border-sky-500/25' }
           : { dark: 'bg-amber-500/10 text-amber-300 border-amber-500/20', light: 'bg-amber-500/10 text-amber-800 border-amber-500/25' };
     return (

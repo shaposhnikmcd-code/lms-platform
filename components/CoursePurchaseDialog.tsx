@@ -73,6 +73,19 @@ export interface CoursePurchaseDialogProps {
   lockRecurring?: boolean;
   /// Заміняє дефолтну підказку під полем email («на нього прийде доступ до курсу»).
   emailHint?: string;
+  /// Renew-флоу: скільки модулів оплачується ОДНИМ платежем (1 за замовчуванням).
+  /// `price` лишається ціною ОДНОГО модуля — суму (N × ціна) рахує форма, а сервер
+  /// перераховує її сам із `modules` і ніколи не вірить сумі з браузера.
+  moduleCount?: number;
+  /// Renew-флоу з галочкою «Підключити автоплатіж»: у чекаут іде `recurring: true`
+  /// (перший модуль зараз, далі WFP списує сам). Має сенс лише разом з `lockRecurring`
+  /// і тільки при `moduleCount` = 1 — сервер інакше відповість 400.
+  lockedAutopay?: boolean;
+  /// Заголовок і текст плашки над ціною замість «ОПЛАТА ОДНОГО МОДУЛЯ» — панель
+  /// поновлення передає свої (кілька модулів / автоплатіж), уже перекладені.
+  moduleBox?: { title: string; text: string };
+  /// Напис на кнопці оплати у формі замість «Оплатити модуль».
+  payLabel?: string;
   /// Закриття діалогу (викликається на Esc, backdrop-клік, кнопці "×").
   onClose: () => void;
 }
@@ -90,16 +103,25 @@ export default function CoursePurchaseDialog({
   invitePrefill,
   lockRecurring = false,
   emailHint,
+  moduleCount = 1,
+  lockedAutopay = false,
+  moduleBox,
+  payLabel,
   onClose,
 }: CoursePurchaseDialogProps) {
+  /// Кілька модулів наперед — тільки разовою оплатою (автоплатіж = по модулю).
+  const modulesN = Number.isInteger(moduleCount) && moduleCount > 1 && !lockedAutopay ? moduleCount : 1;
   const t = useTranslations('PurchaseModal');
   const { data: session } = useSession();
   const sessionRole = (session?.user as { role?: string } | undefined)?.role;
   const isAdmin = sessionRole === 'ADMIN' || sessionRole === 'MANAGER';
   /// Адмін/менеджер тестує за символічну ціну — щоб легко розрізняти плани в логах/callback:
   /// `yearly-program` (річна) = 2 ₴, решта (місячна, курси, пакети) = 1 ₴.
-  const adminTestPrice = courseId === 'yearly-program' ? 2 : 1;
-  const effectivePrice = isAdmin ? adminTestPrice : price;
+  const adminTestPrice = (courseId === 'yearly-program' ? 2 : 1) * modulesN;
+  /// `price` — ціна ОДНОГО модуля; за кілька модулів наперед сума = N × ціна (так само
+  /// рахує сервер, і тест-ціна адміна теж множиться — 1 ₴ за модуль).
+  const fullPrice = price * modulesN;
+  const effectivePrice = isAdmin ? adminTestPrice : fullPrice;
 
   /// Поля "Країна проживання" і "Telegram username" обов'язкові тільки для покупок
   /// Річної програми (yearly + monthly). На звичайні курси/пакети — не показуємо.
@@ -358,12 +380,15 @@ export default function CoursePurchaseDialog({
           clientName: `${firstName.trim()} ${lastName.trim()}`,
           clientPhone: fullPhone,
           courseId,
-          promoCode: promoApplied ? promoCode.trim() : undefined,
+          promoCode: promoApplied && modulesN === 1 ? promoCode.trim() : undefined,
+          // Сервер рахує суму сам: N × ціна модуля, і звіряє N із залишком модулів.
+          modules: modulesN > 1 ? modulesN : undefined,
           selectedFreeSlugs: selectedFreeSlugs && selectedFreeSlugs.length > 0 ? selectedFreeSlugs : undefined,
           // `recurring: false` для renew ОБОВ'ЯЗКОВЕ, а не косметика: на сервері регулярні
           // прапори чіпляються за умовою `recurring !== false`, тож `undefined` перетворив
           // би оплату одного модуля на автосписання до кінця набору.
-          recurring: allowRecurringChoice ? isRecurring === true : (lockRecurring ? false : undefined),
+          // `lockedAutopay` — студент сам поставив галочку «Підключити автоплатіж» у панелі.
+          recurring: allowRecurringChoice ? isRecurring === true : (lockRecurring ? lockedAutopay : undefined),
           invite: inviteToken,
           country: isYearlyProgram ? residenceCountry : undefined,
           telegramUsername: isYearlyProgram ? normalizedTelegram : undefined,
@@ -689,10 +714,10 @@ export default function CoursePurchaseDialog({
             {lockRecurring && !allowRecurringChoice && (
               <div className="rounded-xl border-2 border-[#D4A017]/35 bg-gradient-to-br from-[#FDFBF4] to-white px-3 py-2">
                 <div className="text-[9px] font-bold tracking-[0.14em] text-[#1C3A2E]/70">
-                  {t('moduleBoxTitle')}
+                  {moduleBox?.title ?? t('moduleBoxTitle')}
                 </div>
                 <p className="mt-0.5 text-[11px] text-gray-600 leading-snug">
-                  {t('moduleBoxText')}
+                  {moduleBox?.text ?? t('moduleBoxText')}
                 </p>
               </div>
             )}
@@ -826,6 +851,9 @@ export default function CoursePurchaseDialog({
               </div>
             )}
 
+            {/* Промокод на кілька модулів наперед не діє (сервер його відкидає) — поле
+                не показуємо, щоб не обіцяти знижку, якої не буде. */}
+            {modulesN === 1 && (
             <div>
               <label htmlFor="purchase-promo" className="block text-sm font-medium text-gray-700 mb-0.5">
                 {t('promoLabel')}
@@ -839,7 +867,7 @@ export default function CoursePurchaseDialog({
                     setPromoCode(e.target.value);
                     setPromoApplied(false);
                     setPromoError('');
-                    setFinalPrice(price);
+                    setFinalPrice(effectivePrice);
                   }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') {
@@ -867,6 +895,7 @@ export default function CoursePurchaseDialog({
               {promoError && <p className="text-red-500 text-sm mt-1">{promoError}</p>}
               {promoApplied && <p className="text-green-600 text-sm mt-1">{t('promoSuccess')}</p>}
             </div>
+            )}
           </div>
 
           {/* Footer: price + pay button */}
@@ -876,9 +905,9 @@ export default function CoursePurchaseDialog({
                 <div className="flex items-baseline justify-between">
                   <span className="text-gray-600">{courseName}</span>
                   <div className="flex items-baseline gap-2">
-                    {(promoApplied || isAdmin) && finalPrice !== price && (
+                    {(promoApplied || isAdmin) && finalPrice !== fullPrice && (
                       <span className="text-base text-gray-400 line-through">
-                        {price} {currency}
+                        {fullPrice} {currency}
                       </span>
                     )}
                     <span className={`text-2xl font-bold ${isAdmin ? 'text-amber-700' : 'text-gray-900'}`}>
@@ -970,7 +999,7 @@ export default function CoursePurchaseDialog({
                 // Оплата модуля Річної (renew-панель і рядок «Оплатити наступний модуль»):
                 // людина платить за модуль програми, а не купує курс.
                 : lockRecurring && !allowRecurringChoice
-                ? t('btnPayModule')
+                ? (payLabel ?? t('btnPayModule'))
                 : t('btnPay')}
             </button>
           </div>

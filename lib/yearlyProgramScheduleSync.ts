@@ -26,7 +26,7 @@ import {
   getWayforpayCreds,
   removeRegularSchedule,
 } from '@/lib/wayforpay';
-import { cohortModuleCount, cohortModuleStart, monthlySchedule } from '@/lib/yearlyProgramAccess';
+import { cohortModuleCount, cohortModuleStart, monthlySchedule, paymentModuleCount } from '@/lib/yearlyProgramAccess';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 /// Той самий буфер, що й у buildRegularPurchaseFlags: dateEnd ставимо на 10 днів пізніше
@@ -117,7 +117,7 @@ export async function syncAutopaySchedule(
         // (orphan / понад ліміт / розбіжність суми). Інакше `paidCount` завищувався б і
         // звірка знімала б живе правило регулярки як «повна оплата 9/9».
         where: { status: 'PAID', excludedFromAccess: false },
-        select: { orderReference: true, amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true, manualMethod: true },
+        select: { orderReference: true, amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true, manualMethod: true, moduleCount: true },
         orderBy: { createdAt: 'asc' },
       },
     },
@@ -164,8 +164,11 @@ export async function syncAutopaySchedule(
   /// Хоч один STATUS не дав чесної відповіді (5xx/timeout/битий JSON) → ми НЕ знаємо,
   /// чи є правило. Кеш у такому разі не чіпаємо взагалі.
   let inconclusive = false;
-  const amountByRef = new Map(sub.payments.map((p) => [p.orderReference, p.amount]));
-  const fallbackAmount = sub.payments[sub.payments.length - 1]!.amount;
+  // Сума ОДНОГО списання: регулярка завжди списує один модуль, а платіж за N модулів
+  // наперед (персональне посилання) має суму ціна × N — ділимо на зафіксовану кількість.
+  const amountByRef = new Map(sub.payments.map((p) => [p.orderReference, p.amount / paymentModuleCount(p)]));
+  const lastPay = sub.payments[sub.payments.length - 1]!;
+  const fallbackAmount = lastPay.amount / paymentModuleCount(lastPay);
   const probed = new Set<string>();
 
   const probeRefs = async (refs: string[]) => {

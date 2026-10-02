@@ -316,6 +316,13 @@ model Payment {
   /// Потрібен, щоб Declined/Expired-callback повернув використання назад у ліміт.
   /// Обнуляється в момент повернення — це і є маркер ідемпотентності.
   promoCodeId                 String?
+  /// Скільки модулів Річної (MONTHLY) покриває цей платіж. 1 — звичайна місячна оплата
+  /// і будь-який інший продукт. >1 — оплата кількох модулів наперед одним платежем за
+  /// персональним посиланням. Фіксується `/api/wayforpay` у момент створення платежу
+  /// (сервер сам валідує межі), callback читає звідси, а не виводить із суми: сума
+  /// буває символічною (адмін-тест) або зі знижкою. Сітка модулів (`monthlySchedule`)
+  /// рахує такий платіж за N слотів.
+  moduleCount                 Int                        @default(1)
   yearlyProgramSubscription   YearlyProgramSubscription? @relation("YearlyProgramPayments", fields: [yearlyProgramSubscriptionId], references: [id])
   user                        User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
   course                      Course?                    @relation(fields: [courseId], references: [id])

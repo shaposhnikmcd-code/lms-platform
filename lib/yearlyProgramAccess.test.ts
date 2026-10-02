@@ -14,11 +14,15 @@ import {
   cohortSlotIndex,
   lastAutopayChargeDate,
   maxAutopayChargeCount,
+  maxPrepayModules,
   monthlySchedule,
+  paymentModuleCount,
+  purchaseAnchorSlot,
   type CohortLike,
   type PaymentLike,
 } from './yearlyProgramAccess';
 import { buildRegularPurchaseFlags } from './wayforpay';
+import { assignPaymentModules, pluralModules } from './yearlyProgramModules';
 
 /// Реальний набір 2026/27: старт 01.09.2026, кінець 31.05.2027 (кінець доби, як його
 /// нормалізує адмінка). Вересень = модуль 1 … травень = модуль 9.
@@ -39,6 +43,7 @@ const pay = (iso: string, over: Partial<PaymentLike> = {}): PaymentLike => ({
   excludedFromAccess: false,
   // Чекаут і оплата в один момент — слот однаковий, звідки б його не брали.
   manualMethod: null,
+  moduleCount: 1,
   ...over,
 });
 
@@ -71,6 +76,7 @@ const wfpPay = (createdIso: string, paidIso: string): PaymentLike => ({
   paidAt: new Date(paidIso),
   excludedFromAccess: false,
   manualMethod: null,
+  moduleCount: 1,
 });
 
 /// dateNext, який отримає WayForPay для покупки в момент `nowIso` (без уже сплачених
@@ -309,6 +315,7 @@ test('ручний платіж бере слот з paidAt, а не з дати
     createdAt: new Date('2026-12-20T11:00:00.000Z'),
     excludedFromAccess: false,
     manualMethod: 'cash',
+    moduleCount: 1,
   };
   const s = monthlySchedule({ cohort: COHORT, payments: [manual] });
   assert.equal(s.firstSlot, 0);
@@ -383,4 +390,92 @@ test('платіж в останній день набору — ще норма
   assert.equal(s.degenerate, false);
   assert.equal(s.firstSlot, 8);
   assert.equal(s.totalSlots, 1);
+});
+
+// ── Оплата кількох модулів одним платежем (`Payment.moduleCount`) ──────────────────
+
+test('платіж за 3 модулі в листопаді (після вересня й жовтня) → доступ до початку 6-го модуля (01.02.2027)', () => {
+  const payments = [
+    pay('2026-09-14T10:00:00.000Z'),
+    pay('2026-10-01T08:00:00.000Z'),
+    pay('2026-11-10T09:00:00.000Z', { amount: 6600, moduleCount: 3 }),
+  ];
+  // Модулі 3, 4, 5 (листопад–січень) сплачені → перший неоплачений — 6-й, лютий.
+  assert.equal(access(payments)!.toISOString(), '2027-02-01T00:00:00.000Z');
+  const s = monthlySchedule({ cohort: COHORT, payments });
+  assert.equal(s.paidCount, 5);
+  assert.equal(s.nextSlotIndex, 5);
+  assert.equal(s.remaining, 4);
+});
+
+test('два платежі по 1 модулю = один платіж за 2 модулі (той самий доступ і сітка)', () => {
+  const base = [pay('2026-09-14T10:00:00.000Z')];
+  const twoSingles = [...base, pay('2026-10-05T10:00:00.000Z'), pay('2026-10-05T10:05:00.000Z')];
+  const oneDouble = [...base, pay('2026-10-05T10:00:00.000Z', { amount: 4400, moduleCount: 2 })];
+  assert.equal(access(twoSingles)!.toISOString(), access(oneDouble)!.toISOString());
+  assert.equal(access(oneDouble)!.toISOString(), '2026-12-01T00:00:00.000Z');
+  const a = monthlySchedule({ cohort: COHORT, payments: twoSingles });
+  const b = monthlySchedule({ cohort: COHORT, payments: oneDouble });
+  assert.equal(a.paidCount, b.paidCount);
+  assert.equal(a.nextSlotIndex, b.nextSlotIndex);
+});
+
+test('платіж за ВСІ модулі, що лишились, → повна оплата з пост-доступом', () => {
+  const payments = [pay('2026-09-14T10:00:00.000Z'), pay('2026-10-01T08:00:00.000Z', { moduleCount: 8 })];
+  const s = monthlySchedule({ cohort: COHORT, payments });
+  assert.equal(s.isFullyPaid, true);
+  assert.equal(access(payments)!.toISOString(), FULL_ACCESS_END);
+});
+
+test('кеп «не більше, ніж лишилось»: maxPrepayModules = remaining, 0 коли сплачено все', () => {
+  const two = monthlySchedule({ cohort: COHORT, payments: gridPayments('2026-09-14T10:00:00.000Z', 2) });
+  assert.equal(maxPrepayModules(two), 7);
+  const lateBuyer = monthlySchedule({ cohort: COHORT, payments: [pay('2026-10-06T10:00:00.000Z')] });
+  // Жовтневий покупець має 8 своїх слотів: 1 сплачено → можна наперед ще 7.
+  assert.equal(maxPrepayModules(lateBuyer), 7);
+  const full = monthlySchedule({ cohort: COHORT, payments: gridPayments('2026-09-14T10:00:00.000Z', 9) });
+  assert.equal(maxPrepayModules(full), 0);
+});
+
+test('надлишок модулів (гонка двох вкладок) не дає доступу понад кінець набору', () => {
+  const payments = [pay('2026-09-14T10:00:00.000Z', { moduleCount: 7 }), pay('2026-09-15T10:00:00.000Z', { moduleCount: 7 })];
+  const s = monthlySchedule({ cohort: COHORT, payments });
+  assert.equal(s.paidCount, 14);
+  assert.equal(s.nextSlotIndex, 9, 'сітка не виходить за кінець набору');
+  assert.equal(access(payments)!.toISOString(), FULL_ACCESS_END);
+});
+
+test('paymentModuleCount: лише ціле > 1 рахується як кілька модулів', () => {
+  assert.equal(paymentModuleCount({ moduleCount: 3 }), 3);
+  assert.equal(paymentModuleCount({ moduleCount: 1 }), 1);
+  assert.equal(paymentModuleCount({ moduleCount: 0 }), 1);
+  assert.equal(paymentModuleCount({ moduleCount: -2 }), 1);
+  assert.equal(paymentModuleCount({ moduleCount: 2.5 }), 1);
+});
+
+test('якір автоплатежу після оплати наперед — перший НЕпокритий модуль, не поточний', () => {
+  const payments = [pay('2026-09-14T10:00:00.000Z'), pay('2026-10-01T08:00:00.000Z', { moduleCount: 3 })];
+  const s = monthlySchedule({ cohort: COHORT, payments });
+  // Зараз листопад (модуль 3), але сплачено до кінця грудня → якір = модуль 5 (січень).
+  const anchor = purchaseAnchorSlot({ cohort: COHORT, schedule: s, now: new Date('2026-11-10T09:00:00.000Z') });
+  assert.equal(anchor, 4);
+  assert.equal(cohortModuleStart(COHORT, anchor + 1).toISOString(), '2027-02-01T00:00:00.000Z');
+  assert.equal(maxAutopayChargeCount({ cohort: COHORT, firstSlot: anchor }), 5);
+});
+
+test('адмінка: платіж за 3 модулі підписаний діапазоном «модулі 3–5», наступний платіж — модуль 6', () => {
+  const rows = [
+    { id: 'a', ...pay('2026-09-14T10:00:00.000Z') },
+    { id: 'b', ...pay('2026-10-01T08:00:00.000Z') },
+    { id: 'c', ...pay('2026-11-10T09:00:00.000Z', { amount: 6600, moduleCount: 3 }) },
+    { id: 'd', ...pay('2027-02-01T08:00:00.000Z') },
+  ];
+  const map = assignPaymentModules({ cohort: COHORT, payments: rows });
+  assert.equal(map.get('b')!.number, 2);
+  assert.equal(map.get('b')!.last, undefined);
+  assert.equal(map.get('c')!.number, 3);
+  assert.deepEqual(map.get('c')!.last, { number: 5, monthLabel: 'січень 2027' });
+  assert.equal(map.get('d')!.number, 6);
+  assert.deepEqual([1, 2, 3, 5, 11, 12, 21, 22].map(pluralModules),
+    ['модуль', 'модулі', 'модулі', 'модулів', 'модулів', 'модулів', 'модуль', 'модулі']);
 });

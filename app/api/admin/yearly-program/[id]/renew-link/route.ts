@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { getStaffActor } from '@/lib/adminAuth';
 import { issueRenewLink } from '@/lib/yearlyProgramRenew';
+import { getYearlyGraceDays } from '@/lib/yearlyProgramConfig';
 import { nextUnpaidModule } from '@/lib/yearlyProgramModules';
 import { autopayAllowsManualTopUp } from '@/lib/yearlyProgramRenewState';
 
@@ -41,7 +42,7 @@ export async function POST(
         where: { status: 'PAID', excludedFromAccess: false },
         select: {
           amount: true, status: true, paidAt: true, createdAt: true,
-          excludedFromAccess: true, manualMethod: true,
+          excludedFromAccess: true, manualMethod: true, moduleCount: true,
         },
       },
     },
@@ -103,11 +104,15 @@ export async function POST(
     ? nextUnpaidModule({ cohort: sub.cohort, payments: sub.payments })
     : null;
 
+  // Посилання живе до кінця навчання набору (+ пільговий період): адміністраторка видає
+  // його один раз, і студент оплачує ним модуль за модулем.
   const { url, expiresAt } = issueRenewLink({
     subscriptionId: sub.id,
     email,
     cohortId: sub.cohortId,
     origin: originOf(req),
+    cohortEndDate: sub.cohort?.endDate ?? null,
+    graceDays: await getYearlyGraceDays(prisma),
   });
 
   await prisma.yearlyProgramSubscriptionEvent.create({

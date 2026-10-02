@@ -21,12 +21,17 @@ export async function sendYearlyProgramPaymentReceiptEmail(args: {
   /// Дата наступного автосписання = перший день наступного модуля. null, якщо списань
   /// більше не буде (усі свої модулі сплачені) — тоді в листі стоїть інша фраза.
   nextChargeAt?: Date | null;
+  /// Разова оплата кількох модулів наперед (персональне посилання): які модулі покрито.
+  /// null / відсутнє — звичайна оплата одного модуля.
+  prepaidModules?: { from: number; to: number; total: number } | null;
 }): Promise<{ ok: boolean; error?: string }> {
-  const { to, name, amount, autoRenew, newExpiresAt, chargeProgress, nextChargeAt } = args;
+  const { to, name, amount, autoRenew, newExpiresAt, chargeProgress, nextChargeAt, prepaidModules } = args;
 
   const greeting = name && name.trim() ? `Доброго дня, ${esc(name.trim())}!` : 'Доброго дня!';
   const progressLine = chargeProgress
     ? `<p style="margin: 0 0 16px; color: #555;">Оплачено модуль ${chargeProgress.current} з ${chargeProgress.total}.</p>`
+    : prepaidModules
+    ? `<p style="margin: 0 0 16px; color: #555;">Оплачено модулів наперед: ${prepaidModules.to - prepaidModules.from + 1} (модулі ${prepaidModules.from}–${prepaidModules.to} з ${prepaidModules.total}).</p>`
     : '';
   // UTC-форматування — уся математика дат Річної живе в UTC, тож дата в листі збігається
   // з датою у графіку WFP і в адмінці.

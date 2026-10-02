@@ -50,7 +50,7 @@ async function main() {
       user: { select: { email: true } },
       payments: {
         where: { status: 'PAID', excludedFromAccess: false },
-        select: { amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true, manualMethod: true },
+        select: { amount: true, status: true, paidAt: true, createdAt: true, excludedFromAccess: true, manualMethod: true, moduleCount: true },
         orderBy: [{ paidAt: 'asc' }, { createdAt: 'asc' }],
       },
     },

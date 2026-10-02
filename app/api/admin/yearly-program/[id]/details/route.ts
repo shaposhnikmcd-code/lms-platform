@@ -27,7 +27,7 @@ export async function GET(
           status: true,
           createdAt: true,
           paidAt: true,
-          manualMethod: true,
+          manualMethod: true, moduleCount: true,
           manualNote: true,
           excludedFromAccess: true,
         },
@@ -115,8 +115,16 @@ export async function GET(
         // null — платіж не зараховано в доступ (PENDING, відхилений, виключений) або
         // сітки для цієї підписки немає: номера модуля в такого платежу просто нема.
         module: paymentModule
-          ? { number: paymentModule.number, total: paymentModule.total, monthLabel: paymentModule.monthLabel }
+          ? {
+            number: paymentModule.number,
+            total: paymentModule.total,
+            monthLabel: paymentModule.monthLabel,
+            // Платіж за кілька модулів наперед: останній покритий модуль (діапазон 4–6).
+            ...(paymentModule.last ? { last: paymentModule.last } : {}),
+          }
           : null,
+        // Скільки модулів покриває платіж (оплата наперед за персональним посиланням).
+        moduleCount: p.moduleCount,
       };
     }),
     events: sub.events.map((e) => ({

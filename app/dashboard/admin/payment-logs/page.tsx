@@ -1,5 +1,6 @@
 import prisma from '@/lib/prisma';
 import PaymentLogsView, { type PaymentLogsData } from './_components/PaymentLogsView';
+import { pluralModules } from '@/lib/yearlyProgramModules';
 
 const KIND_FILTERS = ['all', 'course', 'bundle', 'yearly', 'monthly', 'connector', 'unknown'] as const;
 type KindFilter = (typeof KIND_FILTERS)[number];
@@ -94,10 +95,15 @@ export default async function PaymentLogsPage({
         where: { orderReference: { in: monthlyOrderRefs } },
         select: {
           orderReference: true,
+          moduleCount: true,
           yearlyProgramSubscription: { select: { autoRenew: true } },
         },
       })
     : [];
+  /// Платежі Річної за кілька модулів наперед (orderRef → N). Лише N > 1.
+  const moduleCountByOrderRef = new Map(
+    monthlyPayments.filter((p) => p.moduleCount > 1).map((p) => [p.orderReference, p.moduleCount]),
+  );
   const autoRenewByOrderRef = new Map(
     monthlyPayments
       .filter((p) => p.yearlyProgramSubscription)
@@ -162,6 +168,9 @@ export default async function PaymentLogsPage({
     if (kind === 'connector') return 'Конектор';
     if (kind === 'yearly') return 'Річна підписка';
     if (kind === 'monthly') {
+      // Кілька модулів наперед — та сама назва, що й у Платежах.
+      const modules = orderRef ? moduleCountByOrderRef.get(orderRef) : undefined;
+      if (modules) return `Місячна на ${modules} ${pluralModules(modules)}`;
       if (autoRenew === true) return 'Місячна Автоплатіж';
       if (autoRenew === false) return 'Місячна на 1 міс.';
       return 'Місячна';

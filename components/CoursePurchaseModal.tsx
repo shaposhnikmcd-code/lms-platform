@@ -52,6 +52,21 @@ interface CoursePurchaseModalProps {
   /// Заміняє дефолтну підказку під полем email у формі. Потрібна там, де email — не
   /// «куди прийде доступ», а «за яким знайти вашу підписку».
   emailHint?: string;
+  /// Renew-флоу: скільки модулів оплачується ОДНИМ платежем (1 за замовчуванням).
+  /// `price` лишається ціною ОДНОГО модуля — суму (N × ціна) рахує форма, а сервер
+  /// перераховує її сам із `modules` і ніколи не вірить сумі з браузера.
+  moduleCount?: number;
+  /// Renew-флоу з галочкою «Підключити автоплатіж»: у чекаут іде `recurring: true`
+  /// (перший модуль зараз, далі WFP списує сам). Має сенс лише разом з `lockRecurring`
+  /// і тільки при `moduleCount` = 1 — сервер інакше відповість 400.
+  lockedAutopay?: boolean;
+  /// Заголовок і текст плашки над ціною замість «ОПЛАТА ОДНОГО МОДУЛЯ» — панель
+  /// поновлення передає свої (кілька модулів / автоплатіж), уже перекладені.
+  moduleBox?: { title: string; text: string };
+  /// Напис на кнопці оплати у формі замість «Оплатити модуль».
+  payLabel?: string;
+  /// Додаткові класи кнопки-тригера (напр. `min-h-[44px]` для сенсорних екранів).
+  triggerClassName?: string;
 }
 
 export default function CoursePurchaseModal({
@@ -71,6 +86,11 @@ export default function CoursePurchaseModal({
   lockRecurring = false,
   variant = 'button',
   emailHint,
+  moduleCount = 1,
+  lockedAutopay = false,
+  moduleBox,
+  payLabel,
+  triggerClassName = '',
 }: CoursePurchaseModalProps) {
   const t = useTranslations('PurchaseModal');
   const [isOpen, setIsOpen] = useState(false);
@@ -79,7 +99,7 @@ export default function CoursePurchaseModal({
     item_id: courseId,
     item_name: courseName,
     item_category: inferEcommerceCategory(courseId),
-    price,
+    price: price * moduleCount,
   };
 
   // GA4 view_item — одне спрацьовування на item_id за сесію (dedup у helper-і).
@@ -108,7 +128,7 @@ export default function CoursePurchaseModal({
         <button
           onClick={handleOpen}
           disabled={disabled}
-          className={`group relative inline-flex items-center gap-3 bg-[#D4A017] text-white font-bold rounded-xl mx-auto justify-center overflow-hidden shadow-md shadow-[#D4A017]/20 transition-all duration-300 hover:bg-[#c69414] hover:shadow-lg hover:shadow-[#D4A017]/30 border border-[#D4A017]/30 disabled:opacity-50 disabled:cursor-not-allowed ${compact ? 'py-2.5 px-6 text-sm' : 'py-2.5 px-3 text-sm'}`}
+          className={`group relative inline-flex items-center gap-3 bg-[#D4A017] text-white font-bold rounded-xl mx-auto justify-center overflow-hidden shadow-md shadow-[#D4A017]/20 transition-all duration-300 hover:bg-[#c69414] hover:shadow-lg hover:shadow-[#D4A017]/30 border border-[#D4A017]/30 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${compact ? 'py-2.5 px-6 text-sm' : 'py-2.5 px-3 text-sm'} ${triggerClassName}`}
         >
           <span className="absolute inset-0 -translate-x-full group-hover:translate-x-full transition-transform duration-1000 ease-out bg-gradient-to-r from-transparent via-white/15 to-transparent" />
           <FaWallet className={`relative ${compact ? 'text-base' : 'text-xl'}`} />
@@ -131,6 +151,10 @@ export default function CoursePurchaseModal({
           invitePrefill={invitePrefill}
           lockRecurring={lockRecurring}
           emailHint={emailHint}
+          moduleCount={moduleCount}
+          lockedAutopay={lockedAutopay}
+          moduleBox={moduleBox}
+          payLabel={payLabel}
           onClose={() => setIsOpen(false)}
         />
       )}

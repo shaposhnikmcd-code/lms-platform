@@ -16,6 +16,7 @@ import {
   RENEW_TOKEN_TTL_DAYS,
   buildRenewUrl,
   issueRenewLink,
+  renewTokenExpiresAt,
   signRenewToken,
   verifyRenewToken,
 } from './yearlyProgramRenew';
@@ -36,7 +37,7 @@ test('email нормалізується при підписі — регіст�
   assert.equal(payload?.email, 'student@example.com');
 });
 
-test('термін дії — рівно RENEW_TOKEN_TTL_DAYS діб', () => {
+test('без набору термін дії — нижня межа RENEW_TOKEN_TTL_DAYS діб', () => {
   const payload = verifyRenewToken(signRenewToken(SUB))!;
   const days = (payload.exp * 1000 - Date.now()) / (24 * 60 * 60 * 1000);
   assert.ok(Math.abs(days - RENEW_TOKEN_TTL_DAYS) < 0.01, `TTL ${days} ≠ ${RENEW_TOKEN_TTL_DAYS}`);
@@ -129,4 +130,35 @@ test('invite-токен, підписаний ДО рефакторингу, д�
 
 test('старий invite-токен НЕ проходить як renew — гард по purpose не залежить від віку токена', () => {
   assert.equal(verifyRenewToken(LEGACY_INVITE_TOKEN), null);
+});
+
+const DAY = 24 * 60 * 60 * 1000;
+
+test('посилання живе до кінця набору + пільгові дні (не 45 днів)', () => {
+  const now = new Date('2026-10-02T10:00:00Z');
+  const exp = renewTokenExpiresAt({ cohortEndDate: new Date('2027-05-31T23:59:59.999Z'), graceDays: 7, now });
+  // Кінець доби 31.05.2027 + 7 днів.
+  assert.equal(exp.toISOString(), '2027-06-07T23:59:59.999Z');
+});
+
+test('набір закінчується скоро — посилання все одно живе щонайменше RENEW_TOKEN_TTL_DAYS', () => {
+  const now = new Date('2027-05-25T10:00:00Z');
+  const exp = renewTokenExpiresAt({ cohortEndDate: new Date('2027-05-31T23:59:59.999Z'), graceDays: 3, now });
+  assert.equal(exp.getTime(), now.getTime() + RENEW_TOKEN_TTL_DAYS * DAY);
+});
+
+test('issueRenewLink з набором підписує exp = кінець набору + пільга, і токен валідний', () => {
+  const cohortEndDate = new Date(Date.now() + 200 * DAY);
+  const { token, expiresAt } = issueRenewLink({ ...SUB, origin: 'http://localhost:3000', cohortEndDate, graceDays: 5 });
+  const payload = verifyRenewToken(token)!;
+  assert.ok(payload, 'токен з довгим строком має верифікуватись');
+  const expected = renewTokenExpiresAt({ cohortEndDate, graceDays: 5 });
+  assert.ok(Math.abs(payload.exp * 1000 - expected.getTime()) < 1000);
+  assert.ok(Math.abs(expiresAt.getTime() - payload.exp * 1000) < 1000);
+  assert.ok(expiresAt.getTime() > Date.now() + 200 * DAY);
+});
+
+test('старе 45-денне посилання, підписане до зміни, і далі приймається', () => {
+  const legacy = signRenewToken(SUB);
+  assert.ok(verifyRenewToken(legacy));
 });

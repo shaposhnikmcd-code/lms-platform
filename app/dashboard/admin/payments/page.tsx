@@ -1,5 +1,6 @@
 import prisma from '@/lib/prisma';
 import PaymentsView, { type Row } from './_components/PaymentsView';
+import { pluralModules } from '@/lib/yearlyProgramModules';
 
 /// Ліміт на server-side fetch — щоб не тягнути багатотисячну історію в dashboard.
 /// Show 500 latest — покриває ~місяць трафіку. Більше — через окремий search/archive view.
@@ -24,6 +25,8 @@ export default async function AdminPayments() {
         enrollmentsCompletedAt: true,
         sendpulseSentAt: true,
         provisionError: true,
+        // Платіж Річної за кілька модулів наперед — «Місячна на 3 модулі» у колонці «Вид».
+        moduleCount: true,
         user: { select: { name: true, email: true, role: true } },
         course: { select: { id: true, slug: true, title: true, price: true } },
         bundle: { select: { id: true, title: true, price: true } },
@@ -98,9 +101,13 @@ export default async function AdminPayments() {
       const productLabel =
         plan === 'YEARLY'
           ? 'Річна підписка'
-          : autoRenew
-            ? 'Місячна Автоплатіж'
-            : 'Місячна на 1 міс.';
+          // Оплата кількох модулів наперед — завжди разова (автоплатіж = 1 модуль), тож
+          // кількість важливіша за поточний прапорець підписки.
+          : p.moduleCount > 1
+            ? `Місячна на ${p.moduleCount} ${pluralModules(p.moduleCount)}`
+            : autoRenew
+              ? 'Місячна Автоплатіж'
+              : 'Місячна на 1 міс.';
       return {
         id: `pay_${p.id}`,
         source: 'yearly' as const,
