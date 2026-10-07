@@ -27,6 +27,7 @@ export default function Footer() {
           <div className="flex gap-4">
             <Link href="/privacy" prefetch={false} className="hover:text-white transition-colors">{t('privacyShort')}</Link>
             <Link href="/terms" prefetch={false} className="hover:text-white transition-colors">{t('termsShort')}</Link>
+            <Link href="/offer" prefetch={false} className="hover:text-white transition-colors">{t('offerShort')}</Link>
           </div>
         </div>
       </footer>
@@ -91,6 +92,7 @@ export default function Footer() {
           <div className="flex flex-col gap-1.5">
             <Link href="/privacy" prefetch={false} className={linkClass}>{t('privacy')}</Link>
             <Link href="/terms" prefetch={false} className={linkClass}>{t('terms')}</Link>
+            <Link href="/offer" prefetch={false} className={linkClass}>{t('offer')}</Link>
             <Link href="/accessibility" prefetch={false} className={linkClass}>{t('accessibility')}</Link>
           </div>
           <div className="flex flex-col gap-1.5">

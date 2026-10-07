@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { useSession } from 'next-auth/react';
 import { FaTimes, FaCheck, FaSpinner, FaTelegramPlane, FaApplePay, FaGooglePay } from 'react-icons/fa';
 import { useTranslations } from 'next-intl';
+import { Link } from '@/i18n/navigation';
 import CoursePhoneInput, { PHONE_CONFIG } from './CoursePhoneInput';
 import CountryPicker from './CountryPicker';
 import { parseTelegramUsername } from '@/lib/telegramUsername';
@@ -1007,6 +1008,21 @@ export default function CoursePurchaseDialog({
                 ? (payLabel ?? t('btnPayModule'))
                 : t('btnPay')}
             </button>
+            <p className="mt-2 text-center text-[11.5px] leading-snug text-gray-500">
+              {t.rich('offerConsent', {
+                link: (chunks) => (
+                  <Link
+                    href="/offer"
+                    prefetch={false}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[#1C3A2E] underline underline-offset-2 hover:text-[#D4A843]"
+                  >
+                    {chunks}
+                  </Link>
+                ),
+              })}
+            </p>
           </div>
         </div>
       </div>
