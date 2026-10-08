@@ -8,6 +8,10 @@ import prisma from '@/lib/prisma';
 import { esc } from '@/lib/mailer';
 import { TG_INVITE_FAILED_EVENT_TYPE } from '@/lib/yearlyProgramTelegramMarks';
 import {
+  getYearlyTelegramKickOnExpire,
+  YEARLY_TG_KICK_ON_EXPIRE_SETTING_KEY,
+} from '@/lib/yearlyProgramConfig';
+import {
   banChatMember,
   createChatInviteLinkWithRetry,
   getChat,
@@ -25,6 +29,9 @@ export interface YearlyProgramTelegramSettings {
   chatType: string | null;
   autoAdd: boolean;
   joinRequestMode: boolean;
+  /// «Вилучати з каналу при закритті доступу за несплату» — живе НЕ в singleton-таблиці,
+  /// а в `AppSetting` (`yearlyTelegramKickOnExpire`), щоб не міняти схему. Default false.
+  kickOnExpire: boolean;
   updatedAt: Date | null;
   updatedBy: string | null;
 }
@@ -39,6 +46,7 @@ const DEFAULTS: YearlyProgramTelegramSettings = {
   chatType: null,
   autoAdd: false,
   joinRequestMode: false,
+  kickOnExpire: false,
   updatedAt: null,
   updatedBy: null,
 };
@@ -47,13 +55,45 @@ export async function getYearlyProgramTelegramSettings(): Promise<YearlyProgramT
   const row = await prisma.yearlyProgramTelegramSetting.findUnique({
     where: { id: SINGLETON_ID },
   });
-  if (!row) return DEFAULTS;
+  if (!row) return { ...DEFAULTS, kickOnExpire: await getYearlyTelegramKickOnExpire(prisma) };
   return {
     chatId: row.chatId,
     chatTitle: row.chatTitle,
     chatType: row.chatType,
     autoAdd: row.autoAdd,
     joinRequestMode: row.joinRequestMode,
+    kickOnExpire: await getYearlyTelegramKickOnExpire(prisma),
+    updatedAt: row.updatedAt,
+    updatedBy: row.updatedBy,
+  };
+}
+
+/// Зберігає «Вилучати з каналу при закритті доступу за несплату». Сам прапорець — в
+/// `AppSetting` (1/0), а `updatedBy`/`updatedAt` singleton-рядка оновлюємо в тій самій
+/// транзакції, щоб «хто і коли змінив» у вікні каналу охоплював і цей перемикач.
+export async function setKickOnExpireFlag(kickOnExpire: boolean, updatedBy: string | null): Promise<YearlyProgramTelegramSettings> {
+  const value = kickOnExpire ? 1 : 0;
+  const [, row] = await prisma.$transaction([
+    prisma.appSetting.upsert({
+      where: { key: YEARLY_TG_KICK_ON_EXPIRE_SETTING_KEY },
+      create: { key: YEARLY_TG_KICK_ON_EXPIRE_SETTING_KEY, value },
+      update: { value },
+    }),
+    prisma.yearlyProgramTelegramSetting.upsert({
+      where: { id: SINGLETON_ID },
+      // Канал ще не збережено → не вмикаємо схемні ON-дефолти autoAdd/joinRequestMode
+      // (той самий неконсистентний стан, від якого береже DEFAULTS).
+      create: { id: SINGLETON_ID, autoAdd: false, joinRequestMode: false, updatedBy },
+      update: { updatedBy },
+    }),
+  ]);
+  return {
+    chatId: row.chatId,
+    chatTitle: row.chatTitle,
+    chatType: row.chatType,
+    autoAdd: row.autoAdd,
+    joinRequestMode: row.joinRequestMode,
+    kickOnExpire,
     updatedAt: row.updatedAt,
     updatedBy: row.updatedBy,
   };
@@ -78,6 +118,7 @@ export async function setAutoAddFlag(autoAdd: boolean, updatedBy: string | null)
     chatType: row.chatType,
     autoAdd: row.autoAdd,
     joinRequestMode: row.joinRequestMode,
+    kickOnExpire: await getYearlyTelegramKickOnExpire(prisma),
     updatedAt: row.updatedAt,
     updatedBy: row.updatedBy,
   };
@@ -97,6 +138,7 @@ export async function setJoinRequestModeFlag(joinRequestMode: boolean, updatedBy
     chatType: row.chatType,
     autoAdd: row.autoAdd,
     joinRequestMode: row.joinRequestMode,
+    kickOnExpire: await getYearlyTelegramKickOnExpire(prisma),
     updatedAt: row.updatedAt,
     updatedBy: row.updatedBy,
   };
@@ -195,6 +237,7 @@ export async function validateAndSaveChatId(
       chatType: row.chatType,
       autoAdd: row.autoAdd,
       joinRequestMode: row.joinRequestMode,
+      kickOnExpire: await getYearlyTelegramKickOnExpire(prisma),
       updatedAt: row.updatedAt,
       updatedBy: row.updatedBy,
     },
@@ -215,6 +258,7 @@ export async function clearChatId(updatedBy: string | null): Promise<YearlyProgr
     chatType: row.chatType,
     autoAdd: row.autoAdd,
     joinRequestMode: row.joinRequestMode,
+    kickOnExpire: await getYearlyTelegramKickOnExpire(prisma),
     updatedAt: row.updatedAt,
     updatedBy: row.updatedBy,
   };

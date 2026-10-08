@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Prisma } from '@prisma/client';
 import prisma from '@/lib/prisma';
-import { getYearlyGraceDays, getYearlySendpulseCourseId, YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
+import {
+  getYearlyGraceDays,
+  getYearlySendpulseCourseId,
+  getYearlyTelegramKickOnExpire,
+  graceExpireTelegramAction,
+  YEARLY_PROGRAM_CONFIG,
+} from '@/lib/yearlyProgramConfig';
 import { syncAutopaySchedule } from '@/lib/yearlyProgramScheduleSync';
 import { cohortModuleCount, monthlySchedule, paymentModuleCount } from '@/lib/yearlyProgramAccess';
 import {
@@ -880,6 +886,8 @@ async function expireGraceSubscriptions(): Promise<StepResult> {
   const graceDays = await getYearlyGraceDays(prisma);
   const graceCutoff = new Date(now.getTime() - graceDays * 24 * 60 * 60 * 1000);
   const yearlySpCourseId = await getYearlySendpulseCourseId(prisma);
+  // Один раз на прохід: чи вилучати з Telegram-каналу при закритті за несплату.
+  const tgAction = graceExpireTelegramAction(await getYearlyTelegramKickOnExpire(prisma));
   const errors: string[] = [];
 
   // Семантика: експайраємо коли grace-період вже завершився (gracePeriodEndsAt <= now).
@@ -1039,21 +1047,38 @@ async function expireGraceSubscriptions(): Promise<StepResult> {
         });
       }
 
-      // Доступ закрито → прибираємо студента з платного Telegram-каналу. Без цього
-      // неплатник лишався в каналі назавжди (SP-доступ закритий, а контент у ТГ — ні).
-      // Permanent: ban + відкликання invite, щоб не повернувся по збереженому лінку.
-      // Best-effort — помилка не відкочує EXPIRED; сам kick пише подію в підписку.
-      try {
-        const kick = await kickSubscriptionFromChannel({
-          subscriptionId: sub.id,
-          mode: 'permanent',
-          triggeredBy: 'cron:expire-grace',
-        });
-        if (!kick.ok && !kick.skipped) {
-          errors.push(`${sub.id} tg_kick: ${(kick.error ?? 'unknown').slice(0, 120)}`);
+      // Доступ закрито → чи прибирати студента з платного Telegram-каналу, вирішує
+      // налаштування «Вилучати з каналу при закритті доступу за несплату» (вікно
+      // «📡 Telegram-канал», AppSetting `yearlyTelegramKickOnExpire`, default ВИМК).
+      // ON: permanent — ban + відкликання invite, щоб не повернувся по збереженому лінку;
+      // best-effort, помилка не відкочує EXPIRED; сам kick пише подію в підписку.
+      // OFF (прохання Інституту): людина лишається в каналі, закривається лише SendPulse —
+      // пишемо подію, щоб у вкладці «Події» було видно, що вилучення пропущено свідомо.
+      if (tgAction === 'kick') {
+        try {
+          const kick = await kickSubscriptionFromChannel({
+            subscriptionId: sub.id,
+            mode: 'permanent',
+            triggeredBy: 'cron:expire-grace',
+          });
+          if (!kick.ok && !kick.skipped) {
+            errors.push(`${sub.id} tg_kick: ${(kick.error ?? 'unknown').slice(0, 120)}`);
+          }
+        } catch (e) {
+          errors.push(`${sub.id} tg_kick: ${(e as Error).message.slice(0, 120)}`);
         }
-      } catch (e) {
-        errors.push(`${sub.id} tg_kick: ${(e as Error).message.slice(0, 120)}`);
+      } else if (sub.telegramTgUserId || sub.telegramInviteLink) {
+        // Хто ніколи не мав стосунку до каналу — без події (як чистий skip у kick-і).
+        await prisma.yearlyProgramSubscriptionEvent.create({
+          data: {
+            subscriptionId: sub.id,
+            type: 'telegram_kick_skipped',
+            message: 'Вилучення з Telegram-каналу пропущено за налаштуванням — студент лишається в каналі, закрито лише SendPulse',
+            metadata: { reason: 'setting_off', triggeredBy: 'cron:expire-grace' },
+          },
+        }).catch((e) => {
+          errors.push(`${sub.id} tg_kick_skipped_event: ${(e as Error).message.slice(0, 120)}`);
+        });
       }
 
       // Лист про закриття доступу (claim прапорця + відкат при недоставці — всередині helper-а).

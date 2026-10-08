@@ -102,6 +102,34 @@ export async function getYearlyGraceDays(
   }
 }
 
+/// Ключ у `AppSetting`: чи вилучати студента з Telegram-каналу Річної, коли cron закриває
+/// доступ за несплату (GRACE → EXPIRED). `AppSetting.value` — Int, тож 1 = так, 0 = ні.
+/// Рядка немає = НІ: на прохання Інституту за несплату закривається лише SendPulse, а
+/// людина лишається в каналі. Ручні дії адмінки (close_access, delete, tg_kick*) і повне
+/// повернення коштів цим налаштуванням НЕ керуються — вони кікають як і раніше.
+export const YEARLY_TG_KICK_ON_EXPIRE_SETTING_KEY = 'yearlyTelegramKickOnExpire';
+
+/// Читає налаштування «вилучати з каналу при закритті доступу за несплату». Default false —
+/// і коли рядка немає, і коли БД не відповіла: помилка читання не має виганяти людей.
+export async function getYearlyTelegramKickOnExpire(
+  prismaClient: { appSetting: { findUnique: (args: { where: { key: string } }) => Promise<{ value: number } | null> } },
+): Promise<boolean> {
+  try {
+    const row = await prismaClient.appSetting.findUnique({
+      where: { key: YEARLY_TG_KICK_ON_EXPIRE_SETTING_KEY },
+    });
+    return row?.value === 1;
+  } catch {
+    return false;
+  }
+}
+
+/// Рішення кроку `expire_grace` щодо Telegram-каналу: кікати лише коли налаштування ON.
+/// Винесено в чисту функцію, щоб поведінку cron-а можна було перевірити тестом.
+export function graceExpireTelegramAction(kickOnExpire: boolean): 'kick' | 'skip' {
+  return kickOnExpire ? 'kick' : 'skip';
+}
+
 /// Ключ у `AppSetting` для runtime-конфігурованого SendPulse course ID Річної програми.
 /// Редагується з адмінки `/dashboard/admin/courses` (колонка SP ID у рядку «Річна підписка»).
 /// Має пріоритет над env `SENDPULSE_YEARLY_COURSE_ID` — env лишається fallback-ом.

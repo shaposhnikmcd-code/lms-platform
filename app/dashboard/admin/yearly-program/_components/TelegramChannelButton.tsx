@@ -13,6 +13,7 @@ export interface TelegramSettingsState {
   chatType: string | null;
   autoAdd: boolean;
   joinRequestMode: boolean;
+  kickOnExpire: boolean;
   updatedAt: string | null;
   updatedBy: string | null;
 }
@@ -36,6 +37,7 @@ export default function TelegramChannelButton({ theme, initial }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [autoLoading, setAutoLoading] = useState(false);
   const [jrLoading, setJrLoading] = useState(false);
+  const [kickLoading, setKickLoading] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [testEmail, setTestEmail] = useState('');
   const [testSending, setTestSending] = useState(false);
@@ -176,6 +178,28 @@ export default function TelegramChannelButton({ theme, initial }: Props) {
       notify('error', (e as Error).message);
     } finally {
       setJrLoading(false);
+    }
+  }
+
+  async function handleToggleKickOnExpire(checked: boolean) {
+    setKickLoading(true);
+    try {
+      const res = await fetch('/api/admin/yearly-program/telegram-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'toggle-kick-on-expire', kickOnExpire: checked }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        notify('error', data.error ?? 'Не вдалося оновити');
+        return;
+      }
+      setState(normalizeSettings(data.settings));
+      notify('success', checked ? 'Вилучення з каналу за несплату увімкнено' : 'Вилучення з каналу за несплату вимкнено');
+    } catch (e) {
+      notify('error', (e as Error).message);
+    } finally {
+      setKickLoading(false);
     }
   }
 
@@ -433,6 +457,39 @@ export default function TelegramChannelButton({ theme, initial }: Props) {
               {jrLoading && <FaSpinner className="animate-spin text-xs mt-1" />}
             </label>
 
+            <label
+              className={`flex items-start gap-3 px-3 py-3 rounded-lg border cursor-pointer transition-colors ${
+                state.kickOnExpire
+                  ? dark
+                    ? 'bg-rose-500/10 border-rose-400/30'
+                    : 'bg-rose-50 border-rose-300/50'
+                  : dark
+                    ? 'bg-white/[0.02] border-white/[0.06] hover:bg-white/[0.04]'
+                    : 'bg-stone-50 border-stone-200 hover:bg-stone-100'
+              }`}
+            >
+              <input
+                type="checkbox"
+                checked={state.kickOnExpire}
+                disabled={kickLoading}
+                onChange={(e) => handleToggleKickOnExpire(e.target.checked)}
+                className="mt-0.5"
+              />
+              <div className="flex-1">
+                <div className={`text-[12px] font-medium ${dark ? 'text-slate-100' : 'text-stone-800'}`}>
+                  Вилучати з каналу при закритті доступу за несплату
+                </div>
+                <div className={`text-[11px] mt-0.5 ${dark ? 'text-slate-400' : 'text-stone-500'}`}>
+                  <b>Увімкнено:</b> коли пільговий період минув і доступ закривається, студента вилучають з Telegram-каналу, а його посилання-запрошення знечинюється.
+                  <br />
+                  <b>Вимкнено:</b> студент лишається в каналі, закривається лише доступ на навчальній платформі SendPulse.
+                  <br />
+                  Кнопки «Закрити доступ», «Видалити», «Вилучити з каналу» і повернення коштів працюють як і раніше.
+                </div>
+              </div>
+              {kickLoading && <FaSpinner className="animate-spin text-xs mt-1" />}
+            </label>
+
             {/* Тестовий лист — перевірити, що канал підключено і телеграм-секція зʼявляється в welcome-листі */}
             <div
               className={`px-3 py-3 rounded-lg border ${
@@ -591,6 +648,7 @@ function normalizeSettings(raw: {
   chatType?: string | null;
   autoAdd?: boolean;
   joinRequestMode?: boolean;
+  kickOnExpire?: boolean;
   updatedAt?: string | Date | null;
   updatedBy?: string | null;
 }): TelegramSettingsState {
@@ -600,6 +658,7 @@ function normalizeSettings(raw: {
     chatType: raw.chatType ?? null,
     autoAdd: !!raw.autoAdd,
     joinRequestMode: !!raw.joinRequestMode,
+    kickOnExpire: !!raw.kickOnExpire,
     updatedAt: raw.updatedAt ? (typeof raw.updatedAt === 'string' ? raw.updatedAt : raw.updatedAt.toISOString()) : null,
     updatedBy: raw.updatedBy ?? null,
   };

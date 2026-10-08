@@ -411,6 +411,7 @@ export default async function AdminYearlyProgramPage() {
         chatType: tgSettings.chatType,
         autoAdd: tgSettings.autoAdd,
         joinRequestMode: tgSettings.joinRequestMode,
+        kickOnExpire: tgSettings.kickOnExpire,
         updatedAt: tgSettings.updatedAt?.toISOString() ?? null,
         updatedBy: tgSettings.updatedBy,
       }}

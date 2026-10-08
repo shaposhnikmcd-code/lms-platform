@@ -5,6 +5,7 @@ import {
   validateAndSaveChatId,
   setAutoAddFlag,
   setJoinRequestModeFlag,
+  setKickOnExpireFlag,
   clearChatId,
 } from '@/lib/yearlyProgramTelegram';
 import { createChatInviteLink, revokeChatInviteLink, TelegramApiError } from '@/lib/telegram';
@@ -14,6 +15,8 @@ import { sendYearlyProgramWelcomeEmail } from '@/lib/yearlyProgramWelcomeEmail';
 /// POST — body: `{ action: "save", chatId: string }` — резолвить через Bot API getChat і зберігає.
 ///        body: `{ action: "toggle-auto", autoAdd: boolean }` — перемикач auto-add.
 ///        body: `{ action: "toggle-join-request", joinRequestMode: boolean }` — режим заявок на вступ.
+///        body: `{ action: "toggle-kick-on-expire", kickOnExpire: boolean }` — вилучати з каналу
+///          при закритті доступу за несплату (cron GRACE→EXPIRED). Ручні дії не зачіпає.
 ///        body: `{ action: "clear" }` — скидає chatId і вимикає autoAdd + joinRequestMode.
 
 export async function GET(req: NextRequest) {
@@ -82,6 +85,14 @@ export async function POST(req: NextRequest) {
       }
     }
     const settings = await setJoinRequestModeFlag(body.joinRequestMode, adminEmail);
+    return NextResponse.json({ settings });
+  }
+
+  if (action === 'toggle-kick-on-expire') {
+    if (typeof body.kickOnExpire !== 'boolean') {
+      return NextResponse.json({ error: 'kickOnExpire має бути boolean' }, { status: 400 });
+    }
+    const settings = await setKickOnExpireFlag(body.kickOnExpire, adminEmail);
     return NextResponse.json({ settings });
   }
 
