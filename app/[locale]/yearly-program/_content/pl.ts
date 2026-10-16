@@ -219,7 +219,7 @@ export const learningContent = {
     /// Nabór jest już w ostatnim module — nie ma czego rozkładać na raty.
     monthLastModule: "Opłata za jeden moduł · to ostatni moduł programu",
     monthsCalc: "× 9 miesięcy = 19 800 UAH",
-    monthPaymentModesNote: "{price} UAH można płacić co miesiąc jednorazowo lub automatycznie · łącznie {total} UAH",
+    monthPaymentModesNote: "{price} UAH można płacić co miesiąc jednorazowo lub automatycznie",
     promoText: "Aby zapłacić za jeden miesiąc, użyj kodu promocyjnego:",
     btnMonth: "Rejestracja wkrótce",
     courseNameMonth: "Program roczny — 1 miesiąc",

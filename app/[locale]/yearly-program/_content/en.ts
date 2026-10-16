@@ -219,7 +219,7 @@ export const learningContent = {
     /// The cohort is already in its last module — nothing left to split.
     monthLastModule: "Pays one module · this is the last module of the program",
     monthsCalc: "× 9 months = 19,800 UAH",
-    monthPaymentModesNote: "Pay {price} UAH each month as a one-time payment or by auto-debit · {total} UAH in total",
+    monthPaymentModesNote: "Pay {price} UAH each month as a one-time payment or by auto-debit",
     promoText: "To pay for one month, use the promo code:",
     btnMonth: "Registration opens soon",
     courseNameMonth: "Yearly program — 1 month",

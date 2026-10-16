@@ -1,7 +1,6 @@
 import CoursePurchaseModal from '@/components/CoursePurchaseModal';
 import { YEARLY_PROGRAM } from '../config';
 import { RENEW_ENTRY_ANCHOR } from '@/lib/yearlyProgramRenew';
-import { YEARLY_PROGRAM_CONFIG } from '@/lib/yearlyProgramConfig';
 
 type Props = {
   t: {
@@ -28,7 +27,7 @@ type Props = {
     /// Підпис, коли платити лишилось за один модуль (розстрочки вже немає).
     monthLastModule?: string;
     monthsCalc: string;
-    /// Способи помісячної оплати і повна сума за програму ({total} = ціна модуля × усі модулі).
+    /// Способи помісячної оплати (разово щомісяця або автосписанням).
     monthPaymentModesNote?: string;
     promoText: string;
     btnMonth: string;
@@ -98,9 +97,6 @@ export default function PricingSection({ t, yearlyPrice, yearlyOldPrice, monthly
   // мовчки робив би покупку разовою (регулярні прапори чіпляються лише коли списань > 1).
   const installmentsAvailable = recurringCount > 1;
   const totalMonthly = monthlyPrice * recurringCount;
-  // Повна сума помісячно за ВСЮ програму (правило ціни Інституту: частинами — 19 800),
-  // на відміну від `totalMonthly`, що рахує лише модулі, які лишились у наборі.
-  const fullProgramMonthly = monthlyPrice * YEARLY_PROGRAM_CONFIG.totalMonthlyPayments;
   // Ближче до кінця набору помісячно виходить ДЕШЕВШЕ за річну (модулів лишилось мало),
   // і рядок «Економія» показав би від'ємне число. Тоді просто не показуємо його.
   const premium = totalMonthly - yearlyPrice;
@@ -203,8 +199,7 @@ export default function PricingSection({ t, yearlyPrice, yearlyOldPrice, monthly
             {t.monthPaymentModesNote && (
               <p className="text-gray-400 text-xs mb-5">
                 {t.monthPaymentModesNote
-                  .replace('{price}', monthlyPrice.toLocaleString('uk-UA'))
-                  .replace('{total}', fullProgramMonthly.toLocaleString('uk-UA'))}
+                  .replace('{price}', monthlyPrice.toLocaleString('uk-UA'))}
               </p>
             )}
 
