@@ -28,6 +28,7 @@ import { getYearlyProgramSettings } from '@/lib/yearlyProgramSettings';
 import { isBlockedByClosedRegistration } from '@/lib/yearlyProgramSalesGate';
 import { verifyInvite, type InvitePayload } from '@/lib/yearlyProgramInvite';
 import { RENEW_COOKIE_NAME, verifyRenewToken, type RenewPayload } from '@/lib/yearlyProgramRenew';
+import { pickPaymentUser } from '@/lib/paymentUserPick';
 import { autopayAllowsManualTopUp, resubscribeAllowedAfterRemove } from '@/lib/yearlyProgramRenewState';
 import { isValidCountryCode } from '@/lib/countries';
 import { parseTelegramUsername } from '@/lib/telegramUsername';
@@ -318,9 +319,33 @@ export async function POST(req: NextRequest) {
       // його email у `deleted_{timestamp}_{original}`, щоб створити свіжий запис.
       const trimmedName = typeof clientName === 'string' ? clientName.trim() : '';
 
-      let user = await prisma.user.findFirst({
+      // Під однією поштою в різному регістрі можуть жити кілька акаунтів (історичні дублі,
+      // базу свідомо не мерджимо). `findFirst` без сортування брав будь-який — і доплата за
+      // персональним посиланням звірялась із підписками чужого акаунта → 409 renew_link_stale.
+      // Тому: за renew-токеном платник — власник названої підписки; інакше детермінований
+      // вибір `pickPaymentUser` (жива Річна → не архівна Річна → найновіший).
+      const sameEmailUsers = await prisma.user.findMany({
         where: { email: { equals: normalizedEmail, mode: 'insensitive' }, deletedAt: null },
+        include: { yearlyProgramSubscriptions: { select: { status: true } } },
       });
+      let preferredUserId: string | null = null;
+      if (renewPayload && sameEmailUsers.length > 1) {
+        const renewOwner = await prisma.yearlyProgramSubscription.findUnique({
+          where: { id: renewPayload.subscriptionId },
+          select: { userId: true },
+        });
+        preferredUserId = renewOwner?.userId ?? null;
+      }
+      const picked = pickPaymentUser(
+        sameEmailUsers.map((u) => ({
+          ...u,
+          yearlyStatuses: u.yearlyProgramSubscriptions.map((s) => s.status as string),
+        })),
+        preferredUserId,
+      );
+      let user = picked
+        ? await prisma.user.findUniqueOrThrow({ where: { id: picked.id } })
+        : null;
 
       if (user) {
         if (trimmedName && trimmedName !== user.name) {
