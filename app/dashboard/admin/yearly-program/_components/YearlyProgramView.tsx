@@ -2383,7 +2383,7 @@ function ExpandedRowContent({
           ) : (
             <ul className="divide-y divide-stone-200/30 dark:divide-white/[0.04]">
               {details.events.map((ev) => {
-                const meta = EVENT_LABELS[ev.type];
+                const meta = eventLabel(ev);
                 return (
                 <li
                   key={ev.id}
@@ -2477,7 +2477,19 @@ const EVENT_LABELS: Record<string, { label: string; icon?: string }> = {
   renew_link_used: { label: 'відкрив оплату за персональним посиланням', icon: '🔗' },
   // Cron закрив доступ за несплату, а налаштування «Вилучати з каналу…» вимкнене.
   telegram_kick_skipped: { label: 'вилучення з Telegram пропущено за налаштуванням', icon: '📡' },
+  // Закриття доступу в SendPulse не вдалося (подією чи старим DELETE) — статус не змінено.
+  access_close_failed: { label: 'SendPulse: доступ НЕ закрито — помилка', icon: '⚠️' },
 };
+
+/// Підпис події з урахуванням metadata: `access_closed` буває і старим DELETE-ом (без
+/// підпису, як було), і закриттям подією воронки — тоді прогрес студента лишається.
+function eventLabel(ev: { type: string; metadata?: unknown }): { label: string; icon?: string } | undefined {
+  if (ev.type === 'access_closed') {
+    const m = (ev.metadata ?? null) as { spCloseMethod?: string } | null;
+    if (m?.spCloseMethod === 'event') return { label: 'SendPulse: доступ закрито (без видалення)', icon: '🔒' };
+  }
+  return EVENT_LABELS[ev.type];
+}
 
 /// Країни за абеткою (укр. колація) — для випадайки у формі редагування.
 const COUNTRIES_ALPHA = [...COUNTRIES].sort((a, b) => a.name.localeCompare(b.name, 'uk'));

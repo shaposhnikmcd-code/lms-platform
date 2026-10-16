@@ -20,6 +20,15 @@ export const YEARLY_PROGRAM_CONFIG = {
   /// Має збігатись з courseId в app/[locale]/yearly-program/config.ts.
   sendpulseEventSlug: 'yearly-program',
 
+  /// product_name події «закрити доступ без видалення». Гілка автоворонки SP з фільтром
+  /// на цей рядок робить «Курси → Змінити обмеження часу → Закрити доступ»: студент лишається
+  /// на курсі з усім прогресом і домашніми, але уроки йому недоступні. Без цієї гілки в
+  /// кабінеті SP подія нічого не робить — доступ лишиться відкритим.
+  sendpulseCloseEventSlug: 'yearly-program-close',
+  /// product_name події «повернути доступ» для студента, закритого подією вище. Гілка
+  /// автоворонки → «Змінити обмеження часу → Без обмежень».
+  sendpulseReopenEventSlug: 'yearly-program-reopen',
+
   /// Числовий ID курсу в SendPulse Education API (для DELETE /students/{studentId}/{courseId}).
   /// Якщо не заданий — закриття доступу буде пропущене з помилкою в лог. Заповни після
   /// перегляду URL курсу в кабінеті SendPulse → Автоматизація → Онлайн-курси.

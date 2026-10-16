@@ -4,7 +4,12 @@
 ///
 /// Відкриття доступу лишається через event URL (SENDPULSE_EVENT_URL) — див. wayforpay/callback.
 ///
-/// ⚠️ Мутуючі виклики (`openAccessViaEvent`, `closeAccessInCourse`) виконуються ТІЛЬКИ на
+/// Річна закриває доступ НЕ видаленням, а подією `closeAccessViaEvent` (воронка ставить
+/// «Закрити доступ» в обмеженні часу — прогрес і домашні лишаються); `closeAccessInCourse`
+/// (DELETE) — лише для свідомого видалення («Видалити», повний рефанд).
+///
+/// ⚠️ Мутуючі виклики (`openAccessViaEvent`, `closeAccessViaEvent`, `reopenAccessViaEvent`,
+/// `closeAccessInCourse`) виконуються ТІЛЬКИ на
 /// production і localhost. На pre/preview вони заглушуються — див. `isReadOnlyEnv`.
 
 import { isReadOnlyEnv } from '@/lib/telegram';
@@ -324,19 +329,18 @@ export async function closeAccessInCourse(studentId: number, courseId: number): 
   }
 }
 
-/// Шле event у SendPulse funnel — відкриття доступу (додавання в курс).
-/// Reuses existing SENDPULSE_EVENT_URL which triggers the funnel.
-///
-/// Events URL спільний з продом, тож на pre/preview event НЕ шлеться: інакше тестова оплата
-/// реєструвала б людину на бойовому курсі і слала їй справжні креденшили.
-export async function openAccessViaEvent(
+/// Шле подію у воронку SendPulse (SENDPULSE_EVENT_URL). Гілку воронки обирає `product_name`.
+/// Events URL спільний з продом, тож на pre/preview подія НЕ шлеться: інакше тестова дія
+/// чіпала б реальну людину на бойовому курсі.
+async function sendFunnelEvent(
+  fnName: string,
   email: string,
   productName: string,
   productPrice: number,
 ): Promise<void> {
   if (isReadOnlyEnv()) {
     console.log(
-      `[sendpulse] SKIP openAccessViaEvent — середовище ${process.env.VERCEL_ENV} не має чіпати бойовий курс. email=${email} product=${productName}`,
+      `[sendpulse] SKIP ${fnName} — середовище ${process.env.VERCEL_ENV} не має чіпати бойовий курс. email=${email} product=${productName}`,
     );
     return;
   }
@@ -367,4 +371,37 @@ export async function openAccessViaEvent(
     const text = await res.text().catch(() => '');
     throw new Error(`SendPulse event failed: ${res.status} ${text}`);
   }
+}
+
+/// Шле event у SendPulse funnel — відкриття доступу (додавання в курс).
+/// Reuses existing SENDPULSE_EVENT_URL which triggers the funnel.
+export async function openAccessViaEvent(
+  email: string,
+  productName: string,
+  productPrice: number,
+): Promise<void> {
+  await sendFunnelEvent('openAccessViaEvent', email, productName, productPrice);
+}
+
+/// Закриває доступ БЕЗ видалення з курсу: подія з `product_name` = `productName`
+/// (для Річної — `YEARLY_PROGRAM_CONFIG.sendpulseCloseEventSlug`), гілка воронки робить
+/// «Змінити обмеження часу → Закрити доступ». Прогрес і домашні завдання лишаються.
+/// Помилка — throw, як в `openAccessViaEvent`.
+export async function closeAccessViaEvent(
+  email: string,
+  productName: string,
+  productPrice = 0,
+): Promise<void> {
+  await sendFunnelEvent('closeAccessViaEvent', email, productName, productPrice);
+}
+
+/// Повертає доступ студенту, закритому `closeAccessViaEvent` (він досі на курсі): гілка
+/// воронки ставить «Змінити обмеження часу → Без обмежень». Для того, кого з курсу
+/// видалили (або хто ще не реєструвався), потрібен `openAccessViaEvent`.
+export async function reopenAccessViaEvent(
+  email: string,
+  productName: string,
+  productPrice = 0,
+): Promise<void> {
+  await sendFunnelEvent('reopenAccessViaEvent', email, productName, productPrice);
 }

@@ -7,7 +7,9 @@ import { authOptions } from '@/lib/auth';
 import { isAdmin, getAdminActor, type AdminActor } from '@/lib/adminAuth';
 import { isSuperAdmin } from '@/lib/superAdmin';
 import { groupManualPayments, describeSplitParts } from '@/lib/yearlyProgramManualGroups';
-import { closeAccessInCourse, lookupStudentIdByEmail, openAccessViaEvent } from '@/lib/sendpulse';
+import { closeAccessInCourse, closeAccessViaEvent, lookupStudentIdByEmail } from '@/lib/sendpulse';
+import { openYearlyAccessInSendpulse } from '@/lib/yearlyProgramLaunch';
+import { SP_CLOSE_METHOD_EVENT } from '@/lib/yearlySendpulseAccess';
 import {
   kickSubscriptionFromChannel,
   generateInviteForSubscription,
@@ -424,36 +426,26 @@ async function handleCloseAccess(sub: NonNullable<SubWithUser>, actor: string) {
       error: 'Доступ у SendPulse ще не відкривався — нема що закривати. Використай "Деактивувати та Вилучити студента з програми".',
     }, { status: 400 });
   }
-  const courseId = await getYearlySendpulseCourseId(prisma);
-  if (!courseId) {
-    return NextResponse.json({
-      error: 'SENDPULSE_YEARLY_COURSE_ID не налаштовано — не можу закрити в SendPulse. Зроби EXPIRED без виклику API?',
-    }, { status: 400 });
+  if (!sub.user?.email) {
+    return NextResponse.json({ error: 'У користувача немає email — не можу закрити доступ у SendPulse' }, { status: 400 });
   }
 
-  let studentId = sub.sendpulseStudentId;
-  if (!studentId && sub.user?.email) {
-    try {
-      studentId = await lookupStudentIdByEmail(courseId, sub.user.email);
-      if (studentId) {
-        await prisma.yearlyProgramSubscription.update({
-          where: { id: sub.id },
-          data: { sendpulseStudentId: studentId },
-        });
-      }
-    } catch (e) {
-      return NextResponse.json({ error: `SendPulse lookup: ${(e as Error).message}` }, { status: 500 });
-    }
-  }
-
-  if (!studentId) {
-    return NextResponse.json({ error: 'studentId в SendPulse не знайдений за email' }, { status: 404 });
-  }
-
+  // Закриваємо НЕ видаленням з курсу (DELETE стирає домашні), а подією воронки
+  // `yearly-program-close` → «Змінити обмеження часу: Закрити доступ». Студент лишається
+  // на курсі з прогресом; «Відкрити знову» поверне його подією `yearly-program-reopen`.
   try {
-    await closeAccessInCourse(studentId, courseId);
+    await closeAccessViaEvent(sub.user.email, YEARLY_PROGRAM_CONFIG.sendpulseCloseEventSlug);
   } catch (e) {
-    return NextResponse.json({ error: `SendPulse close: ${(e as Error).message}` }, { status: 500 });
+    const msg = (e as Error).message;
+    await prisma.yearlyProgramSubscriptionEvent.create({
+      data: {
+        subscriptionId: sub.id,
+        type: 'access_close_failed',
+        message: `SendPulse: подія закриття доступу (${YEARLY_PROGRAM_CONFIG.sendpulseCloseEventSlug}) не пройшла — ${msg.slice(0, 200)}`,
+        metadata: { stage: 'close_event', actor, error: msg.slice(0, 500) },
+      },
+    }).catch(() => { /* лог не має валити відповідь */ });
+    return NextResponse.json({ error: `SendPulse close: ${msg}` }, { status: 500 });
   }
 
   // Закриття доступу = підписка більше не активна. Знімаємо WFP-регулярки, щоб
@@ -482,8 +474,12 @@ async function handleCloseAccess(sub: NonNullable<SubWithUser>, actor: string) {
     data: {
       subscriptionId: sub.id,
       type: 'access_closed',
-      message: `Closed by ${actor} · DELETE /students/${studentId}/${courseId}${wfpSummary}`,
+      message: `SendPulse: доступ закрито (без видалення) · ${actor} · подія ${YEARLY_PROGRAM_CONFIG.sendpulseCloseEventSlug}${wfpSummary}`,
       metadata: {
+        // Мітки для «Помилок» (spClosed резолвить SP_CLOSE_FAILED) і для вибору дії при
+        // повторному відкритті (spCloseMethod=event → reopen-подія, а не реєстрація).
+        spClosed: true,
+        spCloseMethod: SP_CLOSE_METHOD_EVENT,
         wfpRemovedCount: autopay.removed,
         wfpAttemptedCount: autopay.attempted,
         wfpError: autopay.error,
@@ -620,12 +616,11 @@ async function handleReopenAccess(sub: NonNullable<SubWithUser>, actor: string) 
     ? programSettings.yearlyPrice
     : programSettings.monthlyPrice;
 
+  // Закритий подією (досі на курсі) → reopen-подія «Без обмежень»; видалений або
+  // незареєстрований → звичайна реєстрація. Рішення — за журналом подій підписки.
+  let spOpenAction: 'open_event' | 'reopen_event';
   try {
-    await openAccessViaEvent(
-      sub.user.email,
-      YEARLY_PROGRAM_CONFIG.sendpulseEventSlug,
-      planPrice,
-    );
+    spOpenAction = await openYearlyAccessInSendpulse(sub.id, sub.user.email, planPrice);
   } catch (e) {
     return NextResponse.json({ error: `SendPulse event: ${(e as Error).message}` }, { status: 500 });
   }
@@ -643,8 +638,8 @@ async function handleReopenAccess(sub: NonNullable<SubWithUser>, actor: string) 
     data: {
       subscriptionId: sub.id,
       type: 'reactivated',
-      message: `Reopened by ${actor} · expiresAt=${newExpiresAt.toISOString().slice(0, 10)} (${source})`,
-      metadata: { expiresAtSource: source, expiresAt: newExpiresAt.toISOString() },
+      message: `Reopened by ${actor} · expiresAt=${newExpiresAt.toISOString().slice(0, 10)} (${source}) · SendPulse: ${spOpenAction === 'reopen_event' ? 'доступ повернуто (Без обмежень)' : 'реєстрація на курс'}`,
+      metadata: { expiresAtSource: source, expiresAt: newExpiresAt.toISOString(), spOpenAction },
     },
   });
 

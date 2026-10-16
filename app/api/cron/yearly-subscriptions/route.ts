@@ -3,17 +3,14 @@ import { Prisma } from '@prisma/client';
 import prisma from '@/lib/prisma';
 import {
   getYearlyGraceDays,
-  getYearlySendpulseCourseId,
   getYearlyTelegramKickOnExpire,
   graceExpireTelegramAction,
   YEARLY_PROGRAM_CONFIG,
 } from '@/lib/yearlyProgramConfig';
 import { syncAutopaySchedule } from '@/lib/yearlyProgramScheduleSync';
 import { cohortModuleCount, monthlySchedule, paymentModuleCount } from '@/lib/yearlyProgramAccess';
-import {
-  closeAccessInCourse,
-  lookupStudentIdByEmail,
-} from '@/lib/sendpulse';
+import { closeAccessViaEvent } from '@/lib/sendpulse';
+import { SP_CLOSE_METHOD_EVENT } from '@/lib/yearlySendpulseAccess';
 import {
   removeSubscriptionAutopay,
   recordAutopayRemoveOutcome,
@@ -885,7 +882,6 @@ async function expireGraceSubscriptions(): Promise<StepResult> {
   const now = new Date();
   const graceDays = await getYearlyGraceDays(prisma);
   const graceCutoff = new Date(now.getTime() - graceDays * 24 * 60 * 60 * 1000);
-  const yearlySpCourseId = await getYearlySendpulseCourseId(prisma);
   // Один раз на прохід: чи вилучати з Telegram-каналу при закритті за несплату.
   const tgAction = graceExpireTelegramAction(await getYearlyTelegramKickOnExpire(prisma));
   const errors: string[] = [];
@@ -913,10 +909,6 @@ async function expireGraceSubscriptions(): Promise<StepResult> {
 
   await processInParallel(subs, async (sub) => {
     try {
-      // Закриваємо доступ у SendPulse (якщо можемо — є studentId і courseId).
-      const courseId = yearlySpCourseId;
-      let studentId = sub.sendpulseStudentId;
-
       // Знімаємо WFP-регулярки ДО будь-якого SendPulse-виклику — обидві SP-гілки нижче
       // (lookup-фейл і close-фейл) виходять через return без flip-у на EXPIRED, і без
       // цього підписка висіла б у GRACE з живим автосписанням (гроші йдуть, доступ
@@ -937,68 +929,13 @@ async function expireGraceSubscriptions(): Promise<StepResult> {
         ...(autopay.error ? {} : { wfpRegularRef: null }),
       };
 
-      if (courseId && !studentId && sub.user?.email) {
-        // Останній шанс знайти studentId
+      // Закриваємо НЕ видаленням з курсу (DELETE стирав домашні завдання), а подією
+      // воронки `yearly-program-close` → «Змінити обмеження часу: Закрити доступ».
+      // studentId/courseId для цього не потрібні — воронка знаходить студента за email.
+      const email = sub.user?.email;
+      if (email) {
         try {
-          studentId = await lookupStudentIdByEmail(courseId, sub.user.email);
-          if (studentId) {
-            await prisma.yearlyProgramSubscription.update({
-              where: { id: sub.id },
-              data: { sendpulseStudentId: studentId },
-            });
-          }
-        } catch (e) {
-          // Пошук ВПАВ (SP 5xx / timeout) — це не «студента немає», а «ми не знаємо».
-          // Раніше ми йшли далі й позначали EXPIRED без реального закриття доступу:
-          // 15 хвилин недоступності SP лишали людині безкоштовний доступ назавжди.
-          // Тепер лишаємо підписку в GRACE і пробуємо завтра; подія — у «Помилках».
-          const msg = (e as Error).message;
-          errors.push(`${sub.id} lookup: ${msg}`);
-          await prisma.yearlyProgramSubscriptionEvent.create({
-            data: {
-              subscriptionId: sub.id,
-              type: 'access_close_failed',
-              message: `Пошук studentId у SendPulse не вдався — доступ не закрито, статус лишається GRACE: ${msg.slice(0, 200)}${wfpSummary}`,
-              metadata: {
-                stage: 'lookup',
-                courseId,
-                error: msg.slice(0, 500),
-                wfpRemovedCount: autopay.removed,
-                wfpAttemptedCount: autopay.attempted,
-                wfpError: autopay.error,
-              },
-            },
-          }).catch(() => { /* лог не має валити крок */ });
-          return;
-        }
-      }
-
-      if (courseId && studentId) {
-        try {
-          await closeAccessInCourse(studentId, courseId);
-          await prisma.yearlyProgramSubscription.update({
-            where: { id: sub.id },
-            data: {
-              status: 'EXPIRED',
-              sendpulseAccessClosedAt: new Date(),
-              ...autopayFields,
-            },
-          });
-          await prisma.yearlyProgramSubscriptionEvent.create({
-            data: {
-              subscriptionId: sub.id,
-              type: 'access_closed',
-              message: `SendPulse DELETE /students/${studentId}/${courseId}${wfpSummary}`,
-              metadata: {
-                // Доступ реально закритий у SendPulse — ця подія має право резолвити
-                // SP_CLOSE_FAILED (на відміну від «локального EXPIRED» нижче).
-                spClosed: true,
-                wfpRemovedCount: autopay.removed,
-                wfpAttemptedCount: autopay.attempted,
-                wfpError: autopay.error,
-              },
-            },
-          });
+          await closeAccessViaEvent(email, YEARLY_PROGRAM_CONFIG.sendpulseCloseEventSlug);
         } catch (e) {
           const msg = (e as Error).message;
           errors.push(`${sub.id} close: ${msg}`);
@@ -1006,11 +943,9 @@ async function expireGraceSubscriptions(): Promise<StepResult> {
             data: {
               subscriptionId: sub.id,
               type: 'access_close_failed',
-              message: `SendPulse DELETE /students/${studentId}/${courseId} не вдався — статус лишається GRACE: ${msg.slice(0, 200)}${wfpSummary}`,
+              message: `SendPulse: подія закриття доступу (${YEARLY_PROGRAM_CONFIG.sendpulseCloseEventSlug}) не пройшла — статус лишається GRACE: ${msg.slice(0, 200)}${wfpSummary}`,
               metadata: {
-                stage: 'close',
-                courseId,
-                studentId,
+                stage: 'close_event',
                 error: msg.slice(0, 500),
                 wfpRemovedCount: autopay.removed,
                 wfpAttemptedCount: autopay.attempted,
@@ -1021,8 +956,32 @@ async function expireGraceSubscriptions(): Promise<StepResult> {
           // Не скидаємо на EXPIRED якщо не змогли закрити — спробуємо знову завтра.
           return;
         }
+        await prisma.yearlyProgramSubscription.update({
+          where: { id: sub.id },
+          data: {
+            status: 'EXPIRED',
+            sendpulseAccessClosedAt: new Date(),
+            ...autopayFields,
+          },
+        });
+        await prisma.yearlyProgramSubscriptionEvent.create({
+          data: {
+            subscriptionId: sub.id,
+            type: 'access_closed',
+            message: `SendPulse: доступ закрито (без видалення) · подія ${YEARLY_PROGRAM_CONFIG.sendpulseCloseEventSlug}${wfpSummary}`,
+            metadata: {
+              // Подію в SP відправлено — має право резолвити SP_CLOSE_FAILED.
+              spClosed: true,
+              // Студент лишився на курсі → повторне відкриття піде reopen-подією.
+              spCloseMethod: SP_CLOSE_METHOD_EVENT,
+              wfpRemovedCount: autopay.removed,
+              wfpAttemptedCount: autopay.attempted,
+              wfpError: autopay.error,
+            },
+          },
+        });
       } else {
-        // Без courseId/studentId — позначаємо EXPIRED локально, але з поміткою.
+        // Без email — подію в SP слати нікому; позначаємо EXPIRED локально з поміткою.
         await prisma.yearlyProgramSubscription.update({
           where: { id: sub.id },
           data: { status: 'EXPIRED', ...autopayFields },
@@ -1031,9 +990,7 @@ async function expireGraceSubscriptions(): Promise<StepResult> {
           data: {
             subscriptionId: sub.id,
             type: 'access_closed',
-            message: (courseId
-              ? 'Marked EXPIRED without SendPulse closure — studentId not found'
-              : 'Marked EXPIRED locally — SENDPULSE_YEARLY_COURSE_ID not configured') + wfpSummary,
+            message: 'Marked EXPIRED without SendPulse closure — у підписки немає email' + wfpSummary,
             metadata: {
               // ⚠️ Локальний EXPIRED БЕЗ реального закриття в SendPulse. Без цієї мітки
               // подія `access_closed` знімала critical SP_CLOSE_FAILED, хоча платний

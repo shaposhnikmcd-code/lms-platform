@@ -1,6 +1,11 @@
 import { Prisma } from '@prisma/client';
 import prisma from '@/lib/prisma';
-import { openAccessViaEvent, lookupStudentIdByEmail, withSendpulseRosterCache } from '@/lib/sendpulse';
+import { openAccessViaEvent, reopenAccessViaEvent, lookupStudentIdByEmail, withSendpulseRosterCache } from '@/lib/sendpulse';
+import {
+  decideSendpulseAccessAction,
+  sendpulseCourseStateFromEvents,
+  SP_STATE_EVENT_TYPES,
+} from '@/lib/yearlySendpulseAccess';
 import { YEARLY_PROGRAM_CONFIG, getYearlyPostAccessMonths, getYearlySendpulseCourseId, RESET_REMINDER_AND_GRACE_FIELDS } from '@/lib/yearlyProgramConfig';
 import { syncAutopaySchedule } from '@/lib/yearlyProgramScheduleSync';
 import { calculateAccessUntil } from '@/lib/yearlyProgramAccess';
@@ -12,6 +17,31 @@ import {
   DEFAULT_LAUNCH_EMAIL_SUBJECT,
 } from '@/lib/yearlyProgramCohort';
 import { renderTelegramInviteEmailBlock } from '@/lib/yearlyProgramTelegram';
+
+/// Відкриває доступ до Річної в SendPulse правильною подією. Хто закритий подією
+/// `yearly-program-close` (досі на курсі, прогрес цілий), — отримує `yearly-program-reopen`
+/// («Без обмежень»); хто видалений DELETE-ом або ще не реєструвався — звичайну реєстрацію
+/// `yearly-program`. Стан береться з журналу подій підписки (`sendpulseCourseStateFromEvents`).
+/// Помилка SP — throw, як у `openAccessViaEvent`.
+export async function openYearlyAccessInSendpulse(
+  subscriptionId: string,
+  email: string,
+  planPrice: number,
+): Promise<'open_event' | 'reopen_event'> {
+  const events = await prisma.yearlyProgramSubscriptionEvent.findMany({
+    where: { subscriptionId, type: { in: [...SP_STATE_EVENT_TYPES] } },
+    select: { type: true, metadata: true, createdAt: true },
+    orderBy: { createdAt: 'desc' },
+    take: 200,
+  });
+  const action = decideSendpulseAccessAction('open', sendpulseCourseStateFromEvents(events));
+  if (action === 'reopen_event') {
+    await reopenAccessViaEvent(email, YEARLY_PROGRAM_CONFIG.sendpulseReopenEventSlug, planPrice);
+    return 'reopen_event';
+  }
+  await openAccessViaEvent(email, YEARLY_PROGRAM_CONFIG.sendpulseEventSlug, planPrice);
+  return 'open_event';
+}
 
 /// Спільна логіка "запустити cohort": викликається з адмінки (POST .../launch) і з cron-у
 /// (для cohort-ів зі `launchScheduledFor` у минулому). Приймає cohort, який ВЖЕ має
@@ -268,11 +298,12 @@ export async function executeLaunchLoop(
 
       let openedNow = false;
       let openErr: string | null = null;
+      let spOpenAction: 'open_event' | 'reopen_event' | null = null;
       if (!s.sendpulseAccessOpenedAt) {
         try {
-          await openAccessViaEvent(
+          spOpenAction = await openYearlyAccessInSendpulse(
+            s.id,
             s.user.email,
-            YEARLY_PROGRAM_CONFIG.sendpulseEventSlug,
             s.plan === 'YEARLY' ? programSettings.yearlyPrice : programSettings.monthlyPrice,
           );
           openedNow = true;
@@ -346,7 +377,7 @@ export async function executeLaunchLoop(
           message: openErr
             ? `Cohort launch · access open FAILED: ${openErr.slice(0, 200)}`
             : `Cohort launch by ${actorLabel} · expiresAt=${newExpiresAt?.toISOString().slice(0, 10) ?? 'null'}`,
-          metadata: { cohortId: cohort.id, openedNow, openErr },
+          metadata: { cohortId: cohort.id, openedNow, openErr, spOpenAction },
         },
       });
 
@@ -406,7 +437,7 @@ export interface ExtraLaunchResult {
 
 /// "Екстра запуск" для одного студента, який оплатив після того як cohort вже launched
 /// (вручну менеджером через UI або автоматично з callback-у при первинній оплаті).
-/// Виконує: openAccessViaEvent → lookup studentId → update sub (ACTIVE + expiresAt + access flags)
+/// Виконує: openYearlyAccessInSendpulse (реєстрація або reopen) → lookup studentId → update sub (ACTIVE + expiresAt + access flags)
 /// → лог access_opened → cohort launch lett (з тих самих shablonів що й при груповій розсилці).
 /// Idempotent: якщо доступ вже відкрито → reason='already_opened'; якщо лист уже надсилався —
 /// пропускаємо лист.
@@ -448,8 +479,9 @@ export async function runExtraLaunchForSubscription(
   const planPrice = sub.plan === 'YEARLY' ? programSettings.yearlyPrice : programSettings.monthlyPrice;
   let openErr: string | null = null;
   let studentId: number | null = sub.sendpulseStudentId;
+  let spOpenAction: 'open_event' | 'reopen_event' | null = null;
   try {
-    await openAccessViaEvent(sub.user.email, YEARLY_PROGRAM_CONFIG.sendpulseEventSlug, planPrice);
+    spOpenAction = await openYearlyAccessInSendpulse(sub.id, sub.user.email, planPrice);
     if (!studentId && yearlySpCourseId) {
       try {
         studentId = await lookupStudentIdByEmail(yearlySpCourseId, sub.user.email);
@@ -509,7 +541,7 @@ export async function runExtraLaunchForSubscription(
       subscriptionId: sub.id,
       type: 'access_opened',
       message: `Extra-launch by ${actorLabel} · expiresAt=${newExpiresAt?.toISOString().slice(0, 10) ?? 'null'}`,
-      metadata: { extraLaunch: true, cohortId: sub.cohort.id, actor: actorLabel },
+      metadata: { extraLaunch: true, cohortId: sub.cohort.id, actor: actorLabel, spOpenAction },
     },
   });
 
