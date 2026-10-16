@@ -204,6 +204,7 @@ export const learningContent = {
     yearSubtitle: "Full access to all 9 modules",
     currency: "UAH",
     yearOneTime: "One-time payment · Full access for the entire program",
+    yearFullPaymentNote: "Price when paid in full before the program starts",
     yearBenefit1: "One payment — full course for 9 months",
     yearBenefitSavings: "Save {amount} UAH",
     btnYear: "Registration opens soon",
@@ -218,6 +219,7 @@ export const learningContent = {
     /// The cohort is already in its last module — nothing left to split.
     monthLastModule: "Pays one module · this is the last module of the program",
     monthsCalc: "× 9 months = 19,800 UAH",
+    monthPaymentModesNote: "Pay {price} UAH each month as a one-time payment or by auto-debit · {total} UAH in total",
     promoText: "To pay for one month, use the promo code:",
     btnMonth: "Registration opens soon",
     courseNameMonth: "Yearly program — 1 month",

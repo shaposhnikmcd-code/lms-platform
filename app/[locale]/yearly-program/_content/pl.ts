@@ -204,6 +204,7 @@ export const learningContent = {
     yearSubtitle: "Pełny dostęp do wszystkich 9 modułów",
     currency: "UAH",
     yearOneTime: "Płatność jednorazowa · Dostęp na cały czas trwania programu",
+    yearFullPaymentNote: "Cena przy pełnej płatności przed startem programu",
     yearBenefit1: "Jedna płatność — cały kurs na 9 miesięcy",
     yearBenefitSavings: "Oszczędność {amount} UAH",
     btnYear: "Rejestracja wkrótce",
@@ -218,6 +219,7 @@ export const learningContent = {
     /// Nabór jest już w ostatnim module — nie ma czego rozkładać na raty.
     monthLastModule: "Opłata za jeden moduł · to ostatni moduł programu",
     monthsCalc: "× 9 miesięcy = 19 800 UAH",
+    monthPaymentModesNote: "{price} UAH można płacić co miesiąc jednorazowo lub automatycznie · łącznie {total} UAH",
     promoText: "Aby zapłacić za jeden miesiąc, użyj kodu promocyjnego:",
     btnMonth: "Rejestracja wkrótce",
     courseNameMonth: "Program roczny — 1 miesiąc",
