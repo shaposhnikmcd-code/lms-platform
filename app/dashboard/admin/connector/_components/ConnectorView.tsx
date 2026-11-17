@@ -19,6 +19,8 @@ import { useAdminTheme, type Theme, type Tone } from '../../_components/adminThe
 import { AdminShell, AdminPanel } from '../../_components/AdminShell';
 import SourceBadge, { type SaleSource } from '../../_components/SourceBadge';
 import ManagersTab from './ManagersTab';
+import SalesPanel from './SalesPanel';
+import type { ConnectorSalesState } from '@/lib/connectorSales';
 
 export type PaymentStatus = 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED';
 export type OrderStatus = 'NEW' | 'PROCESSING' | 'SHIPPED' | 'DELIVERED' | 'CANCELLED';
@@ -86,9 +88,11 @@ const PAYMENT_STATUS_OPTIONS: { value: 'ALL' | PaymentStatus; label: string }[] 
 export default function ConnectorView({
   rows,
   summary,
+  sales,
 }: {
   rows: Row[];
   summary: SummaryData;
+  sales: ConnectorSalesState;
 }) {
   const { theme, setTheme } = useAdminTheme();
   const dark = theme === 'dark';
@@ -167,6 +171,8 @@ export default function ConnectorView({
       {view === 'managers' ? (
         <ManagersTab theme={theme} />
       ) : (
+        <>
+        <SalesPanel theme={theme} initial={sales} />
         <OrdersView
           theme={theme}
           rows={rows}
@@ -186,6 +192,7 @@ export default function ConnectorView({
           totalPages={totalPages}
           pageStart={pageStart}
         />
+        </>
       )}
     </AdminShell>
   );

@@ -1280,6 +1280,21 @@ model AppSetting {
   updatedAt DateTime @updatedAt
 }
 
+/// Singleton-стан продажу гри «Конектор». Адмін перемикає з /dashboard/admin/connector:
+/// `paused=true` — на /games і /links/connector замість «Замовити» показується
+/// неактивна кнопка з `pausedLabel` (дефолт «Очікується поповнення») і, якщо задано,
+/// рядок `pausedNote` під нею; `POST /api/connector` нові замовлення відхиляє (409).
+model ConnectorSalesSetting {
+  id          String   @id @default("singleton")
+  paused      Boolean  @default(false)
+  /// Текст замість кнопки «Замовити», коли продаж зупинено. Порожньо — дефолт із коду.
+  pausedLabel String?
+  /// Необовʼязкове пояснення під кнопкою (напр. «Нова партія — у грудні»).
+  pausedNote  String?
+  updatedBy   String?
+  updatedAt   DateTime @updatedAt
+}
+
 /// Singleton-конфіг Telegram-каналу/групи Річної програми. Менеджер вводить chatId
 /// (numeric -100... або @username) у адмінці, система резолвить + валідує через
 /// Bot API getChat (бот має бути доданий адміном з правом invite users), зберігає

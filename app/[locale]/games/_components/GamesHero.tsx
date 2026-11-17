@@ -22,6 +22,9 @@ interface Props {
   deliveryBadgeMain?: string;
   deliveryBadgeNote?: string;
   onOrder: () => void;
+  salesPaused?: boolean;
+  pausedLabel?: string;
+  pausedNote?: string | null;
 }
 
 const heroBgStyle: React.CSSProperties = {
@@ -179,6 +182,24 @@ const btnOrderStyle: React.CSSProperties = {
   width: '100%',
 };
 
+/// Кнопка-стан «продаж зупинено»: той самий розмір, але без заливки і кліку.
+const btnPausedStyle: React.CSSProperties = {
+  ...btnOrderStyle,
+  background: 'transparent',
+  color: 'rgba(245,237,214,0.7)',
+  border: '1px solid rgba(212,168,67,0.45)',
+  cursor: 'default',
+};
+
+const pausedNoteStyle: React.CSSProperties = {
+  marginTop: '0.75rem',
+  color: 'rgba(245,237,214,0.6)',
+  fontFamily: sysFont,
+  fontSize: '0.85rem',
+  lineHeight: 1.5,
+  textAlign: 'center' as const,
+};
+
 const imageWrapStyle: React.CSSProperties = {
   filter: 'drop-shadow(0 30px 60px rgba(212,168,67,0.15)) drop-shadow(0 10px 30px rgba(0,0,0,0.7))',
   width: '100%',
@@ -201,7 +222,7 @@ const oldPriceStyle: React.CSSProperties = {
   marginRight: '0.6rem',
 };
 
-export default function GamesHero({ pageTitle, gameTitle, gameSubtitle, cards, price, oldPrice, currency, btnOrder, deliveryBadgeMain = '📦 Доставка Нова пошта', deliveryBadgeNote = '(оплата при отриманні)', onOrder }: Props) {
+export default function GamesHero({ pageTitle, gameTitle, gameSubtitle, cards, price, oldPrice, currency, btnOrder, deliveryBadgeMain = '📦 Доставка Нова пошта', deliveryBadgeNote = '(оплата при отриманні)', onOrder, salesPaused = false, pausedLabel, pausedNote }: Props) {
   return (
     <section style={heroBgStyle}>
       <div style={heroInnerStyle} className="games-hero-grid">
@@ -232,9 +253,18 @@ export default function GamesHero({ pageTitle, gameTitle, gameSubtitle, cards, p
               <span>{deliveryBadgeNote}</span>
             </div>
           </div>
-          <button style={btnOrderStyle} onClick={onOrder}>
-            {btnOrder}
-          </button>
+          {salesPaused ? (
+            <>
+              <button type="button" style={btnPausedStyle} disabled aria-disabled="true" data-sales-paused="true">
+                {pausedLabel}
+              </button>
+              {pausedNote && <p style={pausedNoteStyle}>{pausedNote}</p>}
+            </>
+          ) : (
+            <button style={btnOrderStyle} onClick={onOrder}>
+              {btnOrder}
+            </button>
+          )}
         </div>
         <div className="order-1 md:order-2 flex justify-center" style={{ paddingBottom: '2.5rem' }}>
           <div style={imageWrapStyle}>

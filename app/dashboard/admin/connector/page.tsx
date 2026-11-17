@@ -1,12 +1,13 @@
 import prisma from '@/lib/prisma';
 import ConnectorView, { type Row, type SummaryData } from './_components/ConnectorView';
+import { getConnectorSalesState } from '@/lib/connectorSales';
 
 const MAX_ROWS = 500;
 const CONNECTOR_STANDARD_PRICE = 1099;
 const CONNECTOR_ADMIN_TEST_PRICE = 1;
 
 export default async function AdminConnectorPage() {
-  const [orders, allCount, statusCounts, paidAggr] = await Promise.all([
+  const [orders, allCount, statusCounts, paidAggr, sales] = await Promise.all([
     prisma.connectorOrder.findMany({
       orderBy: { createdAt: 'desc' },
       take: MAX_ROWS,
@@ -42,6 +43,7 @@ export default async function AdminConnectorPage() {
       _sum: { amount: true },
       _count: { _all: true },
     }),
+    getConnectorSalesState(),
   ]);
 
   const rows: Row[] = orders.map((o) => ({
@@ -96,5 +98,5 @@ export default async function AdminConnectorPage() {
     standardPrice: CONNECTOR_STANDARD_PRICE,
   };
 
-  return <ConnectorView rows={rows} summary={summary} />;
+  return <ConnectorView rows={rows} summary={summary} sales={sales} />;
 }

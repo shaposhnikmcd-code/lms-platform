@@ -6,6 +6,7 @@ import prisma from '@/lib/prisma';
 import { isPromoWindowActive } from '@/lib/paymentPricing';
 import { notifyManagers } from '@/lib/connectorNotifications';
 import { getConnectorPricing } from '@/lib/connectorPricing';
+import { getConnectorSalesState } from '@/lib/connectorSales';
 import { checkRateLimit } from '@/lib/ratelimit';
 
 const CONNECTOR_ORDER_STATUSES = ['NEW', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED'] as const;
@@ -80,6 +81,17 @@ export async function POST(req: NextRequest) {
     const session = await getServerSession(authOptions);
     const sessionRole = (session?.user as { role?: string } | undefined)?.role;
     const isAdmin = sessionRole === 'ADMIN' || sessionRole === 'MANAGER';
+
+    // Продаж зупинено з адмінки (нема партії): кнопки на сайті немає, але роут публічний —
+    // відхиляємо і тут, щоб старий таб чи прямий запит не створили замовлення.
+    // Адмін/менеджер проходить (тестове замовлення за 1 ₴ для перевірки флоу).
+    const sales = await getConnectorSalesState();
+    if (sales.paused && !isAdmin) {
+      return NextResponse.json(
+        { success: false, error: 'sales_paused', message: sales.pausedLabel },
+        { status: 409 },
+      );
+    }
 
     // Промокод (категорійний для конектора) — серверна перевірка, задає фіксовану ціну гри.
     let promoApplied = false;

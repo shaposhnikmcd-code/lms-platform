@@ -104,9 +104,13 @@ interface Props {
   oldPrice?: string | null;
   /// Числова ціна для передачі в OrderForm (для замовлення на чекауті).
   gamePrice?: number;
+  /// Продаж зупинено з адмінки: замість «Замовити» — неактивна кнопка з pausedLabel.
+  salesPaused?: boolean;
+  pausedLabel?: string;
+  pausedNote?: string | null;
 }
 
-export default function GamesPageClient({ content, currency, price, oldPrice, gamePrice }: Props) {
+export default function GamesPageClient({ content, currency, price, oldPrice, gamePrice, salesPaused = false, pausedLabel, pausedNote }: Props) {
   const [showOrderForm, setShowOrderForm] = useState(false);
   const displayPrice = price ?? content.price;
 
@@ -124,11 +128,14 @@ export default function GamesPageClient({ content, currency, price, oldPrice, ga
         deliveryBadgeMain={content.deliveryBadgeMain}
         deliveryBadgeNote={content.deliveryBadgeNote}
         onOrder={() => setShowOrderForm(true)}
+        salesPaused={salesPaused}
+        pausedLabel={pausedLabel}
+        pausedNote={pausedNote}
       />
       <GamesAbout desc1={content.desc1} desc2={content.desc2} desc3={content.desc3} />
       <GamesQuote quote={content.quote} quoteAuthor={content.quoteAuthor} comingSoon={content.comingSoon} />
       {/* Умовний рендер: OrderForm JS завантажується лише після першого "Замовити" */}
-      {showOrderForm && (
+      {showOrderForm && !salesPaused && (
         <OrderForm isOpen={showOrderForm} onClose={() => setShowOrderForm(false)} labels={content.form} gamePrice={gamePrice} />
       )}
       <style>{`

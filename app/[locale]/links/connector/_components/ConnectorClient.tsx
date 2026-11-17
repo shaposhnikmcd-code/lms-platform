@@ -87,12 +87,16 @@ interface Props {
   price?: string;
   oldPrice?: string | null;
   gamePrice?: number;
+  /// Продаж зупинено з адмінки: замість «Замовити» — неактивна кнопка з pausedLabel.
+  salesPaused?: boolean;
+  pausedLabel?: string;
+  pausedNote?: string | null;
 }
 
 const shareUrl = "https://www.uimp.com.ua/links/connector";
 const shareTitle = "Гра «Конектор» — психологічна гра для пар від UIMP";
 
-export default function ConnectorClient({ content, currency, price, oldPrice, gamePrice }: Props) {
+export default function ConnectorClient({ content, currency, price, oldPrice, gamePrice, salesPaused = false, pausedLabel, pausedNote }: Props) {
   const displayPrice = price ?? content.price;
   const [showOrderForm, setShowOrderForm] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
@@ -184,12 +188,27 @@ export default function ConnectorClient({ content, currency, price, oldPrice, ga
                   <span>{"📦"}</span> {content.delivery}
                 </p>
               </div>
-              <button
-                onClick={() => setShowOrderForm(true)}
-                className="block w-full bg-[#d4a62b] text-[#003d30] py-3 rounded-lg font-bold text-sm text-center hover:bg-[#c49520] transition-all"
-              >
-                {content.btnOrder}
-              </button>
+              {salesPaused ? (
+                <>
+                  <button
+                    type="button"
+                    disabled
+                    aria-disabled="true"
+                    data-sales-paused="true"
+                    className="block w-full border border-[#003d30]/30 text-[#003d30]/70 py-3 rounded-lg font-bold text-sm text-center cursor-default"
+                  >
+                    {pausedLabel}
+                  </button>
+                  {pausedNote && <p className="text-[#003d30]/60 text-[11px] text-center mt-2 leading-snug">{pausedNote}</p>}
+                </>
+              ) : (
+                <button
+                  onClick={() => setShowOrderForm(true)}
+                  className="block w-full bg-[#d4a62b] text-[#003d30] py-3 rounded-lg font-bold text-sm text-center hover:bg-[#c49520] transition-all"
+                >
+                  {content.btnOrder}
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -260,7 +279,9 @@ export default function ConnectorClient({ content, currency, price, oldPrice, ga
         </div>
       )}
 
-      <OrderForm isOpen={showOrderForm} onClose={() => setShowOrderForm(false)} labels={content.form} gamePrice={gamePrice} />
+      {!salesPaused && (
+        <OrderForm isOpen={showOrderForm} onClose={() => setShowOrderForm(false)} labels={content.form} gamePrice={gamePrice} />
+      )}
     </div>
   );
 }
