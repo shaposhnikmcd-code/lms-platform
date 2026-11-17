@@ -1291,6 +1291,12 @@ model ConnectorSalesSetting {
   pausedLabel String?
   /// Необовʼязкове пояснення під кнопкою (напр. «Нова партія — у грудні»).
   pausedNote  String?
+  /// Те саме для англійської і польської версій сторінок. Порожньо — дефолт із коду
+  /// для кнопки, без пояснення для рядка під нею (українське не підставляється).
+  pausedLabelEn String?
+  pausedNoteEn  String?
+  pausedLabelPl String?
+  pausedNotePl  String?
   updatedBy   String?
   updatedAt   DateTime @updatedAt
 }

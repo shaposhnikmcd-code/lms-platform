@@ -5,12 +5,14 @@ import {
   setConnectorSalesState,
   CONNECTOR_PAUSED_LABEL_MAX,
   CONNECTOR_PAUSED_NOTE_MAX,
+  CONNECTOR_SALES_LOCALES,
+  type ConnectorSalesInput,
 } from '@/lib/connectorSales';
 import { revalidateLocalized } from '@/lib/revalidatePaths';
 
 /// GET — поточний стан продажу гри «Конектор».
-/// POST — body `{ paused: boolean, pausedLabel?: string, pausedNote?: string }`:
-///   зупинити/відновити продаж і задати текст кнопки й пояснення. Лише ADMIN.
+/// POST — body `{ paused: boolean, texts: { uk|en|pl: { label?: string, note?: string } } }`:
+///   зупинити/відновити продаж і задати текст кнопки й пояснення на кожну мову. Лише ADMIN.
 
 export async function GET(req: NextRequest) {
   if (!(await isAdmin(req))) {
@@ -36,22 +38,31 @@ export async function POST(req: NextRequest) {
   if (typeof body.paused !== 'boolean') {
     return NextResponse.json({ error: 'paused має бути boolean' }, { status: 400 });
   }
-  const pausedLabel = cleanText(body.pausedLabel, CONNECTOR_PAUSED_LABEL_MAX);
-  if (pausedLabel === 'invalid') {
-    return NextResponse.json(
-      { error: `Текст кнопки — до ${CONNECTOR_PAUSED_LABEL_MAX} символів` },
-      { status: 400 },
-    );
-  }
-  const pausedNote = cleanText(body.pausedNote, CONNECTOR_PAUSED_NOTE_MAX);
-  if (pausedNote === 'invalid') {
-    return NextResponse.json(
-      { error: `Пояснення — до ${CONNECTOR_PAUSED_NOTE_MAX} символів` },
-      { status: 400 },
-    );
+  const rawTexts = (body.texts && typeof body.texts === 'object' ? body.texts : {}) as Record<
+    string,
+    Record<string, unknown> | undefined
+  >;
+  const texts = {} as ConnectorSalesInput['texts'];
+  for (const loc of CONNECTOR_SALES_LOCALES) {
+    const t = rawTexts[loc] ?? {};
+    const label = cleanText(t.label, CONNECTOR_PAUSED_LABEL_MAX);
+    if (label === 'invalid') {
+      return NextResponse.json(
+        { error: `Текст кнопки (${loc.toUpperCase()}) — до ${CONNECTOR_PAUSED_LABEL_MAX} символів` },
+        { status: 400 },
+      );
+    }
+    const note = cleanText(t.note, CONNECTOR_PAUSED_NOTE_MAX);
+    if (note === 'invalid') {
+      return NextResponse.json(
+        { error: `Пояснення (${loc.toUpperCase()}) — до ${CONNECTOR_PAUSED_NOTE_MAX} символів` },
+        { status: 400 },
+      );
+    }
+    texts[loc] = { label, note };
   }
   const actor = (await getAdminActor(req))?.email ?? null;
-  const sales = await setConnectorSalesState({ paused: body.paused, pausedLabel, pausedNote }, actor);
+  const sales = await setConnectorSalesState({ paused: body.paused, texts }, actor);
   // Сторінки гри мають revalidate=0, але перестраховуємось для кешу маршруту.
   revalidateLocalized('/games');
   revalidateLocalized('/links/connector');

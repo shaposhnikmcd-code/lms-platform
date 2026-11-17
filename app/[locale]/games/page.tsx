@@ -4,7 +4,7 @@ import { buildPageMetadata } from '@/lib/seo';
 import { getCurrency } from '@/lib/currency';
 import { gamesContent } from './_content/uk';
 import { getConnectorPricing } from '@/lib/connectorPricing';
-import { getConnectorSalesState } from '@/lib/connectorSales';
+import { getConnectorSalesState, connectorSalesForLocale } from '@/lib/connectorSales';
 import GamesPageClient from './_components/GamesPageClient';
 
 // ISR вимкнено: ціна Конектора резолвиться з БД (override з адмінки).
@@ -30,7 +30,8 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
 
 export default async function GamesPage({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
-  const [c, pricing, sales] = await Promise.all([getContent(locale), getConnectorPricing(), getConnectorSalesState()]);
+  const [c, pricing, salesState] = await Promise.all([getContent(locale), getConnectorPricing(), getConnectorSalesState()]);
+  const sales = connectorSalesForLocale(salesState, locale);
   const currency = getCurrency(locale);
   return (
     <GamesPageClient
@@ -40,8 +41,8 @@ export default async function GamesPage({ params }: { params: Promise<{ locale: 
       oldPrice={pricing.oldPrice !== null ? String(pricing.oldPrice) : null}
       gamePrice={pricing.price}
       salesPaused={sales.paused}
-      pausedLabel={sales.pausedLabel}
-      pausedNote={sales.pausedNote}
+      pausedLabel={sales.label}
+      pausedNote={sales.note}
     />
   );
 }

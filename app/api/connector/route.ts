@@ -88,7 +88,7 @@ export async function POST(req: NextRequest) {
     const sales = await getConnectorSalesState();
     if (sales.paused && !isAdmin) {
       return NextResponse.json(
-        { success: false, error: 'sales_paused', message: sales.pausedLabel },
+        { success: false, error: 'sales_paused', message: sales.texts.uk.label },
         { status: 409 },
       );
     }

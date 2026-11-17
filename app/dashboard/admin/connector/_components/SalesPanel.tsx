@@ -4,22 +4,58 @@ import { useState } from 'react';
 import { HiOutlinePauseCircle, HiOutlinePlayCircle } from 'react-icons/hi2';
 import type { Theme } from '../../_components/adminTheme';
 import { AdminPanel } from '../../_components/AdminShell';
-import type { ConnectorSalesState } from '@/lib/connectorSales';
-import { CONNECTOR_PAUSED_LABEL_DEFAULT, CONNECTOR_PAUSED_LABEL_MAX, CONNECTOR_PAUSED_NOTE_MAX } from '@/lib/connectorSales';
+import type { ConnectorSalesState, ConnectorSalesLocale } from '@/lib/connectorSales';
+import {
+  CONNECTOR_PAUSED_LABEL_DEFAULT,
+  CONNECTOR_PAUSED_LABEL_MAX,
+  CONNECTOR_PAUSED_NOTE_MAX,
+  CONNECTOR_SALES_LOCALES,
+} from '@/lib/connectorSales';
 
 /// Панель «Продаж гри» в адмінці Конектора: зупинити/відновити продаж на /games і
-/// /links/connector і задати текст, який клієнт бачить замість «Замовити».
-/// Пише через `POST /api/admin/connector/sales`. Публічні сторінки читають стан
-/// на кожен запит (revalidate=0), тож зміна видна одразу.
+/// /links/connector і задати тексти, які клієнт бачить замість «Замовити», — окремо
+/// для української, англійської та польської версій. Пише через
+/// `POST /api/admin/connector/sales`. Публічні сторінки читають стан на кожен
+/// запит (revalidate=0), тож зміна видна одразу.
+
+const LOCALE_TITLE: Record<ConnectorSalesLocale, string> = {
+  uk: '🇺🇦 Українська',
+  en: '🇬🇧 English',
+  pl: '🇵🇱 Polski',
+};
+
+const NOTE_PLACEHOLDER: Record<ConnectorSalesLocale, string> = {
+  uk: 'Напр.: Нова партія — у грудні. Напишіть нам, і ми повідомимо, коли гра зʼявиться',
+  en: 'E.g.: New batch arrives in December. Contact us and we will let you know',
+  pl: 'Np.: Nowa partia w grudniu. Napisz do nas, a damy znać, gdy gra będzie dostępna',
+};
+
+type Draft = Record<ConnectorSalesLocale, { label: string; note: string }>;
+
+function toDraft(s: ConnectorSalesState): Draft {
+  return {
+    uk: { label: s.texts.uk.label, note: s.texts.uk.note ?? '' },
+    en: { label: s.texts.en.label, note: s.texts.en.note ?? '' },
+    pl: { label: s.texts.pl.label, note: s.texts.pl.note ?? '' },
+  };
+}
+
 export default function SalesPanel({ theme, initial }: { theme: Theme; initial: ConnectorSalesState }) {
   const dark = theme === 'dark';
   const [sales, setSales] = useState<ConnectorSalesState>(initial);
-  const [label, setLabel] = useState(initial.pausedLabel);
-  const [note, setNote] = useState(initial.pausedNote ?? '');
+  const [draft, setDraft] = useState<Draft>(() => toDraft(initial));
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
-  const dirty = sales.paused && (label.trim() !== sales.pausedLabel || note.trim() !== (sales.pausedNote ?? ''));
+  const dirty =
+    sales.paused &&
+    CONNECTOR_SALES_LOCALES.some(
+      (loc) => draft[loc].label.trim() !== sales.texts[loc].label || draft[loc].note.trim() !== (sales.texts[loc].note ?? ''),
+    );
+
+  function setField(loc: ConnectorSalesLocale, field: 'label' | 'note', value: string) {
+    setDraft((d) => ({ ...d, [loc]: { ...d[loc], [field]: value } }));
+  }
 
   async function save(paused: boolean) {
     setBusy(true);
@@ -28,7 +64,7 @@ export default function SalesPanel({ theme, initial }: { theme: Theme; initial: 
       const res = await fetch('/api/admin/connector/sales', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ paused, pausedLabel: label, pausedNote: note }),
+        body: JSON.stringify({ paused, texts: draft }),
       });
       const data = (await res.json().catch(() => ({}))) as { sales?: ConnectorSalesState; error?: string };
       if (!res.ok || !data.sales) {
@@ -36,8 +72,7 @@ export default function SalesPanel({ theme, initial }: { theme: Theme; initial: 
         return;
       }
       setSales(data.sales);
-      setLabel(data.sales.pausedLabel);
-      setNote(data.sales.pausedNote ?? '');
+      setDraft(toDraft(data.sales));
       setMsg({
         ok: true,
         text: data.sales.paused
@@ -65,7 +100,7 @@ export default function SalesPanel({ theme, initial }: { theme: Theme; initial: 
 
   return (
     <AdminPanel theme={theme} padding="px-4 py-3" className="mb-5">
-      <div className="flex flex-wrap items-start gap-4">
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-[200px]">
           <span className={labelCls}>Продаж гри на сайті</span>
           <span
@@ -91,40 +126,12 @@ export default function SalesPanel({ theme, initial }: { theme: Theme; initial: 
           )}
         </div>
 
-        <div className="flex-1 min-w-[220px] max-w-[320px]">
-          <label className={labelCls} htmlFor="connector-paused-label">
-            Текст замість кнопки «Замовити»
-          </label>
-          <input
-            id="connector-paused-label"
-            value={label}
-            maxLength={CONNECTOR_PAUSED_LABEL_MAX}
-            onChange={(e) => setLabel(e.target.value)}
-            placeholder={CONNECTOR_PAUSED_LABEL_DEFAULT}
-            className={inputCls}
-          />
-        </div>
-
-        <div className="flex-1 min-w-[260px]">
-          <label className={labelCls} htmlFor="connector-paused-note">
-            Пояснення під кнопкою (необовʼязково)
-          </label>
-          <input
-            id="connector-paused-note"
-            value={note}
-            maxLength={CONNECTOR_PAUSED_NOTE_MAX}
-            onChange={(e) => setNote(e.target.value)}
-            placeholder="Напр.: Нова партія — у грудні. Напишіть нам, і ми повідомимо, коли гра зʼявиться"
-            className={inputCls}
-          />
-        </div>
-
-        <div className="flex items-end gap-2 self-end">
+        <div className="flex items-end gap-2">
           {sales.paused ? (
             <>
               {dirty && (
                 <button type="button" disabled={busy} onClick={() => save(true)} className={secondaryBtn}>
-                  Зберегти текст
+                  Зберегти тексти
                 </button>
               )}
               <button
@@ -150,8 +157,37 @@ export default function SalesPanel({ theme, initial }: { theme: Theme; initial: 
           )}
         </div>
       </div>
+
+      <div className={`mt-3 grid gap-x-4 gap-y-2 sm:grid-cols-[150px_minmax(200px,300px)_1fr] items-center`}>
+        <span className={labelCls}>Мова сторінки</span>
+        <span className={labelCls}>Текст замість кнопки «Замовити»</span>
+        <span className={labelCls}>Пояснення під кнопкою (необовʼязково)</span>
+        {CONNECTOR_SALES_LOCALES.map((loc) => (
+          <div key={loc} className="contents">
+            <span className={`text-[12px] font-medium ${dark ? 'text-slate-300' : 'text-stone-700'}`}>{LOCALE_TITLE[loc]}</span>
+            <input
+              aria-label={`Текст кнопки (${loc})`}
+              value={draft[loc].label}
+              maxLength={CONNECTOR_PAUSED_LABEL_MAX}
+              onChange={(e) => setField(loc, 'label', e.target.value)}
+              placeholder={CONNECTOR_PAUSED_LABEL_DEFAULT[loc]}
+              className={inputCls}
+            />
+            <input
+              aria-label={`Пояснення (${loc})`}
+              value={draft[loc].note}
+              maxLength={CONNECTOR_PAUSED_NOTE_MAX}
+              onChange={(e) => setField(loc, 'note', e.target.value)}
+              placeholder={NOTE_PLACEHOLDER[loc]}
+              className={inputCls}
+            />
+          </div>
+        ))}
+      </div>
+
       <p className={`mt-2 text-[11px] ${dark ? 'text-slate-500' : 'text-stone-500'}`}>
-        Діє на сторінки /games і /links/connector усіма мовами. Поки продаж зупинено, сайт не приймає нові замовлення.
+        Діє на сторінки /games і /links/connector. Порожній текст кнопки — підставиться стандартний для цієї мови; порожнє
+        пояснення — рядка під кнопкою не буде. Поки продаж зупинено, сайт не приймає нові замовлення.
       </p>
       {msg && (
         <p className={`mt-2 text-[12px] ${msg.ok ? (dark ? 'text-emerald-300' : 'text-emerald-700') : dark ? 'text-rose-300' : 'text-rose-700'}`}>
